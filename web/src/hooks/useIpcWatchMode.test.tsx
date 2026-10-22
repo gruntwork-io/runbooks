@@ -1,15 +1,15 @@
-import { describe, it, expect, vi } from 'vitest'
-import { renderHook } from '@testing-library/react'
-import type { ReactNode } from 'react'
-import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
-import { useIpcWatchMode } from './useIpcWatchMode'
+import { describe, it, expect, vi } from "vitest"
+import { renderHook } from "@testing-library/react"
+import type { ReactNode } from "react"
+import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { useIpcWatchMode } from "./useIpcWatchMode"
 
 // Mock boundary: the preload API. Tracks live watch:file-change listeners so
 // tests can fire the event and count subscriptions.
 function createWatchApi() {
   const listeners = new Set<(...args: unknown[]) => void>()
   const on = vi.fn((channel: string, callback: (...args: unknown[]) => void) => {
-    if (channel === 'watch:file-change') listeners.add(callback)
+    if (channel === "watch:file-change") listeners.add(callback)
     return () => {
       listeners.delete(callback)
     }
@@ -19,27 +19,32 @@ function createWatchApi() {
     api,
     on,
     listeners,
-    fileChanged: (path: string) => listeners.forEach((cb) => cb({ type: 'reload', path })),
+    fileChanged: (path: string) => listeners.forEach((cb) => cb({ type: "reload", path })),
   }
 }
 
-function renderWatchHook(api: RunbooksAPI, initial: { onFileChange: () => void; isWatchMode: boolean }) {
-  const wrapper = ({ children }: { children: ReactNode }) => <ApiProvider api={api}>{children}</ApiProvider>
-  return renderHook(
-    ({ onFileChange, isWatchMode }) => useIpcWatchMode(onFileChange, isWatchMode),
-    { wrapper, initialProps: initial },
+function renderWatchHook(
+  api: RunbooksAPI,
+  initial: { onFileChange: () => void; isWatchMode: boolean },
+) {
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <ApiProvider api={api}>{children}</ApiProvider>
   )
+  return renderHook(({ onFileChange, isWatchMode }) => useIpcWatchMode(onFileChange, isWatchMode), {
+    wrapper,
+    initialProps: initial,
+  })
 }
 
-describe('useIpcWatchMode', () => {
-  it('does not listen when watch mode is off', () => {
+describe("useIpcWatchMode", () => {
+  it("does not listen when watch mode is off", () => {
     const watch = createWatchApi()
     renderWatchHook(watch.api, { onFileChange: vi.fn(), isWatchMode: false })
 
     expect(watch.on).not.toHaveBeenCalled()
   })
 
-  it('subscribes once across re-renders with a new callback and calls the latest one with the runbook path', () => {
+  it("subscribes once across re-renders with a new callback and calls the latest one with the runbook path", () => {
     const watch = createWatchApi()
     const first = vi.fn()
     const { rerender } = renderWatchHook(watch.api, { onFileChange: first, isWatchMode: true })
@@ -52,15 +57,18 @@ describe('useIpcWatchMode', () => {
     expect(watch.on).toHaveBeenCalledTimes(1)
     expect(watch.listeners.size).toBe(1)
 
-    watch.fileChanged('/work/a/runbook.mdx')
+    watch.fileChanged("/work/a/runbook.mdx")
     expect(latest).toHaveBeenCalledTimes(1)
-    expect(latest).toHaveBeenCalledWith('/work/a/runbook.mdx')
+    expect(latest).toHaveBeenCalledWith("/work/a/runbook.mdx")
     expect(first).not.toHaveBeenCalled()
   })
 
-  it('unsubscribes when watch mode turns off and on unmount', () => {
+  it("unsubscribes when watch mode turns off and on unmount", () => {
     const watch = createWatchApi()
-    const { rerender, unmount } = renderWatchHook(watch.api, { onFileChange: vi.fn(), isWatchMode: true })
+    const { rerender, unmount } = renderWatchHook(watch.api, {
+      onFileChange: vi.fn(),
+      isWatchMode: true,
+    })
     expect(watch.listeners.size).toBe(1)
 
     rerender({ onFileChange: vi.fn(), isWatchMode: false })

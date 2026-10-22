@@ -29,26 +29,27 @@ export const normalizeInstanceBaseUrl = (input: string | undefined | null): stri
 // Status-based styling for the container, icon, and icon color. Maps are
 // GitAuth-specific (note info-tinted authenticating/pending); the shared
 // factory only removes the repeated lookup boilerplate.
-export const { getStatusClasses, getStatusIcon, getStatusIconClasses } = makeStatusStyles<GitAuthStatus>({
-  container: {
-    authenticated: 'bg-success-muted border-success/30',
-    failed: 'bg-destructive-muted border-destructive/30',
-    authenticating: 'bg-info-muted border-info/40',
-    pending: 'bg-info-muted/50 border-info/40',
-  },
-  icon: {
-    authenticated: CheckCircle,
-    failed: XCircle,
-    authenticating: Loader2,
-    pending: KeyRound,
-  },
-  iconColor: {
-    authenticated: 'text-success',
-    failed: 'text-destructive',
-    authenticating: 'text-info',
-    pending: 'text-info',
-  },
-})
+export const { getStatusClasses, StatusIcon, getStatusIconClasses } =
+  makeStatusStyles<GitAuthStatus>({
+    container: {
+      authenticated: "bg-success-muted border-success/30",
+      failed: "bg-destructive-muted border-destructive/30",
+      authenticating: "bg-info-muted border-info/40",
+      pending: "bg-info-muted/50 border-info/40",
+    },
+    icon: {
+      authenticated: CheckCircle,
+      failed: XCircle,
+      authenticating: Loader2,
+      pending: KeyRound,
+    },
+    iconColor: {
+      authenticated: "text-success",
+      failed: "text-destructive",
+      authenticating: "text-info",
+      pending: "text-info",
+    },
+  })
 
 /**
  * Resolve the `defaultTab` prop to the tab the block opens on for a given
@@ -64,5 +65,5 @@ export function resolveDefaultAuthMethod(
   if (defaultTab && provider.manualMethods.includes(defaultTab as GitAuthMethod)) {
     return defaultTab as GitAuthMethod
   }
-  return provider.supportsOAuth ? 'oauth' : 'pat'
+  return provider.supportsOAuth ? "oauth" : "pat"
 }

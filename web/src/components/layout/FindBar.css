@@ -1,0 +1,15 @@
+/*
+ * Find-in-page matches, painted with the CSS Custom Highlight API (names from
+ * lib/findInPage.ts). Fixed colors with black text rather than theme tokens,
+ * so matches read the same in light and dark mode and in the always-dark log
+ * box.
+ */
+::highlight(runbooks-find-match) {
+  background-color: #fde047; /* yellow-300 */
+  color: #000;
+}
+
+::highlight(runbooks-find-active) {
+  background-color: #fb923c; /* orange-400 */
+  color: #000;
+}

@@ -3,7 +3,9 @@ import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
+import { inspect } from "node:util"
 import { TestExecutor } from "./executor.ts"
+import { revealOutputs } from "../../src/domain/exec/outputValues.ts"
 import { loadConfig, type CleanupAction, type ExpectedStatus } from "./config.ts"
 
 // Resolve relative to the test file so this works regardless of cwd.
@@ -235,7 +237,9 @@ describe("TestExecutor — cleanup", () => {
   })
 
   it("warns with the exit code and stderr of a failing cleanup command", async () => {
-    const runTest = await runWithCleanup("echo hi", [{ command: "echo teardown broke >&2; exit 3" }])
+    const runTest = await runWithCleanup("echo hi", [
+      { command: "echo teardown broke >&2; exit 3" },
+    ])
 
     expect(runTest().status).toBe("passed")
     expect(String(warn.mock.calls[0]?.[0])).toContain("failed: exit code 3: teardown broke")
@@ -255,10 +259,9 @@ describe("TestExecutor — cleanup", () => {
   it("still runs when block processing throws", async () => {
     // A dangling symlink in $GENERATED_FILES makes file capture throw ENOENT
     // out of runTest.
-    const runTest = await runWithCleanup(
-      'ln -s /nonexistent/target "$GENERATED_FILES/dangling"',
-      [{ command: `touch "${marker}"` }],
-    )
+    const runTest = await runWithCleanup('ln -s /nonexistent/target "$GENERATED_FILES/dangling"', [
+      { command: `touch "${marker}"` },
+    ])
 
     expect(runTest).toThrow(/ENOENT/)
     expect(fs.existsSync(marker)).toBe(true)
@@ -269,6 +272,104 @@ describe("TestExecutor — cleanup", () => {
 // Explicit steps: run in the order listed (a block may appear more than once),
 // and `expect: blocked` is judged before any template rendering.
 // ---------------------------------------------------------------------------
+
+describe("TestExecutor — Iframe outputs", () => {
+  let tmp: string
+
+  const makeExecutor = async (mdx: string) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, mdx)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  const PICKER_RUNBOOK = [
+    "# Picker",
+    "",
+    `<Iframe id="region-picker" src="./assets/picker.html" outputs={["region", "zone"]} />`,
+    "",
+    `<Command id="deploy" command="echo deploying to {{ .outputs.region_picker.region }}" />`,
+    "",
+  ].join("\n")
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-iframe-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("gives later blocks the outputs set_outputs stands in for", async () => {
+    const executor = await makeExecutor(PICKER_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "picked",
+      steps: [
+        { block: "region-picker", expect: "success", set_outputs: { region: "eu-west-1" } },
+        { block: "deploy", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(result.stepResults[0]?.outputs).toEqual({ region: "eu-west-1" })
+    expect(result.stepResults[1]?.logs).toContain("deploying to eu-west-1")
+  })
+
+  it("leaves later blocks blocked when the step sets no outputs", async () => {
+    const executor = await makeExecutor(PICKER_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "not-picked",
+      steps: [
+        { block: "region-picker", expect: "success" },
+        { block: "deploy", expect: "blocked", missing_outputs: ["outputs.region_picker.region"] },
+      ],
+    })
+
+    expect(result.status).toBe("passed")
+  })
+
+  it("refuses outputs the block's outputs prop doesn't list", async () => {
+    const executor = await makeExecutor(PICKER_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "undeclared",
+      steps: [{ block: "region-picker", expect: "success", set_outputs: { account: "123" } }],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[0]?.error).toBe(
+      "set_outputs names outputs the block's outputs prop doesn't list: account",
+    )
+  })
+
+  it("refuses set_outputs on a block that isn't an Iframe", async () => {
+    const executor = await makeExecutor(PICKER_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "wrong-block",
+      steps: [{ block: "deploy", expect: "success", set_outputs: { region: "x" } }],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[0]?.error).toBe(
+      "set_outputs only applies to Iframe blocks, not Command",
+    )
+  })
+
+  it("runs an Iframe with an id, and skips one without, when no steps are listed", async () => {
+    const executor = await makeExecutor(
+      `# Frames\n\n<Iframe id="picker" src="./assets/a.html" />\n\n<Iframe src="./assets/b.html" />\n`,
+    )
+
+    const result = executor.runTest({ name: "default" })
+
+    expect(result.status).toBe("passed")
+    expect(result.stepResults.map((s) => s.block)).toEqual(["iframe:picker"])
+  })
+})
 
 describe("TestExecutor — explicit steps", () => {
   let tmp: string
@@ -377,6 +478,55 @@ describe("TestExecutor — explicit steps", () => {
     expect(skipped.stepResults[1]?.actualStatus).toBe("blocked")
   })
 
+  const DEPENDS_ON_RUNBOOK = [
+    "# Depends on",
+    "",
+    `<Command id="log-in" command="exit $LOGIN_EXIT" />`,
+    "",
+    `<Command id="deploy" dependsOn="log-in" command="echo deploy" />`,
+    "",
+  ].join("\n")
+
+  it("blocks a block until the block its dependsOn names has succeeded", async () => {
+    const executor = await makeExecutor(DEPENDS_ON_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "depends-on",
+      env: { LOGIN_EXIT: "0" },
+      steps: [
+        { block: "deploy", expect: "blocked" },
+        { block: "log-in", expect: "success" },
+        { block: "deploy", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["command:deploy", "blocked"],
+      ["command:log-in", "success"],
+      ["command:deploy", "success"],
+    ])
+    expect(result.stepResults[0]?.error).toBe(
+      'Block depends on "log-in" which hasn\'t run successfully',
+    )
+  })
+
+  it("blocks a block whose dependsOn block failed", async () => {
+    const executor = await makeExecutor(DEPENDS_ON_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "depends-on-failed",
+      env: { LOGIN_EXIT: "1" },
+      steps: [
+        { block: "log-in", expect: "fail" },
+        { block: "deploy", expect: "success" },
+      ],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[1]?.actualStatus).toBe("blocked")
+  })
+
   it("skips a block whose auth block hasn't run when the step expects skip", async () => {
     const executor = await makeExecutor(
       `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" awsAuthId="aws" command="echo deploy" />\n`,
@@ -404,8 +554,10 @@ describe("TestExecutor — session env and cwd", () => {
     "tc_env=${ISO_TC_ENV:-unset}",
     "token=${GITHUB_TOKEN:-unset}",
     "cwd=$(pwd -P)",
-  ].map((line) => `echo "${line}" >> "$RUNBOOK_OUTPUT"`).join("; ")
-  const RUNBOOK = [
+  ]
+    .map((line) => `echo "${line}" >> "$RUNBOOK_OUTPUT"`)
+    .join("; ")
+  const SESSION_RUNBOOK = [
     "# Session",
     "",
     `<GitHubAuth id="gh" />`,
@@ -418,7 +570,7 @@ describe("TestExecutor — session env and cwd", () => {
 
   const makeExecutor = async () => {
     const rb = path.join(tmp, "runbook.mdx")
-    fs.writeFileSync(rb, RUNBOOK)
+    fs.writeFileSync(rb, SESSION_RUNBOOK)
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
     return executor
@@ -501,7 +653,10 @@ describe("TestExecutor — session env and cwd", () => {
     const other = path.join(tmp, "other")
     fs.mkdirSync(other)
 
-    const result = executor.runTest({ name: "other-dir", steps: [{ block: "report", expect: "success" }] }, other)
+    const result = executor.runTest(
+      { name: "other-dir", steps: [{ block: "report", expect: "success" }] },
+      other,
+    )
 
     expect(reported(result).cwd).toBe(fs.realpathSync(other))
   })
@@ -509,7 +664,10 @@ describe("TestExecutor — session env and cwd", () => {
   it("filters shell internals and per-block vars out of the capture, as the app does", async () => {
     const rb = path.join(tmp, "runbook.mdx")
     const shlvl = `<Command id="ID" command='echo "shlvl=$SHLVL" >> "$RUNBOOK_OUTPUT"' />`
-    fs.writeFileSync(rb, ["# Filter", ...["a", "b", "c"].map((id) => `\n${shlvl.replace("ID", id)}`), ""].join("\n"))
+    fs.writeFileSync(
+      rb,
+      ["# Filter", ...["a", "b", "c"].map((id) => `\n${shlvl.replace("ID", id)}`), ""].join("\n"),
+    )
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
 
@@ -603,7 +761,9 @@ describe("TestExecutor — Finish block", () => {
 
     expect(result.error).toBeUndefined()
     expect(result.status).toBe("passed")
-    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([["finish:done", "success"]])
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["finish:done", "success"],
+    ])
     // Only a script run records logs.
     expect(result.stepResults[0]?.logs).toBeUndefined()
   })
@@ -611,7 +771,10 @@ describe("TestExecutor — Finish block", () => {
   it("fails a step that expects a Finish with no final check to fail", async () => {
     const executor = await makeExecutor(`# Done\n\n<Finish id="done" />\n`)
 
-    const result = executor.runTest({ name: "expect-fail", steps: [{ block: "done", expect: "fail" }] })
+    const result = executor.runTest({
+      name: "expect-fail",
+      steps: [{ block: "done", expect: "fail" }],
+    })
 
     expect(result.status).toBe("failed")
     expect(result.stepResults[0]).toMatchObject({ actualStatus: "success", passed: false })
@@ -642,7 +805,11 @@ describe("TestExecutor — Finish block", () => {
     })
 
     expect(result.status).toBe("passed")
-    expect(result.stepResults[1]).toMatchObject({ block: "finish:finish", actualStatus: "fail", exitCode: 1 })
+    expect(result.stepResults[1]).toMatchObject({
+      block: "finish:finish",
+      actualStatus: "fail",
+      exitCode: 1,
+    })
   })
 
   it("maps exit code 2 to warn, as for a Check", async () => {
@@ -756,7 +923,9 @@ describe("TestExecutor — files_generated", () => {
 
     expect(fs.readdirSync(path.join(tmp, "generated")).length).toBeGreaterThan(0)
     expect(result.status).toBe("failed")
-    expect(result.error).toBe('Assertion failed: Block "echo-only" generated 0 file(s), expected at least 1')
+    expect(result.error).toBe(
+      'Assertion failed: Block "echo-only" generated 0 file(s), expected at least 1',
+    )
   })
 
   it("doesn't count files a block wrote in an earlier test case", async () => {
@@ -797,6 +966,173 @@ describe("TestExecutor — files_generated", () => {
 })
 
 // ---------------------------------------------------------------------------
+// An output marked sensitive: is Redacted. It keeps its plain key, and later
+// blocks' templates and assertions use its real value, but the CLI never
+// prints it: not in --verbose output, not in a failed assertion's message,
+// and not in a serialized result.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — sensitive outputs", () => {
+  const SECRET = "s3cr3t-value-123"
+
+  /** Run `fn` with console.log silenced, returning its result and what it printed. */
+  const captureConsoleLog = <T>(fn: () => T): { result: T; printed: string[] } => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {})
+    try {
+      const result = fn()
+      return { result, printed: logSpy.mock.calls.map((args) => args.join(" ")) }
+    } finally {
+      logSpy.mockRestore()
+    }
+  }
+
+  let tmp: string
+  let savedHome: string | undefined
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-sensitive-"))
+    // The blocks run with a throwaway HOME
+    savedHome = process.env.HOME
+    process.env.HOME = path.join(tmp, "home")
+    fs.mkdirSync(process.env.HOME)
+  })
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.HOME
+    else process.env.HOME = savedHome
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  const makeExecutor = async (verbose: boolean, moreBlocks: string[] = []) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      [
+        "# Sensitive",
+        "",
+        `<Command id="mint" command='echo "user=alice" >> "$RUNBOOK_OUTPUT"; echo "sensitive:token=${SECRET}" >> "$RUNBOOK_OUTPUT"' />`,
+        "",
+        '<Command id="use" command="echo got-{{ .outputs.mint.token }}" />',
+        "",
+        ...moreBlocks.flatMap((block) => [block, ""]),
+      ].join("\n"),
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose })
+    await executor.init()
+    return executor
+  }
+
+  it("passes the real value on and prints <redacted> for it in verbose mode", async () => {
+    const executor = await makeExecutor(true)
+
+    const { result, printed } = captureConsoleLog(() =>
+      executor.runTest({
+        name: "sensitive",
+        assertions: [{ type: "output_equals", block: "mint", output: "token", value: SECRET }],
+      }),
+    )
+
+    expect(result.status).toBe("passed")
+    expect(result.assertions[0]?.passed).toBe(true)
+    expect(revealOutputs(result.stepResults[0]?.outputs ?? {})).toEqual({
+      user: "alice",
+      token: SECRET,
+    })
+    // The downstream block got the real value through its template
+    expect(result.stepResults[1]?.logs).toContain(`got-${SECRET}`)
+    // ...but the producing block's Outputs section never shows it
+    expect(printed).toContain("  user = alice")
+    expect(printed).toContain("  token = <redacted>")
+    expect(
+      printed.filter((line) => line.startsWith("  token = ") && line.includes(SECRET)),
+    ).toEqual([])
+    // ...and neither does the step result, however it's serialized
+    expect(JSON.stringify(result.stepResults[0])).not.toContain(SECRET)
+    expect(inspect(result.stepResults[0])).not.toContain(SECRET)
+  })
+
+  it("writes a TemplateInline's file with the real value, but logs and prints <redacted>", async () => {
+    const executor = await makeExecutor(true, [
+      '<TemplateInline id="cfg" outputPath="cfg.txt" generateFile={true}>\n```\ntoken={{ .outputs.mint.token }}\n```\n</TemplateInline>',
+    ])
+
+    const { result, printed } = captureConsoleLog(() =>
+      executor.runTest({
+        name: "inline",
+        steps: [
+          { block: "mint", expect: "success" },
+          { block: "cfg", expect: "success" },
+        ],
+      }),
+    )
+
+    expect(result.status).toBe("passed")
+    expect(fs.readFileSync(path.join(tmp, "generated", "cfg.txt"), "utf-8")).toContain(
+      `token=${SECRET}`,
+    )
+    expect(result.stepResults[1]?.logs).toContain("token=<redacted>")
+    expect(printed.join("\n")).not.toContain(SECRET)
+  })
+
+  // The app resolves block props for display, so a sensitive output in one is
+  // <redacted> there, and the CLI matches it
+  it("gives a block prop <redacted>, as the app does", async () => {
+    const executor = await makeExecutor(false, [
+      '<GitClone id="clone" source="local" prefilledRepoDir="{{ .outputs.mint.token }}" />',
+    ])
+
+    const result = executor.runTest({
+      name: "prop",
+      steps: [
+        { block: "mint", expect: "success" },
+        { block: "clone", expect: "fail" },
+      ],
+    })
+
+    expect(result.stepResults[1]?.error).toContain("<redacted>")
+    expect(result.stepResults[1]?.error).not.toContain(SECRET)
+  })
+
+  // The reporters print result.error without --verbose and write it to JUnit
+  it("prints <redacted> for it when an output assertion on it fails", async () => {
+    const executor = await makeExecutor(false)
+
+    const afterTest = executor.runTest({
+      name: "equals",
+      assertions: [
+        { type: "output_equals", block: "mint", output: "token", value: "something-else" },
+      ],
+    })
+    expect(afterTest.status).toBe("failed")
+    expect(afterTest.error).toBe(
+      'Assertion failed: output mint.token = <redacted>, expected "something-else"',
+    )
+
+    const inStep = executor.runTest({
+      name: "matches",
+      steps: [
+        {
+          block: "mint",
+          expect: "success",
+          assertions: [
+            { type: "output_matches", block: "mint", output: "token", pattern: "^nope$" },
+          ],
+        },
+      ],
+    })
+    expect(inStep.status).toBe("failed")
+    expect(inStep.error).toBe(
+      'Command block "mint" assertion failed: output mint.token = <redacted> does not match pattern "^nope$"',
+    )
+
+    // A plain output's value still shows, so its failure stays easy to read
+    const plain = executor.runTest({
+      name: "plain",
+      assertions: [{ type: "output_equals", block: "mint", output: "user", value: "bob" }],
+    })
+    expect(plain.error).toBe('Assertion failed: output mint.user = "alice", expected "bob"')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // A variable the test doesn't set starts from the value the app's form starts
 // from: its default, else what its control shows (false for a bool, one
 // element per schema key for a tuple). So a runbook that works in the app
@@ -828,7 +1164,10 @@ describe("TestExecutor — untouched values", () => {
       path.join(tmplDir, "boilerplate.yml"),
       pairRequired ? BOILERPLATE_YML + "    validations:\n      - required\n" : BOILERPLATE_YML,
     )
-    fs.writeFileSync(path.join(tmplDir, "flags.txt"), "dry_run={{ .dry_run }} verbose={{ .verbose }} pair={{ .pair }}\n")
+    fs.writeFileSync(
+      path.join(tmplDir, "flags.txt"),
+      "dry_run={{ .dry_run }} verbose={{ .verbose }} pair={{ .pair }}\n",
+    )
 
     const rb = path.join(tmp, "runbook.mdx")
     fs.writeFileSync(
@@ -860,9 +1199,13 @@ describe("TestExecutor — untouched values", () => {
 
     expect(result.error).toBeUndefined()
     expect(result.status).toBe("passed")
-    expect(result.stepResults.find((r) => r.block === "command:show")?.logs).toContain("confirm=false")
+    expect(result.stepResults.find((r) => r.block === "command:show")?.logs).toContain(
+      "confirm=false",
+    )
     // A declared default still wins; the tuple is its displayed elements ('' and false).
-    expect(fs.readFileSync(path.join(tmp, "generated", "flags.txt"), "utf8")).toBe("dry_run=false verbose=true pair=,false\n")
+    expect(fs.readFileSync(path.join(tmp, "generated", "flags.txt"), "utf8")).toBe(
+      "dry_run=false verbose=true pair=,false\n",
+    )
   })
 
   it("fails a required tuple left at its displayed elements, as the form does", async () => {
@@ -887,8 +1230,12 @@ describe("TestExecutor — untouched values", () => {
     })
 
     expect(result.error).toBeUndefined()
-    expect(result.stepResults.find((r) => r.block === "command:show")?.logs).toContain("confirm=true")
-    expect(fs.readFileSync(path.join(tmp, "generated", "flags.txt"), "utf8")).toBe("dry_run=true verbose=true pair=a,true\n")
+    expect(result.stepResults.find((r) => r.block === "command:show")?.logs).toContain(
+      "confirm=true",
+    )
+    expect(fs.readFileSync(path.join(tmp, "generated", "flags.txt"), "utf8")).toBe(
+      "dry_run=true verbose=true pair=a,true\n",
+    )
   })
 })
 
@@ -902,10 +1249,17 @@ describe("TestExecutor — untouched values", () => {
 describe("TestExecutor — variables two blocks declare", () => {
   let tmp: string
 
-  const makeExecutor = async (templateProps: string, templateVars: string[], inputsBlocks: string[]) => {
+  const makeExecutor = async (
+    templateProps: string,
+    templateVars: string[],
+    inputsBlocks: string[],
+  ) => {
     const tmplDir = path.join(tmp, "templates", "shared")
     fs.mkdirSync(tmplDir, { recursive: true })
-    fs.writeFileSync(path.join(tmplDir, "boilerplate.yml"), ["variables:", ...templateVars, ""].join("\n"))
+    fs.writeFileSync(
+      path.join(tmplDir, "boilerplate.yml"),
+      ["variables:", ...templateVars, ""].join("\n"),
+    )
     fs.writeFileSync(
       path.join(tmplDir, "out.txt"),
       "top={{ .enable }}/{{ .Region }} inputs={{ .inputs.enable }}/{{ .inputs.Region }}\n",
@@ -946,9 +1300,11 @@ describe("TestExecutor — variables two blocks declare", () => {
 
   it("keeps the test's value when another block's untouched value has the same name", async () => {
     // The Template doesn't import opts: its enable is its own, untouched false.
-    const executor = await makeExecutor("", [...ENABLE, ...region("tmpl-region")], [
-      inputsBlock("opts", [...ENABLE, ...region("opts-region")]),
-    ])
+    const executor = await makeExecutor(
+      "",
+      [...ENABLE, ...region("tmpl-region")],
+      [inputsBlock("opts", [...ENABLE, ...region("opts-region")])],
+    )
 
     const result = executor.runTest({
       name: "set-opts",
@@ -960,12 +1316,17 @@ describe("TestExecutor — variables two blocks declare", () => {
   })
 
   it("gives a Template's shared variables the value of the block it imports", async () => {
-    const executor = await makeExecutor('inputsId="opts" ', [...ENABLE, ...region("tmpl-region")], [
-      inputsBlock("opts", [...ENABLE, ...region("opts-region")]),
-    ])
+    const executor = await makeExecutor(
+      'inputsId="opts" ',
+      [...ENABLE, ...region("tmpl-region")],
+      [inputsBlock("opts", [...ENABLE, ...region("opts-region")])],
+    )
 
     // enable is set by the test; Region is left at opts's default.
-    const result = executor.runTest({ name: "set-opts", inputs: { "opts.enable": { literal: true } } })
+    const result = executor.runTest({
+      name: "set-opts",
+      inputs: { "opts.enable": { literal: true } },
+    })
 
     expect(result.error).toBeUndefined()
     expect(showLogs(result)).toContain("enable=true region=opts-region")
@@ -973,10 +1334,14 @@ describe("TestExecutor — variables two blocks declare", () => {
   })
 
   it("takes a shared variable from the last inputsId that has it", async () => {
-    const executor = await makeExecutor(`inputsId={["base", "opts"]} `, [...ENABLE, ...region("tmpl-region")], [
-      inputsBlock("base", [...ENABLE, ...region("base-region")]),
-      inputsBlock("opts", region("opts-region")),
-    ])
+    const executor = await makeExecutor(
+      `inputsId={["base", "opts"]} `,
+      [...ENABLE, ...region("tmpl-region")],
+      [
+        inputsBlock("base", [...ENABLE, ...region("base-region")]),
+        inputsBlock("opts", region("opts-region")),
+      ],
+    )
 
     // enable comes from base (opts doesn't declare it), Region from opts.
     const result = executor.runTest({ name: "merge", inputs: { "base.enable": { literal: true } } })
@@ -986,11 +1351,16 @@ describe("TestExecutor — variables two blocks declare", () => {
   })
 
   it("still uses a value the test sets on the Template itself", async () => {
-    const executor = await makeExecutor('inputsId="opts" ', [...ENABLE, ...region("tmpl-region")], [
-      inputsBlock("opts", [...ENABLE, ...region("opts-region")]),
-    ])
+    const executor = await makeExecutor(
+      'inputsId="opts" ',
+      [...ENABLE, ...region("tmpl-region")],
+      [inputsBlock("opts", [...ENABLE, ...region("opts-region")])],
+    )
 
-    const result = executor.runTest({ name: "set-tmpl", inputs: { "tmpl.Region": { literal: "tmpl-set" } } })
+    const result = executor.runTest({
+      name: "set-tmpl",
+      inputs: { "tmpl.Region": { literal: "tmpl-set" } },
+    })
 
     expect(result.error).toBeUndefined()
     expect(out()).toContain("top=false/tmpl-set")
@@ -1005,7 +1375,7 @@ describe("TestExecutor — variables two blocks declare", () => {
 describe("TestExecutor — PR blocks", () => {
   let tmp: string
 
-  const RUNBOOK = [
+  const PR_RUNBOOK = [
     "# PR blocks",
     "",
     `<GitAuth id="git-auth" provider="gitlab" />`,
@@ -1022,7 +1392,7 @@ describe("TestExecutor — PR blocks", () => {
 
   const makeExecutor = async () => {
     const rb = path.join(tmp, "runbook.mdx")
-    fs.writeFileSync(rb, RUNBOOK)
+    fs.writeFileSync(rb, PR_RUNBOOK)
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
     return executor
@@ -1038,7 +1408,10 @@ describe("TestExecutor — PR blocks", () => {
   it("runs a test of a runbook that contains PR blocks", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({ name: "command-only", steps: [{ block: "hello", expect: "success" }] })
+    const result = executor.runTest({
+      name: "command-only",
+      steps: [{ block: "hello", expect: "success" }],
+    })
 
     expect(result.error).toBeUndefined()
     expect(result.status).toBe("passed")
@@ -1070,7 +1443,10 @@ describe("TestExecutor — PR blocks", () => {
   it("fails a PR step that expects anything but skip", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({ name: "run-pr", steps: [{ block: "gh-pr", expect: "success" }] })
+    const result = executor.runTest({
+      name: "run-pr",
+      steps: [{ block: "gh-pr", expect: "success" }],
+    })
 
     expect(result.status).toBe("failed")
     expect(result.error).toContain("PR blocks can only be tested with expect: skip")
@@ -1110,7 +1486,10 @@ describe("TestExecutor — PR blocks", () => {
 
   it("expects PR blocks to skip when the test lists no steps", async () => {
     const rb = path.join(tmp, "runbook.mdx")
-    fs.writeFileSync(rb, `# PR\n\n<Command id="hello" command="echo hello" />\n\n<GitHubPullRequest id="gh-pr" />\n`)
+    fs.writeFileSync(
+      rb,
+      `# PR\n\n<Command id="hello" command="echo hello" />\n\n<GitHubPullRequest id="gh-pr" />\n`,
+    )
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
 
@@ -1147,7 +1526,9 @@ describe("TestExecutor — git auth blocks", () => {
     "gitlab_token=${GITLAB_TOKEN:-unset}",
     "gitlab_host=${GITLAB_HOST:-unset}",
     "github_token=${GITHUB_TOKEN:-unset}",
-  ].map((line) => `echo "${line}" >> "$RUNBOOK_OUTPUT"`).join("; ")
+  ]
+    .map((line) => `echo "${line}" >> "$RUNBOOK_OUTPUT"`)
+    .join("; ")
 
   /** A runbook with `authBlock` and a Command that reports what it sees. */
   const makeExecutor = async (authBlock: string) => {
@@ -1209,7 +1590,11 @@ describe("TestExecutor — git auth blocks", () => {
   it("reads GitLab tokens under the step's env_prefix", async () => {
     const executor = await makeExecutor(`<GitLabAuth id="auth" />`)
 
-    const result = runAuthThenReport(executor, { CI_OAUTH_TOKEN: "prefixed-token" }, { env_prefix: "CI_" })
+    const result = runAuthThenReport(
+      executor,
+      { CI_OAUTH_TOKEN: "prefixed-token" },
+      { env_prefix: "CI_" },
+    )
 
     expect(result.error).toBeUndefined()
     expect(result.stepResults[1]?.outputs?.gitlab_token).toBe("prefixed-token")
@@ -1219,7 +1604,11 @@ describe("TestExecutor — git auth blocks", () => {
     const executor = await makeExecutor(`<GitLabAuth id="auth" />`)
 
     // (`expect: skip` would skip the block without looking for a token.)
-    const result = executor.runTest({ name: "no-token", env: NO_GITLAB_ENV, steps: [{ block: "auth", expect: "success" }] })
+    const result = executor.runTest({
+      name: "no-token",
+      env: NO_GITLAB_ENV,
+      steps: [{ block: "auth", expect: "success" }],
+    })
 
     expect(result.status).toBe("failed")
     expect(result.stepResults[0]?.actualStatus).toBe("skipped")
@@ -1242,7 +1631,9 @@ describe("TestExecutor — git auth blocks", () => {
   })
 
   it("skips, rather than falling back to gitlab.com, when the pinned GitLab host is invalid", async () => {
-    const executor = await makeExecutor(`<GitAuth id="auth" provider="gitlab" instanceUrl="ftp://corp" />`)
+    const executor = await makeExecutor(
+      `<GitAuth id="auth" provider="gitlab" instanceUrl="ftp://corp" />`,
+    )
 
     // The env token is bound to gitlab.com (no GITLAB_HOST).
     const result = runAuthThenReport(executor, { GITLAB_TOKEN: "fake-gitlab-token" })
@@ -1289,7 +1680,12 @@ describe("TestExecutor — GitClone authentication", () => {
     const result = executor.runTest({
       name: "clone",
       // Bind the token to the clone's host, so the clone is authenticated.
-      env: { GITLAB_TOKEN: "fake-gitlab-token", GITLAB_HOST: "127.0.0.1:1", GITLAB_URI: "", GL_HOST: "" },
+      env: {
+        GITLAB_TOKEN: "fake-gitlab-token",
+        GITLAB_HOST: "127.0.0.1:1",
+        GITLAB_URI: "",
+        GL_HOST: "",
+      },
       steps: [
         { block: "auth", expect: "success" },
         { block: "clone", expect: "success" },
@@ -1376,7 +1772,10 @@ describe("TestExecutor — GitClone option-like values", () => {
   })
 
   it("refuses an option-like ref before cloning", async () => {
-    const step = await runGitClone({ prefilledUrl: `file://${source}`, prefilledRef: "--orphan=evil" })
+    const step = await runGitClone({
+      prefilledUrl: `file://${source}`,
+      prefilledRef: "--orphan=evil",
+    })
 
     expect(step?.actualStatus).toBe("fail")
     expect(step?.error).toMatch(/Invalid ref "--orphan=evil"/)
@@ -1393,13 +1792,20 @@ describe("TestExecutor — GitClone option-like values", () => {
   })
 
   it("takes an option-like repo path as the sparse-checkout directory", async () => {
-    const step = await runGitClone({ prefilledUrl: `file://${source}`, prefilledRepoPath: "--no-cone" })
+    const step = await runGitClone({
+      prefilledUrl: `file://${source}`,
+      prefilledRepoPath: "--no-cone",
+    })
 
     expect(step?.actualStatus).toBe("success")
     const dest = path.join(tmp, "work", "source")
     // Read as an option, `--no-cone` would have switched the checkout out of cone mode.
-    expect(execFileSync("git", ["config", "core.sparseCheckoutCone"], { cwd: dest }).toString().trim()).toBe("true")
-    expect(execFileSync("git", ["sparse-checkout", "list"], { cwd: dest }).toString().trim()).toBe("--no-cone")
+    expect(
+      execFileSync("git", ["config", "core.sparseCheckoutCone"], { cwd: dest }).toString().trim(),
+    ).toBe("true")
+    expect(execFileSync("git", ["sparse-checkout", "list"], { cwd: dest }).toString().trim()).toBe(
+      "--no-cone",
+    )
   })
 })
 
@@ -1497,6 +1903,79 @@ describe("TestExecutor — #!/bin/sh blocks", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Log files ($RUNBOOK_LOG, $RUNBOOK_INFO_LOG etc.): the CLI shows their lines.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — log files", () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-logs-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("shows the helpers' lines among stdout and stderr in script order, then the per-level files' lines", async () => {
+    fs.mkdirSync(path.join(tmp, "scripts"))
+    fs.writeFileSync(
+      path.join(tmp, "scripts", "logs.sh"),
+      [
+        "#!/bin/bash",
+        'log_info "starting"',
+        "get_json() {",
+        '  log_info "looking up"',
+        `  echo '{"ok":true}'`,
+        "}",
+        "json=$(get_json)",
+        'echo "json=$json"',
+        'log_error "step failed"',
+        'echo "to stderr" >&2',
+        'echo "raw error" >> "$RUNBOOK_ERROR_LOG"',
+        'log_warn "careful"',
+        "echo done",
+        "",
+      ].join("\n"),
+    )
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, `# Logs\n\n<Command id="logs" path="scripts/logs.sh" />\n`)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    const result = executor.runTest({
+      name: "logs",
+      steps: [{ block: "logs", expect: "success" }],
+      // The log files belong to one block run, so the session env must not
+      // keep pointing at them.
+      assertions: [
+        {
+          type: "script",
+          command: 'test -z "${RUNBOOK_LOG:-}${RUNBOOK_INFO_LOG:-}${RUNBOOK_ERROR_LOG:-}"',
+        },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    const stamp = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
+    const shown = result.stepResults[0]!.logs!.trimEnd()
+      .split("\n")
+      .map((line) => line.replace(stamp, ""))
+    expect(shown).toEqual([
+      "[INFO]  starting",
+      "[INFO]  looking up",
+      // The capture holds only the JSON (#269).
+      'json={"ok":true}',
+      "[ERROR] step failed",
+      "to stderr",
+      "[WARN]  careful",
+      "done",
+      "[ERROR] raw error",
+    ])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // GitClone with prefilledRepoPath: a sparse clone, built by the same
 // buildCloneSteps the app's git:clone handler uses.
 // ---------------------------------------------------------------------------
@@ -1518,7 +1997,10 @@ describe("TestExecutor — GitClone sparse checkout", () => {
 
   const runGitClone = async (props: string, expected: ExpectedStatus = "success") => {
     const rb = path.join(tmp, "runbook.mdx")
-    fs.writeFileSync(rb, `# Sparse clone\n\n<GitClone id="repo" prefilledUrl="file://${origin}" ${props} />\n`)
+    fs.writeFileSync(
+      rb,
+      `# Sparse clone\n\n<GitClone id="repo" prefilledUrl="file://${origin}" ${props} />\n`,
+    )
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
     return executor.runTest({
@@ -1589,7 +2071,9 @@ describe("TestExecutor — GitClone sparse checkout", () => {
     // here a git that refuses the new checkout as dubious ownership (exit
     // 128), must not skip the checkout and pass an empty clone; the app runs
     // the checkout, which fails with the real error.
-    const realGit = execFileSync("sh", ["-c", "command -v git"], { env: process.env }).toString().trim()
+    const realGit = execFileSync("sh", ["-c", "command -v git"], { env: process.env })
+      .toString()
+      .trim()
     const bin = path.join(tmp, "bin")
     fs.mkdirSync(bin)
     fs.writeFileSync(
@@ -1607,7 +2091,10 @@ describe("TestExecutor — GitClone sparse checkout", () => {
     const savedPath = process.env.PATH
     process.env.PATH = `${bin}${path.delimiter}${savedPath}`
     try {
-      const result = await runGitClone(`prefilledRepoPath="modules/vpc" prefilledLocalPath="mono"`, "fail")
+      const result = await runGitClone(
+        `prefilledRepoPath="modules/vpc" prefilledLocalPath="mono"`,
+        "fail",
+      )
 
       expect(result.stepResults[0]).toMatchObject({ actualStatus: "fail", passed: true })
       expect(result.stepResults[0]?.error).toMatch(/dubious ownership/)
@@ -1626,11 +2113,17 @@ describe("TestExecutor — GitClone sparse checkout", () => {
 
   it("passes a step that expects the clone to fail", async () => {
     // Rejected before git runs: the repo path is outside the repository.
-    const badPath = await runGitClone(`prefilledRepoPath="../elsewhere" prefilledLocalPath="mono"`, "fail")
+    const badPath = await runGitClone(
+      `prefilledRepoPath="../elsewhere" prefilledLocalPath="mono"`,
+      "fail",
+    )
     expect(badPath.stepResults[0]).toMatchObject({ actualStatus: "fail", passed: true })
 
     // Failed by git: the ref doesn't exist.
-    const badRef = await runGitClone(`prefilledRef="no-such-branch" prefilledLocalPath="mono"`, "fail")
+    const badRef = await runGitClone(
+      `prefilledRef="no-such-branch" prefilledLocalPath="mono"`,
+      "fail",
+    )
     expect(badRef.stepResults[0]).toMatchObject({ actualStatus: "fail", passed: true })
   })
 })

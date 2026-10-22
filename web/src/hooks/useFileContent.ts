@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from 'react'
-import { useApi } from '../contexts/ApiContext'
+import { useState, useCallback, useRef } from "react"
+import { useApi } from "../contexts/ApiContext"
 
 interface FileContentResult {
   path: string
@@ -53,67 +53,73 @@ export function useFileContent(): UseFileContentResult {
   // Bumped by clearCache, so a read issued before the clear isn't cached after it.
   const cacheGenRef = useRef(0)
 
-  const doFetch = useCallback(async (filePath: string, bypassCache: boolean): Promise<FileContentResult | null> => {
-    const cache = cacheRef.current
-    if (!bypassCache && cache.has(filePath)) {
-      const cached = cache.get(filePath)!
-      cache.delete(filePath)
-      cache.set(filePath, cached)
-      setFileContent(cached)
+  const doFetch = useCallback(
+    async (filePath: string, bypassCache: boolean): Promise<FileContentResult | null> => {
+      const cache = cacheRef.current
+      if (!bypassCache && cache.has(filePath)) {
+        const cached = cache.get(filePath)!
+        cache.delete(filePath)
+        cache.set(filePath, cached)
+        setFileContent(cached)
+        setError(null)
+        // A cache hit supersedes every pending request (whose finally then no
+        // longer clears the spinner), except a read of this same file issued
+        // after the cached copy, e.g. a refetch after it changed on disk. Show
+        // the cached copy meanwhile and let that fresher read land.
+        const pending = inFlightRef.current.get(filePath)
+        currentSeqRef.current = pending ?? ++seqRef.current
+        setIsLoading(pending !== undefined)
+        return cached
+      }
+
+      if (bypassCache) {
+        cache.delete(filePath)
+      }
+
+      // Every read supersedes the previous request
+      const seq = ++seqRef.current
+      currentSeqRef.current = seq
+      inFlightRef.current.set(filePath, seq)
+      setIsLoading(true)
       setError(null)
-      // A cache hit supersedes every pending request (whose finally then no
-      // longer clears the spinner), except a read of this same file issued
-      // after the cached copy, e.g. a refetch after it changed on disk. Show
-      // the cached copy meanwhile and let that fresher read land.
-      const pending = inFlightRef.current.get(filePath)
-      currentSeqRef.current = pending ?? ++seqRef.current
-      setIsLoading(pending !== undefined)
-      return cached
-    }
+      const cacheGen = cacheGenRef.current
 
-    if (bypassCache) {
-      cache.delete(filePath)
-    }
+      try {
+        const data: FileContentResult = (await api.invoke("workspace:file", {
+          worktreePath: ".",
+          filePath,
+        })) as unknown as FileContentResult
 
-    // Every read supersedes the previous request
-    const seq = ++seqRef.current
-    currentSeqRef.current = seq
-    inFlightRef.current.set(filePath, seq)
-    setIsLoading(true)
-    setError(null)
-    const cacheGen = cacheGenRef.current
-
-    try {
-      const data: FileContentResult = await api.invoke('workspace:file', { worktreePath: '.', filePath }) as unknown as FileContentResult
-
-      // The content is valid for its own path even when superseded, so cache it
-      // unless the cache was cleared while it was loading or a newer read of
-      // this path has already been cached.
-      if (cacheGen === cacheGenRef.current && seq > (cachedSeqRef.current.get(filePath) ?? 0)) {
-        cachedSeqRef.current.set(filePath, seq)
-        if (cache.size >= MAX_CACHE_SIZE) {
-          const oldestKey = cache.keys().next().value
-          if (oldestKey !== undefined) {
-            cache.delete(oldestKey)
+        // The content is valid for its own path even when superseded, so cache it
+        // unless the cache was cleared while it was loading or a newer read of
+        // this path has already been cached.
+        if (cacheGen === cacheGenRef.current && seq > (cachedSeqRef.current.get(filePath) ?? 0)) {
+          cachedSeqRef.current.set(filePath, seq)
+          if (cache.size >= MAX_CACHE_SIZE) {
+            const oldestKey = cache.keys().next().value
+            if (oldestKey !== undefined) {
+              cache.delete(oldestKey)
+            }
           }
+          cache.set(filePath, data)
         }
-        cache.set(filePath, data)
-      }
 
-      if (seq === currentSeqRef.current) setFileContent(data)
-      return data
-    } catch (err) {
-      if (seq === currentSeqRef.current) {
-        const message = err instanceof Error ? err.message : 'Failed to load file'
-        setError(message)
-        setFileContent(null)
+        if (seq === currentSeqRef.current) setFileContent(data)
+        return data
+      } catch (err) {
+        if (seq === currentSeqRef.current) {
+          const message = err instanceof Error ? err.message : "Failed to load file"
+          setError(message)
+          setFileContent(null)
+        }
+        return null
+      } finally {
+        if (inFlightRef.current.get(filePath) === seq) inFlightRef.current.delete(filePath)
+        if (seq === currentSeqRef.current) setIsLoading(false)
       }
-      return null
-    } finally {
-      if (inFlightRef.current.get(filePath) === seq) inFlightRef.current.delete(filePath)
-      if (seq === currentSeqRef.current) setIsLoading(false)
-    }
-  }, [api])
+    },
+    [api],
+  )
 
   const fetchFileContent = useCallback((filePath: string) => doFetch(filePath, false), [doFetch])
   const refetchFileContent = useCallback((filePath: string) => doFetch(filePath, true), [doFetch])

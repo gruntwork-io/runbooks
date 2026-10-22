@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties } from "react"
 
 /**
  * Shared line-number gutter styling for the react-syntax-highlighter usages
@@ -7,9 +7,9 @@ import type { CSSProperties } from 'react'
  * styling lives here.
  */
 export const PRISM_LINE_NUMBER_STYLE: CSSProperties = {
-  color: '#999',
-  fontSize: '11px',
-  paddingRight: '12px',
-  borderRight: '1px solid #eee',
-  marginRight: '8px',
+  color: "#999",
+  fontSize: "11px",
+  paddingRight: "12px",
+  borderRight: "1px solid #eee",
+  marginRight: "8px",
 }

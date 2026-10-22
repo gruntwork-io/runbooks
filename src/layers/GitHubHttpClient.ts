@@ -15,6 +15,7 @@ import type {
   PullRequestResult,
 } from "../services/GitHubClient.ts"
 import { GitHubApiError } from "../errors/index.ts"
+import { errorMessage } from "../errors/message.ts"
 import { classifyTlsError } from "../domain/tls/system-ca.ts"
 import {
   DEFAULT_GITHUB_HOST,
@@ -34,7 +35,10 @@ function resolveHost(host?: string): string {
   if (host === undefined) return DEFAULT_GITHUB_HOST
   const normalized = tryNormalizeGitHubHost(host)
   if (!normalized) {
-    throw new GitHubApiError({ status: 400, message: `invalid GitHub host: ${JSON.stringify(host)}` })
+    throw new GitHubApiError({
+      status: 400,
+      message: `invalid GitHub host: ${JSON.stringify(host)}`,
+    })
   }
   return normalized
 }
@@ -50,7 +54,7 @@ const apiBaseFor = (host?: string): string => githubApiBase(resolveHost(host))
 const toGitHubApiError = (err: unknown): GitHubApiError =>
   err instanceof GitHubApiError
     ? err
-    : new GitHubApiError({ status: 0, message: `${err}`, kind: classifyTlsError(err) })
+    : new GitHubApiError({ status: 0, message: errorMessage(err), kind: classifyTlsError(err) })
 
 async function githubFetch(
   url: string,
@@ -82,11 +86,7 @@ async function githubJson<T>(
   return (await resp.json()) as T
 }
 
-async function paginateAll<T>(
-  baseUrl: string,
-  token: string,
-  perPage = 100,
-): Promise<T[]> {
+async function paginateAll<T>(baseUrl: string, token: string, perPage = 100): Promise<T[]> {
   const results: T[] = []
   let page = 1
   while (true) {
@@ -110,10 +110,7 @@ async function validateInstallationToken(
   token: string,
   apiBase: string,
 ): Promise<GitHubTokenValidation> {
-  const resp = await githubFetch(
-    `${apiBase}/installation/repositories?per_page=1`,
-    { token },
-  )
+  const resp = await githubFetch(`${apiBase}/installation/repositories?per_page=1`, { token })
   await assertOk(resp)
   const data = (await resp.json()) as {
     total_count: number
@@ -125,13 +122,27 @@ async function validateInstallationToken(
       login: ownerLogin ? `${ownerLogin}[bot]` : "github-app[bot]",
       name: "GitHub App Installation",
     },
+    expiresAt: tokenExpiration(resp),
   }
 }
 
-async function validateUserToken(
-  token: string,
-  apiBase: string,
-): Promise<GitHubTokenValidation> {
+/**
+ * When the request's token expires, from the
+ * GitHub-Authentication-Token-Expiration header ("2026-11-30 21:04:01 UTC",
+ * or with a "+0000" style offset), as an ISO timestamp. Undefined when the
+ * header is missing or unreadable.
+ */
+function tokenExpiration(resp: Response): string | undefined {
+  const header = resp.headers.get("github-authentication-token-expiration")
+  const match = header?.trim().match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) (UTC|[+-]\d{4})$/)
+  if (!match) return undefined
+  const [, date, time, zone] = match
+  const offset = zone === "UTC" ? "Z" : `${zone!.slice(0, 3)}:${zone!.slice(3)}`
+  const at = new Date(`${date}T${time}${offset}`)
+  return Number.isNaN(at.getTime()) ? undefined : at.toISOString()
+}
+
+async function validateUserToken(token: string, apiBase: string): Promise<GitHubTokenValidation> {
   const resp = await githubFetch(`${apiBase}/user`, { token })
   await assertOk(resp)
   const data = (await resp.json()) as {
@@ -155,6 +166,7 @@ async function validateUserToken(
       email: data.email,
     },
     scopes,
+    expiresAt: tokenExpiration(resp),
   }
 }
 
@@ -397,19 +409,23 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
-  addLabels: (token: string, owner: string, repo: string, prNumber: number, labels: string[], host?: string) =>
+  addLabels: (
+    token: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    labels: string[],
+    host?: string,
+  ) =>
     Effect.tryPromise({
       try: async (): Promise<void> => {
         const API_BASE = apiBaseFor(host)
-        await githubJson(
-          `${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/labels`,
-          {
-            method: "POST",
-            token,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ labels }),
-          },
-        )
+        await githubJson(`${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/labels`, {
+          method: "POST",
+          token,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ labels }),
+        })
       },
       catch: toGitHubApiError,
     }),

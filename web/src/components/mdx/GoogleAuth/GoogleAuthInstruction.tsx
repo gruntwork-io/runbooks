@@ -1,10 +1,10 @@
-import { useMemo } from 'react'
-import { LogIn } from 'lucide-react'
-import { Instruction } from '@/components/mdx/_shared'
-import { useTemplateContext } from '@/contexts/useRunbook'
-import { resolveTemplateReferences } from '@/lib/templateUtils'
-import { DEFAULT_GOOGLE_SCOPES, formatGcloudAdcLoginCommand } from './constants'
-import type { GoogleAuthProps } from './types'
+import { useMemo } from "react"
+import { LogIn } from "lucide-react"
+import { Instruction } from "@/components/mdx/_shared"
+import { useTemplateContext } from "@/contexts/useRunbook"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { DEFAULT_GOOGLE_SCOPES, formatGcloudAdcLoginCommand } from "./constants"
+import type { GoogleAuthProps } from "./types"
 
 /**
  * Instruction-mode rendering of a GoogleAuth block: a plain "Log into Google
@@ -37,26 +37,27 @@ export function GoogleAuthInstruction({
     [description, templateCtx],
   )
   const resolvedConfiguration = useMemo(
-    () => (gcloudConfiguration ? resolveTemplateReferences(gcloudConfiguration, templateCtx) : undefined),
+    () =>
+      gcloudConfiguration ? resolveTemplateReferences(gcloudConfiguration, templateCtx) : undefined,
     [gcloudConfiguration, templateCtx],
   )
 
   const heading = resolvedProject
     ? `Log into Google Cloud in the \`${resolvedProject}\` project`
-    : 'Log into Google Cloud'
+    : "Log into Google Cloud"
 
   // Surface the configured details so the user can reproduce the login by hand.
   // These are hints, not commands — nothing here authenticates the app.
   const hints: { label: string; value: string }[] = []
-  if (resolvedProject) hints.push({ label: 'Project', value: resolvedProject })
-  if (defaultRegion) hints.push({ label: 'Region', value: defaultRegion })
-  if (resolvedConfiguration) hints.push({ label: 'Config', value: resolvedConfiguration })
+  if (resolvedProject) hints.push({ label: "Project", value: resolvedProject })
+  if (defaultRegion) hints.push({ label: "Region", value: defaultRegion })
+  if (resolvedConfiguration) hints.push({ label: "Config", value: resolvedConfiguration })
   const effectiveScopes = scopes ?? [...DEFAULT_GOOGLE_SCOPES]
-  hints.push({ label: 'Scopes', value: effectiveScopes.join(', ') })
+  hints.push({ label: "Scopes", value: effectiveScopes.join(", ") })
   // Only append --scopes when the author set them; defaults are Sign-In request
   // scopes, not a hard ADC requirement in the by-hand recovery path.
   hints.push({
-    label: 'Command',
+    label: "Command",
     value: formatGcloudAdcLoginCommand(scopes && scopes.length > 0 ? scopes : []),
   })
 

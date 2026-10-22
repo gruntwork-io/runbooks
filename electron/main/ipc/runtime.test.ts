@@ -20,12 +20,17 @@ const GHES = "ghes.example.com"
 const GHEC = "acme.ghe.com"
 
 /** Fresh session from `initialEnv`, plus an auth block's write for `authHost`. */
-const setup = async (initialEnv: Record<string, string>, auth?: { host: string; token: string }) => {
+const setup = async (
+  initialEnv: Record<string, string>,
+  auth?: { host: string; token: string },
+) => {
   await Effect.runPromise(
     sessionManager.createSession("/tmp").pipe(Effect.provide(makeTestEnvironment(initialEnv))),
   )
   if (auth) {
-    await Effect.runPromise(sessionManager.appendToEnv(githubSessionEnv(auth.host, auth.token, "user")))
+    await Effect.runPromise(
+      sessionManager.appendToEnv(githubSessionEnv(auth.host, auth.token, "user")),
+    )
     vcsSessionMeta.set("github", { host: auth.host, source: "manual" })
   }
 }
@@ -135,7 +140,9 @@ describe("getSessionTokenForHost — gitlab", () => {
 
   /** What a GitLab auth block writes for `host` (appendSessionEnvAndRecord). */
   const authGitLab = async (host: string, token: string) => {
-    await Effect.runPromise(sessionManager.appendToEnv({ GITLAB_TOKEN: token, GITLAB_USER: "tanuki", GITLAB_HOST: host }))
+    await Effect.runPromise(
+      sessionManager.appendToEnv({ GITLAB_TOKEN: token, GITLAB_USER: "tanuki", GITLAB_HOST: host }),
+    )
     vcsSessionMeta.set("gitlab", { host, source: "manual" })
   }
 

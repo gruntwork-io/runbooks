@@ -188,7 +188,11 @@ describe("makeLogger error formatting", () => {
       readonly cause: unknown
     }> {}
     const out = logged(
-      new CredentialError({ privateKey, document, cause: { credentials: { private_key: privateKey } } }),
+      new CredentialError({
+        privateKey,
+        document,
+        cause: { credentials: { private_key: privateKey } },
+      }),
     )
     expect(out).toContain("[cause]")
     expect(out).toContain("[REDACTED]")
@@ -214,7 +218,7 @@ describe("makeLogger error formatting", () => {
     }
   })
 
-  it("unwraps a FiberFailure from runPromise to the error it failed with", async () => {
+  it("prints the error runPromise rejects with", async () => {
     registerSecret(SECRET)
     const err = await rejectionOf(Effect.fail(cloneError()))
     const out = logged("Failed to resolve remote URL:", err)
@@ -226,7 +230,7 @@ describe("makeLogger error formatting", () => {
     expect(out).not.toContain(SECRET)
   })
 
-  it("unwraps defects and says so for interruption-only failures", async () => {
+  it("prints a defect, and says so for an interruption", async () => {
     const died = logged(await rejectionOf(Effect.die(new Error("boom in a fiber"))))
     expect(died).toContain("boom in a fiber")
     const interrupted = logged(await rejectionOf(Effect.interrupt))
@@ -280,24 +284,17 @@ describe("makeLogger error formatting", () => {
     expect(out.endsWith("\n[cause] ... (further causes not shown)")).toBe(true)
   })
 
-  it("says so when the depth limit leaves a FiberFailure unwrapped", async () => {
-    let err: unknown = await rejectionOf(Effect.fail(cloneError()))
-    // Four Error links use up the depth before the FiberFailure is reached.
-    for (const message of ["fourth", "third", "second", "first"]) err = new Error(message, { cause: err })
-    const out = logged(err)
-    expect(out).not.toContain("exitCode")
-    expect(out.endsWith("\n[cause] ... (further causes not shown)")).toBe(true)
-  })
-
-  it("prints the error behind an UnknownException once", async () => {
+  it("prints the error behind an UnknownError once", async () => {
     // What Effect.tryPromise fails with, as in git.ts's cancelled-clone cleanup.
-    // UnknownException keeps the rejection both as its cause and in an own
-    // `error` field.
     const err = await Effect.runPromise(
-      Effect.flip(Effect.tryPromise(() => Promise.reject(new Error("EACCES: permission denied, rm '/tmp/c'")))),
+      Effect.flip(
+        Effect.tryPromise(() =>
+          Promise.reject(new Error("EACCES: permission denied, rm '/tmp/c'")),
+        ),
+      ),
     )
     const out = logged("failed to remove cancelled clone:", err)
-    expect(out).toContain("UnknownException")
+    expect(out).toContain("UnknownError")
     expect(out).toContain("[cause] Error: EACCES")
     expect(out.match(/EACCES: permission denied/g)?.length).toBe(1)
   })

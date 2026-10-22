@@ -1,6 +1,6 @@
-import { useState, useCallback, useContext } from 'react'
-import { RunbookContext } from '@/contexts/RunbookContext'
-import { runbookStorageKey } from '../lib/runbookStorageKey'
+import { useState, useCallback, useContext } from "react"
+import { RunbookContext } from "@/contexts/RunbookContext"
+import { runbookStorageKey } from "../lib/runbookStorageKey"
 
 /**
  * Tracks whether the user has marked an instruction-mode block as done, persisted
@@ -12,11 +12,11 @@ import { runbookStorageKey } from '../lib/runbookStorageKey'
  */
 export function useBlockCompletion(id: string) {
   const storageScope = useContext(RunbookContext)?.storageScope
-  const key = runbookStorageKey('instruction-done', storageScope, id)
+  const key = runbookStorageKey("instruction-done", storageScope, id)
 
   const [completed, setCompleted] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(key) === 'true'
+      return localStorage.getItem(key) === "true"
     } catch {
       return false
     }
@@ -26,7 +26,7 @@ export function useBlockCompletion(id: string) {
     setCompleted((prev) => {
       const next = !prev
       try {
-        if (next) localStorage.setItem(key, 'true')
+        if (next) localStorage.setItem(key, "true")
         else localStorage.removeItem(key)
       } catch {
         /* localStorage unavailable — completion won't persist across launches */

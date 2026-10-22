@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 interface EmptyRepoWarningProps {
   /** Branch the remote advertises as its default — the name to seed. */
   suggestedBranch: string
-  status: 'idle' | 'running' | 'fail'
+  status: "idle" | "running" | "fail"
   error: string | null
   onCreateDefaultBranch: (branch: string) => void
 }
@@ -29,7 +29,7 @@ export function EmptyRepoWarning({
   // A runbook can hold several GitClone blocks; a shared literal id would point
   // every label at the first input.
   const inputId = useId()
-  const isRunning = status === 'running'
+  const isRunning = status === "running"
   const trimmed = branch.trim()
 
   return (
@@ -41,14 +41,13 @@ export function EmptyRepoWarning({
             This repository has no commits yet
           </h4>
           <p className="text-sm text-warning-foreground mb-3">
-            An empty repository has no branch, so there is nothing for a pull request to
-            target. Later steps are on hold until it has one — otherwise they would run to
-            completion and fail only at the end, after committing and pushing their work.
+            An empty repository has no branch, so there is nothing for a pull request to target.
+            Later steps are on hold until it has one — otherwise they would run to completion and
+            fail only at the end, after committing and pushing their work.
           </p>
           <p className="text-sm text-warning-foreground mb-3">
-            Creating the default branch here pushes a single empty commit. The branch a
-            runbook opens later then shares an ancestor with it and reviews as a normal
-            diff.
+            Creating the default branch here pushes a single empty commit. The branch a runbook
+            opens later then shares an ancestor with it and reviews as a normal diff.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -79,14 +78,12 @@ export function EmptyRepoWarning({
                   Creating…
                 </>
               ) : (
-                'Create default branch'
+                "Create default branch"
               )}
             </Button>
           </div>
 
-          {error && (
-            <p className="mt-3 text-sm text-destructive break-words">{error}</p>
-          )}
+          {error && <p className="mt-3 text-sm text-destructive break-words">{error}</p>}
         </div>
       </div>
     </div>

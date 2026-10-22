@@ -28,7 +28,9 @@ describe("ChangedFilesView SVG preview", () => {
     const before = svg("old — logo ✓ 日本")
     const after = svg("new — logo ✓ 日本")
 
-    render(<ChangedFilesView changes={[svgChange({ originalContent: before, newContent: after })]} />)
+    render(
+      <ChangedFilesView changes={[svgChange({ originalContent: before, newContent: after })]} />,
+    )
 
     expect(decodeDataUri(screen.getByAltText("Before").getAttribute("src"))).toBe(before)
     expect(decodeDataUri(screen.getByAltText("After").getAttribute("src"))).toBe(after)

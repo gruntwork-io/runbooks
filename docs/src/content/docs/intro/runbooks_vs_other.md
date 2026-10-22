@@ -1,57 +1,53 @@
 ---
-title: Runbooks vs. Other
+title: Runbooks vs. other tools
 sidebar:
   order: 7
 ---
 
-## vs. Static documentation
+## vs. static documentation
 
-Static documentation is often hosted in services like Notion, Confluence, or directly in git repos (e.g. on GitHub or GitLab). It's easy to write, but can quickly get out of date, lacks automated validation, and requires users to manually copy/paste and adapt the code samples to their unique needs.
+Static documentation in Notion, Confluence, or a git repo is easy to write. It also goes out of date, has no automated validation, and leaves users to copy, paste, and adapt its code samples.
 
-For consumers, Runbooks can generate the files they need based on custom user inputs entered from a web form, execute arbitrary commands to automate other steps, and give built-in validation checks so users can "do a thing, then check a thing." In short, Runbooks can streamline the "full experience" for consumers, not just a small part of it.
+A runbook generates the files a consumer needs from values they enter in a form, runs commands for the other steps, and runs checks so the consumer can confirm each step worked.
 
-For authors, writing runbooks is just as easy as writing documentation because you author a runbook by writing a file in MDX, which is markdown plus a limited number of special components, which Runbooks calls [blocks](/authoring/blocks). 
+Authors write a runbook as an MDX file, which is markdown plus a small set of components that Runbooks calls [blocks](/authoring/blocks/).
 
-Runbooks also gives authors an opportunity for fast feedback loops. When users are frustrated by static documentation, they often suffer silently. But the nature of Runbooks enables users to give specific feedback about a missing check, missing command, or missing input value for templates. Authors can iteratively incorporate this feedback so that a Runbook can gradually grow to reflect the accumulated body of experience of all its consumers, leaving the next Runbook consumer with a surprisingly streamlined experience.
+Consumers can report a missing check, command, or template input, and the author can add it to the runbook for the next consumer. A runbook can also generate automated tests alongside the code it produces.
 
-Finally, because Runbooks can generate arbitrary code, Runbook authors can even produce automated tests along with the "consumable" code to validate that the Runbook works as expected.
+## vs. internal developer portals
 
-## vs. Internal developer portals
+Internal developer portals (IDPs) like [Backstage](https://backstage.io/) and [Port](https://www.getport.io/) give developers one interface for service catalogs, software templates, API documentation, and dashboards.
 
-Internal Developer Portals (IDPs) like [Backstage](https://backstage.io/) and [Port](https://www.getport.io/) provide a unified interface for developers and typically include service catalogs, software templates, API documentation, and dashboards that give visibility into the entire engineering ecosystem.
+One popular use for IDPs is template generation. Backstage, for example, uses the Scaffolder plugin for templates written in the Nunjucks templating language. It presents users with a catalog of templates to choose from, but the templating has shortcomings.
 
-One popular use case for IDPs is template generation. For example, Backstage uses the Scaffolder plugin to enable templates that uses the Nunjucks templating language. Backstage presents users with a nice catalog of templates to choose from, however the templating experience itself suffers from several shortcomings.
+End users cannot preview the code they will generate as they fill in values, and cannot easily validate that what they generated works. Any documentation for the template is typically generated as code, separate from the form the user fills in.
 
-For end users, they cannot preview the code they will generate in real time, they cannot easily validate that the template they generated performed as expected, and any documentation associated with the template is typically generated as code rather than being part of the experience. 
+Template authors have to run the same template repeatedly and work through Backstage configuration issues. Backstage itself takes real effort to set up and maintain.
 
-For template authors, the authoring experience can be challenging, requiring repeated runs of the same template and wrestling with unique Backstage configuration issues. In addition, Backstage itself is non-trivial to both setup and maintain.
+With Runbooks, a consumer installs the desktop app and runs `runbooks open /path/to/runbook`, or `runbooks open https://github.com/org/repo/tree/main/path/to/runbook` for a remote runbook. In one window they read the documentation, see the files they will generate as they type, run commands, and run checks.
 
-By contrast, Runbooks offers a self-contained first-class templating experience for both end users and template authors. For consumers, they install runbooks from GitHub and run `runbooks open /path/to/runbook` (or `runbooks open https://github.com/org/repo/tree/main/path/to/runbook` for a remote URL) and can instantly read rich documentation, see the files they will generate in real-time, run a customized set of commands, and validate that everything is working correctly.
+An author installs the same app, writes a `runbook.mdx` file, and sees each save reloaded with `runbooks open --watch /path/to/runbook`. Authors can test template generation in Runbooks, or run the [Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) templating engine directly.
 
-For authors, there is nothing to configure. You download the `runbooks` binary and author a Runbook by writing a `runbook.mdx` file, and seeing real-time changes with `runbooks --watch /path/to/runbook`. Authors can test template generation locally using the Runbooks tool itself, or for even more control over the feedback loop, authors can opt to directly use the [Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) templating engine. As a result, authors have real-time feedback loops on everything they create.
+## vs. Jupyter notebooks
 
-## Vs. Jupyter Notebooks
+Jupyter notebooks and runbooks both combine code and documentation in one document. They differ in who the document is for, what each step produces, and how much the document can do.
 
-Jupyter notebooks are interactive computational documents that combine live code, visualizations, narrative text, and equations in a single environment. They follow a "literate programming" paradigm where documentation and code coexist, making them ideal for data analysis, scientific computing, education, and reproducible research.
+### Who the document is for
 
-Jupyter Notebooks are oriented heavily around IPython, an extension of standard Python, where they maintain a "Python program state" as you work.
+A Jupyter notebook is optimized for its author, who uses it as a canvas to evolve program state step by step and show their work.
 
-Runbooks also combine both code and documentation in a single environment, however there are a few key differences compared to Jupyter Notebooks:
+A runbook is optimized for its consumer. The author writes down what they know about a specific DevOps pattern, and the consumer applies it.
 
-1. **Author-Focused vs Consumer-Focused**: Jupyter Notebooks are optimized for the author, with a special focus on giving authors a useful "canvas" to incrementally evolve program state and produce artifacts. They are especially well suited to enabling notebook authors to "show their work."
+Running a notebook means setting up Python and Jupyter first. Opening a runbook takes the desktop app and one command, `runbooks open /path/to/runbook`, or the same command with a remote URL such as `runbooks open https://github.com/org/repo/tree/main/runbooks/my-runbook`.
 
-   By contrast, Runbooks is focused more on the _consumer_ of the Runbook than the author. In the Runbooks way of thinking, authors are not "exploring ideas," but codifying their knowledge and insights around a specific DevOps pattern. Runbook consumers then get a first-class experience learning and applying this pattern for their needs.
+### What each step produces
 
-   Moreover, running a Jupyter Notebook is not straightforward for those who do it only periodically. By contrast, Runbooks can be opened by downloading the runbooks binary and running `runbooks open /path/to/runbook` or pointing it at a remote URL like `runbooks open https://github.com/org/repo/tree/main/runbooks/my-runbook`.
+Each cell in a Jupyter notebook changes the state of a Python program.
 
-2. **Internal Program State vs External Artifacts**: With each "cell" in a Jupyter Notebook, the notebook author evolves the state of a Python program.
+Each block in a runbook produces something outside the document: generated files, changes made by commands, and checks that confirm the step worked.
 
-   By contrast, with each block in a Runbook, the Runbook consumer is making progress against their use case and generating the artifacts of generated files, updated external state (by running commands), and personal confidence that they are succeeding.
-   
-   In other words, for Jupyter Notebooks, the "artifact" is updates to an internal program, whereas for Runbooks, the artifact is files, external state changes, and end user confidence.
+### How much the document can do
 
-2. **Optimized for power vs UX**: Jupyter Notebooks are powerful environments that can execute arbitrary code, generate charts, and allow authors to trace back execution history and restart execution. 
+Jupyter notebooks can execute arbitrary code, draw charts, and let authors trace back and restart execution.
 
-   By contrast, Runbooks offers a less powerful canvas for code execution. For example, Runbooks does not support a concept of "program state" that can be passed down to subsequent blocks. However, Runbooks offers a more streamlined file generation experience, making it simple for Runbook consumers to enter values in a web form to generate custom files, run custom commands, or run custom checks.
-
-   In short, Runbooks trades power for a more streamlined UX on a more narrow set of highly important capabilities. As a result, any Runbook _could_ be written as a Jupyter Notebook, but the authorship experience would be more clumsy, and the end user experience would be more confusing.
+Runbooks does less. Blocks pass environment variables and named outputs to later blocks, but no in-memory program state. In exchange, a consumer fills in a form to generate files, run commands, or run checks.

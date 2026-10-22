@@ -5,8 +5,8 @@
  * A path or URL is one long word. Inside a flex item that keeps the default
  * `min-width: auto`, that word sets the item's min-content width, so the item
  * (and everything it holds) overflows the block and the runbook pane grows a
- * horizontal scrollbar. This launches the real app at a ~900px window on a
- * runbook generated at test time — Admonitions, Command/Check descriptions,
+ * horizontal scrollbar. This launches the real app with a 900px-wide viewport
+ * on a runbook generated at test time — Admonitions, Command/Check descriptions,
  * every auth block's description, a GitClone local-checkout completion for a
  * repo under a long temp path, and a "Can't use this directory" error panel —
  * and measures the rendered layout. A second test checks that the full-width
@@ -21,12 +21,21 @@
  * Run with:
  *   bunx playwright test --config electron/e2e/playwright.config.ts long-paths.spec.ts
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Locator, type Page } from "@playwright/test"
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Locator,
+  type Page,
+} from "@playwright/test"
 import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
+import { resizeMainWindow } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -121,7 +130,7 @@ test.beforeAll(async () => {
     GIT_COMMITTER_NAME: "Runbooks E2E",
     GIT_COMMITTER_EMAIL: "e2e@example.com",
     ELECTRON_NO_UPDATER: "1",
-    RUNBOOKS_NO_TELEMETRY: "1",
+    RUNBOOKS_TELEMETRY_DISABLE: "1",
     // Skip populateShellEnv so the sandboxed HOME and git env survive.
     TERM_PROGRAM: "runbooks-e2e",
   })
@@ -137,15 +146,15 @@ test.beforeAll(async () => {
   fs.writeFileSync(path.join(runbookDir, "checks", "ok.sh"), "#!/bin/bash\nexit 0\n")
 
   app = await electron.launch({
-    args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`, runbookDir],
+    args: [MAIN_ENTRY, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`, runbookDir],
     env: env as Record<string, string>,
   })
   page = await app.firstWindow()
   await page.waitForLoadState("domcontentloaded")
-  await app.evaluate(({ BrowserWindow }, width) => {
-    BrowserWindow.getAllWindows()[0]?.setSize(width, 900)
-  }, WINDOW_WIDTH)
-  await expect.poll(() => page.evaluate(() => window.outerWidth)).toBe(WINDOW_WIDTH)
+  await resizeMainWindow(app, WINDOW_WIDTH, 900)
+  // Wait on the viewport, which the layout uses, not window.outerWidth: on Linux
+  // that also counts a frame border drawn outside the window (see resizeMainWindow).
+  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(WINDOW_WIDTH)
   await page.waitForSelector("h1", { timeout: 60_000 })
 
   const trustButton = page.getByRole("button", { name: "I trust this Runbook" })
@@ -206,7 +215,11 @@ function findOverflows(): Overflow[] {
       range.selectNodeContents(node)
       const rect = range.getBoundingClientRect()
       if (rect.width > 0 && rect.right > limit) {
-        out.push({ block: blockName, node: `text in ${describe(parent)}`, overBy: Math.round(rect.right - limit) })
+        out.push({
+          block: blockName,
+          node: `text in ${describe(parent)}`,
+          overBy: Math.round(rect.right - limit),
+        })
       }
     }
   }
@@ -248,7 +261,10 @@ test("long paths and URLs stay inside their blocks at a narrow window", async ()
     expect(await code.evaluate((el) => el.getClientRects().length), id).toBe(1)
   }
 
-  const widths = await content.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }))
+  const widths = await content.evaluate((el) => ({
+    scroll: el.scrollWidth,
+    client: el.clientWidth,
+  }))
   expect(widths.scroll).toBe(widths.client)
 })
 
@@ -263,8 +279,10 @@ async function rowLayout(blockId: string, row: Locator) {
   const box = await row.boundingBox()
   if (!label || !box) throw new Error(`${blockId}: ID label or row not rendered`)
   const underLabel =
-    box.x < label.x + label.width && label.x < box.x + box.width &&
-    box.y < label.y + label.height && label.y < box.y + box.height
+    box.x < label.x + label.width &&
+    label.x < box.x + box.width &&
+    box.y < label.y + label.height &&
+    label.y < box.y + box.height
   const rightGap = await row.evaluate(
     (el) => el.parentElement!.getBoundingClientRect().right - el.getBoundingClientRect().right,
   )
@@ -292,13 +310,19 @@ test("the command box and separator never sit under the block ID label", async (
   // Untitled Command: a status line ("Run a command", then "Success") sits
   // above the box, which keeps one width across those states.
   const pending = await commandBox("cmd-untitled", "echo untitled")
-  expect.soft(pending.underLabel, "pending untitled Command: command box under the ID label").toBe(false)
+  expect
+    .soft(pending.underLabel, "pending untitled Command: command box under the ID label")
+    .toBe(false)
   const block = page.getByTestId("cmd-untitled")
   await block.getByRole("button", { name: "Run" }).click()
   await expect(block.getByTestId("icon-success")).toBeVisible({ timeout: 30_000 })
   const ran = await commandBox("cmd-untitled", "echo untitled")
-  expect.soft(ran.underLabel, "untitled Command after a run: command box under the ID label").toBe(false)
-  expect.soft(ran.rightGap, "untitled Command: box width changes once it has run").toBe(pending.rightGap)
+  expect
+    .soft(ran.underLabel, "untitled Command after a run: command box under the ID label")
+    .toBe(false)
+  expect
+    .soft(ran.rightGap, "untitled Command: box width changes once it has run")
+    .toBe(pending.rightGap)
 
   // Titled: the title row sits beside the label, and the box spans the column.
   const titled = await commandBox("cmd-described", "echo described")

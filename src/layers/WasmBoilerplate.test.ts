@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
-import { Effect, Either, Fiber, Layer } from "effect"
+import { Effect, Result, Fiber, Layer } from "effect"
 import { RenderError, WasmError } from "../errors/index.ts"
-import { BoilerplateRenderer, type BoilerplateRendererShape } from "../services/BoilerplateRenderer.ts"
+import {
+  BoilerplateRenderer,
+  type BoilerplateRendererShape,
+} from "../services/BoilerplateRenderer.ts"
 import { WasmRuntime, type WasmRuntimeShape } from "../services/WasmRuntime.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { makeControlledSpawner, makeTestSpawner } from "../test-utils/TestSpawner.ts"
@@ -33,18 +36,18 @@ describe("resolveBoilerplateBinary", () => {
 
   it("fails with RenderError instead of falling back to PATH when unset", async () => {
     delete process.env.BOILERPLATE_BIN
-    const result = await Effect.runPromise(Effect.either(resolveBoilerplateBinary()))
-    expect(Either.isLeft(result)).toBe(true)
-    if (Either.isLeft(result)) {
-      expect(result.left).toBeInstanceOf(RenderError)
-      expect(result.left.message).toContain("BOILERPLATE_BIN is not set")
+    const result = await Effect.runPromise(Effect.result(resolveBoilerplateBinary()))
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(RenderError)
+      expect(result.failure.message).toContain("BOILERPLATE_BIN is not set")
     }
   })
 
   it("treats an empty BOILERPLATE_BIN as unset", async () => {
     process.env.BOILERPLATE_BIN = ""
-    const result = await Effect.runPromise(Effect.either(resolveBoilerplateBinary()))
-    expect(Either.isLeft(result)).toBe(true)
+    const result = await Effect.runPromise(Effect.result(resolveBoilerplateBinary()))
+    expect(Result.isFailure(result)).toBe(true)
   })
 })
 
@@ -52,7 +55,9 @@ async function until(condition: () => boolean, timeoutMs = 2000): Promise<void> 
   const deadline = Date.now() + timeoutMs
   while (!condition()) {
     if (Date.now() > deadline) throw new Error("timed out waiting for condition")
-    await new Promise((resolve) => setTimeout(resolve, 5))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5)
+    })
   }
 }
 
@@ -95,7 +100,7 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
     await until(() => spawner.processes.length === 1)
     await Effect.runPromise(Fiber.interrupt(render))
 
-    expect(spawner.processes[0].killed()).toBe(true)
+    expect(spawner.processes[0]!.killed()).toBe(true)
   })
 
   it("kills the subprocess when the render is interrupted while the spawn is completing", async () => {
@@ -106,25 +111,23 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
     const render = Effect.runFork(renderer.renderTemplate("/tpl", "/out", { Name: "a" }))
     await until(() => spawner.processes.length === 1)
     const interrupted = Effect.runPromise(Fiber.interrupt(render))
-    spawner.processes[0].completeSpawn()
+    spawner.processes[0]!.completeSpawn()
     await interrupted
 
-    expect(spawner.processes[0].killed()).toBe(true)
+    expect(spawner.processes[0]!.killed()).toBe(true)
   })
 
   it("fails with the CLI's stderr when boilerplate exits non-zero", async () => {
     const { spawner, renderer } = makeRenderer()
 
-    const render = Effect.runPromise(
-      Effect.either(renderer.renderTemplate("/tpl", "/out", {})),
-    )
+    const render = Effect.runPromise(Effect.result(renderer.renderTemplate("/tpl", "/out", {})))
     await until(() => spawner.processes.length === 1)
-    spawner.processes[0].finish(1, [{ line: "missing required variable Name", source: "stderr" }])
+    spawner.processes[0]!.finish(1, [{ line: "missing required variable Name", source: "stderr" }])
 
     const result = await render
-    expect(Either.isLeft(result)).toBe(true)
-    if (Either.isLeft(result)) {
-      expect(result.left.message).toBe(
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toBe(
         "boilerplate exited with code 1: missing required variable Name",
       )
     }
@@ -141,11 +144,12 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
       await until(() => spawner.processes.length === 1)
 
       // The value really does reach the CLI through the var file...
-      const args = spawner.processes[0].args
+      const args = spawner.processes[0]!.args
       const varFile = args[args.indexOf("--var-file") + 1]
-      expect(files[varFile]).toContain("hunter2-s3cret")
+      expect(varFile).toBeDefined()
+      expect(files[varFile!]).toContain("hunter2-s3cret")
 
-      spawner.processes[0].finish(0)
+      spawner.processes[0]!.finish(0)
       await render
 
       // ...but never main-process stdout, where a sensitive input would leak.
@@ -174,16 +178,13 @@ describe("WasmBoilerplateLive single-string renders", () => {
     }
     return Layer.provide(
       WasmBoilerplateLive,
-      Layer.mergeAll(
-        makeTestFileSystem(),
-        makeTestSpawner(),
-        Layer.succeed(WasmRuntime, wasm),
-      ),
+      Layer.mergeAll(makeTestFileSystem(), makeTestSpawner(), Layer.succeed(WasmRuntime, wasm)),
     )
   }
 
   const templateError = new WasmError({
-    message: 'template: template:1:22: executing "template" at <.Names>: map has no entry for key "Names"',
+    message:
+      'template: template:1:22: executing "template" at <.Names>: map has no entry for key "Names"',
     kind: "internal",
   })
 
@@ -192,25 +193,27 @@ describe("WasmBoilerplateLive single-string renders", () => {
     f: (r: BoilerplateRendererShape) => Effect.Effect<A, RenderError>,
   ) {
     return Effect.runPromise(
-      Effect.either(Effect.flatMap(BoilerplateRenderer, f)).pipe(Effect.provide(layer)),
+      Effect.result(Effect.flatMap(BoilerplateRenderer, f)).pipe(Effect.provide(layer)),
     )
   }
 
   it("renderFileStrict fails with RenderError on a template error", async () => {
     const layer = rendererOver(() => Effect.fail(templateError))
-    const result = await run(layer, (r) => r.renderFileStrict("docker ps --format '{{.Names}}'", {}))
-    expect(Either.isLeft(result)).toBe(true)
-    if (Either.isLeft(result)) {
-      expect(result.left).toBeInstanceOf(RenderError)
-      expect(result.left.message).toBe(templateError.message)
-      expect(result.left.cause).toBe(templateError)
+    const result = await run(layer, (r) =>
+      r.renderFileStrict("docker ps --format '{{.Names}}'", {}),
+    )
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(RenderError)
+      expect(result.failure.message).toBe(templateError.message)
+      expect(result.failure.cause).toBe(templateError)
     }
   })
 
   it("renderFile still renders a template error as an inline marker for previews", async () => {
     const layer = rendererOver(() => Effect.fail(templateError))
     const result = await run(layer, (r) => r.renderFile("docker ps --format '{{.Names}}'", {}))
-    expect(result).toEqual(Either.right(`[template error: ${templateError.message}]`))
+    expect(result).toEqual(Result.succeed(`[template error: ${templateError.message}]`))
   })
 
   it("both fail with RenderError when the WASM runtime cannot load", async () => {
@@ -219,8 +222,8 @@ describe("WasmBoilerplateLive single-string renders", () => {
     )
     for (const method of ["renderFile", "renderFileStrict"] as const) {
       const result = await run(layer, (r) => r[method]("{{ .inputs.X }}", {}))
-      expect(Either.isLeft(result)).toBe(true)
-      if (Either.isLeft(result)) expect(result.left).toBeInstanceOf(RenderError)
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(RenderError)
     }
   })
 
@@ -232,7 +235,7 @@ describe("WasmBoilerplateLive single-string renders", () => {
     })
     const vars = { inputs: { A: "it's here" }, outputs: { b: { K: "v" } } }
     const result = await run(layer, (r) => r.renderFileStrict("X", vars))
-    expect(result).toEqual(Either.right("rendered"))
+    expect(result).toEqual(Result.succeed("rendered"))
     expect(JSON.parse(seenVars)).toEqual(vars)
   })
 })

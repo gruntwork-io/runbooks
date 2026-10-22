@@ -51,7 +51,10 @@ describe("githubEnvBindings", () => {
   })
 
   it("GH_HOST=<GHES> → standard github.com + enterprise GHES", () => {
-    expect(githubEnvBindings({ GH_HOST: GHES })).toEqual({ standard: "github.com", enterprise: GHES })
+    expect(githubEnvBindings({ GH_HOST: GHES })).toEqual({
+      standard: "github.com",
+      enterprise: GHES,
+    })
     expect(githubEnvBindings({ GH_HOST: "GHES.example.com:8443" })).toEqual({
       standard: "github.com",
       enterprise: "ghes.example.com:8443",
@@ -103,14 +106,25 @@ describe("githubEnvTokenVarsForHost / githubEnvCredentialForHost — scoping mat
 
   it("GH_HOST=GHES: GH_ENTERPRISE_TOKEN only for that GHES host; GITHUB_TOKEN still github.com only", () => {
     const env = { ...ALL, GH_HOST: GHES }
-    expect(githubEnvTokenVarsForHost(GHES, env)).toEqual(["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"])
-    expect(githubEnvCredentialForHost(GHES, env)).toEqual({ token: "ghp_enterprise", envVar: "GH_ENTERPRISE_TOKEN" })
+    expect(githubEnvTokenVarsForHost(GHES, env)).toEqual([
+      "GH_ENTERPRISE_TOKEN",
+      "GITHUB_ENTERPRISE_TOKEN",
+    ])
+    expect(githubEnvCredentialForHost(GHES, env)).toEqual({
+      token: "ghp_enterprise",
+      envVar: "GH_ENTERPRISE_TOKEN",
+    })
     // never GITHUB_TOKEN for a GHES host
-    expect(githubEnvCredentialForHost(GHES, { GITHUB_TOKEN: "ghp_dotcom", GH_HOST: GHES })).toBeUndefined()
+    expect(
+      githubEnvCredentialForHost(GHES, { GITHUB_TOKEN: "ghp_dotcom", GH_HOST: GHES }),
+    ).toBeUndefined()
     // never GH_ENTERPRISE_TOKEN for github.com
     expect(githubEnvCredentialForHost("github.com", env)?.envVar).toBe("GITHUB_TOKEN")
     expect(
-      githubEnvCredentialForHost("github.com", { GH_ENTERPRISE_TOKEN: "ghp_enterprise", GH_HOST: GHES }),
+      githubEnvCredentialForHost("github.com", {
+        GH_ENTERPRISE_TOKEN: "ghp_enterprise",
+        GH_HOST: GHES,
+      }),
     ).toBeUndefined()
     // never to a DIFFERENT GHES host (no harvesting via an authored host)
     expect(githubEnvCredentialForHost("other-ghes.example.com", env)).toBeUndefined()
@@ -120,10 +134,16 @@ describe("githubEnvTokenVarsForHost / githubEnvCredentialForHost — scoping mat
 
   it("GITHUB_ENTERPRISE_TOKEN is the fallback for the GHES host (gh's order)", () => {
     const env = { GH_HOST: GHES, GITHUB_ENTERPRISE_TOKEN: "ghp_e2" }
-    expect(githubEnvCredentialForHost(GHES, env)).toEqual({ token: "ghp_e2", envVar: "GITHUB_ENTERPRISE_TOKEN" })
+    expect(githubEnvCredentialForHost(GHES, env)).toEqual({
+      token: "ghp_e2",
+      envVar: "GITHUB_ENTERPRISE_TOKEN",
+    })
     // no GITHUB_TOKEN/GH_TOKEN divergence hint on the enterprise pair
     const both = { GH_HOST: GHES, GH_ENTERPRISE_TOKEN: "a", GITHUB_ENTERPRISE_TOKEN: "b" }
-    expect(githubEnvCredentialForHost(GHES, both)).toEqual({ token: "a", envVar: "GH_ENTERPRISE_TOKEN" })
+    expect(githubEnvCredentialForHost(GHES, both)).toEqual({
+      token: "a",
+      envVar: "GH_ENTERPRISE_TOKEN",
+    })
   })
 
   it("GH_HOST=<ghe.com>: GITHUB_TOKEN only for that tenant, NOT github.com", () => {
@@ -133,7 +153,9 @@ describe("githubEnvTokenVarsForHost / githubEnvCredentialForHost — scoping mat
     // another tenant gets nothing
     expect(githubEnvCredentialForHost("other.ghe.com", env)).toBeUndefined()
     // enterprise tokens are never bound for a ghe.com GH_HOST
-    expect(githubEnvCredentialForHost(GHEC, { GH_HOST: GHEC, GH_ENTERPRISE_TOKEN: "e" })).toBeUndefined()
+    expect(
+      githubEnvCredentialForHost(GHEC, { GH_HOST: GHEC, GH_ENTERPRISE_TOKEN: "e" }),
+    ).toBeUndefined()
   })
 
   it("the target host is normalized (case, URL form, api. origin)", () => {
@@ -190,12 +212,20 @@ describe("githubEnvTokenVarsForHost / githubEnvCredentialForHost — scoping mat
       // never the prefixed github.com token for the GHES host, nor the reverse
       expect(githubEnvCredentialForHost("github.com", env, "MYAPP_")?.token).toBe("p_dotcom")
       expect(
-        githubEnvCredentialForHost(GHES, { MYAPP_GH_HOST: GHES, MYAPP_GITHUB_TOKEN: "p_dotcom" }, "MYAPP_"),
+        githubEnvCredentialForHost(
+          GHES,
+          { MYAPP_GH_HOST: GHES, MYAPP_GITHUB_TOKEN: "p_dotcom" },
+          "MYAPP_",
+        ),
       ).toBeUndefined()
     })
 
     it("the unprefixed GH_HOST does NOT bind prefixed tokens", () => {
-      const env = { GH_HOST: GHES, MYAPP_GH_ENTERPRISE_TOKEN: "p_ent", MYAPP_GITHUB_TOKEN: "p_dotcom" }
+      const env = {
+        GH_HOST: GHES,
+        MYAPP_GH_ENTERPRISE_TOKEN: "p_ent",
+        MYAPP_GITHUB_TOKEN: "p_dotcom",
+      }
       expect(githubEnvCredentialForHost(GHES, env, "MYAPP_")).toBeUndefined()
       expect(githubEnvCredentialForHost("github.com", env, "MYAPP_")?.token).toBe("p_dotcom")
     })
@@ -226,16 +256,22 @@ describe("githubEnvTokenVarsForHost / githubEnvCredentialForHost — scoping mat
 
 describe("detectEnvCredentials(host, prefix)", () => {
   const run = (env: Record<string, string>, host?: string, prefix?: string) =>
-    Effect.runPromise(detectEnvCredentials(host, prefix).pipe(Effect.provide(makeTestEnvironment(env))))
+    Effect.runPromise(
+      detectEnvCredentials(host, prefix).pipe(Effect.provide(makeTestEnvironment(env))),
+    )
 
   it("defaults to github.com", async () => {
-    expect((await run({ GITHUB_TOKEN: "d", GH_HOST: GHES, GH_ENTERPRISE_TOKEN: "e" }))?.token).toBe("d")
+    expect((await run({ GITHUB_TOKEN: "d", GH_HOST: GHES, GH_ENTERPRISE_TOKEN: "e" }))?.token).toBe(
+      "d",
+    )
   })
 
   it("GHES host: only GH_ENTERPRISE_TOKEN bound by GH_HOST", async () => {
     expect(await run({ GITHUB_TOKEN: "d" }, GHES)).toBeUndefined()
     expect(await run({ GITHUB_TOKEN: "d", GH_ENTERPRISE_TOKEN: "e" }, GHES)).toBeUndefined()
-    expect((await run({ GITHUB_TOKEN: "d", GH_ENTERPRISE_TOKEN: "e", GH_HOST: GHES }, GHES))?.token).toBe("e")
+    expect(
+      (await run({ GITHUB_TOKEN: "d", GH_ENTERPRISE_TOKEN: "e", GH_HOST: GHES }, GHES))?.token,
+    ).toBe("e")
   })
 
   it("ghe.com host: GITHUB_TOKEN only when GH_HOST names the tenant", async () => {
@@ -244,9 +280,18 @@ describe("detectEnvCredentials(host, prefix)", () => {
   })
 
   it("prefix variant follows <PREFIX>GH_HOST", async () => {
-    const env = { MYAPP_GH_HOST: GHES, MYAPP_GH_ENTERPRISE_TOKEN: "p_ent", GH_ENTERPRISE_TOKEN: "ambient" }
-    expect(await run(env, GHES, "MYAPP_")).toEqual({ token: "p_ent", envVar: "MYAPP_GH_ENTERPRISE_TOKEN" })
-    expect(await run({ GH_HOST: GHES, MYAPP_GH_ENTERPRISE_TOKEN: "p_ent" }, GHES, "MYAPP_")).toBeUndefined()
+    const env = {
+      MYAPP_GH_HOST: GHES,
+      MYAPP_GH_ENTERPRISE_TOKEN: "p_ent",
+      GH_ENTERPRISE_TOKEN: "ambient",
+    }
+    expect(await run(env, GHES, "MYAPP_")).toEqual({
+      token: "p_ent",
+      envVar: "MYAPP_GH_ENTERPRISE_TOKEN",
+    })
+    expect(
+      await run({ GH_HOST: GHES, MYAPP_GH_ENTERPRISE_TOKEN: "p_ent" }, GHES, "MYAPP_"),
+    ).toBeUndefined()
   })
 })
 
@@ -272,9 +317,15 @@ describe("detectCliCredentials(host)", () => {
     )
     const token = await Effect.runPromise(detectCliCredentials(GHES).pipe(Effect.provide(layer)))
     expect(token).toBe("ghp_from_gh")
-    expect(spawner.calls[0].args).toEqual(["auth", "token", "--hostname", GHES])
-    const env = spawner.calls[0].env!
-    for (const name of ["GH_HOST", "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]) {
+    expect(spawner.calls[0]!.args).toEqual(["auth", "token", "--hostname", GHES])
+    const env = spawner.calls[0]!.env!
+    for (const name of [
+      "GH_HOST",
+      "GH_TOKEN",
+      "GITHUB_TOKEN",
+      "GH_ENTERPRISE_TOKEN",
+      "GITHUB_ENTERPRISE_TOKEN",
+    ]) {
       expect(env[name]).toBeUndefined()
     }
   })
@@ -317,9 +368,9 @@ describe("parseGhHosts", () => {
   })
 
   it("skips keys that are not parseable hosts", () => {
-    expect(parseGhHosts("github.com:\n  user: a\n'ftp://bad':\n  user: b\n'u:p@x':\n  user: c\n")).toEqual([
-      "github.com",
-    ])
+    expect(
+      parseGhHosts("github.com:\n  user: a\n'ftp://bad':\n  user: b\n'u:p@x':\n  user: c\n"),
+    ).toEqual(["github.com"])
   })
 
   it("is empty for invalid / non-mapping YAML", () => {
@@ -332,11 +383,17 @@ describe("parseGhHosts", () => {
 describe("parseGhHostsToken (per host)", () => {
   it("reads each host's own oauth_token", () => {
     expect(parseGhHostsToken(MULTI_HOST_YML)).toEqual({ entryExists: true, token: "gho_dotcom" })
-    expect(parseGhHostsToken(MULTI_HOST_YML, "github.com")).toEqual({ entryExists: true, token: "gho_dotcom" })
+    expect(parseGhHostsToken(MULTI_HOST_YML, "github.com")).toEqual({
+      entryExists: true,
+      token: "gho_dotcom",
+    })
   })
 
   it("matches the key case-insensitively / by normalized form", () => {
-    expect(parseGhHostsToken(MULTI_HOST_YML, "ghes.example.com")).toEqual({ entryExists: true, token: "ghp_ghes" })
+    expect(parseGhHostsToken(MULTI_HOST_YML, "ghes.example.com")).toEqual({
+      entryExists: true,
+      token: "ghp_ghes",
+    })
     expect(parseGhHostsToken(MULTI_HOST_YML, "https://GHES.EXAMPLE.COM/o/r")).toEqual({
       entryExists: true,
       token: "ghp_ghes",
@@ -344,13 +401,17 @@ describe("parseGhHostsToken (per host)", () => {
   })
 
   it("falls back to the gh ≥ 2.40 `users:` layout for the ACTIVE user", () => {
-    expect(parseGhHostsToken(MULTI_HOST_YML, "acme.ghe.com")).toEqual({ entryExists: true, token: "gho_tenant" })
+    expect(parseGhHostsToken(MULTI_HOST_YML, "acme.ghe.com")).toEqual({
+      entryExists: true,
+      token: "gho_tenant",
+    })
     // api.<sub>.ghe.com normalizes to the tenant
     expect(parseGhHostsToken(MULTI_HOST_YML, "api.acme.ghe.com").token).toBe("gho_tenant")
   })
 
   it("top-level oauth_token wins over the users: layout", () => {
-    const yml = "github.com:\n  user: a\n  oauth_token: top\n  users:\n    a:\n      oauth_token: nested\n"
+    const yml =
+      "github.com:\n  user: a\n  oauth_token: top\n  users:\n    a:\n      oauth_token: nested\n"
     expect(parseGhHostsToken(yml).token).toBe("top")
   })
 
@@ -366,7 +427,9 @@ describe("parseGhHostsToken (per host)", () => {
 
   it("a host not in the file → entryExists false (never another host's token)", () => {
     expect(parseGhHostsToken(MULTI_HOST_YML, "other.example.com")).toEqual({ entryExists: false })
-    expect(parseGhHostsToken("ghes.example.com:\n  oauth_token: t\n", "github.com")).toEqual({ entryExists: false })
+    expect(parseGhHostsToken("ghes.example.com:\n  oauth_token: t\n", "github.com")).toEqual({
+      entryExists: false,
+    })
   })
 
   it("an unparseable target host → entryExists false", () => {
@@ -381,7 +444,9 @@ describe("detectHostsYmlCredentials / detectGhConfigHosts", () => {
   )
 
   it("reads the requested host's entry from hosts.yml", async () => {
-    const ghes = await Effect.runPromise(detectHostsYmlCredentials(GHES).pipe(Effect.provide(layer)))
+    const ghes = await Effect.runPromise(
+      detectHostsYmlCredentials(GHES).pipe(Effect.provide(layer)),
+    )
     expect(ghes).toEqual({ entryExists: true, token: "ghp_ghes" })
     const dotcom = await Effect.runPromise(detectHostsYmlCredentials().pipe(Effect.provide(layer)))
     expect(dotcom.token).toBe("gho_dotcom")
@@ -395,9 +460,14 @@ describe("detectHostsYmlCredentials / detectGhConfigHosts", () => {
   })
 
   it("no hosts.yml → no hosts, no entry", async () => {
-    const empty = Layer.mergeAll(makeTestEnvironment({ GH_CONFIG_DIR: "/none" }), makeTestFileSystem({}))
+    const empty = Layer.mergeAll(
+      makeTestEnvironment({ GH_CONFIG_DIR: "/none" }),
+      makeTestFileSystem({}),
+    )
     expect(await Effect.runPromise(detectGhConfigHosts().pipe(Effect.provide(empty)))).toEqual([])
-    expect(await Effect.runPromise(detectHostsYmlCredentials(GHES).pipe(Effect.provide(empty)))).toEqual({
+    expect(
+      await Effect.runPromise(detectHostsYmlCredentials(GHES).pipe(Effect.provide(empty))),
+    ).toEqual({
       entryExists: false,
     })
   })
@@ -517,22 +587,35 @@ describe("githubSessionCredential", () => {
     expect(githubSessionCredential(env, "github.com")).toEqual({ token: "d", host: "github.com" })
     expect(githubSessionCredential({ GITHUB_TOKEN: "d" }, GHES)).toBeUndefined()
     expect(githubSessionCredential({ GITHUB_TOKEN: "d" }, GHEC)).toBeUndefined()
-    expect(githubSessionCredential({ GITHUB_TOKEN: "d", GH_HOST: GHEC }, GHEC)).toEqual({ token: "d", host: GHEC })
+    expect(githubSessionCredential({ GITHUB_TOKEN: "d", GH_HOST: GHEC }, GHEC)).toEqual({
+      token: "d",
+      host: GHEC,
+    })
   })
 
   it("default host selection without an auth host: standard binding first, then enterprise, else github.com", () => {
     // standard binding has a token → it wins
-    expect(githubSessionCredential({ GITHUB_TOKEN: "d", GH_ENTERPRISE_TOKEN: "e", GH_HOST: GHES }, undefined)).toEqual({
+    expect(
+      githubSessionCredential(
+        { GITHUB_TOKEN: "d", GH_ENTERPRISE_TOKEN: "e", GH_HOST: GHES },
+        undefined,
+      ),
+    ).toEqual({
       token: "d",
       host: "github.com",
     })
     // only the enterprise token → the GHES host
-    expect(githubSessionCredential({ GH_ENTERPRISE_TOKEN: "e", GH_HOST: GHES }, undefined)).toEqual({
-      token: "e",
-      host: GHES,
-    })
+    expect(githubSessionCredential({ GH_ENTERPRISE_TOKEN: "e", GH_HOST: GHES }, undefined)).toEqual(
+      {
+        token: "e",
+        host: GHES,
+      },
+    )
     // ghe.com GH_HOST → the tenant
-    expect(githubSessionCredential({ GH_TOKEN: "t", GH_HOST: GHEC }, undefined)).toEqual({ token: "t", host: GHEC })
+    expect(githubSessionCredential({ GH_TOKEN: "t", GH_HOST: GHEC }, undefined)).toEqual({
+      token: "t",
+      host: GHEC,
+    })
     // nothing → undefined (default github.com has no token)
     expect(githubSessionCredential({}, undefined)).toBeUndefined()
   })
@@ -544,7 +627,11 @@ describe("githubSessionCredential", () => {
   })
 
   it("an unparseable GH_HOST in the session env binds nothing", () => {
-    expect(githubSessionCredential({ GITHUB_TOKEN: "t", GH_HOST: "not a host" }, "github.com")).toBeUndefined()
-    expect(githubSessionCredential({ GITHUB_TOKEN: "t", GH_HOST: "not a host" }, undefined)).toBeUndefined()
+    expect(
+      githubSessionCredential({ GITHUB_TOKEN: "t", GH_HOST: "not a host" }, "github.com"),
+    ).toBeUndefined()
+    expect(
+      githubSessionCredential({ GITHUB_TOKEN: "t", GH_HOST: "not a host" }, undefined),
+    ).toBeUndefined()
   })
 })

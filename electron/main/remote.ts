@@ -9,7 +9,7 @@ import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
 import { Cause, Effect, Exit } from "effect"
-import { runtime, getSessionTokenForHost } from "./ipc/runtime.ts"
+import { runtime, getSessionTokenForHost, noSessionCredential } from "./ipc/runtime.ts"
 import { describeCause } from "./ipc/ipc-error.ts"
 import { parseRemoteSource, redactSourceCredentials, resolveRef } from "../../src/remote-source.ts"
 import { resolveRunbookPath } from "../../src/domain/workspace/file.ts"
@@ -135,12 +135,12 @@ export function classifyCloneError(opts: {
   repo: string
   stderr: string
   hadToken: boolean
-  provider?: "github" | "gitlab"
+  provider?: "github" | "gitlab" | undefined
   /**
    * How the clone reached the host (default https). Tokens go only over
    * https: ssh authenticates with the user's keys, and http gets no token.
    */
-  transport?: "https" | "http" | "ssh"
+  transport?: "https" | "http" | "ssh" | undefined
 }): ClassifiedCloneError {
   const { host, owner, repo, stderr, hadToken, provider, transport } = opts
   const ssh = transport === "ssh"
@@ -244,9 +244,11 @@ export interface RemoteRunbookResult {
 }
 
 /**
- * Parse a remote source, clone the repo (sparse when the source names a
- * path), and resolve the runbook file within the clone. Typed failures carry
- * a message fit to show the user.
+ * Parse a remote source, clone the whole repo, and resolve the runbook file
+ * within the clone. The whole repo, not just the runbook's directory: as with
+ * go-getter's `//` subdirectory, a runbook may use files elsewhere in its
+ * repository, such as templates it wraps. Typed failures carry a message fit
+ * to show the user.
  */
 export const openRemoteRunbook = (rawUrl: string) =>
   Effect.gen(function* () {
@@ -262,7 +264,14 @@ export const openRemoteRunbook = (rawUrl: string) =>
     let parsed = yield* parseRemoteSource(rawUrl, {
       githubHosts: envHost ? [...configHosts, envHost] : configHosts,
     })
-    log.info("Parsed:", { host: parsed.host, owner: parsed.owner, repo: parsed.repo, ref: parsed.ref, path: parsed.path, refAndPath: parsed.refAndPath })
+    log.info("Parsed:", {
+      host: parsed.host,
+      owner: parsed.owner,
+      repo: parsed.repo,
+      ref: parsed.ref,
+      path: parsed.path,
+      refAndPath: parsed.refAndPath,
+    })
 
     // Get auth token early — needed for both resolveRef (git ls-remote)
     // and the clone itself. Session env first (a token established by
@@ -285,7 +294,7 @@ export const openRemoteRunbook = (rawUrl: string) =>
     // and the provider detection alone must never gate a credential.
     const sessionToken =
       overHttps && provider
-        ? yield* getSessionTokenForHost(provider, parsed.host, () => new Error("no session token")).pipe(
+        ? yield* getSessionTokenForHost(provider, parsed.host, noSessionCredential).pipe(
             Effect.orElseSucceed(() => undefined),
           )
         : undefined
@@ -328,8 +337,9 @@ export const openRemoteRunbook = (rawUrl: string) =>
         parsed.cloneURL,
         parsed.refAndPath,
         withGitHttpAuth(gitSpawnEnv(yield* resolveSshCommand()), parsed.cloneURL, token, username),
-      ).pipe(Effect.catchAll(failWithCloneHint))
-      parsed = { ...parsed, ref: resolved.ref, path: resolved.path, refAndPath: undefined }
+      ).pipe(Effect.catch(failWithCloneHint))
+      const { refAndPath: _split, ...unsplit } = parsed
+      parsed = { ...unsplit, ref: resolved.ref, path: resolved.path }
       log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
     }
 
@@ -338,19 +348,17 @@ export const openRemoteRunbook = (rawUrl: string) =>
     registerTempCloneDir(tempDir)
 
     const dest = path.join(tempDir, "repo")
-    log.info("Cloning to:", dest, "ref:", parsed.ref, "sparse:", parsed.path)
+    log.info("Cloning to:", dest, "ref:", parsed.ref)
 
-    // Clone with sparse checkout if a subpath is specified.
     const git = yield* GitClient
     const { ref } = parsed
     yield* git
       .cloneSimple(parsed.cloneURL, dest, {
-        ref,
-        token,
+        ...(ref !== undefined ? { ref } : {}),
+        ...(token !== undefined ? { token } : {}),
         username,
-        sparse: parsed.path,
       })
-      .pipe(Effect.catchAll(failWithCloneHint))
+      .pipe(Effect.catch(failWithCloneHint))
     log.info("Clone complete")
 
     // Resolve the runbook within the clone: a directory opens its
@@ -359,9 +367,10 @@ export const openRemoteRunbook = (rawUrl: string) =>
     const at = ref ? ` at ${ref}` : ""
     const target = parsed.path ? path.join(dest, parsed.path) : dest
     if (!fs.existsSync(target)) {
-      return yield* Effect.fail(
-        new RemoteSourceError({ url: source, message: `"${parsed.path}" was not found in ${repoLabel}${at}` }),
-      )
+      return yield* new RemoteSourceError({
+        url: source,
+        message: `"${parsed.path}" was not found in ${repoLabel}${at}`,
+      })
     }
     log.info("Resolving runbook in:", target)
     const localPath = yield* resolveRunbookPath(target).pipe(
@@ -376,9 +385,10 @@ export const openRemoteRunbook = (rawUrl: string) =>
     // The repo is untrusted: a symlink in it must not open a file outside
     // the clone.
     if (!(yield* Effect.promise(() => isContainedInReal(localPath, dest)))) {
-      return yield* Effect.fail(
-        new RemoteSourceError({ url: source, message: `"${parsed.path}" in ${repoLabel} points outside the repository` }),
-      )
+      return yield* new RemoteSourceError({
+        url: source,
+        message: `"${parsed.path}" in ${repoLabel} points outside the repository`,
+      })
     }
     log.info("Resolved runbook path:", localPath)
 
@@ -391,13 +401,13 @@ export const openRemoteRunbook = (rawUrl: string) =>
 /**
  * The value of a finished run, or a plain Error whose message is fit to show
  * the user: describeCause() (ipc/ipc-error.ts), so a typed failure gives its
- * message and a defect its message without stack frames. Across IPC a
- * FiberFailure would reach the renderer as "(FiberFailure) RemoteSourceError:
- * …". A defect is a bug, so its full Cause goes to MAIN's log instead.
+ * message and a defect its message without stack frames. A defect is a bug,
+ * so its full Cause goes to MAIN's log instead.
  */
 export function valueOrUserError<A, E>(exit: Exit.Exit<A, E>): A {
   if (Exit.isSuccess(exit)) return exit.value
-  if (Cause.isDie(exit.cause)) log.error("Opening a remote runbook hit a defect:", Cause.pretty(exit.cause))
+  if (Cause.hasDies(exit.cause))
+    log.error("Opening a remote runbook hit a defect:", Cause.pretty(exit.cause))
   throw new Error(describeCause(exit.cause))
 }
 

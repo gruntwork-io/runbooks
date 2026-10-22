@@ -1,5 +1,5 @@
-import type { ComponentPropsWithoutRef } from 'react'
-import { useTaskCheckbox } from '../hooks/useTaskCheckbox'
+import type { ComponentPropsWithoutRef } from "react"
+import { useTaskCheckbox } from "../hooks/useTaskCheckbox"
 
 /**
  * The interactive checkbox rendered in place of a markdown task-list item's
@@ -33,9 +33,9 @@ function InteractiveTaskCheckbox({
  *
  * Any other `<input>` (e.g. raw HTML embedded in MDX) passes through unchanged.
  */
-export function TaskListCheckbox(props: ComponentPropsWithoutRef<'input'>) {
-  const taskKey = (props as Record<string, unknown>)['data-task-key']
-  if (props.type === 'checkbox' && typeof taskKey === 'string') {
+export function TaskListCheckbox(props: ComponentPropsWithoutRef<"input">) {
+  const taskKey = (props as Record<string, unknown>)["data-task-key"]
+  if (props.type === "checkbox" && typeof taskKey === "string") {
     return (
       <InteractiveTaskCheckbox
         taskKey={taskKey}

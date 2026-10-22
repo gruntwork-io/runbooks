@@ -23,8 +23,11 @@
 | **just** | task / make | See `justfile` for recipes |
 | **mise** | nvm | Tool versioning (`.mise.toml`) |
 | **oxlint** | eslint | Linting |
+| **oxfmt** | prettier | Formatting (`.oxfmtrc.json`) |
+| **knip** | ts-prune | Unused files, exports and dependencies (`knip.json`) |
 | **electron-vite** | manual vite | Builds main, preload, renderer |
 | **Effect** | raw promises | Services, layers, typed errors, streams |
+| **React Compiler** | `useMemo` / `useCallback` | Memoizes components at build time (`scripts/vite-react.ts`); oxlint's `react-compiler` rules keep them compilable |
 | **OpenTofu** | Terraform | IaC examples |
 
 Add shadcn/ui components: `bunx shadcn@latest add <name>` (from the repo root)
@@ -42,23 +45,24 @@ just test-unit        # Vitest (src/ + web/)
 just test-e2e         # Playwright
 just test-runbooks    # CLI integration tests
 just lint             # oxlint
-just typecheck        # tsc -b
+just fmt              # oxfmt (fmt-check in CI)
+just knip             # Unused files, exports and dependencies
+just typecheck        # bun check
 ```
 
 ## Conventions
 
 ### Code Organization
-- Domain modules use `yield* ServiceTag` — never import Node.js APIs or SDKs directly
-- Layers are the only place that imports SDKs or Node.js APIs
+- Domain modules use `yield* ServiceTag` — never import SDKs or Node.js I/O modules (`fs`, `child_process`, network, `os`) directly. Pure helpers such as `node:path` and `node:crypto` hashing are fine.
+- Layers are the only place that imports SDKs or Node.js I/O modules
 - Frontend hooks use `useApi()` context — never `window.api` directly
+- oxlint enforces the domain, `electron` and `window.api` rules (`.oxlintrc.json` overrides)
 - Blocks: `web/src/components/mdx/<BlockName>/` (PascalCase directories)
 - Domain: `src/domain/<module>/` (camelCase files)
 
 ### Effect Patterns
-- External operations return `Effect<A, E, R>`, never raw Promises in domain code
-- Errors use `Data.TaggedError` subclasses
-- Resource cleanup via `Scope` (`acquireRelease` / `addFinalizer`)
-- Tests swap layers for mock implementations
+
+Read [node_modules/effect/AGENTS.md](node_modules/effect/AGENTS.md) before interacting with any Effect code.
 
 ### Error Reporting in MDX Components
 `reportError()` is for **configuration errors only** (duplicate IDs, missing props, invalid configs) — not runtime errors (auth failures, network errors). Runtime errors display inline within the component.
@@ -90,7 +94,7 @@ Auth blocks (`AwsAuth`, `GoogleAuth`, `GitAuth`, `GitHubAuth`, `GitLabAuth`) mus
 ## Don't Do This
 
 - **Don't use npm/yarn** — use bun
-- **Don't import Node.js APIs in `src/domain/`** — use Effect services
+- **Don't import Node.js I/O modules in `src/domain/`** — use Effect services
 - **Don't import `electron` in `src/`** — stays in `electron/`
 - **Don't use `window.api` directly** — use `useApi()` context
 - **Don't call `reportError()` for runtime errors** — only configuration errors

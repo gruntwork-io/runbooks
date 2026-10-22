@@ -1,4 +1,4 @@
-import { useState, useRef, type ReactNode, type ReactElement } from 'react'
+import { useState, useRef, type ReactNode, type ReactElement } from "react"
 import { Copy, Check } from "lucide-react"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 
@@ -19,13 +19,13 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
   const getCodeText = (): string => {
     if (preRef.current) {
       // Get the text content from the <code> element inside <pre>
-      const codeElement = preRef.current.querySelector('code')
+      const codeElement = preRef.current.querySelector("code")
       if (codeElement) {
-        return codeElement.textContent || ''
+        return codeElement.textContent || ""
       }
-      return preRef.current.textContent || ''
+      return preRef.current.textContent || ""
     }
-    return ''
+    return ""
   }
 
   const handleCopy = async (e: React.MouseEvent) => {
@@ -39,9 +39,9 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
   // Some <pre> elements might not contain code
   const hasCodeChild = (() => {
     if (!children) return false
-    if (typeof children === 'object' && 'type' in (children as ReactElement)) {
+    if (typeof children === "object" && "type" in (children as ReactElement)) {
       const element = children as ReactElement
-      return element.type === 'code'
+      return element.type === "code"
     }
     return false
   })()
@@ -52,7 +52,7 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
   }
 
   return (
-    <div 
+    <div
       className="relative group"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -60,7 +60,7 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
       <pre ref={preRef} {...props}>
         {children}
       </pre>
-      
+
       {/* Copy button - appears on hover */}
       <button
         onClick={handleCopy}
@@ -71,17 +71,13 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
           border border-border
           text-muted-foreground hover:text-foreground
           transition-opacity duration-150 cursor-pointer
-          ${isHovered ? 'opacity-100' : 'opacity-0'}
+          ${isHovered ? "opacity-100" : "opacity-0"}
           focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring
         `}
         title={copied ? "Copied!" : "Copy code"}
         aria-label={copied ? "Copied!" : "Copy code"}
       >
-        {copied ? (
-          <Check className="h-4 w-4 text-success" />
-        ) : (
-          <Copy className="h-4 w-4" />
-        )}
+        {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
       </button>
     </div>
   )
@@ -89,4 +85,4 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
 
 // displayName survives minification and is used by extractTemplateFiles
 // to identify code blocks in production builds
-CodeBlock.displayName = 'CodeBlock'
+CodeBlock.displayName = "CodeBlock"

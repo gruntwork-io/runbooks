@@ -47,15 +47,20 @@ export class TextReporter implements Reporter {
         let icon: string
         let color: string
         if (result.status === "failed") {
-          icon = "✗"; color = "\x1b[31m"
+          icon = "✗"
+          color = "\x1b[31m"
         } else if (result.status === "skipped") {
-          icon = "○"; color = "\x1b[33m"
+          icon = "○"
+          color = "\x1b[33m"
         } else {
-          icon = "✓"; color = "\x1b[32m"
+          icon = "✓"
+          color = "\x1b[32m"
         }
         const reset = "\x1b[0m"
 
-        this.write(`  ${color}${icon}${reset} ${result.testCase} (${formatDuration(result.duration)})\n`)
+        this.write(
+          `  ${color}${icon}${reset} ${result.testCase} (${formatDuration(result.duration)})\n`,
+        )
 
         if (result.error) {
           this.write(`    ${color}Error: ${result.error}${reset}\n`)
@@ -168,8 +173,10 @@ export class JUnitReporter implements Reporter {
     }
 
     const totalTimeStr = (totalTime / 1000).toFixed(3)
-    return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    return (
+      `<?xml version="1.0" encoding="UTF-8"?>\n` +
       `<testsuites tests="${totalTests}" failures="${totalFailures}" skipped="${totalSkipped}" time="${totalTimeStr}">\n${suiteXmls.join("\n")}\n</testsuites>\n`
+    )
   }
 }
 
@@ -186,9 +193,7 @@ export function reportToFile(
   suites: RunbookTestSuite[],
   filePath: string,
 ): void {
-  const fileReporter = reporter instanceof TextReporter
-    ? new TextReporter(false, false)
-    : reporter
+  const fileReporter = reporter instanceof TextReporter ? new TextReporter(false, false) : reporter
   fs.writeFileSync(filePath, fileReporter.render(suites))
 }
 

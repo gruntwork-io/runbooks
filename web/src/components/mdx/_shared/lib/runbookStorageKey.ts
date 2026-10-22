@@ -5,5 +5,5 @@
  * share state; it falls back to "default" outside a runbook.
  */
 export function runbookStorageKey(prefix: string, scope: string | undefined, id: string): string {
-  return `${prefix}:${scope ?? 'default'}:${id}`
+  return `${prefix}:${scope ?? "default"}:${id}`
 }

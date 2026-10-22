@@ -6,8 +6,8 @@ import Finish from "../Finish"
 import { celebrate } from "../celebrate"
 
 const defaultScriptExecution = {
-  sourceCode: 'test -f done.txt',
-  rawScriptContent: 'test -f done.txt',
+  sourceCode: "test -f done.txt",
+  rawScriptContent: "test -f done.txt",
   language: "bash",
   fileError: null,
   inputValues: {},
@@ -16,6 +16,7 @@ const defaultScriptExecution = {
   hasAllInputDependencies: true,
   inlineInputsId: null,
   outputDependencies: [],
+  outputDependencyBlockIds: [] as string[],
   unmetOutputDependencies: [],
   hasAllOutputDependencies: true,
   templateContext: { inputs: {}, outputs: {} },
@@ -34,6 +35,10 @@ const defaultScriptExecution = {
   cancel: vi.fn(),
   outputs: null,
   hasScriptDrift: false,
+  scriptFileChange: null,
+  reloadScript: vi.fn(),
+  isReloadingScript: false,
+  scriptReloadError: null,
 }
 
 let mockScriptExecution = { ...defaultScriptExecution }
@@ -147,18 +152,21 @@ describe("Finish", () => {
     it.each([
       { status: "fail", message: /The final check failed/ },
       { status: "warn", message: /^Warning$/ },
-    ])("doesn't celebrate or show the next steps when the check ends in $status", ({ status, message }) => {
-      const { rerender } = render(finish({ command: "test -f done.txt" }))
-      setStatus("running")
-      rerender(finish({ command: "test -f done.txt" }))
-      setStatus(status)
-      rerender(finish({ command: "test -f done.txt" }))
+    ])(
+      "doesn't celebrate or show the next steps when the check ends in $status",
+      ({ status, message }) => {
+        const { rerender } = render(finish({ command: "test -f done.txt" }))
+        setStatus("running")
+        rerender(finish({ command: "test -f done.txt" }))
+        setStatus(status)
+        rerender(finish({ command: "test -f done.txt" }))
 
-      expect(screen.getByTestId(`icon-${status}`)).toBeInTheDocument()
-      expect(screen.getByText(message)).toBeInTheDocument()
-      expect(screen.queryByText("Next: tell your team.")).toBeNull()
-      expect(celebrate).not.toHaveBeenCalled()
-    })
+        expect(screen.getByTestId(`icon-${status}`)).toBeInTheDocument()
+        expect(screen.getByText(message)).toBeInTheDocument()
+        expect(screen.queryByText("Next: tell your team.")).toBeNull()
+        expect(celebrate).not.toHaveBeenCalled()
+      },
+    )
 
     it("runs the final check as a check, so an exit code 2 stays a warning rather than a failure", () => {
       render(finish({ command: "test -f done.txt" }))
@@ -192,7 +200,9 @@ describe("Finish", () => {
 
       expect(screen.getByText(/Configuration Required/)).toBeInTheDocument()
       const message = screen.getByText(/final check requires variables \(Env\)/)
-      expect(message).toHaveTextContent(/Please add an inputsId prop referencing an existing Inputs block\.$/)
+      expect(message).toHaveTextContent(
+        /Please add an inputsId prop referencing an existing Inputs block\.$/,
+      )
       expect(within(message).queryByRole("list")).toBeNull()
       expect(screen.queryByText(/as a child/)).toBeNull()
     })
@@ -204,6 +214,8 @@ describe("Finish", () => {
         <Finish id="" />
       </TestWrapper>,
     )
-    expect(screen.getByText(/The <Finish> component requires a non-empty 'id' prop/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/The <Finish> component requires a non-empty 'id' prop/),
+    ).toBeInTheDocument()
   })
 })

@@ -6,25 +6,26 @@
  * - worktree switcher (when 2+ worktrees)
  */
 
-import { FolderGit2 } from 'lucide-react'
-import { basename, cn } from '@/lib/utils'
-import { WorktreeSwitcherRow } from './rows/WorktreeSwitcherRow'
-import { WorktreeStaticRow } from './rows/WorktreeStaticRow'
-import { LocalPathRow } from './rows/LocalPathRow'
-import type { GitRepoInfo } from '@/types/workspace'
-import type { GitWorkTree } from '@/contexts/gitWorkTreeTypes'
+import { FolderGit2 } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
+import { WorktreeSwitcherRow } from "./rows/WorktreeSwitcherRow"
+import { WorktreeStaticRow } from "./rows/WorktreeStaticRow"
+import { LocalPathRow } from "./rows/LocalPathRow"
+import type { GitRepoInfo } from "@/types/workspace"
+import type { GitWorkTree } from "@/contexts/gitWorkTreeTypes"
 
 interface RepositoryMetadataBarProps {
   /** Git repository information for the active worktree */
-  gitInfo: GitRepoInfo | null;
+  gitInfo: GitRepoInfo | null
   /** Local path where files are downloaded */
-  localPath?: string;
+  localPath?: string | undefined
   /** When 2+ worktrees, the bar shows a dropdown switcher instead of static repo/branch */
-  workTrees?: GitWorkTree[];
-  activeWorkTreeId?: string | null;
-  onWorktreeSelect?: (id: string) => void;
+  workTrees?: GitWorkTree[] | undefined
+  activeWorkTreeId?: string | null | undefined
+  onWorktreeSelect?: ((id: string) => void) | undefined
   /** Additional CSS classes */
-  className?: string;
+  className?: string | undefined
 }
 
 export const RepositoryMetadataBar = ({
@@ -35,6 +36,7 @@ export const RepositoryMetadataBar = ({
   onWorktreeSelect,
   className = "",
 }: RepositoryMetadataBarProps) => {
+  const displayPath = useDisplayPath()
   const hasSwitcher = workTrees.length >= 2 && onWorktreeSelect
 
   // No repo and no path: minimal state or nothing
@@ -80,9 +82,9 @@ export const RepositoryMetadataBar = ({
       {/* Row 2: Local path */}
       {localPath && (
         <LocalPathRow
-          displayText={`./${basename(localPath)}`}
+          displayText={displayPath(localPath)}
           copyPath={localPath}
-          className={(hasSwitcher || gitInfo) ? "mt-1.5" : undefined}
+          className={hasSwitcher || gitInfo ? "mt-1.5" : undefined}
         />
       )}
     </div>

@@ -6,7 +6,7 @@
  */
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { Effect, Layer, Stream, Chunk } from "effect"
+import { Effect, Layer, Stream } from "effect"
 import { GitClient } from "../services/GitClient.ts"
 import type {
   GitClientShape,
@@ -17,7 +17,7 @@ import type {
   GitInfo,
   CommitOptions,
 } from "../services/GitClient.ts"
-import { ProcessSpawner } from "../services/ProcessSpawner.ts"
+import { ProcessSpawner, type ProcessSpawnerShape } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
 import { sameHttpOrigin, stripUrlCredentials, withGitHttpAuth } from "../domain/git/url.ts"
 import { gitSpawnEnv, resolveSshCommand } from "../domain/git/env.ts"
@@ -31,7 +31,7 @@ import { gitSpawnEnv, resolveSshCommand } from "../domain/git/env.ts"
  * `gitSpawnEnv()` so PATH/HOME/SSH_AUTH_SOCK and the no-prompt guards survive.
  */
 function runGit(
-  spawner: ProcessSpawner["Type"],
+  spawner: ProcessSpawnerShape,
   args: string[],
   cwd: string,
   stdin?: string,
@@ -39,8 +39,7 @@ function runGit(
 ) {
   return Effect.gen(function* () {
     const proc = yield* spawner.spawn("git", args, { cwd, stdin, env: env ?? gitSpawnEnv() })
-    const chunks = yield* Stream.runCollect(proc.output)
-    const lines = Chunk.toArray(chunks)
+    const lines = yield* Stream.runCollect(proc.output)
     const code = yield* proc.exitCode
 
     if (code !== 0) {
@@ -53,13 +52,11 @@ function runGit(
       // "nothing to commit, working tree clean" and exiting 1. Fall back to
       // stdout so the real reason surfaces instead of a bare "exit 1".
       const stderr = pick("stderr") || pick("stdout")
-      return yield* Effect.fail(
-        new GitError({
-          command: `git ${args.join(" ")}`,
-          stderr,
-          exitCode: code,
-        }),
-      )
+      return yield* new GitError({
+        command: `git ${args.join(" ")}`,
+        stderr,
+        exitCode: code,
+      })
     }
 
     return lines.filter((l) => l.source === "stdout").map((l) => l.line)
@@ -71,7 +68,7 @@ function runGit(
  * no-prompt guards wrapped around the user's core.sshCommand as seen from
  * `cwd`. See gitSpawnEnv.
  */
-function sshSpawnEnv(spawner: ProcessSpawner["Type"], cwd: string) {
+function sshSpawnEnv(spawner: ProcessSpawnerShape, cwd: string) {
   return resolveSshCommand(cwd).pipe(
     Effect.provideService(ProcessSpawner, spawner),
     Effect.map((sshCommand) => gitSpawnEnv(sshCommand)),
@@ -84,12 +81,12 @@ function sshSpawnEnv(spawner: ProcessSpawner["Type"], cwd: string) {
  * key is unset, which `runGit` surfaces as a GitError — caught here as "not
  * configured". Used to decide whether a fallback author identity is needed.
  */
-function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string) {
+function hasConfiguredIdentity(spawner: ProcessSpawnerShape, repoPath: string) {
   return Effect.gen(function* () {
     const isSet = (key: string) =>
       runGit(spawner, ["config", key], repoPath).pipe(
         Effect.map((lines) => lines.join("").trim().length > 0),
-        Effect.catchAll(() => Effect.succeed(false)),
+        Effect.catch(() => Effect.succeed(false)),
       )
     return (yield* isSet("user.name")) && (yield* isSet("user.email"))
   })
@@ -104,7 +101,10 @@ function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string
  * (a limit of the line-based runGit; such paths won't match on disk).
  */
 function nulFields(lines: string[]): string[] {
-  return lines.join("\n").split("\0").filter((f) => f.length > 0)
+  return lines
+    .join("\n")
+    .split("\0")
+    .filter((f) => f.length > 0)
 }
 
 /**
@@ -113,9 +113,11 @@ function nulFields(lines: string[]): string[] {
  * nothing; any other failure (not a repo, dubious ownership, spawn error)
  * propagates.
  */
-function resolveHead(spawner: ProcessSpawner["Type"], repoPath: string) {
+function resolveHead(spawner: ProcessSpawnerShape, repoPath: string) {
   return runGit(spawner, ["rev-parse", "--verify", "--quiet", "HEAD"], repoPath).pipe(
     Effect.map((lines): string | undefined => lines[0]?.trim() || undefined),
+    // `undefined` is the "no HEAD" result callers read, and Effect.void's void does not assign to it.
+    // @effect-diagnostics-next-line effect/effectSucceedWithVoid:off
     Effect.catchTag("GitError", (e) =>
       e.exitCode === 1 ? Effect.succeed(undefined) : Effect.fail(e),
     ),
@@ -129,10 +131,10 @@ const SHOW_CONCURRENCY = 8
  * Whether the checkout is a sparse checkout (`git sparse-checkout init` sets
  * core.sparseCheckout). An unset key, or a failure to read it, counts as not.
  */
-function isSparseCheckout(spawner: ProcessSpawner["Type"], repoPath: string) {
+function isSparseCheckout(spawner: ProcessSpawnerShape, repoPath: string) {
   return runGit(spawner, ["config", "--bool", "--get", "core.sparseCheckout"], repoPath).pipe(
     Effect.map((lines) => lines.join("").trim() === "true"),
-    Effect.catchAll(() => Effect.succeed(false)),
+    Effect.catch(() => Effect.succeed(false)),
   )
 }
 
@@ -169,7 +171,7 @@ function pathsOnDisk(repoRoot: string, paths: readonly string[]): string[] {
  * out of the commit without a word. A file that is not on disk keeps its bit,
  * so it is never staged as a deletion.
  */
-function clearSkipWorktreeOfPresentFiles(spawner: ProcessSpawner["Type"], repoPath: string) {
+function clearSkipWorktreeOfPresentFiles(spawner: ProcessSpawnerShape, repoPath: string) {
   return Effect.gen(function* () {
     // `-t` tags skip-worktree entries "S "; `-z` ends each entry with NUL and
     // leaves paths unquoted. The spawner splits output at line breaks, so the
@@ -195,14 +197,13 @@ function clearSkipWorktreeOfPresentFiles(spawner: ProcessSpawner["Type"], repoPa
 /** A full or abbreviated commit id (SHA-1 or SHA-256). */
 const COMMIT_SHA = /^[0-9a-f]{7,64}$/i
 
-function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
+function makeGitClient(spawner: ProcessSpawnerShape): GitClientShape {
   return {
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
         // The token rides in the environment, never in the URL, so the clone's
         // origin (and its .git/config) stays credential-free. Every command
-        // below gets the same auth: a blobless clone fetches file contents
-        // lazily from origin during checkout, and a commit may be fetched.
+        // below gets the same auth, since a commit may be fetched by id.
         // No repo exists yet, so the user's core.sshCommand is looked up from
         // dest's parent; the follow-up commands reuse the env for the same
         // reason they reuse the auth.
@@ -215,13 +216,9 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // `git clone --branch` takes only a branch or tag name, so a commit
         // is checked out once the clone is down.
         const commit = ref !== undefined && COMMIT_SHA.test(ref) ? ref : undefined
-        const sparse = options?.sparse
 
         const cloneArgs = ["clone", "--progress"]
-        // Blobless: commits and trees arrive up front (enough to inspect the
-        // sparse path below), file contents only for what is checked out.
-        if (sparse) cloneArgs.push("--filter=blob:none")
-        if (sparse || commit) cloneArgs.push("--no-checkout")
+        if (commit) cloneArgs.push("--no-checkout")
         if (ref && !commit) cloneArgs.push("--branch", ref)
         // `--` so a URL starting with `-` can never read as an option.
         cloneArgs.push("--", url, dest)
@@ -249,24 +246,8 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           }
         }
 
-        if (sparse) {
-          // The sparse path may name a file. A runbook file needs its whole
-          // directory (templates and assets sit beside it), so a file checks
-          // out its parent. A path that doesn't exist checks out nothing and
-          // is the caller's to report.
-          const entry = yield* runGit(spawner, ["ls-tree", rev, "--", sparse], dest, undefined, env)
-          const isFile = /^\d+ blob /.test(entry[0] ?? "")
-          const dir = isFile ? path.posix.dirname(sparse) : sparse
-          if (dir !== ".") {
-            yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest, undefined, env)
-            yield* runGit(spawner, ["sparse-checkout", "set", "--", dir], dest, undefined, env)
-          }
-        }
-
         if (commit) {
           yield* runGit(spawner, ["checkout", "--detach", rev], dest, undefined, env)
-        } else if (sparse) {
-          yield* runGit(spawner, ["checkout"], dest, undefined, env)
         }
       }),
 
@@ -289,7 +270,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // reads getRemoteUrl), so a push URL on another origin gets no token:
         // that push authenticates the way git would on its own.
         if (options?.token) {
-          const [pushUrl = ""] = yield* runGit(spawner, ["remote", "get-url", "--push", remote], repoPath)
+          const [pushUrl = ""] = yield* runGit(
+            spawner,
+            ["remote", "get-url", "--push", remote],
+            repoPath,
+          )
           const [fetchUrl = ""] = yield* runGit(spawner, ["remote", "get-url", remote], repoPath)
           if (sameHttpOrigin(pushUrl, fetchUrl)) {
             const authEnv = withGitHttpAuth(env, pushUrl, options.token, options.username)
@@ -302,9 +287,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
       }),
 
     deleteBranch: (repoPath: string, branch: string) =>
-      Effect.gen(function* () {
-        yield* runGit(spawner, ["branch", "-d", "--", branch], repoPath)
-      }),
+      Effect.asVoid(runGit(spawner, ["branch", "-d", "--", branch], repoPath)),
 
     getCurrentBranch: (repoPath: string) =>
       Effect.gen(function* () {
@@ -338,9 +321,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // report the tag name as the ref.
         let refType: GitInfo["refType"] = "branch"
         if (branch === "HEAD") {
-          const tagResult = yield* runGit(spawner, ["describe", "--tags", "--exact-match", "HEAD"], repoPath).pipe(
-            Effect.catchAll(() => Effect.succeed([] as string[])),
-          )
+          const tagResult = yield* runGit(
+            spawner,
+            ["describe", "--tags", "--exact-match", "HEAD"],
+            repoPath,
+          ).pipe(Effect.catch(() => Effect.succeed([] as string[])))
           const tag = tagResult[0]?.trim()
           if (tag) {
             branch = tag
@@ -354,12 +339,12 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // returned to the renderer (git:local-repo, workspace:tree).
         const remoteUrl = yield* runGit(spawner, ["remote", "get-url", "origin"], repoPath).pipe(
           Effect.map((lines) => lines[0] && stripUrlCredentials(lines[0])),
-          Effect.catchAll(() => Effect.succeed(undefined)),
+          Effect.orElseSucceed(() => undefined),
         )
 
         // Get commit SHA
         const shaLines = yield* runGit(spawner, ["rev-parse", "HEAD"], repoPath).pipe(
-          Effect.catchAll(() => Effect.succeed([] as string[])),
+          Effect.catch(() => Effect.succeed([] as string[])),
         )
         const commitSha = shaLines[0]
 
@@ -389,10 +374,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         const addedPaths = new Set<string>()
         const stats: { addStr: string; delStr: string; diffPath: string }[] = []
         for (let i = 0; i < fields.length; i++) {
+          const field = fields[i]!
           // Raw records come first, as two fields:
           // `:<omode> <nmode> <osha> <nsha> <X>` then `<path>`. A numstat
           // record never starts with ':', so the two can't be confused.
-          const raw = /^:[0-7]+ [0-7]+ \S+ \S+ ([A-Z])\d*$/.exec(fields[i])
+          const raw = /^:[0-7]+ [0-7]+ \S+ \S+ ([A-Z])\d*$/.exec(field)
           if (raw) {
             const rawPath = fields[++i]
             if (raw[1] === "A" && rawPath !== undefined) addedPaths.add(rawPath)
@@ -400,10 +386,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           }
           // Then numstat records: `<added>\t<deleted>\t<path>`; the path may
           // itself contain tabs.
-          const match = /^(\d+|-)\t(\d+|-)\t([\s\S]+)$/.exec(fields[i])
+          const match = /^(\d+|-)\t(\d+|-)\t([\s\S]+)$/.exec(field)
           if (!match) continue
+          // All three capture groups are required.
           const [, addStr, delStr, diffPath] = match
-          stats.push({ addStr, delStr, diffPath })
+          stats.push({ addStr: addStr!, delStr: delStr!, diffPath: diffPath! })
         }
 
         return yield* Effect.forEach(
@@ -423,7 +410,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
                   ? undefined
                   : yield* runGit(spawner, ["show", `${head}:${diffPath}`], repoPath).pipe(
                       Effect.map((lines): string | undefined => lines.join("\n")),
-                      Effect.catchAll(() => Effect.succeed(undefined)),
+                      Effect.orElseSucceed(() => undefined),
                     )
 
               return {
@@ -451,8 +438,9 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         const fields = nulFields(lines)
         const entries: StatusEntry[] = []
         for (let i = 0; i < fields.length; i++) {
-          const xy = fields[i].slice(0, 2)
-          const entry: StatusEntry = { path: fields[i].slice(3), status: xy.trim() }
+          const field = fields[i]!
+          const xy = field.slice(0, 2)
+          const entry: StatusEntry = { path: field.slice(3), status: xy.trim() }
           // A rename/copy record is followed by a second field holding the
           // path it came from: new path first, then the old one.
           if (xy.includes("R") || xy.includes("C")) {
@@ -474,9 +462,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
       ),
 
     hasCommitsNotOnRemote: (repoPath: string, remote: string) =>
-      runGit(spawner, ["rev-list", "--count", "HEAD", "--not", `--remotes=${remote}`, "--"], repoPath).pipe(
-        Effect.map((lines) => Number(lines[0]) > 0),
-      ),
+      runGit(
+        spawner,
+        ["rev-list", "--count", "HEAD", "--not", `--remotes=${remote}`, "--"],
+        repoPath,
+      ).pipe(Effect.map((lines) => Number(lines[0]) > 0)),
 
     checkIgnored: (repoPath: string, paths: string[]) =>
       Effect.gen(function* () {
@@ -490,18 +480,15 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           stdin,
           env: gitSpawnEnv(),
         })
-        const chunks = yield* Stream.runCollect(proc.output)
         // Ignore exit code — 1 just means "no ignored files found"
-        const lines = Chunk.toArray(chunks)
+        const lines = (yield* Stream.runCollect(proc.output))
           .filter((l) => l.source === "stdout")
           .map((l) => l.line)
         return new Set(nulFields(lines))
       }),
 
     createBranch: (repoPath: string, branch: string) =>
-      Effect.gen(function* () {
-        yield* runGit(spawner, ["checkout", "-b", branch], repoPath)
-      }),
+      Effect.asVoid(runGit(spawner, ["checkout", "-b", branch], repoPath)),
 
     stageAll: (repoPath: string, excludePaths: string[] = []) =>
       Effect.gen(function* () {
@@ -517,9 +504,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // The `:(exclude)` magic pathspec needs a positive pathspec ('.')
         // alongside it. Used to keep embedded git repos out of the commit so
         // they aren't staged as broken submodule gitlinks.
-        const excludes = excludePaths.map(
-          (p) => `:(exclude)${p.replace(/\/+$/, "")}`,
-        )
+        const excludes = excludePaths.map((p) => `:(exclude)${p.replace(/\/+$/, "")}`)
         const args = excludes.length === 0 ? add : [...add, "--", ".", ...excludes]
         yield* runGit(spawner, args, repoPath).pipe(
           // git before 2.34 has no `--sparse`. How a git that old stages a

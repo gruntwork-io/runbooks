@@ -45,7 +45,7 @@ export interface GitPullRequestProps {
 }
 
 /** Status of the PR/MR block */
-export type PRBlockStatus = 'pending' | 'ready' | 'creating' | 'success' | 'fail' | 'pushing'
+export type PRBlockStatus = "pending" | "ready" | "creating" | "success" | "fail" | "pushing"
 
 /** A repository label (GitHub or GitLab) */
 export interface GitLabel {
@@ -80,6 +80,6 @@ export interface ChangeSummary {
 // ---------------------------------------------------------------------------
 
 /** Props for the legacy <GitHubPullRequest> wrapper (provider locked to github). */
-export type GitHubPullRequestProps = Omit<GitPullRequestProps, 'provider' | 'hideProviderSelect'>
+export type GitHubPullRequestProps = Omit<GitPullRequestProps, "provider" | "hideProviderSelect">
 /** Props for the <GitLabMergeRequest> wrapper (provider locked to gitlab). */
-export type GitLabMergeRequestProps = Omit<GitPullRequestProps, 'provider' | 'hideProviderSelect'>
+export type GitLabMergeRequestProps = Omit<GitPullRequestProps, "provider" | "hideProviderSelect">

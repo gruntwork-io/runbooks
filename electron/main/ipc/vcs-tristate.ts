@@ -9,9 +9,9 @@
  * service stays Bun-test-safe.
  */
 import { Effect, Exit } from "effect"
-import { runtime, sessionManager, vcsSessionMeta } from "./runtime.ts"
+import { runtime, saveVcsSessionMeta, sessionManager, vcsSessionMeta } from "./runtime.ts"
 import type { GitProvider } from "./runtime.ts"
-import { VcsCredentials } from "../../../src/services/VcsCredentials.ts"
+import { VcsCredentials, type VcsCredentialsShape } from "../../../src/services/VcsCredentials.ts"
 import type {
   DetectionResult,
   VcsCredentialSource,
@@ -20,6 +20,7 @@ import type {
 import { redactSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 import { refreshSystemTrust } from "../system-trust.ts"
 import { getMainWindow } from "../window.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 /**
  * Record a successful session-env credential write and push the
@@ -28,6 +29,7 @@ import { getMainWindow } from "../window.ts"
  */
 export function recordSessionAuth(provider: GitProvider, host: string, source?: string): void {
   vcsSessionMeta.set(provider, { host, source })
+  saveVcsSessionMeta()
   getMainWindow()?.webContents.send("vcs:session-changed", { provider, host, source })
 }
 
@@ -57,7 +59,7 @@ export async function appendSessionEnvAndRecord(
   try {
     await runtime.runPromise(sessionManager.appendToEnv(env, generation))
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = errorMessage(err)
     return `Authenticated, but the credential could not be saved to the session (${redactSecrets(message)}). Blocks that consume it may not see it.`
   }
   if (!sessionManager.isCurrentGeneration(generation)) return undefined
@@ -65,9 +67,8 @@ export async function appendSessionEnvAndRecord(
   return undefined
 }
 
-export const withVcs = <A>(
-  use: (vcs: VcsCredentials["Type"]) => Effect.Effect<A>,
-): Promise<A> => runtime.runPromise(Effect.flatMap(VcsCredentials, use))
+export const withVcs = <A>(use: (vcs: VcsCredentialsShape) => Effect.Effect<A>): Promise<A> =>
+  runtime.runPromise(Effect.flatMap(VcsCredentials, use))
 
 /**
  * Run a detection/validation step with the TLS recovery ladder:
@@ -144,6 +145,7 @@ export const toDetectionIpcResult = (result: OrchestratedDetection, host?: strin
         ...common,
         user: result.user,
         scopes: result.scopes,
+        ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
         ...(result.envVar ? { envVar: result.envVar } : {}),
         ...(result.divergenceHint ? { divergenceHint: result.divergenceHint } : {}),
         ...(result.validatedVia ? { validatedVia: result.validatedVia } : {}),

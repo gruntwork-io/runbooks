@@ -10,7 +10,9 @@ function wrapper({ children }: { children: ReactNode }) {
 // Wait for the setTimeout(0) registration in the hook to fire.
 async function flushRegistration() {
   await act(async () => {
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise((r) => {
+      setTimeout(r, 10)
+    })
   })
 }
 

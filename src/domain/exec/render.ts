@@ -41,10 +41,7 @@ export function renderScriptForExec(
       !Array.isArray(templateVarValues.inputs)
         ? (templateVarValues.inputs as Record<string, unknown>)
         : {}
-    const resolvedInputs = yield* resolveInputTemplates(
-      rawInputs,
-      templateVarValues.outputs,
-    )
+    const resolvedInputs = yield* resolveInputTemplates(rawInputs, templateVarValues.outputs)
     const resolvedVars = { ...templateVarValues, inputs: resolvedInputs }
 
     return yield* renderer.renderFileStrict(scriptContent, resolvedVars)

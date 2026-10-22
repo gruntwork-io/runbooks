@@ -1,11 +1,11 @@
-import { useMemo } from 'react'
-import { GitBranch } from 'lucide-react'
-import { Instruction } from '@/components/mdx/_shared'
-import { useTemplateContext } from '@/contexts/useRunbook'
-import { resolveTemplateReferences } from '@/lib/templateUtils'
-import { buildGitCloneCommand } from '@/components/mdx/_shared/lib/instructionCommands'
-import { resolveInitialSource, defaultDescription } from './utils'
-import type { GitCloneProps } from './types'
+import { useMemo } from "react"
+import { GitBranch } from "lucide-react"
+import { Instruction } from "@/components/mdx/_shared"
+import { useTemplateContext } from "@/contexts/useRunbook"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { buildGitCloneCommand } from "@/components/mdx/_shared/lib/instructionCommands"
+import { resolveInitialSource, defaultDescription } from "./utils"
+import type { GitCloneProps } from "./types"
 
 /**
  * Instruction-mode rendering of a GitClone block (spec §6.4): a copyable
@@ -24,18 +24,22 @@ export function GitCloneInstruction({
   title,
   description,
   inputsId,
-  prefilledUrl = '',
-  prefilledRef = '',
-  prefilledRepoPath = '',
-  prefilledLocalPath = '',
-  prefilledRepoDir = '',
+  prefilledUrl = "",
+  prefilledRef = "",
+  prefilledRepoPath = "",
+  prefilledLocalPath = "",
+  prefilledRepoDir = "",
   source,
 }: GitCloneProps) {
   const templateContext = useTemplateContext(inputsId)
-  const isLocalSource = resolveInitialSource({ source, prefilledRepoDir }) === 'local'
+  const isLocalSource = resolveInitialSource({ source, prefilledRepoDir }) === "local"
 
   const resolvedDescription = useMemo(
-    () => resolveTemplateReferences(description ?? defaultDescription(isLocalSource ? 'local' : 'clone'), templateContext),
+    () =>
+      resolveTemplateReferences(
+        description ?? defaultDescription(isLocalSource ? "local" : "clone"),
+        templateContext,
+      ),
     [description, isLocalSource, templateContext],
   )
   // Normalized as the app's clone does (src/domain/git/cloneSteps.ts): ""
@@ -43,10 +47,10 @@ export function GitCloneInstruction({
   const sparsePath = useMemo(() => {
     const path = resolveTemplateReferences(prefilledRepoPath, templateContext)
       .trim()
-      .replace(/\\/g, '/')
-      .replace(/^(?:\.\/+)+/, '')
-      .replace(/\/+$/, '')
-    return path === '.' ? '' : path
+      .replace(/\\/g, "/")
+      .replace(/^(?:\.\/+)+/, "")
+      .replace(/\/+$/, "")
+    return path === "." ? "" : path
   }, [prefilledRepoPath, templateContext])
 
   // Build from the RAW prefilled props so <Instruction> resolves templates and
@@ -54,7 +58,7 @@ export function GitCloneInstruction({
   const command = useMemo(
     () =>
       isLocalSource
-        ? `cd ${prefilledRepoDir || '<path-to-your-checkout>'}`
+        ? `cd ${prefilledRepoDir || "<path-to-your-checkout>"}`
         : buildGitCloneCommand({
             url: prefilledUrl,
             ref: prefilledRef || undefined,
@@ -71,8 +75,8 @@ export function GitCloneInstruction({
         title
           ? resolveTemplateReferences(title, templateContext)
           : isLocalSource
-            ? 'Switch to your local checkout of this repository:'
-            : 'Clone this repository:'
+            ? "Switch to your local checkout of this repository:"
+            : "Clone this repository:"
       }
       description={resolvedDescription}
       command={command}
@@ -80,8 +84,7 @@ export function GitCloneInstruction({
       note={
         sparsePath && !isLocalSource ? (
           <span>
-            Only the sub-path <code className="font-mono">{sparsePath}</code>{' '}
-            is needed — use a{' '}
+            Only the sub-path <code className="font-mono">{sparsePath}</code> is needed — use a{" "}
             <a
               href="https://git-scm.com/docs/git-sparse-checkout"
               target="_blank"
@@ -89,7 +92,7 @@ export function GitCloneInstruction({
               className="text-primary hover:underline"
             >
               sparse checkout
-            </a>{' '}
+            </a>{" "}
             to check out that directory instead of the whole repository.
           </span>
         ) : undefined

@@ -1,6 +1,11 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { useApi } from '@/contexts/ApiContext'
-import { buildTemplatePayload, type TemplateContext } from '@/lib/templateUtils'
+import { useState, useMemo, useEffect, useRef, useCallback } from "react"
+import { useApi } from "@/contexts/ApiContext"
+import {
+  buildTemplatePayload,
+  maskTemplateOutputs,
+  omitSensitiveTemplateOutputs,
+  type TemplateContext,
+} from "@/lib/templateUtils"
 import {
   detectManualFields,
   fieldsNeedingPrompt,
@@ -8,7 +13,7 @@ import {
   resolveCommandClientSide,
   normalizeCommandList,
   type ManualFieldSpec,
-} from '../lib/instructionResolution'
+} from "../lib/instructionResolution"
 
 /** A manual field ready to render: spec plus its current value and a setter. */
 export interface ManualField extends ManualFieldSpec {
@@ -62,13 +67,18 @@ export function useInstructionResolution({
 }: UseInstructionResolutionOptions): UseInstructionResolutionResult {
   const api = useApi()
 
-  // Stable value-based keys for the two reference-typed inputs.
-  const commandKey = useMemo(
-    () => JSON.stringify(normalizeCommandList(command)),
-    [command],
-  )
+  // Stable value-based keys for the two reference-typed inputs. The context
+  // leaves out sensitive outputs, so one reads like an output that hasn't been
+  // produced: the user gets a field to paste it into, and until they do the
+  // command shows a `<name>` placeholder. Serializing it as is would turn it
+  // into the text `<redacted>`, which would count as its value.
+  const commandKey = useMemo(() => JSON.stringify(normalizeCommandList(command)), [command])
   const contextKey = useMemo(
-    () => JSON.stringify(templateContext),
+    () =>
+      JSON.stringify({
+        inputs: templateContext.inputs,
+        outputs: omitSensitiveTemplateOutputs(templateContext.outputs),
+      }),
     [templateContext],
   )
 
@@ -80,8 +90,7 @@ export function useInstructionResolution({
   // Only prompt for references the context can't already resolve (e.g. a
   // DirPicker's published path resolves without a prompt).
   const fieldSpecs = useMemo(
-    () =>
-      fieldsNeedingPrompt(allFieldSpecs, JSON.parse(contextKey) as TemplateContext),
+    () => fieldsNeedingPrompt(allFieldSpecs, JSON.parse(contextKey) as TemplateContext),
     [allFieldSpecs, contextKey],
   )
 
@@ -111,9 +120,13 @@ export function useInstructionResolution({
     [commands, mergedContext],
   )
 
-  const [resolvedCommands, setResolvedCommands] = useState<string[]>(clientResolved)
-  const [isResolving, setIsResolving] = useState(false)
-  const [usedFallback, setUsedFallback] = useState(false)
+  // The full-engine render, tagged with the client-side result it was made
+  // for so a stale one can be told apart from the current one.
+  const [engineResult, setEngineResult] = useState<{
+    source: string[]
+    commands: string[]
+    usedFallback: boolean
+  } | null>(null)
 
   const isMountedRef = useRef(true)
   useEffect(() => {
@@ -123,36 +136,49 @@ export function useInstructionResolution({
     }
   }, [])
 
-  useEffect(() => {
-    // No template references → the command is already literal; nothing to render
-    // and no IPC needed. Also covers the no-command case.
-    const hasTemplates = commands.some((c) => c.includes('{{'))
-    if (!hasTemplates) {
-      setResolvedCommands(commands)
-      setUsedFallback(false)
-      setIsResolving(false)
-      return
-    }
+  // No template references → the command is already literal; nothing to render
+  // and no IPC needed. Also covers the no-command case.
+  const hasTemplates = commands.some((c) => c.includes("{{"))
+  // No IPC bridge (e.g. component tests without an ApiProvider) → client-side.
+  const canInvoke = api?.invoke !== undefined
 
-    // No IPC bridge (e.g. component tests without an ApiProvider) → client-side.
-    if (!api?.invoke) {
-      setResolvedCommands(clientResolved)
-      setUsedFallback(true)
-      setIsResolving(false)
-      return
+  let resolvedCommands = clientResolved
+  let usedFallback = false
+  let isResolving = false
+  if (!hasTemplates) {
+    resolvedCommands = commands
+  } else if (!canInvoke) {
+    usedFallback = true
+  } else if (engineResult?.source === clientResolved) {
+    resolvedCommands = engineResult.commands
+    usedFallback = engineResult.usedFallback
+  } else {
+    // Keep showing the previous engine render until the new one arrives.
+    isResolving = true
+    if (engineResult) {
+      resolvedCommands = engineResult.commands
+      usedFallback = engineResult.usedFallback
     }
+  }
+
+  useEffect(() => {
+    if (!hasTemplates || !canInvoke) return
 
     let cancelled = false
-    setIsResolving(true)
 
     const templateFiles: Record<string, string> = {}
     commands.forEach((c, i) => {
       templateFiles[`cmd-${i}`] = c
     })
-    const inputs = buildTemplatePayload(mergedContext)
+    // The context holds no sensitive output (see contextKey). Masking keeps
+    // any that got in from reaching the command as its real value.
+    const inputs = buildTemplatePayload({
+      inputs: mergedContext.inputs,
+      outputs: maskTemplateOutputs(mergedContext.outputs),
+    })
 
     api
-      .invoke('boilerplate:render-inline', { templateFiles, inputs })
+      .invoke("boilerplate:render-inline", { templateFiles, inputs })
       .then((response: { renderedFiles?: Record<string, { content: string }> }) => {
         if (cancelled || !isMountedRef.current) return
         const rendered = response?.renderedFiles
@@ -164,28 +190,31 @@ export function useInstructionResolution({
         // so keep it. Fall back to the client-side resolver, and flag it, only
         // for an entry the engine didn't return or returned as that marker.
         const isRendered = (text: string | undefined): text is string =>
-          text !== undefined && !text.startsWith('[template error:')
-        setResolvedCommands(out.map((text, i) => (isRendered(text) ? text : clientResolved[i])))
-        setUsedFallback(!out.every(isRendered))
-        setIsResolving(false)
+          text !== undefined && !text.startsWith("[template error:")
+        setEngineResult({
+          source: clientResolved,
+          commands: clientResolved.map((fallback, i) => {
+            const text = out[i]
+            return isRendered(text) ? text : fallback
+          }),
+          usedFallback: !out.every(isRendered),
+        })
       })
       .catch(() => {
         if (cancelled || !isMountedRef.current) return
-        setResolvedCommands(clientResolved)
-        setUsedFallback(true)
-        setIsResolving(false)
+        setEngineResult({ source: clientResolved, commands: clientResolved, usedFallback: true })
       })
 
     return () => {
       cancelled = true
     }
-  }, [api, commands, mergedContext, clientResolved])
+  }, [api, hasTemplates, canInvoke, commands, mergedContext, clientResolved])
 
   const manualFields = useMemo<ManualField[]>(
     () =>
       fieldSpecs.map((spec) => ({
         ...spec,
-        value: manualValues[spec.id] ?? '',
+        value: manualValues[spec.id] ?? "",
         onChange: (value: string) => setFieldValue(spec.id, value),
       })),
     [fieldSpecs, manualValues, setFieldValue],

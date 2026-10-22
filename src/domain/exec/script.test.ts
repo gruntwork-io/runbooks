@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process"
 import * as nodeFs from "node:fs"
 import * as nodePath from "node:path"
 import * as os from "node:os"
+import { inspect } from "node:util"
 import {
   detectInterpreter,
   isBashInterpreter,
@@ -17,11 +18,19 @@ import {
   parseBlockOutputsContent,
   captureFilesFromDir,
 } from "./script.ts"
+import { encodeOutputs, isSensitiveOutput, revealOutput } from "./outputValues.ts"
+import { LOG_CHANNELS, logChannelFiles } from "./logChannels.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 
 function runFs<A>(effect: Effect.Effect<A, any, any>, files: Record<string, string> = {}) {
-  return Effect.runPromise(effect.pipe(Effect.provide(makeTestFileSystem(files))) as unknown as Effect.Effect<A, any, never>)
+  return Effect.runPromise(
+    effect.pipe(Effect.provide(makeTestFileSystem(files))) as unknown as Effect.Effect<
+      A,
+      any,
+      never
+    >,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -38,7 +47,10 @@ describe("detectInterpreter", () => {
   })
 
   it("detects #!/usr/bin/env with args", () => {
-    expect(detectInterpreter("#!/usr/bin/env -S node --experimental\nconsole.log(1)", "")).toEqual(["-S", ["node", "--experimental"]])
+    expect(detectInterpreter("#!/usr/bin/env -S node --experimental\nconsole.log(1)", "")).toEqual([
+      "-S",
+      ["node", "--experimental"],
+    ])
   })
 
   it("detects #!/bin/bash", () => {
@@ -67,27 +79,19 @@ describe("detectInterpreter", () => {
 // ---------------------------------------------------------------------------
 
 describe("isBashInterpreter", () => {
-  it.each([
-    "bash",
-    "sh",
-    "/bin/bash",
-    "/bin/sh",
-    "/usr/bin/bash",
-    "/usr/bin/sh",
-  ])("returns true for %s", (interp) => {
-    expect(isBashInterpreter(interp)).toBe(true)
-  })
+  it.each(["bash", "sh", "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh"])(
+    "returns true for %s",
+    (interp) => {
+      expect(isBashInterpreter(interp)).toBe(true)
+    },
+  )
 
-  it.each([
-    "python3",
-    "node",
-    "ruby",
-    "zsh",
-    "/usr/bin/python3",
-    "",
-  ])("returns false for %s", (interp) => {
-    expect(isBashInterpreter(interp)).toBe(false)
-  })
+  it.each(["python3", "node", "ruby", "zsh", "/usr/bin/python3", ""])(
+    "returns false for %s",
+    (interp) => {
+      expect(isBashInterpreter(interp)).toBe(false)
+    },
+  )
 })
 
 // ---------------------------------------------------------------------------
@@ -194,13 +198,10 @@ describe("wrapBashScript", () => {
 
 describe("parseEnvCapture", () => {
   it("parses NUL-delimited env output", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/pwd.txt"),
-      {
-        "/env.txt": "HOME=/home/user\0PATH=/usr/bin\0LANG=en_US.UTF-8\0",
-        "/pwd.txt": "/work/dir\n",
-      },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
+      "/env.txt": "HOME=/home/user\0PATH=/usr/bin\0LANG=en_US.UTF-8\0",
+      "/pwd.txt": "/work/dir\n",
+    })
     expect(result.env).toEqual({
       HOME: "/home/user",
       PATH: "/usr/bin",
@@ -210,25 +211,19 @@ describe("parseEnvCapture", () => {
   })
 
   it("handles multiline values in NUL-delimited format", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/pwd.txt"),
-      {
-        "/env.txt": "KEY=line1\nline2\nline3\0OTHER=val\0",
-        "/pwd.txt": "/work",
-      },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
+      "/env.txt": "KEY=line1\nline2\nline3\0OTHER=val\0",
+      "/pwd.txt": "/work",
+    })
     expect(result.env!.KEY).toBe("line1\nline2\nline3")
     expect(result.env!.OTHER).toBe("val")
   })
 
   it("falls back to newline-delimited parsing", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/pwd.txt"),
-      {
-        "/env.txt": "HOME=/home/user\nPATH=/usr/bin\n",
-        "/pwd.txt": "/work",
-      },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
+      "/env.txt": "HOME=/home/user\nPATH=/usr/bin\n",
+      "/pwd.txt": "/work",
+    })
     expect(result.env).toEqual({
       HOME: "/home/user",
       PATH: "/usr/bin",
@@ -236,40 +231,31 @@ describe("parseEnvCapture", () => {
   })
 
   it("handles multiline values in newline fallback", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/pwd.txt"),
-      {
-        "/env.txt": "SSH_KEY=-----BEGIN RSA-----\nbase64data\n-----END RSA-----\nPATH=/usr/bin\n",
-        "/pwd.txt": "/work",
-      },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
+      "/env.txt": "SSH_KEY=-----BEGIN RSA-----\nbase64data\n-----END RSA-----\nPATH=/usr/bin\n",
+      "/pwd.txt": "/work",
+    })
     expect(result.env!.SSH_KEY).toBe("-----BEGIN RSA-----\nbase64data\n-----END RSA-----")
     expect(result.env!.PATH).toBe("/usr/bin")
   })
 
   it("returns undefined env when env file is missing", async () => {
-    const result = await runFs(
-      parseEnvCapture("/nonexistent", "/pwd.txt"),
-      { "/pwd.txt": "/work" },
-    )
+    const result = await runFs(parseEnvCapture("/nonexistent", "/pwd.txt"), { "/pwd.txt": "/work" })
     expect(result.env).toBeUndefined()
     expect(result.pwd).toBe("/work")
   })
 
   it("returns empty pwd when pwd file is missing", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/nonexistent"),
-      { "/env.txt": "A=1\0" },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/nonexistent"), { "/env.txt": "A=1\0" })
     expect(result.env).toEqual({ A: "1" })
     expect(result.pwd).toBe("")
   })
 
   it("returns undefined env for empty env file", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/pwd.txt"),
-      { "/env.txt": "", "/pwd.txt": "/work" },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
+      "/env.txt": "",
+      "/pwd.txt": "/work",
+    })
     expect(result.env).toBeUndefined()
   })
 })
@@ -292,10 +278,9 @@ describe("parseEnvCaptureContent", () => {
 
 describe("parseBlockOutputs", () => {
   it("parses key=value pairs", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "CLUSTER_NAME=my-cluster\nREGION=us-east-1\n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "CLUSTER_NAME=my-cluster\nREGION=us-east-1\n",
+    })
     expect(result).toEqual({
       CLUSTER_NAME: "my-cluster",
       REGION: "us-east-1",
@@ -303,27 +288,24 @@ describe("parseBlockOutputs", () => {
   })
 
   it("preserves leading whitespace in values (trailing stripped by line trim)", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "MSG= hello world \n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "MSG= hello world \n",
+    })
     // The line is trimmed before parsing, so trailing space is removed
     expect(result.MSG).toBe(" hello world")
   })
 
   it("skips invalid keys", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "VALID=yes\n123INVALID=no\n-bad=no\n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "VALID=yes\n123INVALID=no\n-bad=no\n",
+    })
     expect(result).toEqual({ VALID: "yes" })
   })
 
   it("skips lines without equals sign", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "GOOD=val\nno-equals-here\n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "GOOD=val\nno-equals-here\n",
+    })
     expect(result).toEqual({ GOOD: "val" })
   })
 
@@ -333,33 +315,98 @@ describe("parseBlockOutputs", () => {
   })
 
   it("returns empty object for empty file", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), { "/output.txt": "" })
     expect(result).toEqual({})
   })
 
   it("handles values containing equals signs", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "CONFIG=key=value=extra\n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "CONFIG=key=value=extra\n",
+    })
     expect(result.CONFIG).toBe("key=value=extra")
   })
 
   it("accepts underscore-prefixed keys", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "_PRIVATE=yes\n__DOUBLE=also\n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "_PRIVATE=yes\n__DOUBLE=also\n",
+    })
     expect(result).toEqual({ _PRIVATE: "yes", __DOUBLE: "also" })
+  })
+
+  it("wraps a value the sensitive: prefix marks", async () => {
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "AWS_REGION=us-west-2\nsensitive:AWS_SECRET_ACCESS_KEY=abc/123\n",
+    })
+    expect(encodeOutputs(result)).toEqual({
+      AWS_REGION: { value: "us-west-2", sensitive: false },
+      AWS_SECRET_ACCESS_KEY: { value: "abc/123", sensitive: true },
+    })
   })
 })
 
 describe("parseBlockOutputsContent", () => {
   it("keeps value whitespace and skips invalid or empty keys", () => {
-    expect(parseBlockOutputsContent("MSG= hi\n=no-key\nbad-key=x\nOK=1\n")).toEqual({ MSG: " hi", OK: "1" })
+    expect(parseBlockOutputsContent("MSG= hi\n=no-key\nbad-key=x\nOK=1\n")).toEqual({
+      MSG: " hi",
+      OK: "1",
+    })
+  })
+
+  describe("sensitive: prefix", () => {
+    // toEqual can't see inside a Redacted, so compare each output's real
+    // value and whether it's sensitive
+    const parse = (content: string) => encodeOutputs(parseBlockOutputsContent(content))
+
+    it("stores the value under the plain key, wrapped as sensitive", () => {
+      const outputs = parseBlockOutputsContent("sensitive:TOKEN=s3cr3t\nUSER=alice\n")
+      expect(Object.keys(outputs)).toEqual(["TOKEN", "USER"])
+      expect(isSensitiveOutput(outputs.TOKEN!)).toBe(true)
+      expect(revealOutput(outputs.TOKEN)).toBe("s3cr3t")
+      expect(outputs.USER).toBe("alice")
+    })
+
+    it("never shows the value when the parsed outputs are printed", () => {
+      const outputs = parseBlockOutputsContent("sensitive:TOKEN=s3cr3t\nUSER=alice\n")
+      expect(String(outputs.TOKEN)).toBe("<redacted>")
+      expect(JSON.stringify(outputs)).toBe('{"TOKEN":"<redacted>","USER":"alice"}')
+      expect(inspect(outputs)).not.toContain("s3cr3t")
+    })
+
+    it("trims whitespace between the prefix and the key", () => {
+      expect(parse("sensitive: TOKEN =s3cr3t\n")).toEqual({
+        TOKEN: { value: "s3cr3t", sensitive: true },
+      })
+    })
+
+    it("keeps the value's leading whitespace, as for a plain key", () => {
+      expect(parse("sensitive:TOKEN= s3cr3t\n")).toEqual({
+        TOKEN: { value: " s3cr3t", sensitive: true },
+      })
+    })
+
+    it("skips an invalid or empty key after the prefix", () => {
+      expect(
+        parseBlockOutputsContent("sensitive:bad-key=x\nsensitive:=y\nsensitive:1ABC=z\n"),
+      ).toEqual({})
+    })
+
+    it("recognises only the exact lowercase prefix", () => {
+      expect(parseBlockOutputsContent("SENSITIVE:K=v\nSensitive:J=w\n")).toEqual({})
+    })
+
+    it("doesn't treat sensitive: inside a value as a marker", () => {
+      expect(parse("NOTE=sensitive:TOKEN=x\n")).toEqual({
+        NOTE: { value: "sensitive:TOKEN=x", sensitive: false },
+      })
+    })
+
+    it("keeps a key sensitive when a later plain line rewrites it", () => {
+      expect(parse("sensitive:T=a\nT=b\n")).toEqual({ T: { value: "b", sensitive: true } })
+    })
+
+    it("marks a key sensitive when a later line adds the prefix", () => {
+      expect(parse("T=a\nsensitive:T=b\n")).toEqual({ T: { value: "b", sensitive: true } })
+    })
   })
 })
 
@@ -373,10 +420,7 @@ describe("captureFilesFromDir", () => {
       "/src/file1.txt": "hello",
       "/src/file2.json": '{"a":1}',
     }
-    const result = await runFs(
-      captureFilesFromDir("/src", "/dest"),
-      files,
-    )
+    const result = await runFs(captureFilesFromDir("/src", "/dest"), files)
     expect(result).toHaveLength(2)
     expect(result.map((f) => f.path).sort()).toEqual(["file1.txt", "file2.json"])
     // Files should be copied to dest
@@ -394,20 +438,14 @@ describe("captureFilesFromDir", () => {
     const files: Record<string, string> = {
       "/src/sub/deep/file.txt": "nested",
     }
-    const result = await runFs(
-      captureFilesFromDir("/src", "/dest"),
-      files,
-    )
+    const result = await runFs(captureFilesFromDir("/src", "/dest"), files)
     expect(result).toHaveLength(1)
-    expect(result[0].path).toBe("sub/deep/file.txt")
+    expect(result[0]!.path).toBe("sub/deep/file.txt")
   })
 
   it("reports file sizes", async () => {
-    const result = await runFs(
-      captureFilesFromDir("/src", "/dest"),
-      { "/src/file.txt": "12345" },
-    )
-    expect(result[0].size).toBe(5)
+    const result = await runFs(captureFilesFromDir("/src", "/dest"), { "/src/file.txt": "12345" })
+    expect(result[0]!.size).toBe(5)
   })
 })
 
@@ -416,18 +454,12 @@ describe("captureFilesFromDir", () => {
 // ---------------------------------------------------------------------------
 
 describe("isValidEnvVarName", () => {
-  it.each([
-    "PATH",
-    "HOME",
-    "_PRIVATE",
-    "__DOUBLE",
-    "FOO_BAR_BAZ",
-    "x",
-    "A1",
-    "_",
-  ])("accepts %s", (name) => {
-    expect(isValidEnvVarName(name)).toBe(true)
-  })
+  it.each(["PATH", "HOME", "_PRIVATE", "__DOUBLE", "FOO_BAR_BAZ", "x", "A1", "_"])(
+    "accepts %s",
+    (name) => {
+      expect(isValidEnvVarName(name)).toBe(true)
+    },
+  )
 
   it.each([
     "", // empty
@@ -452,8 +484,7 @@ describe("isValidEnvVarName", () => {
 // depend on. Skipped on Windows (no /bin/bash) and when bash isn't on PATH.
 // ---------------------------------------------------------------------------
 
-const bashAvailable =
-  process.platform !== "win32" && nodeFs.existsSync("/bin/bash")
+const bashAvailable = process.platform !== "win32" && nodeFs.existsSync("/bin/bash")
 
 const skipIfNoBash = bashAvailable ? describe : describe.skip
 
@@ -463,21 +494,64 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     return nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "script-wrap-test-"))
   }
 
+  /**
+   * process.env without what a developer's shell may have set: a BASH_ENV
+   * that loads their own logging.sh, its load guard, and log file variables.
+   */
+  function cleanEnv(): Record<string, string | undefined> {
+    const env: Record<string, string | undefined> = { ...process.env }
+    delete env.BASH_ENV
+    delete env._RUNBOOKS_LOGGING_LOADED
+    for (const { envVar } of LOG_CHANNELS) delete env[envVar]
+    return env
+  }
+
+  /**
+   * Empty log files under `dir`, as the executor makes them, in a directory
+   * whose name has a space so the helpers must quote the path. `read` returns
+   * RUNBOOK_LOG's contents, and the per-level files' contents joined.
+   */
+  function makeLogFiles(dir: string) {
+    const logDir = nodePath.join(dir, "log files")
+    nodeFs.mkdirSync(logDir)
+    const files = logChannelFiles(logDir, LOG_CHANNELS)
+    for (const { path } of files) nodeFs.writeFileSync(path, "")
+    const contents = (level: boolean) =>
+      files
+        .filter((f) => (f.level !== null) === level)
+        .map((f) => nodeFs.readFileSync(f.path, "utf8"))
+        .join("")
+    return {
+      env: Object.fromEntries(files.map((f) => [f.envVar, f.path])),
+      read: () => ({ log: contents(false), levelLogs: contents(true) }),
+    }
+  }
+
+  /**
+   * Run `userScript` in the wrapper under real bash. The log file variables
+   * are set, as in the app, unless `logFiles` is false. `log` holds what the
+   * script wrote to RUNBOOK_LOG, and `levelLogs` what it wrote to the
+   * per-level files.
+   */
   function runWrapped(
     userScript: string,
     extraEnv: Record<string, string> = {},
+    { logFiles = true }: { logFiles?: boolean } = {},
   ): {
     stdout: string
     stderr: string
     exitCode: number
     capturedEnv: Record<string, string> | null
     capturedPwd: string | null
+    log: string
+    levelLogs: string
   } {
     const tmp = makeTmp()
     try {
       const envPath = nodePath.join(tmp, "env.txt")
       const pwdPath = nodePath.join(tmp, "pwd.txt")
       const scriptPath = nodePath.join(tmp, "script.sh")
+      const logs = logFiles ? makeLogFiles(tmp) : null
 
       const wrapped = wrapBashScript(userScript, envPath, pwdPath)
       nodeFs.writeFileSync(scriptPath, wrapped)
@@ -485,7 +559,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
 
       const res = spawnSync("/bin/bash", [scriptPath], {
         encoding: "utf8",
-        env: { ...process.env, ...extraEnv },
+        env: { ...cleanEnv(), ...logs?.env, ...extraEnv },
       })
 
       const capturedEnv = nodeFs.existsSync(envPath)
@@ -501,6 +575,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
         exitCode: res.status ?? -1,
         capturedEnv,
         capturedPwd,
+        ...(logs?.read() ?? { log: "", levelLogs: "" }),
       }
     } finally {
       nodeFs.rmSync(tmp, { recursive: true, force: true })
@@ -596,24 +671,22 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(result.capturedEnv!.MY_VAR).toBe("hello")
   })
 
-  it.each([
-    "trap EXIT",
-    "trap 0",
-    "trap -- - EXIT",
-    "trap 0 INT",
-  ])("'%s' resets the user's EXIT handler and still runs env capture", (reset) => {
-    const result = runWrapped(
-      `trap 'echo SHOULD_NOT_RUN' EXIT
+  it.each(["trap EXIT", "trap 0", "trap -- - EXIT", "trap 0 INT"])(
+    "'%s' resets the user's EXIT handler and still runs env capture",
+    (reset) => {
+      const result = runWrapped(
+        `trap 'echo SHOULD_NOT_RUN' EXIT
        ${reset}
        export AFTER_RESET=yes
        echo done`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("done")
-    expect(result.stdout).not.toContain("SHOULD_NOT_RUN")
-    expect(result.capturedEnv).not.toBeNull()
-    expect(result.capturedEnv!.AFTER_RESET).toBe("yes")
-  })
+      )
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toContain("done")
+      expect(result.stdout).not.toContain("SHOULD_NOT_RUN")
+      expect(result.capturedEnv).not.toBeNull()
+      expect(result.capturedEnv!.AFTER_RESET).toBe("yes")
+    },
+  )
 
   it("the trap override works under set -euo pipefail", () => {
     const result = runWrapped(
@@ -710,34 +783,181 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(stdout).toBe("a\\nb\n")
   })
 
-  it("log_info/warn/error emit ISO-8601 timestamps and correct level prefixes", () => {
+  // Log lines start with "[<ISO-8601 zulu timestamp>] ". logLines checks
+  // that every line does and drops it, so tests can compare whole lines.
+  const LOG_TIMESTAMP = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
+  const logLines = (text: string) =>
+    text
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        expect(line).toMatch(LOG_TIMESTAMP)
+        return line.replace(LOG_TIMESTAMP, "")
+      })
+
+  it("log_info/warn/error append timestamped lines to RUNBOOK_LOG, never stdout or stderr", () => {
     const result = runWrapped(
-      `log_info "info-msg"
+      `set -euo pipefail
+       log_info "info-msg"
        log_warn "warn-msg"
-       log_error "err-msg"`,
+       log_error "err-msg"
+       log_info two  words`,
     )
-    expect(result.stdout).toContain("[INFO]")
-    expect(result.stdout).toContain("info-msg")
-    expect(result.stdout).toContain("[WARN]")
-    expect(result.stdout).toContain("warn-msg")
-    expect(result.stdout).toContain("[ERROR]")
-    expect(result.stdout).toContain("err-msg")
-    // ISO-8601 zulu pattern: YYYY-MM-DDTHH:MM:SSZ
-    expect(result.stdout).toMatch(
-      /\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] \[INFO\]/,
+    expect(result.exitCode).toBe(0)
+    expect(logLines(result.log)).toEqual([
+      "[INFO]  info-msg",
+      "[WARN]  warn-msg",
+      "[ERROR] err-msg",
+      "[INFO]  two words",
+    ])
+    expect(result.levelLogs).toBe("")
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toBe("")
+  })
+
+  it("keeps lines of different levels in the order the script wrote them", () => {
+    const result = runWrapped(
+      `log_info "step 1: starting"
+       log_error "step 1 failed"
+       log_debug "retry count 1"
+       log_info "step 2: retrying"
+       log_warn "step 2 slow"
+       log_info "step 3: done"`,
+      { DEBUG: "true" },
     )
+    expect(logLines(result.log)).toEqual([
+      "[INFO]  step 1: starting",
+      "[ERROR] step 1 failed",
+      "[DEBUG] retry count 1",
+      "[INFO]  step 2: retrying",
+      "[WARN]  step 2 slow",
+      "[INFO]  step 3: done",
+    ])
   })
 
   it("log_debug is silent when DEBUG is unset", () => {
-    const result = runWrapped(`log_debug "should not appear"`)
-    expect(result.stdout).not.toContain("should not appear")
-    expect(result.stdout).not.toContain("[DEBUG]")
+    const result = runWrapped(`log_debug "should not appear"`, { DEBUG: "" })
+    expect(result.log).toBe("")
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toBe("")
   })
 
-  it("log_debug fires when DEBUG=true", () => {
+  it("log_debug logs when DEBUG=true", () => {
     const result = runWrapped(`log_debug "debug-msg"`, { DEBUG: "true" })
-    expect(result.stdout).toContain("[DEBUG]")
-    expect(result.stdout).toContain("debug-msg")
+    expect(logLines(result.log)).toEqual(["[DEBUG] debug-msg"])
+  })
+
+  // Regression for #269: a function that logs and then prints a value must
+  // return only the value through $(...).
+  it("log_* calls inside a function don't leak into its $(...) capture", () => {
+    const result = runWrapped(
+      `set -euo pipefail
+       get_json() {
+         log_info "info-msg"
+         log_warn "warn-msg"
+         log_error "err-msg"
+         log_debug "debug-msg"
+         echo '{"ok":true}'
+       }
+       json=$(get_json)
+       echo "json=[$json]"`,
+      { DEBUG: "true" },
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe('json=[{"ok":true}]\n')
+    expect(result.stderr).toBe("")
+    expect(logLines(result.log)).toEqual([
+      "[INFO]  info-msg",
+      "[WARN]  warn-msg",
+      "[ERROR] err-msg",
+      "[DEBUG] debug-msg",
+    ])
+  })
+
+  it("the helpers write to stderr when RUNBOOK_LOG is unset", () => {
+    const result = runWrapped(
+      `log_info "info-msg"
+       echo out
+       log_error "err-msg"`,
+      {},
+      { logFiles: false },
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe("out\n")
+    expect(logLines(result.stderr)).toEqual(["[INFO]  info-msg", "[ERROR] err-msg"])
+  })
+
+  // Once a run ends, Runbooks deletes the log files. A background job that
+  // keeps logging must not die on the failed append under an inherited set -e.
+  it("the helpers write to stderr when RUNBOOK_LOG can't be written, even under set -e", () => {
+    const result = runWrapped(
+      `set -euo pipefail
+       log_info "info-msg"
+       log_error "err-msg"
+       echo "still running"`,
+      { RUNBOOK_LOG: "/nonexistent-runbooks-log-dir/runbook.log" },
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe("still running\n")
+    // Only the log lines: the failed redirect's own message is suppressed.
+    expect(logLines(result.stderr)).toEqual(["[INFO]  info-msg", "[ERROR] err-msg"])
+  })
+
+  it("the wrapper leaves the script's stdout and stderr apart", () => {
+    const result = runWrapped(`echo out\necho err >&2`)
+    expect(result.stdout).toBe("out\n")
+    expect(result.stderr).toBe("err\n")
+  })
+
+  // scripts/logging.sh is the copy authors load through BASH_ENV for local
+  // development. It must write the same lines as the injected helpers: to
+  // RUNBOOK_LOG when it is set, and to stderr when it isn't or can't be
+  // written.
+  it("scripts/logging.sh writes the same lines as the injected helpers", () => {
+    const calls = `set -euo pipefail
+       log_info "info 100%s"
+       log_warn two words
+       log_error "err-msg"
+       log_debug "debug-msg"`
+    const expected = [
+      "[INFO]  info 100%s",
+      "[WARN]  two words",
+      "[ERROR] err-msg",
+      "[DEBUG] debug-msg",
+    ]
+    const unwritable = { RUNBOOK_LOG: "/nonexistent-runbooks-log-dir/runbook.log" }
+    const loggingSh = nodePath.resolve(import.meta.dirname, "../../../scripts/logging.sh")
+    const tmp = makeTmp()
+    try {
+      const logFiles = makeLogFiles(tmp)
+      const runLocal = (env: Record<string, string>) =>
+        spawnSync("/bin/bash", ["-c", `source "$1"\n${calls}`, "_", loggingSh], {
+          encoding: "utf8",
+          env: { ...cleanEnv(), DEBUG: "true", ...env },
+        })
+
+      const local = runLocal(logFiles.env)
+      const injected = runWrapped(calls, { DEBUG: "true" })
+      expect(local.status).toBe(0)
+      expect(local.stdout).toBe("")
+      expect(local.stderr).toBe("")
+      const localLogs = logFiles.read()
+      expect(logLines(localLogs.log)).toEqual(expected)
+      expect(localLogs.levelLogs).toBe("")
+      expect(logLines(injected.log)).toEqual(expected)
+
+      for (const env of [{}, unwritable]) {
+        const outside = runLocal(env)
+        const injectedOutside = runWrapped(calls, { DEBUG: "true", ...env }, { logFiles: false })
+        expect(outside.status).toBe(0)
+        expect(outside.stdout).toBe("")
+        expect(logLines(outside.stderr)).toEqual(expected)
+        expect(injectedOutside.exitCode).toBe(0)
+        expect(logLines(injectedOutside.stderr)).toEqual(expected)
+      }
+    } finally {
+      nodeFs.rmSync(tmp, { recursive: true, force: true })
+    }
   })
 
   it("captures multi-line env values via NUL-delimited env -0", () => {
@@ -751,9 +971,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
   })
 
   it("captures the working directory the user cd'd into", () => {
-    const tmp = nodeFs.realpathSync(
-      nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "pwd-test-")),
-    )
+    const tmp = nodeFs.realpathSync(nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "pwd-test-")))
     try {
       const result = runWrapped(`cd ${JSON.stringify(tmp)}\necho here`)
       expect(result.exitCode).toBe(0)

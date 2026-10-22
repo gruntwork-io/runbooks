@@ -12,7 +12,7 @@ import { parse as parseIni } from "ini"
 import type {
   AdcInfo,
   GcloudConfiguration,
-  GoogleCredentialType,
+  GoogleDocumentCredentialType,
 } from "../../services/GoogleClient.ts"
 
 /** The four paths every gcloud config root contains. */
@@ -167,9 +167,10 @@ export function classifyGcloudConfig(
       case "external_account":
       case "impersonated_service_account":
         return "adc-external"
-      default:
-        // access_token / gce_metadata have no file form: an ADC document can
-        // never legitimately carry one.
+      case "access_token":
+      case "gce_metadata":
+        // These have no file form: an ADC document can never legitimately
+        // carry one.
         return "unsupported"
     }
   }
@@ -185,7 +186,7 @@ export function classifyGcloudConfig(
  * The one list of document types the app supports: the listing, the
  * validation path, and main's routing all narrow through here.
  */
-export function credentialTypeFromDocumentType(type: unknown): GoogleCredentialType {
+export function credentialTypeFromDocumentType(type: unknown): GoogleDocumentCredentialType {
   switch (type) {
     case "service_account":
     case "authorized_user":

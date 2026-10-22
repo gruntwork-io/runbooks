@@ -57,7 +57,10 @@ describe("workspace IPC handlers", () => {
       try {
         fs.mkdirSync(nodePath.join(runbookDir, "dev"))
         fs.mkdirSync(nodePath.join(runbookDir, "prod"))
-        setRunbookConfig({ ...originalRunbookConfig, localPath: nodePath.join(runbookDir, "runbook.mdx") })
+        setRunbookConfig({
+          ...originalRunbookConfig,
+          localPath: nodePath.join(runbookDir, "runbook.mdx"),
+        })
 
         // <DirPicker rootDir="."> sends the relative path as written.
         const handler = handlers.get("workspace:dirs")!

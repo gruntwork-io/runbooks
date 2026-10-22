@@ -2,7 +2,7 @@
  * Git operations: clone, push, branch management, and pull request creation.
  */
 import path from "path"
-import { Effect, Stream, Chunk } from "effect"
+import { Effect, Stream } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
 import type { GitIdentity } from "../../services/GitClient.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
@@ -102,9 +102,7 @@ export const deleteBranch = (repoPath: string, branch: string) =>
 
     // git's own refusal ("used by worktree at …") doesn't say what to do.
     // Best-effort: if HEAD can't be read, let `git branch -d` decide.
-    const current = yield* gitClient
-      .getCurrentBranch(repoPath)
-      .pipe(Effect.orElseSucceed(() => ""))
+    const current = yield* gitClient.getCurrentBranch(repoPath).pipe(Effect.orElseSucceed(() => ""))
     if (current === branch) {
       return yield* new GitError({
         command: "branch -d",
@@ -145,7 +143,7 @@ const detectEmbeddedRepos = (repoPath: string) =>
       }
     }
     return embedded
-  }).pipe(Effect.catchAll(() => Effect.succeed<string[]>([])))
+  }).pipe(Effect.catch(() => Effect.succeed<string[]>([])))
 
 /**
  * Last-resort committer email used when the authenticated account exposes no
@@ -157,8 +155,8 @@ const FALLBACK_COMMIT_EMAIL = "runbooks-noreply@gruntwork.io"
 /** Build a commit identity from a validated provider user, with safe fallbacks. */
 const toCommitIdentity = (user: {
   readonly login: string
-  readonly name?: string
-  readonly email?: string
+  readonly name?: string | undefined
+  readonly email?: string | undefined
 }): GitIdentity => ({
   name: user.name?.trim() || user.login || "Runbooks",
   email: user.email?.trim() || FALLBACK_COMMIT_EMAIL,
@@ -175,7 +173,7 @@ const resolveGitHubAuthor = (token: string, host?: string) =>
     const gh = yield* GitHubClient
     const validation = yield* gh.validateToken(token, host)
     return toCommitIdentity(validation.user)
-  }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
+  }).pipe(Effect.orElseSucceed(() => undefined))
 
 /**
  * The GitLab instance (API origin) of a repo whose `origin` remote is
@@ -217,7 +215,7 @@ const resolveGitLabAuthor = (token: string, baseUrl: string) =>
     const gl = yield* GitLabClient
     const validation = yield* gl.validateToken(token, baseUrl)
     return toCommitIdentity(validation.user)
-  }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
+  }).pipe(Effect.orElseSucceed(() => undefined))
 
 /**
  * Whether HEAD has commits that the base branch doesn't, i.e. anything a PR/MR
@@ -229,7 +227,7 @@ const hasCommitsNotOnBase = (repoPath: string, baseBranch: string) =>
   Effect.gen(function* () {
     const gitClient = yield* GitClient
     return yield* gitClient.hasCommitsNotIn(repoPath, `refs/remotes/origin/${baseBranch}`).pipe(
-      Effect.orElse(() => gitClient.hasCommitsNotIn(repoPath, `refs/heads/${baseBranch}`)),
+      Effect.catch(() => gitClient.hasCommitsNotIn(repoPath, `refs/heads/${baseBranch}`)),
       Effect.orElseSucceed(() => false),
     )
   })
@@ -251,15 +249,18 @@ const alreadyOpenMessage = (noun: string, headBranch: string, providerMessage: s
  * its commits. Creating with `branch`'s own name resumes on it, which also
  * covers a push that landed before the PR/MR call failed.
  */
-const alreadyPushedMessage = (noun: string, branch: string, baseBranch: string, headBranch: string) =>
+const alreadyPushedMessage = (
+  noun: string,
+  branch: string,
+  baseBranch: string,
+  headBranch: string,
+) =>
   `Nothing to commit: no files changed, and the commits on ${branch} that ${baseBranch} doesn't have are already on origin, so a ${noun} from ${headBranch} would only repeat them. ` +
   `To add changes to the ${noun} open from ${branch}, make them and use Git Push, or create again with ${branch} as the branch name (which also opens a ${noun} from ${branch} if there is none yet).`
 
 /** Wrap an optional progress callback as an Effect-returning reporter. */
-const makeReport =
-  (onProgress?: (line: string) => void) =>
-  (line: string) =>
-    Effect.sync(() => onProgress?.(line))
+const makeReport = (onProgress?: (line: string) => void) => (line: string) =>
+  Effect.sync(() => onProgress?.(line))
 
 /**
  * Shared local-git half of opening a PR/MR: stage all changes, create + switch
@@ -305,7 +306,9 @@ const runGitSteps = (
     // the only thing stopping a commit and push straight to the base branch.
     if (params.headBranch === params.baseBranch || PROTECTED_BRANCHES.has(params.headBranch)) {
       const reason =
-        params.headBranch === params.baseBranch ? "it is the base branch" : "it is a protected branch"
+        params.headBranch === params.baseBranch
+          ? "it is the base branch"
+          : "it is a protected branch"
       return yield* new GitError({
         command: "checkout -b",
         stderr: `Refusing to commit to ${params.headBranch}: ${reason}. Choose a new branch name for the changes.`,
@@ -328,9 +331,7 @@ const runGitSteps = (
       yield* report(
         `Skipping ${embedded.length} embedded git ${
           embedded.length === 1 ? "repository" : "repositories"
-        } (cloned into the workspace; not committed as submodules): ${embedded.join(
-          ", ",
-        )}`,
+        } (cloned into the workspace; not committed as submodules): ${embedded.join(", ")}`,
       )
     }
 
@@ -444,7 +445,7 @@ export const createPullRequest = (
       yield* ghClient
         .addLabels(token, params.owner, params.repo, pr.number, params.labels, params.host)
         .pipe(
-          Effect.catchAll((e) =>
+          Effect.catch((e) =>
             report(
               `Warning: PR #${pr.number} was created but labels could not be applied: ${
                 e.message || `status ${e.status}`
@@ -539,24 +540,22 @@ export const seedDefaultBranch = (
     // This exists purely to rescue the empty case. A repo with history already
     // has a branch to target, and manufacturing commits in one is never right.
     if (yield* gitClient.hasCommits(params.repoPath)) {
-      return yield* Effect.fail(
-        new GitError({
-          command: "git commit --allow-empty",
-          stderr: "Repository already has commits, so it needs no initial branch.",
-          exitCode: 1,
-        }),
-      )
+      return yield* new GitError({
+        command: "git commit --allow-empty",
+        stderr: "Repository already has commits, so it needs no initial branch.",
+        exitCode: 1,
+      })
     }
 
     // Same fallback-author treatment as the PR/MR flows: only used when the
     // machine has no git identity of its own configured. A GitLab token is
     // validated only at the instance origin names; with none, nothing runs.
-    const author = yield* (params.provider === "gitlab"
+    const author = yield* params.provider === "gitlab"
       ? Effect.flatMap(
           gitlabInstanceForRepo(params.repoPath, "creating the default branch"),
           (baseUrl) => resolveGitLabAuthor(token, baseUrl),
         )
-      : resolveGitHubAuthor(token, params.host))
+      : resolveGitHubAuthor(token, params.host)
 
     yield* report(`Creating branch ${params.branch}…`)
     yield* gitClient.createBranch(params.repoPath, params.branch)
@@ -599,13 +598,13 @@ export const unbornBranchName = (repoPath: string) =>
     })
 
     return yield* Effect.gen(function* () {
-      const lines = Chunk.toArray(yield* Stream.runCollect(proc.output))
+      const lines = (yield* Stream.runCollect(proc.output))
         .filter((l) => l.source === "stdout")
         .map((l) => l.line.trim())
         .filter(Boolean)
       return (yield* proc.exitCode) === 0 ? lines[0] : undefined
     }).pipe(Effect.ensuring(proc.kill.pipe(Effect.ignore)))
-  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+  }).pipe(Effect.orElseSucceed(() => undefined))
 
 // ---------------------------------------------------------------------------
 // Path Resolution
@@ -616,11 +615,7 @@ export const unbornBranchName = (repoPath: string) =>
  * working directory. If localPath is provided it is used directly; otherwise
  * the repository name is extracted from the URL.
  */
-export const resolveClonePaths = (
-  localPath: string | undefined,
-  url: string,
-  workingDir: string,
-) =>
+export const resolveClonePaths = (localPath: string | undefined, url: string, workingDir: string) =>
   Effect.sync(() => {
     // Use the explicit localPath, else derive the dir name from the repo URL.
     const dirName = localPath ? localPath : (parseOwnerRepoFromURL(url)?.repo ?? "repo")
@@ -646,12 +641,11 @@ export const countFiles = (dir: string) =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
     const proc = yield* spawner.spawn("git", ["ls-files"], { cwd: dir, env: gitSpawnEnv() })
-    const chunks = yield* Stream.runCollect(proc.output)
-    const lines = Chunk.toArray(chunks)
+    const lines = yield* Stream.runCollect(proc.output)
     const code = yield* proc.exitCode
     if (code !== 0) return 0
     return lines.filter((l) => l.source === "stdout" && l.line.trim() !== "").length
-  }).pipe(Effect.catchAll(() => Effect.succeed(0)))
+  }).pipe(Effect.catch(() => Effect.succeed(0)))
 
 // ---------------------------------------------------------------------------
 // URL Parsing

@@ -12,7 +12,14 @@ interface CollapsibleToggleProps {
 }
 
 /** Collapsible section with a chevron toggle button */
-export function CollapsibleToggle({ expanded, onToggle, label, icon, disabled, children }: CollapsibleToggleProps) {
+export function CollapsibleToggle({
+  expanded,
+  onToggle,
+  label,
+  icon,
+  disabled,
+  children,
+}: CollapsibleToggleProps) {
   return (
     <div>
       <button
@@ -20,18 +27,12 @@ export function CollapsibleToggle({ expanded, onToggle, label, icon, disabled, c
         onClick={onToggle}
         className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground cursor-pointer"
       >
-        {expanded ? (
-          <ChevronDown className="size-3.5" />
-        ) : (
-          <ChevronRight className="size-3.5" />
-        )}
+        {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
         {icon}
         <span className="font-medium">{label}</span>
       </button>
       {expanded && (
-        <div className={disabled ? 'opacity-50 pointer-events-none' : ''}>
-          {children}
-        </div>
+        <div className={disabled ? "opacity-50 pointer-events-none" : ""}>{children}</div>
       )}
     </div>
   )

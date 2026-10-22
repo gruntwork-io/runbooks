@@ -1,0 +1,49 @@
+variables:
+  - name: ProjectName
+    type: string
+    description: Short name for the project
+    default: acme
+    validations:
+      - required
+
+  - name: Environment
+    type: enum
+    description: Which environment is this for?
+    options:
+      - dev
+      - prod
+    default: dev
+
+  # A string built from another variable.
+  - name: BucketName
+    type: string
+    description: Defaults to the project name with a "-state" suffix
+    default: "{{ .ProjectName }}-state"
+
+  # The same value as another variable (which is itself linked).
+  - name: ReplicaBucket
+    type: string
+    description: Defaults to the bucket name
+    default: "{{ .BucketName }}"
+
+  # A computed value: the form shows what it's based on.
+  - name: InstanceSize
+    type: string
+    description: Defaults to "large" in prod and "small" everywhere else
+    default: '{{ if eq .Environment "prod" }}large{{ else }}small{{ end }}'
+
+  # A list whose second entry is built from another variable.
+  - name: CatalogRepositories
+    type: list
+    description: Repositories to pull modules from
+    default:
+      - github.com/gruntwork-io/terraform-aws-service-catalog
+      - "github.com/{{ .ProjectName }}/modules"
+
+  # A map with a linked key and a linked value.
+  - name: DefaultTags
+    type: map
+    description: Tags to apply to every resource
+    default:
+      "{{ .ProjectName }}:Team": DevOps
+      Environment: "{{ .Environment }}"

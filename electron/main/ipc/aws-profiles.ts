@@ -11,6 +11,7 @@ import {
   listProfiles,
   authenticateProfile,
 } from "../../../src/domain/aws/auth.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 export type ProfileAuthRequest = { profileName?: string; profile?: string; defaultRegion?: string }
 
@@ -28,7 +29,9 @@ export async function handleProfiles() {
 export async function handleProfileAuth(params: ProfileAuthRequest) {
   const profileName = params.profileName ?? params.profile ?? ""
   try {
-    const credentials = await runtime.runPromise(authenticateProfile(profileName, params.defaultRegion))
+    const credentials = await runtime.runPromise(
+      authenticateProfile(profileName, params.defaultRegion),
+    )
     const identity = await runtime.runPromise(validateCredentials(credentials, credentials.region))
     return {
       valid: true,
@@ -37,11 +40,12 @@ export async function handleProfileAuth(params: ProfileAuthRequest) {
       secretAccessKey: credentials.secretAccessKey,
       sessionToken: credentials.sessionToken,
       region: credentials.region,
+      expiresAt: credentials.expiresAt,
     }
   } catch (err) {
     return {
       valid: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     }
   }
 }

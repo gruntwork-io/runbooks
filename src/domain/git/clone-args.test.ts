@@ -1,9 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, setDefaultTimeout } from "bun:test"
 import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { gitCloneArgs } from "./clone-args.ts"
+
+// These tests spawn real git/ssh processes, which a loaded full-suite run can
+// stall past bun's 5 s default; 30 s matches the other real-git tests.
+setDefaultTimeout(30_000)
 
 describe("gitCloneArgs", () => {
   it("ends option parsing before the URL and destination", () => {

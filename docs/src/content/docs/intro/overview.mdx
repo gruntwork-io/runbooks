@@ -6,45 +6,37 @@ sidebar:
 
 import { FileTree } from '@astrojs/starlight/components';
 
-## Meet Runbooks!
+Gruntwork Runbooks is a desktop app that opens runbooks. A runbook is a markdown document with interactive blocks that collect input, generate files, and run scripts.
 
-Gruntwork Runbooks are interactive markdown documents that enable subject matter experts to capture their knowledge and expertise in a way that is easy for others to understand and use.
+Runbooks is [open source](https://github.com/gruntwork-io/runbooks), built by [Gruntwork](https://gruntwork.io), and free to use.
 
-Gruntwork Runbooks is [open source](https://github.com/gruntwork-io/runbooks), built by [Gruntwork](https://gruntwork.io), and free to use.
+## What can Runbooks do?
 
-### What can Runbooks do?
+Runbooks loads a runbook file and:
 
-The Runbooks tool loads individual "runbook files" that:
+- Renders its markdown text
+- Collects user input in forms it generates from the runbook
+- Uses the values the user entered to:
+  - Generate files and folders from templates
+  - Run scripts
+  - Run checks
 
-- Render markdown text
-- Collect user input from dynamically generated web forms
-- Propagate user-entered values to:
-  - Generate customized files and folders based on templates
-  - Run customized scripts
-  - Run customized "checks"
+## How is Runbooks useful?
 
-This collection of primitives -- inputs, code templates, scripts, and checks -- is a streamlined way to capture expertise and a highly efficient (and enjoyable) way for someone else to consume it.
+Platform and DevOps engineers often know how to do an infrastructure task that application engineers need done. A runbook lets the platform engineer write that task down once, so the application engineer can complete it without waiting for help.
 
-### How is Runbooks useful?
-
-DevOps and Platform Engineers are often the "expertise bottlenecks" when it comes to enabling their organization to achieve an infrastructure goal.
-
-Historically, there has not been a straightforward way to "capture" this hard-won expertise and make it available to others. And yet platform engineers are often the bottleneck for application engineers or others who depend on them to accomplish infrastructure goals.
-
-In any situation where a "consumer" of expertise is blocked on the "producer" of expertise, Runbooks is an opportunity to free up the expert and empower consumers. 
-
-In practice, Runbooks is especially useful for:
+Runbooks is useful for:
 
 - developer self-service
 - setting up landing zones
 - documenting internal processes or standard operating procedures
 - codifying all the ways to use a given IaC pattern
 
-Learn more by reading about [Runbooks use cases](/intro/use_cases).
+Learn more by reading about [Runbooks use cases](/intro/use_cases/).
 
-### What does a runbook look like?
+## What does a runbook look like?
 
-When a user runs `runbooks open /path/to/runbook` (or `runbooks open <remote-url>`), here's a sample of what they'll see:
+`runbooks open /path/to/runbook` opens a window like this:
 
 ![Runbooks Example Screenshot 1](../../../assets/screenshots/intro/runbooks-example-1.webp)
 
@@ -54,11 +46,11 @@ When a user runs `runbooks open /path/to/runbook` (or `runbooks open <remote-url
 
 ![Runbooks Example Screenshot 5](../../../assets/screenshots/intro/runbooks-example-5.webp)
 
-For a full walkthrough of what's happening here, see the [UI tour](/intro/ui_tour).
+The [UI tour](/intro/ui_tour/) walks through these screens.
 
-### How is a runbook structured?
+## How is a runbook structured?
 
-A typical Runbook directory looks like the file tree below. In this example, the file names are somewhat arbitrary, but the folder structure is conventional.
+A typical runbook directory looks like the file tree below. The file names are arbitrary, but the folder names are conventional.
 
 <FileTree>
 
@@ -76,28 +68,24 @@ A typical Runbook directory looks like the file tree below. In this example, the
 
 </FileTree>
 
-You can learn more about how to write a Runbook in the [Authoring Runbooks](/authoring/overview) section, but for now, the basic idea is that a `runbook.mdx` file contains a mix of markdown and interactive [blocks](/authoring/blocks/). Those blocks optionally reference files in the `assets/`, `checks/`, `scripts/`, and `templates/` directories.
+A `runbook.mdx` file contains markdown and interactive [blocks](/authoring/blocks/). Blocks can reference files in the `assets/`, `checks/`, `scripts/`, and `templates/` directories. See [Authoring Runbooks](/authoring/overview/) for the details.
 
-### How do you open a Runbook?
+## How do you open a runbook?
 
-**Runbook consumers** want to apply the expertise of someone else (**Runbooks authors**), so they consume Runbooks by opening them on their local machine, and using them in their web browser.
-
-To open a Runbook, you can use the `runbooks open` command with a local path:
+Runbooks open in the Runbooks desktop app. From the app, choose **Open Runbook** or **Open from URL** on the welcome screen. From a terminal, pass `runbooks open` a local path:
 
 ```bash
 runbooks open /path/to/runbook
 ```
 
-Or open a runbook directly from a remote URL — no need to clone the repo first:
+Or pass it a remote URL, without cloning the repo first:
 
 ```bash
 runbooks open https://github.com/org/repo/tree/main/runbooks/launch-rds
 ```
 
-Runbooks supports GitHub and GitLab browser URLs, as well as OpenTofu/Terraform-style source addresses. See the [runbooks open](/commands/open/) docs for all supported formats and authentication options for private repos.
+Runbooks supports GitHub and GitLab browser URLs, as well as OpenTofu-style source addresses. See [`runbooks open`](/commands/open/) for all supported formats and for authentication with private repos.
 
 ## Next
 
-To see a Runbook in action, let's take the UI tour!
-
-
+Next, take the [UI tour](/intro/ui_tour/) to see a runbook in use.

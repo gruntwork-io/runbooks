@@ -23,7 +23,7 @@
  */
 
 import path from "node:path"
-import { Effect, Either, Option } from "effect"
+import { Effect, Result, Option } from "effect"
 
 import { FileSystem } from "../../services/FileSystem.ts"
 import { validateRelativePathIn } from "../../path-validation.ts"
@@ -39,7 +39,7 @@ export interface InlineWrittenFile extends ManifestEntry {
    * writing the same path, so it is always the content from before the
    * block touched the file.
    */
-  readonly original?: Buffer | null
+  readonly original?: Buffer | null | undefined
 }
 
 /** What one render wrote: its base dir, and each file it wrote. */
@@ -96,9 +96,9 @@ export const writeInlineRenderedFiles = (
 const readOriginal = (filePath: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
-    const read = yield* Effect.either(fs.readFileBuffer(filePath))
-    if (Either.isRight(read)) return read.right
-    return read.left._tag === "FileNotFoundError" ? undefined : null
+    const read = yield* Effect.result(fs.readFileBuffer(filePath))
+    if (Result.isSuccess(read)) return read.success
+    return read.failure._tag === "FileNotFoundError" ? undefined : null
   })
 
 /**
@@ -117,8 +117,8 @@ const cleanUpStaleFiles = (previous: InlineWriteRecord, keep: ReadonlySet<string
     for (const entry of previous.files) {
       const filePath = path.resolve(previous.outputDir, entry.path)
       if (keep.has(filePath)) continue
-      const valid = yield* Effect.either(validateRelativePathIn(entry.path, previous.outputDir))
-      if (Either.isLeft(valid)) continue
+      const valid = yield* Effect.result(validateRelativePathIn(entry.path, previous.outputDir))
+      if (Result.isFailure(valid)) continue
       const content = yield* Effect.option(fs.readFile(filePath))
       if (Option.isNone(content) || hashFileContent(content.value) !== entry.contentHash) continue
       if (entry.original === null) continue

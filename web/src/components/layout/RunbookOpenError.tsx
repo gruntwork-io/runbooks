@@ -1,5 +1,6 @@
-import { AlertTriangle, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { AlertTriangle, X } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 
 interface RunbookOpenErrorProps {
   /** User-facing reason the open failed (may contain newlines). */
@@ -10,7 +11,7 @@ interface RunbookOpenErrorProps {
    * `fullscreen` replaces the page when no runbook has loaded yet. `inline` is
    * a dismissible banner shown while a previously opened runbook stays mounted.
    */
-  variant: 'fullscreen' | 'inline'
+  variant: "fullscreen" | "inline"
   /** Inline only: the runbook that is still open, so it's clear nothing was replaced. */
   currentPath?: string
   /** Inline only: hides the banner. */
@@ -32,20 +33,29 @@ export function RunbookOpenError({
   onDismiss,
   className,
 }: RunbookOpenErrorProps) {
-  if (variant === 'inline') {
+  const displayPath = useDisplayPath()
+  if (variant === "inline") {
     return (
       <div
         role="alert"
-        className={cn('bg-destructive-muted border border-destructive/30 rounded-lg p-4 text-left', className)}
+        className={cn(
+          "bg-destructive-muted border border-destructive/30 rounded-lg p-4 text-left",
+          className,
+        )}
       >
         <div className="flex items-start gap-3">
           <AlertTriangle className="size-5 mt-0.5 flex-shrink-0 text-destructive" />
           <div className="flex-1 min-w-0">
             <h3 className="font-medium text-destructive mb-1">Couldn't open runbook</h3>
-            <p className="text-sm text-destructive whitespace-pre-line break-words">{message}</p>
+            <p className="text-sm text-destructive whitespace-pre-line break-words">
+              {displayPath(message)}
+            </p>
             {currentPath && (
               <p className="text-sm text-destructive mt-2 break-all">
-                Still showing <span className="font-mono">{currentPath}</span>
+                Still showing{" "}
+                <span className="font-mono" title={currentPath}>
+                  {displayPath(currentPath)}
+                </span>
               </p>
             )}
             <div className="flex items-center gap-3 mt-3">
@@ -78,7 +88,7 @@ export function RunbookOpenError({
   }
 
   return (
-    <div className={cn('flex items-center justify-center h-[calc(100vh-5rem)]', className)}>
+    <div className={cn("flex items-center justify-center h-[calc(100vh-5rem)]", className)}>
       <div className="text-center max-w-md mx-auto p-6">
         <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-6">
           <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-destructive-muted rounded-full">

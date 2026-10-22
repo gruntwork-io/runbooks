@@ -1,5 +1,5 @@
-import { useCallback } from 'react'
-import type { RefObject, WheelEvent } from 'react'
+import { useCallback } from "react"
+import type { RefObject, WheelEvent } from "react"
 
 /**
  * Returns an `onWheel` handler that scrolls `targetRef` when a wheel gesture
@@ -31,5 +31,7 @@ function hasScrollableAncestor(start: EventTarget | null, boundary: HTMLElement)
 
 function scrollsVertically(element: Element): boolean {
   const { overflowY } = getComputedStyle(element)
-  return (overflowY === 'auto' || overflowY === 'scroll') && element.scrollHeight > element.clientHeight
+  return (
+    (overflowY === "auto" || overflowY === "scroll") && element.scrollHeight > element.clientHeight
+  )
 }

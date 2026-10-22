@@ -4,10 +4,7 @@ import { collectOutput } from "./ProcessSpawner.ts"
 import type { OutputLine, SpawnedProcess } from "./ProcessSpawner.ts"
 
 /** A fake child whose output/exit are supplied by the test; counts kills. */
-const fakeProcess = (
-  output: Stream.Stream<OutputLine>,
-  exitCode: Effect.Effect<number>,
-) => {
+const fakeProcess = (output: Stream.Stream<OutputLine>, exitCode: Effect.Effect<number>) => {
   let kills = 0
   const proc: SpawnedProcess = {
     output,
@@ -35,17 +32,20 @@ describe("collectOutput", () => {
 
   it("times out and kills a process whose output never ends", async () => {
     const { proc, kills } = fakeProcess(Stream.never, Effect.succeed(0))
-    const result = await Effect.runPromise(Effect.either(collectOutput(proc, 20)))
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") expect(Cause.isTimeoutException(result.left)).toBe(true)
+    const result = await Effect.runPromise(Effect.result(collectOutput(proc, 20)))
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") expect(Cause.isTimeoutError(result.failure)).toBe(true)
     expect(kills()).toBe(1)
   })
 
   it("times out and kills a process that never exits after closing its output", async () => {
-    const { proc, kills } = fakeProcess(Stream.fromIterable<OutputLine>([{ line: "done", source: "stdout" }]), Effect.never)
-    const result = await Effect.runPromise(Effect.either(collectOutput(proc, 20)))
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") expect(Cause.isTimeoutException(result.left)).toBe(true)
+    const { proc, kills } = fakeProcess(
+      Stream.fromIterable<OutputLine>([{ line: "done", source: "stdout" }]),
+      Effect.never,
+    )
+    const result = await Effect.runPromise(Effect.result(collectOutput(proc, 20)))
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") expect(Cause.isTimeoutError(result.failure)).toBe(true)
     expect(kills()).toBe(1)
   })
 

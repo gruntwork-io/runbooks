@@ -7,7 +7,7 @@
  * guards (a retry dying on "a branch named … already exists") only shows up
  * with real git state left behind by a failed attempt.
  */
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, setDefaultTimeout } from "bun:test"
 import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -21,6 +21,10 @@ import { GitError, GitHubApiError, GitLabApiError } from "../../errors/index.ts"
 import { GitCliClientLive } from "../../layers/GitCliClient.ts"
 import { ChildProcessSpawnerLive } from "../../layers/ChildProcessSpawner.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
+
+// These tests spawn real git/ssh processes, which a loaded full-suite run can
+// stall past bun's 5 s default; 30 s matches the other real-git tests.
+setDefaultTimeout(30_000)
 
 const params: CreatePullRequestParams = {
   owner: "acme",
@@ -123,7 +127,9 @@ describe("runGitSteps", () => {
           Effect.suspend(() => {
             refs.push(ref)
             return ref.startsWith("refs/remotes/")
-              ? Effect.fail(new GitError({ command: "git rev-list", stderr: "bad revision", exitCode: 128 }))
+              ? Effect.fail(
+                  new GitError({ command: "git rev-list", stderr: "bad revision", exitCode: 128 }),
+                )
               : Effect.succeed(true)
           }),
         // A failed push's commits: not on origin.
@@ -163,18 +169,22 @@ describe("runGitSteps", () => {
       gitlab: {
         createMergeRequest: (_token, p) =>
           Effect.sync(() => void steps.push("createMergeRequest")).pipe(
-            Effect.as({ url: "https://gitlab.com/acme/infra/-/merge_requests/8", number: 8, branch: p.headBranch }),
+            Effect.as({
+              url: "https://gitlab.com/acme/infra/-/merge_requests/8",
+              number: 8,
+              branch: p.headBranch,
+            }),
           ),
       },
     })
 
     const result = await Effect.runPromise(
-      createMergeRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+      createMergeRequest("tok", params).pipe(Effect.result, Effect.provide(layer)),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toMatchObject({
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toMatchObject({
         stderr: expect.stringMatching(
           /^Nothing to commit: .*commits on runbook\/122 that main doesn't have are already on origin.*merge request open from runbook\/122.*Git Push/,
         ),
@@ -203,17 +213,20 @@ describe("runGitSteps", () => {
       },
       github: {
         createPullRequest: (_token, p) =>
-          Effect.sync(() => void steps.push("createPullRequest")).pipe(Effect.zipRight(openedPr(p))),
+          Effect.sync(() => void steps.push("createPullRequest")).pipe(Effect.andThen(openedPr(p))),
       },
     })
 
     const result = await Effect.runPromise(
-      createPullRequest("tok", { ...params, ...branches }).pipe(Effect.either, Effect.provide(layer)),
+      createPullRequest("tok", { ...params, ...branches }).pipe(
+        Effect.result,
+        Effect.provide(layer),
+      ),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toMatchObject({
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toMatchObject({
         stderr: expect.stringContaining(`Refusing to commit to ${branches.headBranch}`),
       })
     }
@@ -236,7 +249,11 @@ describe("runGitSteps", () => {
       },
       gitlab: {
         createMergeRequest: (_token, p) =>
-          Effect.succeed({ url: "https://gitlab.com/acme/infra/-/merge_requests/7", number: 7, branch: p.headBranch }),
+          Effect.succeed({
+            url: "https://gitlab.com/acme/infra/-/merge_requests/7",
+            number: 7,
+            branch: p.headBranch,
+          }),
       },
     })
 
@@ -279,14 +296,14 @@ describe("head branch with an open PR/MR", () => {
     })
 
     const result = await Effect.runPromise(
-      createPullRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+      createPullRequest("tok", params).pipe(Effect.result, Effect.provide(layer)),
     )
 
     expect(steps).toEqual(["push"])
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(GitHubApiError)
-      expect(result.left.message).toStartWith(
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(GitHubApiError)
+      expect(result.failure.message).toStartWith(
         "A pull request for runbook/123 already exists. The commits were pushed to its branch, so they are part of it now.",
       )
     }
@@ -301,25 +318,26 @@ describe("head branch with an open PR/MR", () => {
           Effect.fail(
             new GitLabApiError({
               status: 409,
-              message: '{"message":["Another open merge request already exists for this source branch: !7"]}',
+              message:
+                '{"message":["Another open merge request already exists for this source branch: !7"]}',
             }),
           ),
       },
     })
 
     const result = await Effect.runPromise(
-      createMergeRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+      createMergeRequest("tok", params).pipe(Effect.result, Effect.provide(layer)),
     )
 
     expect(steps).toEqual(["push"])
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(GitLabApiError)
-      expect(result.left.message).toStartWith(
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(GitLabApiError)
+      expect(result.failure.message).toStartWith(
         "A merge request for runbook/123 already exists. The commits were pushed to its branch, so they are part of it now.",
       )
       // GitLab's own text still names the open MR.
-      expect(result.left.message).toContain("!7")
+      expect(result.failure.message).toContain("!7")
     }
   })
 
@@ -328,15 +346,20 @@ describe("head branch with an open PR/MR", () => {
       git: onOpenBranch([]),
       github: {
         createPullRequest: () =>
-          Effect.fail(new GitHubApiError({ status: 422, message: "Validation Failed: base is invalid" })),
+          Effect.fail(
+            new GitHubApiError({ status: 422, message: "Validation Failed: base is invalid" }),
+          ),
       },
     })
 
     const result = await Effect.runPromise(
-      createPullRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+      createPullRequest("tok", params).pipe(Effect.result, Effect.provide(layer)),
     )
 
-    expect(result).toMatchObject({ _tag: "Left", left: { message: "Validation Failed: base is invalid" } })
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: { message: "Validation Failed: base is invalid" },
+    })
   })
 })
 
@@ -388,16 +411,18 @@ describe("createPullRequest labels", () => {
       git: gitOk,
       github: {
         createPullRequest: (_token, p, host) =>
-          Effect.sync(() => void hosts.push(`pulls ${host}`)).pipe(Effect.zipRight(openedPr(p))),
+          Effect.sync(() => void hosts.push(`pulls ${host}`)).pipe(Effect.andThen(openedPr(p))),
         addLabels: (_token, _owner, _repo, _number, _labels, host) =>
           Effect.sync(() => void hosts.push(`labels ${host}`)),
       },
     })
 
     await Effect.runPromise(
-      createPullRequest("tok", { ...params, labels: ["enhancement"], host: "github.example.com" }).pipe(
-        Effect.provide(layer),
-      ),
+      createPullRequest("tok", {
+        ...params,
+        labels: ["enhancement"],
+        host: "github.example.com",
+      }).pipe(Effect.provide(layer)),
     )
 
     expect(hosts).toEqual(["pulls github.example.com", "labels github.example.com"])
@@ -434,14 +459,14 @@ describe("createPullRequest labels", () => {
 
     const result = await Effect.runPromise(
       createPullRequest("tok", { ...params, labels: ["enhancement"] }, (l) => logs.push(l)).pipe(
-        Effect.either,
+        Effect.result,
         Effect.provide(layer),
       ),
     )
 
-    expect(result._tag).toBe("Right")
-    if (result._tag === "Right") {
-      expect(result.right.url).toBe("https://github.com/acme/infra/pull/42")
+    expect(result._tag).toBe("Success")
+    if (result._tag === "Success") {
+      expect(result.success.url).toBe("https://github.com/acme/infra/pull/42")
     }
     expect(logs).toContain(
       "Warning: PR #42 was created but labels could not be applied: Bad Gateway",
@@ -535,9 +560,9 @@ describe("createPullRequest retry (real git)", () => {
     // created and the change committed on it.
     git(work, "remote", "add", "origin", path.join(tmp, "missing.git"))
     const first = await Effect.runPromise(
-      createPullRequest("tok", retryParams).pipe(Effect.either, Effect.provide(layer)),
+      createPullRequest("tok", retryParams).pipe(Effect.result, Effect.provide(layer)),
     )
-    expect(first._tag).toBe("Left")
+    expect(first._tag).toBe("Failure")
     expect(git(work, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("runbook/123")
 
     // Attempt 2: same branch name, remote fixed, nothing new to stage.
@@ -545,12 +570,12 @@ describe("createPullRequest retry (real git)", () => {
     const logs: string[] = []
     const second = await Effect.runPromise(
       createPullRequest("tok", retryParams, (l) => logs.push(l)).pipe(
-        Effect.either,
+        Effect.result,
         Effect.provide(layer),
       ),
     )
 
-    expect(second).toMatchObject({ _tag: "Right", right: { number: 42 } })
+    expect(second).toMatchObject({ _tag: "Success", success: { number: 42 } })
     expect(logs).toContain("Resuming on existing branch runbook/123…")
     // The commit from attempt 1 reached the remote.
     expect(git(remote, "show", "--name-only", "--format=", "runbook/123").trim()).toBe(
@@ -564,9 +589,12 @@ describe("createPullRequest retry (real git)", () => {
     // Attempt 1 fails at the push, leaving the change committed on runbook/123.
     git(work, "remote", "add", "origin", path.join(tmp, "missing.git"))
     const first = await Effect.runPromise(
-      createPullRequest("tok", { ...params, repoPath: work }).pipe(Effect.either, Effect.provide(layer)),
+      createPullRequest("tok", { ...params, repoPath: work }).pipe(
+        Effect.result,
+        Effect.provide(layer),
+      ),
     )
-    expect(first._tag).toBe("Left")
+    expect(first._tag).toBe("Failure")
 
     // Attempt 2: a new name, with nothing left to stage.
     git(work, "remote", "set-url", "origin", remote)
@@ -574,10 +602,13 @@ describe("createPullRequest retry (real git)", () => {
     const second = await Effect.runPromise(
       createPullRequest("tok", { ...params, headBranch: "runbook/124", repoPath: work }, (l) =>
         logs.push(l),
-      ).pipe(Effect.either, Effect.provide(layer)),
+      ).pipe(Effect.result, Effect.provide(layer)),
     )
 
-    expect(second).toMatchObject({ _tag: "Right", right: { number: 42, branch: "runbook/124" } })
+    expect(second).toMatchObject({
+      _tag: "Success",
+      success: { number: 42, branch: "runbook/124" },
+    })
     expect(logs).toContain("No new changes to commit; pushing the existing commits…")
     expect(git(remote, "show", "--name-only", "--format=", "runbook/124").trim()).toBe(
       "generated.tf",
@@ -592,22 +623,25 @@ describe("createPullRequest retry (real git)", () => {
     // Attempt 1 succeeds: runbook/123 is pushed and its PR opened. HEAD stays
     // on runbook/123.
     const first = await Effect.runPromise(
-      createPullRequest("tok", { ...params, repoPath: work }).pipe(Effect.either, Effect.provide(layer)),
+      createPullRequest("tok", { ...params, repoPath: work }).pipe(
+        Effect.result,
+        Effect.provide(layer),
+      ),
     )
-    expect(first).toMatchObject({ _tag: "Right", right: { branch: "runbook/123" } })
+    expect(first).toMatchObject({ _tag: "Success", success: { branch: "runbook/123" } })
 
     // "Create another" fills in a new name; nothing changed since.
     const second = await Effect.runPromise(
       createPullRequest("tok", { ...params, headBranch: "runbook/124", repoPath: work }).pipe(
-        Effect.either,
+        Effect.result,
         Effect.provide(layer),
       ),
     )
 
-    expect(second._tag).toBe("Left")
-    if (second._tag === "Left") {
-      expect(second.left).toBeInstanceOf(GitError)
-      const stderr = (second.left as GitError).stderr
+    expect(second._tag).toBe("Failure")
+    if (second._tag === "Failure") {
+      expect(second.failure).toBeInstanceOf(GitError)
+      const stderr = (second.failure as GitError).stderr
       expect(stderr).toStartWith("Nothing to commit")
       expect(stderr).toContain("already on origin")
       // Points at the open PR's branch and at Git Push.
@@ -629,9 +663,12 @@ describe("createPullRequest retry (real git)", () => {
     // Attempt 1: the push lands on origin, then opening the PR fails.
     failNextPr = true
     const first = await Effect.runPromise(
-      createPullRequest("tok", { ...params, repoPath: work }).pipe(Effect.either, Effect.provide(layer)),
+      createPullRequest("tok", { ...params, repoPath: work }).pipe(
+        Effect.result,
+        Effect.provide(layer),
+      ),
     )
-    expect(first._tag).toBe("Left")
+    expect(first._tag).toBe("Failure")
     expect(git(remote, "show", "--name-only", "--format=", "runbook/123").trim()).toBe(
       "generated.tf",
     )
@@ -639,10 +676,13 @@ describe("createPullRequest retry (real git)", () => {
     // Attempt 2, same name: nothing to commit and nothing unpushed, yet the PR
     // still has to be opened.
     const second = await Effect.runPromise(
-      createPullRequest("tok", { ...params, repoPath: work }).pipe(Effect.either, Effect.provide(layer)),
+      createPullRequest("tok", { ...params, repoPath: work }).pipe(
+        Effect.result,
+        Effect.provide(layer),
+      ),
     )
 
-    expect(second).toMatchObject({ _tag: "Right", right: { branch: "runbook/123" } })
+    expect(second).toMatchObject({ _tag: "Success", success: { branch: "runbook/123" } })
     expect(opened).toEqual(["runbook/123"])
   })
 
@@ -653,12 +693,15 @@ describe("createPullRequest retry (real git)", () => {
     git(work, "fetch", "origin")
 
     const result = await Effect.runPromise(
-      createPullRequest("tok", { ...params, repoPath: work }).pipe(Effect.either, Effect.provide(layer)),
+      createPullRequest("tok", { ...params, repoPath: work }).pipe(
+        Effect.result,
+        Effect.provide(layer),
+      ),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toMatchObject({ stderr: expect.stringContaining("Nothing to commit") })
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toMatchObject({ stderr: expect.stringContaining("Nothing to commit") })
     }
     // HEAD stayed put, so the next attempt starts from the same place.
     expect(git(work, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("main")

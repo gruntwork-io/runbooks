@@ -4,9 +4,12 @@
  * Ensures renderer-supplied paths stay within the session working directory
  * or a registered worktree path.
  */
+import { createHash } from "crypto"
+import fs from "fs"
 import path from "path"
 import { Effect } from "effect"
 import { sessionManager, runbookConfig } from "./runtime.ts"
+import type { RunbookConfig } from "../../../src/types.ts"
 import { isContainedInReal } from "../../../src/path-validation.ts"
 import { PathTraversalError } from "../../../src/errors/index.ts"
 import {
@@ -26,14 +29,15 @@ function resolveAgainstRunbook(p: string): string {
 }
 
 /**
- * Validate that a path is within the session working directory, a registered
- * worktree, or the runbook directory. Relative paths are resolved against the
- * runbook directory. Returns the resolved absolute path.
+ * Validate that a path is within the session working directory, the
+ * session's own directory, a registered worktree, or the runbook directory.
+ * Relative paths are resolved against the runbook directory. Returns the
+ * resolved absolute path.
  */
 export const validateSessionPath = (p: string) =>
   Effect.gen(function* () {
     if (!p) {
-      return yield* Effect.fail(new PathTraversalError({ path: p, message: "path must not be empty" }))
+      return yield* new PathTraversalError({ path: p, message: "path must not be empty" })
     }
 
     const resolved = resolveAgainstRunbook(p)
@@ -58,18 +62,23 @@ export const validateSessionPath = (p: string) =>
       return resolved
     }
 
+    // Allow paths contained within the session's own directory, which holds
+    // its generated files: a script's `cd` moves the working directory away
+    // from it.
+    if (yield* Effect.promise(() => isContainedInReal(resolved, session.initialWorkDir))) {
+      return resolved
+    }
+
     // Allow paths contained within the runbook directory
     const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
     if (runbookDir && (yield* Effect.promise(() => isContainedInReal(resolved, runbookDir)))) {
       return resolved
     }
 
-    return yield* Effect.fail(
-      new PathTraversalError({
-        path: p,
-        message: `path is outside session working directory and registered worktrees`,
-      }),
-    )
+    return yield* new PathTraversalError({
+      path: p,
+      message: `path is outside session working directory and registered worktrees`,
+    })
   })
 
 /**
@@ -99,35 +108,71 @@ export const validateCloneDestination = (
     }
     // Contained both ways means it is the working directory itself.
     if (yield* Effect.promise(() => isContainedInReal(workingDir, absolutePath))) {
-      return yield* reject("clone destination must be a subdirectory of the session working directory")
+      return yield* reject(
+        "clone destination must be a subdirectory of the session working directory",
+      )
     }
-    if (runbookPath && (yield* Effect.promise(() => isContainedInReal(runbookPath, absolutePath)))) {
+    if (
+      runbookPath &&
+      (yield* Effect.promise(() => isContainedInReal(runbookPath, absolutePath)))
+    ) {
       return yield* reject("clone destination must not contain the open runbook")
     }
   })
 
 /**
- * Map a runbook-asset:// request URL to the file it names in the runbook
- * directory, or null if it must not be served. The URL's host + path
- * (runbook-asset://assets/foo.png -> assets/foo.png) is percent-decoded
+ * The host of the runbook's runbook-asset:// URLs
+ * (runbook-asset://<host>/foo.png for assets/foo.png). Each runbook gets its
+ * own host, and so its own origin, so a page the Iframe block embeds can't
+ * read the storage of another runbook's pages. It is derived from the
+ * runbook's identity: the remote URL when opened from one, whose clone lands
+ * in a new temp folder on every open, otherwise the path of its file. So a
+ * page keeps its storage across opens of the same runbook.
+ * Starts with a letter so the URL parser never reads it as an IPv4 address.
+ */
+export function runbookAssetHost(
+  config: Pick<RunbookConfig, "localPath" | "remoteSourceURL">,
+): string {
+  const identity = config.remoteSourceURL ?? config.localPath
+  return "r" + createHash("sha256").update(identity).digest("hex").slice(0, 32)
+}
+
+/**
+ * Map a runbook-asset:// request URL to the file it names in the runbook's
+ * assets/ folder, or null if it must not be served. Only the open runbook's
+ * host (see runbookAssetHost) is served, and its root is the assets/ folder,
+ * so a page's `/app.js` loads assets/app.js. The URL's path
+ * (runbook-asset://<host>/foo.png -> assets/foo.png) is percent-decoded
  * before the check, so the path that is checked is the path that is served.
- * Containment is checked on the symlink-resolved path, so a symlink in the
- * runbook directory (assets/k.png -> ~/.ssh/id_ed25519) can't serve a file
- * from outside it.
+ *
+ * Only files under assets/ are served, because a page the Iframe block frames
+ * runs scripts that can fetch any runbook-asset:// URL. Containment is checked
+ * on the symlink-resolved path, so a symlinked file
+ * (assets/k.png -> ~/.ssh/id_ed25519) can't serve a file from outside
+ * assets/. Nothing is served when assets/ is itself a symlink, because
+ * `assets -> .` would make the whole runbook directory count as assets/.
  */
 export async function resolveRunbookAssetPath(
   requestUrl: string,
   runbookDir: string,
+  assetHost: string,
 ): Promise<string | null> {
   let assetRelative: string
   try {
     const url = new URL(requestUrl)
-    assetRelative = decodeURIComponent(url.hostname + url.pathname)
+    if (url.hostname !== assetHost) return null
+    assetRelative = decodeURIComponent(url.pathname)
   } catch {
     return null
   }
-  const resolved = path.resolve(path.join(runbookDir, assetRelative))
-  return (await isContainedInReal(resolved, runbookDir)) ? resolved : null
+  const assetsDir = path.join(runbookDir, "assets")
+  try {
+    if ((await fs.promises.lstat(assetsDir)).isSymbolicLink()) return null
+  } catch {
+    return null
+  }
+  const resolved = path.resolve(path.join(assetsDir, assetRelative))
+  return (await isContainedInReal(resolved, assetsDir)) ? resolved : null
 }
 
 /**
@@ -136,7 +181,7 @@ export async function resolveRunbookAssetPath(
  * here so they agree on one directory.
  *
  * A relative `outputPath` resolves against the session's `initialWorkDir` (the
- * realpath'd runbook directory), never the live `workingDir`: that follows a
+ * session's own directory), never the live `workingDir`: that follows a
  * script's `cd`, which would scatter output across whatever directories the
  * runbook's scripts happened to leave the session in.
  *
@@ -150,4 +195,16 @@ export const resolveGeneratedDir = (outputPath: string = DEFAULT_GENERATED_DIR) 
     const baseDir = session.initialWorkDir
     const absolutePath = yield* resolveToAbsolutePath(baseDir, outputPath)
     return { baseDir, outputPath, absolutePath }
+  })
+
+/**
+ * The directory the runs of block `blockId` write their logs to:
+ * `.runbooks/logs/<block id>` in the session's own directory, so the logs
+ * last as long as the session and go when it is deleted. A block id that
+ * isn't a plain file name has its other characters replaced.
+ */
+export const resolveRunLogsDir = (blockId: string) =>
+  Effect.map(sessionManager.getSession(), (session) => {
+    const name = blockId.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+$/, "_") || "_"
+    return path.join(session.initialWorkDir, ".runbooks", "logs", name)
   })

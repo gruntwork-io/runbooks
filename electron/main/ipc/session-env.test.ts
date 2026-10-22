@@ -21,6 +21,8 @@ mockElectron({
 const { registerRunbookHandlers } = await import("./runbook.ts")
 const { registerExecHandlers } = await import("./exec.ts")
 const { runtime, sessionManager } = await import("./runtime.ts")
+const { installTestSessionPersistence } = await import("../test-utils/session-persistence.ts")
+type TestSessionPersistence = ReturnType<typeof installTestSessionPersistence>
 
 const AWS_ENV = {
   AWS_ACCESS_KEY_ID: "AKIATERMINAL",
@@ -38,12 +40,15 @@ async function waitUntil(pred: () => boolean, timeoutMs: number): Promise<boolea
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (pred()) return true
-    await new Promise((r) => setTimeout(r, 50))
+    await new Promise((r) => {
+      setTimeout(r, 50)
+    })
   }
   return pred()
 }
 
 let tmpDir = ""
+let sessions: TestSessionPersistence
 const savedEnv: Record<string, string | undefined> = {}
 
 /** Write `<name>/runbook.mdx` (plus any extra files) and return its directory. */
@@ -66,6 +71,7 @@ async function openRunbook(dir: string) {
 beforeAll(() => {
   registerRunbookHandlers()
   registerExecHandlers()
+  sessions = installTestSessionPersistence()
   tmpDir = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-session-env-")))
   // The app's session env comes from process.env (the terminal's, or the
   // login shell's that shell-env loads) — put AWS keys there.
@@ -81,6 +87,7 @@ afterAll(() => {
     else process.env[key] = value
   }
   sessionManager.deleteSession()
+  sessions.cleanup()
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
 
@@ -107,7 +114,7 @@ describe("runbook:get session env", () => {
 describe("exec:run captured env", () => {
   /**
    * Open a runbook whose one Command signals that it started, blocks until
-   * released, then exports FROM_SCRIPT and cd's out of the runbook directory.
+   * released, then exports FROM_SCRIPT and cd's out of the session directory.
    * Returns a way to start it and a way to let it finish.
    */
   async function openBlockingRunbook(name: string) {
@@ -128,7 +135,9 @@ describe("exec:run captured env", () => {
     const { executables } = (await handlers.get("runbook:executables")!({})) as {
       executables: Record<string, { componentId: string }>
     }
-    const executableId = Object.keys(executables).find((id) => executables[id]!.componentId === "wait")!
+    const executableId = Object.keys(executables).find(
+      (id) => executables[id]!.componentId === "wait",
+    )!
 
     return {
       /**
@@ -154,7 +163,9 @@ describe("exec:run captured env", () => {
 
     const run = await runbook.start()
     // What GitAuth / AwsAuth / GoogleAuth do while a long Command is running.
-    await runtime.runPromise(sessionManager.appendToEnv({ GITHUB_TOKEN: "ghp_mid_run", PRE_EXISTING: "fresh" }))
+    await runtime.runPromise(
+      sessionManager.appendToEnv({ GITHUB_TOKEN: "ghp_mid_run", PRE_EXISTING: "fresh" }),
+    )
     await runtime.runPromise(sessionManager.removeFromEnv(["AWS_SESSION_TOKEN"]))
     runbook.release()
 
@@ -181,7 +192,9 @@ describe("exec:run captured env", () => {
     const { executables } = (await handlers.get("runbook:executables")!({})) as {
       executables: Record<string, { componentId: string }>
     }
-    const executableId = Object.keys(executables).find((id) => executables[id]!.componentId === "cmd")!
+    const executableId = Object.keys(executables).find(
+      (id) => executables[id]!.componentId === "cmd",
+    )!
     const result = (await handlers.get("exec:run")!(
       { sender: { send: () => {} } },
       { executableId, executionId: name, envVarsOverride: opts.envVarsOverride },
@@ -217,6 +230,9 @@ describe("exec:run captured env", () => {
 
     const ctx = await runtime.runPromise(sessionManager.getExecContext())
     expect(ctx.env.FROM_SCRIPT).toBeUndefined()
-    expect(ctx.workDir).toBe(other)
+    // Still the other runbook's own session directory, not the script's `cd`.
+    expect(ctx.workDir).toBe(
+      nodePath.join(sessions.dirsRoot, sessions.persistence.currentSession()!.id),
+    )
   }, 30000)
 })

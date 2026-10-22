@@ -16,7 +16,13 @@ const defaultConfig: BoilerplateConfig = {
     { name: "region", type: "string", description: "AWS region", default: "us-east-1" },
     { name: "count", type: "int", description: "Instance count", default: 3 },
     { name: "enable_logging", type: "bool", description: "Enable logging", default: true },
-    { name: "env", type: "enum", description: "Environment", options: ["dev", "staging", "prod"], default: "dev" },
+    {
+      name: "env",
+      type: "enum",
+      description: "Environment",
+      options: ["dev", "staging", "prod"],
+      default: "dev",
+    },
   ],
   outputDependencies: [],
 }
@@ -120,7 +126,9 @@ describe("Inputs", () => {
     render(
       <TestWrapper>
         <Inputs id="test" path="boilerplate.yml">
-          <pre><code className="language-yaml">{"variables:\n  - name: test\n    type: string"}</code></pre>
+          <pre>
+            <code className="language-yaml">{"variables:\n  - name: test\n    type: string"}</code>
+          </pre>
         </Inputs>
       </TestWrapper>,
     )
@@ -160,7 +168,13 @@ describe("Inputs", () => {
       ...mockApiReturn,
       data: {
         variables: [
-          { name: "password", type: "string", description: "Secret", default: "s3cret", sensitive: true },
+          {
+            name: "password",
+            type: "string",
+            description: "Secret",
+            default: "s3cret",
+            sensitive: true,
+          },
         ],
         outputDependencies: [],
       },
@@ -175,9 +189,7 @@ describe("Inputs", () => {
     mockApiReturn = {
       ...mockApiReturn,
       data: {
-        variables: [
-          { name: "tags", type: "list", description: "Resource tags" },
-        ],
+        variables: [{ name: "tags", type: "list", description: "Resource tags" }],
         outputDependencies: [],
       },
     }
@@ -189,9 +201,7 @@ describe("Inputs", () => {
     mockApiReturn = {
       ...mockApiReturn,
       data: {
-        variables: [
-          { name: "labels", type: "map", description: "Key-value labels" },
-        ],
+        variables: [{ name: "labels", type: "map", description: "Key-value labels" }],
         outputDependencies: [],
       },
     }

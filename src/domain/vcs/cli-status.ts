@@ -12,7 +12,7 @@ import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 
 export interface CliStatus {
   readonly installed: boolean
-  readonly version?: string
+  readonly version?: string | undefined
   /** Whether the installed version meets the probe floor. */
   readonly meetsFloor: boolean
 }
@@ -48,14 +48,14 @@ const runForOutput = (
 ): Effect.Effect<{ exitCode: number; output: string } | undefined, never, ProcessSpawner> =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
-    const result = yield* Effect.either(
+    const result = yield* Effect.result(
       Effect.gen(function* () {
         const proc = yield* spawner.spawn(command, args, env ? { env } : undefined)
         const { exitCode, lines } = yield* collectOutput(proc, PROBE_TIMEOUT_MS)
         return { exitCode, output: lines.map((line) => line.line).join("\n") }
       }),
     )
-    return result._tag === "Left" ? undefined : result.right
+    return result._tag === "Failure" ? undefined : result.success
   })
 
 const probeCliStatus = (

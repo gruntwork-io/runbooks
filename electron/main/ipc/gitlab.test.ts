@@ -9,11 +9,22 @@
  * main-process modules the handlers pull in only for TLS recovery / window
  * broadcasts (system-trust.ts, window.ts). Mirrors github.test.ts.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, mock, spyOn } from "bun:test"
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+  mock,
+  spyOn,
+} from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
 import { Effect } from "effect"
+import { fetchUrl } from "../test-utils/fetch-url.ts"
 import { mockElectron } from "../test-utils/mock-electron.ts"
 
 // ---------------------------------------------------------------------------
@@ -37,7 +48,7 @@ mockElectron({
     },
   },
 })
-mock.module("../window.ts", () => ({
+await mock.module("../window.ts", () => ({
   getMainWindow: () => null,
 }))
 
@@ -59,19 +70,23 @@ const invoke = (channel: string, params?: unknown) => {
 // ---------------------------------------------------------------------------
 
 const originalFetch = globalThis.fetch
-let fetchCalls: Array<{ url: string; authorization?: string }> = []
+let fetchCalls: Array<{ url: string; authorization?: string | undefined }> = []
 
 const json = (body: unknown) =>
-  new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } })
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  })
 
 /** Answers GitLab's /user, PAT introspection and project labels on any host. */
 const mockGitLab = () => {
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input)
+    const url = fetchUrl(input)
     const headers = (init?.headers ?? {}) as Record<string, string>
     fetchCalls.push({ url, authorization: headers.Authorization ?? headers["PRIVATE-TOKEN"] })
     if (url.endsWith("/api/v4/user")) return Promise.resolve(json({ username: "tanuki" }))
-    if (url.endsWith("/personal_access_tokens/self")) return Promise.resolve(json({ scopes: ["api"] }))
+    if (url.endsWith("/personal_access_tokens/self"))
+      return Promise.resolve(json({ scopes: ["api"] }))
     if (new URL(url).pathname.endsWith("/labels")) return Promise.resolve(json([{ name: "bug" }]))
     return Promise.resolve(new Response("not found", { status: 404 }))
   }) as typeof fetch
@@ -124,7 +139,9 @@ beforeEach(async () => {
   fetchCalls = []
   mockGitLab()
   vcsSessionMeta.clear()
-  await Effect.runPromise(sessionManager.createSession("/tmp").pipe(Effect.provide(makeTestEnvironment({}))))
+  await Effect.runPromise(
+    sessionManager.createSession("/tmp").pipe(Effect.provide(makeTestEnvironment({}))),
+  )
 })
 
 afterEach(() => {
@@ -135,7 +152,8 @@ afterEach(() => {
   fs.rmSync(glabConfigDir, { recursive: true, force: true })
 })
 
-const sessionEnv = async () => Object.fromEntries((await Effect.runPromise(sessionManager.getSession())).env)
+const sessionEnv = async () =>
+  Object.fromEntries((await Effect.runPromise(sessionManager.getSession())).env)
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -146,7 +164,10 @@ describe("gitlab:env-credentials — never over plain http", () => {
     process.env.GITLAB_TOKEN = "glpat-env"
     process.env.CI_GITLAB_TOKEN = "glpat-ci"
     const plain = await invoke("gitlab:env-credentials", { instanceUrl: "http://gitlab.com" })
-    const prefixed = await invoke("gitlab:env-credentials", { instanceUrl: "http://gitlab.com", prefix: "CI_" })
+    const prefixed = await invoke("gitlab:env-credentials", {
+      instanceUrl: "http://gitlab.com",
+      prefix: "CI_",
+    })
     expect(plain.found).toBe(false)
     expect(prefixed.found).toBe(false)
     expect(fetchCalls).toHaveLength(0)
@@ -159,7 +180,9 @@ describe("gitlab:env-credentials — never over plain http", () => {
     const plain = await invoke("gitlab:env-credentials", { instanceUrl: "https://gitlab.com" })
     const prefixed = await invoke("gitlab:env-credentials", { host: "gitlab.com", prefix: "CI_" })
     expect([plain.valid, prefixed.valid]).toEqual([true, true])
-    expect(fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => [c.url, c.authorization])).toEqual([
+    expect(
+      fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => [c.url, c.authorization]),
+    ).toEqual([
       ["https://gitlab.com/api/v4/user", "Bearer glpat-env"],
       ["https://gitlab.com/api/v4/user", "Bearer glpat-ci"],
     ])
@@ -168,7 +191,10 @@ describe("gitlab:env-credentials — never over plain http", () => {
 
 describe("gitlab:validate", () => {
   it("a manually entered token still validates against an http:// instance", async () => {
-    const result = await invoke("gitlab:validate", { token: "glpat-manual", instanceUrl: "http://git.corp.example" })
+    const result = await invoke("gitlab:validate", {
+      token: "glpat-manual",
+      instanceUrl: "http://git.corp.example",
+    })
     expect(result.valid).toBe(true)
     expect(fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => c.url)).toEqual([
       "http://git.corp.example/api/v4/user",
@@ -184,16 +210,22 @@ describe("gitlab:validate", () => {
 
     // Block B chains to A but targets plain http, or another host: refused
     // without any request.
-    const http = await invoke("gitlab:validate", { useSessionToken: true, instanceUrl: "http://gitlab.com" })
-    const other = await invoke("gitlab:validate", { useSessionToken: true, instanceUrl: "https://evil.example" })
+    const http = await invoke("gitlab:validate", {
+      useSessionToken: true,
+      instanceUrl: "http://gitlab.com",
+    })
+    const other = await invoke("gitlab:validate", {
+      useSessionToken: true,
+      instanceUrl: "https://evil.example",
+    })
     expect([http.valid, other.valid]).toEqual([false, false])
     expect(fetchCalls).toHaveLength(0)
 
     const same = await invoke("gitlab:validate", { useSessionToken: true, host: "gitlab.com" })
     expect(same.valid).toBe(true)
-    expect(fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => [c.url, c.authorization])).toEqual([
-      ["https://gitlab.com/api/v4/user", "Bearer glpat-env"],
-    ])
+    expect(
+      fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => [c.url, c.authorization]),
+    ).toEqual([["https://gitlab.com/api/v4/user", "Bearer glpat-env"]])
   })
 })
 
@@ -204,7 +236,9 @@ describe("gitlab:labels — which instance the session's token is sent to", () =
 
   beforeEach(async () => {
     // The token is bound to the custom-port instance the repo lives on.
-    await Effect.runPromise(sessionManager.appendToEnv({ GITLAB_TOKEN: SECRET, GITLAB_HOST: "gitlab.corp:8443" }))
+    await Effect.runPromise(
+      sessionManager.appendToEnv({ GITLAB_TOKEN: SECRET, GITLAB_HOST: "gitlab.corp:8443" }),
+    )
   })
 
   it("reads labels from the repo's own instance", async () => {
@@ -264,7 +298,24 @@ describe("gitlab:labels — which instance the session's token is sent to", () =
 })
 
 describe("gitlab:cli-credentials — glab's token only to its own host, https unless glab uses http", () => {
-  const writeGlabConfig = (yaml: string) => fs.writeFileSync(nodePath.join(glabConfigDir, "config.yml"), yaml)
+  const writeGlabConfig = (yaml: string) =>
+    fs.writeFileSync(nodePath.join(glabConfigDir, "config.yml"), yaml)
+
+  // These read glab's config.yml, which the handler falls back to only when
+  // the glab binary is missing. An empty PATH makes it missing on every
+  // machine, not just on CI runners that never installed it.
+  let savedPath: string | undefined
+  let emptyBinDir = ""
+  beforeEach(() => {
+    savedPath = process.env.PATH
+    emptyBinDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "no-glab-"))
+    process.env.PATH = emptyBinDir
+  })
+  afterEach(() => {
+    if (savedPath === undefined) delete process.env.PATH
+    else process.env.PATH = savedPath
+    fs.rmSync(emptyBinDir, { recursive: true, force: true })
+  })
 
   it("an http:// instance is absent: no request, no session write", async () => {
     writeGlabConfig("hosts:\n    gitlab.com:\n        token: glpat-glab\n")
@@ -274,27 +325,33 @@ describe("gitlab:cli-credentials — glab's token only to its own host, https un
     expect((await sessionEnv()).GITLAB_TOKEN).toBeUndefined()
 
     // The same token over https is unchanged.
-    expect((await invoke("gitlab:cli-credentials", { instanceUrl: "https://gitlab.com" })).valid).toBe(true)
-    expect(fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => [c.url, c.authorization])).toEqual([
-      ["https://gitlab.com/api/v4/user", "Bearer glpat-glab"],
-    ])
+    expect(
+      (await invoke("gitlab:cli-credentials", { instanceUrl: "https://gitlab.com" })).valid,
+    ).toBe(true)
+    expect(
+      fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => [c.url, c.authorization]),
+    ).toEqual([["https://gitlab.com/api/v4/user", "Bearer glpat-glab"]])
   })
 
   it("an instance glab itself reaches over http (api_protocol: http) keeps working", async () => {
     writeGlabConfig(
       "hosts:\n    git.corp.example:\n        token: glpat-corp\n        api_protocol: http\n",
     )
-    const result = await invoke("gitlab:cli-credentials", { instanceUrl: "http://git.corp.example" })
+    const result = await invoke("gitlab:cli-credentials", {
+      instanceUrl: "http://git.corp.example",
+    })
     expect(result.valid).toBe(true)
-    expect(fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => [c.url, c.authorization])).toEqual([
-      ["http://git.corp.example/api/v4/user", "Bearer glpat-corp"],
-    ])
+    expect(
+      fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => [c.url, c.authorization]),
+    ).toEqual([["http://git.corp.example/api/v4/user", "Bearer glpat-corp"]])
   })
 })
 
 describe("gitlab:labels — the session token only to its own host, over https", () => {
   it("another host or plain http gets no request; the bound host is unchanged", async () => {
-    await Effect.runPromise(sessionManager.appendToEnv({ GITLAB_TOKEN: "glpat-session", GITLAB_HOST: "gitlab.com" }))
+    await Effect.runPromise(
+      sessionManager.appendToEnv({ GITLAB_TOKEN: "glpat-session", GITLAB_HOST: "gitlab.com" }),
+    )
     const repo = { owner: "acme", repo: "infra" }
 
     const other = await invoke("gitlab:labels", { ...repo, host: "evil.example" })
@@ -348,9 +405,11 @@ describe("a sign-in that finishes after another runbook opened", () => {
    */
   const holdValidation = () => {
     let release!: () => void
-    const released = new Promise<void>((resolve) => (release = resolve))
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
     globalThis.fetch = (async (input: string | URL | Request) => {
-      const url = String(input)
+      const url = fetchUrl(input)
       fetchCalls.push({ url })
       if (url.endsWith("/api/v4/user")) {
         await released
@@ -365,9 +424,9 @@ describe("a sign-in that finishes after another runbook opened", () => {
   /** What runbook:get does when a different runbook is opened. */
   const openAnotherRunbook = async () => {
     await Effect.runPromise(
-      sessionManager.createSession("/tmp/runbook-b", "/tmp/runbook-b/runbook.mdx").pipe(
-        Effect.provide(makeTestEnvironment({})),
-      ),
+      sessionManager
+        .createSession("/tmp/runbook-b", "/tmp/runbook-b/runbook.mdx")
+        .pipe(Effect.provide(makeTestEnvironment({}))),
     )
     vcsSessionMeta.clear()
   }

@@ -63,7 +63,7 @@ variables:
   default: "2.39.0"
 ```
 
-We declare the variables using [Gruntwork Boilerplate syntax](#), and we have significant control over how the webform renders based on what the [Inputs block](https://runbooks.gruntwork.io/authoring/blocks/inputs/) supports.
+We declare the variables using [Gruntwork Boilerplate syntax](https://runbooks.gruntwork.io/authoring/boilerplate/), and we have significant control over how the webform renders based on what the [Inputs block](https://runbooks.gruntwork.io/authoring/blocks/inputs/) supports.
 
 ## Generate files
 
@@ -111,10 +111,6 @@ Whereas Checks blocks are focused on _reading_ the current state of the world, C
 
 **Great job!**
 
-Everything above was built in nothing more than a text editor. I typed in some markdown and blocks (e.g. `<Check>` or `<Template>`), refreshed my browser, and verified that things looked the way I wanted. In fact, if you'd rather the browser auto-refresh, Runbooks offers `runbooks --watch` to give authors instant feedback loops.
-
-You can also use AI to write Runbooks! Give your favorite LLM the [Runbooks LLM instructions](#), along with what you want, and you get a fast starting point.
-
-TODO: Fill in this link.
+Everything above was built in a text editor. I typed in some markdown and blocks (e.g. `<Check>` or `<Template>`), reloaded the runbook, and verified that things looked the way I wanted. To have Runbooks reload the runbook each time you save, open it with `runbooks open --watch`.
 
 If you'd like to learn more about Runbooks, head back to the [Runbooks docs](https://runbooks.gruntwork.io).

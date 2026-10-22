@@ -129,7 +129,10 @@ describe("generated files", () => {
     // Following either used to fail the whole walk, which failed both the
     // check and the delete.
     write("a.txt")
-    nodeFs.symlinkSync(nodePath.join(workingDir, "missing-target"), nodePath.join(generatedDir, "dangling"))
+    nodeFs.symlinkSync(
+      nodePath.join(workingDir, "missing-target"),
+      nodePath.join(generatedDir, "dangling"),
+    )
     nodeFs.symlinkSync("loop", nodePath.join(generatedDir, "loop"))
 
     const checked = await run(check())

@@ -1,5 +1,5 @@
-import { AlertTriangle } from 'lucide-react'
-import type { UnmetAuthDependency } from '../hooks/useScriptExecution'
+import { AlertTriangle } from "lucide-react"
+import type { UnmetAuthDependency } from "../hooks/useScriptExecution"
 
 interface UnmetAuthDependencyWarningProps {
   dependency: UnmetAuthDependency | null
@@ -26,7 +26,7 @@ export const UnmetAuthDependencyWarning: React.FC<UnmetAuthDependencyWarningProp
     <div className="mb-3 text-sm text-warning-foreground flex items-start gap-2">
       <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
       <div>
-        <strong>{heading}</strong>{' '}
+        <strong>{heading}</strong>{" "}
         <code className="bg-warning-muted px-1 rounded text-xs">{dependency.blockId}</code>
         <div className="text-xs mt-1 text-warning-foreground">{hint}</div>
       </div>

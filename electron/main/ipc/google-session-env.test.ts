@@ -29,8 +29,14 @@ afterEach(() => {
 
 describe("commitBlockProject", () => {
   it("re-points the whole session at the calling block, not just its project", () => {
-    setActiveCredential("source", fileBacked("/tmp/source/adc.json", "source@a.iam.gserviceaccount.com", "proj-a"))
-    setActiveCredential("target", fileBacked("/tmp/target/adc.json", "target@b.iam.gserviceaccount.com", "proj-b"))
+    setActiveCredential(
+      "source",
+      fileBacked("/tmp/source/adc.json", "source@a.iam.gserviceaccount.com", "proj-a"),
+    )
+    setActiveCredential(
+      "target",
+      fileBacked("/tmp/target/adc.json", "target@b.iam.gserviceaccount.com", "proj-b"),
+    )
 
     const commit = commitBlockProject({ blockId: "source", projectId: "proj-a2" })
 
@@ -57,7 +63,10 @@ describe("commitBlockProject", () => {
       credentialType: "access_token",
       projectId: "proj-a",
     })
-    setActiveCredential("target", fileBacked("/tmp/target/adc.json", "target@b.iam.gserviceaccount.com", "proj-b"))
+    setActiveCredential(
+      "target",
+      fileBacked("/tmp/target/adc.json", "target@b.iam.gserviceaccount.com", "proj-b"),
+    )
 
     const commit = commitBlockProject({ blockId: "source", projectId: "proj-a" })
 
@@ -77,7 +86,11 @@ describe("commitBlockProject", () => {
 
   it("keeps the region and zone the block authenticated with when none is sent", () => {
     setActiveCredential("gcp", {
-      ...fileBacked("/home/u/.config/gcloud/application_default_credentials.json", "dev@example.com", "proj-a"),
+      ...fileBacked(
+        "/home/u/.config/gcloud/application_default_credentials.json",
+        "dev@example.com",
+        "proj-a",
+      ),
       credentialType: "authorized_user",
       region: "europe-west1",
       zone: "europe-west1-b",
@@ -106,7 +119,11 @@ describe("commitBlockProject", () => {
       region: "europe-west1",
     })
 
-    const commit = commitBlockProject({ blockId: "gcp", projectId: "proj-b", region: "us-central1" })
+    const commit = commitBlockProject({
+      blockId: "gcp",
+      projectId: "proj-b",
+      region: "us-central1",
+    })
 
     expect(commit.region).toBe("us-central1")
     expect(commit.env.set.GOOGLE_CLOUD_REGION).toBe("us-central1")
@@ -116,7 +133,10 @@ describe("commitBlockProject", () => {
   it("returns no region for a block that authenticated without one", () => {
     // Registration replaces a block's record wholesale, so a fresh OAuth or
     // service-account sign-in never inherits an earlier credential's region.
-    setActiveCredential("gcp", { ...fileBacked("/tmp/gcp/adc.json", "dev@example.com"), region: "europe-west1" })
+    setActiveCredential("gcp", {
+      ...fileBacked("/tmp/gcp/adc.json", "dev@example.com"),
+      region: "europe-west1",
+    })
     setActiveCredential("gcp", fileBacked("/tmp/gcp/adc2.json", "dev@example.com"))
 
     const commit = commitBlockProject({ blockId: "gcp", projectId: "proj-b" })
@@ -127,9 +147,16 @@ describe("commitBlockProject", () => {
   })
 
   it("never borrows a neighbour's credential for a block with none registered", () => {
-    setActiveCredential("target", fileBacked("/tmp/target/adc.json", "target@b.iam.gserviceaccount.com", "proj-b"))
+    setActiveCredential(
+      "target",
+      fileBacked("/tmp/target/adc.json", "target@b.iam.gserviceaccount.com", "proj-b"),
+    )
 
-    const commit = commitBlockProject({ blockId: "source", projectId: "proj-a", region: "us-east1" })
+    const commit = commitBlockProject({
+      blockId: "source",
+      projectId: "proj-a",
+      region: "us-east1",
+    })
 
     expect(commit).toEqual({
       env: {
@@ -151,7 +178,9 @@ describe("commitBlockProject", () => {
 
 describe("sessionEnvForCredential", () => {
   it("writes nothing empty and clears nothing for a file-backed credential with no extras", () => {
-    expect(sessionEnvForCredential(fileBacked("/tmp/a/adc.json", "sa@p.iam.gserviceaccount.com"))).toEqual({
+    expect(
+      sessionEnvForCredential(fileBacked("/tmp/a/adc.json", "sa@p.iam.gserviceaccount.com")),
+    ).toEqual({
       set: {
         GOOGLE_APPLICATION_CREDENTIALS: "/tmp/a/adc.json",
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: "/tmp/a/adc.json",

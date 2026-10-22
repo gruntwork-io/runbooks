@@ -6,6 +6,7 @@ import type { RemoteRunbookResult } from "./remote.ts"
 import { redactSecrets } from "../../src/domain/vcs/redact.ts"
 import { redactSourceCredentials } from "../../src/remote-source.ts"
 import { makeLogger } from "./logger.ts"
+import { errorMessage } from "../../src/errors/message.ts"
 
 const log = makeLogger("open-runbook")
 
@@ -82,7 +83,7 @@ export async function openRemoteRunbookInWindow(
   } catch (err) {
     log.error("Failed to resolve remote URL:", err)
     if (win.isDestroyed()) return
-    const reason = err instanceof Error ? err.message : String(err)
+    const reason = errorMessage(err)
     // The URL is the user's raw input: drop any userinfo typed into it
     // (redactSecrets only knows token shapes), then scrub the whole detail.
     const detail = redactSecrets(`${redactSourceCredentials(url)}\n\n${reason}`)

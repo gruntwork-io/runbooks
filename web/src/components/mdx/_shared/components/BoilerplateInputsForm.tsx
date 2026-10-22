@@ -1,24 +1,49 @@
-import React, { useMemo, useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
-import type { BoilerplateVariable } from '@/types/boilerplateVariable'
-import type { BoilerplateConfig } from '@/types/boilerplateConfig'
-import { formatVariableLabel } from '../lib/formatVariableLabel'
-import { FormControl } from './FormControls'
-import { useFormState } from '../hooks/useFormState'
-import { useFormValidation } from '../hooks/useFormValidation'
-import { markKeystroke } from '@/lib/renderPerf'
-import { FormStatus } from './FormStatus'
-import { UnmetDependenciesWarning } from './UnmetDependenciesWarning'
-import { BlockIdLabel } from './BlockIdLabel'
-import type { BlockOutput } from '@/lib/templateUtils'
+import React, { useMemo, useState, useEffect, useContext } from "react"
+import { Button } from "@/components/ui/button"
+import type { BoilerplateVariable } from "@/types/boilerplateVariable"
+import type { BoilerplateConfig } from "@/types/boilerplateConfig"
+import { formatVariableLabel } from "../lib/formatVariableLabel"
+import { FormControl } from "./FormControls"
+import { useFormState } from "../hooks/useFormState"
+import { useFormValidation } from "../hooks/useFormValidation"
+import { useResolvedTemplateValues } from "../hooks/useResolvedTemplateValues"
+import { useOutputDependencyStatus } from "../hooks/useOutputDependencyStatus"
+import { markKeystroke } from "@/lib/renderPerf"
+import { FormStatus } from "./FormStatus"
+import { UnmetDependenciesWarning } from "./UnmetDependenciesWarning"
+import { BlockIdLabel } from "./BlockIdLabel"
+import type { BlockOutput } from "@/lib/templateUtils"
+import { ErrorReportingContext } from "@/contexts/ErrorReportingContext.types"
+
+const NO_VARIABLES: BoilerplateVariable[] = []
+const NO_VALUES: Record<string, unknown> = {}
+
+const quoted = (blockIds: string[]) => blockIds.map((blockId) => `"${blockId}"`).join(", ")
+
+/** The error on a field whose value uses outputs of blocks that aren't on the page. */
+function missingBlockMessage(blockIds: string[]): string {
+  return blockIds.length === 1
+    ? `Uses an output of block ${quoted(blockIds)}, but no block on this page has that id, so it can't be filled in. Enter a value instead.`
+    : `Uses outputs of blocks ${quoted(blockIds)}, but no blocks on this page have those ids, so it can't be filled in. Enter a value instead.`
+}
+
+/** The page-level report of a form's fields that use outputs of blocks that aren't on the page. */
+function missingBlocksReport(missingByField: Record<string, string[]>): string | undefined {
+  const sentences = Object.entries(missingByField).map(([name, blockIds]) =>
+    blockIds.length === 1
+      ? `${formatVariableLabel(name)} uses an output of block ${quoted(blockIds)}, which isn't on this page.`
+      : `${formatVariableLabel(name)} uses outputs of blocks ${quoted(blockIds)}, which aren't on this page.`,
+  )
+  return sentences.length > 0 ? sentences.join(" ") : undefined
+}
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
- * 
+ *
  * This component renders a form with appropriate input controls based on the
  * boilerplate variable types. It handles form state, validation, and submission.
  * Variables can be grouped into sections using the x-section YAML property.
- * 
+ *
  * @param props - Form configuration object containing:
  *   - `id`: Unique identifier for the form
  *   - `boilerplateConfig`: Variable definitions and types to render
@@ -35,6 +60,8 @@ import type { BlockOutput } from '@/lib/templateUtils'
  */
 interface BoilerplateInputsFormProps {
   id: string
+  /** The kind of block the form belongs to, as the page-level error report names it. */
+  blockType: "Inputs" | "Template"
   boilerplateConfig: BoilerplateConfig | null
   initialData?: Record<string, unknown>
   onFormChange?: (formData: Record<string, unknown>) => void
@@ -48,10 +75,10 @@ interface BoilerplateInputsFormProps {
   hasGeneratedSuccessfully?: boolean
   /** Whether the parent's latest render failed. Blocks the success styling while set. */
   hasRenderError?: boolean
-  variant?: 'standard' | 'embedded'
+  variant?: "standard" | "embedded"
   /** When true, uses inline YAML mode which updates variables instead of generating files */
   isInlineMode?: boolean
-  /** 
+  /**
    * Set of "shared" variable names - variables that exist in BOTH imported sources AND this form.
    * These are displayed as read-only and stay live-synced to imported values.
    */
@@ -60,6 +87,12 @@ interface BoilerplateInputsFormProps {
   liveVarValues?: Record<string, unknown>
   /** Unmet output dependencies - shows warning and disables Generate button */
   unmetOutputDependencies?: BlockOutput[]
+  /**
+   * Values the block imports through `inputsId`. A linked default can use
+   * them; the form's own values win, as they do in a render. Only used to
+   * work out what linked values come to.
+   */
+  importedValues?: Record<string, unknown>
 }
 
 /**
@@ -69,30 +102,50 @@ interface VariableFieldProps {
   id: string
   variable: BoilerplateVariable
   value: unknown
-  error?: string
+  /** What a template value comes to right now, if known. */
+  resolvedValue?: unknown
+  error?: string | undefined
   onChange: (value: unknown) => void
-  onBlur?: () => void
-  disabled?: boolean
+  onBlur?: (() => void) | undefined
+  disabled?: boolean | undefined
 }
 
-const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, error, onChange, onBlur, disabled }) => {
-  const isBooleanType = variable.type === 'bool'
-  
+const VariableField: React.FC<VariableFieldProps> = ({
+  id,
+  variable,
+  value,
+  resolvedValue,
+  error,
+  onChange,
+  onBlur,
+  disabled,
+}) => {
+  const isBooleanType = variable.type === "bool"
+
   return (
     <div className="space-y-1" data-testid={`field-${variable.name}`}>
-      <div className={isBooleanType ? 'flex flex-row-reverse flex-wrap items-center justify-end gap-x-2 gap-y-1' : 'contents space-y-1'}>
-        <label 
+      <div
+        className={
+          isBooleanType
+            ? "flex flex-row-reverse flex-wrap items-center justify-end gap-x-2 gap-y-1"
+            : "contents space-y-1"
+        }
+      >
+        <label
           htmlFor={`${id}-${variable.name}`}
-          className={`${isBooleanType ? 'cursor-pointer' : 'block'} text-md font-medium ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}
+          className={`${isBooleanType ? "cursor-pointer" : "block"} text-md font-medium ${disabled ? "text-muted-foreground" : "text-foreground"}`}
         >
           {formatVariableLabel(variable.name)}
           {variable.required && !disabled && <span className="text-muted-foreground ml-1">*</span>}
-          {disabled && <span className="text-muted-foreground ml-2 text-sm font-normal">(inherited)</span>}
+          {disabled && (
+            <span className="text-muted-foreground ml-2 text-sm font-normal">(inherited)</span>
+          )}
         </label>
-        
+
         <FormControl
           variable={variable}
           value={value}
+          resolvedValue={resolvedValue}
           error={error}
           onChange={disabled ? () => {} : onChange}
           onBlur={onBlur}
@@ -101,11 +154,13 @@ const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, erro
         />
 
         {variable.description && (
-          <p className={`text-sm text-muted-foreground ${isBooleanType ? 'w-full' : ''}`}>{variable.description}</p>
+          <p className={`text-sm text-muted-foreground ${isBooleanType ? "w-full" : ""}`}>
+            {variable.description}
+          </p>
         )}
 
         {error && !disabled && (
-          <p className={`text-sm text-destructive ${isBooleanType ? 'w-full' : ''}`}>{error}</p>
+          <p className={`text-sm text-destructive ${isBooleanType ? "w-full" : ""}`}>{error}</p>
         )}
       </div>
     </div>
@@ -114,6 +169,7 @@ const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, erro
 
 export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   id,
+  blockType,
   boilerplateConfig,
   initialData = {},
   onFormChange,
@@ -126,43 +182,88 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   enableAutoRender = true,
   hasGeneratedSuccessfully = false,
   hasRenderError = false,
-  variant = 'standard',
+  variant = "standard",
   isInlineMode = false,
   sharedVarNames = new Set(),
   liveVarValues = {},
-  unmetOutputDependencies = []
+  unmetOutputDependencies = [],
+  importedValues = NO_VALUES,
 }) => {
   // Default button text depends on mode
-  const effectiveButtonText = submitButtonText ?? (isInlineMode ? 'Submit' : 'Generate')
-  
+  const effectiveButtonText = submitButtonText ?? (isInlineMode ? "Submit" : "Generate")
+
   // Whether the form has been generated at least once. Controlled by the parent,
   // which only knows after the render (or submit) has actually succeeded.
   const hasGenerated = hasGeneratedSuccessfully
   // Track whether submit was attempted (to show validation error summary near button)
   const [submitAttempted, setSubmitAttempted] = useState(false)
-  
+
   // Use validation hook first so we can use isFormValid in the wrapped callback
-  const { 
-    visibleErrors, 
-    validateForm, 
-    validateField, 
-    isFormValid,
-    markFieldTouched 
-  } = useFormValidation(boilerplateConfig)
+  const { visibleErrors, validateForm, validateField, isFormValid, markFieldTouched } =
+    useFormValidation(boilerplateConfig)
 
   // Always call onAutoRender so that variables are published to context
   // This allows Command/Check components to react to empty/invalid values
   // Each consumer (Inputs, Template) handles its own logic appropriately
-  
+
   // Use custom hooks for state management
-  const { formData, updateField, updateFields } = useFormState(boilerplateConfig, initialData, onFormChange, onAutoRender, enableAutoRender)
-  
+  const { formData, updateField, updateFields } = useFormState(
+    boilerplateConfig,
+    initialData,
+    onFormChange,
+    onAutoRender,
+    enableAutoRender,
+  )
+
+  // What each linked (template) value comes to, shown in place of its tokens
+  const resolvedValues = useResolvedTemplateValues(
+    formData,
+    boilerplateConfig?.variables ?? NO_VARIABLES,
+    importedValues,
+  )
+
+  // A value that uses an output of a block that isn't on the page can never be
+  // filled in, so someone has to replace it. Its field shows the error from the
+  // start, not once touched, and the form stays invalid (and red) until then.
+  // An inherited field is left to the block it comes from, which shows it.
+  const outputStatus = useOutputDependencyStatus()
+  const missingByField: Record<string, string[]> = {}
+  const missingBlockErrors: Record<string, string> = {}
+  for (const variable of boilerplateConfig?.variables ?? NO_VARIABLES) {
+    if (sharedVarNames.has(variable.name)) continue
+    const { missing } = outputStatus(formData[variable.name])
+    if (missing.length === 0) continue
+    missingByField[variable.name] = missing
+    missingBlockErrors[variable.name] = missingBlockMessage(missing)
+  }
+  const hasMissingBlocks = Object.keys(missingBlockErrors).length > 0
+  const shownErrors = { ...visibleErrors, ...missingBlockErrors }
+
+  // It's a mistake in the runbook, so the page-level error report counts it
+  // too. Under its own key: the block reports (and clears) its own errors
+  // under its id. Optional, as the form can render without the provider.
+  const errorReporting = useContext(ErrorReportingContext)
+  const reportError = errorReporting?.reportError
+  const clearError = errorReporting?.clearError
+  const missingReport = missingBlocksReport(missingByField)
+  useEffect(() => {
+    if (!reportError || !clearError || !missingReport) return
+    const componentId = `${id}:missing-output-blocks`
+    reportError({
+      componentId,
+      componentType: blockType,
+      severity: "error",
+      message: missingReport,
+    })
+    return () => clearError(componentId)
+  }, [id, blockType, missingReport, reportError, clearError])
+
   // Sync live variable values when they change (for shared variables)
   // Shared variables are read-only in the form and stay live-synced to imported values
   useEffect(() => {
     if (!sharedVarNames || sharedVarNames.size === 0) return
     if (Object.keys(formData).length === 0) return // Wait for form to initialize
-    
+
     // Build updates only for variables that have actually changed
     const updates: Record<string, unknown> = {}
     for (const varName of sharedVarNames) {
@@ -171,7 +272,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         updates[varName] = liveValue
       }
     }
-    
+
     // Apply updates if there are any
     if (Object.keys(updates).length > 0) {
       updateFields(updates)
@@ -181,7 +282,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // Create a map of variable name to variable for quick lookup
   const variablesByName = useMemo(() => {
     if (!boilerplateConfig) return new Map<string, BoilerplateVariable>()
-    return new Map(boilerplateConfig.variables.map(v => [v.name, v]))
+    return new Map(boilerplateConfig.variables.map((v) => [v.name, v]))
   }, [boilerplateConfig])
 
   // Determine if we should use section-based rendering
@@ -215,7 +316,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!validateForm(formData)) {
+    if (!validateForm(formData) || hasMissingBlocks) {
       setSubmitAttempted(true)
       return
     }
@@ -233,7 +334,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
    * Renders variables for a given section
    */
   const renderSectionVariables = (variableNames: string[]) => {
-    return variableNames.map(varName => {
+    return variableNames.map((varName) => {
       const variable = variablesByName.get(varName)
       if (!variable) return null
       const isDisabled = sharedVarNames.has(variable.name)
@@ -243,7 +344,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           id={id}
           variable={variable}
           value={formData[variable.name]}
-          error={visibleErrors[variable.name]}
+          resolvedValue={resolvedValues[variable.name]}
+          error={shownErrors[variable.name]}
           onChange={(value) => handleInputChange(variable.name, value)}
           onBlur={() => handleFieldBlur(variable.name)}
           disabled={isDisabled}
@@ -257,12 +359,12 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
    */
   const renderWithSections = () => {
     if (!boilerplateConfig?.sections) return null
-    
+
     return boilerplateConfig.sections.map((section) => {
       if (section.variables.length === 0) return null
 
       // For unnamed section (empty string), don't render a header
-      if (section.name === '') {
+      if (section.name === "") {
         return (
           <div key="__unsectioned__" className="space-y-5">
             {renderSectionVariables(section.variables)}
@@ -276,9 +378,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           <h3 className="text-lg font-semibold text-foreground pt-5 pb-1 border-b border-border">
             {section.name}
           </h3>
-          <div className="space-y-5">
-            {renderSectionVariables(section.variables)}
-          </div>
+          <div className="space-y-5">{renderSectionVariables(section.variables)}</div>
         </div>
       )
     })
@@ -296,7 +396,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           id={id}
           variable={variable}
           value={formData[variable.name]}
-          error={visibleErrors[variable.name]}
+          resolvedValue={resolvedValues[variable.name]}
+          error={shownErrors[variable.name]}
           onChange={(value) => handleInputChange(variable.name, value)}
           onBlur={() => handleFieldBlur(variable.name)}
           disabled={isDisabled}
@@ -305,36 +406,44 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     })
   }
 
-  const shouldShowSubmitButton = variant !== 'embedded' && showSubmitButton
+  const shouldShowSubmitButton = variant !== "embedded" && showSubmitButton
 
   // Check if form is currently valid (for FormStatus)
-  const formIsValid = isFormValid(formData)
+  const formIsValid = isFormValid(formData) && !hasMissingBlocks
 
   // Once the form has generated successfully, highlight the block green to
   // match the success styling of run-based blocks (Command, Check, etc.).
   // Only applies to the standard variant, and reverts to neutral if the form
   // later becomes invalid or the latest render failed.
-  const showSuccess = variant === 'standard' && hasGenerated && formIsValid && !hasRenderError
+  const showSuccess = variant === "standard" && hasGenerated && formIsValid && !hasRenderError
 
-  // Determine container classes based on variant and success state
-  const containerClasses = variant === 'embedded'
-    ? 'runbook-block bg-transparent relative'
-    : `runbook-block p-6 border rounded-lg shadow-sm mb-4 relative ${showSuccess ? 'bg-success-muted border-success/30' : 'bg-muted border-border'}`;
+  // Container classes by variant and state: red while a field uses a block
+  // that isn't on the page, green once generated successfully
+  const containerClasses =
+    variant === "embedded"
+      ? "runbook-block bg-transparent relative"
+      : `runbook-block p-6 border rounded-lg shadow-sm mb-4 relative ${
+          hasMissingBlocks
+            ? "bg-destructive-muted border-destructive/30"
+            : showSuccess
+              ? "bg-success-muted border-success/30"
+              : "bg-muted border-border"
+        }`
 
   return (
     <div className={containerClasses}>
       {/* ID label in top-right corner for standard variant */}
-      {variant === 'standard' && (
+      {variant === "standard" && (
         <div className="absolute top-2 right-3">
           <BlockIdLabel id={id} size="large" />
         </div>
       )}
-      
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-5">
           {hasSections ? renderWithSections() : renderWithoutSections()}
         </div>
-        
+
         {shouldShowSubmitButton && (
           <div className="pt-4 border-t border-border">
             {!hasGenerated ? (
@@ -348,17 +457,30 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                   {effectiveButtonText}
                 </Button>
                 {/* Show validation error summary near the button after a failed submit */}
-                {submitAttempted && Object.keys(visibleErrors).length > 0 && (
+                {submitAttempted && Object.keys(shownErrors).length > 0 && (
                   <p className="mt-3 text-sm text-destructive">
-                    {Object.keys(visibleErrors).length === 1
-                      ? <>There is <strong>1 validation error</strong> above. Please fix it before generating.</>
-                      : <>There are <strong>{Object.keys(visibleErrors).length} validation errors</strong> above. Please fix them before generating.</>}
+                    {Object.keys(shownErrors).length === 1 ? (
+                      <>
+                        There is <strong>1 validation error</strong> above. Please fix it before
+                        generating.
+                      </>
+                    ) : (
+                      <>
+                        There are{" "}
+                        <strong>{Object.keys(shownErrors).length} validation errors</strong> above.
+                        Please fix them before generating.
+                      </>
+                    )}
                   </p>
                 )}
                 {/* Show warning for unmet output dependencies below the button */}
                 {unmetOutputDependencies.length > 0 && (
                   <div className="mt-3 -mb-3">
-                    <UnmetDependenciesWarning blockType="template" unmetInputDeps={[]} unmetOutputDeps={unmetOutputDependencies} />
+                    <UnmetDependenciesWarning
+                      blockType="template"
+                      unmetInputDeps={[]}
+                      unmetOutputDeps={unmetOutputDependencies}
+                    />
                   </div>
                 )}
               </>

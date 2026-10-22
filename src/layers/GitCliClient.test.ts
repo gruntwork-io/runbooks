@@ -16,8 +16,8 @@ import * as http from "node:http"
 import type { AddressInfo } from "node:net"
 import * as os from "node:os"
 import * as path from "node:path"
-import { Effect, Either, Layer } from "effect"
-import { GitClient } from "../services/GitClient.ts"
+import { Effect, Result, Layer } from "effect"
+import { GitClient, type GitClientShape } from "../services/GitClient.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import type { SpawnOptions } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
@@ -30,61 +30,61 @@ const layer = GitCliClientLive.pipe(Layer.provide(ChildProcessSpawnerLive))
 const runDiff = (repoPath: string, filePath?: string) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.diff(repoPath, filePath)
+      const client = yield* GitClient
+      return yield* client.diff(repoPath, filePath)
     }).pipe(Effect.provide(layer)),
   )
 
 const runStatus = (repoPath: string) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.status(repoPath)
+      const client = yield* GitClient
+      return yield* client.status(repoPath)
     }).pipe(Effect.provide(layer)),
   )
 
 const runCheckIgnored = (repoPath: string, paths: string[]) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.checkIgnored(repoPath, paths)
+      const client = yield* GitClient
+      return yield* client.checkIgnored(repoPath, paths)
     }).pipe(Effect.provide(layer)),
   )
 
 const runStageAll = (repoPath: string, excludePaths: string[] = []) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.stageAll(repoPath, excludePaths)
+      const client = yield* GitClient
+      return yield* client.stageAll(repoPath, excludePaths)
     }).pipe(Effect.provide(layer)),
   )
 
 const runInfo = (repoPath: string) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.getInfo(repoPath)
+      const client = yield* GitClient
+      return yield* client.getInfo(repoPath)
     }).pipe(Effect.provide(layer)),
   )
 
-const runHasCommitsEither = (repoPath: string) =>
+const runHasCommitsResult = (repoPath: string) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.hasCommits(repoPath)
-    }).pipe(Effect.provide(layer), Effect.either),
+      const client = yield* GitClient
+      return yield* client.hasCommits(repoPath)
+    }).pipe(Effect.provide(layer), Effect.result),
   )
 
-const runCommitEither = (
+const runCommitResult = (
   repoPath: string,
   message: string,
   options?: { allowEmpty?: boolean; author?: { name: string; email: string } },
 ) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.commit(repoPath, message, options)
-    }).pipe(Effect.provide(layer), Effect.either),
+      const client = yield* GitClient
+      return yield* client.commit(repoPath, message, options)
+    }).pipe(Effect.provide(layer), Effect.result),
   )
 
 /** Stand-in for the authenticated GitLab/GitHub user threaded into commits. */
@@ -92,10 +92,14 @@ const TEST_AUTHOR = { name: "Authed User", email: "authed@example.com" }
 
 /** git config args shared by the deterministic helpers below. */
 const GIT_CONFIG = [
-  "-c", "user.email=test@example.com",
-  "-c", "user.name=Test",
-  "-c", "commit.gpgsign=false",
-  "-c", "init.defaultBranch=main",
+  "-c",
+  "user.email=test@example.com",
+  "-c",
+  "user.name=Test",
+  "-c",
+  "commit.gpgsign=false",
+  "-c",
+  "init.defaultBranch=main",
 ]
 
 /**
@@ -357,14 +361,22 @@ describe("GitCliClientLive.getInfo (real repo)", () => {
     git(repoPath, "checkout", "-q", "v1.0.0")
     const sha = gitOut(repoPath, "rev-parse", "HEAD").trim()
 
-    expect(await runInfo(repoPath)).toMatchObject({ branch: "v1.0.0", refType: "tag", commitSha: sha })
+    expect(await runInfo(repoPath)).toMatchObject({
+      branch: "v1.0.0",
+      refType: "tag",
+      commitSha: sha,
+    })
   })
 
   it("reports a checked-out untagged commit as detached", async () => {
     const sha = gitOut(repoPath, "rev-parse", "HEAD~1").trim()
     git(repoPath, "checkout", "-q", sha)
 
-    expect(await runInfo(repoPath)).toMatchObject({ branch: "HEAD", refType: "detached", commitSha: sha })
+    expect(await runInfo(repoPath)).toMatchObject({
+      branch: "HEAD",
+      refType: "detached",
+      commitSha: sha,
+    })
   })
 })
 
@@ -389,33 +401,33 @@ describe("GitCliClientLive.hasCommits (real repo)", () => {
   it("returns false for a repo with no commits yet", async () => {
     git(dir, "init")
 
-    expect(await runHasCommitsEither(dir)).toEqual(Either.right(false))
+    expect(await runHasCommitsResult(dir)).toEqual(Result.succeed(false))
   })
 
   it("returns true once HEAD has a commit", async () => {
     git(dir, "init")
     git(dir, "commit", "--allow-empty", "-m", "first")
 
-    expect(await runHasCommitsEither(dir)).toEqual(Either.right(true))
+    expect(await runHasCommitsResult(dir)).toEqual(Result.succeed(true))
   })
 
   it("fails instead of returning false for a directory that isn't a repo", async () => {
     // Callers treat a failure as "has history" so an unreadable repo is never
     // offered a seeded branch; answering false here would defeat that.
-    const result = await runHasCommitsEither(dir)
+    const result = await runHasCommitsResult(dir)
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("GitError")
-      expect((result.left as GitError).exitCode).toBe(128)
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("GitError")
+      expect((result.failure as GitError).exitCode).toBe(128)
     }
   })
 
   it("fails with a SpawnError when git can't run in the path", async () => {
-    const result = await runHasCommitsEither(path.join(dir, "missing"))
+    const result = await runHasCommitsResult(path.join(dir, "missing"))
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") expect(result.left._tag).toBe("SpawnError")
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") expect(result.failure._tag).toBe("SpawnError")
   })
 })
 
@@ -522,7 +534,9 @@ describe("GitCliClientLive.stageAll in a sparse checkout (real repo)", () => {
 
     // Clone it the way the app does.
     work = path.join(root, "work")
-    const steps = Either.getOrThrow(buildCloneSteps(`file://${origin}`, work, { repoPath: "modules/vpc" }))
+    const steps = Result.getOrThrow(
+      buildCloneSteps(`file://${origin}`, work, { repoPath: "modules/vpc" }),
+    )
     for (const step of steps) git(root, ...step.args)
 
     // An edit to a tracked file outside the cone, and new files outside and
@@ -561,7 +575,8 @@ describe("GitCliClientLive.stageAll in a sparse checkout (real repo)", () => {
     process.env.GIT_CONFIG_COUNT = "1"
     process.env.GIT_CONFIG_KEY_0 = "sparse.expectFilesOutsideOfPatterns"
     process.env.GIT_CONFIG_VALUE_0 = "true"
-    const flags = () => gitOut(work, "ls-files", "-t", "--", "modules/eks/main.tf", "modules/rds/main.tf")
+    const flags = () =>
+      gitOut(work, "ls-files", "-t", "--", "modules/eks/main.tf", "modules/rds/main.tf")
     expect(flags()).toBe("S modules/eks/main.tf\nS modules/rds/main.tf\n")
 
     await runStageAll(work)
@@ -583,7 +598,7 @@ describe("GitCliClientLive.stageAll in a sparse checkout (real repo)", () => {
               command === "git" && args[0] === "add" && args.includes("--sparse")
                 ? live.spawn(
                     process.execPath,
-                    ["-e", "console.error(\"error: unknown option `sparse'\"); process.exit(129)"],
+                    ["-e", 'console.error("error: unknown option `sparse\'"); process.exit(129)'],
                     options,
                   )
                 : live.spawn(command, args, options),
@@ -596,13 +611,13 @@ describe("GitCliClientLive.stageAll in a sparse checkout (real repo)", () => {
       Effect.gen(function* () {
         const client = yield* GitClient
         return yield* client.stageAll(work)
-      }).pipe(Effect.provide(oldGitLayer), Effect.either),
+      }).pipe(Effect.provide(oldGitLayer), Effect.result),
     )
 
-    if (result._tag !== "Left" || !(result.left instanceof GitError)) {
+    if (result._tag !== "Failure" || !(result.failure instanceof GitError)) {
       throw new Error("expected staging to fail with a GitError")
     }
-    expect(result.left.stderr).toMatch(/git 2\.34 or later/)
+    expect(result.failure.stderr).toMatch(/git 2\.34 or later/)
     // Nothing was staged, rather than only the changes inside the cone.
     expect(staged()).toEqual([""])
   })
@@ -617,11 +632,11 @@ describe("GitCliClientLive option-like branch names (real repo)", () => {
   let savedConfigGlobal: string | undefined
   let savedConfigSystem: string | undefined
 
-  const run = <A, E>(program: (git: GitClient["Type"]) => Effect.Effect<A, E>) =>
+  const run = <A, E>(program: (git: GitClientShape) => Effect.Effect<A, E>) =>
     Effect.runPromise(
       Effect.gen(function* () {
         return yield* program(yield* GitClient)
-      }).pipe(Effect.provide(layer), Effect.either),
+      }).pipe(Effect.provide(layer), Effect.result),
     )
 
   beforeEach(() => {
@@ -654,10 +669,10 @@ describe("GitCliClientLive option-like branch names (real repo)", () => {
 
     const result = await run((g) => g.push(work, "origin", branch, { setUpstream: true }))
 
-    if (result._tag !== "Left" || !(result.left instanceof GitError)) {
+    if (result._tag !== "Failure" || !(result.failure instanceof GitError)) {
       throw new Error("expected the push to fail with a GitError")
     }
-    expect(result.left.stderr).toContain("invalid refspec")
+    expect(result.failure.stderr).toContain("invalid refspec")
     expect(fs.existsSync(marker)).toBe(false)
     // Nothing reached origin: its main is still the first commit.
     expect(gitOut(work, "rev-parse", "origin/main")).toBe(gitOut(work, "rev-parse", "HEAD~1"))
@@ -668,7 +683,7 @@ describe("GitCliClientLive option-like branch names (real repo)", () => {
 
     const result = await run((g) => g.deleteBranch(work, "-D"))
 
-    expect(result._tag).toBe("Right")
+    expect(result._tag).toBe("Success")
     expect(gitOut(work, "for-each-ref", "refs/heads/-D")).toBe("")
   })
 })
@@ -710,13 +725,13 @@ describe("GitCliClientLive.commit (real repo)", () => {
     // reason instead of a bare "exit 1" — this is exactly the MR-block failure.
     // A fallback author is supplied so the failure is the clean-tree one, not
     // "author identity unknown".
-    const result = await runCommitEither(repoPath, "[skip ci] no-op commit", {
+    const result = await runCommitResult(repoPath, "[skip ci] no-op commit", {
       author: TEST_AUTHOR,
     })
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      const gitErr = result.left as GitError
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      const gitErr = result.failure as GitError
       expect(gitErr.exitCode).not.toBe(0)
       expect(gitErr.stderr.toLowerCase()).toContain("nothing to commit")
       // command carries the "git " prefix exactly once, and the injected
@@ -733,11 +748,11 @@ describe("GitCliClientLive.commit (real repo)", () => {
     fs.writeFileSync(path.join(repoPath, "tracked.txt"), "one\ntwo\n")
     await runStageAll(repoPath, [])
 
-    const result = await runCommitEither(repoPath, "add line two", {
+    const result = await runCommitResult(repoPath, "add line two", {
       author: TEST_AUTHOR,
     })
 
-    expect(result._tag).toBe("Right")
+    expect(result._tag).toBe("Success")
     expect(gitOut(repoPath, "log", "--oneline")).toContain("add line two")
     expect(gitOut(repoPath, "log", "-1", "--format=%an <%ae>").trim()).toBe(
       "Authed User <authed@example.com>",
@@ -751,11 +766,11 @@ describe("GitCliClientLive.commit (real repo)", () => {
     fs.writeFileSync(path.join(repoPath, "tracked.txt"), "one\ntwo\n")
     await runStageAll(repoPath, [])
 
-    const result = await runCommitEither(repoPath, "respect local identity", {
+    const result = await runCommitResult(repoPath, "respect local identity", {
       author: TEST_AUTHOR,
     })
 
-    expect(result._tag).toBe("Right")
+    expect(result._tag).toBe("Success")
     expect(gitOut(repoPath, "log", "-1", "--format=%an <%ae>").trim()).toBe(
       "Local Dev <local@example.com>",
     )
@@ -770,11 +785,11 @@ describe("GitCliClientLive.commit (real repo)", () => {
     fs.writeFileSync(path.join(repoPath, "tracked.txt"), "one\ntwo\n")
     await runStageAll(repoPath, [])
 
-    const result = await runCommitEither(repoPath, "no identity available")
+    const result = await runCommitResult(repoPath, "no identity available")
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect((result.left as GitError).stderr.toLowerCase()).toContain("author identity unknown")
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect((result.failure as GitError).stderr.toLowerCase()).toContain("author identity unknown")
     }
   })
 })
@@ -794,25 +809,22 @@ describe("GitCliClientLive.cloneSimple (real git)", () => {
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  it.each([
-    ["full", {}],
-    ["sparse", { sparse: "sub" }],
-  ])("never lets a %s clone's URL act as a git option", async (_kind, extra) => {
+  it("never lets a clone's URL act as a git option", async () => {
     // Were the URL parsed as an option, git would take `dest` as the
     // repository and run this upload-pack command against it.
     const marker = path.join(tmp, "upload-pack-ran")
     const result = await Effect.runPromise(
       Effect.gen(function* () {
-        const git = yield* GitClient
-        return yield* git.cloneSimple(
+        const client = yield* GitClient
+        return yield* client.cloneSimple(
           `--upload-pack=touch ${marker};`,
           `file://${path.join(tmp, "src")}`,
-          { repoPath: path.join(tmp, "work"), ...extra },
+          { repoPath: path.join(tmp, "work") },
         )
-      }).pipe(Effect.provide(layer), Effect.either),
+      }).pipe(Effect.provide(layer), Effect.result),
     )
 
-    expect(result._tag).toBe("Left")
+    expect(result._tag).toBe("Failure")
     expect(fs.existsSync(marker)).toBe(false)
   })
 })
@@ -862,21 +874,18 @@ describe("GitCliClientLive ssh command (real git)", () => {
 
     const result = await Effect.runPromise(
       Effect.gen(function* () {
-        const git = yield* GitClient
-        return yield* git.push(repoPath, "origin", "main")
-      }).pipe(Effect.provide(layer), Effect.either),
+        const client = yield* GitClient
+        return yield* client.push(repoPath, "origin", "main")
+      }).pipe(Effect.provide(layer), Effect.result),
     )
 
-    expect(result._tag).toBe("Left")
+    expect(result._tag).toBe("Failure")
     const args = fs.readFileSync(sshLog, "utf8")
     expect(args).toContain(`-i /keys/id_work ${BATCH_OPTIONS}`)
     expect(args).toContain("git-receive-pack")
   })
 
-  it.each([
-    ["full", {}],
-    ["sparse", { sparse: "sub" }],
-  ])("clones a %s checkout with the global core.sshCommand, in batch mode", async (_kind, extra) => {
+  it("clones with the global core.sshCommand, in batch mode", async () => {
     // No repo exists before a clone, so the user's global config applies.
     fs.writeFileSync(
       process.env.GIT_CONFIG_GLOBAL!,
@@ -887,15 +896,14 @@ describe("GitCliClientLive ssh command (real git)", () => {
 
     const result = await Effect.runPromise(
       Effect.gen(function* () {
-        const git = yield* GitClient
-        return yield* git.cloneSimple("git@example.invalid:o/r.git", path.join(work, "r"), {
+        const client = yield* GitClient
+        return yield* client.cloneSimple("git@example.invalid:o/r.git", path.join(work, "r"), {
           repoPath: work,
-          ...extra,
         })
-      }).pipe(Effect.provide(layer), Effect.either),
+      }).pipe(Effect.provide(layer), Effect.result),
     )
 
-    expect(result._tag).toBe("Left")
+    expect(result._tag).toBe("Failure")
     const args = fs.readFileSync(sshLog, "utf8")
     expect(args).toContain(`-i /keys/id_work ${BATCH_OPTIONS}`)
     expect(args).toContain("git-upload-pack")
@@ -903,8 +911,8 @@ describe("GitCliClientLive ssh command (real git)", () => {
 })
 
 // ---------------------------------------------------------------------------
-// cloneSimple — the remote-runbook clone: sparse paths that may name a file,
-// and refs that may be a commit rather than a branch or tag.
+// cloneSimple — the remote-runbook clone: refs that may be a commit rather
+// than a branch or tag.
 // ---------------------------------------------------------------------------
 
 describe("GitCliClientLive.cloneSimple (real repo)", () => {
@@ -916,10 +924,9 @@ describe("GitCliClientLive.cloneSimple (real repo)", () => {
     fs.mkdirSync(path.dirname(path.join(srcPath, rel)), { recursive: true })
     fs.writeFileSync(path.join(srcPath, rel), content)
   }
-  const exists = (dest: string, rel: string) => fs.existsSync(path.join(dest, rel))
   const read = (dest: string, rel: string) => fs.readFileSync(path.join(dest, rel), "utf8")
 
-  const runClone = (options: { ref?: string; sparse?: string }) => {
+  const runClone = (options: { ref?: string }) => {
     const dest = path.join(workPath, `clone-${Math.random().toString(36).slice(2)}`)
     return Effect.runPromise(
       Effect.gen(function* () {
@@ -938,8 +945,6 @@ describe("GitCliClientLive.cloneSimple (real repo)", () => {
     git(srcPath, "config", "uploadpack.allowAnySHA1InWant", "true")
     write("README.md", "readme\n")
     write("runbooks/vpc/runbook.mdx", "# VPC v1\n")
-    write("runbooks/vpc/templates/main.tf", "# tf\n")
-    write("runbooks/other/runbook.mdx", "# Other\n")
     git(srcPath, "add", ".")
     git(srcPath, "commit", "-m", "v1")
     firstCommit = gitOut(srcPath, "rev-parse", "HEAD").trim()
@@ -953,42 +958,18 @@ describe("GitCliClientLive.cloneSimple (real repo)", () => {
     fs.rmSync(workPath, { recursive: true, force: true })
   })
 
-  it("a directory path checks out that directory and everything under it", async () => {
-    const dest = await runClone({ sparse: "runbooks/vpc" })
-    expect(read(dest, "runbooks/vpc/runbook.mdx")).toBe("# VPC v2\n")
-    expect(exists(dest, "runbooks/vpc/templates/main.tf")).toBe(true)
-    expect(exists(dest, "runbooks/other/runbook.mdx")).toBe(false)
-  })
-
-  it("a file path checks out the file's whole directory", async () => {
-    const dest = await runClone({ sparse: "runbooks/vpc/runbook.mdx" })
-    expect(exists(dest, "runbooks/vpc/runbook.mdx")).toBe(true)
-    // A sibling subdirectory — what cone mode alone would leave out.
-    expect(exists(dest, "runbooks/vpc/templates/main.tf")).toBe(true)
-    expect(exists(dest, "runbooks/other/runbook.mdx")).toBe(false)
-  })
-
-  it("a file at the repo root checks out the whole repo", async () => {
-    const dest = await runClone({ sparse: "README.md" })
-    expect(exists(dest, "runbooks/other/runbook.mdx")).toBe(true)
-  })
-
-  it("a path that doesn't exist checks out nothing, without failing", async () => {
-    const dest = await runClone({ sparse: "runbooks/missing" })
-    expect(exists(dest, "runbooks/missing")).toBe(false)
-  })
-
   it("a branch whose name contains a slash", async () => {
-    const dest = await runClone({ ref: "release/v1", sparse: "runbooks/vpc" })
+    const dest = await runClone({ ref: "release/v1" })
     expect(read(dest, "runbooks/vpc/runbook.mdx")).toBe("# VPC v1\n")
   })
 
-  it("a commit SHA, full or abbreviated, with and without a sparse path", async () => {
-    expect(read(await runClone({ ref: firstCommit, sparse: "runbooks/vpc" }), "runbooks/vpc/runbook.mdx")).toBe("# VPC v1\n")
-    expect(read(await runClone({ ref: firstCommit.slice(0, 7), sparse: "runbooks/vpc/runbook.mdx" }), "runbooks/vpc/runbook.mdx")).toBe(
+  it("a commit SHA, full or abbreviated", async () => {
+    expect(read(await runClone({ ref: firstCommit }), "runbooks/vpc/runbook.mdx")).toBe(
       "# VPC v1\n",
     )
-    expect(read(await runClone({ ref: firstCommit }), "runbooks/vpc/runbook.mdx")).toBe("# VPC v1\n")
+    expect(read(await runClone({ ref: firstCommit.slice(0, 7) }), "runbooks/vpc/runbook.mdx")).toBe(
+      "# VPC v1\n",
+    )
   })
 
   it("a commit no branch or tag reaches is fetched by id", async () => {
@@ -998,7 +979,7 @@ describe("GitCliClientLive.cloneSimple (real repo)", () => {
     const detached = gitOut(srcPath, "rev-parse", "HEAD").trim()
     git(srcPath, "checkout", "main")
 
-    const dest = await runClone({ ref: detached, sparse: "runbooks/vpc" })
+    const dest = await runClone({ ref: detached })
     expect(read(dest, "runbooks/vpc/runbook.mdx")).toBe("# VPC detached\n")
   })
 
@@ -1010,11 +991,11 @@ describe("GitCliClientLive.cloneSimple (real repo)", () => {
       Effect.gen(function* () {
         const client = yield* GitClient
         return yield* client.cloneSimple("-u@host:repo", dest)
-      }).pipe(Effect.provide(layer), Effect.either),
+      }).pipe(Effect.provide(layer), Effect.result),
     )
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      const stderr = (result.left as GitError).stderr
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      const stderr = (result.failure as GitError).stderr
       expect(stderr).toContain("-u@host")
       expect(stderr).not.toContain(`repository '${dest}' does not exist`)
     }
@@ -1081,19 +1062,22 @@ function startGitHttpServer(projectRoot: string, expectedAuthorization: string) 
   return {
     seenAuthorization,
     listen: () =>
-      new Promise<string>((resolve) =>
+      new Promise<string>((resolve) => {
         server.listen(0, "127.0.0.1", () =>
           resolve(`http://127.0.0.1:${(server.address() as AddressInfo).port}`),
-        ),
-      ),
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+        )
+      }),
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve())
+      }),
   }
 }
 
 /** Every `git` spawn the layer makes, captured before it runs. */
 interface GitSpawn {
   readonly args: string[]
-  readonly env?: Record<string, string | undefined>
+  readonly env?: Record<string, string | undefined> | undefined
 }
 
 /** GitCliClientLive over the real spawner, recording each git invocation. */
@@ -1125,16 +1109,15 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
   let spawns: GitSpawn[]
 
   const run = <A, E>(program: Effect.Effect<A, E, GitClient>) =>
-    Effect.runPromise(program.pipe(Effect.provide(recordingLayer(spawns)), Effect.either))
+    Effect.runPromise(program.pipe(Effect.provide(recordingLayer(spawns)), Effect.result))
 
   beforeAll(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-githttp-"))
 
-    // The remote: a bare repo that allows partial clones and pushes over HTTP.
+    // The remote: a bare repo that allows pushes over HTTP.
     const bare = path.join(root, "server", "repo.git")
     fs.mkdirSync(bare, { recursive: true })
     git(bare, "init", "--bare")
-    git(bare, "config", "uploadpack.allowFilter", "true")
     git(bare, "config", "http.receivepack", "true")
     const seed = path.join(root, "seed")
     fs.mkdirSync(path.join(seed, "docs"), { recursive: true })
@@ -1182,10 +1165,12 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     const dest = path.join(root, "clone-full")
 
     const result = await run(
-      Effect.flatMap(GitClient, (g) => g.cloneSimple(repoUrl, dest, { token: TOKEN, username: "oauth2" })),
+      Effect.flatMap(GitClient, (g) =>
+        g.cloneSimple(repoUrl, dest, { token: TOKEN, username: "oauth2" }),
+      ),
     )
 
-    expect(result._tag).toBe("Right")
+    expect(result._tag).toBe("Success")
     expect(fs.readFileSync(path.join(dest, "README.md"), "utf8")).toBe("readme\n")
     expect(server.seenAuthorization).toContain(basic("oauth2", TOKEN))
     // git saves the clone URL as remote.origin.url: it must be the plain one.
@@ -1194,28 +1179,10 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     expect(tokenInAnyArg()).toBe(false)
   }, 30_000)
 
-  it("authenticates a sparse clone's lazy blob fetch during checkout, too", async () => {
-    // A blobless clone downloads file contents from origin at checkout time,
-    // so the post-clone commands need the token just as much as the clone.
-    const dest = path.join(root, "clone-sparse")
-
-    const result = await run(
-      Effect.flatMap(GitClient, (g) =>
-        g.cloneSimple(repoUrl, dest, { token: TOKEN, username: "oauth2", sparse: "docs" }),
-      ),
-    )
-
-    expect(result._tag).toBe("Right")
-    expect(fs.readFileSync(path.join(dest, "docs", "guide.md"), "utf8")).toBe("# guide\n")
-    expect(fs.readFileSync(path.join(dest, ".git", "config"), "utf8")).not.toContain(TOKEN)
-    expect(tokenInAnyArg()).toBe(false)
-  }, 30_000)
-
-  it("authenticates a commit fetched by id and a sparse file path", async () => {
+  it("authenticates a commit fetched by id", async () => {
     // A commit no branch or tag reaches (a pull request head) is fetched by
-    // id after the clone (lazily by a blobless clone, explicitly by a full
-    // one), and a file path is looked up with ls-tree: every step talks to
-    // origin, so every step needs the token.
+    // id after the clone, which talks to origin again, so it needs the token
+    // as much as the clone does.
     const work = path.join(root, "pr-work")
     execFileSync("git", ["clone", "-q", path.join(root, "server", "repo.git"), work])
     fs.writeFileSync(path.join(work, "docs", "guide.md"), "# guide (pr)\n")
@@ -1224,18 +1191,16 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     const prCommit = gitOut(work, "rev-parse", "HEAD").trim()
     git(path.join(root, "server", "repo.git"), "config", "uploadpack.allowAnySHA1InWant", "true")
 
-    for (const sparse of ["docs/guide.md", undefined]) {
-      const dest = path.join(root, `clone-pr-${sparse ? "sparse" : "full"}`)
-      const result = await run(
-        Effect.flatMap(GitClient, (g) =>
-          g.cloneSimple(repoUrl, dest, { token: TOKEN, username: "oauth2", ref: prCommit, sparse }),
-        ),
-      )
+    const dest = path.join(root, "clone-pr")
+    const result = await run(
+      Effect.flatMap(GitClient, (g) =>
+        g.cloneSimple(repoUrl, dest, { token: TOKEN, username: "oauth2", ref: prCommit }),
+      ),
+    )
 
-      expect(result._tag).toBe("Right")
-      expect(fs.readFileSync(path.join(dest, "docs", "guide.md"), "utf8")).toBe("# guide (pr)\n")
-      expect(fs.readFileSync(path.join(dest, ".git", "config"), "utf8")).not.toContain(TOKEN)
-    }
+    expect(result._tag).toBe("Success")
+    expect(fs.readFileSync(path.join(dest, "docs", "guide.md"), "utf8")).toBe("# guide (pr)\n")
+    expect(fs.readFileSync(path.join(dest, ".git", "config"), "utf8")).not.toContain(TOKEN)
     expect(spawns.some((s) => s.args[0] === "fetch" && s.args.includes(prCommit))).toBe(true)
     expect(tokenInAnyArg()).toBe(false)
     expect(server.seenAuthorization.every((h) => h === basic("oauth2", TOKEN))).toBe(true)
@@ -1258,8 +1223,10 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
       ),
     )
 
-    expect(result._tag).toBe("Right")
-    expect(gitOut(path.join(root, "server", "repo.git"), "branch", "--list", "feature")).toContain("feature")
+    expect(result._tag).toBe("Success")
+    expect(gitOut(path.join(root, "server", "repo.git"), "branch", "--list", "feature")).toContain(
+      "feature",
+    )
     expect(server.seenAuthorization).toContain(basic("oauth2", TOKEN))
     expect(spawns.some((s) => s.args.includes("set-url"))).toBe(false)
     expect(tokenInAnyArg()).toBe(false)
@@ -1274,7 +1241,13 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     // one in .git/config; the push must authenticate with the current token.
     const work = path.join(root, "push-stale")
     git(root, "clone", path.join(root, "server", "repo.git"), work)
-    git(work, "remote", "set-url", "origin", repoUrl.replace("http://", "http://x-access-token:STALE@"))
+    git(
+      work,
+      "remote",
+      "set-url",
+      "origin",
+      repoUrl.replace("http://", "http://x-access-token:STALE@"),
+    )
     git(work, "checkout", "-b", "stale-feature")
     git(work, "commit", "--allow-empty", "-m", "empty")
 
@@ -1284,7 +1257,7 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
       ),
     )
 
-    expect(result._tag).toBe("Right")
+    expect(result._tag).toBe("Success")
     expect(server.seenAuthorization).toContain(basic("oauth2", TOKEN))
     expect(server.seenAuthorization).not.toContain(basic("x-access-token", "STALE"))
   }, 30_000)
@@ -1299,7 +1272,11 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     git(work, "checkout", "-b", "other-origin")
     git(work, "commit", "--allow-empty", "-m", "empty")
 
-    await run(Effect.flatMap(GitClient, (g) => g.push(work, "origin", "other-origin", { token: TOKEN, username: "oauth2" })))
+    await run(
+      Effect.flatMap(GitClient, (g) =>
+        g.push(work, "origin", "other-origin", { token: TOKEN, username: "oauth2" }),
+      ),
+    )
 
     expect(server.seenAuthorization).not.toContain(basic("oauth2", TOKEN))
     const push = spawns.find((s) => s.args[0] === "push")
@@ -1312,10 +1289,12 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     const dest = path.join(root, "clone-rejected")
 
     const result = await run(
-      Effect.flatMap(GitClient, (g) => g.cloneSimple(repoUrl, dest, { token: "wrong-token", username: "oauth2" })),
+      Effect.flatMap(GitClient, (g) =>
+        g.cloneSimple(repoUrl, dest, { token: "wrong-token", username: "oauth2" }),
+      ),
     )
 
-    expect(result._tag).toBe("Left")
+    expect(result._tag).toBe("Failure")
     expect(server.seenAuthorization).toContain(basic("oauth2", "wrong-token"))
     expect(fs.existsSync(helperLog)).toBe(false)
   }, 30_000)
@@ -1347,17 +1326,21 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     // returns reaches the renderer (git:local-repo, workspace:tree).
     const work = path.join(root, "polluted")
     git(root, "clone", path.join(root, "server", "repo.git"), work)
-    git(work, "remote", "set-url", "origin", `https://x-access-token:${TOKEN}@github.com/acme/infra.git`)
-
-    const result = await run(
-      Effect.flatMap(GitClient, (g) =>
-        Effect.all([g.getInfo(work), g.getRemoteUrl(work)]),
-      ),
+    git(
+      work,
+      "remote",
+      "set-url",
+      "origin",
+      `https://x-access-token:${TOKEN}@github.com/acme/infra.git`,
     )
 
-    expect(result._tag).toBe("Right")
-    if (result._tag === "Right") {
-      const [info, remoteUrl] = result.right
+    const result = await run(
+      Effect.flatMap(GitClient, (g) => Effect.all([g.getInfo(work), g.getRemoteUrl(work)])),
+    )
+
+    expect(result._tag).toBe("Success")
+    if (result._tag === "Success") {
+      const [info, remoteUrl] = result.success
       expect(info.remoteUrl).toBe("https://github.com/acme/infra.git")
       expect(remoteUrl).toBe("https://github.com/acme/infra.git")
     }

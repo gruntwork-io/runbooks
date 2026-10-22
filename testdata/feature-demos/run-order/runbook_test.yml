@@ -1,0 +1,37 @@
+# Test configuration for run-order feature demo
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  - name: happy-path
+    description: Every block runs in document order
+
+  - name: out-of-order
+    description: A block is blocked until the blocks it waits for have succeeded
+
+    steps:
+      - block: show-tag
+        expect: blocked
+        missing_outputs:
+          - outputs.build.tag
+
+      - block: use-token
+        expect: blocked
+
+      - block: log-in
+        expect: success
+
+      # use-token hasn't run yet
+      - block: migrate
+        expect: blocked
+
+      - block: use-token
+        expect: success
+
+      - block: migrate
+        expect: success

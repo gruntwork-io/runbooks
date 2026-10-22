@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
 // jsdom has no canvas, so canvas-confetti is replaced with a fake cannon whose
 // burst promises the test settles by hand (as the animation ending would).
@@ -10,20 +10,25 @@ const confettiMock = vi.hoisted(() => {
     },
   }
   const fire = Object.assign(
-    vi.fn(() => new Promise<null>((resolve) => { pending.push(() => resolve(null)) })),
+    vi.fn(
+      () =>
+        new Promise<null>((resolve) => {
+          pending.push(() => resolve(null))
+        }),
+    ),
     { reset: vi.fn() },
   )
   const create = vi.fn(() => fire)
   return { state, fire, create }
 })
 
-vi.mock('canvas-confetti', () => ({ default: { create: confettiMock.create } }))
+vi.mock("canvas-confetti", () => ({ default: { create: confettiMock.create } }))
 
 const originalMatchMedia = window.matchMedia
 
 function setReducedMotion(reduce: boolean) {
   window.matchMedia = vi.fn((query: string) => ({
-    matches: reduce && query === '(prefers-reduced-motion: reduce)',
+    matches: reduce && query === "(prefers-reduced-motion: reduce)",
     media: query,
     onchange: null,
     addEventListener: vi.fn(),
@@ -38,13 +43,16 @@ function setReducedMotion(reduce: boolean) {
 // carry over from one test to the next.
 async function loadCelebrate() {
   vi.resetModules()
-  return (await import('../celebrate')).celebrate
+  return (await import("../celebrate")).celebrate
 }
 
 // Let the burst promise's .then() handlers run.
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+const flush = () =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 0)
+  })
 
-describe('celebrate', () => {
+describe("celebrate", () => {
   beforeEach(() => {
     confettiMock.fire.mockClear()
     confettiMock.fire.reset.mockClear()
@@ -59,17 +67,20 @@ describe('celebrate', () => {
     window.matchMedia = originalMatchMedia
   })
 
-  it('fires confetti on the main thread, never in a blob: worker the CSP blocks', async () => {
+  it("fires confetti on the main thread, never in a blob: worker the CSP blocks", async () => {
     const celebrate = await loadCelebrate()
 
     celebrate()
 
     expect(confettiMock.create).toHaveBeenCalledOnce()
-    expect(confettiMock.create).toHaveBeenCalledWith(undefined, expect.objectContaining({ useWorker: false }))
+    expect(confettiMock.create).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ useWorker: false }),
+    )
     expect(confettiMock.fire).toHaveBeenCalled()
   })
 
-  it('reuses one confetti instance across celebrations', async () => {
+  it("reuses one confetti instance across celebrations", async () => {
     const celebrate = await loadCelebrate()
 
     celebrate()
@@ -78,7 +89,7 @@ describe('celebrate', () => {
     expect(confettiMock.create).toHaveBeenCalledOnce()
   })
 
-  it('does nothing when the user prefers reduced motion, checked each time it fires', async () => {
+  it("does nothing when the user prefers reduced motion, checked each time it fires", async () => {
     const celebrate = await loadCelebrate()
 
     setReducedMotion(true)
@@ -96,34 +107,34 @@ describe('celebrate', () => {
     expect(confettiMock.fire).not.toHaveBeenCalled()
   })
 
-  it('clears the confetti on Escape', async () => {
+  it("clears the confetti on Escape", async () => {
     const celebrate = await loadCelebrate()
     celebrate()
 
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }))
     expect(confettiMock.fire.reset).not.toHaveBeenCalled()
 
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
     expect(confettiMock.fire.reset).toHaveBeenCalledOnce()
   })
 
-  it('clears the confetti on a click anywhere', async () => {
+  it("clears the confetti on a click anywhere", async () => {
     const celebrate = await loadCelebrate()
     celebrate()
 
-    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }))
     expect(confettiMock.fire.reset).toHaveBeenCalledOnce()
   })
 
-  it('stops listening once the confetti has finished', async () => {
+  it("stops listening once the confetti has finished", async () => {
     const celebrate = await loadCelebrate()
     celebrate()
 
     confettiMock.state.settle()
     await flush()
 
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }))
     expect(confettiMock.fire.reset).not.toHaveBeenCalled()
   })
 })

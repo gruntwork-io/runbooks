@@ -6,10 +6,18 @@
 # Provides standardized logging functions for Runbooks scripts:
 #   log_info  - Informational messages
 #   log_warn  - Warning messages
-#   log_error - Error messages (written to stderr)
+#   log_error - Error messages
 #   log_debug - Debug messages (only when DEBUG=true)
 #
 # Output format: [ISO-8601-TIMESTAMP] [LEVEL] Message
+#
+# Every function appends to the log file Runbooks names in RUNBOOK_LOG, so
+# the lines keep the order they were written in. Outside Runbooks the variable
+# is unset, and the functions write to stderr instead. They also fall back to
+# stderr when the file can't be written, e.g. from a background job that is
+# still logging after the run ended and Runbooks deleted the file. Either way
+# nothing goes to stdout, so it is safe to log inside a function whose output
+# is captured with $(...).
 #
 # Compatible with Bash 3.2+ (macOS default version) and POSIX shells where possible.
 # =============================================================================
@@ -28,11 +36,26 @@ _log_timestamp() {
 }
 
 # -----------------------------------------------------------------------------
+# Helper: Append a log line to $RUNBOOK_LOG, or write it to stderr if
+# RUNBOOK_LOG is unset or the append fails
+# Usage: _log_write TAG MESSAGE...
+# -----------------------------------------------------------------------------
+_log_write() {
+  local tag="$1"
+  shift
+  if [ -n "${RUNBOOK_LOG:-}" ] &&
+    { printf '[%s] %s %s\n' "$(_log_timestamp)" "$tag" "$*" >> "$RUNBOOK_LOG"; } 2>/dev/null; then
+    return 0
+  fi
+  printf '[%s] %s %s\n' "$(_log_timestamp)" "$tag" "$*" >&2
+}
+
+# -----------------------------------------------------------------------------
 # log_info - Log an informational message
 # Usage: log_info "message"
 # -----------------------------------------------------------------------------
 log_info() {
-  printf '[%s] [INFO]  %s\n' "$(_log_timestamp)" "$*"
+  _log_write "[INFO] " "$@"
 }
 
 # -----------------------------------------------------------------------------
@@ -40,16 +63,15 @@ log_info() {
 # Usage: log_warn "message"
 # -----------------------------------------------------------------------------
 log_warn() {
-  printf '[%s] [WARN]  %s\n' "$(_log_timestamp)" "$*"
+  _log_write "[WARN] " "$@"
 }
 
 # -----------------------------------------------------------------------------
 # log_error - Log an error message
 # Usage: log_error "message"
-# Note: Writes to stdout for deterministic ordering. Use >&2 if stderr is needed.
 # -----------------------------------------------------------------------------
 log_error() {
-  printf '[%s] [ERROR] %s\n' "$(_log_timestamp)" "$*"
+  _log_write "[ERROR]" "$@"
 }
 
 # -----------------------------------------------------------------------------
@@ -58,7 +80,6 @@ log_error() {
 # -----------------------------------------------------------------------------
 log_debug() {
   if [ "${DEBUG:-}" = "true" ]; then
-    printf '[%s] [DEBUG] %s\n' "$(_log_timestamp)" "$*"
+    _log_write "[DEBUG]" "$@"
   fi
 }
-

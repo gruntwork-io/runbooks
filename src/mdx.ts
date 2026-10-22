@@ -57,6 +57,9 @@ export function findFencedCodeBlockRanges(content: string): Array<[number, numbe
 /**
  * Returns true if `position` falls inside any fenced code block.
  */
-export function isInsideFencedCodeBlock(position: number, ranges: Array<[number, number]>): boolean {
+export function isInsideFencedCodeBlock(
+  position: number,
+  ranges: Array<[number, number]>,
+): boolean {
   return ranges.some(([start, end]) => position >= start && position <= end)
 }

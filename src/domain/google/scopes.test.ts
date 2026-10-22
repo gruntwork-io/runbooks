@@ -34,9 +34,9 @@ describe("missingGoogleScopes", () => {
   })
 
   it("returns the scopes the grant does not cover", () => {
-    expect(missingGoogleScopes([CLOUD_PLATFORM, DIRECTORY, EMAIL], [CLOUD_PLATFORM, EMAIL])).toEqual([
-      DIRECTORY,
-    ])
+    expect(
+      missingGoogleScopes([CLOUD_PLATFORM, DIRECTORY, EMAIL], [CLOUD_PLATFORM, EMAIL]),
+    ).toEqual([DIRECTORY])
   })
 
   it("treats a full match as satisfied", () => {

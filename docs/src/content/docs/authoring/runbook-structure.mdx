@@ -4,32 +4,20 @@ title: Runbook Structure
 
 import { FileTree } from '@astrojs/starlight/components';
 
-# Runbook Structure
+## File format
 
-This page explains the file format and folder organization for a runbook.
-
-## File Format
-
-A runbook lives in its own folder and must contain a file named `runbook.mdx`. This file is written in **MDX** (Markdown + JSX), which lets you combine:
-
-- **Standard Markdown** — Headers, paragraphs, lists, code blocks, images, links
-- **Runbook Blocks** — Interactive components like `<Check>`, `<Command>`, `<Inputs>`, and `<Template>`
-
-You can learn more about:
-
-- [Supported markdown elements](/authoring/markdown)
-- [Available blocks](/authoring/blocks)
+A runbook lives in its own folder and must contain a file named `runbook.mdx`. The file is MDX (Markdown plus JSX), so it mixes [standard markdown](/authoring/markdown) (headers, paragraphs, lists, code blocks, images, links) with [blocks](/authoring/blocks) such as `<Check>`, `<Command>`, `<Inputs>`, and `<Template>`.
 
 ### Common structure
 
-While you can organize your `runbook.mdx` file however you like, here's a common pattern:
+You can organize `runbook.mdx` however you like. A common pattern:
 
 `````mdx
-# Runbook Title
+# Runbook title
 
 Introduction paragraph explaining what this runbook does.
 
-## Pre-flight Checks
+## Pre-flight checks
 
 Make sure the user is set up for success.
 
@@ -41,19 +29,19 @@ Make sure the user is set up for success.
     failMessage="Please install the tool first"
 />
 
-## Execute Actions
+## Execute actions
 
 Run commands on behalf of the user to complete the runbook.
 
 <Command 
     id="do-something"
-    command="echo {{ .ProjectName }}"
+    command="echo {{ .inputs.ProjectName }}"
     inputsId="config"
     title="Execute action"
     successMessage="Done!"
 />
 
-## Generate Code
+## Generate code
 
 Generate code the user needs to accomplish their task.
 
@@ -62,7 +50,7 @@ Generate code the user needs to accomplish their task.
     path="templates/infra"
 />
 
-## Post-flight Checks
+## Post-flight checks
 
 Verify everything worked.
 
@@ -87,7 +75,7 @@ Next, share the endpoint with your team.
 
 ## Folder organization
 
-Blocks often reference scripts and templates stored in folders. While you can store these anywhere, here's the conventional folder structure:
+Blocks reference scripts and templates by path. You can store them anywhere, but this layout is the convention:
 
 <FileTree>
 
@@ -109,18 +97,18 @@ Blocks often reference scripts and templates stored in folders. While you can st
 
 </FileTree>
 
-### Folder Purposes
+### Folder purposes
 
-| Folder | Purpose | Used By |
+| Folder | Purpose | Used by |
 |--------|---------|---------|
 | `assets/` | Images, diagrams, videos, and other static files | Markdown image syntax and `<img>`, `<video>`, `<audio>` tags |
 | `checks/` | Shell scripts that validate prerequisites | `<Check>` blocks |
 | `scripts/` | Shell scripts that execute actions | `<Command>` blocks |
 | `templates/` | Boilerplate template directories | `<Template>` blocks |
 
-### Relative Paths
+### Relative paths
 
-Always reference files relative to your runbook:
+Reference files relative to the runbook's folder:
 
 ```mdx
 <Check path="checks/prereq.sh" ... />
@@ -128,6 +116,7 @@ Always reference files relative to your runbook:
 ![Diagram](./assets/diagram.png)
 <img src="./assets/diagram.png" width="400" />
 <video src="./assets/demo.mp4" poster="./assets/demo-poster.png" controls />
+<Iframe src="./assets/dashboard/index.html" />
 ```
 
 Asset paths must start with `./assets/`. Runbooks loads them from the runbook's `assets/` folder when they appear in markdown image syntax, including in a block prop that supports inline markdown such as `title` or `description`, or in one of these tag attributes:
@@ -143,3 +132,7 @@ Asset paths must start with `./assets/`. Runbooks loads them from the runbook's 
 In a `srcSet`, each candidate's path is rewritten and its descriptor (`2x`, `480w`) is kept. Write the path as a plain string: `src={"./assets/demo.mp4"}` is left as written and won't load.
 
 Video and audio are read from the file as they play, and you can seek anywhere in them.
+
+`assets/` must be a real folder, not a symlink. If `assets` is a symlink, Runbooks serves nothing from it and every asset fails to load, even when the symlink points inside the runbook's folder. Otherwise `assets -> .` would serve `runbook.mdx` and its scripts to any page the runbook embeds. Symlinks inside `assets/` work when they point to files inside `assets/`.
+
+The [`<Iframe>`](/authoring/blocks/iframe/) block's `src` also takes a `./assets/` path.

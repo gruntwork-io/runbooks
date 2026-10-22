@@ -7,15 +7,17 @@
  * block only needs to supply its specific config.
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import type { BoilerplateConfig } from '@/types/boilerplateConfig'
-import type { AppError } from '@/types/error'
-import type { BlockComponentType } from '@/contexts/ComponentIdRegistry'
-import { useRunbookContext } from '@/contexts/useRunbook'
-import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
-import { useErrorReporting } from '@/contexts/useErrorReporting'
-import { useTelemetry } from '@/contexts/useTelemetry'
-import { untouchedValue } from '../lib/untouchedValue'
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import type { BoilerplateConfig } from "@/types/boilerplateConfig"
+import type { AppError } from "@/types/error"
+import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
+import { useRunbookContext } from "@/contexts/useRunbook"
+import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { useTelemetry } from "@/contexts/useTelemetry"
+import { savedFormValue } from "@/lib/sessionHistory"
+import { untouchedValue } from "../lib/untouchedValue"
+import { useFormHistory } from "./useFormHistory"
 
 /**
  * Options accepted by {@link useInputRegistration}.
@@ -31,6 +33,11 @@ interface UseInputRegistrationOptions {
   validationError: AppError | null
   /** Additional error to report (e.g., inline content parsing failures in Inputs). */
   extraError?: AppError | null
+  /**
+   * The form has no Submit button and submits itself once it is ready (an
+   * embedded Inputs), so the session's history has it as submitted throughout.
+   */
+  alwaysSubmitted: boolean
 }
 
 interface UseInputRegistrationReturn {
@@ -39,6 +46,8 @@ interface UseInputRegistrationReturn {
   isNormalizedCollision: boolean
   collidingId: string | undefined
   // Form state
+  /** `boilerplateConfig` with each variable starting from what the session's history has for it. */
+  formConfig: BoilerplateConfig | null
   initialData: Record<string, unknown>
   hasSubmitted: boolean
   // Form handlers
@@ -63,9 +72,13 @@ export function useInputRegistration({
   boilerplateConfig,
   validationError,
   extraError,
+  alwaysSubmitted,
 }: UseInputRegistrationOptions): UseInputRegistrationReturn {
   // 1. ID registry
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, componentType)
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    componentType,
+  )
 
   // 2. Error reporting
   const { reportError, clearError } = useErrorReporting()
@@ -76,9 +89,11 @@ export function useInputRegistration({
     trackBlockRender(componentType)
   }, [trackBlockRender, componentType])
 
-  // 4. Form state
+  // 4. Form state. The form resumes from the session's history: the values it
+  // was left with, and whether it had been submitted.
+  const { saved, noteValues } = useFormHistory(id)
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null)
-  const [hasSubmitted, setHasSubmitted] = useState(false)
+  const [hasSubmitted, setHasSubmitted] = useState(saved?.submitted ?? false)
   const { registerInputs } = useRunbookContext()
 
   const hasSetFormState = useRef(false)
@@ -89,36 +104,80 @@ export function useInputRegistration({
     }
   }, [boilerplateConfig])
 
-  const initialData = useMemo(() => {
+  const defaults = useMemo(() => {
     if (!formState) return {}
-    return formState.variables.reduce((acc, variable) => {
-      // Same starting value as the form (see useFormState), since these are
-      // registered before the user submits
-      acc[variable.name] = variable.default ?? untouchedValue(variable)
-      return acc
-    }, {} as Record<string, unknown>)
+    return formState.variables.reduce(
+      (acc, variable) => {
+        // Same starting value as the form (see useFormState), since these are
+        // registered before the user submits
+        acc[variable.name] = variable.default ?? untouchedValue(variable)
+        return acc
+      },
+      {} as Record<string, unknown>,
+    )
   }, [formState])
+
+  const initialData = useMemo(() => {
+    if (saved === undefined) return defaults
+    return Object.fromEntries(
+      Object.entries(defaults).map(([name, value]) => [name, savedFormValue(saved, name) ?? value]),
+    )
+  }, [defaults, saved])
+
+  // The form takes its starting values from the variables' defaults (see
+  // useFormState: `initialData` is still empty when the form mounts).
+  const formConfig = useMemo(() => {
+    if (!boilerplateConfig || saved === undefined) return boilerplateConfig
+    return {
+      ...boilerplateConfig,
+      variables: boilerplateConfig.variables.map((variable) => {
+        const value = savedFormValue(saved, variable.name)
+        return value === undefined || value === null ? variable : { ...variable, default: value }
+      }),
+    }
+  }, [boilerplateConfig, saved])
 
   // Register default values immediately so downstream components referencing
   // this block via inputsId can resolve template expressions before the user
-  // explicitly submits.
+  // explicitly submits. A form that was left submitted registers the values it
+  // was left with. One that was not registers its defaults: what the user
+  // typed and never submitted stays in the form.
   const hasRegisteredDefaults = useRef(false)
   useEffect(() => {
-    if (boilerplateConfig && Object.keys(initialData).length > 0 && !hasRegisteredDefaults.current) {
+    if (
+      boilerplateConfig &&
+      Object.keys(initialData).length > 0 &&
+      !hasRegisteredDefaults.current
+    ) {
       hasRegisteredDefaults.current = true
-      registerInputs(id, initialData, boilerplateConfig)
+      registerInputs(id, saved?.submitted ? initialData : defaults, boilerplateConfig)
     }
-  }, [id, boilerplateConfig, initialData, registerInputs])
+  }, [id, boilerplateConfig, initialData, defaults, saved, registerInputs])
 
   // 5. Error effect — report config/setup issues to the global banner.
   // apiError is intentionally omitted here; it is rendered inline by the component (e.g., ErrorDisplay).
   useEffect(() => {
     if (isDuplicate) {
-      reportError({ componentId: id, componentType, severity: 'error', message: `Duplicate component ID: ${id}` })
+      reportError({
+        componentId: id,
+        componentType,
+        severity: "error",
+        message: `Duplicate component ID: ${id}`,
+      })
     } else if (validationError) {
-      reportError({ componentId: id, componentType, severity: 'error', message: validationError.message })
+      reportError({
+        componentId: id,
+        componentType,
+        severity: "error",
+        message: validationError.message,
+      })
     } else if (extraError) {
-      reportError({ componentId: id, componentType, severity: 'error', message: extraError.message })
+      reportError({
+        componentId: id,
+        componentType,
+        severity: "error",
+        message: extraError.message,
+      })
     } else {
       clearError(id)
     }
@@ -127,19 +186,23 @@ export function useInputRegistration({
   // 6. Auto-update debouncing
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  const handleAutoUpdate = useCallback((formData: Record<string, unknown>) => {
-    if (!hasSubmitted) return
+  const handleAutoUpdate = useCallback(
+    (formData: Record<string, unknown>) => {
+      noteValues(formData, alwaysSubmitted || hasSubmitted)
+      if (!hasSubmitted) return
 
-    if (autoUpdateTimerRef.current) {
-      clearTimeout(autoUpdateTimerRef.current)
-    }
-
-    autoUpdateTimerRef.current = setTimeout(() => {
-      if (boilerplateConfig) {
-        registerInputs(id, formData, boilerplateConfig)
+      if (autoUpdateTimerRef.current) {
+        clearTimeout(autoUpdateTimerRef.current)
       }
-    }, 200)
-  }, [id, hasSubmitted, boilerplateConfig, registerInputs])
+
+      autoUpdateTimerRef.current = setTimeout(() => {
+        if (boilerplateConfig) {
+          registerInputs(id, formData, boilerplateConfig)
+        }
+      }, 200)
+    },
+    [id, hasSubmitted, alwaysSubmitted, boilerplateConfig, registerInputs, noteValues],
+  )
 
   useEffect(() => {
     return () => {
@@ -150,17 +213,22 @@ export function useInputRegistration({
   }, [])
 
   // 7. Submit handler
-  const handleSubmit = useCallback(async (formData: Record<string, unknown>) => {
-    if (boilerplateConfig) {
-      registerInputs(id, formData, boilerplateConfig)
-    }
-    setHasSubmitted(true)
-  }, [id, boilerplateConfig, registerInputs])
+  const handleSubmit = useCallback(
+    async (formData: Record<string, unknown>) => {
+      if (boilerplateConfig) {
+        registerInputs(id, formData, boilerplateConfig)
+      }
+      setHasSubmitted(true)
+      noteValues(formData, true)
+    },
+    [id, boilerplateConfig, registerInputs, noteValues],
+  )
 
   return {
     isDuplicate,
     isNormalizedCollision,
     collidingId,
+    formConfig,
     initialData,
     hasSubmitted,
     handleAutoUpdate,

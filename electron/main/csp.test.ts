@@ -14,10 +14,17 @@ const imgSrc = (policy: string): string[] => {
 const directives = (policy: string): string[] =>
   policy
     .split(";")
-    .map((d) => d.trim().split(/\s+/)[0])
+    .map((d) => d.trim().split(/\s+/)[0]!)
     .filter(Boolean)
 
-const BASE_DIRECTIVES = ["default-src", "script-src", "style-src", "img-src", "media-src", "font-src"]
+const BASE_DIRECTIVES = [
+  "default-src",
+  "script-src",
+  "style-src",
+  "img-src",
+  "media-src",
+  "font-src",
+]
 
 describe("buildContentSecurityPolicy", () => {
   it("with no hosts: the static policy (github.com + every ghe.com tenant + gitlab.com + gravatar)", () => {
@@ -33,6 +40,13 @@ describe("buildContentSecurityPolicy", () => {
       "https://secure.gravatar.com",
     ])
     expect(policy).toContain("script-src 'self' 'unsafe-eval'")
+  })
+
+  // The Iframe block's pages are <webview> guests, not frames (embeds.ts).
+  it("sets no frame-src, so frames fall back to default-src 'self'", () => {
+    const policy = buildContentSecurityPolicy()
+    expect(policy).toContain("default-src 'self';")
+    expect(policy).not.toContain("frame-src")
   })
 
   it("a GHES host adds https://<host> and https://avatars.<host>", () => {
@@ -57,8 +71,12 @@ describe("buildContentSecurityPolicy", () => {
   })
 
   it("github.com and ghe.com tenants add nothing (covered by the static entries)", () => {
-    expect(githubImageOrigins(["github.com", "api.github.com", "acme.ghe.com", "api.acme.ghe.com"])).toEqual([])
-    expect(buildContentSecurityPolicy(["github.com", "acme.ghe.com"])).toBe(buildContentSecurityPolicy())
+    expect(
+      githubImageOrigins(["github.com", "api.github.com", "acme.ghe.com", "api.acme.ghe.com"]),
+    ).toEqual([])
+    expect(buildContentSecurityPolicy(["github.com", "acme.ghe.com"])).toBe(
+      buildContentSecurityPolicy(),
+    )
   })
 
   it("junk hosts with spaces or other schemes/userinfo never reach the policy", () => {

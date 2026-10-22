@@ -4,28 +4,32 @@ import { Copy, Check } from "lucide-react"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 
 export interface CodeFileHeaderProps {
-  filePath: string;
-  code?: string; // Code content for copy functionality
-  showCopyCodeButton?: boolean;
-  showCopyPathButton?: boolean;
-  className?: string;
+  filePath: string
+  code?: string // Code content for copy functionality
+  showCopyCodeButton?: boolean
+  showCopyPathButton?: boolean
+  className?: string
 }
 
-export const CodeFileHeader = ({ 
-  filePath, 
+export const CodeFileHeader = ({
+  filePath,
   code,
   showCopyCodeButton = true,
   showCopyPathButton = true,
-  className = ""
+  className = "",
 }: CodeFileHeaderProps) => {
   const { didCopy: copiedCode, copy: doCopyCode } = useCopyToClipboard(2000)
   const { didCopy: copiedPath, copy: doCopyPath } = useCopyToClipboard(2000)
 
-  const handleCopyCode = () => { if (code) void doCopyCode(code) }
+  const handleCopyCode = () => {
+    if (code) void doCopyCode(code)
+  }
   const handleCopyPath = () => void doCopyPath(filePath)
 
   return (
-    <div className={`text-xs text-muted-foreground border border-border px-2 -mb-2 font-sans h-8 bg-muted flex items-center justify-between ${className}`}>
+    <div
+      className={`text-xs text-muted-foreground border border-border px-2 -mb-2 font-sans h-8 bg-muted flex items-center justify-between ${className}`}
+    >
       <div className="flex items-center gap-2">
         <div>{filePath}</div>
         {showCopyPathButton && (
@@ -37,7 +41,11 @@ export const CodeFileHeader = ({
                 onClick={handleCopyPath}
                 className="h-5 w-5 text-muted-foreground hover:cursor-pointer shadow-none"
               >
-                {copiedPath ? <Check className="h-2 w-2 text-muted-foreground" /> : <Copy className="h-4 w-4" />}
+                {copiedPath ? (
+                  <Check className="h-2 w-2 text-muted-foreground" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -46,7 +54,6 @@ export const CodeFileHeader = ({
           </Tooltip>
         )}
       </div>
-      
 
       <div className="flex gap-2">
         {showCopyCodeButton && (
@@ -58,7 +65,11 @@ export const CodeFileHeader = ({
                 onClick={handleCopyCode}
                 className="h-5 w-5 text-muted-foreground hover:cursor-pointer"
               >
-                {copiedCode ? <Check className="h-2 w-2 text-muted-foreground" /> : <Copy className="h-3 w-3" />}
+                {copiedCode ? (
+                  <Check className="h-2 w-2 text-muted-foreground" />
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -68,5 +79,5 @@ export const CodeFileHeader = ({
         )}
       </div>
     </div>
-  );
-};
+  )
+}

@@ -27,8 +27,14 @@ describe("gitCredentialUsername", () => {
 
 describe("stripUrlCredentials", () => {
   it.each([
-    [`https://x-access-token:${TOKEN}@github.com/owner/repo.git`, "https://github.com/owner/repo.git"],
-    [`https://oauth2:${TOKEN}@gitlab.example.com:8443/group/sub/proj.git`, "https://gitlab.example.com:8443/group/sub/proj.git"],
+    [
+      `https://x-access-token:${TOKEN}@github.com/owner/repo.git`,
+      "https://github.com/owner/repo.git",
+    ],
+    [
+      `https://oauth2:${TOKEN}@gitlab.example.com:8443/group/sub/proj.git`,
+      "https://gitlab.example.com:8443/group/sub/proj.git",
+    ],
     [`http://${TOKEN}@git.corp.net/team/repo`, "http://git.corp.net/team/repo"],
   ])("removes the userinfo from %s", (input, expected) => {
     const result = stripUrlCredentials(input)
@@ -59,7 +65,12 @@ describe("withGitHttpAuth", () => {
   const base = { PATH: "/usr/bin", GIT_TERMINAL_PROMPT: "0" }
 
   it("authenticates an https URL through env-based git config", () => {
-    const env = withGitHttpAuth(base, "https://gitlab.example.com:8443/group/proj.git", TOKEN, "oauth2")
+    const env = withGitHttpAuth(
+      base,
+      "https://gitlab.example.com:8443/group/proj.git",
+      TOKEN,
+      "oauth2",
+    )
 
     expect(env).toEqual({
       ...base,
@@ -137,13 +148,14 @@ describe("withGitHttpAuth", () => {
 })
 
 describe("isHttpRemoteUrl", () => {
-  it.each(["https://github.com/o/r.git", "http://127.0.0.1:8080/o\\r.git", "HTTPS://GitHub.com/o/r"])(
-    "is true for %s, which withGitHttpAuth attaches a token to",
-    (url) => {
-      expect(isHttpRemoteUrl(url)).toBe(true)
-      expect(withGitHttpAuth({}, url, "tok").GIT_CONFIG_COUNT).toBe("3")
-    },
-  )
+  it.each([
+    "https://github.com/o/r.git",
+    "http://127.0.0.1:8080/o\\r.git",
+    "HTTPS://GitHub.com/o/r",
+  ])("is true for %s, which withGitHttpAuth attaches a token to", (url) => {
+    expect(isHttpRemoteUrl(url)).toBe(true)
+    expect(withGitHttpAuth({}, url, "tok").GIT_CONFIG_COUNT).toBe("3")
+  })
 
   it.each(["git@github.com:o/r.git", "ssh://git@github.com/o/r.git", "/srv/git/o/r.git", ""])(
     "is false for %j, which never gets a token",
@@ -169,22 +181,30 @@ describe("isPlainHttpRemoteUrl", () => {
     expect(env.GIT_CONFIG_KEY_1).toBe("http.http://gitlab.corp/.extraHeader")
   })
 
-  it.each(["https://gitlab.corp/g/p.git", "git@gitlab.corp:g/p.git", "ssh://git@gitlab.corp/g/p.git", ""])(
-    "is false for %j",
-    (url) => {
-      expect(isPlainHttpRemoteUrl(url)).toBe(false)
-    },
-  )
+  it.each([
+    "https://gitlab.corp/g/p.git",
+    "git@gitlab.corp:g/p.git",
+    "ssh://git@gitlab.corp/g/p.git",
+    "",
+  ])("is false for %j", (url) => {
+    expect(isPlainHttpRemoteUrl(url)).toBe(false)
+  })
 })
 
 describe("sameHttpOrigin", () => {
   it("matches http(s) URLs by scheme, host and port only", () => {
-    expect(sameHttpOrigin("https://github.com/a/b.git", "https://x-access-token:t@GitHub.com:443/c/d")).toBe(true)
-    expect(sameHttpOrigin("http://127.0.0.1:8080/r.git", "http://127.0.0.1:8080/other.git")).toBe(true)
+    expect(
+      sameHttpOrigin("https://github.com/a/b.git", "https://x-access-token:t@GitHub.com:443/c/d"),
+    ).toBe(true)
+    expect(sameHttpOrigin("http://127.0.0.1:8080/r.git", "http://127.0.0.1:8080/other.git")).toBe(
+      true,
+    )
   })
 
   it("rejects a different host, port or scheme, and non-http URLs", () => {
-    expect(sameHttpOrigin("https://github.com/a/b.git", "https://ghe.example.com/a/b.git")).toBe(false)
+    expect(sameHttpOrigin("https://github.com/a/b.git", "https://ghe.example.com/a/b.git")).toBe(
+      false,
+    )
     expect(sameHttpOrigin("https://host:8443/a.git", "https://host/a.git")).toBe(false)
     expect(sameHttpOrigin("https://github.com/a.git", "http://github.com/a.git")).toBe(false)
     expect(sameHttpOrigin("ssh://git@github.com/a.git", "ssh://git@github.com/a.git")).toBe(false)

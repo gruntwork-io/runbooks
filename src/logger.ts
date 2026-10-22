@@ -20,7 +20,6 @@
  */
 
 import { inspect } from "node:util"
-import { Cause, Runtime } from "effect"
 import { redactSecrets } from "./domain/vcs/redact.ts"
 
 interface CompiledPattern {
@@ -49,15 +48,10 @@ export function compilePatterns(raw: string | undefined): CompiledPattern[] {
     })
 }
 
-const PATTERNS = compilePatterns(
-  typeof process !== "undefined" ? process.env.DEBUG : undefined,
-)
+const PATTERNS = compilePatterns(typeof process !== "undefined" ? process.env.DEBUG : undefined)
 
 /** Exposed for unit tests. */
-export function matchesPatterns(
-  tag: string,
-  patterns: CompiledPattern[],
-): boolean {
+export function matchesPatterns(tag: string, patterns: CompiledPattern[]): boolean {
   let enabled = false
   for (const pattern of patterns) {
     if (pattern.match(tag)) {
@@ -81,7 +75,7 @@ export interface Logger {
 }
 
 /**
- * How many nested errors (cause links and FiberFailure unwraps) are printed.
+ * How many nested errors (cause links) are printed.
  * Past it, a "[cause] ... (further causes not shown)" line ends the chain.
  */
 const MAX_ERROR_DEPTH = 4
@@ -159,26 +153,17 @@ function formatUnknown(value: unknown, depth: number): string {
 /**
  * Render an Error as text for the redaction pass. The stack alone is not
  * enough: a Data.TaggedError keeps its payload (stderr, exitCode, status, ...)
- * in own fields and usually has an empty message, and a FiberFailure from
- * runPromise wraps the real error in a Cause. util.inspect can't be used on
- * the error itself: Effect's inspect hooks print only Cause.pretty for a
- * FiberFailure, and for every TaggedError under Bun. So unwrap FiberFailures,
- * then print the stack, the own fields and the cause chain explicitly.
+ * in own fields and usually has an empty message. util.inspect can't be used
+ * on the error itself: Effect's inspect hook prints a TaggedError's fields and
+ * drops its stack. So print the stack, the own fields and the cause chain
+ * explicitly.
  */
 function formatError(err: Error, depth = 0): string {
   const canNest = depth < MAX_ERROR_DEPTH
-  if (canNest && Runtime.isFiberFailure(err)) {
-    const cause = err[Runtime.FiberFailureCauseId]
-    const inner = [...Cause.failures(cause), ...Cause.defects(cause)]
-    // An interruption-only cause has no error to show; Cause.pretty says so.
-    if (inner.length === 0) return Cause.pretty(cause)
-    return inner.map((e) => formatUnknown(e, depth + 1)).join("\n")
-  }
   const head = err.stack ?? `${err.name}: ${err.message}`
   const hasCause = err.cause !== undefined
-  // Effect's UnknownException also keeps its cause in an own `error` field;
-  // the [cause] line prints it, so a field holding the same object as the
-  // cause is skipped. A field that only equals a primitive cause is kept.
+  // The [cause] line prints the cause, so a field holding the same object as
+  // the cause is skipped. A field that only equals a primitive cause is kept.
   const causeIsObject = typeof err.cause === "object" && err.cause !== null
   const fields = Object.fromEntries(
     Object.entries(err).filter(
@@ -191,15 +176,14 @@ function formatError(err: Error, depth = 0): string {
     return head + extra + (hasCause ? `\n[cause] ${formatUnknown(err.cause, depth + 1)}` : "")
   }
   // The depth limit stops here: say so rather than end the chain silently.
-  const more = hasCause || Runtime.isFiberFailure(err)
-  return head + extra + (more ? "\n[cause] ... (further causes not shown)" : "")
+  return head + extra + (hasCause ? "\n[cause] ... (further causes not shown)" : "")
 }
 
 /**
  * Redaction pass: every string argument is scrubbed
  * of registered token values and token-shaped substrings before it reaches the
  * console. Error objects are formatted (stack, own fields such as a
- * TaggedError's stderr, and cause chain; FiberFailures are unwrapped first),
+ * TaggedError's stderr, and cause chain),
  * with every string in a field or non-Error cause scrubbed before inspect
  * escapes it, and the whole text then goes through the same scrubber, so a
  * token embedded in a message or field (e.g. an authenticated clone URL)

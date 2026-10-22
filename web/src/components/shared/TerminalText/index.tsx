@@ -1,6 +1,11 @@
-import Ansi from 'ansi-to-react'
-import { LinkifiedText } from '../LinkifiedText'
-import './TerminalText.css'
+import ansiToReact from "ansi-to-react"
+import { LinkifiedText } from "../LinkifiedText"
+import "./TerminalText.css"
+
+// ansi-to-react is CommonJS that sets __esModule and exports.default. Vite
+// gives an importer in a "type": "module" package Node's interop, so in the
+// build the default import is module.exports; vitest and tsc see the component.
+const Ansi = (ansiToReact as unknown as { default?: typeof ansiToReact }).default ?? ansiToReact
 
 interface TerminalTextProps {
   text: string
@@ -24,18 +29,18 @@ function stripNonColorAnsi(text: string): string {
   const CHARSET_RE = /\x1b[()*/+-].?/g
   const OSC_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g
   /* eslint-enable no-control-regex */
-  return text.replace(CHARSET_RE, '').replace(OSC_RE, '')
+  return text.replace(CHARSET_RE, "").replace(OSC_RE, "")
 }
 
 /**
  * Renders terminal output text, handling both plain text and ANSI escape codes.
- * 
+ *
  * - Plain text (no ANSI codes): Uses LinkifiedText for clickable URLs
  * - ANSI text (has escape codes): Uses ansi-to-react for colored output, with
  *   its built-in linkify for clickable URLs
  *
  * `linkify` applies to both paths.
- * 
+ *
  * Usage:
  *   <TerminalText text="Plain text with https://example.com" />
  *   <TerminalText text="\x1b[32mGreen text\x1b[0m" />
@@ -48,7 +53,7 @@ export function TerminalText({ text, linkify = true, wrap = true }: TerminalText
   // eslint-disable-next-line no-control-regex
   const hasAnsi = /\x1b\[/.test(cleanedText)
 
-  const className = wrap ? 'terminal-text' : 'terminal-text terminal-text--nowrap'
+  const className = wrap ? "terminal-text" : "terminal-text terminal-text--nowrap"
 
   if (!hasAnsi) {
     // No ANSI codes - use LinkifiedText for URL detection
@@ -65,7 +70,9 @@ export function TerminalText({ text, linkify = true, wrap = true }: TerminalText
   // also link bare names with a real TLD, such as main.tf in terraform output
   return (
     <span className={className}>
-      <Ansi useClasses linkify={linkify}>{cleanedText}</Ansi>
+      <Ansi useClasses linkify={linkify}>
+        {cleanedText}
+      </Ansi>
     </span>
   )
 }

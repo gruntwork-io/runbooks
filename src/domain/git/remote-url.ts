@@ -35,14 +35,14 @@ export interface GitRemoteUrl {
   /** Lowercase URL scheme without the colon (`https`, `ssh`, …); `ssh` for scp-like remotes. */
   readonly scheme: string
   /** Username from the userinfo, if any. A password is never returned. */
-  readonly user?: string
+  readonly user?: string | undefined
   /**
    * Lowercase hostname. An IPv6 literal keeps its brackets, as
    * `URL.hostname` does. Empty only for a host-less URL such as `file:///srv/repo.git`.
    */
   readonly hostname: string
   /** Port, when one was given (a scheme's default port is dropped, as `URL.port` does). */
-  readonly port?: string
+  readonly port?: string | undefined
   /** `hostname` plus `:port` when there is a port: what `URL.host` returns. */
   readonly host: string
   /**
@@ -99,7 +99,9 @@ function ipv6Hostname(literal: string): string | undefined {
 function parseScpLike(raw: string): GitRemoteUrl | undefined {
   const match = SCP_LIKE.exec(raw)
   if (!match) return undefined
-  const [, outerUser, innerUser, bracketed, plain, path] = match
+  const [, outerUser, innerUser, bracketed, plain, matchedPath] = match
+  // SCP_LIKE always captures the path, and the host either bracketed or plain.
+  const path = matchedPath!
   // `git@[git@host]:path` hands ssh `git@git@host`: which user is meant?
   if (outerUser !== undefined && innerUser !== undefined) return undefined
   const user = outerUser ?? innerUser
@@ -110,16 +112,18 @@ function parseScpLike(raw: string): GitRemoteUrl | undefined {
   if (plain !== undefined) {
     hostname = plain
   } else {
-    const ipv6 = ipv6Hostname(bracketed)
-    const hostPort = ipv6 ? undefined : BRACKETED_HOST_PORT.exec(bracketed)
+    const host = bracketed!
+    const ipv6 = ipv6Hostname(host)
+    const hostPort = ipv6 ? undefined : BRACKETED_HOST_PORT.exec(host)
     if (ipv6) {
       hostname = ipv6
     } else if (hostPort) {
-      if (Number(hostPort[2]) > 65535) return undefined
-      hostname = hostPort[1]
-      port = hostPort[2]
-    } else if (!bracketed.includes(":")) {
-      hostname = bracketed
+      // Both groups are required by BRACKETED_HOST_PORT.
+      if (Number(hostPort[2]!) > 65535) return undefined
+      hostname = hostPort[1]!
+      port = hostPort[2]!
+    } else if (!host.includes(":")) {
+      hostname = host
     } else {
       // Neither IPv6 nor host:port, e.g. a zone id (`fe80::1%eth0`), which
       // the URL parser has no spelling for.
@@ -220,9 +224,10 @@ export function gitRemoteOwnerRepo(raw: string): GitRemoteOwnerRepo | undefined 
   const remote = parseGitRemoteUrl(raw)
   if (!remote) return undefined
   const parts = remote.path.split("/").filter(Boolean)
-  if (parts.length < 2) return undefined
+  const repo = parts.pop()
+  if (repo === undefined || parts.length === 0) return undefined
   return {
-    owner: parts.slice(0, -1).join("/"),
-    repo: parts[parts.length - 1].replace(/\.git$/, ""),
+    owner: parts.join("/"),
+    repo: repo.replace(/\.git$/, ""),
   }
 }

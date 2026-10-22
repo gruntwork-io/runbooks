@@ -19,13 +19,9 @@ import type {
   CapturedFile,
   SessionExecContext,
 } from "../../types.ts"
-import {
-  prepareScript,
-  parseBlockOutputs,
-  parseEnvCapture,
-  captureFilesFromDir,
-} from "./script.ts"
+import { prepareScript, parseBlockOutputs, parseEnvCapture, captureFilesFromDir } from "./script.ts"
 import type { ScriptSetup } from "./script.ts"
+import { LOG_CHANNELS, logChannelFiles, tagLogLine } from "./logChannels.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -63,12 +59,16 @@ function setupExecEnvVars(
   outputFile: string,
   filesDir: string,
   workTreePath: string,
+  logFiles: ReadonlyArray<{ readonly envVar: string; readonly path: string }>,
 ): Record<string, string> {
   const result = { ...env }
   result["RUNBOOK_OUTPUT"] = outputFile
   result["GENERATED_FILES"] = filesDir
   if (workTreePath) {
     result["REPO_FILES"] = workTreePath
+  }
+  for (const { envVar, path } of logFiles) {
+    result[envVar] = path
   }
   return result
 }
@@ -78,14 +78,20 @@ function setupExecEnvVars(
 // ---------------------------------------------------------------------------
 
 /**
+ * The name of a run's log file: when it started, sortable, plus a random
+ * suffix so two runs started in the same millisecond get files of their own.
+ */
+function logFileName(startedAt: Date): string {
+  const stamp = startedAt.toISOString().replace(/[:.]/g, "-")
+  return `${stamp}-${Math.random().toString(36).slice(2, 8)}.log`
+}
+
+/**
  * Determine exit status from exit code.
  * Exit code 0 = success, code 2 = warn, anything else = fail.
  * Timeout is always fail with exit code -1.
  */
-function determineExitStatus(
-  exitCode: number,
-  timedOut: boolean,
-): ExecStatusEvent {
+function determineExitStatus(exitCode: number, timedOut: boolean): ExecStatusEvent {
   if (timedOut) {
     return { status: "fail", exitCode: -1 }
   }
@@ -112,7 +118,9 @@ function determineExitStatus(
  *  - Providing the session execution context (env, workDir)
  *  - Consuming the returned Stream and relaying events to the client (SSE, IPC, etc.)
  *
- * Temp files are cleaned up automatically via Effect Scope finalizers.
+ * The run's full log is written to a new file in `logsDir`, created if it is
+ * missing, and kept after the run. Temp files are cleaned up automatically
+ * via Effect Scope finalizers.
  */
 export const executeScript = (
   scriptContent: string,
@@ -121,6 +129,7 @@ export const executeScript = (
   sessionContext: SessionExecContext,
   workTreePath: string,
   outputPath: string,
+  logsDir: string,
 ) =>
   Effect.gen(function* () {
     log.debug("step 1: getting services")
@@ -144,15 +153,27 @@ export const executeScript = (
       fs.rm(filesDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
 
+    log.debug("step 3a: creating log channel files")
+    // The script's log files: RUNBOOK_LOG, which the log_* helpers append to,
+    // and one per level (RUNBOOK_INFO_LOG, ...). Anything the script runs can
+    // append to them too, and the spawner follows them into the log stream
+    // and the run's log file. Once the run ends they're deleted, and the helpers fall
+    // back to stderr.
+    const logChannelDir = yield* fs.mkdtemp("runbook-log-channels-")
+    yield* Effect.addFinalizer(() =>
+      fs.rm(logChannelDir, { recursive: true, force: true }).pipe(Effect.ignore),
+    )
+    const logFiles = logChannelFiles(logChannelDir, LOG_CHANNELS)
+    for (const { path } of logFiles) {
+      yield* fs.writeFile(path, "")
+    }
+
     log.debug("step 3b: creating log file")
-    // Create a durable log file for this execution. The spawner appends every
-    // stdout/stderr line here as it runs, so the file can be tailed externally
-    // and inspected after the fact. NOTE: unlike the dirs above, we intentionally
-    // do NOT register a cleanup finalizer — the file must outlive the execution
-    // so the user can open it from the surfaced path. These live under the OS
-    // temp dir, which the OS reclaims on its own schedule.
-    const logsDir = yield* fs.mkdtemp("runbook-logs-")
-    const logFilePath = `${logsDir}/exec.log`
+    // The spawner appends every output line here as it runs, so the file can
+    // be tailed while the script runs and opened after it. Unlike the dirs
+    // above, it has no cleanup finalizer: it outlives the run.
+    yield* fs.mkdir(logsDir, { recursive: true })
+    const logFilePath = `${logsDir}/${logFileName(new Date())}`
     yield* fs.writeFile(logFilePath, "")
 
     const effectiveTimeoutMs = request.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS
@@ -203,8 +224,9 @@ export const executeScript = (
       }
     }
 
-    // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES, REPO_FILES)
-    execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath)
+    // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES,
+    // REPO_FILES, and the log files: RUNBOOK_LOG and RUNBOOK_<LEVEL>_LOG)
+    execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath, logFiles)
 
     const cmdArgs = [...scriptSetup.args, scriptSetup.scriptPath]
 
@@ -213,6 +235,13 @@ export const executeScript = (
       cwd: sessionContext.workDir || undefined,
       env: execEnv,
       logFilePath,
+      // RUNBOOK_LOG's lines name their own level, so they're shown as
+      // written. A line in a per-level file without the helpers' prefix is
+      // tagged with the file's level and the time it was read.
+      logChannels: logFiles.map(({ path, level }) => ({
+        path,
+        formatLine: level ? (line: string) => tagLogLine(line, level, new Date()) : undefined,
+      })),
     })
 
     // Kill the process group when the scope closes. `kill` is a no-op once the
@@ -228,30 +257,33 @@ export const executeScript = (
     // sees it. The kill also ends `output`, which unblocks the log drain.
     const timedOutRef = yield* Ref.make(false)
     yield* process.exitCode.pipe(
-      Effect.timeoutFail({
+      Effect.timeoutOrElse({
         duration: effectiveTimeoutMs,
-        onTimeout: () => new ExecTimeoutError({ timeoutMs: effectiveTimeoutMs }),
+        orElse: () => Effect.fail(new ExecTimeoutError({ timeoutMs: effectiveTimeoutMs })),
       }),
       Effect.catchTag("ExecTimeoutError", () =>
-        Ref.set(timedOutRef, true).pipe(Effect.zipRight(process.kill)),
+        Ref.set(timedOutRef, true).pipe(Effect.andThen(process.kill)),
       ),
       Effect.forkScoped,
     )
 
     log.debug("step 6: building streams")
     // Stream log lines from process output in real-time
-    const logStream = Stream.map(process.output, (outputLine): Extract<ExecEvent, { _tag: "log" }> => ({
-      _tag: "log",
-      event: {
-        line: outputLine.line,
-        timestamp: new Date().toISOString(),
-        replace: false,
-      },
-    }))
+    const logStream = Stream.map(
+      process.output,
+      (outputLine): Extract<ExecEvent, { _tag: "log" }> => ({
+        _tag: "log",
+        event: {
+          line: outputLine.line,
+          timestamp: new Date().toISOString(),
+          replace: false,
+        },
+      }),
+    )
 
     // Build completion events as an Effect that runs after logs drain.
     // We return logStream and completionEffect separately because
-    // Stream.concat is unreliable within forkDaemon + Effect.scoped —
+    // Stream.concat is unreliable within forkDetach + Effect.scoped —
     // the second stream's unwrap never executes after the first ends.
     const completionEffect = Effect.gen(function* () {
       const exitCode = yield* process.exitCode
@@ -263,12 +295,13 @@ export const executeScript = (
       const events: ExecEvent[] = []
 
       if (timedOut) {
+        const line = `Script execution timed out after ${Math.round(effectiveTimeoutMs / 1000)} seconds`
+        // Also end the log file with it, so the file says why the output
+        // stops. Best-effort, like the spawner's own writes to it.
+        yield* fs.appendFile(logFilePath, `${line}\n`).pipe(Effect.ignore)
         events.push({
           _tag: "log",
-          event: {
-            line: `Script execution timed out after ${Math.round(effectiveTimeoutMs / 1000)} seconds`,
-            timestamp: new Date().toISOString(),
-          },
+          event: { line, timestamp: new Date().toISOString() },
         })
       }
 
@@ -296,10 +329,9 @@ export const executeScript = (
       }
 
       if (isSuccessOrWarn) {
-        const capturedFiles: CapturedFile[] = yield* captureFilesFromDir(
-          filesDir,
-          outputPath,
-        ).pipe(Effect.catchAll(() => Effect.succeed([] as CapturedFile[])))
+        const capturedFiles: CapturedFile[] = yield* captureFilesFromDir(filesDir, outputPath).pipe(
+          Effect.catch(() => Effect.succeed([] as CapturedFile[])),
+        )
 
         if (capturedFiles.length > 0) {
           // Send the whole generated-files tree, built the way
@@ -307,7 +339,7 @@ export const executeScript = (
           // captured files. A failed walk must not fail a successful run; the
           // event then carries no tree and the panel keeps what it had.
           const built = yield* buildFileTree(outputPath).pipe(
-            Effect.catchAll(() => Effect.succeed(null)),
+            Effect.catch(() => Effect.succeed(null)),
           )
           events.push({
             _tag: "files_captured",

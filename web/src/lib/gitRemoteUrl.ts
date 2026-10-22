@@ -11,5 +11,4 @@ export {
   gitRemoteOwnerRepo,
   gitRemoteWebHost,
   type GitRemoteUrl,
-  type GitRemoteOwnerRepo,
-} from '../../../src/domain/git/remote-url'
+} from "../../../src/domain/git/remote-url"

@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
-import type React from 'react'
+import { useState, useCallback, useRef, useEffect } from "react"
+import type React from "react"
 
 interface UseResizablePanelOptions {
   /** Initial width in pixels (default: 225) */
@@ -40,11 +40,14 @@ export function useResizablePanel({
   const widthRef = useRef(initialWidth)
   const rafRef = useRef<number | null>(null)
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    widthRef.current = treeWidth
-    setIsResizing(true)
-  }, [treeWidth])
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      widthRef.current = treeWidth
+      setIsResizing(true)
+    },
+    [treeWidth],
+  )
 
   useEffect(() => {
     if (!isResizing) return
@@ -72,12 +75,12 @@ export function useResizablePanel({
       setIsResizing(false)
     }
 
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
+    document.addEventListener("mousemove", handleMouseMove)
+    document.addEventListener("mouseup", handleMouseUp)
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseup", handleMouseUp)
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current)
       }

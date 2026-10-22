@@ -1,31 +1,26 @@
 /// <reference types="vitest" />
 import path from "path"
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react-swc'
+import { defineConfig } from "vite"
 import { assertNoNestedNodeModules } from "../scripts/no-nested-node-modules.ts"
+import { reactWithCompiler } from "../scripts/vite-react.ts"
 
 // A leftover web/node_modules would take precedence over the root tree for
 // these tests.
-assertNoNestedNodeModules(path.resolve(__dirname, ".."))
+assertNoNestedNodeModules(path.resolve(import.meta.dirname, ".."))
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [reactWithCompiler()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
   test: {
     globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./src/test/setup.ts'],
-    exclude: ['e2e/**', 'node_modules/**'],
-    coverage: {
-      provider: "v8",
-      reporter: ["text", "lcov", "html"],
-      reportsDirectory: "./coverage",
-      include: ["src/**/*.ts", "src/**/*.tsx"],
-      exclude: ["**/*.test.*", "e2e/**", "**/test/**"],
-    },
+    environment: "jsdom",
+    // Resolved from this file so the root vitest.config.ts, which re-exports
+    // this config, finds it too.
+    setupFiles: [path.resolve(import.meta.dirname, "./src/test/setup.ts")],
+    exclude: ["e2e/**", "node_modules/**"],
   },
 })

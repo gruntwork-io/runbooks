@@ -9,9 +9,7 @@
 import type { GoogleCredentialType } from "../../services/GoogleClient.ts"
 
 /** Expand a tokeninfo-style grant into individual scope strings. */
-export function expandGoogleScopes(
-  scopes: readonly string[] | undefined,
-): readonly string[] {
+export function expandGoogleScopes(scopes: readonly string[] | undefined): readonly string[] {
   if (!scopes || scopes.length === 0) return []
   const out: string[] = []
   for (const entry of scopes) {
@@ -51,10 +49,7 @@ export function credentialSubjectToScopeCheck(
   credentialType: GoogleCredentialType | undefined,
 ): boolean {
   if (accountType === "service_account") return false
-  if (
-    credentialType === "service_account" ||
-    credentialType === "impersonated_service_account"
-  ) {
+  if (credentialType === "service_account" || credentialType === "impersonated_service_account") {
     return false
   }
   return true

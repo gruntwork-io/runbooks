@@ -6,38 +6,105 @@ type Parsed = NonNullable<ReturnType<typeof parseGitRemoteUrl>>
 /** Remotes that parse, and the parts each must yield. */
 const PARSES: Array<[string, Partial<Parsed>]> = [
   // https
-  ["https://github.com/o/r.git", { scpLike: false, scheme: "https", hostname: "github.com", host: "github.com", path: "/o/r.git" }],
+  [
+    "https://github.com/o/r.git",
+    {
+      scpLike: false,
+      scheme: "https",
+      hostname: "github.com",
+      host: "github.com",
+      path: "/o/r.git",
+    },
+  ],
   ["https://GitHub.com/o/r", { hostname: "github.com", host: "github.com" }],
-  ["https://gitlab.example.com:8443/g/p.git", { hostname: "gitlab.example.com", port: "8443", host: "gitlab.example.com:8443" }],
+  [
+    "https://gitlab.example.com:8443/g/p.git",
+    { hostname: "gitlab.example.com", port: "8443", host: "gitlab.example.com:8443" },
+  ],
   ["https://github.com:443/o/r", { port: undefined, host: "github.com" }],
-  ["https://x-access-token:secret@github.com/o/r.git", { user: "x-access-token", host: "github.com" }],
+  [
+    "https://x-access-token:secret@github.com/o/r.git",
+    { user: "x-access-token", host: "github.com" },
+  ],
   ["https://[::1]:8443/o/r.git", { hostname: "[::1]", port: "8443", host: "[::1]:8443" }],
-  ["http://gitlab.local/g/sub/p.git", { scheme: "http", host: "gitlab.local", path: "/g/sub/p.git" }],
+  [
+    "http://gitlab.local/g/sub/p.git",
+    { scheme: "http", host: "gitlab.local", path: "/g/sub/p.git" },
+  ],
   // ssh://
-  ["ssh://git@host.example.com:2222/o/r.git", { scheme: "ssh", user: "git", hostname: "host.example.com", port: "2222", host: "host.example.com:2222", path: "/o/r.git" }],
-  ["ssh://git@[::1]:2222/o/r.git", { user: "git", hostname: "[::1]", port: "2222", host: "[::1]:2222" }],
+  [
+    "ssh://git@host.example.com:2222/o/r.git",
+    {
+      scheme: "ssh",
+      user: "git",
+      hostname: "host.example.com",
+      port: "2222",
+      host: "host.example.com:2222",
+      path: "/o/r.git",
+    },
+  ],
+  [
+    "ssh://git@[::1]:2222/o/r.git",
+    { user: "git", hostname: "[::1]", port: "2222", host: "[::1]:2222" },
+  ],
   ["ssh://Git.Example.com/o/r", { hostname: "git.example.com", user: undefined }],
   ["git://git.example.com/o/r.git", { scheme: "git", host: "git.example.com" }],
   ["file:///srv/git/o/r.git", { scheme: "file", hostname: "", host: "", path: "/srv/git/o/r.git" }],
   // scp-like
-  ["git@github.com:o/r.git", { scpLike: true, scheme: "ssh", user: "git", hostname: "github.com", host: "github.com", path: "o/r.git" }],
-  ["deploy@gitlab.example.com:group/sub/project.git", { user: "deploy", host: "gitlab.example.com", path: "group/sub/project.git" }],
+  [
+    "git@github.com:o/r.git",
+    {
+      scpLike: true,
+      scheme: "ssh",
+      user: "git",
+      hostname: "github.com",
+      host: "github.com",
+      path: "o/r.git",
+    },
+  ],
+  [
+    "deploy@gitlab.example.com:group/sub/project.git",
+    { user: "deploy", host: "gitlab.example.com", path: "group/sub/project.git" },
+  ],
   ["github.com:o/r", { user: undefined, host: "github.com", path: "o/r" }],
   ["git@GitHub.com:o/r", { hostname: "github.com" }],
   // A plain host's colon starts the path: 2222 is a directory, not a port.
-  ["git@host:2222/o/r.git", { hostname: "host", port: undefined, host: "host", path: "2222/o/r.git" }],
+  [
+    "git@host:2222/o/r.git",
+    { hostname: "host", port: undefined, host: "host", path: "2222/o/r.git" },
+  ],
   ["git@host:/srv/o/r.git", { host: "host", path: "/srv/o/r.git" }],
   // IPv6 literals, normalized as URL.hostname normalizes them
   ["git@[::1]:o/r.git", { user: "git", hostname: "[::1]", host: "[::1]", path: "o/r.git" }],
   ["[::1]:o/r.git", { user: undefined, hostname: "[::1]", path: "o/r.git" }],
   ["git@[2001:DB8:0:0::1]:o/r", { hostname: "[2001:db8::1]" }],
   // git's bracketed host:port spelling
-  ["git@[gitlab.corp:2222]:grp/proj.git", { hostname: "gitlab.corp", port: "2222", host: "gitlab.corp:2222", path: "grp/proj.git" }],
+  [
+    "git@[gitlab.corp:2222]:grp/proj.git",
+    { hostname: "gitlab.corp", port: "2222", host: "gitlab.corp:2222", path: "grp/proj.git" },
+  ],
   ["git@[gitlab.corp]:grp/proj.git", { hostname: "gitlab.corp", port: undefined }],
   // ...where the user may sit inside the brackets: git runs `ssh -p 2222 git@gitlab.corp`
-  ["[git@gitlab.corp:2222]:platform/infra.git", { scpLike: true, scheme: "ssh", user: "git", hostname: "gitlab.corp", port: "2222", host: "gitlab.corp:2222", path: "platform/infra.git" }],
-  ["[git@gitlab.corp]:platform/infra.git", { user: "git", hostname: "gitlab.corp", port: undefined, host: "gitlab.corp" }],
-  ["[gitlab.corp:2222]:platform/infra.git", { user: undefined, hostname: "gitlab.corp", port: "2222" }],
+  [
+    "[git@gitlab.corp:2222]:platform/infra.git",
+    {
+      scpLike: true,
+      scheme: "ssh",
+      user: "git",
+      hostname: "gitlab.corp",
+      port: "2222",
+      host: "gitlab.corp:2222",
+      path: "platform/infra.git",
+    },
+  ],
+  [
+    "[git@gitlab.corp]:platform/infra.git",
+    { user: "git", hostname: "gitlab.corp", port: undefined, host: "gitlab.corp" },
+  ],
+  [
+    "[gitlab.corp:2222]:platform/infra.git",
+    { user: undefined, hostname: "gitlab.corp", port: "2222" },
+  ],
   ["[git@GitLab.Corp:2222]:platform/infra.git", { hostname: "gitlab.corp" }],
   ["[git@::1]:o/r.git", { user: "git", hostname: "[::1]", port: undefined, path: "o/r.git" }],
 ]

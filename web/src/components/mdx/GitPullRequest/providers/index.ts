@@ -25,19 +25,19 @@ export interface PRProviderConfig {
    */
   noun: { singular: string; abbrev: string; lower: string }
   /** Display-only ref symbol: GitHub `#42`, GitLab `!42`. */
-  refSymbol: '#' | '!'
+  refSymbol: "#" | "!"
   /** Default block title when the author doesn't set one. */
   defaultTitle: string
   /** IPC channels this provider's block calls. */
   channels: {
-    create: 'git:pull-request' | 'git:merge-request'
-    labels: 'github:labels' | 'gitlab:labels'
-    push: 'git:push'
-    deleteBranch: 'git:delete-branch'
+    create: "git:pull-request" | "git:merge-request"
+    labels: "github:labels" | "gitlab:labels"
+    push: "git:push"
+    deleteBranch: "git:delete-branch"
   }
   /** Block-output env var names used to detect a linked auth block's token. */
   env: {
-    tokenVar: 'GITHUB_TOKEN' | 'GITLAB_TOKEN'
+    tokenVar: "GITHUB_TOKEN" | "GITLAB_TOKEN"
     /** Alternate token env vars accepted from a linked auth block. */
     altTokenVars: string[]
   }
@@ -46,7 +46,7 @@ export interface PRProviderConfig {
     /** Heading above the copyable command. */
     cliTitle: string
     /** Which command builder to use. */
-    build: 'gh' | 'glab'
+    build: "gh" | "glab"
   }
 }
 

@@ -1,11 +1,11 @@
-import { useMemo } from 'react'
-import { LogIn } from 'lucide-react'
-import { Instruction } from '@/components/mdx/_shared'
-import type { BlockComponentType } from '@/contexts/ComponentIdRegistry'
-import { useTemplateContext } from '@/contexts/useRunbook'
-import { resolveTemplateReferences } from '@/lib/templateUtils'
-import type { GitAuthProps } from './types'
-import { PROVIDERS, isGitProvider } from './providers'
+import { useMemo } from "react"
+import { LogIn } from "lucide-react"
+import { Instruction } from "@/components/mdx/_shared"
+import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
+import { useTemplateContext } from "@/contexts/useRunbook"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
+import type { GitAuthProps } from "./types"
+import { PROVIDERS, isGitProvider } from "./providers"
 
 /**
  * Instruction-mode rendering of a GitAuth block (spec §6.4): a plain "Log into
@@ -18,7 +18,7 @@ import { PROVIDERS, isGitProvider } from './providers'
 export function GitAuthInstruction({
   id,
   description,
-  provider = 'github',
+  provider = "github",
   oauthScopes,
   inputsId,
 }: GitAuthProps & { __registryType?: BlockComponentType }) {
@@ -42,19 +42,20 @@ export function GitAuthInstruction({
       note={
         scopes.length > 0 ? (
           <span>
-            Make sure your login has these scopes:{' '}
+            Make sure your login has these scopes:{" "}
             {scopes.map((scope, i) => (
               <span key={scope}>
-                {i > 0 && ', '}
+                {i > 0 && ", "}
                 <code className="font-mono">{scope}</code>
               </span>
             ))}
             .
             {/* CLI hint only for GitLab; the GitHub note ends after the period,
                 preserving the legacy <GitHubAuth> instruction text exactly. */}
-            {provider === 'gitlab' && (
+            {provider === "gitlab" && (
               <>
-                {' '}Run <code className="font-mono">{cfg.cli.loginCmd}</code>.
+                {" "}
+                Run <code className="font-mono">{cfg.cli.loginCmd}</code>.
               </>
             )}
           </span>

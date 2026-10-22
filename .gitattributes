@@ -1,0 +1,4 @@
+# Templates for the installed `runbooks` command, which the app bundles as
+# text. Stored LF in every checkout, including Windows ones with
+# core.autocrlf; renderWindowsLauncher gives the batch file its CRLF endings.
+electron/main/cli-launcher/* text eol=lf

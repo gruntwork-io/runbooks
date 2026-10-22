@@ -7,4 +7,4 @@
  * idempotent, and it keeps tests that mock `api` with Electron's raw
  * "Error invoking remote method '<channel>': Error: <message>" text working.
  */
-export { cleanIpcErrorMessage } from '../../../electron/shared/ipc-error-message'
+export { cleanIpcErrorMessage } from "../../../electron/shared/ipc-error-message"

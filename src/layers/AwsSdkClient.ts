@@ -4,10 +4,20 @@
 import { Effect, Layer } from "effect"
 import { STSClient, GetCallerIdentityCommand } from "@aws-sdk/client-sts"
 import { IAMClient, ListAccountAliasesCommand } from "@aws-sdk/client-iam"
-import { SSOClient, GetRoleCredentialsCommand, ListAccountsCommand, ListAccountRolesCommand } from "@aws-sdk/client-sso"
-import { SSOOIDCClient, RegisterClientCommand, StartDeviceAuthorizationCommand, CreateTokenCommand } from "@aws-sdk/client-sso-oidc"
+import {
+  SSOClient,
+  GetRoleCredentialsCommand,
+  ListAccountsCommand,
+  ListAccountRolesCommand,
+} from "@aws-sdk/client-sso"
+import {
+  SSOOIDCClient,
+  RegisterClientCommand,
+  StartDeviceAuthorizationCommand,
+  CreateTokenCommand,
+} from "@aws-sdk/client-sso-oidc"
 import { AccountClient, GetRegionOptStatusCommand } from "@aws-sdk/client-account"
-import { parseKnownFiles } from "@smithy/shared-ini-file-loader"
+import { parseKnownFiles } from "@smithy/core/config"
 import { AwsClient } from "../services/AwsClient.ts"
 import type {
   AwsClientShape,
@@ -22,6 +32,7 @@ import type {
   SsoRole,
 } from "../services/AwsClient.ts"
 import { AwsAuthError, AwsConfigError, AwsSsoError } from "../errors/index.ts"
+import { errorMessage } from "../errors/message.ts"
 import { partitionHomeRegion } from "./AwsPartition.ts"
 
 /**
@@ -36,7 +47,18 @@ function describeSsoTokenError(err: unknown): string {
   if (name === "ExpiredTokenException") {
     return "The SSO sign-in request expired. Please try again."
   }
-  return `Failed to poll SSO token: ${err}`
+  return `Failed to poll SSO token: ${errorMessage(err)}`
+}
+
+/**
+ * Whether `err` is AWS refusing the request: the SDK sets
+ * `$metadata.httpStatusCode` only on an error AWS answered with, and a 5xx is
+ * AWS failing, not the request.
+ */
+function judgedByAws(err: unknown): boolean {
+  const status = (err as { $metadata?: { httpStatusCode?: unknown } } | null)?.$metadata
+    ?.httpStatusCode
+  return typeof status === "number" && status < 500
 }
 
 /**
@@ -56,7 +78,7 @@ function makeCredentialsProvider(creds: AwsCredentials) {
   return {
     accessKeyId: creds.accessKeyId,
     secretAccessKey: creds.secretAccessKey,
-    sessionToken: creds.sessionToken,
+    ...(creds.sessionToken !== undefined && { sessionToken: creds.sessionToken }),
   }
 }
 
@@ -90,7 +112,12 @@ const impl: AwsClientShape = {
 
         return { accountId, accountName, arn }
       },
-      catch: (err) => new AwsAuthError({ message: `Failed to validate credentials: ${err}`, cause: err }),
+      catch: (err) =>
+        new AwsAuthError({
+          message: `Failed to validate credentials: ${errorMessage(err)}`,
+          cause: err,
+          unreachable: !judgedByAws(err),
+        }),
     }),
 
   listProfiles: () =>
@@ -101,7 +128,8 @@ const impl: AwsClientShape = {
           .filter(([name]) => !NON_PROFILE_SECTIONS.some((prefix) => name.startsWith(prefix)))
           .map(([name, block]) => classifyProfile(name, block))
       },
-      catch: (err) => new AwsConfigError({ message: `Failed to list AWS profiles: ${err}` }),
+      catch: (err) =>
+        new AwsConfigError({ message: `Failed to list AWS profiles: ${errorMessage(err)}` }),
     }),
 
   authenticateProfile: (profileName: string) =>
@@ -123,9 +151,14 @@ const impl: AwsClientShape = {
           secretAccessKey: resolved.secretAccessKey,
           sessionToken: resolved.sessionToken,
           region,
+          expiresAt: resolved.expiration?.toISOString(),
         }
       },
-      catch: (err) => new AwsAuthError({ message: `Failed to authenticate profile: ${err}`, cause: err }),
+      catch: (err) =>
+        new AwsAuthError({
+          message: `Failed to authenticate profile: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 
   startSsoDeviceAuth: (startUrl: string, region: string) =>
@@ -156,7 +189,11 @@ const impl: AwsClientShape = {
           clientSecret: registerResp.clientSecret!,
         }
       },
-      catch: (err) => new AwsSsoError({ message: `Failed to start SSO device auth: ${err}`, cause: err }),
+      catch: (err) =>
+        new AwsSsoError({
+          message: `Failed to start SSO device auth: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 
   pollSsoToken: (params: SsoPollParams) =>
@@ -210,9 +247,18 @@ const impl: AwsClientShape = {
           secretAccessKey: roleCreds.secretAccessKey!,
           sessionToken: roleCreds.sessionToken,
           region: params.region,
+          // Milliseconds since the epoch.
+          expiresAt:
+            roleCreds.expiration === undefined
+              ? undefined
+              : new Date(roleCreds.expiration).toISOString(),
         }
       },
-      catch: (err) => new AwsSsoError({ message: `Failed to complete SSO auth: ${err}`, cause: err }),
+      catch: (err) =>
+        new AwsSsoError({
+          message: `Failed to complete SSO auth: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 
   listSsoAccounts: (accessToken: string, region: string) =>
@@ -223,9 +269,7 @@ const impl: AwsClientShape = {
         // Paginated: an organization's accounts can span several pages.
         let nextToken: string | undefined
         do {
-          const resp = await ssoClient.send(
-            new ListAccountsCommand({ accessToken, nextToken }),
-          )
+          const resp = await ssoClient.send(new ListAccountsCommand({ accessToken, nextToken }))
           for (const a of resp.accountList ?? []) {
             accounts.push({
               accountId: a.accountId ?? "",
@@ -237,7 +281,11 @@ const impl: AwsClientShape = {
         } while (nextToken)
         return accounts
       },
-      catch: (err) => new AwsSsoError({ message: `Failed to list SSO accounts: ${err}`, cause: err }),
+      catch: (err) =>
+        new AwsSsoError({
+          message: `Failed to list SSO accounts: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 
   listSsoRoles: (accessToken: string, accountId: string, region: string) =>
@@ -260,7 +308,8 @@ const impl: AwsClientShape = {
         } while (nextToken)
         return roles
       },
-      catch: (err) => new AwsSsoError({ message: `Failed to list SSO roles: ${err}`, cause: err }),
+      catch: (err) =>
+        new AwsSsoError({ message: `Failed to list SSO roles: ${errorMessage(err)}`, cause: err }),
     }),
 
   checkRegion: (region: string, creds: AwsCredentials) =>
@@ -269,13 +318,8 @@ const impl: AwsClientShape = {
         region: partitionHomeRegion(region),
         credentials: makeCredentialsProvider(creds),
       })
-      const resp = await client.send(
-        new GetRegionOptStatusCommand({ RegionName: region }),
-      )
-      return (
-        resp.RegionOptStatus === "ENABLED" ||
-        resp.RegionOptStatus === "ENABLED_BY_DEFAULT"
-      )
+      const resp = await client.send(new GetRegionOptStatusCommand({ RegionName: region }))
+      return resp.RegionOptStatus === "ENABLED" || resp.RegionOptStatus === "ENABLED_BY_DEFAULT"
     }).pipe(
       // Fail OPEN: a missing account:GetRegionOptStatus permission, an SCP or a
       // network blip says nothing about the region, so it must not put a

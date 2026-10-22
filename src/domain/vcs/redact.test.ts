@@ -22,7 +22,9 @@ describe("redactSecrets — shape regexes", () => {
 
   it("scrubs git URL credentials (x-access-token / oauth2)", () => {
     expect(
-      redactSecrets("fatal: unable to access 'https://x-access-token:supersecret123@github.com/o/r.git/'"),
+      redactSecrets(
+        "fatal: unable to access 'https://x-access-token:supersecret123@github.com/o/r.git/'",
+      ),
     ).toBe("fatal: unable to access 'https://[REDACTED]@github.com/o/r.git/'")
     expect(redactSecrets("cloning https://oauth2:tok_abcdef@gitlab.com/g/p.git")).toBe(
       "cloning https://[REDACTED]@gitlab.com/g/p.git",
@@ -30,7 +32,8 @@ describe("redactSecrets — shape regexes", () => {
   })
 
   it("leaves non-secret text untouched", () => {
-    const text = "authentication required for github.com/org/repo: set GITHUB_TOKEN, or run 'gh auth login'"
+    const text =
+      "authentication required for github.com/org/repo: set GITHUB_TOKEN, or run 'gh auth login'"
     expect(redactSecrets(text)).toBe(text)
   })
 })
@@ -46,7 +49,9 @@ describe("redactSecrets — exact-match registry", () => {
 
   it("redacts every occurrence of a registered value", () => {
     registerSecret("sekret-value-123")
-    expect(redactSecrets("a sekret-value-123 b sekret-value-123 c")).toBe("a [REDACTED] b [REDACTED] c")
+    expect(redactSecrets("a sekret-value-123 b sekret-value-123 c")).toBe(
+      "a [REDACTED] b [REDACTED] c",
+    )
   })
 
   it("ignores degenerate short values (cannot redact everything)", () => {

@@ -8,25 +8,25 @@ import { githubTokenSettingsUrl } from "@/components/mdx/_shared/lib/githubHost"
 interface AuthSuccessProps {
   userInfo: GitUserInfo
   provider: ProviderConfig
-  detectionSource?: GitDetectionSource
-  detectedScopes?: string[] | null
-  detectedTokenType?: GitTokenType | null
+  detectionSource?: GitDetectionSource | undefined
+  detectedScopes?: string[] | null | undefined
+  detectedTokenType?: GitTokenType | null | undefined
   /** The token lacks the provider's required scope (copy from provider.success). */
-  missingScope?: boolean
-  sessionEnvWarning?: string | null
+  missingScope?: boolean | undefined
+  sessionEnvWarning?: string | null | undefined
   /** The host authenticated against; shown so multi-host users see which instance. */
-  host?: string
+  host?: string | undefined
   /** Provenance for the source line + transport line. */
-  successMeta?: GitSuccessMeta | null
+  successMeta?: GitSuccessMeta | null | undefined
   /** both-set-and-differ env hint, rendered verbatim. */
-  divergenceHint?: string | null
+  divergenceHint?: string | null | undefined
   /** another block replaced this provider's session credential. */
-  sessionStale?: boolean
+  sessionStale?: boolean | undefined
   /** Windows git TLS backend (vcs:cli-status; win32 only) — drives the schannel suggestion. */
-  gitSslBackend?: string
+  gitSslBackend?: string | undefined
   /** Explicit, consented one-click `git config --global http.sslBackend schannel`. */
-  onApplySchannel?: () => void
-  onReAuthenticate?: () => void
+  onApplySchannel?: (() => void) | undefined
+  onReAuthenticate?: (() => void) | undefined
 }
 
 /** Initials for the avatar fallback: first letters of up to two name words
@@ -34,21 +34,22 @@ interface AuthSuccessProps {
 function initialsFor(userInfo: GitUserInfo): string {
   const source = (userInfo.name?.trim() || userInfo.login).trim()
   const parts = source.split(/\s+/).filter(Boolean)
-  const initials = `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}`.toUpperCase()
+  const initials = `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase()
   return initials || source.slice(0, 1).toUpperCase()
 }
 
 function getTokenTypeLabel(tokenType: GitTokenType, unknownLabel: string): string {
   switch (tokenType) {
-    case 'fine_grained_pat':
-      return 'Fine-grained PAT'
-    case 'classic_pat':
-      return 'Classic PAT'
-    case 'oauth':
-      return 'OAuth Token'
-    case 'github_app':
-      return 'GitHub App Token'
-    default:
+    case "fine_grained_pat":
+      return "Fine-grained PAT"
+    case "classic_pat":
+      return "Classic PAT"
+    case "oauth":
+      return "OAuth Token"
+    case "github_app":
+      return "GitHub App Token"
+    case "pat":
+    case "unknown":
       return unknownLabel
   }
 }
@@ -73,7 +74,9 @@ export function AuthSuccess({
   // logged into several hosts can tell gitlab.com from a self-managed one.
   // GitHub names only an Enterprise host — github.com reads plain "GitHub".
   const authTarget =
-    provider.supportsHostSelection && host && (provider.id !== 'github' || host !== provider.defaultHost)
+    provider.supportsHostSelection &&
+    host &&
+    (provider.id !== "github" || host !== provider.defaultHost)
       ? `${provider.label} (${host})`
       : provider.label
   const [showPermissions, setShowPermissions] = useState(false)
@@ -84,7 +87,7 @@ export function AuthSuccess({
   // initials avatar so the card still looks intentional.
   const [avatarFailed, setAvatarFailed] = useState(false)
   const scopeDescriptions = provider.success.scopeDescriptions
-  const isFineGrainedPat = detectedTokenType === 'fine_grained_pat'
+  const isFineGrainedPat = detectedTokenType === "fine_grained_pat"
   // ghs_ installation tokens have no user context — /user returns 403 — so
   // validateToken synthesizes a user without an avatar. ghu_ tokens also
   // detect as 'github_app' but hit /user successfully and have a real avatar,
@@ -92,7 +95,7 @@ export function AuthSuccess({
   // (showAppInstallBranch is false).
   const isAppInstallation =
     provider.success.showAppInstallBranch &&
-    detectedTokenType === 'github_app' &&
+    detectedTokenType === "github_app" &&
     !userInfo.avatarUrl
 
   if (isAppInstallation) {
@@ -102,9 +105,9 @@ export function AuthSuccess({
           <span>✓ Authenticated as GitHub App</span>
           {detectionSource && (
             <span className="text-xs bg-info-muted text-info px-2 py-0.5 rounded font-normal">
-              {detectionSource === 'env' && 'From Environment'}
-              {detectionSource === 'cli' && `Via ${provider.cli.label}`}
-              {detectionSource === 'block' && 'From Command'}
+              {detectionSource === "env" && "From Environment"}
+              {detectionSource === "cli" && `Via ${provider.cli.label}`}
+              {detectionSource === "block" && "From Command"}
             </span>
           )}
         </div>
@@ -115,11 +118,9 @@ export function AuthSuccess({
             </div>
             <div>
               <div className="text-foreground font-medium">
-                {userInfo.name || 'GitHub App Installation'}
+                {userInfo.name || "GitHub App Installation"}
               </div>
-              <div className="text-muted-foreground text-xs">
-                @{userInfo.login}
-              </div>
+              <div className="text-muted-foreground text-xs">@{userInfo.login}</div>
               <div className="text-muted-foreground text-xs mt-1 flex items-center gap-1">
                 <Shield className="size-3" />
                 <span>GitHub App Token</span>
@@ -127,8 +128,8 @@ export function AuthSuccess({
             </div>
           </div>
           <div className="mt-3 pt-3 border-t border-success/30 text-muted-foreground text-xs">
-            GitHub Apps use installation-level permission grants instead of OAuth scopes.
-            Access is scoped to the repositories the app is installed on.
+            GitHub Apps use installation-level permission grants instead of OAuth scopes. Access is
+            scoped to the repositories the app is installed on.
           </div>
           {sessionEnvWarning && (
             <div className="mt-3 pt-3 border-t border-success/30 flex items-start gap-2 text-warning text-xs">
@@ -150,21 +151,21 @@ export function AuthSuccess({
 
   // source line: name the exact env var / CLI / config-file source.
   const sourceLine =
-    detectionSource === 'env'
-      ? `Detected from ${successMeta?.envVar ?? 'environment'}`
-      : detectionSource === 'cli'
-        ? successMeta?.source === 'config'
+    detectionSource === "env"
+      ? `Detected from ${successMeta?.envVar ?? "environment"}`
+      : detectionSource === "cli"
+        ? successMeta?.source === "config"
           ? `Detected from ${provider.cli.label} config file`
           : `Detected from ${provider.cli.label}`
-        : detectionSource === 'block'
-          ? 'From Command'
+        : detectionSource === "block"
+          ? "From Command"
           : null
 
   // transparency: probe-validated auth means the direct transport is
   // still TLS-blocked for this host.
   const cliShort = provider.cli.binary
   const transportLine =
-    successMeta?.validatedVia === 'cli'
+    successMeta?.validatedVia === "cli"
       ? `validated via ${cliShort} CLI — Runbooks' direct connection to ${host ?? provider.label} is not trusted yet`
       : null
 
@@ -172,11 +173,11 @@ export function AuthSuccess({
   // certificate store — suggest (never silently apply) the schannel switch
   // for non-public GitLab hosts.
   const showSchannelSuggestion =
-    provider.id === 'gitlab' &&
+    provider.id === "gitlab" &&
     gitSslBackend !== undefined &&
-    gitSslBackend !== 'schannel' &&
+    gitSslBackend !== "schannel" &&
     host !== undefined &&
-    host !== 'gitlab.com'
+    host !== "gitlab.com"
 
   return (
     <div className="mb-4">
@@ -199,8 +200,8 @@ export function AuthSuccess({
         >
           <AlertTriangle className="size-3.5 mt-0.5 flex-shrink-0" />
           <span>
-            Another {provider.label} block authenticated a different host afterwards, replacing
-            this session credential. Re-authenticate to use {host ?? provider.label} again.
+            Another {provider.label} block authenticated a different host afterwards, replacing this
+            session credential. Re-authenticate to use {host ?? provider.label} again.
           </span>
         </div>
       )}
@@ -263,9 +264,7 @@ export function AuthSuccess({
             </div>
           )}
           <div>
-            <div className="text-foreground font-medium">
-              {userInfo.name || userInfo.login}
-            </div>
+            <div className="text-foreground font-medium">{userInfo.name || userInfo.login}</div>
             <div className="text-muted-foreground text-xs">
               @{userInfo.login}
               {userInfo.email && ` • ${userInfo.email}`}
@@ -274,7 +273,9 @@ export function AuthSuccess({
             {detectedTokenType && (
               <div className="text-muted-foreground text-xs mt-1 flex items-center gap-1">
                 {isFineGrainedPat && <Shield className="size-3" />}
-                <span>{getTokenTypeLabel(detectedTokenType, provider.success.unknownTokenLabel)}</span>
+                <span>
+                  {getTokenTypeLabel(detectedTokenType, provider.success.unknownTokenLabel)}
+                </span>
               </div>
             )}
           </div>
@@ -327,17 +328,17 @@ export function AuthSuccess({
         {/* Note for fine-grained PATs (GitHub only) */}
         {provider.success.showFineGrainedNote && isFineGrainedPat && !detectedScopes?.length && (
           <div className="mt-3 pt-3 border-t border-success/30 text-muted-foreground text-xs">
-            Fine-grained PATs use repository-specific permissions.{' '}
+            Fine-grained PATs use repository-specific permissions.{" "}
             <a
-              href={githubTokenSettingsUrl(host ?? 'github.com')}
+              href={githubTokenSettingsUrl(host ?? "github.com")}
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary hover:underline inline-flex items-center gap-0.5"
             >
               View all your tokens
               <ExternalLink className="size-3" />
-            </a>
-            {' '}to find this token's permissions.
+            </a>{" "}
+            to find this token's permissions.
           </div>
         )}
         {missingScope && (
@@ -364,12 +365,8 @@ export function AuthSuccess({
       {/* Action button */}
       {onReAuthenticate && (
         <div className="mt-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onReAuthenticate}
-          >
-            {missingScope ? 'Re-authenticate with full permissions' : 'Re-authenticate'}
+          <Button variant="outline" size="sm" onClick={onReAuthenticate}>
+            {missingScope ? "Re-authenticate with full permissions" : "Re-authenticate"}
           </Button>
         </div>
       )}

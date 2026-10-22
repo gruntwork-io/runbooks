@@ -11,10 +11,7 @@ import * as path from "node:path"
 
 import { FileSystem } from "../../services/FileSystem.js"
 import { PathValidationError } from "../../errors/index.js"
-import type {
-  GeneratedFilesCheckResponse,
-  GeneratedFilesDeleteResponse,
-} from "../../types.js"
+import type { GeneratedFilesCheckResponse, GeneratedFilesDeleteResponse } from "../../types.js"
 
 // ---------------------------------------------------------------------------
 // Path resolution
@@ -55,7 +52,7 @@ export function resolveToAbsolutePath(workingDir: string, rawPath: string) {
 
     // Resolve symlinks in the working directory (macOS /tmp -> /private/tmp)
     const fs = yield* FileSystem
-    const resolvedDir = yield* Effect.catchAll(
+    const resolvedDir = yield* Effect.catch(
       fs.realpath(workingDir),
       () =>
         new PathValidationError({
@@ -113,7 +110,7 @@ export function checkGeneratedFiles(workingDir: string, outputPath: string) {
       } satisfies GeneratedFilesCheckResponse
     }
 
-    const stat = yield* Effect.catchAll(
+    const stat = yield* Effect.catch(
       fs.stat(absoluteOutputPath),
       () =>
         new PathValidationError({

@@ -1,6 +1,6 @@
-import { ListChecks } from 'lucide-react'
-import { useInstructionMode } from '@/contexts/useInstructionMode'
-import { INSTRUCTION_MODE_BANNER_TEXT } from '@/contexts/InstructionModeContext.types'
+import { ListChecks } from "lucide-react"
+import { useInstructionMode } from "@/contexts/useInstructionMode"
+import { INSTRUCTION_MODE_BANNER_TEXT } from "@/contexts/InstructionModeContext.types"
 
 /**
  * Persistent banner shown at the top of a runbook while instruction mode is on,

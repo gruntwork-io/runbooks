@@ -56,7 +56,7 @@ describe("parseCliArgs", () => {
     expect(config.runbookPath).toBeNull()
   })
 
-  it("keeps a source whose repo name contains \"electron\"", () => {
+  it('keeps a source whose repo name contains "electron"', () => {
     const url = "github.com/owner/electron-runbooks//runbooks/setup"
     const config = parseCliArgs(["electron", url])
     expect(config.remoteUrl).toBe(url)
@@ -81,7 +81,12 @@ describe("parseCliArgs", () => {
   })
 
   it("parses --disable-live-file-reload with --watch", () => {
-    const config = parseCliArgs(["electron", "--watch", "--disable-live-file-reload", "./path/to/runbook.mdx"])
+    const config = parseCliArgs([
+      "electron",
+      "--watch",
+      "--disable-live-file-reload",
+      "./path/to/runbook.mdx",
+    ])
     expect(config.watch).toBe(true)
     expect(config.disableLiveFileReload).toBe(true)
     expect(config.runbookPath).toContain("runbook.mdx")
@@ -119,7 +124,12 @@ describe("parseCliArgs", () => {
     // Shape Electron delivers to "second-instance": Chromium switches are
     // inserted before the entry script.
     const config = parseCliArgs(
-      ["/Applications/Runbooks.app/Contents/MacOS/Runbooks", "--allow-file-access-from-files", "/repo/dist/main/index.js", "./rb"],
+      [
+        "/Applications/Runbooks.app/Contents/MacOS/Runbooks",
+        "--allow-file-access-from-files",
+        "/repo/dist/main/index.js",
+        "./rb",
+      ],
       "/p",
     )
     expect(config.runbookPath).toBe("/p/rb")
@@ -195,7 +205,9 @@ describe("parseCliArgs", () => {
 
   it("opens a folder named 'open' written as a path", () => {
     expect(parseCliArgs(["runbooks", "./open"], "/home/me").runbookPath).toBe("/home/me/open")
-    expect(parseCliArgs(["runbooks", "open", "./open"], "/home/me").runbookPath).toBe("/home/me/open")
+    expect(parseCliArgs(["runbooks", "open", "./open"], "/home/me").runbookPath).toBe(
+      "/home/me/open",
+    )
   })
 
   it("finds no runbook in a Playwright launch argv", () => {
@@ -324,7 +336,10 @@ describe("secondInstanceArgv", () => {
   // no additionalData). These shapes still come out right.
 
   it("still finds positionals, --flag=value and --runbook values in a reordered argv", () => {
-    const opts = parseCliArgs([EXE, "--working-dir=::tmp", ...ADDED, "open", "my-runbook"], "/home/me")
+    const opts = parseCliArgs(
+      [EXE, "--working-dir=::tmp", ...ADDED, "open", "my-runbook"],
+      "/home/me",
+    )
     expect(opts.runbookPath).toBe("/home/me/my-runbook")
 
     const local = parseCliArgs([EXE, "--runbook", ...ADDED, "rb/runbook.mdx"], "/home/me")

@@ -47,13 +47,12 @@ const USER_JSON = JSON.stringify({
   refresh_token: "1//refresh",
 })
 
-const credential = (path: string) =>
-  ({
-    ref: { kind: "file", path } as const,
-    credentialsPath: path,
-    principal: SA.email,
-    credentialType: "service_account" as const,
-  })
+const credential = (filePath: string) => ({
+  ref: { kind: "file", path: filePath } as const,
+  credentialsPath: filePath,
+  principal: SA.email,
+  credentialType: "service_account" as const,
+})
 
 afterEach(() => {
   resetGoogleCredentialRegistry()
@@ -172,7 +171,11 @@ describe("commitCredential", () => {
   })
 
   it("is a no-op for a block that has nothing queued", () => {
-    const only = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "my-proj"), ADC_JSON)
+    const only = materializeForIdentity(
+      "block-a",
+      identityKeyFor("block-a", SA, "my-proj"),
+      ADC_JSON,
+    )
 
     commitCredential("block-a", only)
     commitCredential("block-never-authenticated", undefined)
@@ -201,10 +204,18 @@ describe("commitCredential", () => {
   })
 
   it("releases the block's committed file when it re-authenticates under another project", () => {
-    const one = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "proj-one"), ADC_JSON)
+    const one = materializeForIdentity(
+      "block-a",
+      identityKeyFor("block-a", SA, "proj-one"),
+      ADC_JSON,
+    )
     commitCredential("block-a", one)
 
-    const two = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "proj-two"), ADC_JSON)
+    const two = materializeForIdentity(
+      "block-a",
+      identityKeyFor("block-a", SA, "proj-two"),
+      ADC_JSON,
+    )
     commitCredential("block-a", two)
 
     expect(fs.existsSync(one)).toBe(false)
@@ -260,12 +271,20 @@ describe("commitCredential", () => {
   it("never releases a file another block has registered as its own credential", () => {
     // Block B's detection read block A's GOOGLE_APPLICATION_CREDENTIALS output
     // and confirmed it as an existing file, so B is publishing A's file too.
-    const aFirst = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "my-proj"), ADC_JSON)
+    const aFirst = materializeForIdentity(
+      "block-a",
+      identityKeyFor("block-a", SA, "my-proj"),
+      ADC_JSON,
+    )
     setActiveCredential("block-a", credential(aFirst))
     commitCredential("block-a", aFirst)
     setActiveCredential("block-b", credential(aFirst))
 
-    const aSecond = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "my-proj"), ADC_JSON)
+    const aSecond = materializeForIdentity(
+      "block-a",
+      identityKeyFor("block-a", SA, "my-proj"),
+      ADC_JSON,
+    )
     setActiveCredential("block-a", credential(aSecond))
     commitCredential("block-a", aSecond)
 

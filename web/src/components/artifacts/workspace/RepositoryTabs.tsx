@@ -5,28 +5,28 @@
  * within the Repository context.
  */
 
-import { cn } from '@/lib/utils'
-import type { WorkspaceTab } from '@/types/workspace'
+import { cn } from "@/lib/utils"
+import type { WorkspaceTab } from "@/types/workspace"
 
 interface TabConfig {
-  id: WorkspaceTab;
-  label: string;
+  id: WorkspaceTab
+  label: string
 }
 
 const TABS: TabConfig[] = [
-  { id: 'all', label: 'All files' },
-  { id: 'changed', label: 'Changed files' },
+  { id: "all", label: "All files" },
+  { id: "changed", label: "Changed files" },
 ]
 
 interface RepositoryTabsProps {
   /** Currently active tab */
-  activeTab: WorkspaceTab;
+  activeTab: WorkspaceTab
   /** Callback when tab changes */
-  onTabChange: (tab: WorkspaceTab) => void;
+  onTabChange: (tab: WorkspaceTab) => void
   /** Optional counts to display as badges */
-  tabCounts?: Partial<Record<WorkspaceTab, number>>;
+  tabCounts?: Partial<Record<WorkspaceTab, number>>
   /** Additional CSS classes */
-  className?: string;
+  className?: string
 }
 
 export const RepositoryTabs = ({
@@ -50,7 +50,7 @@ export const RepositoryTabs = ({
               "focus:outline-none",
               isActive
                 ? "text-foreground bg-card border border-border border-b-card rounded-t-md"
-                : "text-muted-foreground hover:text-foreground rounded-t-md"
+                : "text-muted-foreground hover:text-foreground rounded-t-md",
             )}
           >
             <span className="flex items-center gap-1.5">
@@ -59,9 +59,7 @@ export const RepositoryTabs = ({
                 <span
                   className={cn(
                     "px-1.5 py-0.5 text-xs rounded-full",
-                    isActive
-                      ? "bg-muted text-foreground"
-                      : "bg-accent/60 text-muted-foreground"
+                    isActive ? "bg-muted text-foreground" : "bg-accent/60 text-muted-foreground",
                   )}
                 >
                   {count}

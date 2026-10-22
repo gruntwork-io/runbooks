@@ -1,4 +1,4 @@
-import type { Node as EstreeNode, Program } from 'estree'
+import type { Node as EstreeNode, Program } from "estree"
 
 // Minimal shape of the MDX mdast nodes this plugin inspects (see
 // mdast-util-mdxjs-esm, mdast-util-mdx-expression and mdast-util-mdx-jsx).
@@ -15,7 +15,7 @@ interface MdxNode {
 }
 
 const LITERALS_HINT =
-  'Only literal values are allowed: strings, numbers, booleans, null, template strings without ${...}, and arrays or objects of those.'
+  "Only literal values are allowed: strings, numbers, booleans, null, template strings without ${...}, and arrays or objects of those."
 
 /**
  * Remark plugin that keeps runbook MDX declarative.
@@ -64,18 +64,24 @@ export function remarkLiteralOnly() {
   return (tree: MdxNode) => {
     const visit = (node: MdxNode) => {
       switch (node.type) {
-        case 'mdxjsEsm':
-          throw notAllowed(node, `\`import\` and \`export\` statements are not allowed in runbooks. Remove "${excerpt(node.value)}".`)
+        case "mdxjsEsm":
+          throw notAllowed(
+            node,
+            `\`import\` and \`export\` statements are not allowed in runbooks. Remove "${excerpt(node.value)}".`,
+          )
 
-        case 'mdxFlowExpression':
-        case 'mdxTextExpression':
+        case "mdxFlowExpression":
+        case "mdxTextExpression":
           if (!isLiteralProgram(node.data?.estree)) {
-            throw notAllowed(node, `the expression {${excerpt(node.value)}} is not allowed in runbooks. ${LITERALS_HINT}`)
+            throw notAllowed(
+              node,
+              `the expression {${excerpt(node.value)}} is not allowed in runbooks. ${LITERALS_HINT}`,
+            )
           }
           break
 
-        case 'mdxJsxFlowElement':
-        case 'mdxJsxTextElement':
+        case "mdxJsxFlowElement":
+        case "mdxJsxTextElement":
           checkElement(node)
           break
       }
@@ -90,58 +96,78 @@ export function remarkLiteralOnly() {
 // Elements that load and run scripts or embed other documents. React 19 loads
 // `<script async src>` wherever it is rendered, and a frame's document (e.g.
 // `<iframe srcDoc>`) shares the app's origin and CSP, so it could rebuild the
-// same script load and reach `parent.api`. Compared lowercased.
-const BLOCKED_ELEMENTS = new Set(['script', 'iframe', 'frame', 'frameset', 'object', 'embed'])
+// same script load and reach `parent.api`. A `<webview>` would embed a page
+// without the Iframe block's Load button. Compared lowercased.
+const BLOCKED_ELEMENTS = new Set([
+  "script",
+  "iframe",
+  "frame",
+  "frameset",
+  "object",
+  "embed",
+  "webview",
+])
 
 // Prop names (compared lowercased) that are never literal content:
 // `dangerouslySetInnerHTML` and `srcDoc` inject raw HTML, whose inline event
 // handlers (`<img onerror>`) run as soon as it is parsed; `__proto__` replaces
 // the prototype of the props (or object) it appears in.
-const BLOCKED_PROPS = new Set(['dangerouslysetinnerhtml', 'srcdoc', '__proto__'])
+const BLOCKED_PROPS = new Set(["dangerouslysetinnerhtml", "srcdoc", "__proto__"])
 
 // A `javascript:` URL as browsers parse one: leading control characters and
 // spaces are skipped, and tabs and newlines inside the scheme are ignored.
 // This is the test React applies to the props it sanitizes; a click on any
 // other element or prop holding such a URL runs it with `window.api` in reach.
-// eslint-disable-next-line no-control-regex
-const JAVASCRIPT_URL = /^[\u0000-\u001F ]*j[\r\n\t]*a[\r\n\t]*v[\r\n\t]*a[\r\n\t]*s[\r\n\t]*c[\r\n\t]*r[\r\n\t]*i[\r\n\t]*p[\r\n\t]*t[\r\n\t]*:/i
+const JAVASCRIPT_URL =
+  // eslint-disable-next-line no-control-regex
+  /^[\u0000-\u001F ]*j[\r\n\t]*a[\r\n\t]*v[\r\n\t]*a[\r\n\t]*s[\r\n\t]*c[\r\n\t]*r[\r\n\t]*i[\r\n\t]*p[\r\n\t]*t[\r\n\t]*:/i
 
 function checkElement(element: MdxNode) {
-  const name = element.name ?? ''
+  const name = element.name ?? ""
   const tag = `<${name}>`
 
-  if (BLOCKED_ELEMENTS.has(name.toLowerCase())) {
+  // MDX renders only a name that starts with a lowercase letter as an HTML
+  // tag, and the DOM matches tag names case-insensitively, so `<iFrame>` is an
+  // iframe. Any other name is a block from MDX_COMPONENTS: `<Iframe>` is the
+  // Iframe block, and `<IFRAME>` fails to render as an unknown block.
+  if (/^[a-z]/.test(name) && BLOCKED_ELEMENTS.has(name.toLowerCase())) {
     throw notAllowed(element, `${tag} elements are not allowed in runbooks.`)
   }
-  if (name.includes('.')) {
-    throw notAllowed(element, `dotted element names like ${tag} are not allowed in runbooks. Use the block name on its own.`)
+  if (name.includes(".")) {
+    throw notAllowed(
+      element,
+      `dotted element names like ${tag} are not allowed in runbooks. Use the block name on its own.`,
+    )
   }
-  if (name.includes('-')) {
+  if (name.includes("-")) {
     throw notAllowed(element, `custom elements like ${tag} are not allowed in runbooks.`)
   }
   // Inside `<svg>`, React creates `<svg:script>` with createElementNS, which
   // yields a real script element (local name `script`) that runs when mounted.
   // Rejecting every prefix is simpler and fails closed.
-  if (name.includes(':')) {
+  if (name.includes(":")) {
     throw notAllowed(element, `namespaced element names like ${tag} are not allowed in runbooks.`)
   }
 
   for (const attribute of element.attributes ?? []) {
-    if (attribute.type === 'mdxJsxExpressionAttribute') {
+    if (attribute.type === "mdxJsxExpressionAttribute") {
       throw notAllowed(
         attribute,
         `spread props like {${excerpt(attribute.value)}} on ${tag} are not allowed in runbooks. Pass each prop separately. ${LITERALS_HINT}`,
       )
     }
 
-    if (BLOCKED_PROPS.has(attribute.name?.toLowerCase() ?? '')) {
-      throw notAllowed(attribute, `the \`${attribute.name}\` prop of ${tag} is not allowed in runbooks.`)
+    if (BLOCKED_PROPS.has(attribute.name?.toLowerCase() ?? "")) {
+      throw notAllowed(
+        attribute,
+        `the \`${attribute.name}\` prop of ${tag} is not allowed in runbooks.`,
+      )
     }
 
     // `prop="text"` and bare `prop` are plain strings/booleans; only
     // `prop={...}` carries an expression.
     const value = attribute.value
-    if (typeof value === 'object' && value !== null && !isLiteralProgram(value.data?.estree)) {
+    if (typeof value === "object" && value !== null && !isLiteralProgram(value.data?.estree)) {
       throw notAllowed(
         attribute,
         `the \`${attribute.name}\` prop of ${tag} must be a literal value, not {${excerpt(value.value)}}. ${LITERALS_HINT}`,
@@ -149,8 +175,13 @@ function checkElement(element: MdxNode) {
     }
 
     // An SVG animation's `values` is a `;`-separated list, so test each entry.
-    if (propStrings(value).some((text) => text.split(';').some((entry) => JAVASCRIPT_URL.test(entry)))) {
-      throw notAllowed(attribute, `\`javascript:\` URLs like the \`${attribute.name}\` prop of ${tag} are not allowed in runbooks.`)
+    if (
+      propStrings(value).some((text) => text.split(";").some((entry) => JAVASCRIPT_URL.test(entry)))
+    ) {
+      throw notAllowed(
+        attribute,
+        `\`javascript:\` URLs like the \`${attribute.name}\` prop of ${tag} are not allowed in runbooks.`,
+      )
     }
   }
 }
@@ -158,19 +189,19 @@ function checkElement(element: MdxNode) {
 // The strings a prop value can put in the DOM: a plain string, or the strings
 // in a literal `{...}` value. React writes an array as its comma-joined items,
 // so `HREF={['javascript:...']}` counts too.
-function propStrings(value: MdxNode['value']): string[] {
-  if (typeof value === 'string') return [value]
+function propStrings(value: MdxNode["value"]): string[] {
+  if (typeof value === "string") return [value]
   const statement = value?.data?.estree?.body[0]
-  return statement?.type === 'ExpressionStatement' ? literalStrings(statement.expression) : []
+  return statement?.type === "ExpressionStatement" ? literalStrings(statement.expression) : []
 }
 
 function literalStrings(node: EstreeNode | null): string[] {
   switch (node?.type) {
-    case 'Literal':
-      return typeof node.value === 'string' ? [node.value] : []
-    case 'TemplateLiteral':
+    case "Literal":
+      return typeof node.value === "string" ? [node.value] : []
+    case "TemplateLiteral":
       return node.quasis.map((quasi) => quasi.value.cooked ?? quasi.value.raw)
-    case 'ArrayExpression':
+    case "ArrayExpression":
       return node.elements.flatMap(literalStrings)
     default:
       return []
@@ -182,32 +213,32 @@ function literalStrings(node: EstreeNode | null): string[] {
 // literal value. A missing program (no estree) fails closed.
 function isLiteralProgram(program: Program | null | undefined): boolean {
   if (!program) return false
-  if (program.body.length === 0) return true
-  if (program.body.length !== 1) return false
-  const [statement] = program.body
-  return statement.type === 'ExpressionStatement' && isLiteralValue(statement.expression)
+  const [statement, ...rest] = program.body
+  if (!statement) return true
+  if (rest.length > 0) return false
+  return statement.type === "ExpressionStatement" && isLiteralValue(statement.expression)
 }
 
 function isLiteralValue(node: EstreeNode | null): boolean {
   if (!node) return false // array hole: `[1, , 2]`
   switch (node.type) {
-    case 'Literal':
+    case "Literal":
       return true
-    case 'TemplateLiteral':
+    case "TemplateLiteral":
       return node.expressions.length === 0
-    case 'UnaryExpression':
+    case "UnaryExpression":
       return (
-        (node.operator === '-' || node.operator === '+') &&
-        node.argument.type === 'Literal' &&
-        typeof node.argument.value === 'number'
+        (node.operator === "-" || node.operator === "+") &&
+        node.argument.type === "Literal" &&
+        typeof node.argument.value === "number"
       )
-    case 'ArrayExpression':
+    case "ArrayExpression":
       return node.elements.every(isLiteralValue)
-    case 'ObjectExpression':
+    case "ObjectExpression":
       return node.properties.every(
         (property) =>
-          property.type === 'Property' &&
-          property.kind === 'init' &&
+          property.type === "Property" &&
+          property.kind === "init" &&
           !property.computed &&
           !property.method &&
           !isProtoKey(property.key) &&
@@ -222,8 +253,8 @@ function isLiteralValue(node: EstreeNode | null): boolean {
 // rather than a property.
 function isProtoKey(key: EstreeNode): boolean {
   return (
-    (key.type === 'Identifier' && key.name === '__proto__') ||
-    (key.type === 'Literal' && key.value === '__proto__')
+    (key.type === "Identifier" && key.name === "__proto__") ||
+    (key.type === "Literal" && key.value === "__proto__")
   )
 }
 
@@ -233,7 +264,7 @@ function notAllowed(node: MdxNode, reason: string): Error {
 }
 
 // A short, single-line excerpt of the offending source for error messages.
-function excerpt(source: MdxNode['value']): string {
-  const text = typeof source === 'string' ? source.replace(/\s+/g, ' ').trim() : ''
+function excerpt(source: MdxNode["value"]): string {
+  const text = typeof source === "string" ? source.replace(/\s+/g, " ").trim() : ""
   return text.length > 60 ? `${text.slice(0, 57)}...` : text
 }

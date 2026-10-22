@@ -1,2 +1,1 @@
-export { default as AwsAuth } from './AwsAuth'
-
+export { default as AwsAuth } from "./AwsAuth"

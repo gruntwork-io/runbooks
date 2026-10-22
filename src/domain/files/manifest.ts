@@ -12,7 +12,7 @@
  */
 
 import path from "node:path"
-import { Chunk, Effect, Stream } from "effect"
+import { Effect, Stream } from "effect"
 import crypto from "node:crypto"
 
 import { FileSystem } from "../../services/FileSystem.js"
@@ -22,12 +22,8 @@ import {
   isContainedIn,
   isFilesystemRoot,
 } from "../../path-validation.js"
-import { PathTraversalError } from "../../errors/index.js"
-import type {
-  ManifestEntry,
-  TemplateManifest,
-  ManifestDiffResult,
-} from "../../types.js"
+import { FileWriteError, PathTraversalError } from "../../errors/index.js"
+import type { ManifestEntry, TemplateManifest, ManifestDiffResult } from "../../types.js"
 
 /**
  * Bounded concurrency for batched FS operations on the render hot path.
@@ -108,10 +104,7 @@ export type StaleManifestReason =
  * caller should drop the manifest (and the warm dispatcher's cached vars)
  * and render everything from scratch.
  */
-export function findStaleManifestReason(
-  manifest: TemplateManifest | undefined,
-  outputDir: string,
-) {
+export function findStaleManifestReason(manifest: TemplateManifest | undefined, outputDir: string) {
   return Effect.gen(function* () {
     if (!manifest) return null
     if (manifest.outputDir !== outputDir) {
@@ -164,11 +157,10 @@ export function buildManifestFromDirectoryWithContent(rootDir: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem
 
-    const walkEntries = yield* fs.walk(rootDir).pipe(
+    const files = yield* fs.walk(rootDir).pipe(
       Stream.filter((e) => e.isFile),
       Stream.runCollect,
     )
-    const files = Chunk.toReadonlyArray(walkEntries)
 
     const entries = yield* Effect.forEach(
       files,
@@ -220,21 +212,21 @@ export function computeDiff(
   const unchanged: string[] = []
 
   // Files in old but not in new — orphaned
-  for (const path of oldMap.keys()) {
-    if (!newMap.has(path)) {
-      orphaned.push(path)
+  for (const filePath of oldMap.keys()) {
+    if (!newMap.has(filePath)) {
+      orphaned.push(filePath)
     }
   }
 
   // Categorise new files
-  for (const [path, newHash] of newMap) {
-    const oldHash = oldMap.get(path)
+  for (const [filePath, newHash] of newMap) {
+    const oldHash = oldMap.get(filePath)
     if (oldHash === undefined) {
-      created.push(path)
+      created.push(filePath)
     } else if (oldHash === newHash) {
-      unchanged.push(path)
+      unchanged.push(filePath)
     } else {
-      modified.push(path)
+      modified.push(filePath)
     }
   }
 
@@ -319,13 +311,13 @@ export function cleanupEmptyParentDirs(dir: string, stopAt: string) {
     let current = dir
     while (current !== stopAt && current !== "." && !isFilesystemRoot(current)) {
       if (!isContainedIn(current, stopAt)) return
-      const entries = yield* fs.readdir(current).pipe(Effect.either)
-      if (entries._tag === "Left" || entries.right.length > 0) return
+      const entries = yield* fs.readdir(current).pipe(Effect.result)
+      if (entries._tag === "Failure" || entries.success.length > 0) return
       // `fs.rm` without `recursive: true` fails on directories. Since the
       // readdir check above confirmed `current` is empty, recursive is safe
       // — it just means "use the directory-aware path".
-      const removed = yield* fs.rm(current, { recursive: true }).pipe(Effect.either)
-      if (removed._tag === "Left") return
+      const removed = yield* fs.rm(current, { recursive: true }).pipe(Effect.result)
+      if (removed._tag === "Failure") return
       current = path.dirname(current)
     }
   })
@@ -404,9 +396,10 @@ export function applyDiffFromContent(
         // Missing-content for a path the diff said to write is a caller bug —
         // failing loudly here beats silently leaving the file stale.
         if (content === undefined) {
-          return yield* Effect.fail(
-            new Error(`applyDiffFromContent: no content for "${relPath}"`),
-          )
+          return yield* new FileWriteError({
+            path: relPath,
+            cause: new Error("applyDiffFromContent: the caller passed no content for this path"),
+          })
         }
         const dstPath = path.join(outputDir, relPath)
         yield* fs.mkdir(path.dirname(dstPath), { recursive: true })
@@ -425,11 +418,7 @@ export function applyDiffFromContent(
     // contentMap if available; otherwise rely on a future render-all to
     // bring the file back.
     const restorable = diff.unchanged.filter((p) => contents.has(p))
-    const restored = yield* restoreMissingUnchanged(
-      restorable,
-      outputDir,
-      writeFromContent,
-    )
+    const restored = yield* restoreMissingUnchanged(restorable, outputDir, writeFromContent)
 
     return { written: writes.length + restored, deleted } satisfies ApplyDiffResult
   })

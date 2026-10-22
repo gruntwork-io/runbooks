@@ -1,16 +1,19 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, renderHook } from '@testing-library/react'
-import type { ReactNode } from 'react'
-import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
-import { ExecutableRegistryContext, type ExecutableRegistryContextValue } from '@/contexts/ExecutableRegistryContext.types'
-import { GeneratedFilesProvider } from '@/contexts/GeneratedFilesContext'
-import { IpcGitWorkTreeProvider } from '@/contexts/IpcGitWorkTreeContext'
-import { LogsProvider } from '@/contexts/LogsContext'
-import { useRunbookContext } from '@/contexts/useRunbook'
-import { TestWrapper } from '@/test/test-utils'
-import { makeConfig } from '@/test/make-config'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
-import { useScriptExecution } from '../useScriptExecution'
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { act, renderHook } from "@testing-library/react"
+import type { ReactNode } from "react"
+import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import {
+  ExecutableRegistryContext,
+  type ExecutableRegistryContextValue,
+} from "@/contexts/ExecutableRegistryContext.types"
+import { GeneratedFilesProvider } from "@/contexts/GeneratedFilesContext"
+import { IpcGitWorkTreeProvider } from "@/contexts/IpcGitWorkTreeContext"
+import { LogsProvider } from "@/contexts/LogsContext"
+import { useRunbookContext } from "@/contexts/useRunbook"
+import { TestWrapper } from "@/test/test-utils"
+import { makeConfig } from "@/test/make-config"
+import { BoilerplateVariableType } from "@/types/boilerplateVariable"
+import { useScriptExecution } from "../useScriptExecution"
 
 // `boilerplate:render-inline` calls stay pending until the test settles them,
 // so the test decides the order in which renders land.
@@ -21,7 +24,7 @@ interface PendingRender {
 
 const renders: PendingRender[] = []
 const invoke = vi.fn((channel: string) => {
-  if (channel === 'boilerplate:render-inline') {
+  if (channel === "boilerplate:render-inline") {
     return new Promise((resolve, reject) => {
       renders.push({ resolve, reject })
     })
@@ -51,17 +54,17 @@ function Providers({ children }: { children: ReactNode }) {
   )
 }
 
-const config = makeConfig([{ name: 'name', type: BoilerplateVariableType.String }])
-const rendered = (content: string) => ({ renderedFiles: { 'script.sh': { content } } })
+const config = makeConfig([{ name: "name", type: BoilerplateVariableType.String }])
+const rendered = (content: string) => ({ renderedFiles: { "script.sh": { content } } })
 
-function renderCommand(command = 'echo {{ .inputs.name }}') {
+function renderCommand(command = "echo {{ .inputs.name }}") {
   return renderHook(
     (props: { command: string }) => ({
       exec: useScriptExecution({
-        componentId: 'greet',
+        componentId: "greet",
         command: props.command,
-        inputsId: 'form',
-        componentType: 'command',
+        inputsId: "form",
+        componentType: "command",
       }),
       runbook: useRunbookContext(),
     }),
@@ -70,9 +73,9 @@ function renderCommand(command = 'echo {{ .inputs.name }}') {
 }
 
 /** Type a value into the form and let the 300ms render debounce fire. */
-async function typeName(result: ReturnType<typeof renderCommand>['result'], name: string) {
+async function typeName(result: ReturnType<typeof renderCommand>["result"], name: string) {
   await act(async () => {
-    result.current.runbook.registerInputs('form', { name }, config)
+    result.current.runbook.registerInputs("form", { name }, config)
   })
   await act(async () => {
     vi.advanceTimersByTime(300)
@@ -88,45 +91,45 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('useScriptExecution render ordering', () => {
-  it('shows the latest render when an earlier one lands after it', async () => {
+describe("useScriptExecution render ordering", () => {
+  it("shows the latest render when an earlier one lands after it", async () => {
     const { result } = renderCommand()
 
-    await typeName(result, 'first')
-    await typeName(result, 'second')
+    await typeName(result, "first")
+    await typeName(result, "second")
     expect(renders).toHaveLength(2)
 
     await act(async () => {
-      renders[1].resolve(rendered('echo second'))
+      renders[1]!.resolve(rendered("echo second"))
     })
     await act(async () => {
-      renders[0].resolve(rendered('echo first'))
+      renders[0]!.resolve(rendered("echo first"))
     })
-    expect(result.current.exec.sourceCode).toBe('echo second')
+    expect(result.current.exec.sourceCode).toBe("echo second")
     expect(result.current.exec.isRendering).toBe(false)
   })
 
-  it('ignores a failure from a render that was already superseded', async () => {
+  it("ignores a failure from a render that was already superseded", async () => {
     const { result } = renderCommand()
 
-    await typeName(result, 'first')
-    await typeName(result, 'second')
+    await typeName(result, "first")
+    await typeName(result, "second")
 
     await act(async () => {
-      renders[1].resolve(rendered('echo second'))
+      renders[1]!.resolve(rendered("echo second"))
     })
     await act(async () => {
-      renders[0].reject(new Error('template: missing value for name'))
+      renders[0]!.reject(new Error("template: missing value for name"))
     })
     expect(result.current.exec.renderError).toBeNull()
-    expect(result.current.exec.sourceCode).toBe('echo second')
+    expect(result.current.exec.sourceCode).toBe("echo second")
   })
 
-  it('keeps the raw template when an output goes missing while its render is in flight', async () => {
-    const { result } = renderCommand('echo {{ .outputs.build.version }}')
+  it("keeps the raw template when an output goes missing while its render is in flight", async () => {
+    const { result } = renderCommand("echo {{ .outputs.build.version }}")
 
     await act(async () => {
-      result.current.runbook.registerOutputs('build', { version: '1.2.3' })
+      result.current.runbook.registerOutputs("build", { version: "1.2.3" })
     })
     await act(async () => {
       vi.advanceTimersByTime(300)
@@ -136,31 +139,31 @@ describe('useScriptExecution render ordering', () => {
 
     // A re-run of the build block failed without outputs
     await act(async () => {
-      result.current.runbook.registerOutputs('build', {})
+      result.current.runbook.registerOutputs("build", {})
     })
     expect(result.current.exec.isRendering).toBe(false)
 
     await act(async () => {
-      renders[0].resolve(rendered('echo 1.2.3'))
+      renders[0]!.resolve(rendered("echo 1.2.3"))
     })
-    expect(result.current.exec.sourceCode).toBe('echo {{ .outputs.build.version }}')
+    expect(result.current.exec.sourceCode).toBe("echo {{ .outputs.build.version }}")
     expect(result.current.exec.isRendering).toBe(false)
   })
 
-  it('keeps a command that lost its template variables when the old render lands later', async () => {
+  it("keeps a command that lost its template variables when the old render lands later", async () => {
     const { result, rerender } = renderCommand()
 
-    await typeName(result, 'first')
+    await typeName(result, "first")
     expect(renders).toHaveLength(1)
 
     // The runbook was edited and reloaded while the render was in flight
-    rerender({ command: 'echo hello' })
+    rerender({ command: "echo hello" })
     expect(result.current.exec.isRendering).toBe(false)
 
     await act(async () => {
-      renders[0].resolve(rendered('echo first'))
+      renders[0]!.resolve(rendered("echo first"))
     })
-    expect(result.current.exec.sourceCode).toBe('echo hello')
+    expect(result.current.exec.sourceCode).toBe("echo hello")
     expect(result.current.exec.isRendering).toBe(false)
   })
 })

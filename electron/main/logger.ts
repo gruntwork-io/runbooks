@@ -3,4 +3,4 @@
  *
  * See src/logger.ts for usage and DEBUG patterns.
  */
-export { makeLogger, type Logger } from "../../src/logger.ts"
+export { makeLogger } from "../../src/logger.ts"

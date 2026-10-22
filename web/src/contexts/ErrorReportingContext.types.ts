@@ -1,6 +1,6 @@
-import { createContext } from 'react'
+import { createContext } from "react"
 
-export type ErrorSeverity = 'error' | 'warning'
+export type ErrorSeverity = "error" | "warning"
 
 export interface ReportedError {
   componentId: string
@@ -18,4 +18,6 @@ export interface ErrorReportingContextValue {
   clearAllErrors: () => void
 }
 
-export const ErrorReportingContext = createContext<ErrorReportingContextValue | undefined>(undefined)
+export const ErrorReportingContext = createContext<ErrorReportingContextValue | undefined>(
+  undefined,
+)

@@ -35,7 +35,9 @@ describe("tryNormalizeGitHubHost (STRICT — never falls back to github.com)", (
 
   it("keeps a non-default port (bare or in a URL)", () => {
     expect(tryNormalizeGitHubHost("ghes.example.com:8443")).toBe("ghes.example.com:8443")
-    expect(tryNormalizeGitHubHost("https://ghes.example.com:8443/api/v3")).toBe("ghes.example.com:8443")
+    expect(tryNormalizeGitHubHost("https://ghes.example.com:8443/api/v3")).toBe(
+      "ghes.example.com:8443",
+    )
   })
 
   it("drops the default https port", () => {
@@ -52,7 +54,9 @@ describe("tryNormalizeGitHubHost (STRICT — never falls back to github.com)", (
     expect(tryNormalizeGitHubHost("http://ghes.internal")).toBe("ghes.internal")
     expect(tryNormalizeGitHubHost("http://ghes.internal:8080/org/repo")).toBe("ghes.internal:8080")
     // The result is a bare host, so every derived URL is https.
-    expect(githubWebBase(tryNormalizeGitHubHost("http://ghes.internal")!)).toBe("https://ghes.internal")
+    expect(githubWebBase(tryNormalizeGitHubHost("http://ghes.internal")!)).toBe(
+      "https://ghes.internal",
+    )
   })
 
   it("rejects a non-http(s) scheme", () => {
@@ -172,7 +176,9 @@ describe("URL builders", () => {
     expect(githubDeviceCodeUrl("github.com")).toBe("https://github.com/login/device/code")
     expect(githubAccessTokenUrl("github.com")).toBe("https://github.com/login/oauth/access_token")
     expect(githubDeviceCodeUrl("acme.ghe.com")).toBe("https://acme.ghe.com/login/device/code")
-    expect(githubAccessTokenUrl("acme.ghe.com")).toBe("https://acme.ghe.com/login/oauth/access_token")
+    expect(githubAccessTokenUrl("acme.ghe.com")).toBe(
+      "https://acme.ghe.com/login/oauth/access_token",
+    )
     expect(githubDeviceCodeUrl("ghes.example.com:8443")).toBe(
       "https://ghes.example.com:8443/login/device/code",
     )

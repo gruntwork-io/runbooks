@@ -36,7 +36,7 @@ export function CredentialsForm({
   setShowSessionToken,
   onSubmit,
 }: CredentialsFormProps) {
-  const isAuthenticating = authStatus === 'authenticating'
+  const isAuthenticating = authStatus === "authenticating"
 
   return (
     <div className="space-y-4">
@@ -53,14 +53,14 @@ export function CredentialsForm({
           disabled={isAuthenticating}
         />
       </div>
-      
+
       <div>
         <label className="block text-sm font-medium text-foreground mb-1">
           Secret Access Key <span className="text-destructive">*</span>
         </label>
         <div className="relative">
           <input
-            type={showSecretKey ? 'text' : 'password'}
+            type={showSecretKey ? "text" : "password"}
             value={secretAccessKey}
             onChange={(e) => setSecretAccessKey(e.target.value)}
             placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
@@ -76,14 +76,14 @@ export function CredentialsForm({
           </button>
         </div>
       </div>
-      
+
       <div>
         <label className="block text-sm font-medium text-foreground mb-1">
           Session Token <span className="text-muted-foreground">(optional)</span>
         </label>
         <div className="relative">
           <input
-            type={showSessionToken ? 'text' : 'password'}
+            type={showSessionToken ? "text" : "password"}
             value={sessionToken}
             onChange={(e) => setSessionToken(e.target.value)}
             placeholder="For temporary credentials only"
@@ -99,7 +99,7 @@ export function CredentialsForm({
           </button>
         </div>
       </div>
-      
+
       <DefaultRegionPicker
         selectedRegion={selectedDefaultRegion}
         setSelectedRegion={setSelectedDefaultRegion}
@@ -117,7 +117,7 @@ export function CredentialsForm({
             Validating...
           </>
         ) : (
-          'Authenticate'
+          "Authenticate"
         )}
       </Button>
     </div>

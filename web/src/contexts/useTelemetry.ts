@@ -1,5 +1,5 @@
-import { useContext } from 'react'
-import { TelemetryContext } from './TelemetryContext.types'
+import { useContext } from "react"
+import { TelemetryContext } from "./TelemetryContext.types"
 
 /**
  * Hook for accessing telemetry functions.

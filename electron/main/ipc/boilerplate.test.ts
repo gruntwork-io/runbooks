@@ -12,6 +12,8 @@ import {
   type WarmRenderResult,
 } from "../../../src/services/WarmRenderDispatcher.ts"
 import { DEFAULT_GENERATED_DIR } from "../../../src/domain/files/generated.ts"
+import { WasmError } from "../../../src/errors/index.ts"
+import { hashTemplateDir } from "../../../src/domain/boilerplate/templateHash.ts"
 
 // boilerplate.ts registers its handlers on electron's ipcMain. Capture them so
 // the real boilerplate:render handler can be called directly.
@@ -98,7 +100,9 @@ describe("boilerplate:render", () => {
     await runtime.runPromise(sessionManager.createSession(tmp, runbookPath))
 
     spy = { warm: warmResult({}), commits: [], coldRenders: 0 }
-    spyOn(runtime, "runFork").mockImplementation(((effect: Effect.Effect<unknown, unknown, never>) =>
+    spyOn(runtime, "runFork").mockImplementation(((
+      effect: Effect.Effect<unknown, unknown, never>,
+    ) =>
       Effect.runFork(Effect.provide(effect, testLayer(spy)))) as unknown as typeof runtime.runFork)
   })
 
@@ -138,9 +142,14 @@ describe("boilerplate:render", () => {
         {
           path: "main.tf",
           kind: "render",
-          message: 'render: template: main.tf:3:5: executing "main.tf" at <.Foo>: map has no entry for key "Foo"',
+          message:
+            'render: template: main.tf:3:5: executing "main.tf" at <.Foo>: map has no entry for key "Foo"',
         },
-        { path: "modules/vars.tf", kind: "render", message: 'render: template: vars.tf:1: function "nope" not defined' },
+        {
+          path: "modules/vars.tf",
+          kind: "render",
+          message: 'render: template: vars.tf:1: function "nope" not defined',
+        },
         { path: "other.tf", kind: "render", message: "render: something else went wrong" },
       ],
       allKnownPaths: ["ok.tf", "dynamic.tf", "main.tf", "modules/vars.tf", "other.tf"],
@@ -148,7 +157,9 @@ describe("boilerplate:render", () => {
     })
 
     const error = await render().then(
-      () => { throw new Error("expected boilerplate:render to fail") },
+      () => {
+        throw new Error("expected boilerplate:render to fail")
+      },
       (err: unknown) => err as { _tag?: string; message: string },
     )
 
@@ -172,18 +183,137 @@ describe("boilerplate:render", () => {
   it("lists the first five failing files and counts the others", async () => {
     const paths = Array.from({ length: 8 }, (_, i) => `f${i + 1}.tf`)
     spy.warm = warmResult({
-      renderErrors: paths.map((p) => ({ path: p, kind: "render" as const, message: "render: boom" })),
+      renderErrors: paths.map((p) => ({
+        path: p,
+        kind: "render" as const,
+        message: "render: boom",
+      })),
       allKnownPaths: paths,
       attemptedPaths: paths,
     })
 
     const error = await render().then(
-      () => { throw new Error("expected boilerplate:render to fail") },
+      () => {
+        throw new Error("expected boilerplate:render to fail")
+      },
       (err: unknown) => err as { message: string },
     )
 
     expect(error.message).toBe(
       "Template render failed: f1.tf: boom; f2.tf: boom; f3.tf: boom; f4.tf: boom; f5.tf: boom (and 3 more)",
     )
+  })
+})
+
+// Display only: the form asks what its linked values come to. The template
+// engine is the boundary; this stand-in renders `{{ .Name }}` and
+// `{{ .outputs.block.name }}` and fails on a missing key, as the WASM build does.
+describe("boilerplate:resolve-inputs", () => {
+  const renderTemplate = (template: string, varsJSON: string) => {
+    const vars = JSON.parse(varsJSON) as Record<string, unknown> & {
+      outputs: Record<string, Record<string, string>>
+    }
+    let missing: string | undefined
+    const out = template.replace(/\{\{\s*\.([\w.]+)\s*\}\}/g, (_m, ref: string) => {
+      const [first, block, name] = ref.split(".")
+      const value = first === "outputs" ? vars.outputs[block!]?.[name!] : vars[first!]
+      if (typeof value !== "string") missing ??= ref
+      return String(value)
+    })
+    return missing
+      ? Effect.fail(
+          new WasmError({ message: `map has no entry for key "${missing}"`, kind: "internal" }),
+        )
+      : Effect.succeed(out)
+  }
+
+  beforeEach(() => {
+    spyOn(runtime, "runPromise").mockImplementation(((effect: Effect.Effect<unknown, unknown>) =>
+      Effect.runPromise(
+        Effect.provide(
+          effect,
+          Layer.succeed(WasmRuntime, { renderTemplate } as unknown as WasmRuntimeShape),
+        ) as Effect.Effect<unknown>,
+      )) as unknown as typeof runtime.runPromise)
+  })
+
+  afterEach(() => {
+    mock.restore()
+  })
+
+  it("resolves each linked value against the other inputs and the outputs", async () => {
+    const result = await handlers.get("boilerplate:resolve-inputs")!(null, {
+      inputs: {
+        ProjectName: "acme",
+        BucketName: "{{ .ProjectName }}-state",
+        Repos: ["github.com/{{ .ProjectName }}/modules"],
+        AccountId: "{{ .outputs.make_account.account_id }}",
+      },
+      outputs: { make_account: { account_id: "123456789012" } },
+    })
+
+    expect(result).toEqual({
+      inputs: {
+        ProjectName: "acme",
+        BucketName: "acme-state",
+        Repos: ["github.com/acme/modules"],
+        AccountId: "123456789012",
+      },
+    })
+  })
+
+  it("returns a value that doesn't resolve as it was sent", async () => {
+    const result = await handlers.get("boilerplate:resolve-inputs")!(null, {
+      inputs: { DbUrl: "postgres://app:{{ .DbPassword }}@db" },
+    })
+
+    expect(result).toEqual({ inputs: { DbUrl: "postgres://app:{{ .DbPassword }}@db" } })
+  })
+})
+
+describe("boilerplate:variables", () => {
+  let tmp: string
+  let originalRunbookConfig: typeof runtimeModule.runbookConfig
+
+  const variables = (params: Record<string, unknown>) =>
+    handlers.get("boilerplate:variables")!(null, params) as Promise<{ contentHash?: string }>
+
+  beforeEach(async () => {
+    originalRunbookConfig = runtimeModule.runbookConfig
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "boilerplate-variables-ipc-")))
+    fs.mkdirSync(path.join(tmp, "templates", "app"), { recursive: true })
+    fs.writeFileSync(path.join(tmp, "templates", "app", "boilerplate.yml"), "variables: []\n")
+    fs.writeFileSync(path.join(tmp, "templates", "app", "main.tf"), "# v1\n")
+    const runbookPath = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(runbookPath, "# Test\n")
+    setRunbookConfig({ ...originalRunbookConfig, localPath: runbookPath, isWatchMode: false })
+    await runtime.runPromise(sessionManager.createSession(tmp, runbookPath))
+  })
+
+  afterEach(() => {
+    sessionManager.deleteSession()
+    setRunbookConfig(originalRunbookConfig)
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("hashes the template's files, so a change to one shows", async () => {
+    const before = (await variables({ templatePath: "templates/app" })).contentHash
+    expect(before).toBe(
+      await Effect.runPromise(
+        hashTemplateDir(path.join(tmp, "templates", "app")).pipe(
+          Effect.provide(NodeFileSystemLive),
+        ),
+      ),
+    )
+
+    fs.writeFileSync(path.join(tmp, "templates", "app", "main.tf"), "# v2\n")
+
+    expect((await variables({ templatePath: "templates/app" })).contentHash).not.toBe(before)
+  })
+
+  it("has no hash for inline boilerplate, which has no files", async () => {
+    const config = await variables({ boilerplateContent: "variables: []\n" })
+
+    expect(config.contentHash).toBeUndefined()
   })
 })

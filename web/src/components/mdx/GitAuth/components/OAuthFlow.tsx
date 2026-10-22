@@ -1,4 +1,13 @@
-import { Loader2, ExternalLink, XCircle, Copy, Check, HelpCircle, ChevronDown, ChevronUp } from "lucide-react"
+import {
+  Loader2,
+  ExternalLink,
+  XCircle,
+  Copy,
+  Check,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState } from "react"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
@@ -13,6 +22,12 @@ interface OAuthFlowProps {
   onStartOAuth: () => void
   onCancelOAuth: () => void
   provider: ProviderConfig
+  /**
+   * Show the "How can I authenticate automatically?" FAQ (default true). Off
+   * when the block doesn't detect credentials: the FAQ recommends a CLI login
+   * and an env var that such a block would ignore.
+   */
+  showAutoAuthInfo?: boolean
 }
 
 export function OAuthFlow({
@@ -22,10 +37,11 @@ export function OAuthFlow({
   onStartOAuth,
   onCancelOAuth,
   provider,
+  showAutoAuthInfo = true,
 }: OAuthFlowProps) {
   const { didCopy: copied, copy: doCopy } = useCopyToClipboard(2000)
   const [showPermissionsInfo, setShowPermissionsInfo] = useState(false)
-  const isAuthenticating = authStatus === 'authenticating'
+  const isAuthenticating = authStatus === "authenticating"
   const isWaitingForAuth = isAuthenticating && userCode && verificationUri
 
   const copyUserCode = () => {
@@ -44,17 +60,8 @@ export function OAuthFlow({
               <code className="bg-card px-3 py-2 rounded border border-info/40 text-lg font-mono font-bold tracking-wider">
                 {userCode}
               </code>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={copyUserCode}
-                className="border-border"
-              >
-                {copied ? (
-                  <Check className="size-4 text-success" />
-                ) : (
-                  <Copy className="size-4" />
-                )}
+              <Button variant="outline" size="sm" onClick={copyUserCode} className="border-border">
+                {copied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
               </Button>
             </div>
             <p className="mb-2">
@@ -67,23 +74,21 @@ export function OAuthFlow({
                 size="sm"
                 className="border-border text-info hover:bg-info-muted"
               >
-                <a
-                  href={verificationUri}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href={verificationUri} target="_blank" rel="noopener noreferrer">
                   Open GitHub
                   <ExternalLink className="size-4" />
                 </a>
               </Button>
             </div>
             <p className="text-muted-foreground text-xs">
-              We check for authorization every few seconds. If you cancelled on GitHub, click Cancel below.
+              We check for authorization every few seconds. If you cancelled on GitHub, click Cancel
+              below.
             </p>
           </>
         ) : (
           <p>
-            Click the button below to sign in with GitHub. You'll be redirected to authorize this app.
+            Click the button below to sign in with GitHub. You'll be redirected to authorize this
+            app.
           </p>
         )}
       </div>
@@ -130,29 +135,37 @@ export function OAuthFlow({
           >
             <HelpCircle className="size-3" />
             <span>What permissions does this grant?</span>
-            {showPermissionsInfo ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+            {showPermissionsInfo ? (
+              <ChevronUp className="size-3" />
+            ) : (
+              <ChevronDown className="size-3" />
+            )}
           </button>
-          
+
           {showPermissionsInfo && (
             <div className="mt-2 p-3 bg-muted rounded border border-border text-muted-foreground space-y-2">
               <p>
-                OAuth authentication works without any separate Gruntwork infrastructure. However, GitHub's OAuth 
-                permissions are coarse-grained, and the smallest scope that grants private repository access 
-                is <code className="bg-accent px-1 rounded text-xs">repo</code>, which grants "full control of private repositories."
+                OAuth authentication works without any separate Gruntwork infrastructure. However,
+                GitHub's OAuth permissions are coarse-grained, and the smallest scope that grants
+                private repository access is{" "}
+                <code className="bg-accent px-1 rounded text-xs">repo</code>, which grants "full
+                control of private repositories."
               </p>
               <p>
-                <strong>Your token stays local.</strong> Gruntwork never sees your token and will not have any access to your GitHub resources.
+                <strong>Your token stays local.</strong> Gruntwork never sees your token and will
+                not have any access to your GitHub resources.
               </p>
               <p>
-                If you prefer finer-grained permissions, use a <strong>Personal Access Token</strong> instead (see the other tab). 
-                In the future, we may set up a GitHub App, which would allow more granular permissions with OAuth.
+                If you prefer finer-grained permissions, use a{" "}
+                <strong>Personal Access Token</strong> instead (see the other tab). In the future,
+                we may set up a GitHub App, which would allow more granular permissions with OAuth.
               </p>
             </div>
           )}
         </div>
 
         {/* Auto-auth info (shared with the GitLab PAT flow) */}
-        <AutoAuthInfo provider={provider} />
+        {showAutoAuthInfo && <AutoAuthInfo provider={provider} />}
       </div>
     </div>
   )

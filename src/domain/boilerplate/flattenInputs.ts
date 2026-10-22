@@ -21,13 +21,9 @@
 import { Effect } from "effect"
 import { WasmRuntime } from "../../services/WasmRuntime.ts"
 import type { WasmRuntimeShape } from "../../services/WasmRuntime.ts"
+import { TEMPLATE_EXPR_RE, isTemplateString } from "./templateString.ts"
 
-/** Matches any Go-template expression. `s` flag so `.` spans multi-line defaults. */
-const TEMPLATE_EXPR_RE = /\{\{.*?\}\}/s
-
-export function isTemplateString(v: unknown): boolean {
-  return typeof v === "string" && TEMPLATE_EXPR_RE.test(v)
-}
+export { isTemplateString }
 
 /**
  * `inputs` and `outputs` are namespace keys in the var-file boilerplate
@@ -116,8 +112,7 @@ export function resolveInputTemplates(
       // Feed only already-resolved values into the render context. A
       // template string in context would render as its literal `{{ }}`
       // text, which is never what the user meant.
-      const context =
-        (stripTemplateValues(current) as Record<string, unknown> | undefined) ?? {}
+      const context = (stripTemplateValues(current) as Record<string, unknown> | undefined) ?? {}
       // Mirror the lifting `flattenVariables` does at the end: legacy template
       // refs use top-level `{{ .OrgNamePrefix }}` syntax, not
       // `{{ .inputs.OrgNamePrefix }}`. If we only expose the `inputs`
@@ -141,9 +136,7 @@ function hasAnyTemplateString(value: unknown): boolean {
   if (isTemplateString(value)) return true
   if (Array.isArray(value)) return value.some(hasAnyTemplateString)
   if (value && typeof value === "object") {
-    return Object.values(value as Record<string, unknown>).some(
-      hasAnyTemplateString,
-    )
+    return Object.values(value as Record<string, unknown>).some(hasAnyTemplateString)
   }
   return false
 }
@@ -154,10 +147,10 @@ function renderString(
   varsJSON: string,
 ): Effect.Effect<{ value: string; changed: boolean }, never, never> {
   return wasm.renderTemplate(value, varsJSON).pipe(
-    Effect.either,
-    Effect.map((either) => {
-      if (either._tag === "Right" && !TEMPLATE_EXPR_RE.test(either.right)) {
-        return { value: either.right, changed: either.right !== value }
+    Effect.result,
+    Effect.map((result) => {
+      if (result._tag === "Success" && !TEMPLATE_EXPR_RE.test(result.success)) {
+        return { value: result.success, changed: result.success !== value }
       }
       return { value, changed: false }
     }),
@@ -244,9 +237,7 @@ export function flattenVariables(
     // Anything that didn't resolve gets dropped so boilerplate's own
     // `default:` clause runs in the parent scope.
     const cleanedInputs =
-      (stripTemplateValues(resolvedInputs) as
-        | Record<string, unknown>
-        | undefined) ?? {}
+      (stripTemplateValues(resolvedInputs) as Record<string, unknown> | undefined) ?? {}
 
     return liftInputsToRoot({ ...src, inputs: cleanedInputs }, cleanedInputs)
   })

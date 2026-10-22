@@ -24,6 +24,7 @@ const inertElectron = {
   nativeTheme: {},
   net: {},
   protocol: {},
+  safeStorage: {},
   session: {},
   shell: {},
 }
@@ -31,5 +32,7 @@ const inertElectron = {
 export type ElectronMock = Partial<Record<keyof typeof inertElectron, unknown>>
 
 export function mockElectron(overrides: ElectronMock): void {
-  mock.module("electron", () => ({ ...inertElectron, ...overrides }))
+  // The factory is synchronous, so the mock is registered by the time this
+  // returns; mock.module only returns a promise for an async factory.
+  void mock.module("electron", () => ({ ...inertElectron, ...overrides }))
 }

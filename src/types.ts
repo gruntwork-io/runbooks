@@ -1,3 +1,5 @@
+import type { OutputValues } from "./domain/exec/outputValues.ts"
+
 // ---------------------------------------------------------------------------
 // File types
 // ---------------------------------------------------------------------------
@@ -39,14 +41,7 @@ export interface FileTreeResult {
 // Boilerplate types
 // ---------------------------------------------------------------------------
 
-export type BoilerplateVarType =
-  | "string"
-  | "int"
-  | "float"
-  | "bool"
-  | "list"
-  | "map"
-  | "enum"
+export type BoilerplateVarType = "string" | "int" | "float" | "bool" | "list" | "map" | "enum"
 
 export type BoilerplateValidationType =
   | "required"
@@ -91,6 +86,11 @@ export interface OutputDependency {
   blockId: string
   outputName: string
   fullPath: string
+  /**
+   * The template guards this output with `hasKey`, so the block must have
+   * run but the output itself may be absent.
+   */
+  optional?: boolean
 }
 
 export interface SkipFileRule {
@@ -115,6 +115,8 @@ export interface BoilerplateConfig {
   sections: Section[]
   outputDependencies: OutputDependency[]
   skipFiles: SkipFileRule[]
+  /** A hash of the template directory's files, when the config came from one (see hashTemplateDir) */
+  contentHash?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -140,18 +142,6 @@ export interface RenderRequest {
   outputPath?: string
   target?: "generated" | "worktree"
   perf?: RenderPerfContext
-}
-
-export interface RenderResponse extends Partial<FileTreeMeta> {
-  message: string
-  outputDir: string
-  templatePath: string
-  /** Omitted when nothing was written (the no-change shortcut). */
-  fileTree?: FileTreeNode[]
-  deletedFiles: string[]
-  createdFiles: string[]
-  modifiedFiles: string[]
-  skippedFiles: string[]
 }
 
 export interface InputValue {
@@ -206,16 +196,16 @@ export interface GeneratedFilesDeleteResponse {
 export interface ExecRequest {
   executableId?: string
   templateVarValues?: Record<string, unknown>
-  envVarsOverride?: Record<string, string>
+  envVarsOverride?: Record<string, string> | undefined
   /** Whether to allocate a pseudo-TTY for this execution. Sent by the web payload. */
   usePty?: boolean
   /** Per-execution timeout in milliseconds. Falls back to the executor's default when omitted. */
   timeoutMs?: number
   /**
-   * Renderer-generated unique id for this execution. The renderer holds onto it
-   * so a later `exec:cancel` can target *this specific* run (rather than whatever
-   * happens to be active), and the main process registers the run's
-   * AbortController under it. Omitted by callers that don't support cancellation.
+   * Renderer-generated unique id for this execution. The main process puts it
+   * on every event the run sends and registers the run's AbortController under
+   * it, so the renderer can match events to runs and `exec:cancel` can stop
+   * this one. Omitted by callers that don't support cancellation.
    */
   executionId?: string
 }
@@ -244,7 +234,11 @@ export interface FilesCapturedEvent extends Partial<FileTreeMeta> {
 }
 
 export interface BlockOutputsEvent {
-  outputs: Record<string, string>
+  /**
+   * The script's outputs. A sensitive one is a `Redacted`, which can't cross
+   * IPC, so the main process sends these encoded (see encodeOutputs).
+   */
+  outputs: OutputValues
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +257,18 @@ export interface Executable {
   language: string
   path?: string
   templateVars: string[]
+}
+
+/** A script file whose content on disk differs from the registry's copy of it. */
+export interface ScriptFileChange {
+  /** The registry's copy, which Run executes. */
+  registeredContent: string
+  diskContent: string
+  /**
+   * Hash of `diskContent`. Reloading the script takes it, so the reload
+   * registers the content the user reviewed and fails on any later one.
+   */
+  diskContentHash: string
 }
 
 // ---------------------------------------------------------------------------
@@ -314,9 +320,9 @@ export interface ParsedRemoteSource {
   /** What `git clone` fetches: https, or the transport a git source named. */
   cloneURL: string
   /** Branch, tag or commit. Undefined means the remote's default branch. */
-  ref?: string
+  ref?: string | undefined
   /** Repo-relative path to a runbook directory or file. Undefined means the repo root. */
-  path?: string
+  path?: string | undefined
   /**
    * Browser URLs only: `<ref>/<path>` as the URL spells it. A ref can contain
    * slashes, so resolveRef splits it against the remote's refs.
@@ -343,12 +349,14 @@ export interface WorkspaceTreeNode {
 export interface WorkspaceTreeResponse {
   tree: WorkspaceTreeNode[]
   totalFiles: number
-  gitInfo?: {
-    ref: string
-    refType: string
-    remoteUrl?: string
-    commitSha?: string
-  }
+  gitInfo?:
+    | {
+        ref: string
+        refType: string
+        remoteUrl?: string | undefined
+        commitSha?: string | undefined
+      }
+    | undefined
 }
 
 export interface WorkspaceFileResponse {

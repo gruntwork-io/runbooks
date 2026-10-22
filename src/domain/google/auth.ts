@@ -11,28 +11,10 @@ import type {
 import { Environment } from "../../services/Environment.ts"
 import type { EnvironmentShape } from "../../services/Environment.ts"
 import { GoogleAuthError, GoogleOAuthError } from "../../errors/index.ts"
-import {
-  OAUTH_MISSING_CLIENT_SECRET,
-  OAUTH_NOT_CONFIGURED,
-} from "./oauth-client.ts"
+import { OAUTH_MISSING_CLIENT_SECRET, OAUTH_NOT_CONFIGURED } from "./oauth-client.ts"
 import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
 
-export {
-  DEFAULT_GOOGLE_OAUTH_CLIENT_ID,
-  DEFAULT_GOOGLE_OAUTH_CLIENT_SECRET,
-  GOOGLE_OAUTH_CLIENT_CREDENTIALS_ENV,
-  GOOGLE_OAUTH_CLIENT_ID_ENV,
-  GOOGLE_OAUTH_CLIENT_SECRET_ENV,
-  expandHomePath,
-  isOAuthClientConfigured,
-  parseOAuthClientCredentialsJson,
-  resolveOAuthClient,
-} from "./oauth-client.ts"
-export type {
-  OAuthClientSource,
-  ResolveOAuthClientInput,
-  ResolvedOAuthClient,
-} from "./oauth-client.ts"
+export { isOAuthClientConfigured, resolveOAuthClient } from "./oauth-client.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -250,11 +232,7 @@ export const cancelOAuthFlow = (flowId: string) =>
  * List the projects visible to a credential, optionally filtered by a search
  * query. The SSO account-list analogue.
  */
-export const listProjects = (
-  creds: GoogleCredentialRef,
-  query?: string,
-  pageSize?: number,
-) =>
+export const listProjects = (creds: GoogleCredentialRef, query?: string, pageSize?: number) =>
   Effect.gen(function* () {
     const googleClient = yield* GoogleClient
     return yield* googleClient.listProjects(creds, query, pageSize)
@@ -274,11 +252,7 @@ export const checkProject = (projectId: string, creds: GoogleCredentialRef) =>
 // ---------------------------------------------------------------------------
 
 /** First non-empty value among `${prefix}${name}`, in the listed order. */
-const firstEnvValue = (
-  env: EnvironmentShape,
-  prefix: string,
-  names: readonly string[],
-) =>
+const firstEnvValue = (env: EnvironmentShape, prefix: string, names: readonly string[]) =>
   Effect.gen(function* () {
     for (const name of names) {
       const value = yield* env.get(`${prefix}${name}`)
@@ -313,7 +287,11 @@ export const detectEnvCredentials = (prefix?: string) =>
     const p = prefix ?? ""
 
     let credential:
-      | { readonly kind: "path" | "json" | "token"; readonly envVar: string; readonly value: string }
+      | {
+          readonly kind: "path" | "json" | "token"
+          readonly envVar: string
+          readonly value: string
+        }
       | undefined
 
     for (const { name, kind } of CREDENTIAL_ENV_VARS) {
@@ -358,11 +336,7 @@ const validateDetectedCredential = (creds: EnvGoogleCredentials) =>
     if (creds.credentialsPath) {
       const contents = yield* googleClient
         .readCredentialFileContents(creds.credentialsPath)
-        .pipe(
-          Effect.mapError(
-            (err) => new GoogleAuthError({ message: err.message, cause: err }),
-          ),
-        )
+        .pipe(Effect.mapError((err) => new GoogleAuthError({ message: err.message, cause: err })))
       return yield* googleClient.validateAdcDocument(contents, creds.projectId)
     }
 

@@ -1,0 +1,36 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+  parallelizable: true
+
+# The app resolves linked defaults (like "{{ .ProjectName }}-state") when it
+# renders. The test CLI's simplified renderer inserts them unresolved, so these
+# tests don't assert the resolved values.
+tests:
+  - name: defaults-render
+    description: |
+      Every block runs with its defaults, including the defaults built from
+      other variables, and the script produces the output that the
+      AccountAlias default waits on.
+    assertions:
+      - type: file_exists
+        path: settings.yml
+      - type: file_contains
+        path: settings.yml
+        contains: "project: acme"
+      - type: output_equals
+        block: create-account
+        output: account_id
+        value: "123456789012"
+
+  - name: override-replaces-link
+    description: |
+      A value set in place of a linked default is what renders.
+    inputs:
+      linked-defaults.BucketName: custom-bucket
+    assertions:
+      - type: file_contains
+        path: settings.yml
+        contains: "state_bucket: custom-bucket"

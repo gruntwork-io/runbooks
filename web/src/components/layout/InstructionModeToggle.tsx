@@ -1,7 +1,7 @@
-import { ListChecks } from 'lucide-react';
-import { DropdownMenuCheckboxItem, DropdownMenuLabel } from '../ui/dropdown-menu';
-import { useInstructionMode } from '@/contexts/useInstructionMode';
-import { INSTRUCTION_MODE_NAME } from '@/contexts/InstructionModeContext.types';
+import { ListChecks } from "lucide-react"
+import { DropdownMenuCheckboxItem, DropdownMenuLabel } from "../ui/dropdown-menu"
+import { useInstructionMode } from "@/contexts/useInstructionMode"
+import { INSTRUCTION_MODE_NAME } from "@/contexts/InstructionModeContext.types"
 
 /**
  * Instruction-mode switch for the Header's Menu dropdown. Mirrors ThemeToggle:
@@ -9,7 +9,7 @@ import { INSTRUCTION_MODE_NAME } from '@/contexts/InstructionModeContext.types';
  * between the interactive experience and flattened, copy-pasteable instructions.
  */
 export function InstructionModeToggle() {
-  const { enabled, setEnabled } = useInstructionMode();
+  const { enabled, setEnabled } = useInstructionMode()
 
   return (
     <>
@@ -22,5 +22,5 @@ export function InstructionModeToggle() {
         {INSTRUCTION_MODE_NAME}
       </DropdownMenuCheckboxItem>
     </>
-  );
+  )
 }

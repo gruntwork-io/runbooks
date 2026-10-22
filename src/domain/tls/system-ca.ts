@@ -22,9 +22,12 @@
  * no tls.setDefaultCACertificates), and trivially fakeable.
  */
 import { Effect } from "effect"
+import type { Cause } from "effect"
 import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { VCS_TOKEN_ENV_VARS } from "../vcs/redact.ts"
+import { SpawnError, SystemCaReadError } from "../../errors/index.ts"
 import type { VcsTransportErrorKind } from "../../errors/index.ts"
+import { errorMessage } from "../../errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Trust installation
@@ -120,30 +123,37 @@ const coldReadChildEnv = (): Record<string, string | undefined> => {
 export const coldReadSystemPems = (
   execPath: string = process.execPath,
   timeoutMs: number = COLD_READ_TIMEOUT_MS,
-): Effect.Effect<string[], Error, ProcessSpawner> =>
+): Effect.Effect<string[], SystemCaReadError | SpawnError | Cause.TimeoutError, ProcessSpawner> =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
-    const proc = yield* spawner.spawn(
-      execPath,
-      ["-e", COLD_READ_SCRIPT],
-      { env: coldReadChildEnv() },
-    )
+    const proc = yield* spawner.spawn(execPath, ["-e", COLD_READ_SCRIPT], {
+      env: coldReadChildEnv(),
+    })
     const { exitCode, lines } = yield* collectOutput(proc, timeoutMs)
     if (exitCode !== 0) {
-      return yield* Effect.fail(new Error(`cold system-CA read exited with code ${exitCode}`))
+      return yield* new SystemCaReadError({
+        message: `cold system-CA read exited with code ${exitCode}`,
+      })
     }
     const stdout = lines.filter((line) => line.source === "stdout").map((line) => line.line)
     const parsed = yield* Effect.try({
       try: (): unknown => JSON.parse(stdout.join("\n")),
-      catch: (err) => new Error(`cold system-CA read produced unparseable stdout: ${err}`),
+      catch: (err) =>
+        new SystemCaReadError({
+          message: `cold system-CA read produced unparseable stdout: ${errorMessage(err)}`,
+          cause: err,
+        }),
     })
-    if (!Array.isArray(parsed) || !parsed.every((item): item is string => typeof item === "string")) {
-      return yield* Effect.fail(new Error("cold system-CA read did not return a JSON string array"))
+    if (
+      !Array.isArray(parsed) ||
+      !parsed.every((item): item is string => typeof item === "string")
+    ) {
+      return yield* new SystemCaReadError({
+        message: "cold system-CA read did not return a JSON string array",
+      })
     }
     return parsed
-  }).pipe(
-    Effect.mapError((err) => (err instanceof Error ? err : new Error(`cold system-CA read failed: ${err}`))),
-  )
+  })
 
 /**
  * Compose a cold read with the launch-time fallback: on any child failure
@@ -151,13 +161,13 @@ export const coldReadSystemPems = (
  * worse than launch. `coldReadOk` lets callers degrade the TLS-card copy to
  * "…then restart Runbooks" when the child itself failed (fallback).
  */
-export const refreshSystemPems = <R>(
-  coldRead: Effect.Effect<string[], Error, R>,
+export const refreshSystemPems = <E, R>(
+  coldRead: Effect.Effect<string[], E, R>,
   launchSet: readonly string[],
 ): Effect.Effect<{ pems: string[]; coldReadOk: boolean }, never, R> =>
   coldRead.pipe(
     Effect.map((pems) => ({ pems, coldReadOk: true })),
-    Effect.catchAll(() => Effect.succeed({ pems: [...launchSet], coldReadOk: false })),
+    Effect.catch(() => Effect.succeed({ pems: [...launchSet], coldReadOk: false })),
   )
 
 // ---------------------------------------------------------------------------

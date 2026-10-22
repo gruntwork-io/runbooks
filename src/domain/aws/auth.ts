@@ -23,6 +23,8 @@ export interface EnvCredentials {
   readonly secretAccessKey: string
   readonly sessionToken?: string
   readonly region?: string
+  /** From AWS_CREDENTIAL_EXPIRATION, as an ISO timestamp. */
+  readonly expiresAt?: string
 }
 
 /** One poll of the SSO device flow with the block's optional pinned account and role. */
@@ -80,9 +82,11 @@ export const validateCredentials = (creds: AwsCredentials, region: string) =>
 
 /**
  * Detect AWS credentials from environment variables: AWS_ACCESS_KEY_ID and
- * AWS_SECRET_ACCESS_KEY (both required), the optional AWS_SESSION_TOKEN, and
- * a region from AWS_REGION, then AWS_DEFAULT_REGION. Returns undefined if the
- * key ID and secret are not both present.
+ * AWS_SECRET_ACCESS_KEY (both required), the optional AWS_SESSION_TOKEN, a
+ * region from AWS_REGION, then AWS_DEFAULT_REGION, and when they expire from
+ * AWS_CREDENTIAL_EXPIRATION, which the AWS SDKs read too. An expiration that
+ * isn't a date is ignored. Returns undefined if the key ID and secret are not
+ * both present.
  *
  * With a `prefix` (the `{env:{prefix}}` variant) every name is looked up with
  * the prefix prepended (PROD_AWS_ACCESS_KEY_ID, ...). The prefix MUST already
@@ -109,12 +113,15 @@ export const detectEnvCredentials = (prefix?: string) =>
 
     const sessionToken = yield* env.get(`${p}AWS_SESSION_TOKEN`)
     const region = (yield* env.get(`${p}AWS_REGION`)) || (yield* env.get(`${p}AWS_DEFAULT_REGION`))
+    const expiration = new Date((yield* env.get(`${p}AWS_CREDENTIAL_EXPIRATION`)) ?? "")
+    const expiresAt = Number.isNaN(expiration.getTime()) ? undefined : expiration.toISOString()
 
     const result: EnvCredentials = {
       accessKeyId,
       secretAccessKey,
       ...(sessionToken ? { sessionToken } : {}),
       ...(region ? { region } : {}),
+      ...(expiresAt ? { expiresAt } : {}),
     }
 
     return result
@@ -132,6 +139,7 @@ export const validateEnvCredentials = (envCreds: EnvCredentials, defaultRegion?:
       accessKeyId: envCreds.accessKeyId,
       secretAccessKey: envCreds.secretAccessKey,
       sessionToken: envCreds.sessionToken,
+      expiresAt: envCreds.expiresAt,
       region: yield* resolveRegion(
         envCreds.region || defaultRegion,
         "No AWS region for the environment credentials: set AWS_REGION (with the block's prefix, if it uses one) or give the AwsAuth block a defaultRegion",
@@ -287,26 +295,36 @@ export const pollSsoFlow = (
     if (!accountId || !roleName) {
       const accounts = yield* listSsoAccounts(accessToken, region)
       if (accounts.length === 0) {
-        return yield* new AwsSsoError({ message: "No AWS accounts are available to you in IAM Identity Center" })
+        return yield* new AwsSsoError({
+          message: "No AWS accounts are available to you in IAM Identity Center",
+        })
       }
       const selectAccount = { status: "select_account", accessToken, accounts } as const
       if (accounts.length > 1) {
         return selectAccount
       }
 
-      const [account] = accounts
+      // Exactly one account is left: none and several both returned above.
+      const account = accounts[0]!
       const roles = yield* listSsoRoles(accessToken, account.accountId, region)
       if (roles.length === 0) {
-        return yield* new AwsSsoError({ message: `No roles are available to you in account ${account.accountId}` })
+        return yield* new AwsSsoError({
+          message: `No roles are available to you in account ${account.accountId}`,
+        })
       }
       if (roles.length > 1) {
         return selectAccount
       }
       accountId = account.accountId
-      roleName = roles[0].roleName
+      roleName = roles[0]!.roleName
     }
 
-    const { credentials, identity } = yield* signInWithSsoRole({ accessToken, accountId, roleName, region })
+    const { credentials, identity } = yield* signInWithSsoRole({
+      accessToken,
+      accountId,
+      roleName,
+      region,
+    })
     return { status: "success", credentials, identity } as const
   })
 

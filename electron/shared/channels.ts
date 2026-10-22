@@ -8,8 +8,20 @@
 // Import from the canonical src/types.ts so channels.ts and the backend
 // handlers share the same contract. Re-exported so consumers can import
 // these types from channels.ts directly.
-import type { ExecRequest, Section, SessionMetadata } from '../../src/types.ts'
-export type { ExecRequest, Section, SessionMetadata }
+import type { ExecRequest, ScriptFileChange, Section, SessionMetadata } from "../../src/types.ts"
+export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
+import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
+import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
+import type { ListedSession } from "../../src/domain/session/store.ts"
+
+/** What session:switch did. */
+export type SessionSwitchResult =
+  /** The renderer is opening the session's runbook in that session. */
+  | { status: "switched" }
+  /** Nothing was done: a script is running, and the request did not say to stop it. */
+  | { status: "script-running" }
+  /** Nothing was done, for `error`, a sentence fit to show the user. */
+  | { status: "failed"; error: string }
 
 // ---------------------------------------------------------------------------
 // Invoke channels (request/response, replaces REST GET/POST/DELETE)
@@ -19,27 +31,118 @@ export interface IpcChannelMap {
   // Runbook
   "runbook:get": {
     /**
-     * `reload: "watch"` marks a reload for a watch-mode change: it keeps the
-     * session's working dir, which any other load of the same runbook resets.
      * A load that a newer runbook:get overtook resolves to `{ superseded: true }`,
-     * which useIpc ignores.
+     * which useIpc ignores. `assetHost` is the host of the runbook's
+     * runbook-asset:// URLs, the only one the protocol handler serves.
+     * `sessionId` identifies the session the runbook was opened in: File > Reset
+     * Session reloads the same runbook under a new one. `sessionName` is what
+     * the title bar shows it as, e.g. `elegant-elephant`, and `sessionDir` is
+     * the session's own directory, which the title bar's folder button copies.
+     * `blockStates` is what the session's history says each block was left as,
+     * which the blocks start from. `sessionResumedFrom` is when a saved session
+     * was last used, on the load that resumed it; a new session, and a reload
+     * of the runbook in the session it has open, have none.
      */
-    params: { path: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }
-    result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode?: boolean; warnings?: string[]; remoteSource?: string }
+    params: { path: string; watchMode?: boolean; remoteSource?: string }
+    result: {
+      path: string
+      content: string
+      contentHash: string
+      language: string
+      size: number
+      isWatchMode?: boolean
+      warnings?: string[]
+      remoteSource?: string
+      assetHost: string
+      sessionId: string
+      sessionName: string
+      sessionDir: string
+      sessionResumedFrom?: string
+      blockStates: SavedBlockState[]
+    }
   }
   "runbook:open-remote": {
     params: { url: string }
     result: { path: string; remoteSource: string }
   }
-  "runbook:executables": { params: void; result: { executables: Record<string, Executable>; warnings?: string[] } }
+  "runbook:executables": {
+    params: void
+    result: { executables: Record<string, Executable>; warnings?: string[] }
+  }
+  /**
+   * How the script file of block `componentId` differs on disk from the
+   * registry's copy. `change` is null when it doesn't, or can't be read.
+   */
+  "runbook:script-change": {
+    params: { componentId: string }
+    result: { change: ScriptFileChange | null }
+  }
+  /**
+   * Register the script file of block `componentId` as it is on disk, so Run
+   * executes it. `contentHash` is the `diskContentHash` of the change the user
+   * reviewed; rejects if the file has changed again since. Sends
+   * registry:updated.
+   */
+  "runbook:reload-script": {
+    params: { componentId: string; contentHash: string }
+    result: { ok: true }
+  }
 
   // Session
   "session:get": { params: void; result: SessionMetadata }
   "session:reset": { params: void; result: { ok: true } }
   "session:set-env": { params: { env: Record<string, string> }; result: { ok: true } }
+  /**
+   * Rename the open runbook's session. Resolves to the name it now has, and
+   * rejects with a sentence for the user when the name is not allowed (see
+   * sessionNameProblem) or is another session's.
+   */
+  "session:rename": { params: { name: string }; result: { name: string } }
+  /**
+   * Mark the open session finished (SessionPersistence.finishCurrent): opening
+   * its runbook again starts a new session.
+   */
+  "session:finish": { params: void; result: { ok: true } }
+  /** The most recently used saved sessions, most recent first (SessionPersistence.listSessions). */
+  "session:list": { params: void; result: { sessions: ListedSession[] } }
+  /**
+   * Open saved session `id` in the window (session-switch.ts). Stops a running
+   * script only with `stopRunningScript`; without it, a running script makes
+   * the switch answer `script-running` and do nothing.
+   */
+  "session:switch": {
+    params: { id: string; stopRunningScript?: boolean }
+    result: SessionSwitchResult
+  }
+  /**
+   * Delete saved session `id` and its history, and move its directory to the
+   * trash. Rejects with a sentence for the user when `id` is the open session,
+   * or its directory can't be moved to the trash.
+   */
+  "session:delete": { params: { id: string }; result: { ok: true } }
+  /**
+   * Add what the user did to a block to the history of session `sessionId`
+   * (src/domain/session/history.ts). `payload` is the block's state after it,
+   * as JSON. An event for a session that is no longer the open one is dropped.
+   * Rejects when the event is not one, e.g. its payload is too long.
+   */
+  "session:record-event": {
+    params: { sessionId: string; blockId: string; kind: SessionEventKind; payload: unknown }
+    result: { ok: true }
+  }
 
   // Execution
-  "exec:run": { params: ExecRequest; result: { status: { status: string; exitCode: number } | null; cancelled?: boolean } }
+  "exec:run": {
+    params: ExecRequest
+    /**
+     * A run that finished has a status and its outputs, encoded since a
+     * sensitive output's `Redacted` can't cross IPC (see encodeOutputs). A run
+     * stopped before it finished has neither.
+     */
+    result:
+      | { status: { status: string; exitCode: number }; outputs: EncodedOutputValues }
+      | { status: null; cancelled?: boolean }
+  }
   // `executionId` targets a specific run; when omitted, the most-recent active
   // execution is cancelled (back-compat).
   "exec:cancel": { params: { executionId?: string }; result: { ok: true } }
@@ -50,12 +153,53 @@ export interface IpcChannelMap {
     result: BoilerplateConfig
   }
   "boilerplate:render": { params: RenderRequest; result: RenderResponse }
-  "boilerplate:render-inline": { params: RenderInlineRequest; result: { renderedFiles: Record<string, { content: string; name?: string; path?: string; language?: string; size?: number; isTruncated?: boolean }>; message?: string; fileTree?: unknown; meta?: unknown } }
+  "boilerplate:render-inline": {
+    params: RenderInlineRequest
+    result: {
+      renderedFiles: Record<
+        string,
+        {
+          content: string
+          name?: string
+          path?: string
+          language?: string
+          size?: number
+          isTruncated?: boolean
+        }
+      >
+      message?: string
+      fileTree?: unknown
+      meta?: unknown
+    }
+  }
+  /**
+   * Resolve template-valued inputs (`{{ .ProjectName }}-state`) against the
+   * other inputs and outputs, as a render does, so a form can show what a
+   * linked value comes to. A value that doesn't resolve is returned as sent.
+   */
+  "boilerplate:resolve-inputs": {
+    params: ResolveInputsRequest
+    result: { inputs: Record<string, unknown> }
+  }
 
   // AWS Authentication
   "aws:validate": {
-    params: { accessKeyId?: string; secretAccessKey?: string; sessionToken?: string; region?: string; credentials?: AwsCredentials }
-    result: { valid: boolean; accountId?: string; accountName?: string; arn?: string; error?: string }
+    params: {
+      accessKeyId?: string
+      secretAccessKey?: string
+      sessionToken?: string
+      region?: string
+      credentials?: AwsCredentials
+    }
+    // `unreachable`: AWS gave no answer, so `valid: false` says nothing about the credentials.
+    result: {
+      valid: boolean
+      accountId?: string
+      accountName?: string
+      arn?: string
+      error?: string
+      unreachable?: boolean
+    }
   }
   "aws:profiles": {
     params: Record<string, never>
@@ -63,14 +207,28 @@ export interface IpcChannelMap {
   }
   "aws:sso-start": {
     params: { startUrl: string; region: string; accountId?: string; roleName?: string }
-    result: { verificationUri: string; userCode: string; deviceCode: string; clientId: string; clientSecret: string; error?: string }
+    result: {
+      verificationUri: string
+      userCode: string
+      deviceCode: string
+      clientId: string
+      clientSecret: string
+      error?: string
+    }
   }
   "aws:sso-roles": {
     params: { accessToken: string; accountId: string; region: string }
     result: { roles: SsoRole[]; error?: string }
   }
   "aws:sso-poll": {
-    params: { clientId: string; clientSecret: string; deviceCode: string; region: string; accountId?: string; roleName?: string }
+    params: {
+      clientId: string
+      clientSecret: string
+      deviceCode: string
+      region: string
+      accountId?: string
+      roleName?: string
+    }
     result: {
       status?: string
       accessToken?: string
@@ -82,6 +240,7 @@ export interface IpcChannelMap {
       accessKeyId?: string
       secretAccessKey?: string
       sessionToken?: string
+      expiresAt?: string
       error?: string
     }
   }
@@ -92,6 +251,7 @@ export interface IpcChannelMap {
       accessKeyId?: string
       secretAccessKey?: string
       sessionToken?: string
+      expiresAt?: string
       accountId?: string
       accountName?: string
       arn?: string
@@ -130,6 +290,7 @@ export interface IpcChannelMap {
       secretAccessKey?: string
       region?: string
       sessionToken?: string
+      expiresAt?: string
     }
   }
   "aws:profile-auth": {
@@ -142,6 +303,7 @@ export interface IpcChannelMap {
       sessionToken?: string
       /** The region the credentials were validated in: the profile's own, else `defaultRegion`. */
       region?: string
+      expiresAt?: string
       accountId?: string
       accountName?: string
       arn?: string
@@ -149,7 +311,13 @@ export interface IpcChannelMap {
     }
   }
   "aws:check-region": {
-    params: { region: string; accessKeyId?: string; secretAccessKey?: string; sessionToken?: string; credentials?: AwsCredentials }
+    params: {
+      region: string
+      accessKeyId?: string
+      secretAccessKey?: string
+      sessionToken?: string
+      credentials?: AwsCredentials
+    }
     result: { enabled: boolean; warning?: string }
   }
 
@@ -219,7 +387,13 @@ export interface IpcChannelMap {
       scopes?: string[]
       loginHint?: string
     }
-    result: { flowId?: string; authUrl?: string; redirectUri?: string; expiresInSeconds?: number; error?: string }
+    result: {
+      flowId?: string
+      authUrl?: string
+      redirectUri?: string
+      expiresInSeconds?: number
+      error?: string
+    }
   }
   "google:oauth-poll": {
     // METADATA-ONLY. On "complete" MAIN has already exchanged the code,
@@ -431,7 +605,15 @@ export interface IpcChannelMap {
     // IPC); `registerSession` makes MAIN write the session env on success
     // (the PAT path); the renderer never writes session credentials.
     params: { token?: string; host?: string; registerSession?: boolean; useSessionToken?: boolean }
-    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number; host?: string } & VcsDetectionMeta
+    result: {
+      valid: boolean
+      user?: GitHubUser
+      scopes?: string[]
+      tokenType?: string
+      error?: string
+      status?: number
+      host?: string
+    } & VcsDetectionMeta
   }
   "github:oauth-start": {
     // clientId/scopes are optional — main owns the defaults (the
@@ -442,7 +624,14 @@ export interface IpcChannelMap {
     params: { clientId?: string; scopes?: string[]; host?: string }
     // expiresIn: seconds until the device code expires; the renderer polls
     // until then.
-    result: { deviceCode: string; userCode: string; verificationUri: string; interval: number; expiresIn?: number; error?: string }
+    result: {
+      deviceCode: string
+      userCode: string
+      verificationUri: string
+      interval: number
+      expiresIn?: number
+      error?: string
+    }
   }
   "github:oauth-poll": {
     // the completion result is METADATA-ONLY — no access token crosses
@@ -454,6 +643,8 @@ export interface IpcChannelMap {
       user?: GitHubUser
       scopes?: string[]
       tokenType?: string
+      /** When the token expires, as an ISO timestamp. Absent when it doesn't. */
+      expiresAt?: string
       /** GitHub answered slow_down: back off before the next poll. */
       slowDown?: boolean
       /** With slowDown: the minimum interval GitHub now requires, in seconds. */
@@ -497,7 +688,10 @@ export interface IpcChannelMap {
   "github:orgs": { params: { host?: string } | void; result: GitHubOrg[] }
   "github:repos": { params: { org: string; host?: string }; result: GitHubRepo[] }
   "github:refs": { params: { owner: string; repo: string; host?: string }; result: GitHubRef[] }
-  "github:labels": { params: { owner: string; repo: string; host?: string }; result: { labels?: string[] } }
+  "github:labels": {
+    params: { owner: string; repo: string; host?: string }
+    result: { labels?: string[] }
+  }
 
   // GitLab Authentication
   // Enumerate the known GitLab hosts for the picker:
@@ -526,15 +720,34 @@ export interface IpcChannelMap {
     // bare host from the picker (or an authored `host` prop); `instanceUrl` is a
     // manually-entered instance URL that overrides `host` when present.
     // registerSession/useSessionToken per github:validate (custody).
-    params: { token?: string; host?: string; instanceUrl?: string; registerSession?: boolean; useSessionToken?: boolean }
-    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number } & VcsDetectionMeta
+    params: {
+      token?: string
+      host?: string
+      instanceUrl?: string
+      registerSession?: boolean
+      useSessionToken?: boolean
+    }
+    result: {
+      valid: boolean
+      user?: GitHubUser
+      scopes?: string[]
+      tokenType?: string
+      error?: string
+      status?: number
+    } & VcsDetectionMeta
   }
   "gitlab:env-credentials": {
     // Param keys mirror github:env-credentials so the shared useGitAuth hook can
     // call either channel with one payload shape; the gitlab handler ignores
     // envVar/githubAuthId. `host` (picker) or `instanceUrl` (manual field,
     // overrides `host`) selects the instance to validate against.
-    params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string; instanceUrl?: string }
+    params: {
+      envVar?: string
+      prefix?: string
+      githubAuthId?: string
+      host?: string
+      instanceUrl?: string
+    }
     result: {
       found: boolean
       valid?: boolean
@@ -562,7 +775,10 @@ export interface IpcChannelMap {
   }
   // `host` is the GitLab instance host the repo lives on (self-hosted or
   // gitlab.com), derived by the renderer from the repo's remote URL.
-  "gitlab:labels": { params: { owner: string; repo: string; host?: string }; result: { labels?: string[] } }
+  "gitlab:labels": {
+    params: { owner: string; repo: string; host?: string }
+    result: { labels?: string[] }
+  }
 
   // Git Operations
   "git:clone": {
@@ -588,19 +804,32 @@ export interface IpcChannelMap {
     params: GitLocalRepoRequest
     result: GitLocalRepoResponse
   }
-  "git:push": { params: { worktreePath: string; branchName: string; provider?: "github" | "gitlab" }; result: { ok: true } | { error: string } }
+  "git:push": {
+    params: { worktreePath: string; branchName: string; provider?: "github" | "gitlab" }
+    result: { ok: true } | { error: string }
+  }
   "git:init-default-branch": {
     params: { worktreePath: string; branch: string; provider?: "github" | "gitlab" }
     result: { branch: string } | { error: string }
   }
-  "git:pull-request": { params: PullRequestRequest; result: { url: string; number: number } | { error: string } }
-  "git:merge-request": { params: PullRequestRequest; result: { url: string; number: number } | { error: string } }
+  "git:pull-request": {
+    params: PullRequestRequest
+    result: { url: string; number: number } | { error: string }
+  }
+  "git:merge-request": {
+    params: PullRequestRequest
+    result: { url: string; number: number } | { error: string }
+  }
   "git:delete-branch": { params: { worktreePath: string; branch: string }; result: { ok: true } }
 
   // Workspace
   "workspace:tree": {
     params: { worktreePath: string; subpath?: string }
-    result: { tree: WorkspaceTreeNode[]; totalFiles: number; gitInfo?: { branch: string; remoteUrl: string; commitSha: string } }
+    result: {
+      tree: WorkspaceTreeNode[]
+      totalFiles: number
+      gitInfo?: { branch: string; remoteUrl: string; commitSha: string }
+    }
   }
   "workspace:dirs": { params: { worktreePath: string }; result: { dirs?: string[] } }
   "workspace:file": {
@@ -615,8 +844,25 @@ export interface IpcChannelMap {
   "workspace:set-active": { params: { worktreePath: string }; result: { ok: true } }
 
   // Generated Files
-  "generated-files:check": { params: void; result: { hasFiles: boolean; fileCount: number } }
-  "generated-files:delete": { params: void; result: { ok: true; success?: boolean; deletedCount?: number; message?: string } }
+  /**
+   * Whether the session's generated directory has files. When it has, `fileTree`
+   * and its truncation fields are that directory's tree, as a render returns it.
+   */
+  "generated-files:check": {
+    params: void
+    result: {
+      hasFiles: boolean
+      fileCount: number
+      fileTree?: WorkspaceTreeNode[]
+      truncatedTree?: boolean
+      totalFiles?: number
+      heavyDirs?: Array<{ path: string; fileCount: number }>
+    }
+  }
+  "generated-files:delete": {
+    params: void
+    result: { ok: true; success?: boolean; deletedCount?: number; message?: string }
+  }
 
   // File Operations
   "file:read": { params: { path: string }; result: FileData }
@@ -625,7 +871,10 @@ export interface IpcChannelMap {
   "watch:subscribe": { params: void; result: { ok: true } }
 
   // Telemetry
-  "telemetry:config": { params: void; result: { enabled: boolean; token?: string; anonymousId?: string; version?: string } }
+  "telemetry:config": {
+    params: void
+    result: { enabled: boolean; token?: string; anonymousId?: string; version?: string }
+  }
 
   // CLI
   "cli:check-install": {
@@ -636,6 +885,11 @@ export interface IpcChannelMap {
     params: void
     result: { ok: true; symlinkPath: string }
   }
+  // The command palette's Install / Uninstall: the same flows as the menu
+  // items, which report the outcome (or that there was nothing to do) in a
+  // native dialog rather than to the caller.
+  "cli:install-with-dialog": { params: void; result: { ok: true } }
+  "cli:uninstall-with-dialog": { params: void; result: { ok: true } }
 
   // VCS CLI diagnostics: which provider CLIs are
   // installed, their versions / probe floors, and (Windows) git's TLS
@@ -661,7 +915,14 @@ export interface IpcChannelMap {
     result: { filePaths: string[] }
   }
   "native:open-runbook-dialog": { params: void; result: { ok: boolean } }
+  // The app's version, for the welcome screen and the command palette: the
+  // only places it shows on Windows and Linux, which have no About panel.
+  "native:app-version": { params: void; result: { version: string } }
   "native:close-runbook": { params: void; result: { ok: true } }
+  /** Replace the open runbook's session with a new one, as File > Reset Session does. */
+  "native:reset-session": { params: void; result: { ok: true } }
+  /** The user's home directory, which paths on screen are shortened against (as `~`). */
+  "native:get-home-dir": { params: void; result: { path: string } }
   "native:get-cli-config": {
     params: void
     result: {
@@ -682,17 +943,32 @@ export interface IpcChannelMap {
 // Send channels (server-to-client events, replaces SSE)
 // ---------------------------------------------------------------------------
 
+/** What Edit > Find…, Find Next and Find Previous ask the renderer's find bar to do. */
+export type FindAction = "open" | "next" | "previous"
+
 export interface IpcEventMap {
-  "exec:log": { line: string; timestamp: string; replace?: boolean }
-  "exec:log-file": { path: string }
-  "exec:status": { status: string; exitCode: number }
-  "exec:outputs": { outputs: Record<string, string> }
-  "exec:files-captured": { files: string[]; count: number; fileTree: unknown }
+  // Every exec event has the `executionId` of its exec:run, since several runs
+  // can be streaming at once.
+  "exec:log": { executionId: string; line: string; timestamp: string; replace?: boolean }
+  "exec:log-file": { executionId: string; path: string }
+  "exec:files-captured": {
+    executionId: string
+    files: string[]
+    count: number
+    fileTree: unknown
+  }
   /**
    * `path` is the runbook the watcher watches (as runbook:get resolved it), so
    * after a failed open the renderer reloads that runbook, not the failed one.
    */
   "watch:file-change": { type: "reload"; path: string }
+  /**
+   * Script files the registry was built from were written on disk.
+   * `componentIds` are the blocks that run them: each asks
+   * runbook:script-change whether its script now differs, and no other block
+   * does anything.
+   */
+  "watch:script-change": { componentIds: string[] }
   /** `cloneId` echoes the request's, so a listener can drop another clone's lines. */
   "git:clone-progress": { line: string; timestamp: string; cloneId?: string }
   "git:log": { line: string; timestamp: string; replace?: boolean }
@@ -703,7 +979,13 @@ export interface IpcEventMap {
   "file:open-runbook": { path: string; remoteSource?: string }
   "menu:open-url-prompt": void
   "menu:close-runbook": void
+  /** File > Rename Session…: the title bar turns the session's name into a field. */
+  "menu:rename-session": void
+  /** File > Switch Session…: the renderer shows the saved sessions. */
+  "menu:switch-session": void
   "menu:preferences": void
+  "menu:find": { action: FindAction }
+  "menu:open-command-palette": void
   "registry:updated": void
   // Pushed by main on every VCS session-env write:
   // the session holds a single GITLAB_TOKEN/GITLAB_HOST pair, so a
@@ -763,6 +1045,13 @@ export interface RenderInlineRequest {
   outputPath?: string
 }
 
+export interface ResolveInputsRequest {
+  /** Input values by name; template-valued ones are resolved. */
+  inputs: Record<string, unknown>
+  /** Block outputs for `{{ .outputs.<block>.<name> }}`, as plain strings. */
+  outputs?: Record<string, Record<string, string>>
+}
+
 export interface ProfileInfo {
   name: string
   authType: "sso" | "static" | "assume_role" | "unsupported"
@@ -802,6 +1091,8 @@ export interface GoogleAccountInfo {
   principal: string
   accountType: "service_account" | "user"
   scopes?: string[]
+  /** When a bare access token expires, as an ISO timestamp. Absent for credentials that refresh. */
+  expiresAt?: string
 }
 
 export interface GoogleProjectIpc {
@@ -843,6 +1134,8 @@ export type VcsErrorKind = "tls" | "server-cert" | "network"
 /** Tri-state metadata carried by detection/validation results. */
 export interface VcsDetectionMeta {
   outcome?: VcsAuthOutcome
+  /** When a valid token expires, as an ISO timestamp. Absent when it doesn't, or isn't known. */
+  expiresAt?: string
   /** Which source produced the credential (cli-channel results may be "config" — hosts.yml/config.yml fallbacks). */
   source?: "env" | "cli" | "config"
   /** "cli" marks probe-validated degraded auth (success-card transparency line). */

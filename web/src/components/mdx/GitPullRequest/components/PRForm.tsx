@@ -72,7 +72,7 @@ export function PRForm({
   const [whatFilesExpanded, setWhatFilesExpanded] = useState(false)
   const [showNoChangesConfirm, setShowNoChangesConfirm] = useState(false)
 
-  const isCreating = status === 'creating'
+  const isCreating = status === "creating"
   const isFormDisabled = disabled || isCreating
   const hasChanges = changeSummary !== null && changeSummary.fileCount > 0
 
@@ -123,7 +123,8 @@ export function PRForm({
           <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
             Labels
             <InfoTooltip>
-              Labels to apply to the {noun.lower}. These must already exist in the {providerLabel} repository.
+              Labels to apply to the {noun.lower}. These must already exist in the {providerLabel}{" "}
+              repository.
             </InfoTooltip>
           </label>
           <LabelSelector
@@ -149,7 +150,9 @@ export function PRForm({
             <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
               Branch name
               <InfoTooltip>
-                The name of the new git branch that will be created for this {noun.lower}. Changes are committed to this branch and pushed to the remote before the {noun.singular} is opened.
+                The name of the new git branch that will be created for this {noun.lower}. Changes
+                are committed to this branch and pushed to the remote before the {noun.singular} is
+                opened.
               </InfoTooltip>
             </label>
             <input
@@ -167,7 +170,8 @@ export function PRForm({
             <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
               Commit message
               <InfoTooltip>
-                The message used for the git commit. This appears in the commit history of the {noun.lower}.
+                The message used for the git commit. This appears in the commit history of the{" "}
+                {noun.lower}.
               </InfoTooltip>
             </label>
             <input
@@ -192,29 +196,33 @@ export function PRForm({
         <div className="mt-1.5 ml-5 text-xs text-muted-foreground leading-relaxed">
           {changeSummary && changeSummary.fileCount > 0 ? (
             <p className="m-0">
-              This {noun.lower} will commit{' '}
-              <span className="font-medium">{changeSummary.fileCount}</span>{' '}
-              {changeSummary.fileCount === 1 ? 'file' : 'files'}
+              This {noun.lower} will commit{" "}
+              <span className="font-medium">{changeSummary.fileCount}</span>{" "}
+              {changeSummary.fileCount === 1 ? "file" : "files"}
               {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
                 <>
-                  {' '}(
+                  {" "}
+                  (
                   {changeSummary.additions > 0 && (
                     <span className="text-success font-medium">+{changeSummary.additions}</span>
                   )}
-                  {changeSummary.additions > 0 && changeSummary.deletions > 0 && ', '}
+                  {changeSummary.additions > 0 && changeSummary.deletions > 0 && ", "}
                   {changeSummary.deletions > 0 && (
-                    <span className="text-destructive font-medium">&minus;{changeSummary.deletions}</span>
+                    <span className="text-destructive font-medium">
+                      &minus;{changeSummary.deletions}
+                    </span>
                   )}
                   )
                 </>
-              )}
-              {' '}from the <span className="font-semibold">Changed files</span> tab in the workspace panel.
-              Review your changes there before creating the {noun.lower}.
+              )}{" "}
+              from the <span className="font-semibold">Changed files</span> tab in the workspace
+              panel. Review your changes there before creating the {noun.lower}.
             </p>
           ) : (
             <p className="m-0">
-              No file changes detected yet. Run a command that modifies files in the cloned repository,
-              then check the <span className="font-semibold">Changed files</span> tab in the workspace panel.
+              No file changes detected yet. Run a command that modifies files in the cloned
+              repository, then check the <span className="font-semibold">Changed files</span> tab in
+              the workspace panel.
             </p>
           )}
         </div>
@@ -254,14 +262,13 @@ export function PRForm({
           <AlertDialogHeader>
             <AlertDialogTitle>No file changes detected</AlertDialogTitle>
             <AlertDialogDescription>
-              There are no modified files in the workspace. The {noun.lower} will be created with an empty commit. Are you sure you want to continue?
+              There are no modified files in the workspace. The {noun.lower} will be created with an
+              empty commit. Are you sure you want to continue?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={onSubmit}>
-              Create Anyway
-            </AlertDialogAction>
+            <AlertDialogAction onClick={onSubmit}>Create Anyway</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

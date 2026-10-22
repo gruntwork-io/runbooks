@@ -3,39 +3,39 @@ export interface GitCloneProps {
   /** Unique block identifier (required) */
   id: string
   /** Display title (supports inline markdown and template expressions like {{ .inputs.repo_name }}) */
-  title?: string
+  title?: string | undefined
   /** Description text (supports inline markdown and template expressions) */
-  description?: string
+  description?: string | undefined
   /** ID or array of IDs of Inputs components to get variable values from */
-  inputsId?: string | string[]
+  inputsId?: string | string[] | undefined
   /** Reference to a GitHubAuth block by ID for credentials. Matches the `githubAuthId` prop used by every other block (Command, Check, GitHubPullRequest). */
-  githubAuthId?: string
+  githubAuthId?: string | undefined
   /** Reference to a GitAuth block by ID (GitHub or GitLab) for credentials. */
-  gitAuthId?: string
+  gitAuthId?: string | undefined
   /** Pre-fill the Git URL input (supports template expressions like {{ .inputs.repo_url }}) */
-  prefilledUrl?: string
+  prefilledUrl?: string | undefined
   /** Pre-fill the ref (branch or tag) to clone (supports template expressions) */
-  prefilledRef?: string
+  prefilledRef?: string | undefined
   /** Pre-fill the sparse checkout path (subdirectory to clone) (supports template expressions) */
-  prefilledRepoPath?: string
+  prefilledRepoPath?: string | undefined
   /** Pre-fill the local path (relative to CWD) where files will be cloned (supports template expressions) */
-  prefilledLocalPath?: string
+  prefilledLocalPath?: string | undefined
   /** Whether to show the file tree in the workspace panel after cloning. Defaults to true. */
-  showFileTree?: boolean
+  showFileTree?: boolean | undefined
   /**
    * Which repository source is selected initially: clone a remote repo, or use
    * a checkout the user already has on disk. Defaults to 'local' when
    * `prefilledRepoDir` is set, otherwise 'clone'.
    */
-  source?: GitCloneSource
+  source?: GitCloneSource | undefined
   /** When true, the source picker is hidden and the block is locked to `source`. */
-  hideSourceSelect?: boolean
+  hideSourceSelect?: boolean | undefined
   /** Pre-fill the local checkout directory (supports template expressions) */
-  prefilledRepoDir?: string
+  prefilledRepoDir?: string | undefined
 }
 
 /** Where the repository comes from: a fresh clone, or an existing local checkout. */
-export type GitCloneSource = 'clone' | 'local'
+export type GitCloneSource = "clone" | "local"
 
 /** Metadata for a local checkout selected by the user (git:local-repo result). */
 export interface LocalRepoInfo {
@@ -45,14 +45,14 @@ export interface LocalRepoInfo {
   remoteUrl?: string
   /** Checked out branch or tag; empty for a repo with no commits. */
   ref?: string
-  refType?: 'branch' | 'tag' | 'detached'
+  refType?: "branch" | "tag" | "detached"
   commitSha?: string
   /** False for a repo with no commits: no branch exists for a PR to target. */
   hasCommits?: boolean
 }
 
 /** Status of the clone operation */
-export type GitCloneStatus = 'pending' | 'ready' | 'running' | 'success' | 'fail'
+export type GitCloneStatus = "pending" | "ready" | "running" | "success" | "fail"
 
 /** Result of a successful clone, or of selecting a local checkout */
 export interface CloneResult {
@@ -64,13 +64,13 @@ export interface CloneResult {
    * opened against it. Reported by the backend rather than assumed, since a
    * clone with no explicit ref follows the remote's default branch.
    */
-  ref?: string
+  ref?: string | undefined
   /**
    * False when the repo has no commits yet. Such a repo has no branch for a
    * pull request to target, so the block holds downstream work until one is
    * seeded. Undefined from callers that predate the check.
    */
-  hasCommits?: boolean
+  hasCommits?: boolean | undefined
 }
 
 /** A GitHub organization the token's user belongs to */
@@ -95,5 +95,5 @@ export interface GitHubRepo {
 /** A GitHub ref (branch or tag) */
 export interface GitHubRef {
   name: string
-  type: 'branch' | 'tag'
+  type: "branch" | "tag"
 }

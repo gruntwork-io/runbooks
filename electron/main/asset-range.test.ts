@@ -41,7 +41,17 @@ describe("parseByteRange", () => {
   })
 
   it("ignores malformed headers", () => {
-    for (const header of ["bytes=abc", "bytes=5-2", "bytes=-", "bytes=", "items=0-5", "bytes 0-5", "bytes=0-5x", "bytes=1.5-2", "bytes=+1-2"]) {
+    for (const header of [
+      "bytes=abc",
+      "bytes=5-2",
+      "bytes=-",
+      "bytes=",
+      "items=0-5",
+      "bytes 0-5",
+      "bytes=0-5x",
+      "bytes=1.5-2",
+      "bytes=+1-2",
+    ]) {
       expect(parseByteRange(header, 100)).toBeNull()
     }
   })
@@ -102,6 +112,8 @@ describe("byteRangeResponse", () => {
 
   it("returns null for a directory or a missing file", async () => {
     expect(await byteRangeResponse(dir, "bytes=0-", "audio/wav")).toBeNull()
-    expect(await byteRangeResponse(path.join(dir, "missing.wav"), "bytes=0-", "audio/wav")).toBeNull()
+    expect(
+      await byteRangeResponse(path.join(dir, "missing.wav"), "bytes=0-", "audio/wav"),
+    ).toBeNull()
   })
 })

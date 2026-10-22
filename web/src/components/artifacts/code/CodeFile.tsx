@@ -1,28 +1,27 @@
-import { memo } from 'react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { PRISM_LINE_NUMBER_STYLE } from '@/lib/prismStyles';
-import { CodeFileHeader } from './CodeFileHeader';
-
+import { memo } from "react"
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
+import { coy } from "react-syntax-highlighter/dist/esm/styles/prism"
+import { PRISM_LINE_NUMBER_STYLE } from "@/lib/prismStyles"
+import { CodeFileHeader } from "./CodeFileHeader"
 
 export interface CodeFileProps {
   // File identification
-  fileName: string;
-  filePath?: string; // Optional path for copy functionality
+  fileName: string
+  filePath?: string | undefined // Optional path for copy functionality
 
   // Code content
-  code: string;
+  code: string
 
   // Syntax highlighting
-  language?: string; // Default: 'text'
-  showLineNumbers?: boolean; // Default: true
+  language?: string | undefined // Default: 'text'
+  showLineNumbers?: boolean | undefined // Default: true
 
   // Header options
-  showCopyCodeButton?: boolean;
-  showCopyPathButton?: boolean;
+  showCopyCodeButton?: boolean | undefined
+  showCopyPathButton?: boolean | undefined
 
   // Styling
-  className?: string;
+  className?: string | undefined
 }
 
 // Memoized so a parent re-render with the same `code` string doesn't re-run
@@ -32,13 +31,13 @@ const CodeFileImpl = ({
   fileName,
   filePath,
   code,
-  language = 'text',
+  language = "text",
   showLineNumbers = true,
   showCopyCodeButton = true,
   showCopyPathButton = Boolean(filePath),
-  className = ""
+  className = "",
 }: CodeFileProps) => {
-  const displayPath = filePath || fileName;
+  const displayPath = filePath || fileName
 
   return (
     <div data-testid={`code-file-${displayPath}`} className={className}>
@@ -54,19 +53,19 @@ const CodeFileImpl = ({
         style={coy}
         showLineNumbers={showLineNumbers}
         customStyle={{
-          fontSize: '12px',
-          border: '1px solid #ddd',
-          borderRadius: '2px',
-          padding: '14px 0px',
-          overflowX: 'auto'
+          fontSize: "12px",
+          border: "1px solid #ddd",
+          borderRadius: "2px",
+          padding: "14px 0px",
+          overflowX: "auto",
         }}
         lineNumberStyle={PRISM_LINE_NUMBER_STYLE}
       >
         {code}
       </SyntaxHighlighter>
     </div>
-  );
-};
+  )
+}
 
-export const CodeFile = memo(CodeFileImpl);
-CodeFile.displayName = 'CodeFile';
+export const CodeFile = memo(CodeFileImpl)
+CodeFile.displayName = "CodeFile"

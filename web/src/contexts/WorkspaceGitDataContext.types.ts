@@ -1,21 +1,21 @@
-import { createContext } from 'react'
+import { createContext } from "react"
 
 /**
  * A file change in the workspace (from git status + diff).
  */
 export interface WorkspaceFileChange {
   path: string
-  changeType: 'added' | 'modified' | 'deleted'
+  changeType: "added" | "modified" | "deleted"
   additions: number
   deletions: number
-  originalContent?: string
-  newContent?: string
+  originalContent?: string | undefined
+  newContent?: string | undefined
   language: string
-  isBinary?: boolean
-  diffTruncated?: boolean
-  isDirectory?: boolean
-  sourceBlockId?: string
-  sourceBlockType?: string
+  isBinary?: boolean | undefined
+  diffTruncated?: boolean | undefined
+  isDirectory?: boolean | undefined
+  sourceBlockId?: string | undefined
+  sourceBlockType?: string | undefined
 }
 
 /**
@@ -24,7 +24,7 @@ export interface WorkspaceFileChange {
 export interface WorkspaceTreeNode {
   id: string
   name: string
-  type: 'file' | 'folder'
+  type: "file" | "folder"
   size?: number
   language?: string
   isBinary?: boolean

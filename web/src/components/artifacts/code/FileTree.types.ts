@@ -1,11 +1,11 @@
 /**
  * @fileoverview FileTree Types and Schemas
- * 
+ *
  * Zod schemas and TypeScript types for the file tree data structures.
  * These are used to validate data from the backend API before use.
  */
 
-import { z } from 'zod'
+import { z } from "zod"
 
 /**
  * Zod schema for a file with its content and metadata.
@@ -36,19 +36,19 @@ export type File = z.infer<typeof FileSchema>
  */
 export interface FileTreeNode {
   /** Unique identifier for the file/folder */
-  id: string;
+  id: string
   /** Display name of the file/folder */
-  name: string;
+  name: string
   /** Type of the item - either 'file' or 'folder' */
-  type: 'file' | 'folder';
+  type: "file" | "folder"
   /** Child items (only present for folders) */
-  children?: FileTreeNode[];
+  children?: FileTreeNode[] | undefined
   /** File data (only present for files) */
-  file?: File;
+  file?: File | undefined
   /** Whether this file/folder is gitignored */
-  isIgnored?: boolean;
+  isIgnored?: boolean | undefined
   /** Whether this folder's children should be loaded on demand */
-  isLazyLoad?: boolean;
+  isLazyLoad?: boolean | undefined
 }
 
 /**
@@ -62,7 +62,7 @@ export const FileTreeNodeSchema: z.ZodType<FileTreeNode> = z.lazy(() =>
     /** Display name of the file/folder */
     name: z.string(),
     /** Type of the item - either 'file' or 'folder' */
-    type: z.enum(['file', 'folder']),
+    type: z.enum(["file", "folder"]),
     /** Child items (only present for folders) */
     children: z.array(FileTreeNodeSchema).optional(),
     /** File data (only present for files) */
@@ -71,7 +71,7 @@ export const FileTreeNodeSchema: z.ZodType<FileTreeNode> = z.lazy(() =>
     isIgnored: z.boolean().optional(),
     /** Whether this folder's children should be loaded on demand */
     isLazyLoad: z.boolean().optional(),
-  })
+  }),
 )
 
 /**

@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { LogEntry } from '@/hooks/useApiExec'
-import { LogsContext } from './LogsContext.types'
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
+import type { LogEntry } from "@/hooks/useApiExec"
+import { LogsContext } from "./LogsContext.types"
 
 interface LogsProviderProps {
   children: ReactNode
@@ -22,7 +22,7 @@ export function LogsProvider({ children }: LogsProviderProps) {
     logsRef.current.set(blockId, logs)
     // Setting the same boolean is a no-op, so consumers only re-render when
     // hasLogs actually flips.
-    setHasLogs(Array.from(logsRef.current.values()).some(l => l.length > 0))
+    setHasLogs(Array.from(logsRef.current.values()).some((l) => l.length > 0))
   }, [])
 
   // Read at call time (Header's download handlers), so it always sees the
@@ -38,12 +38,8 @@ export function LogsProvider({ children }: LogsProviderProps) {
 
   const value = useMemo(
     () => ({ registerLogs, getAllLogs, hasLogs, clearLogs }),
-    [registerLogs, getAllLogs, hasLogs, clearLogs]
+    [registerLogs, getAllLogs, hasLogs, clearLogs],
   )
 
-  return (
-    <LogsContext.Provider value={value}>
-      {children}
-    </LogsContext.Provider>
-  )
+  return <LogsContext.Provider value={value}>{children}</LogsContext.Provider>
 }

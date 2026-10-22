@@ -1,11 +1,10 @@
-// These are internal Starlight modules. We import via absolute path to bypass
-// the package.json exports map, which doesn't expose utils publicly.
-// @ts-ignore - internal Starlight module
-import { getSidebar } from "../../node_modules/@astrojs/starlight/utils/navigation.ts";
-// @ts-ignore - internal Starlight module
-import { routes } from "../../node_modules/@astrojs/starlight/utils/routing/index.ts";
-// @ts-ignore - internal Starlight module
-import { slugToPathname } from "../../node_modules/@astrojs/starlight/utils/slugs.ts";
+// These are internal Starlight modules. We import via a relative path to bypass
+// the package.json exports map, which doesn't expose utils publicly. Since
+// Starlight 0.42 the package ships compiled JavaScript with type declarations
+// under dist/ (no more TypeScript sources), so these paths track that layout.
+import { getSidebar } from "../../node_modules/@astrojs/starlight/dist/utils/navigation.js";
+import { routes } from "../../node_modules/@astrojs/starlight/dist/utils/routing/index.js";
+import { slugToPathname } from "../../node_modules/@astrojs/starlight/dist/utils/slugs.js";
 
 interface SidebarLink {
   type: "link";

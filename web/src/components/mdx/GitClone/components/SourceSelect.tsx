@@ -8,8 +8,8 @@ interface SourceSelectProps {
 }
 
 const OPTIONS: ReadonlyArray<{ id: GitCloneSource; label: string; Icon: typeof Cloud }> = [
-  { id: 'clone', label: 'Clone from remote', Icon: Cloud },
-  { id: 'local', label: 'Use local checkout', Icon: FolderGit2 },
+  { id: "clone", label: "Clone from remote", Icon: Cloud },
+  { id: "local", label: "Use local checkout", Icon: FolderGit2 },
 ] as const
 
 /**
@@ -36,8 +36,8 @@ export function SourceSelect({ source, onSelect, disabled }: SourceSelectProps) 
             onClick={() => onSelect(id)}
             className={`px-4 py-2 text-sm font-medium flex items-center gap-2 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
               active
-                ? 'text-foreground border-b-2 border-primary -mb-px'
-                : 'text-muted-foreground hover:text-foreground'
+                ? "text-foreground border-b-2 border-primary -mb-px"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             <Icon className="size-4" />

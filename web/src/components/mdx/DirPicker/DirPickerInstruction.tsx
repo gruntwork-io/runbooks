@@ -1,11 +1,13 @@
-import { useMemo, useState, useEffect } from 'react'
-import { FolderOpen } from 'lucide-react'
-import { InlineMarkdown, BlockIdLabel } from '@/components/mdx/_shared'
-import { CompletionCheckbox } from '@/components/mdx/_shared/components/CompletionCheckbox'
-import { useBlockCompletion } from '@/components/mdx/_shared/hooks/useBlockCompletion'
-import { useRunbookContext, useTemplateContext } from '@/contexts/useRunbook'
-import { resolveTemplateReferences } from '@/lib/templateUtils'
-import type { DirPickerProps } from './types'
+import { useMemo, useState, useEffect } from "react"
+import { FolderOpen } from "lucide-react"
+import { InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
+import { CompletionCheckbox } from "@/components/mdx/_shared/components/CompletionCheckbox"
+import { useBlockCompletion } from "@/components/mdx/_shared/hooks/useBlockCompletion"
+import { useRunbookContext, useTemplateContext } from "@/contexts/useRunbook"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { parseSavedForm, type SavedForm } from "@/lib/sessionHistory"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
+import type { DirPickerProps } from "./types"
 
 /**
  * Instruction-mode rendering of a DirPicker block (spec §6.4): an instruction to
@@ -19,9 +21,9 @@ import type { DirPickerProps } from './types'
  */
 export function DirPickerInstruction({
   id,
-  title = 'Select Directory',
-  description = 'Choose a target directory',
-  pathLabel = 'Target Path',
+  title = "Select Directory",
+  description = "Choose a target directory",
+  pathLabel = "Target Path",
   pathLabelDescription,
   inputsId,
 }: DirPickerProps) {
@@ -48,7 +50,17 @@ export function DirPickerInstruction({
     [pathLabelDescription, templateCtx],
   )
 
-  const [path, setPath] = useState('')
+  // The same path in the session's history as the interactive block's, so a
+  // switch of mode carries it over.
+  const history = useSessionHistory()
+  const [path, setPathState] = useState(() => {
+    const saved = parseSavedForm(history.saved(id, "inputs"))?.values.path
+    return typeof saved === "string" ? saved : ""
+  })
+  const setPath = (next: string) => {
+    setPathState(next)
+    history.record(id, "inputs", { values: { path: next }, submitted: true } satisfies SavedForm)
+  }
   const inputId = `dirpicker-path-${id}`
 
   const { completed, toggle } = useBlockCompletion(id)
@@ -66,7 +78,7 @@ export function DirPickerInstruction({
       data-instruction-mode="true"
       data-completed={completed || undefined}
       className={`runbook-block relative rounded-sm border mb-5 p-4 ${
-        completed ? 'border-success/40 bg-success-muted' : 'border-border bg-muted/40'
+        completed ? "border-success/40 bg-success-muted" : "border-border bg-muted/40"
       }`}
     >
       <div className="absolute top-3 right-3 z-20">
@@ -75,7 +87,9 @@ export function DirPickerInstruction({
 
       <div className="flex">
         <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <FolderOpen className={`size-6 ${completed ? 'text-success' : 'text-muted-foreground'}`} />
+          <FolderOpen
+            className={`size-6 ${completed ? "text-success" : "text-muted-foreground"}`}
+          />
         </div>
 
         <div className="flex-1 min-w-0 space-y-2">

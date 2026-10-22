@@ -3,6 +3,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 import { runAssertion, type AssertionContext } from "./assertions.ts"
+import { sensitiveOutput, type OutputValue } from "../../src/domain/exec/outputValues.ts"
 
 function makeCtx(outputDir: string, overrides: Partial<AssertionContext> = {}): AssertionContext {
   return {
@@ -58,20 +59,16 @@ describe("file_exists / file_not_exists", () => {
 describe("dir_exists / dir_not_exists", () => {
   it("dir_exists passes for a directory, fails for a file", () => {
     fs.mkdirSync(path.join(tmp, "sub"))
-    expect(
-      runAssertion({ type: "dir_exists", path: "sub" }, makeCtx(tmp)).passed,
-    ).toBe(true)
+    expect(runAssertion({ type: "dir_exists", path: "sub" }, makeCtx(tmp)).passed).toBe(true)
 
     fs.writeFileSync(path.join(tmp, "f"), "")
-    expect(
-      runAssertion({ type: "dir_exists", path: "f" }, makeCtx(tmp)).passed,
-    ).toBe(false)
+    expect(runAssertion({ type: "dir_exists", path: "f" }, makeCtx(tmp)).passed).toBe(false)
   })
 
   it("dir_not_exists passes when absent", () => {
-    expect(
-      runAssertion({ type: "dir_not_exists", path: "no-such-dir" }, makeCtx(tmp)).passed,
-    ).toBe(true)
+    expect(runAssertion({ type: "dir_not_exists", path: "no-such-dir" }, makeCtx(tmp)).passed).toBe(
+      true,
+    )
   })
 })
 
@@ -119,10 +116,7 @@ describe("file_matches", () => {
   it("fails on non-match", () => {
     fs.writeFileSync(path.join(tmp, "a.txt"), "nope")
     expect(
-      runAssertion(
-        { type: "file_matches", path: "a.txt", pattern: "^\\d+$" },
-        makeCtx(tmp),
-      ).passed,
+      runAssertion({ type: "file_matches", path: "a.txt", pattern: "^\\d+$" }, makeCtx(tmp)).passed,
     ).toBe(false)
   })
 })
@@ -131,17 +125,13 @@ describe("file_equals", () => {
   it("passes on exact match", () => {
     fs.writeFileSync(path.join(tmp, "a.txt"), "hello\n")
     expect(
-      runAssertion({ type: "file_equals", path: "a.txt", value: "hello\n" }, makeCtx(tmp))
-        .passed,
+      runAssertion({ type: "file_equals", path: "a.txt", value: "hello\n" }, makeCtx(tmp)).passed,
     ).toBe(true)
   })
 
   it("fails on mismatch with descriptive message", () => {
     fs.writeFileSync(path.join(tmp, "a.txt"), "actual")
-    const r = runAssertion(
-      { type: "file_equals", path: "a.txt", value: "expected" },
-      makeCtx(tmp),
-    )
+    const r = runAssertion({ type: "file_equals", path: "a.txt", value: "expected" }, makeCtx(tmp))
     expect(r.passed).toBe(false)
     expect(r.message).toContain("does not equal")
   })
@@ -152,8 +142,8 @@ describe("file_equals", () => {
 // ---------------------------------------------------------------------------
 
 describe("output_equals / output_matches / output_exists", () => {
-  function withOutputs(map: Record<string, Record<string, string>>) {
-    const outputs = new Map<string, Map<string, string>>()
+  function withOutputs(map: Record<string, Record<string, OutputValue>>) {
+    const outputs = new Map<string, Map<string, OutputValue>>()
     for (const [block, kv] of Object.entries(map)) {
       outputs.set(block, new Map(Object.entries(kv)))
     }
@@ -197,14 +187,59 @@ describe("output_equals / output_matches / output_exists", () => {
     expect(r.passed).toBe(true)
   })
 
+  it("compares a sensitive output's real value", () => {
+    const ctx = withOutputs({ b1: { token: sensitiveOutput("hunter2-SECRET") } })
+
+    expect(
+      runAssertion(
+        { type: "output_equals", block: "b1", output: "token", value: "hunter2-SECRET" },
+        ctx,
+      ).passed,
+    ).toBe(true)
+    expect(
+      runAssertion(
+        { type: "output_matches", block: "b1", output: "token", pattern: "^hunter2-" },
+        ctx,
+      ).passed,
+    ).toBe(true)
+    expect(runAssertion({ type: "output_exists", block: "b1", output: "token" }, ctx).passed).toBe(
+      true,
+    )
+  })
+
+  it("prints <redacted> for a sensitive output in a failure message", () => {
+    const ctx = withOutputs({ b1: { token: sensitiveOutput("hunter2-SECRET") } })
+    const equals = runAssertion(
+      { type: "output_equals", block: "b1", output: "token", value: "x" },
+      ctx,
+    )
+    const matches = runAssertion(
+      { type: "output_matches", block: "b1", output: "token", pattern: "^x$" },
+      ctx,
+    )
+
+    expect(equals.message).toBe('output b1.token = <redacted>, expected "x"')
+    expect(matches.message).toBe('output b1.token = <redacted> does not match pattern "^x$"')
+  })
+
+  it('prints an empty sensitive output as "" in a failure message', () => {
+    const ctx = withOutputs({ b1: { token: sensitiveOutput("") } })
+    const equals = runAssertion(
+      { type: "output_equals", block: "b1", output: "token", value: "x" },
+      ctx,
+    )
+
+    expect(equals.message).toBe('output b1.token = "", expected "x"')
+  })
+
   it("output_exists passes when output exists, fails otherwise", () => {
     const ctx = withOutputs({ b1: { present: "yes" } })
     expect(
       runAssertion({ type: "output_exists", block: "b1", output: "present" }, ctx).passed,
     ).toBe(true)
-    expect(
-      runAssertion({ type: "output_exists", block: "b1", output: "absent" }, ctx).passed,
-    ).toBe(false)
+    expect(runAssertion({ type: "output_exists", block: "b1", output: "absent" }, ctx).passed).toBe(
+      false,
+    )
   })
 })
 
@@ -230,9 +265,9 @@ describe("files_generated", () => {
 
   it("compares the block's count against min_count", () => {
     const ctx = withGenerated({ x: 3 })
-    expect(
-      runAssertion({ type: "files_generated", block: "x", min_count: 3 }, ctx).passed,
-    ).toBe(true)
+    expect(runAssertion({ type: "files_generated", block: "x", min_count: 3 }, ctx).passed).toBe(
+      true,
+    )
     const r = runAssertion({ type: "files_generated", block: "x", min_count: 5 }, ctx)
     expect(r.passed).toBe(false)
     expect(r.message).toContain("generated 3 file(s), expected at least 5")
@@ -250,28 +285,19 @@ describe("files_generated", () => {
 
 describe("script", () => {
   it("passes when the bash command exits 0", () => {
-    const r = runAssertion(
-      { type: "script", command: "true" },
-      makeCtx(tmp),
-    )
+    const r = runAssertion({ type: "script", command: "true" }, makeCtx(tmp))
     expect(r.passed).toBe(true)
   })
 
   it("fails when the bash command exits non-zero", () => {
-    const r = runAssertion(
-      { type: "script", command: "exit 7" },
-      makeCtx(tmp),
-    )
+    const r = runAssertion({ type: "script", command: "exit 7" }, makeCtx(tmp))
     expect(r.passed).toBe(false)
     expect(r.message).toContain("Script assertion failed")
   })
   it("runs in the output dir even before any block has generated files", () => {
     const outputDir = path.join(tmp, "generated")
     const marker = path.join(tmp, "cwd.txt")
-    const r = runAssertion(
-      { type: "script", command: `pwd -P > "${marker}"` },
-      makeCtx(outputDir),
-    )
+    const r = runAssertion({ type: "script", command: `pwd -P > "${marker}"` }, makeCtx(outputDir))
     expect(r.passed).toBe(true)
     expect(fs.readFileSync(marker, "utf-8").trim()).toBe(fs.realpathSync(outputDir))
   })

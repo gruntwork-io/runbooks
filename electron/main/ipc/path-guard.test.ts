@@ -7,6 +7,7 @@ import { resolveClonePaths } from "../../../src/domain/git/operations.ts"
 import { makeTestEnvironment } from "../../../src/test-utils/TestEnvironment.ts"
 import {
   resolveRunbookAssetPath,
+  runbookAssetHost,
   validateCloneDestination,
   validateSessionPath,
 } from "./path-guard.ts"
@@ -64,15 +65,15 @@ describe("validateSessionPath", () => {
     setRunbookConfig(savedConfig)
   })
 
-  const validate = (p: string) => Effect.runPromise(Effect.either(validateSessionPath(p)))
+  const validate = (p: string) => Effect.runPromise(Effect.result(validateSessionPath(p)))
 
   it("rejects a path in the session that is a symlink to outside it", async () => {
     // workspace:register with this path would otherwise make all of outside/
     // a trusted root.
     for (const p of [path.join(work, "link"), path.join(work, "link", "secret.txt")]) {
       const result = await validate(p)
-      expect(result._tag).toBe("Left")
-      if (result._tag === "Left") expect(result.left._tag).toBe("PathTraversalError")
+      expect(result._tag).toBe("Failure")
+      if (result._tag === "Failure") expect(result.failure._tag).toBe("PathTraversalError")
     }
   })
 
@@ -80,17 +81,47 @@ describe("validateSessionPath", () => {
     // git:local-repo registers the local checkout picked in a <GitClone> block.
     sessionManager.registerWorkTreePath(outside)
     const result = await validate(outside)
-    expect(result._tag).toBe("Right")
-    if (result._tag === "Right") expect(result.right).toBe(outside)
-    expect((await validate(path.join(outside, "secret.txt")))._tag).toBe("Right")
+    expect(result._tag).toBe("Success")
+    if (result._tag === "Success") expect(result.success).toBe(outside)
+    expect((await validate(path.join(outside, "secret.txt")))._tag).toBe("Success")
+  })
+
+  it("accepts the session's own directory after a script moved the working directory out of it", async () => {
+    // A saved session's directory is apart from the runbook's, and holds its
+    // generated files.
+    const sessionDir = path.join(root, "sessions", "s1")
+    const release = path.join(sessionDir, "release")
+    fs.mkdirSync(release, { recursive: true })
+    fs.symlinkSync(outside, path.join(sessionDir, "escape"))
+    sessionManager.deleteSession()
+    await Effect.runPromise(
+      sessionManager.createSession(sessionDir, runbook).pipe(Effect.provide(makeTestEnvironment())),
+    )
+    const start = await Effect.runPromise(sessionManager.getExecContext())
+    await Effect.runPromise(
+      sessionManager.applyCapturedEnv({
+        before: start.env,
+        after: start.env,
+        startWorkDir: start.workDir,
+        pwd: release,
+        generation: start.generation,
+      }),
+    )
+
+    const generated = await validate(path.join(sessionDir, "generated"))
+
+    expect(generated._tag).toBe("Success")
+    expect((await validate(path.join(sessionDir, "escape", "secret.txt")))._tag).toBe("Failure")
+    expect((await validate(path.join(root, "sessions", "s2")))._tag).toBe("Failure")
   })
 
   it("resolves a relative path against the runbook directory and returns it", async () => {
     // Callers must use the returned path: the raw relative path would be
     // resolved against the process cwd ("/" for a Finder-launched app).
     const result = await validate("Users/me/.ssh")
-    expect(result._tag).toBe("Right")
-    if (result._tag === "Right") expect(result.right).toBe(path.join(work, "Users", "me", ".ssh"))
+    expect(result._tag).toBe("Success")
+    if (result._tag === "Success")
+      expect(result.success).toBe(path.join(work, "Users", "me", ".ssh"))
   })
 })
 
@@ -104,15 +135,15 @@ describe("validateCloneDestination", () => {
           "https://github.com/acme/repo.git",
           workingDir,
         )
-        return yield* Effect.either(validateCloneDestination(absolutePath, workingDir, runbookPath))
+        return yield* Effect.result(validateCloneDestination(absolutePath, workingDir, runbookPath))
       }),
     )
 
   const expectRejected = async (result: Awaited<ReturnType<typeof check>>, message: string) => {
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("PathTraversalError")
-      expect(result.left.message).toContain(message)
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("PathTraversalError")
+      expect(result.failure.message).toContain(message)
     }
   }
 
@@ -145,51 +176,108 @@ describe("validateCloneDestination", () => {
   })
 
   it.each(["repo", "nested/repo", undefined])("accepts %p", async (localPath) => {
-    expect((await check(localPath))._tag).toBe("Right")
+    expect((await check(localPath))._tag).toBe("Success")
   })
 
   it("accepts a sibling of the runbook's directory from a parent working dir", async () => {
-    expect((await check("other", root))._tag).toBe("Right")
+    expect((await check("other", root))._tag).toBe("Success")
   })
 
   it("skips the runbook check when the session has no runbook", async () => {
-    expect((await check("work", root, ""))._tag).toBe("Right")
+    expect((await check("work", root, ""))._tag).toBe("Success")
   })
 })
 
 describe("resolveRunbookAssetPath", () => {
-  it("serves a regular file inside the runbook directory", async () => {
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/ok.png", work)).toBe(
-      path.join(work, "assets", "ok.png"),
-    )
+  const HOST = "rtest"
+  /** Resolve `assetPath`, a path in assets/, as the open runbook's runbook-asset://<host>/<assetPath>. */
+  const resolve = (assetPath: string, runbookDir = work) =>
+    resolveRunbookAssetPath(`runbook-asset://${HOST}/${assetPath}`, runbookDir, HOST)
+
+  it("serves a regular file from the assets folder, which is the host's root", async () => {
+    expect(await resolve("ok.png")).toBe(path.join(work, "assets", "ok.png"))
+  })
+
+  it("refuses another runbook's host", async () => {
+    const url = "runbook-asset://rother/ok.png"
+    expect(await resolveRunbookAssetPath(url, work, HOST)).toBeNull()
+    // The host every runbook shared before hosts were per runbook.
+    expect(await resolveRunbookAssetPath("runbook-asset://assets/ok.png", work, HOST)).toBeNull()
   })
 
   it("percent-decodes the path so the checked path is the served path", async () => {
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/my%20image.png", work)).toBe(
-      path.join(work, "assets", "my image.png"),
-    )
+    expect(await resolve("my%20image.png")).toBe(path.join(work, "assets", "my image.png"))
   })
 
   it("refuses a symlink that points outside the runbook directory", async () => {
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/leak.png", work)).toBeNull()
+    expect(await resolve("leak.png")).toBeNull()
   })
 
   it("refuses an outside symlink named with percent-encoding", async () => {
     // Checking the still-encoded "leak%20x.png" (which does not exist) would
     // pass, while the file:// fetch decodes it and follows the symlink.
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/leak%20x.png", work)).toBeNull()
+    expect(await resolve("leak%20x.png")).toBeNull()
   })
 
   it("refuses traversal, including percent-encoded separators", async () => {
-    // The URL parser keeps `..` path segments below the host, so a host of
-    // ".." is the only literal way up.
-    expect(await resolveRunbookAssetPath("runbook-asset://../outside/secret.txt", work)).toBeNull()
-    expect(
-      await resolveRunbookAssetPath("runbook-asset://assets/..%2F..%2Foutside%2Fsecret.txt", work),
-    ).toBeNull()
+    expect(await resolve("..%2Frunbook.mdx")).toBeNull()
+    expect(await resolve("..%2F..%2Foutside%2Fsecret.txt")).toBeNull()
   })
 
   it("refuses malformed percent-encoding", async () => {
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/%E0%A4%A.png", work)).toBeNull()
+    expect(await resolve("%E0%A4%A.png")).toBeNull()
+  })
+
+  it("refuses files in the runbook directory outside assets/", async () => {
+    fs.mkdirSync(path.join(work, "generated"))
+    fs.writeFileSync(path.join(work, "generated", "out.txt"), "output")
+    expect(await resolve("..%2Fgenerated%2Fout.txt")).toBeNull()
+  })
+
+  it("refuses everything when assets/ is a symlink out of the runbook directory", async () => {
+    const linked = path.join(root, "linked")
+    fs.mkdirSync(linked)
+    fs.symlinkSync("../outside", path.join(linked, "assets"))
+    expect(await resolve("secret.txt", linked)).toBeNull()
+  })
+
+  it.each([
+    ["the runbook directory", "."],
+    ["another folder in the runbook directory", "generated"],
+  ])("refuses everything when assets/ is a symlink to %s", async (_name, target) => {
+    const linked = path.join(root, "linked")
+    fs.mkdirSync(path.join(linked, "generated"), { recursive: true })
+    fs.writeFileSync(path.join(linked, "runbook.mdx"), "# Runbook")
+    fs.writeFileSync(path.join(linked, "generated", "out.txt"), "output")
+    fs.symlinkSync(target, path.join(linked, "assets"))
+    expect(await resolve("generated/out.txt", linked)).toBeNull()
+    expect(await resolve("out.txt", linked)).toBeNull()
+    expect(await resolve("runbook.mdx", linked)).toBeNull()
+  })
+
+  it("refuses everything when the runbook has no assets/ folder", async () => {
+    fs.rmSync(path.join(work, "assets"), { recursive: true })
+    expect(await resolve("ok.png")).toBeNull()
+  })
+})
+
+describe("runbookAssetHost", () => {
+  it("gives each runbook its own host, the same on every open", () => {
+    const a = runbookAssetHost({ localPath: "/runbooks/a/runbook.mdx" })
+    expect(runbookAssetHost({ localPath: "/runbooks/a/runbook.mdx" })).toBe(a)
+    expect(runbookAssetHost({ localPath: "/runbooks/b/runbook.mdx" })).not.toBe(a)
+  })
+
+  it("identifies a remote runbook by its URL, since each open clones it to a new folder", () => {
+    const remoteSourceURL = "https://github.com/org/repo/tree/main/runbooks/a"
+    expect(runbookAssetHost({ localPath: "/tmp/clone-1/runbook.mdx", remoteSourceURL })).toBe(
+      runbookAssetHost({ localPath: "/tmp/clone-2/runbook.mdx", remoteSourceURL }),
+    )
+  })
+
+  it("is a host the URL parser keeps as written", () => {
+    const host = runbookAssetHost({ localPath: "/runbooks/a/runbook.mdx" })
+    expect(host).toMatch(/^r[0-9a-f]{32}$/)
+    expect(new URL(`runbook-asset://${host}/a.png`).hostname).toBe(host)
   })
 })

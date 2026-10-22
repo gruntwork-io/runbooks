@@ -5,10 +5,11 @@ if (process.env.ELECTRON_RENDERER_URL) {
   process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true"
 }
 
-import { app, shell, ipcMain, dialog, protocol, net, nativeTheme } from "electron"
+import { app, shell, ipcMain, dialog, protocol, net, nativeTheme, session } from "electron"
 import type { BrowserWindow } from "electron"
 import * as path from "path"
 import * as fs from "fs"
+import * as os from "node:os"
 import { pathToFileURL } from "node:url"
 import { createMainWindow, focusOrCreateWindow, getMainWindow, setTitleBarTheme } from "./window.ts"
 import { openRunbookInWindow, openRemoteRunbookInWindow } from "./open-runbook.ts"
@@ -16,21 +17,41 @@ import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
+import { launchDirContext, requestLaunchLock, secondInstanceLaunchDirectory } from "./launch-dir.ts"
+import { planSecondLaunch, planStartupLaunch } from "./launch-session.ts"
+import { openSessionStorage, type SessionStorage } from "./session-storage.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli } from "./cli-install.ts"
-import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
-import { closeRunbook, stopWatcher } from "./ipc/watch.ts"
+import { installCliWithDialog, uninstallCliWithDialog } from "./cli-install-dialogs.ts"
+import {
+  runtime,
+  setRunbookConfig,
+  runbookConfig,
+  sessionPersistence,
+  setSessionPersistence,
+} from "./ipc/runtime.ts"
+import { expectLaunch, isSessionOpen, resetToNewSession } from "./ipc/runbook.ts"
+import { closeRunbook, stopWatchers } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { cancelAllExecutions } from "./ipc/exec.ts"
-import { resolveRunbookAssetPath } from "./ipc/path-guard.ts"
+import { resolveRunbookAssetPath, runbookAssetHost } from "./ipc/path-guard.ts"
 import { byteRangeResponse } from "./asset-range.ts"
+import { installClientCertificateHandler, installPermissionHandlers } from "./permissions.ts"
+import {
+  LOCAL_EMBED_PARTITION,
+  WEB_EMBED_PARTITION,
+  hardenEmbedGuest,
+  installEmbedSession,
+  prepareWebviewAttach,
+} from "./embeds.ts"
 import { getContentType } from "../../src/domain/workspace/file.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
 import { initSystemTrust } from "./system-trust.ts"
 import { eagerLoadInBackground as eagerLoadBoilerplateWasm } from "../../src/layers/NodeWasmRuntime.ts"
 import { registerSecret, VCS_TOKEN_ENV_VARS } from "../../src/domain/vcs/redact.ts"
+import { init as initTelemetry, shutdown as shutdownTelemetry } from "../../src/telemetry.ts"
 
 const log = makeLogger("main")
 
@@ -148,10 +169,19 @@ protocol.registerSchemesAsPrivileged([
 // Single instance lock — focus existing window instead of opening a second.
 // ---------------------------------------------------------------------------
 
+// requestLaunchLock first makes the cwd readable: when `runbooks` is run from
+// a folder that has been deleted, process.cwd() throws and Chromium's hand-off
+// to the running app fails (see launch-dir.ts). launchDir is what relative CLI
+// paths resolve against.
+//
 // A second instance sends its unmodified argv along: the `argv` Electron
 // hands to "second-instance" has been reordered by Chromium (see
-// secondInstanceArgv).
-const gotLock = app.requestSingleInstanceLock({ argv: process.argv })
+// secondInstanceArgv). It sends launchDir too: after a recovery, Electron's
+// `workingDirectory` is the folder it moved to, not the one it was run from.
+const { gotLock, launchDir } = requestLaunchLock(
+  (data) => app.requestSingleInstanceLock(data),
+  process.argv,
+)
 
 if (!gotLock) {
   app.quit()
@@ -160,16 +190,28 @@ if (!gotLock) {
     const win = focusOrCreateWindow()
     // Resolve relative paths against the directory the second instance was
     // launched from, not this (first) instance's cwd.
+    const secondLaunchDir = secondInstanceLaunchDirectory(workingDirectory, additionalData)
     const secondArgs = parseCliArgs(
       secondInstanceArgv(argv, additionalData),
-      workingDirectory,
+      secondLaunchDir,
       app.getAppPath(),
     )
-    if (secondArgs.remoteUrl) {
-      openRemoteRunbook(win, secondArgs.remoteUrl)
-    } else if (secondArgs.runbookPath) {
+    // Electron emits second-instance only after ready, and the ready handler
+    // opens session storage first.
+    if (!sessionPersistence) throw new Error("session persistence is not initialized")
+    const plan = planSecondLaunch(
+      sessionPersistence,
+      secondArgs,
+      launchDirContext(secondLaunchDir),
+      isSessionOpen,
+    )
+    if (plan === undefined) return
+    expectLaunch(plan.launch)
+    if ("remoteUrl" in plan.open) {
+      openRemoteRunbook(win, plan.open.remoteUrl)
+    } else {
       // focusOrCreateWindow may return a window that is still loading.
-      openRunbookInWindow(win, { path: secondArgs.runbookPath })
+      openRunbookInWindow(win, { path: plan.open.path })
     }
   })
 }
@@ -191,7 +233,50 @@ function openRemoteRunbook(win: BrowserWindow, url: string): void {
 // Parse CLI arguments
 // ---------------------------------------------------------------------------
 
-const cliConfig = parseCliArgs(process.argv, process.cwd(), app.getAppPath())
+const cliConfig = parseCliArgs(process.argv, launchDir, app.getAppPath())
+
+/**
+ * The local runbook the renderer opens when it starts, which it asks for with
+ * native:get-cli-config: the path on the command line or, with no arguments,
+ * the runbook of the session this launch resumes (prepareStartupLaunch).
+ */
+let startupRunbookPath = cliConfig.runbookPath
+
+/** The open sessions database, from when the app is ready until it quits. */
+let sessionStore: SessionStorage | null = null
+
+/**
+ * Tell runbook:get how this process was launched, and pick the session to
+ * resume when the command line names no runbook: the one last launched from
+ * this directory, or the most recent of all for a launch from the dock.
+ *
+ * A resumed local runbook becomes startupRunbookPath. A resumed remote one
+ * has to be cloned again first, so its URL is returned instead.
+ */
+function prepareStartupLaunch(storage: SessionStorage): string | undefined {
+  const plan = planStartupLaunch(
+    storage.persistence,
+    cliConfig,
+    launchDirContext(launchDir),
+    pendingOpenFilePath,
+  )
+  if (plan === undefined) return undefined
+  expectLaunch(plan.launch)
+  if ("remoteUrl" in plan.open) return plan.open.remoteUrl
+  // A path on the command line is startupRunbookPath already, with localPath
+  // resolved below.
+  if (plan.launch.sessionId === undefined) return undefined
+  startupRunbookPath = plan.open.path
+  // As for a path on the command line below: an asset request must not find
+  // an empty localPath if it gets ahead of the renderer's runbook:get.
+  setRunbookConfig({ ...runbookConfig, localPath: plan.open.path })
+  return undefined
+}
+
+// Before the IPC handlers register, so the renderer's telemetry:config call
+// sees the final state. --no-telemetry or RUNBOOKS_TELEMETRY_DISABLE keeps it
+// off.
+initTelemetry(app.getVersion(), cliConfig.noTelemetry)
 
 // Apply CLI overrides to the shared runtime config.
 // Remote URLs are resolved asynchronously after app.whenReady().
@@ -232,7 +317,7 @@ setRunbookConfig({
 // Importing ./ipc/index.ts above already wrapped ipcMain.handle with
 // installIpcErrorNormalization() (ipc/ipc-error.ts), so a rejection from
 // these handlers, like every other, crosses to the renderer as a clean
-// message instead of a FiberFailure dump.
+// message.
 // ---------------------------------------------------------------------------
 
 const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])
@@ -248,24 +333,32 @@ ipcMain.handle("native:open-external", async (_event, params: { url: string }) =
 
 ipcMain.handle(
   "native:show-open-dialog",
-  async (_event, params: { properties: Array<"openFile" | "openDirectory" | "multiSelections">; filters?: Electron.FileFilter[] }) => {
+  async (
+    _event,
+    params: {
+      properties: Array<"openFile" | "openDirectory" | "multiSelections">
+      filters?: Electron.FileFilter[]
+    },
+  ) => {
     const result = await dialog.showOpenDialog({
       properties: params.properties,
-      defaultPath: getDialogDefaultPath(),
-      filters: params.filters,
+      ...dialogDefaultPath(),
+      ...(params.filters !== undefined ? { filters: params.filters } : {}),
     })
     return { filePaths: result.filePaths }
   },
 )
 
 // Open dialogs at the current runbook's directory when one is loaded, so the
-// file browser lands where the user expects. Falls back to undefined (OS
-// default) on cold launch before any runbook has been opened.
-function getDialogDefaultPath(): string | undefined {
+// file browser lands where the user expects. Before any runbook has been
+// opened it sets nothing. Since Electron 43 the dialog then opens at
+// ~/Downloads (or the home directory if there is none), and the OS no longer
+// restores the folder the user last browsed to.
+function dialogDefaultPath(): Pick<Electron.OpenDialogOptions, "defaultPath"> {
   if (runbookConfig.localPath) {
-    return path.dirname(runbookConfig.localPath)
+    return { defaultPath: path.dirname(runbookConfig.localPath) }
   }
-  return undefined
+  return {}
 }
 
 ipcMain.handle("native:open-runbook-dialog", async () => {
@@ -273,7 +366,7 @@ ipcMain.handle("native:open-runbook-dialog", async () => {
   if (!win) return { ok: false }
   const result = await dialog.showOpenDialog(win, {
     properties: ["openFile", "openDirectory"],
-    defaultPath: getDialogDefaultPath(),
+    ...dialogDefaultPath(),
     filters: [
       { name: "Runbook files", extensions: ["mdx", "md"] },
       { name: "All Files", extensions: ["*"] },
@@ -293,12 +386,41 @@ ipcMain.handle("native:close-runbook", () => {
   return { ok: true } as const
 })
 
+// The in-app "Reset Session" menu item (Header dropdown). On Windows and Linux
+// the native menu bar is hidden, so this is the only way to File > Reset
+// Session there.
+ipcMain.handle("native:reset-session", () => {
+  resetToNewSession()
+  return { ok: true } as const
+})
+
+// Unpackaged, app.getVersion() is Electron's own version (there is no
+// package.json beside dist/main/index.js), so read the repo's instead.
+ipcMain.handle("native:app-version", () => {
+  if (app.isPackaged) return { version: app.getVersion() }
+  const pkg = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, "..", "..", "package.json"), "utf8"),
+  ) as { version: string }
+  return { version: pkg.version }
+})
+
 // CLI symlink management
 ipcMain.handle("cli:check-install", () => checkCliInstall())
 ipcMain.handle("cli:install", () => installCli())
+ipcMain.handle("cli:install-with-dialog", async () => {
+  await installCliWithDialog()
+  return { ok: true } as const
+})
+ipcMain.handle("cli:uninstall-with-dialog", async () => {
+  await uninstallCliWithDialog()
+  return { ok: true } as const
+})
+
+// $HOME first, as a shell's ~ is, and as launch-dir.ts reads it.
+ipcMain.handle("native:get-home-dir", () => ({ path: os.homedir() }))
 
 ipcMain.handle("native:get-cli-config", () => ({
-  runbookPath: cliConfig.runbookPath,
+  runbookPath: startupRunbookPath,
   remoteUrl: cliConfig.remoteUrl,
   watch: cliConfig.watch,
   noTelemetry: cliConfig.noTelemetry,
@@ -332,91 +454,154 @@ app.on("open-file", (event, filePath) => {
   }
 })
 
+/**
+ * Answer a runbook-asset:// request from the open runbook's assets/ folder.
+ *
+ * Security: resolveRunbookAssetPath returns null unless the URL has the open
+ * runbook's host and the file is within its assets/ folder after resolving
+ * symlinks, so neither `..` nor a symlink shipped in the runbook dir can serve
+ * a file from outside it.
+ */
+async function serveRunbookAsset(request: Request): Promise<Response> {
+  const resolved = await resolveRunbookAssetPath(
+    request.url,
+    path.dirname(runbookConfig.localPath),
+    runbookAssetHost(runbookConfig),
+  )
+  if (!resolved) {
+    return new Response("Forbidden", { status: 403 })
+  }
+
+  // <video>/<audio> fetch byte ranges and can only seek when the answer is
+  // a 206 with a Content-Range, which net.fetch's file:// response never
+  // has, so ranged GETs are answered from the file here. Without a Range
+  // header, or with one byteRangeResponse ignores, the whole file is served.
+  const rangeHeader = request.headers.get("range")
+  if (rangeHeader && request.method === "GET") {
+    const partial = await byteRangeResponse(resolved, rangeHeader, getContentType(resolved))
+    if (partial) return partial
+  }
+
+  return net.fetch(pathToFileURL(resolved).href)
+}
+
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-app.whenReady().then(() => {
-  // Register a protocol handler to serve runbook assets (images, videos, etc.)
-  // from the local filesystem. The renderer rewrites ./assets/foo.png to
-  // runbook-asset://assets/foo.png which this handler resolves relative to the
-  // runbook directory.
-  protocol.handle("runbook-asset", async (request) => {
-    // URL looks like: runbook-asset://assets/foo.png
-    // Security: resolveRunbookAssetPath returns null unless the file is within
-    // the runbook directory after resolving symlinks, so neither `..` nor a
-    // symlink shipped in the runbook dir can serve a file from outside it.
-    const resolved = await resolveRunbookAssetPath(
-      request.url,
-      path.dirname(runbookConfig.localPath),
-    )
-    if (!resolved) {
-      return new Response("Forbidden", { status: 403 })
-    }
+app
+  .whenReady()
+  .then(() => {
+    installPermissionHandlers(session.defaultSession)
+    installClientCertificateHandler(app)
 
-    // <video>/<audio> fetch byte ranges and can only seek when the answer is
-    // a 206 with a Content-Range, which net.fetch's file:// response never
-    // has, so ranged GETs are answered from the file here. Without a Range
-    // header, or with one byteRangeResponse ignores, the whole file is served.
-    const rangeHeader = request.headers.get("range")
-    if (rangeHeader && request.method === "GET") {
-      const partial = await byteRangeResponse(resolved, rangeHeader, getContentType(resolved))
-      if (partial) return partial
-    }
+    // Register a protocol handler to serve runbook assets (images, videos, etc.)
+    // from the local filesystem. The renderer rewrites ./assets/foo.png to
+    // runbook-asset://<host>/foo.png, where <host> is the open runbook's
+    // (runbookAssetHost, sent with runbook:get), which this handler resolves
+    // relative to the runbook's assets/ folder.
+    protocol.handle("runbook-asset", serveRunbookAsset)
 
-    return net.fetch(pathToFileURL(resolved).href)
-  })
+    // Pages the Iframe block embeds run in <webview> guests, in sessions of
+    // their own (embeds.ts). Only local pages' session serves runbook-asset://.
+    const localEmbeds = session.fromPartition(LOCAL_EMBED_PARTITION)
+    const webEmbeds = session.fromPartition(WEB_EMBED_PARTITION)
+    installEmbedSession(localEmbeds)
+    installEmbedSession(webEmbeds)
+    localEmbeds.protocol.handle("runbook-asset", serveRunbookAsset)
+    const assetHost = () => runbookAssetHost(runbookConfig)
+    const localEmbedPreload = path.join(__dirname, "../preload/embed.cjs")
+    app.on("web-contents-created", (_event, contents) => {
+      if (contents.getType() === "window") {
+        contents.on("will-attach-webview", (event, webPreferences, params) => {
+          if (!prepareWebviewAttach(webPreferences, params, assetHost(), localEmbedPreload)) {
+            event.preventDefault()
+          }
+        })
+      } else if (contents.getType() === "webview") {
+        // prepareWebviewAttach put every guest it let through in one of the two.
+        const partition =
+          contents.session === localEmbeds
+            ? LOCAL_EMBED_PARTITION
+            : contents.session === webEmbeds
+              ? WEB_EMBED_PARTITION
+              : null
+        if (partition) {
+          hardenEmbedGuest(contents, partition, assetHost)
+        } else {
+          contents.close()
+        }
+      }
+    })
 
-  // Apply the persisted theme before creating the window so its background
-  // color and title bar overlay are correct on the first frame. The renderer
-  // re-confirms over the native:set-theme IPC channel once it mounts.
-  nativeTheme.themeSource = getStoredTheme()
+    // Apply the persisted theme before creating the window so its background
+    // color and title bar overlay are correct on the first frame. The renderer
+    // re-confirms over the native:set-theme IPC channel once it mounts.
+    nativeTheme.themeSource = getStoredTheme()
 
-  setupApplicationMenu()
-  registerAllIpcHandlers()
-  createMainWindow()
-  initAutoUpdater()
+    // Before the window exists: runbook:get needs the storage, and the
+    // renderer reads the runbook to resume as soon as it starts.
+    sessionStore = openSessionStorage(app.getPath("userData"))
+    setSessionPersistence(sessionStore.persistence)
+    const resumedRemoteUrl = prepareStartupLaunch(sessionStore)
 
-  // Keep the (Windows/Linux) title bar overlay + window background in sync with
-  // the effective theme. Fires both when the renderer changes themeSource via
-  // the native:set-theme IPC handler and when the OS theme changes while
-  // themeSource is 'system'. The initial call covers the case where assigning
-  // themeSource above doesn't fire an "updated" event (e.g. when the persisted
-  // theme already matches the OS).
-  setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
-  nativeTheme.on("updated", () => {
+    setupApplicationMenu()
+    registerAllIpcHandlers()
+    const mainWindow = createMainWindow()
+    initAutoUpdater()
+
+    // View > Reload replaces the page without unmounting its blocks, so no
+    // block cancels its run, and no block on the new page shows it or can stop
+    // it.
+    mainWindow.webContents.on("did-start-navigation", (details) => {
+      if (!details.isMainFrame || details.isSameDocument) return
+      cancelAllExecutions().catch((err: unknown) => {
+        log.error("Error cancelling executions:", err)
+      })
+    })
+
+    // Keep the (Windows/Linux) title bar overlay + window background in sync with
+    // the effective theme. Fires both when the renderer changes themeSource via
+    // the native:set-theme IPC handler and when the OS theme changes while
+    // themeSource is 'system'. The initial call covers the case where assigning
+    // themeSource above doesn't fire an "updated" event (e.g. when the persisted
+    // theme already matches the OS).
     setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
+    nativeTheme.on("updated", () => {
+      setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
+    })
+
+    // Kick off the boilerplate WASM load as a background task. The full build
+    // is ~600-900ms to instantiate; running it now overlaps the cost with the
+    // user reading the runbook before their first edit.
+    log.info("Starting eager background load of vendored boilerplate WASM")
+    eagerLoadBoilerplateWasm()
+
+    // A remote runbook, named on the command line or resumed, is cloned and
+    // then pushed to the renderer. openRunbookInWindow waits for the page to
+    // load, so the clone can start right away. A local one needs nothing
+    // here: the renderer asks for startupRunbookPath itself. Pushing it too
+    // would open the runbook twice.
+    const remoteUrl = cliConfig.remoteUrl ?? resumedRemoteUrl
+    if (remoteUrl) {
+      const win = getMainWindow()
+      if (win) openRemoteRunbook(win, remoteUrl)
+    } else if (!startupRunbookPath && pendingOpenFilePath) {
+      // A macOS open-file event (Finder double-click) arrived before the window
+      // was ready. Now that the window exists, open the stashed runbook.
+      const filePath = pendingOpenFilePath
+      pendingOpenFilePath = null
+      const win = getMainWindow()
+      if (win) openRunbookInWindow(win, { path: filePath })
+    }
+
+    app.on("activate", () => {
+      focusOrCreateWindow()
+    })
   })
-
-  // Kick off the boilerplate WASM load as a background task. The full build
-  // is ~600-900ms to instantiate; running it now overlaps the cost with the
-  // user reading the runbook before their first edit.
-  log.info("Starting eager background load of vendored boilerplate WASM")
-  eagerLoadBoilerplateWasm()
-
-  // If a runbook was specified via CLI, tell the renderer once it's ready.
-  // openRunbookInWindow waits for the page to load, so a remote clone can
-  // start right away.
-  if (cliConfig.remoteUrl) {
-    const win = getMainWindow()
-    if (win) openRemoteRunbook(win, cliConfig.remoteUrl)
-  } else if (cliConfig.runbookPath) {
-    const runbookPath = cliConfig.runbookPath
-    const win = getMainWindow()
-    if (win) openRunbookInWindow(win, { path: runbookPath })
-  } else if (pendingOpenFilePath) {
-    // A macOS open-file event (Finder double-click) arrived before the window
-    // was ready. Now that the window exists, open the stashed runbook.
-    const filePath = pendingOpenFilePath
-    pendingOpenFilePath = null
-    const win = getMainWindow()
-    if (win) openRunbookInWindow(win, { path: filePath })
-  }
-
-  app.on("activate", () => {
-    focusOrCreateWindow()
+  .catch((err: unknown) => {
+    log.error("App startup failed:", err)
   })
-})
 
 app.on("window-all-closed", () => {
   app.quit()
@@ -440,7 +625,12 @@ app.on("will-quit", (event) => {
   // cleanup below so a script is signalled before its temp clone or credential
   // file disappears. The wait is capped at 1 s so that cleanup still runs
   // inside the safety timeout.
-  Promise.race([cancelAllExecutions(), new Promise<void>((resolve) => setTimeout(resolve, 1000))])
+  Promise.race([
+    cancelAllExecutions(),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 1000)
+    }),
+  ])
     .catch((err) => {
       log.error("Error cancelling executions:", err)
     })
@@ -451,19 +641,21 @@ app.on("will-quit", (event) => {
       // Shred the credential files materialised for Google Cloud auth
       cleanupGoogleCredentialFiles()
 
-      // Close the watch-mode file watcher (runtime.dispose doesn't reach it)
-      void stopWatcher()
+      // Close the runbook and script file watchers (runtime.dispose doesn't reach them)
+      void stopWatchers()
 
       // Dispose the Effect managed runtime to clean up background fibers,
-      // file watchers, etc.
-      runtime
-        .dispose()
-        .catch((err) => {
+      // file watchers, etc., while telemetry gets its brief window to send
+      // in-flight events.
+      void Promise.all([
+        runtime.dispose().catch((err) => {
           log.error("Error disposing runtime:", err)
-        })
-        .finally(() => {
-          clearTimeout(timeout)
-          app.exit(0)
-        })
+        }),
+        shutdownTelemetry(),
+      ]).finally(() => {
+        sessionStore?.close()
+        clearTimeout(timeout)
+        app.exit(0)
+      })
     })
 })

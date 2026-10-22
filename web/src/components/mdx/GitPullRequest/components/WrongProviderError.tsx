@@ -16,7 +16,7 @@ interface WrongProviderErrorProps {
  */
 export function WrongProviderError({ cfg, authDerivedProvider }: WrongProviderErrorProps) {
   const linked = PR_PROVIDERS[authDerivedProvider]
-  const matchingAuthBlock = cfg.id === 'github' ? 'GitHubAuth' : 'GitLabAuth'
+  const matchingAuthBlock = cfg.id === "github" ? "GitHubAuth" : "GitLabAuth"
 
   return (
     <div className="mb-4 p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
@@ -25,10 +25,10 @@ export function WrongProviderError({ cfg, authDerivedProvider }: WrongProviderEr
         <p className="text-sm font-medium text-destructive m-0">Wrong authentication provider</p>
         <p className="text-xs text-destructive m-0 mt-0.5">
           This {cfg.noun.singular} block is linked to a {linked.label} authentication block, but it
-          can only be used with a {cfg.label} auth block. Link a{' '}
-          <code className="bg-destructive-muted px-1 rounded">{`<${matchingAuthBlock}>`}</code>{' '}
-          (or <code className="bg-destructive-muted px-1 rounded">{`<GitAuth provider="${cfg.id}">`}</code>)
-          block, or use the generic{' '}
+          can only be used with a {cfg.label} auth block. Link a{" "}
+          <code className="bg-destructive-muted px-1 rounded">{`<${matchingAuthBlock}>`}</code> (or{" "}
+          <code className="bg-destructive-muted px-1 rounded">{`<GitAuth provider="${cfg.id}">`}</code>
+          ) block, or use the generic{" "}
           <code className="bg-destructive-muted px-1 rounded">{`<GitPullRequest>`}</code> block to
           support either provider.
         </p>

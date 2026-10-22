@@ -4,13 +4,11 @@ title: <GitHubPullRequest>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<GitHubPullRequest>` block provides a streamlined way to create GitHub pull requests directly from a runbook. It integrates with the [`<GitClone>`](/authoring/blocks/gitclone/) block to push changes made during the runbook workflow and open a PR.
+The `<GitHubPullRequest>` block commits the changes made in a repository cloned by [`<GitClone>`](/authoring/blocks/gitclone/), pushes them to a new branch, and opens a GitHub pull request. It is a GitHub-locked alias of [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/), equivalent to `<GitPullRequest provider="github" />`.
 
-This block completes the git workflow loop: clone a repository, make changes (via Command, Template, or other blocks), and open a pull request.
+### Basic usage
 
-### Basic Usage
-
-Pair with `<GitHubAuth>` and `<GitClone>` to create a complete workflow:
+Pair it with `<GitHubAuth>` and `<GitClone>`:
 
 ```mdx
 <GitHubAuth
@@ -33,7 +31,7 @@ Pair with `<GitHubAuth>` and `<GitClone>` to create a complete workflow:
 />
 ```
 
-### Pre-filled Values
+### Pre-filled values
 
 You can pre-populate the PR title, description, labels, branch name, and commit message. Users can still edit these values before creating the PR.
 
@@ -53,7 +51,7 @@ You can pre-populate the PR title, description, labels, branch name, and commit 
 [`<GitLabMergeRequest>`](/authoring/blocks/gitlabmergerequest/) and `<GitPullRequest>` accept the same prefilled props, including `prefilledCommitMessage`.
 </Aside>
 
-### Template Expressions
+### Template expressions
 
 The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, `prefilledBranchName`, and `prefilledCommitMessage` props support template expressions that reference inputs and outputs from other blocks. Escape sequences like `\n` are converted to real newlines, which is useful for multi-line PR descriptions:
 
@@ -83,7 +81,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `prefilledBranchName` | `string` | No | Pre-fills the branch name. Supports template expressions. Defaults to `runbook/<timestamp>`. |
 | `prefilledCommitMessage` | `string` | No | Pre-fills the commit message field. Supports template expressions. |
 
-### Block Outputs
+### Block outputs
 
 After a successful PR creation, the block produces outputs that can be referenced by downstream blocks:
 
@@ -108,9 +106,9 @@ Reference outputs in downstream blocks using template variables:
 
 ### Git Push
 
-After creating a PR, the block displays a "Git Push" button. This allows you to push additional changes made after the PR was created (for example, by running more Command or Template blocks). Each push stages all changes, commits them with the message "Additional changes", and pushes to the same branch.
+After creating a PR, the block shows a **Git Push** button. It runs `git push -u origin <branch>` for the PR's branch with the authenticated token. It does not stage or commit anything, so use it to push commits made since the PR was created, for example by a Command block that ran `git commit`. To commit uncommitted changes onto the open PR, choose "create another PR" and enter the open PR's branch name. See [Creating another PR](#creating-another-pr).
 
-### Retrying After a Failure
+### Retrying after a failure
 
 If creation fails after the branch was created (for example, the push is rejected or the API call fails), fix the cause and create the PR again with the same branch name. The block picks up on the existing branch: it commits any new changes and pushes, then opens the PR.
 
@@ -120,27 +118,23 @@ If a local branch with that name already exists but isn't checked out (for examp
 
 The branch name can't be the base branch or a protected name (`main`, `master`, `develop`, `dev`, `staging`, `release`, `prod`, `production`).
 
-### Creating Another PR
+### Creating another PR
 
 After a PR is created, its branch stays checked out, and "create another" fills in a new branch name such as `runbook/<timestamp>`. What the next create does depends on the branch name and on whether anything changed since:
 
-- **A new name, with new changes:** the new branch starts from the open PR's branch, so the new PR also contains the open one's commits.
-- **A new name, with no new changes:** refused with "Nothing to commit". The open PR's commits are already on GitHub, and a new PR would only repeat them. Nothing is pushed, and the open PR's branch stays checked out.
-- **The open PR's branch name:** the block picks up on that branch, commits any new changes and pushes them to it, so they become part of the open PR, and then reports that the PR already exists.
+- With a new name and new changes, the new branch starts from the open PR's branch, so the new PR also contains the open one's commits.
+- With a new name and no new changes, the create is refused with "Nothing to commit". The open PR's commits are already on GitHub, and a new PR would only repeat them. Nothing is pushed, and the open PR's branch stays checked out.
+- With the open PR's branch name, the block picks up on that branch, commits any new changes and pushes them to it, so they become part of the open PR, and then reports that the PR already exists.
 
-To add changes to an open PR, use "Git Push", which the block shows until you choose "create another".
+The block shows **Git Push** until you choose "create another".
 
 ### Prerequisites
 
-The GitHubPullRequest block requires two prerequisites:
+The block needs a completed `<GitHubAuth>` block, for the token, and a `<GitClone>` block that has cloned a repository, which the PR is created against. It checks both and shows an amber warning for whichever is missing. The Create PR button stays disabled until both are met.
 
-1. **GitHub authentication** -- A `<GitHubAuth>` block must be completed to provide the GitHub token for API access.
-2. **A cloned repository** -- A `<GitClone>` block must have successfully cloned a repository. The PR is created against this repository.
+For authentication, the block looks for a `GITHUB_TOKEN` output from the block referenced by `githubAuthId`. When that block picked up existing credentials (environment variables or the GitHub CLI) rather than running its OAuth flow, it registers an `__AUTHENTICATED` marker instead, which also satisfies the check. Until one is present, the block displays "Waiting for GitHub authentication" and names the block to complete.
 
-Both prerequisites are checked automatically, and the block shows amber warnings when they are not met:
-
-- **GitHub authentication**: The block looks for a `GITHUB_TOKEN` output from the `GitHubAuth` block referenced by `githubAuthId`. When the `GitHubAuth` block authenticates via pre-existing credentials (e.g., environment variables or the GitHub CLI) rather than its interactive OAuth flow, there is no explicit `GITHUB_TOKEN` output — instead the block registers an `__AUTHENTICATED` marker to signal success. The prerequisite is satisfied by either. Until one is present, the block displays "Waiting for GitHub authentication" and names the specific block to complete.
-- **Cloned repository**: The block checks whether a `GitClone` block has registered an active worktree. Until a repository has been cloned, the block displays "No repository available". The block remains in a `pending` state and the Create PR button is disabled until both prerequisites are satisfied.
+For the repository, the block checks whether a `GitClone` block has registered an active worktree. Until one has, it displays "No repository available".
 
 ### Labels
 
@@ -150,9 +144,9 @@ Labels are applied after the PR opens. If applying them fails, the PR is still c
 
 ### GitHub Enterprise
 
-The pull request is opened against the host of the cloned repository's `origin` remote — `github.com`, a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com` — using that host's API (`https://api.github.com`, `https://<host>/api/v3`, or `https://api.<tenant>.ghe.com`). Labels are fetched from the same host.
+The pull request is opened against the host of the cloned repository's `origin` remote: `github.com`, a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com`. The block uses that host's API (`https://api.github.com`, `https://<host>/api/v3`, or `https://api.<tenant>.ghe.com`) and fetches labels from it.
 
-That host must be the one the linked auth block authenticated to (its `GITHUB_HOST` output). If they differ — for example, a repository cloned from `github.example.com` while the auth block signed in to `github.com` — the block fails with a clear error instead of sending the token to a host it was not issued for. Links to token settings shown by the block also follow the authenticated host.
+That host must be the one the linked auth block authenticated to (its `GITHUB_HOST` output). If they differ, for example a repository cloned from `github.example.com` while the auth block signed in to `github.com`, the block fails with an error and sends the token nowhere. Links to token settings shown by the block also follow the authenticated host.
 
 ```mdx
 <GitHubAuth
@@ -173,9 +167,9 @@ That host must be the one the linked auth block authenticated to (its `GITHUB_HO
 />
 ```
 
-See [`<GitHubAuth>` → GitHub Enterprise Support](/authoring/blocks/githubauth/#github-enterprise-support) for configuring the host.
+See [GitHub Enterprise support](/authoring/blocks/githubauth/#github-enterprise-support) for configuring the host.
 
-### Example: Full Workflow
+### Example: full workflow
 
 ```mdx
 <GitHubAuth

@@ -118,7 +118,7 @@ const SPECIAL_SCHEMES: ReadonlySet<string> = new Set(["http", "https", "ws", "ws
 function isRequestTarget(candidate: string): boolean {
   const match = SCHEME_PREFIX.exec(candidate)
   if (!match) return false
-  if (SPECIAL_SCHEMES.has(match[1].toLowerCase())) return true
+  if (SPECIAL_SCHEMES.has(match[1]!.toLowerCase())) return true
   return candidate.startsWith("//", match[0].length)
 }
 
@@ -174,7 +174,9 @@ const EXTRA_ALLOWED_HOSTS: ReadonlySet<string> = new Set(["accounts.google.com"]
 function isGoogleApiHost(hostname: string): boolean {
   const host = hostname.toLowerCase()
   return (
-    host === GOOGLE_API_DOMAIN || host.endsWith(`.${GOOGLE_API_DOMAIN}`) || EXTRA_ALLOWED_HOSTS.has(host)
+    host === GOOGLE_API_DOMAIN ||
+    host.endsWith(`.${GOOGLE_API_DOMAIN}`) ||
+    EXTRA_ALLOWED_HOSTS.has(host)
   )
 }
 
@@ -196,7 +198,9 @@ function assertGoogleApiUrl(value: string, field: string): void {
     )
   }
   if (url.username !== "" || url.password !== "") {
-    throw new Error(`The credentials document field "${field}" must not embed credentials in the URL`)
+    throw new Error(
+      `The credentials document field "${field}" must not embed credentials in the URL`,
+    )
   }
   if (!isGoogleApiHost(url.hostname)) {
     throw new Error(

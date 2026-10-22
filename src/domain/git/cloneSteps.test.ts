@@ -1,12 +1,12 @@
 import { describe, it, expect } from "bun:test"
-import { Either } from "effect"
+import { Result } from "effect"
 import { buildCloneSteps, normalizeRepoPath } from "./cloneSteps.ts"
 
 const URL = "https://github.com/acme/mono.git"
 const DEST = "/work/mono"
 
 const steps = (options?: { ref?: string; repoPath?: string }) =>
-  Either.getOrThrow(buildCloneSteps(URL, DEST, options))
+  Result.getOrThrow(buildCloneSteps(URL, DEST, options))
 
 describe("buildCloneSteps", () => {
   it("clones the whole repository in one step without a repo path", () => {
@@ -31,7 +31,15 @@ describe("buildCloneSteps", () => {
 
   it("keeps the ref on a sparse clone", () => {
     expect(steps({ ref: "release", repoPath: "modules/vpc" })[0]?.args).toEqual([
-      "clone", "--progress", "--filter=blob:none", "--no-checkout", "--branch", "release", "--", URL, DEST,
+      "clone",
+      "--progress",
+      "--filter=blob:none",
+      "--no-checkout",
+      "--branch",
+      "release",
+      "--",
+      URL,
+      DEST,
     ])
   })
 
@@ -43,12 +51,12 @@ describe("buildCloneSteps", () => {
 
   it("fails for a repo path outside the repository, before any step runs", () => {
     const result = buildCloneSteps(URL, DEST, { repoPath: "../elsewhere" })
-    expect(Either.isLeft(result)).toBe(true)
+    expect(Result.isFailure(result)).toBe(true)
   })
 })
 
 describe("normalizeRepoPath", () => {
-  const normalize = (p: string | undefined) => Either.getOrThrow(normalizeRepoPath(p))
+  const normalize = (p: string | undefined) => Result.getOrThrow(normalizeRepoPath(p))
 
   it("trims and strips a leading ./ and trailing slashes", () => {
     expect(normalize("  modules/vpc  ")).toBe("modules/vpc")
@@ -77,10 +85,10 @@ describe("normalizeRepoPath", () => {
   it("rejects absolute paths and .. segments", () => {
     for (const bad of ["/etc", "\\share", "C:\\repo", "..", "../x", "a/../../x", "a\\..\\x"]) {
       const result = normalizeRepoPath(bad)
-      expect(Either.isLeft(result)).toBe(true)
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("GitError")
-        expect(result.left.stderr).toContain("invalid repo path")
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("GitError")
+        expect(result.failure.stderr).toContain("invalid repo path")
       }
     }
   })

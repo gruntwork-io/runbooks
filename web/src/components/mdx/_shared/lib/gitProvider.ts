@@ -10,6 +10,7 @@
 import type { GitProvider } from "@/components/mdx/GitAuth/types"
 import type { BlockOutputs } from "@/contexts/RunbookContext"
 import { normalizeBlockId } from "@/lib/utils"
+import { revealOutputs } from "@/lib/outputValues"
 import { gitRemoteWebHost, parseGitRemoteUrl, type GitRemoteUrl } from "@/lib/gitRemoteUrl"
 import { isGitHubRepoHost } from "./githubHost"
 
@@ -32,12 +33,14 @@ export function deriveProviderFromAuth(
   allOutputs: Record<string, BlockOutputs>,
 ): GitProvider | undefined {
   if (!authId) return undefined
-  const values = allOutputs[normalizeBlockId(authId)]?.values
-  if (!values) return undefined
+  const outputs = allOutputs[normalizeBlockId(authId)]?.values
+  if (!outputs) return undefined
+  // A token counts only if it isn't empty, which needs its real value
+  const values: Partial<Record<string, string>> = revealOutputs(outputs)
   const explicit = values.GIT_PROVIDER
-  if (explicit === 'github' || explicit === 'gitlab') return explicit
-  if (values.GITHUB_TOKEN) return 'github'
-  if (values.GITLAB_TOKEN) return 'gitlab'
+  if (explicit === "github" || explicit === "gitlab") return explicit
+  if (values.GITHUB_TOKEN) return "github"
+  if (values.GITLAB_TOKEN) return "gitlab"
   return undefined
 }
 
@@ -48,7 +51,7 @@ export function deriveProviderFromAuth(
 function parseRepoUrl(rawUrl: string): GitRemoteUrl | undefined {
   return (
     parseGitRemoteUrl(rawUrl) ??
-    (rawUrl.includes('://') ? undefined : parseGitRemoteUrl(`https://${rawUrl}`))
+    (rawUrl.includes("://") ? undefined : parseGitRemoteUrl(`https://${rawUrl}`))
   )
 }
 
@@ -72,7 +75,7 @@ export function hostFromRepoUrl(repoUrl: string | undefined): string | undefined
   if (!repoUrl) return undefined
   return (
     gitRemoteWebHost(repoUrl) ??
-    (repoUrl.includes('://') ? undefined : gitRemoteWebHost(`https://${repoUrl}`))
+    (repoUrl.includes("://") ? undefined : gitRemoteWebHost(`https://${repoUrl}`))
   )
 }
 
@@ -98,9 +101,9 @@ export function repoWebUrl(
   const scp = repoUrl.match(/^[^/@]+@(\[[^\]/]+\]|[^[\]:/@]+):/)
   if (scp) return `https://${scp[1]}${path}`
   try {
-    const url = new URL(repoUrl.includes('://') ? repoUrl : `https://${repoUrl}`)
+    const url = new URL(repoUrl.includes("://") ? repoUrl : `https://${repoUrl}`)
     if (!url.hostname) return undefined
-    if (url.protocol === 'http:' || url.protocol === 'https:') return `${url.origin}${path}`
+    if (url.protocol === "http:" || url.protocol === "https:") return `${url.origin}${path}`
     return `https://${url.hostname}${path}`
   } catch {
     return undefined
@@ -115,12 +118,10 @@ export function repoWebUrl(
  * provider and the workspace repo icon) — NEVER to gate the wrong-auth-block
  * error.
  */
-export function deriveProviderFromRepoUrl(
-  repoUrl: string | undefined,
-): GitProvider | undefined {
+export function deriveProviderFromRepoUrl(repoUrl: string | undefined): GitProvider | undefined {
   if (!repoUrl) return undefined
   const host = hostOf(repoUrl)
-  if (isGitHubRepoHost(host)) return 'github'
-  if (host === 'gitlab.com') return 'gitlab'
+  if (isGitHubRepoHost(host)) return "github"
+  if (host === "gitlab.com") return "gitlab"
   return undefined
 }

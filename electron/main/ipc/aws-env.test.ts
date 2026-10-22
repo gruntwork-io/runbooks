@@ -18,15 +18,15 @@ import type { Environment } from "../../../src/services/Environment.ts"
 let processEnv: Record<string, string> = {}
 let validateCredentials: AwsClientShape["validateCredentials"]
 
-const runPromise = spyOn(runtime, "runPromise").mockImplementation(
-  (<A, E>(effect: Effect.Effect<A, E, Environment | AwsClient>) =>
-    Effect.runPromise(
-      Effect.provide(
-        effect,
-        Layer.merge(makeTestEnvironment(processEnv), makeTestAwsClient({ validateCredentials })),
-      ),
-    )) as typeof runtime.runPromise,
-)
+const runPromise = spyOn(runtime, "runPromise").mockImplementation((<A, E>(
+  effect: Effect.Effect<A, E, Environment | AwsClient>,
+) =>
+  Effect.runPromise(
+    Effect.provide(
+      effect,
+      Layer.merge(makeTestEnvironment(processEnv), makeTestAwsClient({ validateCredentials })),
+    ),
+  )) as typeof runtime.runPromise)
 
 afterAll(() => {
   runPromise.mockRestore()
@@ -48,9 +48,13 @@ beforeEach(() => {
   validateCredentials = () => Effect.succeed(IDENTITY)
   // A session left over from an earlier SSO sign-in in another block.
   Effect.runSync(
-    sessionManager.createSession("/tmp").pipe(
-      Effect.provide(makeTestEnvironment({ AWS_SESSION_TOKEN: "stale-sso-token", PATH: "/usr/bin" })),
-    ),
+    sessionManager
+      .createSession("/tmp")
+      .pipe(
+        Effect.provide(
+          makeTestEnvironment({ AWS_SESSION_TOKEN: "stale-sso-token", PATH: "/usr/bin" }),
+        ),
+      ),
   )
 })
 
@@ -124,7 +128,9 @@ describe("aws:env-credentials", () => {
   it("reads only the prefixed variables for a prefixed source", async () => {
     processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
 
-    expect(await handleEnvCredentials({ prefix: "PROD_", defaultRegion: "us-west-2" })).toEqual({ found: false })
+    expect(await handleEnvCredentials({ prefix: "PROD_", defaultRegion: "us-west-2" })).toEqual({
+      found: false,
+    })
 
     const validated: string[] = []
     validateCredentials = (creds) => {
@@ -167,10 +173,37 @@ describe("aws:env-credentials-confirm", () => {
       secretAccessKey: "dev-secret",
       sessionToken: undefined,
       region: "us-west-2",
+      expiresAt: undefined,
     })
     // The renderer publishes the keys once it knows the attempt is still
     // current, so a reply nobody is waiting for changes nothing.
     expect(sessionEnv()).toEqual(before)
+  })
+
+  it("returns when the credentials expire, from AWS_CREDENTIAL_EXPIRATION", async () => {
+    processEnv = {
+      PROD_AWS_ACCESS_KEY_ID: "ASIA_DEV",
+      PROD_AWS_SECRET_ACCESS_KEY: "dev-secret",
+      PROD_AWS_SESSION_TOKEN: "dev-token",
+      PROD_AWS_CREDENTIAL_EXPIRATION: "2026-10-03T14:30:00+02:00",
+      AWS_CREDENTIAL_EXPIRATION: "2030-01-01T00:00:00Z",
+    }
+
+    const reply = await handleEnvCredentialsConfirm({ prefix: "PROD_", defaultRegion: "us-west-2" })
+
+    expect(reply).toMatchObject({ valid: true, expiresAt: "2026-10-03T12:30:00.000Z" })
+  })
+
+  it("ignores an AWS_CREDENTIAL_EXPIRATION that isn't a date", async () => {
+    processEnv = {
+      AWS_ACCESS_KEY_ID: "ASIA_DEV",
+      AWS_SECRET_ACCESS_KEY: "dev-secret",
+      AWS_CREDENTIAL_EXPIRATION: "soon",
+    }
+
+    const reply = await handleEnvCredentialsConfirm({ prefix: "", defaultRegion: "us-west-2" })
+
+    expect(reply).toMatchObject({ valid: true, expiresAt: undefined })
   })
 
   it("confirms when the account is the one the prompt showed", async () => {

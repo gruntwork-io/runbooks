@@ -1,14 +1,14 @@
-import { useMemo, useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
-import { useRunbookContext } from '@/contexts/useRunbook'
-import { BoilerplateInputsForm } from '../_shared/components/BoilerplateInputsForm'
-import { DuplicateIdError } from '../_shared/components/DuplicateIdError'
-import { ErrorDisplay } from '../_shared/components/ErrorDisplay'
-import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
-import type { AppError } from '@/types/error'
-import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
-import { extractYamlFromChildren } from '../_shared/lib/extractYamlFromChildren'
-import { useInputRegistration } from '../_shared/hooks/useInputRegistration'
+import { useMemo, useEffect, useRef, useState } from "react"
+import type { ReactNode } from "react"
+import { useRunbookContext } from "@/contexts/useRunbook"
+import { BoilerplateInputsForm } from "../_shared/components/BoilerplateInputsForm"
+import { DuplicateIdError } from "../_shared/components/DuplicateIdError"
+import { ErrorDisplay } from "../_shared/components/ErrorDisplay"
+import { LoadingDisplay } from "../_shared/components/LoadingDisplay"
+import type { AppError } from "@/types/error"
+import { useApiGetBoilerplateConfig } from "@/hooks/useApiGetBoilerplateConfig"
+import { extractYamlFromChildren } from "../_shared/lib/extractYamlFromChildren"
+import { useInputRegistration } from "../_shared/hooks/useInputRegistration"
 
 /**
  * Inputs component - collects user input via a web form.
@@ -32,7 +32,7 @@ interface InputsProps {
   path?: string
   prefilledVariables?: Record<string, unknown>
   children?: ReactNode // For inline boilerplate.yml content
-  variant?: 'standard' | 'embedded' // 'embedded' means the Inputs are used inside Command or Check blocks
+  variant?: "standard" | "embedded" // 'embedded' means the Inputs are used inside Command or Check blocks
 }
 
 function Inputs({
@@ -40,31 +40,33 @@ function Inputs({
   path,
   prefilledVariables = {},
   children,
-  variant = 'standard'
+  variant = "standard",
 }: InputsProps) {
   // Extract boolean to avoid React element in dependency array
-  const hasChildren = Boolean(children);
+  const hasChildren = Boolean(children)
 
   // Validate props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
         message: "The <Inputs> component requires a non-empty 'id' prop.",
-        details: "Please provide a unique 'id' for this component instance."
+        details: "Please provide a unique 'id' for this component instance.",
       }
     }
 
     if (!path && !hasChildren) {
       return {
         message: "Invalid <Inputs> configuration.",
-        details: "Please specify either a 'path' to a boilerplate.yml file or provide inline YAML content."
+        details:
+          "Please specify either a 'path' to a boilerplate.yml file or provide inline YAML content.",
       }
     }
 
     if (path && hasChildren) {
       return {
         message: "Invalid <Inputs> configuration.",
-        details: "You cannot specify both a 'path' and inline YAML content. Please provide only one."
+        details:
+          "You cannot specify both a 'path' and inline YAML content. Please provide only one.",
       }
     }
 
@@ -72,16 +74,16 @@ function Inputs({
   }, [id, path, hasChildren])
 
   // Extract inline YAML content from children if provided
-  const yamlExtraction = children ? extractYamlFromChildren(children) : { content: '', error: null }
+  const yamlExtraction = children ? extractYamlFromChildren(children) : { content: "", error: null }
   const inlineYamlContent = yamlExtraction.content
   const inlineContentError = yamlExtraction.error
 
   // Load boilerplate config from path or inline YAML
-  const { data: boilerplateConfig, isLoading, error: apiError } = useApiGetBoilerplateConfig(
-    path,
-    inlineYamlContent,
-    !validationError && !inlineContentError
-  );
+  const {
+    data: boilerplateConfig,
+    isLoading,
+    error: apiError,
+  } = useApiGetBoilerplateConfig(path, inlineYamlContent, !validationError && !inlineContentError)
 
   // Values already registered under this id when this instance mounted. A
   // Command/Check swaps its whole layout when instruction mode is toggled, so
@@ -90,10 +92,11 @@ function Inputs({
   // applies to any remount under the same RunbookContext, not just a toggle
   // (a reload, or another runbook reusing the id), so it is limited to the
   // embedded variant, the only one a toggle remounts. A standalone Inputs
-  // always starts from its own defaults.
+  // starts from its own defaults. On top of either come the values the
+  // session's history has for this block (see useInputRegistration).
   const { blockInputs } = useRunbookContext()
   const [registeredValues] = useState(() =>
-    variant === 'embedded' ? blockInputs[id]?.values : undefined,
+    variant === "embedded" ? blockInputs[id]?.values : undefined,
   )
 
   // Apply prefilled variables, then any registered values, to the boilerplate config
@@ -106,12 +109,12 @@ function Inputs({
     if (Object.keys(overrides).length === 0) return boilerplateConfig
     return {
       ...boilerplateConfig,
-      variables: boilerplateConfig.variables.map(variable => ({
+      variables: boilerplateConfig.variables.map((variable) => ({
         ...variable,
         default: Object.prototype.hasOwnProperty.call(overrides, variable.name)
           ? overrides[variable.name]
-          : variable.default
-      }))
+          : variable.default,
+      })),
     }
   }, [boilerplateConfig, prefilledVariables, registeredValues])
 
@@ -120,33 +123,43 @@ function Inputs({
     isDuplicate,
     isNormalizedCollision,
     collidingId,
+    formConfig,
     initialData,
     hasSubmitted,
     handleAutoUpdate,
     handleSubmit,
   } = useInputRegistration({
     id,
-    componentType: 'Inputs',
+    componentType: "Inputs",
     boilerplateConfig: boilerplateConfigWithPrefilledVariables,
     validationError,
     extraError: inlineContentError,
+    alwaysSubmitted: variant === "embedded",
   })
 
   // For embedded variant, automatically submit when form is ready
-  const hasTriggeredInitialSubmit = useRef(false);
+  const hasTriggeredInitialSubmit = useRef(false)
   useEffect(() => {
-    if (variant === 'embedded' &&
-        boilerplateConfig &&
-        Object.keys(initialData).length > 0 &&
-        !hasTriggeredInitialSubmit.current &&
-        !hasSubmitted) {
-      hasTriggeredInitialSubmit.current = true;
-      handleSubmit(initialData);
+    if (
+      variant === "embedded" &&
+      boilerplateConfig &&
+      Object.keys(initialData).length > 0 &&
+      !hasTriggeredInitialSubmit.current &&
+      !hasSubmitted
+    ) {
+      hasTriggeredInitialSubmit.current = true
+      void handleSubmit(initialData)
     }
-  }, [variant, boilerplateConfig, hasSubmitted, initialData, handleSubmit]);
+  }, [variant, boilerplateConfig, hasSubmitted, initialData, handleSubmit])
 
   if (isDuplicate) {
-    return <DuplicateIdError id={id} isNormalizedCollision={isNormalizedCollision} collidingId={collidingId} />
+    return (
+      <DuplicateIdError
+        id={id}
+        isNormalizedCollision={isNormalizedCollision}
+        collidingId={collidingId}
+      />
+    )
   }
   if (isLoading) {
     return <LoadingDisplay message="Loading configuration..." />
@@ -165,7 +178,8 @@ function Inputs({
     <div data-testid={id}>
       <BoilerplateInputsForm
         id={id}
-        boilerplateConfig={boilerplateConfigWithPrefilledVariables}
+        blockType="Inputs"
+        boilerplateConfig={formConfig}
         initialData={initialData}
         onAutoRender={handleAutoUpdate}
         onGenerate={handleSubmit}
@@ -180,6 +194,6 @@ function Inputs({
   )
 }
 
-Inputs.displayName = 'Inputs';
+Inputs.displayName = "Inputs"
 
-export default Inputs;
+export default Inputs

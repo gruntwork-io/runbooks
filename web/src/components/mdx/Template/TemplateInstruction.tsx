@@ -1,22 +1,23 @@
-import { useMemo, useState, useCallback, useEffect } from 'react'
-import { FileCode } from 'lucide-react'
-import { BoilerplateInputsForm } from '../_shared/components/BoilerplateInputsForm'
-import { ErrorDisplay } from '../_shared/components/ErrorDisplay'
-import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
-import { CodeBlock } from '../_shared/components/CodeBlock'
-import { BlockIdLabel } from '../_shared/components/BlockIdLabel'
-import { CompletionCheckbox } from '../_shared/components/CompletionCheckbox'
-import { useBlockCompletion } from '../_shared/hooks/useBlockCompletion'
-import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
-import { useRunbookContext, useInputs, flattenInputs } from '@/contexts/useRunbook'
-import { buildBoilerplateInvocation } from '@/components/mdx/_shared/lib/instructionCommands'
-import { useSharedTemplateVars } from './useSharedTemplateVars'
+import { useMemo, useState, useCallback, useEffect } from "react"
+import { FileCode } from "lucide-react"
+import { BoilerplateInputsForm } from "../_shared/components/BoilerplateInputsForm"
+import { ErrorDisplay } from "../_shared/components/ErrorDisplay"
+import { LoadingDisplay } from "../_shared/components/LoadingDisplay"
+import { CodeBlock } from "../_shared/components/CodeBlock"
+import { BlockIdLabel } from "../_shared/components/BlockIdLabel"
+import { CompletionCheckbox } from "../_shared/components/CompletionCheckbox"
+import { useBlockCompletion } from "../_shared/hooks/useBlockCompletion"
+import { useApiGetBoilerplateConfig } from "@/hooks/useApiGetBoilerplateConfig"
+import { useRunbookContext, useInputs, flattenInputs } from "@/contexts/useRunbook"
+import { buildBoilerplateInvocation } from "@/components/mdx/_shared/lib/instructionCommands"
+import { localOnlyValues, useSharedTemplateVars } from "./useSharedTemplateVars"
+import { useFormHistory } from "../_shared/hooks/useFormHistory"
 
 interface TemplateInstructionProps {
   id: string
   path: string
   inputsId?: string | string[]
-  target?: 'generated' | 'worktree'
+  target?: "generated" | "worktree"
 }
 
 /**
@@ -32,13 +33,20 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
   const inputs = useInputs(inputsId)
   const inputValues = useMemo(() => flattenInputs(inputs), [inputs])
 
-  const { data: config, isLoading, error } = useApiGetBoilerplateConfig(path, '', true)
+  const { data: config, isLoading, error } = useApiGetBoilerplateConfig(path, "", true)
 
   // Same shared-variable handling as the interactive Template: variables that
   // are also imported are read-only in the form and live-synced to the imported
   // values. liveVarValues is spread last below, so the command and context never
   // show a stale form copy of an imported value.
-  const { sharedVarNames, liveVarValues, initialData } = useSharedTemplateVars(config, inputValues)
+  // The form resumes from, and keeps, the same values in the session's history
+  // as the interactive Template's, so a switch of mode carries them over.
+  const { saved: savedForm, noteValues } = useFormHistory(id)
+  const { sharedVarNames, liveVarValues, initialData } = useSharedTemplateVars(
+    config,
+    inputValues,
+    savedForm,
+  )
 
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
 
@@ -47,11 +55,16 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
   const handleFormChange = useCallback(
     (data: Record<string, unknown>) => {
       setFormValues(data)
+      // The form reports {} before it has its initial values.
+      if (Object.keys(data).length > 0) {
+        // Nothing is generated in this mode, so the flag stays as it was left.
+        noteValues(localOnlyValues(data, sharedVarNames), savedForm?.submitted ?? false)
+      }
       if (config) {
         registerInputs(id, { ...inputValues, ...data, ...liveVarValues }, config)
       }
     },
-    [config, id, inputValues, liveVarValues, registerInputs],
+    [config, id, inputValues, liveVarValues, registerInputs, noteValues, sharedVarNames, savedForm],
   )
 
   // Publish defaults/imported values, but let any value the user has already
@@ -61,7 +74,11 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
   // imported (live) value always wins.
   useEffect(() => {
     if (config) {
-      registerInputs(id, { ...inputValues, ...initialData, ...formValues, ...liveVarValues }, config)
+      registerInputs(
+        id,
+        { ...inputValues, ...initialData, ...formValues, ...liveVarValues },
+        config,
+      )
     }
   }, [config, id, inputValues, initialData, formValues, liveVarValues, registerInputs])
 
@@ -86,7 +103,7 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
       data-instruction-mode="true"
       data-completed={completed || undefined}
       className={`runbook-block relative rounded-sm border mb-5 p-4 ${
-        completed ? 'border-success/40 bg-success-muted' : 'border-border bg-muted/40'
+        completed ? "border-success/40 bg-success-muted" : "border-border bg-muted/40"
       }`}
     >
       <div className="absolute top-3 right-3 z-20">
@@ -95,7 +112,7 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
 
       <div className="flex">
         <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <FileCode className={`size-6 ${completed ? 'text-success' : 'text-muted-foreground'}`} />
+          <FileCode className={`size-6 ${completed ? "text-success" : "text-muted-foreground"}`} />
         </div>
 
         <div className="flex-1 min-w-0 space-y-3">
@@ -109,6 +126,7 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
 
           <BoilerplateInputsForm
             id={id}
+            blockType="Template"
             boilerplateConfig={config}
             initialData={initialData}
             onFormChange={handleFormChange}
@@ -117,6 +135,7 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
             variant="standard"
             sharedVarNames={sharedVarNames}
             liveVarValues={liveVarValues}
+            importedValues={inputValues}
           />
 
           <CodeBlock>

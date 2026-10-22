@@ -17,10 +17,10 @@ import type { AwsClient, AwsClientShape } from "../../../src/services/AwsClient.
 /** This test's AwsClient; each test replaces the calls it cares about. */
 let aws: { -readonly [K in keyof AwsClientShape]?: AwsClientShape[K] } = {}
 
-const runPromise = spyOn(runtime, "runPromise").mockImplementation(
-  (<A, E>(effect: Effect.Effect<A, E, AwsClient>) =>
-    Effect.runPromise(Effect.provide(effect, makeTestAwsClient(aws)))) as typeof runtime.runPromise,
-)
+const runPromise = spyOn(runtime, "runPromise").mockImplementation((<A, E>(
+  effect: Effect.Effect<A, E, AwsClient>,
+) =>
+  Effect.runPromise(Effect.provide(effect, makeTestAwsClient(aws)))) as typeof runtime.runPromise)
 
 afterAll(() => {
   runPromise.mockRestore()
@@ -76,10 +76,20 @@ describe("aws:profile-auth", () => {
       secretAccessKey: "dev-secret",
       sessionToken: undefined,
       region: "eu-west-1",
+      expiresAt: undefined,
     })
     expect(resolved).toEqual(["dev"])
     // The working region; AwsSdkClient routes STS to its partition's home region.
     expect(validated).toEqual([[CREDENTIALS, "eu-west-1"]])
+  })
+
+  it("returns when a profile's temporary credentials expire", async () => {
+    aws.authenticateProfile = () =>
+      Effect.succeed({ ...CREDENTIALS, expiresAt: "2026-10-03T13:00:00.000Z" })
+
+    const reply = await handleProfileAuth({ profileName: "dev" })
+
+    expect(reply).toMatchObject({ valid: true, expiresAt: "2026-10-03T13:00:00.000Z" })
   })
 
   it("validates a GovCloud profile in its GovCloud region", async () => {

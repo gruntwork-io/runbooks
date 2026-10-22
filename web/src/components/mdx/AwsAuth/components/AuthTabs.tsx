@@ -10,33 +10,33 @@ export function AuthTabs({ authMethod, setAuthMethod }: AuthTabsProps) {
   return (
     <div className="flex gap-1 mb-4 border-b border-warning/30">
       <button
-        onClick={() => setAuthMethod('credentials')}
+        onClick={() => setAuthMethod("credentials")}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-          authMethod === 'credentials'
-            ? 'text-warning border-b-2 border-warning -mb-px'
-            : 'text-muted-foreground hover:text-foreground'
+          authMethod === "credentials"
+            ? "text-warning border-b-2 border-warning -mb-px"
+            : "text-muted-foreground hover:text-foreground"
         }`}
       >
         <KeyRound className="size-4 inline mr-2" />
         Static Credentials
       </button>
       <button
-        onClick={() => setAuthMethod('sso')}
+        onClick={() => setAuthMethod("sso")}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-          authMethod === 'sso'
-            ? 'text-warning border-b-2 border-warning -mb-px'
-            : 'text-muted-foreground hover:text-foreground'
+          authMethod === "sso"
+            ? "text-warning border-b-2 border-warning -mb-px"
+            : "text-muted-foreground hover:text-foreground"
         }`}
       >
         <ExternalLink className="size-4 inline mr-2" />
         AWS SSO
       </button>
       <button
-        onClick={() => setAuthMethod('profile')}
+        onClick={() => setAuthMethod("profile")}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-          authMethod === 'profile'
-            ? 'text-warning border-b-2 border-warning -mb-px'
-            : 'text-muted-foreground hover:text-foreground'
+          authMethod === "profile"
+            ? "text-warning border-b-2 border-warning -mb-px"
+            : "text-muted-foreground hover:text-foreground"
         }`}
       >
         <User className="size-4 inline mr-2" />

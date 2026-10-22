@@ -26,8 +26,9 @@ export function DetectedCredentialsPrompt({
 }: DetectedCredentialsPromptProps) {
   // Where it came from, precisely enough to spot the wrong project before use.
   // MAIN reports envVar already prefixed, so it is shown as-is.
-  const provenance = credentials.envVar
-    ?? (credentials.configuration
+  const provenance =
+    credentials.envVar ??
+    (credentials.configuration
       ? `gcloud configuration "${credentials.configuration}"`
       : credentials.path)
 
@@ -38,12 +39,11 @@ export function DetectedCredentialsPrompt({
         <div className="flex items-start gap-3 mb-3">
           <ShieldCheck className="size-5 text-info mt-0.5 flex-shrink-0" />
           <div>
-            <div className="font-semibold text-foreground">
-              Google Cloud Credentials Detected
-            </div>
+            <div className="font-semibold text-foreground">Google Cloud Credentials Detected</div>
             <div className="text-sm text-muted-foreground">
-              Found credentials from {(getSourceLabel(credentials.source) ?? 'auto-detection').toLowerCase()}.
-              Please confirm you want to use this project.
+              Found credentials from{" "}
+              {(getSourceLabel(credentials.source) ?? "auto-detection").toLowerCase()}. Please
+              confirm you want to use this project.
             </div>
           </div>
         </div>
@@ -64,22 +64,23 @@ export function DetectedCredentialsPrompt({
             </div>
             <div className="flex items-start gap-2">
               <span className="text-muted-foreground min-w-[80px]">Principal:</span>
-              <span className="font-mono text-xs text-foreground break-all" title={credentials.principal}>
+              <span
+                className="font-mono text-xs text-foreground break-all"
+                title={credentials.principal}
+              >
                 {credentials.principal}
               </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground min-w-[80px]">Type:</span>
               <span className="text-foreground">
-                {getCredentialTypeLabel(credentials.credentialType) ?? 'Unknown'}
+                {getCredentialTypeLabel(credentials.credentialType) ?? "Unknown"}
               </span>
             </div>
             {credentials.quotaProjectId && (
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground min-w-[80px]">Quota:</span>
-                <span className="font-mono text-foreground">
-                  {credentials.quotaProjectId}
-                </span>
+                <span className="font-mono text-foreground">{credentials.quotaProjectId}</span>
               </div>
             )}
             {provenance && (
@@ -95,7 +96,7 @@ export function DetectedCredentialsPrompt({
           {/* Source badge */}
           <div className="mt-3 pt-3 border-t border-info/40">
             <span className="text-xs bg-info-muted text-info px-2 py-1 rounded">
-              Source: {getSourceLabel(credentials.source) ?? 'Auto-detected'}
+              Source: {getSourceLabel(credentials.source) ?? "Auto-detected"}
             </span>
           </div>
         </div>
@@ -117,14 +118,9 @@ export function DetectedCredentialsPrompt({
             className="bg-info hover:bg-info/90 text-info-foreground"
           >
             {confirming && <Loader2 className="size-4 mr-2 animate-spin" />}
-            {confirming ? 'Confirming…' : 'Use These Credentials'}
+            {confirming ? "Confirming…" : "Use These Credentials"}
           </Button>
-          <Button
-            onClick={onReject}
-            disabled={confirming}
-            variant="outline"
-            size="sm"
-          >
+          <Button onClick={onReject} disabled={confirming} variant="outline" size="sm">
             Use Different Credentials
           </Button>
         </div>

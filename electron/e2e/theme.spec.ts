@@ -17,6 +17,8 @@ import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
 import { fileURLToPath } from "url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
+import { readFromMain } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -27,17 +29,16 @@ function launch(userDataDir: string): Promise<ElectronApplication> {
   return electron.launch({
     // --user-data-dir isolates theme.json + the single-instance lock per test.
     // parseCliArgs ignores it (it skips anything starting with "-").
-    args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`],
+    args: [MAIN_ENTRY, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`],
     env: {
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
-      RUNBOOKS_NO_TELEMETRY: "1",
+      RUNBOOKS_TELEMETRY_DISABLE: "1",
     },
   })
 }
 
-const isDark = () =>
-  document.documentElement.classList.contains("dark")
+const isDark = () => document.documentElement.classList.contains("dark")
 
 test.describe("Theme toggle", () => {
   let userDataDir: string
@@ -101,7 +102,11 @@ test.describe("Theme toggle", () => {
     const app2 = await launch(userDataDir)
     try {
       await app2.firstWindow()
-      const themeSource = await app2.evaluate(({ nativeTheme }) => nativeTheme.themeSource)
+      const themeSource = await readFromMain(
+        app2,
+        ({ nativeTheme }) => nativeTheme.themeSource,
+        undefined,
+      )
       expect(themeSource).toBe("dark")
     } finally {
       await app2.close()

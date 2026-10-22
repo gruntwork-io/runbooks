@@ -175,9 +175,7 @@ describe("generateFuzzValue", () => {
   it("uuid: matches v4 UUID shape and variant bits", () => {
     for (let i = 0; i < SAMPLES; i++) {
       const v = generateFuzzValue({ type: "uuid" }) as string
-      expect(v).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-      )
+      expect(v).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
     }
   })
 
@@ -230,7 +228,11 @@ describe("generateFuzzValue", () => {
     expect(fmt("2006-01-02T15:04:05Z0700")).toBe("2019-07-18T09:30:45Z")
     expect(fmt("2006-01-02 15:04:05 MST")).toBe("2019-07-18 09:30:45 UTC")
     // Each still names the fuzzed instant, not one shifted by a literal offset.
-    for (const format of ["2006-01-02T15:04:05-07:00", "2006-01-02T15:04:05-0700", "2006-01-02T15:04:05Z0700"]) {
+    for (const format of [
+      "2006-01-02T15:04:05-07:00",
+      "2006-01-02T15:04:05-0700",
+      "2006-01-02T15:04:05Z0700",
+    ]) {
       expect(new Date(fmt(format) as string).toISOString()).toBe("2019-07-18T09:30:45.000Z")
     }
   })
@@ -287,7 +289,9 @@ describe("generateFuzzValue", () => {
   it("list: a lone maxCount or maxLength below its default is honored", () => {
     for (let i = 0; i < SAMPLES; i++) {
       // Defaults: minCount 2, minLength 5.
-      const items = JSON.parse(generateFuzzValue({ type: "list", maxCount: 1, maxLength: 3 }) as string)
+      const items = JSON.parse(
+        generateFuzzValue({ type: "list", maxCount: 1, maxLength: 3 }) as string,
+      )
       expect(items).toHaveLength(1)
       expect(items[0]).toHaveLength(3)
     }
@@ -296,7 +300,9 @@ describe("generateFuzzValue", () => {
   it("list: a lone minLength above the default maxLength (12) still fuzzes (max = minLength + 7)", () => {
     const lengths = new Set<number>()
     for (let i = 0; i < SAMPLES; i++) {
-      const items: string[] = JSON.parse(generateFuzzValue({ type: "list", minLength: 20 }) as string)
+      const items: string[] = JSON.parse(
+        generateFuzzValue({ type: "list", minLength: 20 }) as string,
+      )
       for (const item of items) {
         expect(item.length).toBeGreaterThanOrEqual(20)
         expect(item.length).toBeLessThanOrEqual(27)
@@ -359,7 +365,7 @@ describe("generateFuzzValue", () => {
     }) as Record<string, Record<string, string>>
     const outerKeys = Object.keys(v)
     expect(outerKeys).toHaveLength(1)
-    expect(Object.keys(v[outerKeys[0]]).sort()).toEqual(["alpha", "beta"])
+    expect(Object.keys(v[outerKeys[0]!]!).sort()).toEqual(["alpha", "beta"])
   })
 
   it("unknown type: throws a descriptive error", () => {
@@ -415,7 +421,7 @@ tests:
           maxLength:
 `)
     for (let i = 0; i < SAMPLES; i++) {
-      const out = resolveTestInputs(tests[0].inputs)
+      const out = resolveTestInputs(tests[0]!.inputs)
       // The defaults, as if the fields were absent: 0..100 and 8..18.
       for (const key of ["a.Int", "a.Float"]) {
         expect(out[key]).toBeGreaterThanOrEqual(0)
@@ -427,8 +433,6 @@ tests:
   })
 
   it("returns an empty object when inputs is undefined", () => {
-    expect(resolveTestInputs(undefined as Record<string, InputValue> | undefined)).toEqual(
-      {},
-    )
+    expect(resolveTestInputs(undefined as Record<string, InputValue> | undefined)).toEqual({})
   })
 })

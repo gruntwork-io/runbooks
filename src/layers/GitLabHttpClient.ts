@@ -11,8 +11,8 @@
  * works for both `glpat-` PATs and glab's unprefixed OAuth tokens (which
  * `PRIVATE-TOKEN` rejects), so the common case is one round trip; we retry
  * once with `PRIVATE-TOKEN` on a 401 for old self-hosted instances.
- * Unlike GitHub, `GET /user` exposes no scope header, so token scopes are
- * introspected with a second, best-effort call keyed on token shape
+ * Unlike GitHub, `GET /user` exposes no scope header, so a token's scopes and
+ * expiry are introspected with a second, best-effort call keyed on token shape
  * (`glpat-` → `/personal_access_tokens/self`, otherwise `/oauth/token/info`).
  */
 import { Effect, Layer } from "effect"
@@ -24,6 +24,7 @@ import type {
   MergeRequestResult,
 } from "../services/GitLabClient.ts"
 import { GitLabApiError } from "../errors/index.ts"
+import { errorMessage } from "../errors/message.ts"
 import {
   DEFAULT_GITLAB_BASE_URL,
   gitlabApiBase,
@@ -37,7 +38,7 @@ type AuthScheme = "private" | "bearer"
 const toGitLabApiError = (err: unknown): GitLabApiError =>
   err instanceof GitLabApiError
     ? err
-    : new GitLabApiError({ status: 0, message: `${err}`, kind: classifyTlsError(err) })
+    : new GitLabApiError({ status: 0, message: errorMessage(err), kind: classifyTlsError(err) })
 
 /**
  * Resolve the caller's `baseUrl` (default gitlab.com) with the STRICT parse,
@@ -50,7 +51,10 @@ function resolveBaseUrl(baseUrl?: string): string {
   if (baseUrl === undefined) return DEFAULT_GITLAB_BASE_URL
   const normalized = tryNormalizeGitLabBaseUrl(baseUrl)
   if (!normalized) {
-    throw new GitLabApiError({ status: 400, message: `invalid GitLab instance URL: ${JSON.stringify(baseUrl)}` })
+    throw new GitLabApiError({
+      status: 400,
+      message: `invalid GitLab instance URL: ${JSON.stringify(baseUrl)}`,
+    })
   }
   return normalized
 }
@@ -75,26 +79,56 @@ function toStringArray(value: unknown): string[] | undefined {
 }
 
 /**
- * Best-effort token scope lookup. GitLab's `GET /user` exposes no scopes, so we
- * introspect separately: PATs via `/api/v4/personal_access_tokens/self`
- * (`scopes` — the `self` keyword landed in GitLab 15.5; older instances 404,
- * which is silently "no scope info"), OAuth tokens via `/oauth/token/info`
- * (`scope`, Bearer). Which shape we hold is decided by the scheme that just
- * VALIDATED the token, not the `glpat-` prefix alone: PRIVATE-TOKEN only ever
- * validates PATs, and self-managed instances can configure a custom PAT
- * prefix, so a non-glpat Bearer-validated token may be either shape — we try
- * the likelier endpoint first and fall back to the other. Returns undefined
- * when scopes can't be determined (e.g. a project/group token, a non-200
- * response, or a network error) — scope display is enrichment and must never
- * block validation.
+ * When a PAT expires: GitLab gives the date (`expires_at`, "2026-12-31"), and
+ * the token stops working at the start of it, UTC.
  */
-async function fetchScopes(
+function patExpiry(data: Record<string, unknown>): string | undefined {
+  const date = data.expires_at
+  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return undefined
+  const at = new Date(`${date}T00:00:00Z`)
+  return Number.isNaN(at.getTime()) ? undefined : at.toISOString()
+}
+
+/** When an OAuth token expires, from the seconds `/oauth/token/info` says it has left. */
+function oauthExpiry(data: Record<string, unknown>): string | undefined {
+  const seconds = data.expires_in_seconds ?? data.expires_in
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) return undefined
+  return new Date(Date.now() + seconds * 1000).toISOString()
+}
+
+/**
+ * Best-effort token introspection: the token's scopes, and when it expires.
+ * GitLab's `GET /user` exposes neither, so we introspect separately: PATs via
+ * `/api/v4/personal_access_tokens/self` (`scopes`; the `self` keyword landed
+ * in GitLab 15.5, and older instances 404, which is silently "no scope info"),
+ * OAuth tokens via `/oauth/token/info` (`scope`, Bearer). Which shape we hold
+ * is decided by the scheme that just VALIDATED the token, not the `glpat-`
+ * prefix alone: PRIVATE-TOKEN only ever validates PATs, and self-managed
+ * instances can configure a custom PAT prefix, so a non-glpat
+ * Bearer-validated token may be either shape. We try the likelier endpoint
+ * first and fall back to the other.
+ *
+ * Both are undefined when the scopes can't be determined (e.g. a
+ * project/group token, a non-200 response, or a network error).
+ * Introspection is enrichment and must never block validation.
+ */
+async function fetchTokenInfo(
   token: string,
   scheme: AuthScheme,
   baseUrl: string,
-): Promise<string[] | undefined> {
-  const patProbe = [`${gitlabApiBase(baseUrl)}/personal_access_tokens/self`, "scopes", authHeaders(token, scheme)] as const
-  const oauthProbe = [`${baseUrl}/oauth/token/info`, "scope", authHeaders(token, "bearer")] as const
+): Promise<{ scopes?: string[] | undefined; expiresAt?: string | undefined }> {
+  const patProbe = [
+    `${gitlabApiBase(baseUrl)}/personal_access_tokens/self`,
+    "scopes",
+    authHeaders(token, scheme),
+    patExpiry,
+  ] as const
+  const oauthProbe = [
+    `${baseUrl}/oauth/token/info`,
+    "scope",
+    authHeaders(token, "bearer"),
+    oauthExpiry,
+  ] as const
   // A known PAT (PRIVATE-TOKEN-validated, or the stock glpat- prefix) can
   // only introspect via the PAT endpoint — /oauth/token/info would 401. A
   // non-glpat Bearer-validated token is EITHER glab's OAuth token or a
@@ -102,18 +136,18 @@ async function fetchScopes(
   // so custom-prefix PATs keep their scopes (and the missing-scope warning).
   const probes =
     scheme === "private" || token.startsWith("glpat-") ? [patProbe] : [oauthProbe, patProbe]
-  for (const [url, field, headers] of probes) {
+  for (const [url, field, headers, expiry] of probes) {
     try {
       const resp = await fetch(url, { headers })
       if (!resp.ok) continue
       const data = (await resp.json()) as Record<string, unknown>
       const scopes = toStringArray(data[field])
-      if (scopes) return scopes
+      if (scopes) return { scopes, expiresAt: expiry(data) }
     } catch {
       /* best-effort */
     }
   }
-  return undefined
+  return {}
 }
 
 /**
@@ -124,11 +158,7 @@ async function fetchScopes(
  * caller-supplied headers (e.g. Content-Type for a POST body) are merged
  * after the auth headers.
  */
-async function gitlabFetch(
-  url: string,
-  token: string,
-  init: RequestInit = {},
-): Promise<Response> {
+async function gitlabFetch(url: string, token: string, init: RequestInit = {}): Promise<Response> {
   const extra = init.headers as Record<string, string> | undefined
   let scheme: AuthScheme = "bearer"
   let resp = await fetch(url, { ...init, headers: { ...extra, ...authHeaders(token, scheme) } })
@@ -145,11 +175,7 @@ async function gitlabFetch(
  * so we drive the loop off `x-next-page` (and a short final page) rather than
  * `x-total-pages`. Mirrors GitHubHttpClient.paginateAll.
  */
-async function paginateAll<T>(
-  url: string,
-  token: string,
-  perPage = 100,
-): Promise<T[]> {
+async function paginateAll<T>(url: string, token: string, perPage = 100): Promise<T[]> {
   const results: T[] = []
   let page = 1
   while (true) {
@@ -167,10 +193,7 @@ async function paginateAll<T>(
   return results
 }
 
-async function validateUserToken(
-  token: string,
-  baseUrl: string,
-): Promise<GitLabTokenValidation> {
+async function validateUserToken(token: string, baseUrl: string): Promise<GitLabTokenValidation> {
   const apiBase = gitlabApiBase(baseUrl)
   // Bearer-first: Bearer accepts both glpat- PATs and glab's
   // unprefixed OAuth tokens (which PRIVATE-TOKEN rejects with 401), so the
@@ -192,7 +215,7 @@ async function validateUserToken(
     email?: string
   }
   // GET /user exposes no scopes; introspect them with the scheme that validated.
-  const scopes = await fetchScopes(token, scheme, baseUrl)
+  const { scopes, expiresAt } = await fetchTokenInfo(token, scheme, baseUrl)
   return {
     user: {
       login: data.username,
@@ -201,14 +224,14 @@ async function validateUserToken(
       email: data.email,
     },
     scopes,
+    expiresAt,
   }
 }
 
 const impl: GitLabClientShape = {
   validateToken: (token: string, baseUrl?: string) =>
     Effect.tryPromise({
-      try: (): Promise<GitLabTokenValidation> =>
-        validateUserToken(token, resolveBaseUrl(baseUrl)),
+      try: (): Promise<GitLabTokenValidation> => validateUserToken(token, resolveBaseUrl(baseUrl)),
       catch: toGitLabApiError,
     }),
 
@@ -230,15 +253,11 @@ const impl: GitLabClientShape = {
         if (params.labels && params.labels.length > 0) {
           body.labels = params.labels.join(",")
         }
-        const resp = await gitlabFetch(
-          `${apiBase}/projects/${projectId}/merge_requests`,
-          token,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          },
-        )
+        const resp = await gitlabFetch(`${apiBase}/projects/${projectId}/merge_requests`, token, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
         await assertOk(resp)
         // `iid` is the project-scoped, user-facing number (!42); `id` is the
         // global DB id — never surface that one.

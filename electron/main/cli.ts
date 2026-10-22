@@ -25,10 +25,10 @@ export interface CliConfig {
 
 /**
  * Value-taking flags from the old Go CLI that this app does not support. The
- * working directory starts as the folder that contains the runbook (and then
- * follows any `cd` a script makes), and generated files always go inside that
- * folder. We still recognize these flags so their value is skipped instead of
- * being taken as the runbook path.
+ * working directory starts as the session's own directory (and then follows
+ * any `cd` a script makes), and generated files always go inside that
+ * directory. We still recognize these flags so their value is skipped instead
+ * of being taken as the runbook path.
  */
 const UNSUPPORTED_VALUE_FLAGS = new Set(["--working-dir", "--output-path"])
 
@@ -41,9 +41,11 @@ const UNSUPPORTED_VALUE_FLAGS = new Set(["--working-dir", "--output-path"])
  * @param argv    The arguments to parse: this process's argv, or a second
  *                instance's argv from the "second-instance" event (see
  *                secondInstanceArgv).
- * @param cwd     The directory relative paths are resolved against. For a
- *                second instance this is the directory it was launched from
- *                (Electron's `workingDirectory`), not this process's cwd.
+ * @param cwd     The directory relative paths are resolved against: the
+ *                launch directory from recoverLaunchDirectory (launch-dir.ts).
+ *                For a second instance it is the directory that instance was
+ *                launched from (see secondInstanceLaunchDirectory), not this
+ *                process's cwd.
  * @param appPath The Electron app's own path (`app.getAppPath()`). An
  *                unpackaged run (`electron .`, as electron-vite dev does)
  *                passes it as a positional argument, and it is not a runbook.
@@ -69,15 +71,16 @@ export function parseCliArgs(
   let sawPositional = false
 
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    const flagName = arg.split("=", 1)[0]
+    const arg = args[i]!
+    const next = args[i + 1]
+    const flagName = arg.split("=", 1)[0]!
 
-    if (arg === "--runbook" && i + 1 < args.length) {
-      const val = args[++i]
-      if (isRemoteSource(val)) {
-        config.remoteUrl = val
+    if (arg === "--runbook" && next !== undefined) {
+      i++
+      if (isRemoteSource(next)) {
+        config.remoteUrl = next
       } else {
-        config.runbookPath = path.resolve(cwd, val)
+        config.runbookPath = path.resolve(cwd, next)
       }
     } else if (arg === "--watch") {
       config.watch = true
@@ -87,10 +90,10 @@ export function parseCliArgs(
       config.disableLiveFileReload = true
     } else if (UNSUPPORTED_VALUE_FLAGS.has(flagName)) {
       // `--flag value` form: skip the value too (the `--flag=value` form is one arg).
-      if (arg === flagName && i + 1 < args.length && !args[i + 1].startsWith("-")) i++
+      if (arg === flagName && next !== undefined && !next.startsWith("-")) i++
       log.warn(
         `${flagName} is no longer supported and was ignored: the working directory starts ` +
-          "in the runbook's folder, and generated files are written inside that folder.",
+          "in the session's own directory, and generated files are written inside it.",
       )
     } else if (isRemoteSource(arg)) {
       // Treat a bare positional source as a remote runbook. This runs before
@@ -122,9 +125,11 @@ export function parseCliArgs(
  * is not the list the second instance was started with: Chromium moves every
  * switch ahead of the positionals and adds switches of its own, so
  * `--working-dir /path` no longer sits next to its value. The second instance
- * therefore forwards its own process.argv as the lock's additionalData
- * (`app.requestSingleInstanceLock({ argv: process.argv })`). Use that when it
- * is a string array, and fall back to Electron's `argv` otherwise.
+ * therefore forwards its own process.argv, with its launch directory, as the
+ * lock's additionalData (`{ argv, cwd }`, see requestLaunchLock; the `cwd` is
+ * read by secondInstanceLaunchDirectory and preferred over Electron's
+ * `workingDirectory`). Use `argv` when it is a string array, and fall back to
+ * Electron's `argv` otherwise.
  */
 export function secondInstanceArgv(argv: string[], additionalData: unknown): string[] {
   const forwarded = (additionalData as { argv?: unknown } | null | undefined)?.argv

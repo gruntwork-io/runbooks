@@ -1,5 +1,5 @@
-import { createContext } from 'react'
-import type { FileTreeNode } from '../components/artifacts/code/FileTree'
+import { createContext } from "react"
+import type { FileTreeNode } from "../components/artifacts/code/FileTree"
 
 /** A top-level subdirectory that contains a disproportionate number of files. */
 export interface HeavyDir {
@@ -16,7 +16,7 @@ export interface TruncationInfo {
   /** Total files discovered (including beyond the limit) */
   totalFiles: number
   /** Top-level subdirectories with a significant share of total files, sorted by file count descending */
-  heavyDirs?: HeavyDir[]
+  heavyDirs?: HeavyDir[] | undefined
 }
 
 /**
@@ -26,9 +26,9 @@ export interface TruncationInfo {
  */
 export interface FileTreeResponse {
   fileTree: FileTreeNode[]
-  truncatedTree?: boolean
-  totalFiles?: number
-  heavyDirs?: HeavyDir[]
+  truncatedTree?: boolean | undefined
+  totalFiles?: number | undefined
+  heavyDirs?: HeavyDir[] | undefined
 }
 
 export interface GeneratedFilesContextType {

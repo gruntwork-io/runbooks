@@ -27,7 +27,9 @@ import * as https from "node:https"
 import * as os from "node:os"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
 import type { AddressInfo } from "node:net"
+import { readFromMain } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -54,18 +56,35 @@ interface LaunchResult {
  *  env vars are always stripped for determinism. */
 async function launchApp(runbook: string, env: Record<string, string>): Promise<LaunchResult> {
   const cleanEnv: Record<string, string> = { ...process.env } as Record<string, string>
-  for (const v of ["GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GITLAB_HOST", "GITLAB_URI", "GL_HOST", "GH_HOST", "GLAB_CONFIG_DIR", "GH_CONFIG_DIR"]) {
+  for (const v of [
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+    "GITLAB_TOKEN",
+    "GITLAB_ACCESS_TOKEN",
+    "OAUTH_TOKEN",
+    "GITLAB_HOST",
+    "GITLAB_URI",
+    "GL_HOST",
+    "GH_HOST",
+    "GLAB_CONFIG_DIR",
+    "GH_CONFIG_DIR",
+  ]) {
     delete cleanEnv[v]
   }
   const collected: string[] = []
   const app = await electron.launch({
-    args: [MAIN_ENTRY, runbook],
+    args: [MAIN_ENTRY, MOCK_KEYCHAIN, runbook],
     env: {
       ...cleanEnv,
       ELECTRON_NO_UPDATER: "1",
-      RUNBOOKS_NO_TELEMETRY: "1",
+      RUNBOOKS_TELEMETRY_DISABLE: "1",
       // Skip populateShellEnv so the test-controlled PATH survives.
       TERM_PROGRAM: "runbooks-e2e",
+      // A throwaway profile, unless the test passes its own to restart on:
+      // the app saves a session for every runbook it opens.
+      RUNBOOKS_TEST_USER_DATA_DIR: makeTempDir("rb-userdata-"),
       ...env,
     },
   })
@@ -99,11 +118,16 @@ async function startGitLabStub(): Promise<{ host: string; close: () => Promise<v
       res.end()
     },
   )
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve)
+  })
   const { port } = server.address() as AddressInfo
   return {
     host: `localhost:${port}`,
-    close: () => new Promise((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise((resolve) => {
+        server.close(() => resolve())
+      }),
   }
 }
 
@@ -134,14 +158,18 @@ test("trust canary: the in-Electron system-store read matches the host's", async
 
   const { app } = await launchApp(GITHUB_RUNBOOK, {})
   try {
-    const counts = await app.evaluate(() => {
-      // The built main is ESM — no `require` in the evaluate scope.
-      const tls = process.getBuiltinModule("node:tls")
-      return {
-        system: tls.getCACertificates("system").length,
-        installedDefault: tls.getCACertificates("default").length,
-      }
-    })
+    const counts = await readFromMain(
+      app,
+      () => {
+        // The built main is ESM — no `require` in the evaluate scope.
+        const tls = process.getBuiltinModule("node:tls")
+        return {
+          system: tls.getCACertificates("system").length,
+          installedDefault: tls.getCACertificates("default").length,
+        }
+      },
+      undefined,
+    )
     // Reader parity: an in-Electron read that comes up empty while the host
     // has certs is exactly the regression class this canary exists to catch.
     if (hostSystemCount > 0) {
@@ -286,7 +314,9 @@ test("gitlab: probe converts a TLS wall into degraded auth with the transparency
     })
     // transparency line + the structured field canary.
     await expect(window.getByTestId("transport-degraded-line")).toBeVisible()
-    await expect(window.getByTestId("transport-degraded-line")).toContainText("validated via glab CLI")
+    await expect(window.getByTestId("transport-degraded-line")).toContainText(
+      "validated via glab CLI",
+    )
     expect(logs()).toContain(`transport degraded for ${stub.host}`)
   } finally {
     await app.close()
@@ -311,7 +341,9 @@ test("github: logged-out gh → manual UI with hint; Check again re-detects with
     // Nothing found → manual UI with the hint line + Check again control,
     // and the OAuth tab is a first-class tab even though gh is installed.
     await expect(
-      window.getByText("No existing credentials found. Sign in below, set GITHUB_TOKEN, or run 'gh auth login'."),
+      window.getByText(
+        "No existing credentials found. Sign in below, set GITHUB_TOKEN, or run 'gh auth login'.",
+      ),
     ).toBeVisible({ timeout: 45_000 })
     await expect(window.getByRole("button", { name: /Sign in with GitHub/ }).first()).toBeVisible()
     await expect(window.getByRole("button", { name: "Check again" })).toBeVisible()
@@ -342,7 +374,9 @@ test("github: gh absent → install hint, OAuth tab still present", async () => 
   })
   try {
     await expect(
-      window.getByText("No existing credentials found. Sign in below, set GITHUB_TOKEN, or install the GitHub CLI (gh)."),
+      window.getByText(
+        "No existing credentials found. Sign in below, set GITHUB_TOKEN, or install the GitHub CLI (gh).",
+      ),
     ).toBeVisible({ timeout: 45_000 })
     await expect(window.getByRole("button", { name: /Sign in with GitHub/ }).first()).toBeVisible()
   } finally {
@@ -363,7 +397,10 @@ test("gitlab: Other instance… sentinel, PAT success, recent persisted across r
   fs.writeFileSync(seamPath, CA_PEM) // trusted from launch (PAT validation target)
   // gitlab.com-only config, no credential: single-host case still renders the
   // select with the Other instance… row.
-  writeGlabConfig(configDir, ["host: gitlab.com", "hosts:", "    gitlab.com:", "        user: someone", ""].join("\n"))
+  writeGlabConfig(
+    configDir,
+    ["host: gitlab.com", "hosts:", "    gitlab.com:", "        user: someone", ""].join("\n"),
+  )
 
   const env = {
     PATH: stubPath(),

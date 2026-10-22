@@ -1,4 +1,6 @@
 /**
+ * exec:run leaves the other runs going, and exec:cancel stops the run it names.
+ *
  * cancelAllExecutions is what will-quit calls to stop running scripts. Scripts
  * run in their own process group, so nothing else signals them when the app
  * exits. This drives the real exec:run handler on the real runtime (only
@@ -41,12 +43,14 @@ async function waitUntil(pred: () => boolean, timeoutMs: number): Promise<boolea
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (pred()) return true
-    await new Promise((r) => setTimeout(r, 50))
+    await new Promise((r) => {
+      setTimeout(r, 50)
+    })
   }
   return pred()
 }
 
-describe("cancelAllExecutions", () => {
+describe("exec:run and cancelAllExecutions", () => {
   let tmpDir = ""
   let pidFile = ""
   let executableId = ""
@@ -71,7 +75,7 @@ describe("cancelAllExecutions", () => {
       ),
     )
     setExecutableRegistry(registry)
-    ;[executableId] = Object.keys(registry.getAllExecutables())
+    executableId = Object.keys(registry.getAllExecutables())[0]!
   })
 
   afterEach(() => {
@@ -99,13 +103,19 @@ describe("cancelAllExecutions", () => {
   /** Start long.sh via exec:run and wait until it has recorded its pids. */
   async function startLongRun(executionId: string) {
     fs.rmSync(pidFile, { force: true })
-    const run = handlers.get("exec:run")!({ sender: { send: () => {} } }, { executableId, executionId })
+    const run = handlers.get("exec:run")!(
+      { sender: { send: () => {} } },
+      { executableId, executionId },
+    )
     const started = await waitUntil(
-      () => fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").trim().split(" ").length === 2,
+      () =>
+        fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").trim().split(" ").length === 2,
       8000,
     )
     expect(started).toBe(true)
-    const [leaderPid, childPid] = fs.readFileSync(pidFile, "utf8").trim().split(" ").map(Number)
+    const pids = fs.readFileSync(pidFile, "utf8").trim().split(" ").map(Number)
+    const leaderPid = pids[0]!
+    const childPid = pids[1]!
     grandchildPids.push(childPid)
     expect(isAlive(childPid)).toBe(true)
     return { run, leaderPid, childPid }
@@ -123,10 +133,39 @@ describe("cancelAllExecutions", () => {
     expect(await waitUntil(() => !isAlive(childPid), 10000)).toBe(true)
   }, 20000)
 
+  it("leaves the first run going when a second one starts, and stops each on its own", async () => {
+    const first = await startLongRun("first")
+    const second = await startLongRun("second")
+    expect(isAlive(first.childPid)).toBe(true)
+
+    await handlers.get("exec:cancel")!({}, { executionId: "first" })
+
+    expect(await first.run).toEqual({ status: null, cancelled: true })
+    expect(await waitUntil(() => !isAlive(first.childPid), 10000)).toBe(true)
+    expect(isAlive(second.childPid)).toBe(true)
+
+    await handlers.get("exec:cancel")!({}, { executionId: "second" })
+
+    expect(await second.run).toEqual({ status: null, cancelled: true })
+    expect(await waitUntil(() => !isAlive(second.childPid), 10000)).toBe(true)
+  }, 30000)
+
+  it("stops every run on quit", async () => {
+    const first = await startLongRun("quit-first")
+    const second = await startLongRun("quit-second")
+
+    await cancelAllExecutions()
+
+    expect(await first.run).toEqual({ status: null, cancelled: true })
+    expect(await second.run).toEqual({ status: null, cancelled: true })
+    expect(await waitUntil(() => !isAlive(first.childPid), 10000)).toBe(true)
+    expect(await waitUntil(() => !isAlive(second.childPid), 10000)).toBe(true)
+  }, 30000)
+
   it("still cancels a run that reused the id of the run it replaced", async () => {
-    // Renderer execution ids restart after a reload, so a new run can arrive
-    // under the id of one that is still running. exec:run cancels the old run;
-    // its cleanup must not remove the new run's entry.
+    // A new run can arrive under the id of one that is still running. exec:run
+    // cancels the old run, which the new entry would otherwise hide from Stop
+    // and from quit; the old run's cleanup must not remove the new run's entry.
     const first = await startLongRun("1")
     const second = await startLongRun("1")
     expect(await first.run).toEqual({ status: null, cancelled: true })
@@ -138,4 +177,76 @@ describe("cancelAllExecutions", () => {
     expect(await second.run).toEqual({ status: null, cancelled: true })
     expect(await waitUntil(() => !isAlive(second.childPid), 10000)).toBe(true)
   }, 30000)
+})
+
+// A sensitive output is a Redacted in the main process, which structured clone
+// would turn into `{}`. exec:run returns every output flat instead, as
+// { value, sensitive }, and the renderer wraps the sensitive ones again.
+describe("exec:run outputs", () => {
+  let tmpDir = ""
+
+  beforeAll(async () => {
+    registerExecHandlers()
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-exec-outputs-"))
+    await runtime.runPromise(sessionManager.createSession(tmpDir))
+  })
+
+  afterAll(() => {
+    setExecutableRegistry(null)
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it("returns each output's real value and whether it's sensitive, with the status, in a form IPC can clone", async () => {
+    const registry = new ExecutableRegistry()
+    await runtime.runPromise(
+      registry.parseAndRegister(
+        path.join(tmpDir, "runbook.mdx"),
+        `<Command id="mint" command='echo "user=alice" >> "$RUNBOOK_OUTPUT"; echo "sensitive:token=s3cr3t" >> "$RUNBOOK_OUTPUT"' />\n`,
+      ),
+    )
+    setExecutableRegistry(registry)
+    const [executableId] = Object.keys(registry.getAllExecutables())
+
+    const sent: { channel: string; payload: unknown }[] = []
+    const sender = { send: (channel: string, payload: unknown) => sent.push({ channel, payload }) }
+    const result = await handlers.get("exec:run")!(
+      { sender },
+      { executableId, executionId: "outputs-test" },
+    )
+
+    const expected = {
+      status: { status: "success", exitCode: 0 },
+      outputs: {
+        user: { value: "alice", sensitive: false },
+        token: { value: "s3cr3t", sensitive: true },
+      },
+    }
+    expect(result).toEqual(expected)
+    // What the renderer receives: nothing is lost in the clone
+    expect(structuredClone(result)).toEqual(expected)
+    // Every event names its run, so the renderer can tell concurrent runs apart
+    expect(sent.length).toBeGreaterThan(0)
+    for (const { payload } of sent) {
+      expect(payload).toMatchObject({ executionId: "outputs-test" })
+    }
+  }, 20000)
+
+  it("returns no outputs for a run that fails after writing some", async () => {
+    const registry = new ExecutableRegistry()
+    await runtime.runPromise(
+      registry.parseAndRegister(
+        path.join(tmpDir, "runbook.mdx"),
+        `<Command id="half" command='echo "user=alice" >> "$RUNBOOK_OUTPUT"; exit 1' />\n`,
+      ),
+    )
+    setExecutableRegistry(registry)
+    const [executableId] = Object.keys(registry.getAllExecutables())
+
+    const result = await handlers.get("exec:run")!(
+      { sender: { send: () => {} } },
+      { executableId, executionId: "failed-outputs-test" },
+    )
+
+    expect(result).toEqual({ status: { status: "fail", exitCode: 1 }, outputs: {} })
+  }, 20000)
 })

@@ -1,8 +1,8 @@
-import { useState, useCallback, useMemo, useRef } from 'react'
-import type { ReactNode } from 'react'
-import { useApi } from './ApiContext'
-import { GitWorkTreeContext } from './gitWorkTreeTypes'
-import type { GitWorkTree, GitWorkTreeContextType } from './gitWorkTreeTypes'
+import { useState, useCallback, useMemo, useRef } from "react"
+import type { ReactNode } from "react"
+import { useApi } from "./ApiContext"
+import { GitWorkTreeContext } from "./gitWorkTreeTypes"
+import type { GitWorkTree, GitWorkTreeContextType } from "./gitWorkTreeTypes"
 
 interface IpcGitWorkTreeProviderProps {
   children: ReactNode
@@ -38,73 +38,85 @@ export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ 
   const displacedActiveIdRef = useRef<string | null>(null)
 
   const invalidateGitFileTree = useCallback(() => {
-    setTreeVersion(v => v + 1)
+    setTreeVersion((v) => v + 1)
   }, [])
 
   // Sync the active worktree path to the backend so that target="worktree"
   // templates and REPO_FILES point to the correct repo.
-  const syncActiveToBackend = useCallback((path: string) => {
-    api.invoke('workspace:set-active', { worktreePath: path }).catch(() => {})
-  }, [api])
+  const syncActiveToBackend = useCallback(
+    (path: string) => {
+      api.invoke("workspace:set-active", { worktreePath: path }).catch(() => {})
+    },
+    [api],
+  )
 
-  const registerWorkTree = useCallback((workTree: GitWorkTree) => {
-    const prev = workTreesRef.current
-    const existing = prev.findIndex(wt => wt.id === workTree.id)
-    setWorkTrees(existing >= 0
-      ? prev.map((wt, i) => (i === existing ? workTree : wt))
-      : [...prev, workTree])
+  const registerWorkTree = useCallback(
+    (workTree: GitWorkTree) => {
+      const prev = workTreesRef.current
+      const existing = prev.findIndex((wt) => wt.id === workTree.id)
+      setWorkTrees(
+        existing >= 0 ? prev.map((wt, i) => (i === existing ? workTree : wt)) : [...prev, workTree],
+      )
 
-    const reclaimsActive = displacedActiveIdRef.current === workTree.id
-    if (reclaimsActive) displacedActiveIdRef.current = null
+      const reclaimsActive = displacedActiveIdRef.current === workTree.id
+      if (reclaimsActive) displacedActiveIdRef.current = null
 
-    // Auto-activate the first registered worktree, and set it as active on
-    // the backend too. Re-registering the active one (its block cloned again,
-    // maybe to another path) syncs it again, or the backend would stay on the
-    // old path.
-    const active = activeIdRef.current
-    if (active === null || active === workTree.id || reclaimsActive) {
-      setActiveWorkTreeId(workTree.id)
-      syncActiveToBackend(workTree.localPath)
-    }
+      // Auto-activate the first registered worktree, and set it as active on
+      // the backend too. Re-registering the active one (its block cloned again,
+      // maybe to another path) syncs it again, or the backend would stay on the
+      // old path.
+      const active = activeIdRef.current
+      if (active === null || active === workTree.id || reclaimsActive) {
+        setActiveWorkTreeId(workTree.id)
+        syncActiveToBackend(workTree.localPath)
+      }
 
-    // Register the worktree path with the backend
-    api.invoke('workspace:register', { worktreePath: workTree.localPath }).catch(() => {})
+      // Register the worktree path with the backend
+      api.invoke("workspace:register", { worktreePath: workTree.localPath }).catch(() => {})
 
-    // Always invalidate the tree so re-clones refresh the file tree and reset changed files
-    invalidateGitFileTree()
-  }, [api, setWorkTrees, setActiveWorkTreeId, syncActiveToBackend, invalidateGitFileTree])
+      // Always invalidate the tree so re-clones refresh the file tree and reset changed files
+      invalidateGitFileTree()
+    },
+    [api, setWorkTrees, setActiveWorkTreeId, syncActiveToBackend, invalidateGitFileTree],
+  )
 
   // Called when a GitClone block starts over. Its worktree must not stay
   // registered (or active) while the block shows no repo: <GitPullRequest>
   // would keep targeting the repository the user moved away from.
-  const unregisterWorkTree = useCallback((id: string) => {
-    const prev = workTreesRef.current
-    const remaining = prev.filter(wt => wt.id !== id)
-    if (remaining.length === prev.length) return
-    setWorkTrees(remaining)
-    if (activeIdRef.current === id) {
-      // Keep the original holder when a stand-in is removed in turn.
-      displacedActiveIdRef.current ??= id
-      const next = remaining[0] ?? null
-      setActiveWorkTreeId(next?.id ?? null)
-      if (next) syncActiveToBackend(next.localPath)
-    }
-    invalidateGitFileTree()
-  }, [setWorkTrees, setActiveWorkTreeId, syncActiveToBackend, invalidateGitFileTree])
+  const unregisterWorkTree = useCallback(
+    (id: string) => {
+      const prev = workTreesRef.current
+      const remaining = prev.filter((wt) => wt.id !== id)
+      if (remaining.length === prev.length) return
+      setWorkTrees(remaining)
+      if (activeIdRef.current === id) {
+        // Keep the original holder when a stand-in is removed in turn.
+        displacedActiveIdRef.current ??= id
+        const next = remaining[0] ?? null
+        setActiveWorkTreeId(next?.id ?? null)
+        if (next) syncActiveToBackend(next.localPath)
+      }
+      invalidateGitFileTree()
+    },
+    [setWorkTrees, setActiveWorkTreeId, syncActiveToBackend, invalidateGitFileTree],
+  )
 
-  const setActiveWorkTree = useCallback((id: string) => {
-    // An explicit choice wins over handing the role back later.
-    displacedActiveIdRef.current = null
-    setActiveWorkTreeId(id)
+  const setActiveWorkTree = useCallback(
+    (id: string) => {
+      // An explicit choice wins over handing the role back later.
+      displacedActiveIdRef.current = null
+      setActiveWorkTreeId(id)
 
-    // Sync the worktree's local path to the backend
-    const wt = workTreesRef.current.find(w => w.id === id)
-    if (wt) syncActiveToBackend(wt.localPath)
-  }, [setActiveWorkTreeId, syncActiveToBackend])
+      // Sync the worktree's local path to the backend
+      const wt = workTreesRef.current.find((w) => w.id === id)
+      if (wt) syncActiveToBackend(wt.localPath)
+    },
+    [setActiveWorkTreeId, syncActiveToBackend],
+  )
 
   const activeWorkTree = useMemo(() => {
     if (!activeWorkTreeId) return null
-    return workTrees.find(wt => wt.id === activeWorkTreeId) ?? null
+    return workTrees.find((wt) => wt.id === activeWorkTreeId) ?? null
   }, [workTrees, activeWorkTreeId])
 
   // Called when a different runbook is loaded. This provider is mounted once
@@ -119,21 +131,30 @@ export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ 
     invalidateGitFileTree()
   }, [setWorkTrees, setActiveWorkTreeId, invalidateGitFileTree])
 
-  const value = useMemo<GitWorkTreeContextType>(() => ({
-    workTrees,
-    activeWorkTreeId,
-    activeWorkTree,
-    registerWorkTree,
-    unregisterWorkTree,
-    setActiveWorkTree,
-    resetWorkTrees,
-    treeVersion,
-    invalidateGitFileTree,
-  }), [workTrees, activeWorkTreeId, activeWorkTree, registerWorkTree, unregisterWorkTree, setActiveWorkTree, resetWorkTrees, treeVersion, invalidateGitFileTree])
-
-  return (
-    <GitWorkTreeContext.Provider value={value}>
-      {children}
-    </GitWorkTreeContext.Provider>
+  const value = useMemo<GitWorkTreeContextType>(
+    () => ({
+      workTrees,
+      activeWorkTreeId,
+      activeWorkTree,
+      registerWorkTree,
+      unregisterWorkTree,
+      setActiveWorkTree,
+      resetWorkTrees,
+      treeVersion,
+      invalidateGitFileTree,
+    }),
+    [
+      workTrees,
+      activeWorkTreeId,
+      activeWorkTree,
+      registerWorkTree,
+      unregisterWorkTree,
+      setActiveWorkTree,
+      resetWorkTrees,
+      treeVersion,
+      invalidateGitFileTree,
+    ],
   )
+
+  return <GitWorkTreeContext.Provider value={value}>{children}</GitWorkTreeContext.Provider>
 }

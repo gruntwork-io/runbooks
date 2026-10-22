@@ -13,7 +13,7 @@
 import { Duration, Effect, Exit, Fiber, Layer } from "effect"
 import { BundleProducer } from "../services/BundleProducer.ts"
 import type { BundleProducerShape, BundleArtifact } from "../services/BundleProducer.ts"
-import type { InputsMapResult } from "../services/WasmRuntime.ts"
+import type { BundleSnapshot, InputsMapResult } from "../services/WasmRuntime.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { RenderError } from "../errors/index.ts"
 import { runBoilerplateCli } from "./WasmBoilerplate.ts"
@@ -33,7 +33,7 @@ const cache = new Map<string, BundleArtifact>()
  * subprocess. A build is interrupted, which kills its subprocess, only by
  * `clear`/`invalidate` or by BUNDLE_BUILD_TIMEOUT.
  */
-const inFlight = new Map<string, Fiber.RuntimeFiber<BundleArtifact, RenderError>>()
+const inFlight = new Map<string, Fiber.Fiber<BundleArtifact, RenderError>>()
 
 /**
  * Upper bound on one bundle build. Every render of a template waits on the
@@ -61,49 +61,45 @@ function buildBundle(templateId: string, templatePath: string) {
     )
 
     const json = stdout.join("\n").trim()
-    let parsed: InputsMapResult & { bundle?: unknown }
-    try {
-      parsed = JSON.parse(json) as InputsMapResult & { bundle?: unknown }
-    } catch (err) {
-      return yield* Effect.fail(
+    const parsed = yield* Effect.try({
+      try: () => JSON.parse(json) as InputsMapResult & { bundle?: unknown },
+      catch: (err) =>
         new RenderError({
           message: "Failed to parse boilerplate inputs map JSON output",
           cause: err,
         }),
-      )
-    }
+    })
 
     if (!parsed.bundle || typeof parsed.bundle !== "object") {
       // --include-bundle is supposed to set this; if it's missing the
       // vendored CLI pre-dates the flag (boilerplate_version in the
       // justfile was rolled back too far).
-      return yield* Effect.fail(
-        new RenderError({
-          message:
-            "boilerplate inputs map produced no `bundle` field. The vendored boilerplate release is too old for `inputs map --include-bundle`; check boilerplate_version in the justfile.",
-        }),
-      )
+      return yield* new RenderError({
+        message:
+          "boilerplate inputs map produced no `bundle` field. The vendored boilerplate release is too old for `inputs map --include-bundle`; check boilerplate_version in the justfile.",
+      })
     }
 
     // The bundle field on the CLI output is the same shape WASM
     // expects; just re-serialize the inner object so we have it as a
     // JSON string ready for boilerplateRenderFiles.
-    const bundleJSON = JSON.stringify(parsed.bundle)
+    const bundle = parsed.bundle as BundleSnapshot
+    const bundleJSON = JSON.stringify(bundle)
 
     const artifact: BundleArtifact = {
       templateId,
       templatePath,
       inputsMap: parsed,
+      bundle,
       bundleJSON,
       producedAt: t0,
     }
     const elapsed = Date.now() - t0
-    // eslint-disable-next-line no-console
     console.log("[BundleProducer] built", {
       templateId,
       templatePath,
       elapsedMs: elapsed,
-      bundleFiles: Object.keys((parsed.bundle as { files?: Record<string, unknown> }).files ?? {}).length,
+      bundleFiles: Object.keys(bundle.files).length,
       outputs: Object.keys(parsed.files ?? {}).length,
     })
     return artifact
@@ -125,14 +121,16 @@ export const NodeBundleProducerLive = Layer.effect(
     const startBuild = (templateId: string, templatePath: string) =>
       Effect.uninterruptible(
         Effect.gen(function* () {
-          const fiber = yield* Effect.forkDaemon(
+          const fiber = yield* Effect.forkDetach(
             buildBundle(templateId, templatePath).pipe(
-              Effect.timeoutFail({
+              Effect.timeoutOrElse({
                 duration: BUNDLE_BUILD_TIMEOUT,
-                onTimeout: () =>
-                  new RenderError({
-                    message: `boilerplate inputs map timed out after ${Duration.format(BUNDLE_BUILD_TIMEOUT)}`,
-                  }),
+                orElse: () =>
+                  Effect.fail(
+                    new RenderError({
+                      message: `boilerplate inputs map timed out after ${Duration.format(BUNDLE_BUILD_TIMEOUT)}`,
+                    }),
+                  ),
               }),
               Effect.provideService(ProcessSpawner, spawner),
               Effect.interruptible,

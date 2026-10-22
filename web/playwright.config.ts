@@ -1,10 +1,10 @@
-import { defineConfig } from "@playwright/test";
-import { fileURLToPath } from "url";
-import { assertNoNestedNodeModules } from "../scripts/no-nested-node-modules.ts";
+import { defineConfig } from "@playwright/test"
+import { fileURLToPath } from "url"
+import { assertNoNestedNodeModules } from "../scripts/no-nested-node-modules.ts"
 
 // The specs in web/e2e/ resolve @playwright/test from web/, so a leftover
 // web/node_modules would take precedence over the root copy.
-assertNoNestedNodeModules(fileURLToPath(new URL("..", import.meta.url)));
+assertNoNestedNodeModules(fileURLToPath(new URL("..", import.meta.url)))
 
 export default defineConfig({
   testDir: "./e2e",
@@ -22,4 +22,4 @@ export default defineConfig({
   // _electron.launch() (see e2e/fixtures.ts).
   // Build the Electron app before running any tests.
   globalSetup: "./e2e/global-setup.ts",
-});
+})

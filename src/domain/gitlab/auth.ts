@@ -8,10 +8,9 @@
  * CLI reads are PER HOST: `glab config get token --host <H>` —
  * glab has no `auth token` subcommand.
  */
-import { Effect } from "effect"
+import { Effect, Semaphore } from "effect"
 import YAML from "yaml"
 import { join } from "node:path"
-import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { GitLabTokenType } from "../../services/GitLabClient.ts"
 import { Environment } from "../../services/Environment.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
@@ -20,6 +19,7 @@ import { buildCliEnv } from "../git/cli-token.ts"
 import type { CliEnvOverrides } from "../git/cli-token.ts"
 import { normalizeGitLabBaseUrl, tryNormalizeGitLabHost } from "../git/gitlab-host.ts"
 import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
+import { errorMessage } from "../../errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -87,32 +87,16 @@ export const GLAB_ENV_OVERRIDES: CliEnvOverrides = {
 // deliberately triggers such a rewrite (`glab auth status`). Serializing OUR
 // spawns per host guarantees we never race glab's rewrite against our own
 // re-read. (A user-run glab in a terminal can still race it — accepted.)
-const glabHostSemaphores = new Map<string, Effect.Semaphore>()
+const glabHostSemaphores = new Map<string, Semaphore.Semaphore>()
 
-const glabSemaphoreFor = (host: string): Effect.Semaphore => {
+const glabSemaphoreFor = (host: string): Semaphore.Semaphore => {
   let semaphore = glabHostSemaphores.get(host)
   if (!semaphore) {
-    semaphore = Effect.unsafeMakeSemaphore(1)
+    semaphore = Semaphore.makeUnsafe(1)
     glabHostSemaphores.set(host, semaphore)
   }
   return semaphore
 }
-
-// ---------------------------------------------------------------------------
-// Token Validation
-// ---------------------------------------------------------------------------
-
-/**
- * Validate a GitLab token by calling the GitLab API (GET /user).
- *
- * `baseUrl` is the instance origin (e.g. `https://gitlab.example.com`) so a
- * self-hosted token validates against its own instance; defaults to gitlab.com.
- */
-export const validateToken = (token: string, baseUrl?: string) =>
-  Effect.gen(function* () {
-    const glClient = yield* GitLabClient
-    return yield* glClient.validateToken(token, baseUrl)
-  })
 
 // ---------------------------------------------------------------------------
 // Token Type Detection
@@ -229,7 +213,7 @@ export const isSpawnEnoent = (err: unknown): boolean => {
   const cause = (err as { cause?: unknown })?.cause
   const code = (cause as { code?: unknown })?.code
   if (code === "ENOENT") return true
-  return `${cause ?? err}`.includes("ENOENT")
+  return errorMessage(cause ?? err).includes("ENOENT")
 }
 
 /**
@@ -250,15 +234,15 @@ const readTokenRun = (
   host: string,
 ): Effect.Effect<GlabCliRead, never, ProcessSpawner | Environment> =>
   Effect.gen(function* () {
-    const result = yield* Effect.either(
+    const result = yield* Effect.result(
       runGlab(["config", "get", "token", "--host", host], GLAB_CLI_TIMEOUT_MS),
     )
-    if (result._tag === "Left") {
-      return isSpawnEnoent(result.left)
+    if (result._tag === "Failure") {
+      return isSpawnEnoent(result.failure)
         ? ({ kind: "not-installed" } as const)
         : ({ kind: "absent" } as const)
     }
-    const { exitCode, stdout, stderr } = result.right
+    const { exitCode, stdout, stderr } = result.success
     const token = stdout.map((line) => line.trim()).find((line) => line.length > 0)
     if (exitCode === 0) {
       // Contract (a) token / contract (b) empty-stdout = host not configured.
@@ -295,11 +279,11 @@ const classifyGlabAuthStatus = (result: GlabRunResult): GlabAuthStatus => {
  */
 const authStatusRun = (host: string) =>
   Effect.gen(function* () {
-    const result = yield* Effect.either(
+    const result = yield* Effect.result(
       runGlab(["auth", "status", "--hostname", host], GLAB_STATUS_TIMEOUT_MS),
     )
-    if (result._tag === "Left") return "error" as const
-    return classifyGlabAuthStatus(result.right)
+    if (result._tag === "Failure") return "error" as const
+    return classifyGlabAuthStatus(result.success)
   })
 
 /** `glab auth status` under the per-host semaphore. */
@@ -558,13 +542,13 @@ export interface GlabHostMeta {
   /** True when this host's stored credential is a glab OAuth2 login (2h expiry). */
   readonly isOAuth2: boolean
   /** Parsed oauth2_expiry_date, when present and parseable. */
-  readonly oauth2ExpiryDate?: Date
+  readonly oauth2ExpiryDate?: Date | undefined
   /** Per-host ca_cert PEM path (harvested into installSystemTrust). */
-  readonly caCert?: string
+  readonly caCert?: string | undefined
   /** True when the host stores its token in the OS keyring (use_keyring). */
   readonly useKeyring: boolean
   /** The host's `api_protocol`, lowercased, when set (glab defaults to https). */
-  readonly apiProtocol?: string
+  readonly apiProtocol?: string | undefined
 }
 
 const asBool = (value: unknown): boolean =>
@@ -585,9 +569,7 @@ export function parseGlabExpiry(value: unknown): Date | undefined {
   const goMatch = raw.match(
     /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?\s*([+-]\d{2}):?(\d{2})?(?:\s+\S+)?$/,
   )
-  const candidate = goMatch
-    ? `${goMatch[1]}T${goMatch[2]}${goMatch[3]}:${goMatch[4] ?? "00"}`
-    : raw
+  const candidate = goMatch ? `${goMatch[1]}T${goMatch[2]}${goMatch[3]}:${goMatch[4] ?? "00"}` : raw
   const parsed = new Date(candidate)
   return Number.isNaN(parsed.getTime()) ? undefined : parsed
 }
@@ -665,9 +647,7 @@ const scanGlabConfigs = <T>(pick: (content: string) => T | undefined) =>
     })
 
     for (const path of candidates) {
-      const content = yield* fs
-        .readFile(path)
-        .pipe(Effect.orElseSucceed(() => ""))
+      const content = yield* fs.readFile(path).pipe(Effect.orElseSucceed(() => ""))
       const picked = pick(content)
       if (picked) return picked
     }
@@ -699,11 +679,7 @@ export const detectConfigHosts = () =>
   scanGlabConfigs((content) => {
     const info = enumerateGlabHosts(content)
     return info.hosts.length > 0 ? info : undefined
-  }).pipe(
-    Effect.map(
-      (info) => info ?? { hosts: [] as string[], defaultHost: DEFAULT_GITLAB_HOST },
-    ),
-  )
+  }).pipe(Effect.map((info) => info ?? { hosts: [] as string[], defaultHost: DEFAULT_GITLAB_HOST }))
 
 /**
  * Read a host's glab metadata (is_oauth2 / oauth2_expiry_date / ca_cert /

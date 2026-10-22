@@ -57,30 +57,22 @@ describe("parseOwnerRepoFromURL", () => {
   })
 
   it("parses GitLab HTTPS URL with nested groups (full group path as owner)", () => {
-    const result = parseOwnerRepoFromURL(
-      "https://gitlab.com/group/subgroup/project.git",
-    )
+    const result = parseOwnerRepoFromURL("https://gitlab.com/group/subgroup/project.git")
     expect(result).toEqual({ owner: "group/subgroup", repo: "project" })
   })
 
   it("parses GitLab HTTPS URL with deeply nested groups", () => {
-    const result = parseOwnerRepoFromURL(
-      "https://gitlab.com/group/subgroup/deeper/project",
-    )
+    const result = parseOwnerRepoFromURL("https://gitlab.com/group/subgroup/deeper/project")
     expect(result).toEqual({ owner: "group/subgroup/deeper", repo: "project" })
   })
 
   it("parses GitLab SSH URL with nested groups", () => {
-    const result = parseOwnerRepoFromURL(
-      "git@gitlab.com:group/subgroup/project.git",
-    )
+    const result = parseOwnerRepoFromURL("git@gitlab.com:group/subgroup/project.git")
     expect(result).toEqual({ owner: "group/subgroup", repo: "project" })
   })
 
   it("parses self-hosted GitLab SSH URL with nested groups", () => {
-    const result = parseOwnerRepoFromURL(
-      "git@gitlab.example.com:group/subgroup/project.git",
-    )
+    const result = parseOwnerRepoFromURL("git@gitlab.example.com:group/subgroup/project.git")
     expect(result).toEqual({ owner: "group/subgroup", repo: "project" })
   })
 
@@ -177,28 +169,28 @@ describe("isValidGitURL", () => {
 
 describe("deleteBranch", () => {
   const protectedBranches = [
-    "main", "master", "develop", "dev",
-    "staging", "release", "prod", "production",
+    "main",
+    "master",
+    "develop",
+    "dev",
+    "staging",
+    "release",
+    "prod",
+    "production",
   ]
 
-  it.each(protectedBranches)(
-    "rejects deleting protected branch: %s",
-    async (branch) => {
-      const layer = makeTestLayer({
-        git: {
-          deleteBranch: () => Effect.void,
-        },
-      })
+  it.each(protectedBranches)("rejects deleting protected branch: %s", async (branch) => {
+    const layer = makeTestLayer({
+      git: {
+        deleteBranch: () => Effect.void,
+      },
+    })
 
-      const result = await Effect.runPromise(
-        deleteBranch("/repo", branch).pipe(
-          Effect.either,
-          Effect.provide(layer),
-        ),
-      )
-      expect(result._tag).toBe("Left")
-    },
-  )
+    const result = await Effect.runPromise(
+      deleteBranch("/repo", branch).pipe(Effect.result, Effect.provide(layer)),
+    )
+    expect(result._tag).toBe("Failure")
+  })
 
   it("allows deleting non-protected branch", async () => {
     const layer = makeTestLayer({
@@ -208,12 +200,9 @@ describe("deleteBranch", () => {
     })
 
     const result = await Effect.runPromise(
-      deleteBranch("/repo", "feature/my-branch").pipe(
-        Effect.either,
-        Effect.provide(layer),
-      ),
+      deleteBranch("/repo", "feature/my-branch").pipe(Effect.result, Effect.provide(layer)),
     )
-    expect(result._tag).toBe("Right")
+    expect(result._tag).toBe("Success")
   })
 
   it("refuses to delete the checked-out branch with a clear message", async () => {
@@ -226,12 +215,12 @@ describe("deleteBranch", () => {
     })
 
     const result = await Effect.runPromise(
-      deleteBranch("/repo", "runbook/123").pipe(Effect.either, Effect.provide(layer)),
+      deleteBranch("/repo", "runbook/123").pipe(Effect.result, Effect.provide(layer)),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toMatchObject({
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toMatchObject({
         stderr: "Cannot delete branch runbook/123 because it is currently checked out",
       })
     }
@@ -247,9 +236,7 @@ describe("resolveClonePaths", () => {
   it("uses localPath when provided", async () => {
     const layer = makeTestLayer()
     const result = await Effect.runPromise(
-      resolveClonePaths("my-dir", "https://github.com/o/r", "/work").pipe(
-        Effect.provide(layer),
-      ),
+      resolveClonePaths("my-dir", "https://github.com/o/r", "/work").pipe(Effect.provide(layer)),
     )
     expect(result.absolutePath).toBe("/work/my-dir")
     expect(result.relativePath).toBe("my-dir")
@@ -281,9 +268,7 @@ describe("resolveClonePaths", () => {
   it("handles absolute localPath", async () => {
     const layer = makeTestLayer()
     const result = await Effect.runPromise(
-      resolveClonePaths("/abs/path", "https://github.com/o/r", "/work").pipe(
-        Effect.provide(layer),
-      ),
+      resolveClonePaths("/abs/path", "https://github.com/o/r", "/work").pipe(Effect.provide(layer)),
     )
     expect(result.absolutePath).toBe("/abs/path")
   })
@@ -291,9 +276,7 @@ describe("resolveClonePaths", () => {
   it("falls back to 'repo' when URL cannot be parsed", async () => {
     const layer = makeTestLayer()
     const result = await Effect.runPromise(
-      resolveClonePaths(undefined, "not-a-url", "/work").pipe(
-        Effect.provide(layer),
-      ),
+      resolveClonePaths(undefined, "not-a-url", "/work").pipe(Effect.provide(layer)),
     )
     expect(result.absolutePath).toBe("/work/repo")
   })
@@ -315,17 +298,13 @@ describe("countFiles", () => {
         },
       ],
     })
-    const count = await Effect.runPromise(
-      countFiles("/repo").pipe(Effect.provide(layer)),
-    )
+    const count = await Effect.runPromise(countFiles("/repo").pipe(Effect.provide(layer)))
     expect(count).toBe(2)
   })
 
   it("returns 0 for empty directory", async () => {
     const layer = makeTestLayer({ files: {} })
-    const count = await Effect.runPromise(
-      countFiles("/empty").pipe(Effect.provide(layer)),
-    )
+    const count = await Effect.runPromise(countFiles("/empty").pipe(Effect.provide(layer)))
     expect(count).toBe(0)
   })
 })
@@ -364,7 +343,11 @@ describe("createMergeRequest", () => {
         createMergeRequest: (_token, p) =>
           Effect.sync(() => {
             mrLabels = p.labels
-            return { url: "https://gitlab.com/group/subgroup/project/-/merge_requests/7", number: 7, branch: p.headBranch }
+            return {
+              url: "https://gitlab.com/group/subgroup/project/-/merge_requests/7",
+              number: 7,
+              branch: p.headBranch,
+            }
           }),
       },
     })
@@ -398,7 +381,11 @@ describe("createMergeRequest", () => {
         createMergeRequest: (_token, p) =>
           Effect.sync(() => {
             mrBaseUrl = p.baseUrl
-            return { url: "https://gitlab.acme.com/g/p/-/merge_requests/7", number: 7, branch: p.headBranch }
+            return {
+              url: "https://gitlab.acme.com/g/p/-/merge_requests/7",
+              number: 7,
+              branch: p.headBranch,
+            }
           }),
       },
     })
@@ -469,19 +456,23 @@ describe("createMergeRequest", () => {
         createMergeRequest: (_token, p) =>
           Effect.sync(() => {
             used.push(`createMergeRequest ${p.baseUrl}`)
-            return { url: "https://gitlab.com/g/p/-/merge_requests/1", number: 1, branch: p.headBranch }
+            return {
+              url: "https://gitlab.com/g/p/-/merge_requests/1",
+              number: 1,
+              branch: p.headBranch,
+            }
           }),
       },
     })
 
     const result = await Effect.runPromise(
-      createMergeRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+      createMergeRequest("tok", params).pipe(Effect.result, Effect.provide(layer)),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(GitError)
-      expect((result.left as GitError).stderr).toMatch(
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(GitError)
+      expect((result.failure as GitError).stderr).toMatch(
         /GitLab instance.*origin.*before creating a merge request/,
       )
     }
@@ -500,19 +491,24 @@ describe("createMergeRequest", () => {
       },
       gitlab: {
         createMergeRequest: () =>
-          Effect.fail(new GitLabApiError({ status: 409, message: "Cannot Create: This merge request already exists" })),
+          Effect.fail(
+            new GitLabApiError({
+              status: 409,
+              message: "Cannot Create: This merge request already exists",
+            }),
+          ),
       },
     })
 
     const result = await Effect.runPromise(
-      createMergeRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+      createMergeRequest("tok", params).pipe(Effect.result, Effect.provide(layer)),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(GitLabApiError)
-      expect((result.left as GitLabApiError).status).toBe(409)
-      expect(result.left.message).toContain("already exists")
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(GitLabApiError)
+      expect((result.failure as GitLabApiError).status).toBe(409)
+      expect(result.failure.message).toContain("already exists")
     }
   })
 
@@ -550,9 +546,7 @@ describe("createMergeRequest", () => {
     })
 
     const result = await Effect.runPromise(
-      createMergeRequest("tok", params, (line) => logs.push(line)).pipe(
-        Effect.provide(layer),
-      ),
+      createMergeRequest("tok", params, (line) => logs.push(line)).pipe(Effect.provide(layer)),
     )
 
     expect(stagedExcludes).toEqual(["sub"])
@@ -560,7 +554,6 @@ describe("createMergeRequest", () => {
     expect(logs.some((l) => /Skipping 1 embedded git repository/.test(l))).toBe(true)
   })
 })
-
 
 // ---------------------------------------------------------------------------
 // seedDefaultBranch
@@ -620,10 +613,10 @@ describe("seedDefaultBranch", () => {
     })
 
     const result = await Effect.runPromise(
-      seedDefaultBranch("tok", params).pipe(Effect.either, Effect.provide(layer)),
+      seedDefaultBranch("tok", params).pipe(Effect.result, Effect.provide(layer)),
     )
 
-    expect(result._tag).toBe("Left")
+    expect(result._tag).toBe("Failure")
     // Nothing was written: a repo with history already has a base branch.
     expect(steps).toEqual([])
   })
@@ -644,9 +637,7 @@ describe("seedDefaultBranch", () => {
     })
 
     await Effect.runPromise(
-      seedDefaultBranch("tok", { ...params, branch: "master" }).pipe(
-        Effect.provide(layer),
-      ),
+      seedDefaultBranch("tok", { ...params, branch: "master" }).pipe(Effect.provide(layer)),
     )
 
     expect(pushedBranch).toBe("master")
@@ -667,9 +658,7 @@ describe("seedDefaultBranch", () => {
       },
     })
 
-    await Effect.runPromise(
-      seedDefaultBranch("ghp_secret", params).pipe(Effect.provide(layer)),
-    )
+    await Effect.runPromise(seedDefaultBranch("ghp_secret", params).pipe(Effect.provide(layer)))
 
     expect(pushToken).toBe("ghp_secret")
   })
@@ -678,34 +667,37 @@ describe("seedDefaultBranch", () => {
     ["[git@gitlab.corp:2222]:platform/infra.git", "https://gitlab.corp"],
     // A self-managed instance whose SSH server runs as `gitlab`, not `git`
     ["gitlab@gitlab.corp.net:group/project.git", "https://gitlab.corp.net"],
-  ])("validates a GitLab token at the instance its origin names (%s)", async (remoteUrl, expected) => {
-    let validatedAt: string | undefined
+  ])(
+    "validates a GitLab token at the instance its origin names (%s)",
+    async (remoteUrl, expected) => {
+      let validatedAt: string | undefined
 
-    const layer = makeTestLayer({
-      git: {
-        getRemoteUrl: () => Effect.succeed(remoteUrl),
-        hasCommits: () => Effect.succeed(false),
-        createBranch: () => Effect.void,
-        commit: () => Effect.void,
-        push: () => Effect.void,
-      },
-      gitlab: {
-        validateToken: (_token, baseUrl) =>
-          Effect.sync(() => {
-            validatedAt = baseUrl
-            return { user: { login: "tanuki" } }
-          }),
-      },
-    })
+      const layer = makeTestLayer({
+        git: {
+          getRemoteUrl: () => Effect.succeed(remoteUrl),
+          hasCommits: () => Effect.succeed(false),
+          createBranch: () => Effect.void,
+          commit: () => Effect.void,
+          push: () => Effect.void,
+        },
+        gitlab: {
+          validateToken: (_token, baseUrl) =>
+            Effect.sync(() => {
+              validatedAt = baseUrl
+              return { user: { login: "tanuki" } }
+            }),
+        },
+      })
 
-    await Effect.runPromise(
-      seedDefaultBranch("glpat-secret", { ...params, provider: "gitlab" }).pipe(
-        Effect.provide(layer),
-      ),
-    )
+      await Effect.runPromise(
+        seedDefaultBranch("glpat-secret", { ...params, provider: "gitlab" }).pipe(
+          Effect.provide(layer),
+        ),
+      )
 
-    expect(validatedAt).toBe(expected)
-  })
+      expect(validatedAt).toBe(expected)
+    },
+  )
 
   it.each([
     ["can't be read", undefined],
@@ -733,14 +725,14 @@ describe("seedDefaultBranch", () => {
 
     const result = await Effect.runPromise(
       seedDefaultBranch("glpat-secret", { ...params, provider: "gitlab" }).pipe(
-        Effect.either,
+        Effect.result,
         Effect.provide(layer),
       ),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect((result.left as GitError).stderr).toMatch(
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect((result.failure as GitError).stderr).toMatch(
         /GitLab instance.*origin.*before creating the default branch/,
       )
     }
@@ -783,7 +775,11 @@ describe("push credential username", () => {
       git: recordPush((u) => (username = u)),
       github: {
         createPullRequest: (_token, p) =>
-          Effect.succeed({ url: "https://github.com/acme/infra/pull/1", number: 1, branch: p.headBranch }),
+          Effect.succeed({
+            url: "https://github.com/acme/infra/pull/1",
+            number: 1,
+            branch: p.headBranch,
+          }),
       },
     })
 
@@ -798,7 +794,11 @@ describe("push credential username", () => {
       git: recordPush((u) => (username = u)),
       gitlab: {
         createMergeRequest: (_token, p) =>
-          Effect.succeed({ url: "https://gitlab.com/acme/infra/-/merge_requests/1", number: 1, branch: p.headBranch }),
+          Effect.succeed({
+            url: "https://gitlab.com/acme/infra/-/merge_requests/1",
+            number: 1,
+            branch: p.headBranch,
+          }),
       },
     })
 

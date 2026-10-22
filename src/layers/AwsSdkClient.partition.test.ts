@@ -40,7 +40,10 @@ describe("AwsSdkClient partition routing", () => {
     ["cn-north-1", "cn-northwest-1"],
     ["eusc-de-east-1", "eusc-de-east-1"],
   ])("validateCredentials for %s calls STS and IAM in %s", async (region, home) => {
-    const sts = recordRegions(STSClient, { Account: "123456789012", Arn: "arn:aws:iam::123456789012:user/me" })
+    const sts = recordRegions(STSClient, {
+      Account: "123456789012",
+      Arn: "arn:aws:iam::123456789012:user/me",
+    })
     const iam = recordRegions(IAMClient, { AccountAliases: [] })
 
     await run((c) => c.validateCredentials(CREDS, region))

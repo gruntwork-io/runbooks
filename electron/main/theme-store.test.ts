@@ -51,13 +51,10 @@ describe("theme-store", () => {
       expect(getStoredTheme()).toBe("system")
     })
 
-    it.each(["light", "dark", "system"] as const)(
-      "returns the stored value '%s'",
-      (theme) => {
-        fs.writeFileSync(themeFile(), JSON.stringify({ theme }))
-        expect(getStoredTheme()).toBe(theme)
-      },
-    )
+    it.each(["light", "dark", "system"] as const)("returns the stored value '%s'", (theme) => {
+      fs.writeFileSync(themeFile(), JSON.stringify({ theme }))
+      expect(getStoredTheme()).toBe(theme)
+    })
   })
 
   describe("setStoredTheme", () => {

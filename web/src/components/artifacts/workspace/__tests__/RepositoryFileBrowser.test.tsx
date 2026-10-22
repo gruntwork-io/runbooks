@@ -45,6 +45,7 @@ let disk: Record<string, string>
 const invoke = vi.fn(async (channel: string, args: { filePath: string }) => {
   if (channel !== "workspace:file") throw new Error(`unexpected channel ${channel}`)
   const content = disk[args.filePath]
+  if (content === undefined) throw new Error(`no file ${args.filePath} on the fake disk`)
   return { path: args.filePath, content, language: "text", size: content.length }
 })
 const api = { invoke, on: vi.fn(() => () => {}) } as unknown as typeof window.api
@@ -76,14 +77,20 @@ const ui = () => (
 )
 
 /** Writes `files` to the fake disk and delivers a poll whose response differs. */
-function editOnDisk(rerender: (ui: ReactElement) => void, files: Record<string, string>, changes: WorkspaceFileChange[]) {
+function editOnDisk(
+  rerender: (ui: ReactElement) => void,
+  files: Record<string, string>,
+  changes: WorkspaceFileChange[],
+) {
   Object.assign(disk, files)
   poll.changes = changes
   act(() => rerender(ui()))
 }
 
 const fileFetches = (path: string) =>
-  invoke.mock.calls.filter(([channel, args]) => channel === "workspace:file" && args.filePath === path).length
+  invoke.mock.calls.filter(
+    ([channel, args]) => channel === "workspace:file" && args.filePath === path,
+  ).length
 
 async function select(name: string) {
   await userEvent.click(screen.getByRole("treeitem", { name }))
@@ -125,7 +132,10 @@ describe("RepositoryFileBrowser: keeping All files fresh", () => {
     await select("main.tf")
     await waitFor(() => expect(viewer("main.tf")).toHaveTextContent("v0"))
 
-    editOnDisk(rerender, { "/repo/other.tf": "o2" }, [modified("main.tf", "v0"), modified("other.tf", "o2")])
+    editOnDisk(rerender, { "/repo/other.tf": "o2" }, [
+      modified("main.tf", "v0"),
+      modified("other.tf", "o2"),
+    ])
     await select("other.tf")
     await waitFor(() => expect(viewer("other.tf")).toHaveTextContent("o2"))
   })

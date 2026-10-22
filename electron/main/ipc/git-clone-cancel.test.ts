@@ -1,8 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll } from "bun:test"
+import { describe, it, expect, beforeAll, afterAll, setDefaultTimeout } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { mockElectron } from "../test-utils/mock-electron.ts"
+
+// These tests spawn real git/ssh processes, which a loaded full-suite run can
+// stall past bun's 5 s default; 30 s matches the other real-git tests.
+setDefaultTimeout(30_000)
 
 // git.ts registers its handlers on electron's ipcMain. Capture them so the
 // real git:clone / git:clone-cancel handlers can be called directly; the rest
@@ -46,7 +50,7 @@ beforeAll(async () => {
       "#!/bin/sh",
       '[ "$1" = clone ] || exit 1',
       `echo $$ > "${pidFile}"`,
-      'for dest; do :; done',
+      "for dest; do :; done",
       'mkdir -p "$dest" && echo partial > "$dest/partial"',
       `echo "Cloning into 'infra'..." >&2`,
       "exec sleep 30",
@@ -79,7 +83,9 @@ async function waitFor(check: () => boolean, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!check()) {
     if (Date.now() > deadline) throw new Error("timed out waiting for condition")
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20)
+    })
   }
 }
 
@@ -112,7 +118,9 @@ describe("git:clone-cancel", () => {
       const dest = path.join(tmpDir, "work", "infra")
       expect(fs.existsSync(path.join(dest, "partial"))).toBe(true)
 
-      await expect(handlers.get("git:clone-cancel")!(null, { cloneId: "clone-1" })).resolves.toEqual({
+      await expect(
+        handlers.get("git:clone-cancel")!(null, { cloneId: "clone-1" }),
+      ).resolves.toEqual({
         ok: true,
       })
 

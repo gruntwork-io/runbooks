@@ -22,12 +22,7 @@ import { makeLogger } from "./logger.ts"
 const log = makeLogger("shell-env")
 
 /** Keys we never overwrite — these are managed by the Electron/Node runtime. */
-const PROTECTED_KEYS = new Set<string>([
-  "PWD",
-  "OLDPWD",
-  "SHLVL",
-  "_",
-])
+const PROTECTED_KEYS = new Set<string>(["PWD", "OLDPWD", "SHLVL", "_"])
 
 /** Marker used to locate the start of the env dump amid any rc-file noise. */
 const MARKER = "__RUNBOOKS_SHELL_ENV_MARKER__"

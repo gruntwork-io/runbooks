@@ -17,10 +17,10 @@ import type { AwsClient, AwsClientShape } from "../../../src/services/AwsClient.
 /** This test's AwsClient; each test replaces the calls it cares about. */
 let aws: { -readonly [K in keyof AwsClientShape]?: AwsClientShape[K] } = {}
 
-const runPromise = spyOn(runtime, "runPromise").mockImplementation(
-  (<A, E>(effect: Effect.Effect<A, E, AwsClient>) =>
-    Effect.runPromise(Effect.provide(effect, makeTestAwsClient(aws)))) as typeof runtime.runPromise,
-)
+const runPromise = spyOn(runtime, "runPromise").mockImplementation((<A, E>(
+  effect: Effect.Effect<A, E, AwsClient>,
+) =>
+  Effect.runPromise(Effect.provide(effect, makeTestAwsClient(aws)))) as typeof runtime.runPromise)
 
 afterAll(() => {
   runPromise.mockRestore()
@@ -48,6 +48,7 @@ beforeEach(() => {
         secretAccessKey: "role-secret",
         sessionToken: "role-token",
         region: params.region,
+        expiresAt: "2026-10-03T13:00:00.000Z",
       }),
     validateCredentials: () => Effect.succeed(IDENTITY),
   }
@@ -78,7 +79,7 @@ describe("aws:sso-poll", () => {
     expect(regions).toEqual([SSO_REGION, SSO_REGION])
   })
 
-  it("replies success with the identity and keys for a pinned account and role", async () => {
+  it("replies success with the identity, keys and expiry for a pinned account and role", async () => {
     const reply = await handleSsoPoll({ ...POLL, accountId: "111111111111", roleName: "Admin" })
 
     expect(reply).toEqual({
@@ -87,12 +88,15 @@ describe("aws:sso-poll", () => {
       accessKeyId: "ASIA_ROLE",
       secretAccessKey: "role-secret",
       sessionToken: "role-token",
+      expiresAt: "2026-10-03T13:00:00.000Z",
     })
   })
 
   it("replies failed with the reason instead of rejecting", async () => {
     aws.pollSsoToken = () =>
-      Effect.fail(new AwsSsoError({ message: "The SSO sign-in request expired. Please try again." }))
+      Effect.fail(
+        new AwsSsoError({ message: "The SSO sign-in request expired. Please try again." }),
+      )
 
     expect(await handleSsoPoll(POLL)).toEqual({
       status: "failed",
@@ -129,16 +133,29 @@ describe("aws:sso-roles", () => {
       return Effect.succeed([{ roleName: "Admin", accountId }])
     }
 
-    expect(await handleSsoRoles({ accessToken: "sso-token", accountId: "111111111111", region: SSO_REGION })).toEqual({
+    expect(
+      await handleSsoRoles({
+        accessToken: "sso-token",
+        accountId: "111111111111",
+        region: SSO_REGION,
+      }),
+    ).toEqual({
       roles: [{ roleName: "Admin", accountId: "111111111111" }],
     })
     expect(calls).toEqual([["sso-token", "111111111111", SSO_REGION]])
   })
 
   it("replies { roles: [], error } instead of rejecting", async () => {
-    aws.listSsoRoles = () => Effect.fail(new AwsSsoError({ message: "Failed to list SSO roles: UnauthorizedException" }))
+    aws.listSsoRoles = () =>
+      Effect.fail(new AwsSsoError({ message: "Failed to list SSO roles: UnauthorizedException" }))
 
-    expect(await handleSsoRoles({ accessToken: "sso-token", accountId: "111111111111", region: SSO_REGION })).toEqual({
+    expect(
+      await handleSsoRoles({
+        accessToken: "sso-token",
+        accountId: "111111111111",
+        region: SSO_REGION,
+      }),
+    ).toEqual({
       roles: [],
       error: "Failed to list SSO roles: UnauthorizedException",
     })

@@ -1,9 +1,6 @@
-import React from 'react'
+import React from "react"
 
-interface SmartLinkProps extends React.AnchorHTMLAttributes<HTMLAnchorElement> {
-  href?: string
-  children?: React.ReactNode
-}
+type SmartLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement>
 
 /**
  * A smart link component that:
@@ -11,7 +8,7 @@ interface SmartLinkProps extends React.AnchorHTMLAttributes<HTMLAnchorElement> {
  * - Handles internal anchor links (like footnotes) with smooth scrolling
  */
 export const SmartLink = ({ href, children, onClick, ...props }: SmartLinkProps) => {
-  const isAnchorLink = href?.startsWith('#')
+  const isAnchorLink = href?.startsWith("#")
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (isAnchorLink && href) {
@@ -19,9 +16,9 @@ export const SmartLink = ({ href, children, onClick, ...props }: SmartLinkProps)
       const targetId = href.slice(1) // Remove the # prefix
       const targetElement = document.getElementById(targetId)
       if (targetElement) {
-        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        targetElement.scrollIntoView({ behavior: "smooth", block: "start" })
         // Update URL hash without jumping
-        window.history.pushState(null, '', href)
+        window.history.pushState(null, "", href)
       }
     }
     onClick?.(e)
@@ -29,11 +26,7 @@ export const SmartLink = ({ href, children, onClick, ...props }: SmartLinkProps)
 
   if (isAnchorLink) {
     return (
-      <a 
-        href={href}
-        onClick={handleClick}
-        {...props}
-      >
+      <a href={href} onClick={handleClick} {...props}>
         {children}
       </a>
     )
@@ -41,14 +34,8 @@ export const SmartLink = ({ href, children, onClick, ...props }: SmartLinkProps)
 
   // External link - open in new tab
   return (
-    <a 
-      href={href} 
-      target="_blank" 
-      rel="noopener noreferrer"
-      {...props}
-    >
+    <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
       {children}
     </a>
   )
 }
-

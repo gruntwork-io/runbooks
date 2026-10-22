@@ -1,9 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from "bun:test"
+import { describe, it, expect, beforeAll, afterAll, setDefaultTimeout } from "bun:test"
 import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { mockElectron } from "../test-utils/mock-electron.ts"
+
+// These tests spawn real git/ssh processes, which a loaded full-suite run can
+// stall past bun's 5 s default; 30 s matches the other real-git tests.
+setDefaultTimeout(30_000)
 
 // git.ts registers its handlers on electron's ipcMain. Capture them so the
 // real git:clone handler can be called directly; the rest of the stack
@@ -135,7 +139,10 @@ describe("git:clone over ssh", () => {
       repo_path: "modules/vpc",
     })
 
-    expect(result).toMatchObject({ status: "success", outputs: { repo_owner: "acme", repo_name: "mono" } })
+    expect(result).toMatchObject({
+      status: "success",
+      outputs: { repo_owner: "acme", repo_name: "mono" },
+    })
     const dest = path.join(workDir, "mono")
     expect(fs.readFileSync(path.join(dest, "modules", "vpc", "main.tf"), "utf8")).toBe("# vpc\n")
     expect(fs.existsSync(path.join(dest, "modules", "eks"))).toBe(false)

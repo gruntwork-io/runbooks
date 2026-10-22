@@ -27,7 +27,7 @@ vi.mock("@/hooks/useGitFileChanges", () => ({
   useGitFileChanges: () => ({ changes: [], isLoading: false, error: null, refetch: vi.fn() }),
 }))
 
-import GitLabMergeRequest from "../GitLabMergeRequest"
+import { GitLabMergeRequest } from "../GitLabMergeRequest"
 
 /** Registers block outputs so the block can derive a linked auth provider. */
 function Seed({ id, values }: { id: string; values: Record<string, string> }) {
@@ -54,7 +54,10 @@ describe("GitLabMergeRequest (gitlab-locked wrapper)", () => {
     const user = userEvent.setup()
     render(
       <TestWrapper>
-        <Seed id="auth" values={{ GIT_PROVIDER: "gitlab", GITLAB_TOKEN: "tok", __AUTHENTICATED: "true" }} />
+        <Seed
+          id="auth"
+          values={{ GIT_PROVIDER: "gitlab", GITLAB_TOKEN: "tok", __AUTHENTICATED: "true" }}
+        />
         <GitLabMergeRequest
           id="mr"
           gitAuthId="auth"
@@ -64,7 +67,9 @@ describe("GitLabMergeRequest (gitlab-locked wrapper)", () => {
     )
 
     await user.click(screen.getByText("Customize commit"))
-    expect(screen.getByDisplayValue("Upgrade Pipelines from v3 to v4 [skip ci]")).toBeInTheDocument()
+    expect(
+      screen.getByDisplayValue("Upgrade Pipelines from v3 to v4 [skip ci]"),
+    ).toBeInTheDocument()
   })
 
   it("shows a blocking wrong-provider error when linked to a GitHub auth block", async () => {
@@ -82,4 +87,3 @@ describe("GitLabMergeRequest (gitlab-locked wrapper)", () => {
     expect(block.textContent).toContain("can only be used with a GitLab auth block")
   })
 })
-

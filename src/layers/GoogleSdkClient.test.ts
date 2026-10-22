@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
 import * as fs from "node:fs"
 import * as http from "node:http"
 import * as os from "node:os"
 import * as path from "node:path"
-import { Effect, Either } from "effect"
-import { gaxios as gaxiosLib } from "google-auth-library"
+import { Effect, Result } from "effect"
+import { OAuth2Client, gaxios as gaxiosLib } from "google-auth-library"
 import {
   GoogleSdkClientLive,
   classifyProjectAccessError,
@@ -72,11 +72,15 @@ describe("describeCredentialFailure", () => {
   })
 
   it("maps client, scope, and network failures", () => {
-    expect(describeCredentialFailure(new Error('{"error":"invalid_client"}'))).toContain("oauthClientId")
-    expect(describeCredentialFailure(new Error('{"error":"invalid_scope"}'))).toContain("cloud-platform")
-    expect(describeCredentialFailure(new Error("getaddrinfo ENOTFOUND oauth2.googleapis.com"))).toContain(
-      "network",
+    expect(describeCredentialFailure(new Error('{"error":"invalid_client"}'))).toContain(
+      "oauthClientId",
     )
+    expect(describeCredentialFailure(new Error('{"error":"invalid_scope"}'))).toContain(
+      "cloud-platform",
+    )
+    expect(
+      describeCredentialFailure(new Error("getaddrinfo ENOTFOUND oauth2.googleapis.com")),
+    ).toContain("network")
   })
 
   it("returns undefined for unrecognised errors so the caller keeps its own message", () => {
@@ -110,7 +114,11 @@ describe("classifyProjectAccessError", () => {
               ...(reason
                 ? {
                     details: [
-                      { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason, domain: "googleapis.com" },
+                      {
+                        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                        reason,
+                        domain: "googleapis.com",
+                      },
                     ],
                   }
                 : {}),
@@ -174,9 +182,9 @@ describe("classifyProjectAccessError", () => {
   })
 
   it("treats a PERMISSION_DENIED that IAM names as denied", () => {
-    expect(classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "IAM_PERMISSION_DENIED"))).toBe(
-      "denied",
-    )
+    expect(
+      classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "IAM_PERMISSION_DENIED")),
+    ).toBe("denied")
   })
 
   it("does NOT blame the project when the Resource Manager API is disabled", () => {
@@ -190,11 +198,13 @@ describe("classifyProjectAccessError", () => {
 
   it("does NOT blame the project for a refusal aimed at the token or quota project", () => {
     expect(
-      classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "ACCESS_TOKEN_SCOPE_INSUFFICIENT")),
+      classifyProjectAccessError(
+        gaxios(403, "PERMISSION_DENIED", "ACCESS_TOKEN_SCOPE_INSUFFICIENT"),
+      ),
     ).toBe("unknown")
-    expect(classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "USER_PROJECT_DENIED"))).toBe(
-      "unknown",
-    )
+    expect(
+      classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "USER_PROJECT_DENIED")),
+    ).toBe("unknown")
   })
 
   it("reads the reason off the error gaxios actually throws", async () => {
@@ -209,9 +219,11 @@ describe("classifyProjectAccessError", () => {
 
   it("does NOT blame the project for a server error or a dropped connection", () => {
     expect(classifyProjectAccessError(gaxios(500))).toBe("unknown")
-    expect(classifyProjectAccessError(Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" }))).toBe(
-      "unknown",
-    )
+    expect(
+      classifyProjectAccessError(
+        Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" }),
+      ),
+    ).toBe("unknown")
     expect(classifyProjectAccessError(undefined)).toBe("unknown")
   })
 
@@ -224,17 +236,25 @@ describe("classifyProjectAccessError", () => {
     // no reason, so this is the bare 403 verdict rather than a throw.
     const malformed = (details: unknown): unknown => ({
       status: 403,
-      response: { status: 403, data: { error: { code: 403, status: "PERMISSION_DENIED", details } } },
+      response: {
+        status: 403,
+        data: { error: { code: 403, status: "PERMISSION_DENIED", details } },
+      },
     })
     expect(classifyProjectAccessError(malformed([{ "@type": 1 }, null, "x"]))).toBe("denied")
     expect(
-      classifyProjectAccessError(malformed([{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: 7 }])),
+      classifyProjectAccessError(
+        malformed([{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: 7 }]),
+      ),
     ).toBe("denied")
     expect(classifyProjectAccessError(malformed("not-a-list"))).toBe("denied")
     // A readable ErrorInfo next to junk still decides the verdict.
     expect(
       classifyProjectAccessError(
-        malformed([{ "@type": 1 }, { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "SERVICE_DISABLED" }]),
+        malformed([
+          { "@type": 1 },
+          { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "SERVICE_DISABLED" },
+        ]),
       ),
     ).toBe("unknown")
   })
@@ -247,10 +267,12 @@ describe("classifyProjectAccessError", () => {
 const run = <A, E>(f: (client: GoogleClientShape) => Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(Effect.provide(Effect.flatMap(GoogleClient, f), GoogleSdkClientLive))
 
-const runEither = <A, E>(
+const runResult = <A, E>(
   f: (client: GoogleClientShape) => Effect.Effect<A, E>,
-): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(Effect.provide(Effect.either(Effect.flatMap(GoogleClient, f)), GoogleSdkClientLive))
+): Promise<Result.Result<A, E>> =>
+  Effect.runPromise(
+    Effect.provide(Effect.result(Effect.flatMap(GoogleClient, f)), GoogleSdkClientLive),
+  )
 
 /**
  * The 'adc' detection source is the well-known file under the gcloud config
@@ -261,7 +283,7 @@ const runEither = <A, E>(
  */
 describe("readApplicationDefaultCredentials", () => {
   const ENV_KEYS = ["CLOUDSDK_CONFIG", "GOOGLE_APPLICATION_CREDENTIALS"] as const
-  let saved: Partial<Record<(typeof ENV_KEYS)[number], string>>
+  let saved: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>>
   let root: string
 
   beforeEach(() => {
@@ -319,7 +341,7 @@ describe("readApplicationDefaultCredentials", () => {
 /** A single request against the loopback listener, with full control of headers. */
 function probe(
   port: number,
-  path: string,
+  requestPath: string,
   options: { method?: string; headers?: Record<string, string> } = {},
 ): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -327,7 +349,7 @@ function probe(
       {
         host: "127.0.0.1",
         port,
-        path,
+        path: requestPath,
         method: options.method ?? "GET",
         headers: options.headers ?? {},
       },
@@ -393,7 +415,9 @@ describe("the OAuth loopback listener", () => {
 
     try {
       // 1. The exact spray a malicious page performs: right path, wrong state.
-      expect(await probe(port, "/oauth2callback?state=x", { headers: BROWSER_NAVIGATION })).toBe(400)
+      expect(await probe(port, "/oauth2callback?state=x", { headers: BROWSER_NAVIGATION })).toBe(
+        400,
+      )
       await expectStillPending()
 
       // 2. No query string at all — "" vs a UUID also fails the state compare.
@@ -472,7 +496,12 @@ describe("isPlausibleOAuthCallback", () => {
   it("accepts the redirect a browser actually sends", () => {
     expect(
       isPlausibleOAuthCallback(
-        req({ host: HOST, "sec-fetch-dest": "document", "sec-fetch-mode": "navigate", "sec-fetch-site": "cross-site" }),
+        req({
+          host: HOST,
+          "sec-fetch-dest": "document",
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-site": "cross-site",
+        }),
         HOST,
       ),
     ).toBe(true)
@@ -493,8 +522,12 @@ describe("isPlausibleOAuthCallback", () => {
   })
 
   it("rejects subresource probes", () => {
-    expect(isPlausibleOAuthCallback(req({ host: HOST, "sec-fetch-dest": "image" }), HOST)).toBe(false)
-    expect(isPlausibleOAuthCallback(req({ host: HOST, "sec-fetch-mode": "no-cors" }), HOST)).toBe(false)
+    expect(isPlausibleOAuthCallback(req({ host: HOST, "sec-fetch-dest": "image" }), HOST)).toBe(
+      false,
+    )
+    expect(isPlausibleOAuthCallback(req({ host: HOST, "sec-fetch-mode": "no-cors" }), HOST)).toBe(
+      false,
+    )
   })
 
   it("rejects a repeated fetch-metadata header", () => {
@@ -565,9 +598,9 @@ describe("validateAdcDocument rejects federated credentials that steer the libra
         },
       })
 
-      const result = await runEither((client) => client.validateAdcDocument(document))
-      expect(Either.isLeft(result)).toBe(true)
-      if (Either.isLeft(result)) expect(result.left.message).toContain("credential_source")
+      const result = await runResult((client) => client.validateAdcDocument(document))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) expect(result.failure.message).toContain("credential_source")
       expect(hits()).toBe(0)
     })
   })
@@ -582,8 +615,8 @@ describe("validateAdcDocument rejects federated credentials that steer the libra
         credential_source: { file: "/etc/hosts", format: { type: "text" } },
       })
 
-      const result = await runEither((client) => client.validateAdcDocument(document))
-      expect(Either.isLeft(result)).toBe(true)
+      const result = await runResult((client) => client.validateAdcDocument(document))
+      expect(Result.isFailure(result)).toBe(true)
       expect(hits()).toBe(0)
     })
   })
@@ -603,17 +636,17 @@ describe("validateAdcDocument rejects federated credentials that steer the libra
         },
       })
 
-      const result = await runEither((client) => client.validateAdcDocument(document))
-      expect(Either.isLeft(result)).toBe(true)
+      const result = await runResult((client) => client.validateAdcDocument(document))
+      expect(Result.isFailure(result)).toBe(true)
       // Assert the POLICY rejected it, not merely that something failed. A bare
       // isLeft() passes with the gate disabled too: the planted refresh_token
       // dies at Google's real token endpoint long before `endpoint` is reached,
       // so that assertion alone proves nothing about the gate.
-      if (Either.isLeft(result)) {
+      if (Result.isFailure(result)) {
         // Only assertGoogleApiUrl phrases a rejection this way, and it names the
         // offending field. (The https: check fires before the host check here,
         // so matching on "not a Google API endpoint" would miss.)
-        expect(result.left.message).toMatch(/credentials document field "endpoint"/)
+        expect(result.failure.message).toMatch(/credentials document field "endpoint"/)
       }
       expect(hits()).toBe(0)
     })
@@ -632,12 +665,34 @@ describe("validateAdcDocument rejects federated credentials that steer the libra
         client_secret: "secret",
       })
 
-      const result = await runEither((client) => client.validateAdcDocument(document))
-      expect(Either.isLeft(result)).toBe(true)
-      if (Either.isLeft(result)) {
-        expect(result.left.message).toMatch(/credentials document field "token_url"/)
+      const result = await runResult((client) => client.validateAdcDocument(document))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure.message).toMatch(/credentials document field "token_url"/)
       }
       expect(hits()).toBe(0)
     })
+  })
+})
+
+describe("validateAccessToken", () => {
+  it("returns when a bare access token expires, from tokeninfo", async () => {
+    const tokenInfo = spyOn(OAuth2Client.prototype, "getTokenInfo").mockResolvedValue({
+      email: "me@example.com",
+      expiry_date: Date.parse("2026-10-03T13:00:00Z"),
+      scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+      aud: "client",
+    } as never)
+    try {
+      const identity = await run((client) => client.validateAccessToken("ya29.token"))
+
+      expect(identity).toMatchObject({
+        email: "me@example.com",
+        credentialType: "access_token",
+        expiresAt: "2026-10-03T13:00:00.000Z",
+      })
+    } finally {
+      tokenInfo.mockRestore()
+    }
   })
 })

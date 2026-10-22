@@ -46,8 +46,9 @@ beforeEach(() => {
   // The refresh runs the cold read on the app runtime; run it against a fake
   // ProcessSpawner instead of building the whole AppLive layer.
   const spawner = makeRecordingSpawner(() => coldRead)
-  spyOn(runtime, "runPromise").mockImplementation(((effect: Effect.Effect<unknown, unknown, never>) =>
-    Effect.runPromise(Effect.provide(effect, spawner.layer))) as typeof runtime.runPromise)
+  spyOn(runtime, "runPromise").mockImplementation(((
+    effect: Effect.Effect<unknown, unknown, never>,
+  ) => Effect.runPromise(Effect.provide(effect, spawner.layer))) as typeof runtime.runPromise)
   logs = spyOn(console, "log").mockImplementation(() => {})
 
   fake = makeFakeTls([BUNDLED], [SYSTEM])

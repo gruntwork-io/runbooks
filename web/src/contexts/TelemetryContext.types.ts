@@ -1,4 +1,4 @@
-import { createContext } from 'react'
+import { createContext } from "react"
 
 // Context value type
 export interface TelemetryContextValue {
@@ -24,4 +24,3 @@ export interface TelemetryConfig {
 }
 
 export const TelemetryContext = createContext<TelemetryContextValue>(defaultContextValue)
-

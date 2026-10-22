@@ -1,0 +1,13 @@
+project: {{ .ProjectName }}
+environment: {{ .Environment }}
+state_bucket: {{ .BucketName }}
+replica_bucket: {{ .ReplicaBucket }}
+instance_size: {{ .InstanceSize }}
+catalog_repositories:
+{{- range .CatalogRepositories }}
+  - {{ . }}
+{{- end }}
+default_tags:
+{{- range $key, $value := .DefaultTags }}
+  "{{ $key }}": "{{ $value }}"
+{{- end }}

@@ -16,6 +16,7 @@ import {
 } from "../test/config.ts"
 import { TestExecutor } from "../test/executor.ts"
 import { TextReporter, JUnitReporter, reportToFile, type Reporter } from "../test/reporter.ts"
+import { errorMessage } from "../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Options
@@ -111,9 +112,7 @@ function discoverRunbooks(paths: string[]): string[] {
     let runbookPath: string
     try {
       const stat = fs.statSync(pattern)
-      runbookPath = stat.isDirectory()
-        ? path.join(pattern, "runbook.mdx")
-        : pattern
+      runbookPath = stat.isDirectory() ? path.join(pattern, "runbook.mdx") : pattern
     } catch {
       console.error(`Path not found: ${pattern}`)
       process.exit(1)
@@ -161,10 +160,7 @@ function walkDir(dir: string, callback: (path: string) => void): void {
 // Test suite orchestration
 // ---------------------------------------------------------------------------
 
-async function runTestSuites(
-  runbooks: string[],
-  opts: TestOptions,
-): Promise<RunbookTestSuite[]> {
+async function runTestSuites(runbooks: string[], opts: TestOptions): Promise<RunbookTestSuite[]> {
   // Group by parallelizable status
   const parallel: string[] = []
   const sequential: string[] = []
@@ -199,10 +195,7 @@ async function runTestSuites(
   return suites
 }
 
-async function runTestSuite(
-  runbookPath: string,
-  opts: TestOptions,
-): Promise<RunbookTestSuite> {
+async function runTestSuite(runbookPath: string, opts: TestOptions): Promise<RunbookTestSuite> {
   const start = Date.now()
   const suite: RunbookTestSuite = {
     runbookPath,
@@ -220,7 +213,7 @@ async function runTestSuite(
     suite.results.push({
       testCase: "config",
       status: "failed",
-      error: `Failed to load config: ${e}`,
+      error: `Failed to load config: ${errorMessage(e)}`,
       duration: 0,
       stepResults: [],
       assertions: [],
@@ -251,7 +244,7 @@ async function runTestSuite(
     suite.results.push({
       testCase: "setup",
       status: "failed",
-      error: `${e}`,
+      error: `${errorMessage(e)}`,
       duration: 0,
       stepResults: [],
       assertions: [],
@@ -276,7 +269,7 @@ async function runTestSuite(
     suite.results.push({
       testCase: "setup",
       status: "failed",
-      error: `Failed to create test runner: ${e}`,
+      error: `Failed to create test runner: ${errorMessage(e)}`,
       duration: 0,
       stepResults: [],
       assertions: [],
@@ -306,22 +299,30 @@ async function runTestSuite(
       result = {
         testCase: tc.name,
         status: "failed",
-        error: `${e}`,
+        error: `${errorMessage(e)}`,
         duration: 0,
         stepResults: [],
         assertions: [],
       }
     } finally {
       if (tempWorkDir) {
-        try { fs.rmSync(tempWorkDir, { recursive: true, force: true }) } catch {}
+        try {
+          fs.rmSync(tempWorkDir, { recursive: true, force: true })
+        } catch {}
       }
     }
     suite.results.push(result)
 
     switch (result.status) {
-      case "passed": suite.passed++; break
-      case "failed": suite.failed++; break
-      case "skipped": suite.skipped++; break
+      case "passed":
+        suite.passed++
+        break
+      case "failed":
+        suite.failed++
+        break
+      case "skipped":
+        suite.skipped++
+        break
     }
   }
 
@@ -355,7 +356,7 @@ function reportResults(suites: RunbookTestSuite[], opts: TestOptions): void {
     try {
       reportToFile(reporter, suites, opts.outputFile)
     } catch (e: unknown) {
-      console.error(`Error writing to output file: ${e}`)
+      console.error(`Error writing to output file: ${errorMessage(e)}`)
       process.stdout.write(reporter.render(suites))
     }
     return

@@ -16,21 +16,16 @@
  * ```
  */
 
-import { useMemo } from 'react'
-import { useInputs, useAllOutputs, flattenInputs } from '@/contexts/useRunbook'
+import { useMemo } from "react"
+import { useInputs, useAllOutputs, flattenInputs } from "@/contexts/useRunbook"
 import {
   flattenBlockOutputs,
   computeUnmetInputDependencies,
   computeUnmetOutputDependencies,
-} from '@/lib/templateUtils'
-import type {
-  InputName,
-  TemplateInputs,
-  TemplateOutputs,
-  BlockOutput,
-} from '@/lib/templateUtils'
-import { splitDependencies } from '@/lib/extractTemplateDependencies'
-import type { TemplateDependency } from '@/lib/extractTemplateDependencies'
+} from "@/lib/templateUtils"
+import type { InputName, TemplateInputs, TemplateOutputs, BlockOutput } from "@/lib/templateUtils"
+import { splitDependencies } from "@/lib/extractTemplateDependencies"
+import type { TemplateDependency } from "@/lib/extractTemplateDependencies"
 
 export interface UseTemplateDependenciesResult {
   /** Flattened input values — matches {{ .inputs.* }} */
@@ -57,7 +52,7 @@ export interface UseTemplateDependenciesResult {
  */
 export function useTemplateDependencies(
   dependencies: TemplateDependency[],
-  inputsId?: string | string[]
+  inputsId?: string | string[],
 ): UseTemplateDependenciesResult {
   // 1. Read and flatten values from context
   const rawInputs = useInputs(inputsId)
@@ -69,18 +64,18 @@ export function useTemplateDependencies(
   // 2. Split mixed deps into typed groups (one split, used by both checkers)
   const { inputs: inputDeps, outputs: outputDeps } = useMemo(
     () => splitDependencies(dependencies),
-    [dependencies]
+    [dependencies],
   )
 
   // 3. Compute unmet deps — symmetric pair of functions
   const unmetInputDeps = useMemo(
     () => computeUnmetInputDependencies(inputDeps, inputs),
-    [inputDeps, inputs]
+    [inputDeps, inputs],
   )
 
   const unmetOutputDeps = useMemo(
     () => computeUnmetOutputDependencies(outputDeps, rawOutputs),
-    [outputDeps, rawOutputs]
+    [outputDeps, rawOutputs],
   )
 
   // 4. Derive readiness from unmet lists

@@ -1,34 +1,38 @@
 import { Flag, PartyPopper, AlertTriangle, XCircle, Loader2 } from "lucide-react"
-import { ScriptBlock, type ScriptBlockProps, type ScriptBlockVariant } from "@/components/mdx/_shared/components/ScriptBlock"
+import {
+  ScriptBlock,
+  type ScriptBlockProps,
+  type ScriptBlockVariant,
+} from "@/components/mdx/_shared/components/ScriptBlock"
 import { makeStatusStyles } from "@/components/mdx/_shared/lib/statusStyles"
 import type { ExecutionStatus } from "@/components/mdx/_shared/types"
 import { celebrate } from "./celebrate"
 
 const FINISH_VARIANT: ScriptBlockVariant = {
   // A final check behaves like a <Check>: exit 2 is a warning, not a finish.
-  componentType: 'check',
-  name: 'Finish',
-  runLabel: 'Finish',
-  defaultRunningMessage: 'Running the final check...',
-  fileName: 'Final Check Script',
-  fileErrorHeading: 'Finish Component Error',
-  renderErrorLabel: 'Script render error',
-  missingInputsSubject: 'final check',
+  componentType: "check",
+  name: "Finish",
+  runLabel: "Finish",
+  defaultRunningMessage: "Running the final check...",
+  fileName: "Final Check Script",
+  fileErrorHeading: "Finish Component Error",
+  renderErrorLabel: "Script render error",
+  missingInputsSubject: "final check",
   showScriptMetadata: false,
   showPendingPlaceholder: false,
   instructionIcon: Flag,
-  instructionInlineTitle: 'Run this final check:',
-  instructionPathTitle: 'Run this final check script:',
+  instructionInlineTitle: "Run this final check:",
+  instructionPathTitle: "Run this final check script:",
   scriptOptional: true,
   // Children are the next steps, shown once finished, so they can't be an <Inputs>.
   inlineInputs: false,
   statusStyles: makeStatusStyles<ExecutionStatus>({
     container: {
-      success: 'bg-success-muted border-success/30',
-      warn: 'bg-warning-muted border-warning/30',
-      fail: 'bg-destructive-muted border-destructive/30',
-      running: 'bg-info-muted border-info/40',
-      pending: 'bg-muted border-border',
+      success: "bg-success-muted border-success/30",
+      warn: "bg-warning-muted border-warning/30",
+      fail: "bg-destructive-muted border-destructive/30",
+      running: "bg-info-muted border-info/40",
+      pending: "bg-muted border-border",
     },
     icon: {
       success: PartyPopper,
@@ -38,16 +42,16 @@ const FINISH_VARIANT: ScriptBlockVariant = {
       pending: Flag,
     },
     iconColor: {
-      success: 'text-success',
-      warn: 'text-warning',
-      fail: 'text-destructive',
-      running: 'text-info',
-      pending: 'text-muted-foreground',
+      success: "text-success",
+      warn: "text-warning",
+      fail: "text-destructive",
+      running: "text-info",
+      pending: "text-muted-foreground",
     },
   }),
 }
 
-type FinishProps = Omit<ScriptBlockProps, 'variant' | 'successContent' | 'onComplete'>
+type FinishProps = Omit<ScriptBlockProps, "variant" | "successContent" | "onComplete">
 
 /**
  * Marks the end of a runbook. Clicking Finish runs the optional final check
@@ -55,9 +59,9 @@ type FinishProps = Omit<ScriptBlockProps, 'variant' | 'successContent' | 'onComp
  * celebrates and shows the author's next steps (the block's children).
  */
 function Finish({
-  title = 'Finish this runbook',
-  successMessage = 'You finished this runbook!',
-  failMessage = 'The final check failed. Check the logs, fix the problem, and run it again.',
+  title = "Finish this runbook",
+  successMessage = "You finished this runbook!",
+  failMessage = "The final check failed. Check the logs, fix the problem, and run it again.",
   children,
   ...props
 }: FinishProps) {
@@ -84,6 +88,6 @@ function Finish({
 }
 
 // Set displayName for React DevTools and component detection
-Finish.displayName = 'Finish';
+Finish.displayName = "Finish"
 
-export default Finish;
+export default Finish

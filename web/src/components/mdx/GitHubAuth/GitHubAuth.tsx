@@ -1,5 +1,5 @@
-import { GitAuth } from '@/components/mdx/GitAuth'
-import type { GitHubAuthProps } from '@/components/mdx/GitAuth/types'
+import { GitAuth } from "@/components/mdx/GitAuth"
+import type { GitHubAuthProps } from "@/components/mdx/GitAuth/types"
 
 /**
  * Backward-compatible <GitHubAuth> block.
@@ -16,7 +16,7 @@ export function GitHubAuth(props: GitHubAuthProps) {
       {...props}
       // Preserve the legacy default title ("GitHub Authentication"); the generic
       // <GitAuth> block defaults to "Git Authentication".
-      title={props.title ?? 'GitHub Authentication'}
+      title={props.title ?? "GitHub Authentication"}
       provider="github"
       hideProviderSelect
       __registryType="GitHubAuth"
@@ -24,4 +24,4 @@ export function GitHubAuth(props: GitHubAuthProps) {
   )
 }
 
-GitHubAuth.displayName = 'GitHubAuth'
+GitHubAuth.displayName = "GitHubAuth"

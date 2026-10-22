@@ -1,11 +1,17 @@
 import { describe, it, expect, beforeEach } from "bun:test"
 import { Effect } from "effect"
-import { SessionManager, diffEnv, filterCapturedEnv } from "./manager.ts"
+import { SessionManager, diffEnv, filterCapturedEnv, type SessionState } from "./manager.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import type { SessionExecSnapshot } from "../../types.ts"
 
 function run<A>(effect: Effect.Effect<A, any, any>, env: Record<string, string> = {}) {
-  return Effect.runPromise(effect.pipe(Effect.provide(makeTestEnvironment(env))) as unknown as Effect.Effect<A, any, never>)
+  return Effect.runPromise(
+    effect.pipe(Effect.provide(makeTestEnvironment(env))) as unknown as Effect.Effect<
+      A,
+      any,
+      never
+    >,
+  )
 }
 
 describe("filterCapturedEnv", () => {
@@ -17,6 +23,11 @@ describe("filterCapturedEnv", () => {
       RUNBOOK_OUTPUT: "/tmp/output",
       GENERATED_FILES: "/tmp/files",
       REPO_FILES: "/tmp/repo",
+      RUNBOOK_LOG: "/tmp/logs/runbook.log",
+      RUNBOOK_INFO_LOG: "/tmp/logs/info.log",
+      RUNBOOK_WARN_LOG: "/tmp/logs/warn.log",
+      RUNBOOK_ERROR_LOG: "/tmp/logs/error.log",
+      RUNBOOK_DEBUG_LOG: "/tmp/logs/debug.log",
       OLDPWD: "/old",
       RANDOM: "12345",
       SECONDS: "100",
@@ -75,7 +86,10 @@ describe("diffEnv", () => {
   })
 
   it("handles names that exist on Object.prototype", () => {
-    const withProtoNames = Object.fromEntries([["__proto__", "1"], ["constructor", "2"]])
+    const withProtoNames = Object.fromEntries([
+      ["__proto__", "1"],
+      ["constructor", "2"],
+    ])
 
     expect(Object.entries(diffEnv({}, withProtoNames).set)).toEqual([
       ["__proto__", "1"],
@@ -94,10 +108,7 @@ describe("SessionManager", () => {
 
   describe("createSession", () => {
     it("captures environment from Environment service", async () => {
-      await run(
-        mgr.createSession("/work"),
-        { HOME: "/home/user", MY_VAR: "test" },
-      )
+      await run(mgr.createSession("/work"), { HOME: "/home/user", MY_VAR: "test" })
       const ctx = await Effect.runPromise(mgr.getExecContext())
       expect(ctx.env.HOME).toBe("/home/user")
       expect(ctx.env.MY_VAR).toBe("test")
@@ -105,10 +116,12 @@ describe("SessionManager", () => {
 
     it("strips protected env vars", async () => {
       mgr.setProtectedEnvVars(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"])
-      await run(
-        mgr.createSession("/work"),
-        { HOME: "/home", AWS_ACCESS_KEY_ID: "AKIA...", AWS_SECRET_ACCESS_KEY: "secret", PATH: "/usr/bin" },
-      )
+      await run(mgr.createSession("/work"), {
+        HOME: "/home",
+        AWS_ACCESS_KEY_ID: "AKIA...",
+        AWS_SECRET_ACCESS_KEY: "secret",
+        PATH: "/usr/bin",
+      })
       const ctx = await Effect.runPromise(mgr.getExecContext())
       expect(ctx.env.AWS_ACCESS_KEY_ID).toBeUndefined()
       expect(ctx.env.AWS_SECRET_ACCESS_KEY).toBeUndefined()
@@ -172,12 +185,168 @@ describe("SessionManager", () => {
     })
   })
 
+  describe("resumeSession", () => {
+    const saved = (state: Partial<SessionState> = {}) => ({
+      initialWorkingDir: "/session",
+      runbookPath: "/repo/runbook.mdx",
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      state: {
+        workingDir: "/session",
+        env: { set: {}, unset: [] },
+        worktrees: [],
+        activeWorktree: "",
+        executionCount: 0,
+        lastActivity: new Date("2026-01-02T00:00:00Z"),
+        ...state,
+      },
+    })
+
+    it("applies the saved env changes on top of the current process env", async () => {
+      await run(
+        mgr.resumeSession(
+          saved({ env: { set: { TOKEN: "t", PATH: "/custom" }, unset: ["GONE"] } }),
+        ),
+        { PATH: "/usr/bin", GONE: "x", HOME: "/home" },
+      )
+
+      const ctx = await run(mgr.getExecContext())
+      expect(ctx.env).toEqual({ PATH: "/custom", HOME: "/home", TOKEN: "t" })
+    })
+
+    it("resets to the current process env, without the saved changes", async () => {
+      await run(
+        mgr.resumeSession(
+          saved({ workingDir: "/session/repo", env: { set: { A: "1" }, unset: [] } }),
+        ),
+        {
+          HOME: "/home",
+        },
+      )
+
+      await run(mgr.resetSession())
+
+      const ctx = await run(mgr.getExecContext())
+      expect(ctx).toMatchObject({ env: { HOME: "/home" }, workDir: "/session" })
+    })
+
+    it("strips protected vars from the process env but keeps a saved one", async () => {
+      mgr.setProtectedEnvVars(["AWS_ACCESS_KEY_ID", "AWS_PROFILE"])
+      await run(
+        mgr.resumeSession(
+          saved({ env: { set: { AWS_ACCESS_KEY_ID: "from-auth-block" }, unset: [] } }),
+        ),
+        { AWS_ACCESS_KEY_ID: "inherited", AWS_PROFILE: "inherited" },
+      )
+
+      const ctx = await run(mgr.getExecContext())
+      expect(ctx.env).toEqual({ AWS_ACCESS_KEY_ID: "from-auth-block" })
+    })
+
+    it("restores the working dir, worktrees, execution count and creation time", async () => {
+      await run(
+        mgr.resumeSession(
+          saved({
+            workingDir: "/session/repo",
+            worktrees: ["/session/a", "/session/b"],
+            activeWorktree: "/session/a",
+            executionCount: 7,
+          }),
+        ),
+      )
+
+      expect(mgr.getRunbookPath()).toBe("/repo/runbook.mdx")
+      expect(mgr.getActiveWorkTreePath()).toBe("/session/a")
+      expect(await run(mgr.getMetadata())).toEqual({
+        workingDir: "/session/repo",
+        executionCount: 7,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        lastActivity: "2026-01-02T00:00:00.000Z",
+      })
+    })
+
+    it("replaces the session, so a write scoped to the previous one is dropped", async () => {
+      await run(mgr.createSession("/old"), {})
+      const previous = mgr.getGeneration()
+
+      await run(mgr.resumeSession(saved()))
+      await run(mgr.appendToEnv({ LATE: "1" }, previous))
+
+      expect((await run(mgr.getExecContext())).env.LATE).toBeUndefined()
+    })
+  })
+
+  describe("setChangeListener", () => {
+    it("reports the state after each change, with the env as changes since the session started", async () => {
+      await run(mgr.createSession("/work"), { HOME: "/home", DROP: "x" })
+      const states: SessionState[] = []
+      mgr.setChangeListener((state) => states.push(state))
+
+      await run(mgr.appendToEnv({ TOKEN: "t" }))
+      await run(mgr.removeFromEnv(["DROP"]))
+      mgr.registerWorkTreePath("/work/repo")
+      mgr.setActiveWorkTreePath("/work/repo")
+      const start = await run(mgr.getExecContext())
+      await run(
+        mgr.applyCapturedEnv({
+          before: start.env,
+          after: { ...start.env, EXPORTED: "1" },
+          startWorkDir: start.workDir,
+          pwd: "/work/repo",
+          generation: start.generation,
+        }),
+      )
+
+      expect(states).toHaveLength(5)
+      expect(states.at(-1)).toMatchObject({
+        workingDir: "/work/repo",
+        env: { set: { TOKEN: "t", EXPORTED: "1" }, unset: ["DROP"] },
+        worktrees: ["/work/repo"],
+        activeWorktree: "/work/repo",
+        executionCount: 1,
+      })
+    })
+
+    it("reports a reset as no env changes", async () => {
+      await run(mgr.createSession("/work"), { HOME: "/home" })
+      await run(mgr.appendToEnv({ TOKEN: "t" }))
+      const states: SessionState[] = []
+      mgr.setChangeListener((state) => states.push(state))
+
+      await run(mgr.resetSession())
+
+      expect(states).toHaveLength(1)
+      expect(states.at(-1)).toMatchObject({ workingDir: "/work", env: { set: {}, unset: [] } })
+    })
+
+    it("does not report a write dropped for a stale generation or a repeat registration", async () => {
+      await run(mgr.createSession("/work"), {})
+      const stale = mgr.getGeneration() - 1
+      mgr.registerWorkTreePath("/work/repo")
+      const states: SessionState[] = []
+      mgr.setChangeListener((state) => states.push(state))
+
+      await run(mgr.appendToEnv({ LATE: "1" }, stale))
+      mgr.registerWorkTreePath("/work/other", stale)
+      mgr.registerWorkTreePath("/work/repo")
+
+      expect(states).toEqual([])
+    })
+
+    it("stops reporting to a listener once its session is replaced", async () => {
+      await run(mgr.createSession("/a"), {})
+      const states: SessionState[] = []
+      mgr.setChangeListener((state) => states.push(state))
+
+      await run(mgr.createSession("/b"), {})
+      await run(mgr.appendToEnv({ B: "1" }))
+
+      expect(states).toEqual([])
+    })
+  })
+
   describe("getExecContext", () => {
     it("returns snapshot with env, workDir and the session's generation", async () => {
-      await run(
-        mgr.createSession("/work"),
-        { HOME: "/home", PATH: "/usr/bin" },
-      )
+      await run(mgr.createSession("/work"), { HOME: "/home", PATH: "/usr/bin" })
       const ctx = await Effect.runPromise(mgr.getExecContext())
       expect(ctx).toEqual({
         env: { HOME: "/home", PATH: "/usr/bin" },
@@ -202,20 +371,19 @@ describe("SessionManager", () => {
 
   describe("resetSession", () => {
     it("resets env and workDir to initial values", async () => {
-      await run(
-        mgr.createSession("/initial"),
-        { A: "1" },
-      )
+      await run(mgr.createSession("/initial"), { A: "1" })
 
       // Modify the session
       const start = await run(mgr.getExecContext())
-      await run(mgr.applyCapturedEnv({
-        before: start.env,
-        after: { A: "1", B: "2" },
-        startWorkDir: start.workDir,
-        pwd: "/new/dir",
-        generation: start.generation,
-      }))
+      await run(
+        mgr.applyCapturedEnv({
+          before: start.env,
+          after: { A: "1", B: "2" },
+          startWorkDir: start.workDir,
+          pwd: "/new/dir",
+          generation: start.generation,
+        }),
+      )
 
       // Verify modified
       let ctx = await Effect.runPromise(mgr.getExecContext())
@@ -243,13 +411,15 @@ describe("SessionManager", () => {
       after: Record<string, string>,
       pwd: string = start.workDir,
     ) {
-      return run(mgr.applyCapturedEnv({
-        before: start.env,
-        after,
-        startWorkDir: start.workDir,
-        pwd,
-        generation: start.generation,
-      }))
+      return run(
+        mgr.applyCapturedEnv({
+          before: start.env,
+          after,
+          startWorkDir: start.workDir,
+          pwd,
+          generation: start.generation,
+        }),
+      )
     }
 
     it("applies the script's exports and working dir", async () => {
@@ -314,7 +484,8 @@ describe("SessionManager", () => {
     it("keeps a working dir set during the run when the script did not cd", async () => {
       await run(mgr.createSession("/work"), {})
       const start = await run(mgr.getExecContext())
-      mgr.setWorkingDir("/moved")
+      // Another run that started alongside finishes first, having moved.
+      await applyCapture(start, { ...start.env }, "/moved")
 
       await applyCapture(start, { ...start.env }, "/work")
 
@@ -370,10 +541,7 @@ describe("SessionManager", () => {
 
   describe("appendToEnv", () => {
     it("merges new vars without replacing existing", async () => {
-      await run(
-        mgr.createSession("/work"),
-        { A: "1", B: "2" },
-      )
+      await run(mgr.createSession("/work"), { A: "1", B: "2" })
 
       await run(mgr.appendToEnv({ C: "3" }))
 
@@ -384,10 +552,7 @@ describe("SessionManager", () => {
     })
 
     it("overwrites existing keys", async () => {
-      await run(
-        mgr.createSession("/work"),
-        { A: "old" },
-      )
+      await run(mgr.createSession("/work"), { A: "old" })
 
       await run(mgr.appendToEnv({ A: "new" }))
 
@@ -402,10 +567,7 @@ describe("SessionManager", () => {
 
   describe("removeFromEnv", () => {
     it("deletes the given keys, leaving others untouched", async () => {
-      await run(
-        mgr.createSession("/work"),
-        { A: "1", B: "2" },
-      )
+      await run(mgr.createSession("/work"), { A: "1", B: "2" })
       await run(mgr.appendToEnv({ C: "3" }))
 
       await run(mgr.removeFromEnv(["B"]))

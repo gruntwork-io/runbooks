@@ -18,37 +18,28 @@ import { validateSessionPath } from "./path-guard.ts"
 import path from "path"
 
 export function registerWorkspaceHandlers(): void {
-  ipcMain.handle(
-    "workspace:tree",
-    async (_event, params: { worktreePath: string }) => {
-      return runtime.runPromise(
-        Effect.gen(function* () {
-          const worktreePath = yield* validateSessionPath(params.worktreePath)
-          return yield* getWorkspaceTree(worktreePath)
-        }),
-      )
-    },
-  )
+  ipcMain.handle("workspace:tree", async (_event, params: { worktreePath: string }) => {
+    return runtime.runPromise(
+      Effect.gen(function* () {
+        const worktreePath = yield* validateSessionPath(params.worktreePath)
+        return yield* getWorkspaceTree(worktreePath)
+      }),
+    )
+  })
 
-  ipcMain.handle(
-    "workspace:dirs",
-    async (_event, params: { worktreePath: string }) => {
-      return runtime.runPromise(
-        Effect.gen(function* () {
-          const worktreePath = yield* validateSessionPath(params.worktreePath)
-          const dirs = yield* getWorkspaceDirs(worktreePath)
-          return { dirs }
-        }),
-      )
-    },
-  )
+  ipcMain.handle("workspace:dirs", async (_event, params: { worktreePath: string }) => {
+    return runtime.runPromise(
+      Effect.gen(function* () {
+        const worktreePath = yield* validateSessionPath(params.worktreePath)
+        const dirs = yield* getWorkspaceDirs(worktreePath)
+        return { dirs }
+      }),
+    )
+  })
 
   ipcMain.handle(
     "workspace:file",
-    async (
-      _event,
-      params: { worktreePath: string; filePath: string },
-    ) => {
+    async (_event, params: { worktreePath: string; filePath: string }) => {
       return runtime.runPromise(
         Effect.gen(function* () {
           // Accept either shape: an absolute filePath (the UI's default, since
@@ -68,10 +59,7 @@ export function registerWorkspaceHandlers(): void {
 
   ipcMain.handle(
     "workspace:changes",
-    async (
-      _event,
-      params: { worktreePath: string; singleFile?: string },
-    ) => {
+    async (_event, params: { worktreePath: string; singleFile?: string }) => {
       return runtime.runPromise(
         Effect.gen(function* () {
           const worktreePath = yield* validateSessionPath(params.worktreePath)
@@ -84,35 +72,29 @@ export function registerWorkspaceHandlers(): void {
     },
   )
 
-  ipcMain.handle(
-    "workspace:register",
-    async (_event, params: { worktreePath: string }) => {
-      const generation = sessionManager.getGeneration()
-      return runtime.runPromise(
-        Effect.gen(function* () {
-          // Registered worktrees pass wherever they live (git:local-repo
-          // registers the local checkout picked in a <GitClone> block). Any
-          // other path must resolve into the session with symlinks followed,
-          // so a symlink planted there can't register a root outside it.
-          const resolved = yield* validateSessionPath(params.worktreePath)
-          sessionManager.registerWorkTreePath(resolved, generation)
-          return { ok: true as const }
-        }),
-      )
-    },
-  )
+  ipcMain.handle("workspace:register", async (_event, params: { worktreePath: string }) => {
+    const generation = sessionManager.getGeneration()
+    return runtime.runPromise(
+      Effect.gen(function* () {
+        // Registered worktrees pass wherever they live (git:local-repo
+        // registers the local checkout picked in a <GitClone> block). Any
+        // other path must resolve into the session with symlinks followed,
+        // so a symlink planted there can't register a root outside it.
+        const resolved = yield* validateSessionPath(params.worktreePath)
+        sessionManager.registerWorkTreePath(resolved, generation)
+        return { ok: true as const }
+      }),
+    )
+  })
 
-  ipcMain.handle(
-    "workspace:set-active",
-    async (_event, params: { worktreePath: string }) => {
-      const generation = sessionManager.getGeneration()
-      return runtime.runPromise(
-        Effect.gen(function* () {
-          const resolved = yield* validateSessionPath(params.worktreePath)
-          sessionManager.setActiveWorkTreePath(resolved, generation)
-          return { ok: true as const }
-        }),
-      )
-    },
-  )
+  ipcMain.handle("workspace:set-active", async (_event, params: { worktreePath: string }) => {
+    const generation = sessionManager.getGeneration()
+    return runtime.runPromise(
+      Effect.gen(function* () {
+        const resolved = yield* validateSessionPath(params.worktreePath)
+        sessionManager.setActiveWorkTreePath(resolved, generation)
+        return { ok: true as const }
+      }),
+    )
+  })
 }

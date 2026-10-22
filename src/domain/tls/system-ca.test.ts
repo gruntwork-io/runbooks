@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { Effect } from "effect"
+import { SystemCaReadError } from "../../errors/index.ts"
 import { classifyTlsError, dedupePems, installSystemTrust, refreshSystemPems } from "./system-ca.ts"
 import type { CaSources } from "./system-ca.ts"
 
@@ -72,13 +73,15 @@ describe("installSystemTrust", () => {
 
 describe("refreshSystemPems", () => {
   it("consumes the cold reader's output on success (coldReadOk: true)", async () => {
-    const result = await Effect.runPromise(refreshSystemPems(Effect.succeed([PEM_C, PEM_D]), [PEM_B]))
+    const result = await Effect.runPromise(
+      refreshSystemPems(Effect.succeed([PEM_C, PEM_D]), [PEM_B]),
+    )
     expect(result).toEqual({ pems: [PEM_C, PEM_D], coldReadOk: true })
   })
 
   it("falls back to the launch-time set on any cold-read failure (coldReadOk: false)", async () => {
     const result = await Effect.runPromise(
-      refreshSystemPems(Effect.fail(new Error("spawn ENOENT")), [PEM_B]),
+      refreshSystemPems(Effect.fail(new SystemCaReadError({ message: "spawn ENOENT" })), [PEM_B]),
     )
     expect(result).toEqual({ pems: [PEM_B], coldReadOk: false })
   })
@@ -86,7 +89,7 @@ describe("refreshSystemPems", () => {
   it("feeds the fallback set into installSystemTrust unchanged", async () => {
     const { io: base, installed } = makeFakeTls([PEM_A], [])
     const refreshed = await Effect.runPromise(
-      refreshSystemPems(Effect.fail(new Error("timeout")), [PEM_B]),
+      refreshSystemPems(Effect.fail(new SystemCaReadError({ message: "timeout" })), [PEM_B]),
     )
     const io: CaSources = { ...base, systemPems: () => Effect.succeed(refreshed.pems) }
     await Effect.runPromise(installSystemTrust([], io))
@@ -114,12 +117,14 @@ describe("classifyTlsError", () => {
     expect(classifyTlsError(undiciWrapped(code))).toBe("tls")
   })
 
-  it.each(["CERT_HAS_EXPIRED", "CERT_NOT_YET_VALID", "CERT_REVOKED", "ERR_TLS_CERT_ALTNAME_INVALID"])(
-    "classifies undici-wrapped %s as 'server-cert' (not trust-fixable)",
-    (code) => {
-      expect(classifyTlsError(undiciWrapped(code))).toBe("server-cert")
-    },
-  )
+  it.each([
+    "CERT_HAS_EXPIRED",
+    "CERT_NOT_YET_VALID",
+    "CERT_REVOKED",
+    "ERR_TLS_CERT_ALTNAME_INVALID",
+  ])("classifies undici-wrapped %s as 'server-cert' (not trust-fixable)", (code) => {
+    expect(classifyTlsError(undiciWrapped(code))).toBe("server-cert")
+  })
 
   it.each(["ENOTFOUND", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN"])(
     "classifies undici-wrapped %s as 'network'",

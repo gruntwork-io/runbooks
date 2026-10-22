@@ -13,14 +13,9 @@ import * as path from "node:path"
 
 import { FileSystem } from "../../services/FileSystem.js"
 import { computeContentHash } from "../workspace/file.js"
-import {
-  ExecutableNotFoundError,
-} from "../../errors/index.js"
-import {
-  findFencedCodeBlockRanges,
-  isInsideFencedCodeBlock,
-} from "../../mdx.js"
-import type { Executable, ExecutableType } from "../../types.js"
+import { ExecutableNotFoundError, ScriptReloadConflictError } from "../../errors/index.js"
+import { findFencedCodeBlockRanges, isInsideFencedCodeBlock } from "../../mdx.js"
+import type { Executable, ExecutableType, ScriptFileChange } from "../../types.js"
 
 // ---------------------------------------------------------------------------
 // Component types that are scanned
@@ -77,6 +72,26 @@ export function extractProp(props: string, propName: string): string {
   return ""
 }
 
+/**
+ * Extract a prop whose value is a literal array of strings, such as
+ * `outputs={["region", 'zone']}`. Returns undefined when the prop is absent
+ * or its array holds anything other than quoted strings.
+ */
+export function extractStringArrayProp(props: string, propName: string): string[] | undefined {
+  const match = new RegExp(`(?:^|\\s)${propName}=\\{\\s*\\[([^\\]]*)\\]\\s*\\}`).exec(props)
+  if (!match) return undefined
+  const body = match[1]!
+  const items: string[] = []
+  const item = /\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)\s*(,|$)/y
+  while (item.lastIndex < body.length && body.slice(item.lastIndex).trim() !== "") {
+    const found = item.exec(body)
+    if (!found) return undefined
+    items.push(found[1] ?? found[2] ?? found[3]!)
+    if (found[4] === "") break
+  }
+  return items
+}
+
 // ---------------------------------------------------------------------------
 // ID computation
 // ---------------------------------------------------------------------------
@@ -85,10 +100,7 @@ export function extractProp(props: string, propName: string): string {
  * Compute a deterministic ID from a component ID and its script content.
  * Uses the first 16 hex characters of a SHA-256 hash.
  */
-export function computeExecutableId(
-  componentId: string,
-  content: string,
-): string {
+export function computeExecutableId(componentId: string, content: string): string {
   const hash = crypto
     .createHash("sha256")
     .update(componentId + content)
@@ -100,10 +112,7 @@ export function computeExecutableId(
  * Compute a deterministic component ID when no explicit `id` prop is provided.
  * Uses SHA-256 of the component type and props, prefixed with the type.
  */
-export function computeComponentId(
-  componentType: string,
-  props: string,
-): string {
+export function computeComponentId(componentType: string, props: string): string {
   const hash = crypto
     .createHash("sha256")
     .update(componentType + props)
@@ -160,10 +169,7 @@ export interface ParsedComponent {
  * Parse all components of a given type from MDX content, skipping those inside
  * fenced code blocks (documentation examples).
  */
-export function parseComponents(
-  content: string,
-  componentType: string,
-): ParsedComponent[] {
+export function parseComponents(content: string, componentType: string): ParsedComponent[] {
   const re = getComponentRegex(componentType)
   const codeBlockRanges = findFencedCodeBlockRanges(content)
 
@@ -205,6 +211,8 @@ export function parseComponents(
 
 export class ExecutableRegistry {
   private entries = new Map<string, Executable>()
+  /** Absolute path each file entry's script was read from, keyed by entry ID. */
+  private scriptPaths = new Map<string, string>()
   private warnings: string[] = []
 
   // -----------------------------------------------------------------------
@@ -235,11 +243,10 @@ export class ExecutableRegistry {
    * Finish that has a script (a `command` or `path` prop).
    */
   parseAndRegister(runbookPath: string, contentOverride?: string) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const fs = yield* FileSystem
 
-      const content =
-        contentOverride ?? (yield* fs.readFile(runbookPath))
+      const content = contentOverride ?? (yield* fs.readFile(runbookPath))
       const runbookDir = path.dirname(runbookPath)
 
       for (const componentType of SCRIPT_COMPONENT_TYPES) {
@@ -250,19 +257,9 @@ export class ExecutableRegistry {
           const pathProp = extractProp(comp.props, "path")
 
           if (commandProp) {
-            this.registerInlineEntry(
-              comp.id,
-              componentType,
-              commandProp,
-            )
+            this.registerInlineEntry(comp.id, componentType, commandProp)
           } else if (pathProp) {
-            yield* this.registerFileEntry(
-              fs,
-              comp.id,
-              componentType,
-              pathProp,
-              runbookDir,
-            )
+            yield* this.registerFileEntry(fs, comp.id, componentType, pathProp, runbookDir)
           }
         }
       }
@@ -310,19 +307,16 @@ export class ExecutableRegistry {
     scriptPath: string,
     runbookDir: string,
   ) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const fullPath = path.join(runbookDir, scriptPath)
 
       // Try to read the script file; on failure add a warning and skip
-      const scriptContent = yield* Effect.catchAll(
-        fs.readFile(fullPath),
-        () => {
-          this.warnings.push(
-            `<${componentType} id="${componentId}">: Script file not found: ${scriptPath}`,
-          )
-          return Effect.succeed(null)
-        },
-      )
+      const scriptContent = yield* Effect.catch(fs.readFile(fullPath), () => {
+        this.warnings.push(
+          `<${componentType} id="${componentId}">: Script file not found: ${scriptPath}`,
+        )
+        return Effect.succeed(null)
+      })
 
       if (scriptContent === null) return
 
@@ -344,7 +338,106 @@ export class ExecutableRegistry {
         path: scriptPath,
         templateVars: extractTemplateVars(scriptContent),
       })
+      this.scriptPaths.set(entryId, fullPath)
     })
+  }
+
+  // -----------------------------------------------------------------------
+  // Script files changed after registration
+  // -----------------------------------------------------------------------
+
+  /** Absolute paths of the script files the file entries were read from. */
+  getScriptPaths(): string[] {
+    return [...new Set(this.scriptPaths.values())]
+  }
+
+  /** IDs of the components whose file entry was read from one of `scriptPaths`. */
+  getComponentIdsForScripts(scriptPaths: readonly string[]): string[] {
+    const componentIds: string[] = []
+    for (const [entryId, scriptPath] of this.scriptPaths) {
+      const entry = this.entries.get(entryId)
+      if (entry && scriptPaths.includes(scriptPath)) componentIds.push(entry.componentId)
+    }
+    return componentIds
+  }
+
+  /**
+   * The script file of `componentId`'s entry as it is on disk now, when that
+   * differs from the registered copy. Null when the two match, when the file
+   * can't be read, and when the component has no file entry.
+   */
+  getScriptFileChange(componentId: string) {
+    return Effect.gen({ self: this }, function* () {
+      const fs = yield* FileSystem
+      const found = this.findFileEntry(componentId)
+      if (!found) return null
+
+      const diskContent = yield* Effect.catch(fs.readFile(found.scriptPath), () =>
+        Effect.succeed(null),
+      )
+      if (diskContent === null) return null
+
+      const diskContentHash = computeContentHash(diskContent)
+      if (diskContentHash === found.entry.contentHash) return null
+
+      const change: ScriptFileChange = {
+        registeredContent: found.entry.content,
+        diskContent,
+        diskContentHash,
+      }
+      return change
+    })
+  }
+
+  /**
+   * Replace `componentId`'s file entry with its script as it is on disk, so
+   * Run executes that version. `reviewedHash` is the content hash of the
+   * version the user reviewed.
+   *
+   * Fails with ScriptReloadConflictError, leaving the entry as it was, when
+   * the file's content does not have that hash. Fails with
+   * ExecutableNotFoundError when the component has no file entry.
+   */
+  reloadFileEntry(componentId: string, reviewedHash: string) {
+    return Effect.gen({ self: this }, function* () {
+      const fs = yield* FileSystem
+      const found = this.findFileEntry(componentId)
+      if (!found) {
+        return yield* new ExecutableNotFoundError({ id: componentId })
+      }
+      const { entry, scriptPath } = found
+
+      const content = yield* fs.readFile(scriptPath)
+      if (computeContentHash(content) !== reviewedHash) {
+        return yield* new ScriptReloadConflictError({
+          path: scriptPath,
+          message: `${entry.path} changed again after you reviewed it. Review the latest change, then reload the script.`,
+        })
+      }
+
+      // The entry ID is derived from the content, so the entry moves to a new ID.
+      const entryId = computeExecutableId(componentId, content)
+      this.entries.delete(entry.id)
+      this.scriptPaths.delete(entry.id)
+      this.entries.set(entryId, {
+        ...entry,
+        id: entryId,
+        content,
+        contentHash: reviewedHash,
+        templateVars: extractTemplateVars(content),
+      })
+      this.scriptPaths.set(entryId, scriptPath)
+    })
+  }
+
+  private findFileEntry(
+    componentId: string,
+  ): { entry: Executable; scriptPath: string } | undefined {
+    for (const [entryId, scriptPath] of this.scriptPaths) {
+      const entry = this.entries.get(entryId)
+      if (entry?.componentId === componentId) return { entry, scriptPath }
+    }
+    return undefined
   }
 
   // -----------------------------------------------------------------------
@@ -353,7 +446,7 @@ export class ExecutableRegistry {
 
   /** Retrieve an entry by its ID. Returns Effect with typed error. */
   getExecutable(id: string) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const entry = this.entries.get(id)
       if (!entry) {
         return yield* new ExecutableNotFoundError({ id })
@@ -387,17 +480,13 @@ export class ExecutableRegistry {
   getWarnings(): string[] {
     return [...this.warnings]
   }
-
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getDuplicateWarning(
-  componentType: string,
-  componentId: string,
-): string {
+function getDuplicateWarning(componentType: string, componentId: string): string {
   return (
     `Duplicate <${componentType}> component with id '${componentId}' detected` +
     ` - Any scripts or commands associated with the second instance will be ignored.` +

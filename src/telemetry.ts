@@ -29,7 +29,7 @@ const DISABLE_ENV_VAR = "RUNBOOKS_TELEMETRY_DISABLE"
 let enabled = false
 let appVersion = "unknown"
 let anonymousId: string | undefined
-let mixpanelClient: ReturnType<typeof import("mixpanel")["init"]> | undefined
+let mixpanelClient: ReturnType<(typeof import("mixpanel"))["init"]> | undefined
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -75,11 +75,23 @@ export function isEnabled(): boolean {
   return enabled
 }
 
-/** Returns config info suitable for an API health-check response. */
-export function getConfig(): { enabled: boolean; token: string | undefined } {
+/**
+ * What the renderer needs to start its own Mixpanel client: whether telemetry
+ * is on, and the anonymous ID and app version to identify events with, so its
+ * events join the main process's.
+ */
+export function getConfig(): {
+  enabled: boolean
+  token?: string
+  anonymousId?: string
+  version?: string
+} {
+  if (!enabled) return { enabled: false }
   return {
-    enabled,
-    token: enabled ? (process.env.MIXPANEL_TOKEN ?? MIXPANEL_TOKEN_FALLBACK) : undefined,
+    enabled: true,
+    token: process.env.MIXPANEL_TOKEN ?? MIXPANEL_TOKEN_FALLBACK,
+    ...(anonymousId !== undefined && { anonymousId }),
+    version: appVersion,
   }
 }
 
@@ -134,7 +146,9 @@ export function shutdown(): Promise<void> {
 
   // Mixpanel Node SDK doesn't expose a flush/close, so we just give a brief
   // window for in-flight HTTP requests to complete.
-  return new Promise((resolve) => setTimeout(resolve, 500))
+  return new Promise((resolve) => {
+    setTimeout(resolve, 500)
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -147,14 +161,10 @@ export function shutdown(): Promise<void> {
  */
 export function makeTelemetryService(): TelemetryShape {
   return {
-    track: (event, properties) =>
-      Effect.sync(() => track(event, properties)),
-    trackCommand: (command) =>
-      Effect.sync(() => trackCommand(command)),
-    trackError: (errorType) =>
-      Effect.sync(() => trackError(errorType)),
-    isEnabled: () =>
-      Effect.sync(() => isEnabled()),
+    track: (event, properties) => Effect.sync(() => track(event, properties)),
+    trackCommand: (command) => Effect.sync(() => trackCommand(command)),
+    trackError: (errorType) => Effect.sync(() => trackError(errorType)),
+    isEnabled: () => Effect.sync(() => isEnabled()),
   }
 }
 

@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle } from "lucide-react"
 
 interface ShowMoreBannerProps {
   /** How many items are currently visible. */

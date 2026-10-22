@@ -41,12 +41,23 @@
  * @see RunbookContext - The context provider
  */
 
-import { useContext, useMemo, useRef } from 'react'
-import { RunbookContext, type RunbookContextType, type TemplateValue, type OutputValue, type BlockOutputs } from './RunbookContext'
-import type { TemplateContext } from '@/lib/templateUtils'
+import { useContext, useMemo, useState } from "react"
+import {
+  RunbookContext,
+  type RunbookContextType,
+  type TemplateValue,
+  type OutputValue,
+  type BlockOutputs,
+} from "./RunbookContext"
+import type { TemplateContext } from "@/lib/templateUtils"
 
 // Re-export types and helpers for convenience
-export { type TemplateValue, type OutputValue, type BlockInputs, type BlockOutputs, flattenInputs, valuesToOutputs } from './RunbookContext'
+export {
+  type TemplateValue,
+  type OutputValue,
+  type BlockOutputs,
+  flattenInputs,
+} from "./RunbookContext"
 
 // Stable empty arrays to avoid creating new references
 const EMPTY_INPUTS: TemplateValue[] = []
@@ -59,7 +70,7 @@ const EMPTY_TEMPLATE_CONTEXT: TemplateContext = { inputs: {}, outputs: {} }
 export function useRunbookContext(): RunbookContextType {
   const context = useContext(RunbookContext)
   if (!context) {
-    throw new Error('useRunbookContext must be used within a RunbookContextProvider')
+    throw new Error("useRunbookContext must be used within a RunbookContextProvider")
   }
   return context
 }
@@ -74,31 +85,23 @@ export function useRunbookContext(): RunbookContextType {
  * @returns Array of TemplateValue objects (merged, later IDs override earlier)
  */
 export function useInputs(inputsId: string | string[] | undefined): TemplateValue[] {
-  const context = useContext(RunbookContext)
+  // getInputs changes exactly when the registered inputs do.
+  const getInputs = useContext(RunbookContext)?.getInputs
 
-  // Get the blockInputs from context to track changes
-  const blockInputs = context?.blockInputs
+  const inputs = useMemo(() => {
+    if (!getInputs || !inputsId) return EMPTY_INPUTS
+    return getInputs(inputsId)
+  }, [getInputs, inputsId])
 
-  // Track previous result to maintain referential stability
-  const prevResultRef = useRef<TemplateValue[]>(EMPTY_INPUTS)
-
-  return useMemo(() => {
-    if (!context || !inputsId) return EMPTY_INPUTS
-
-    const newInputs = context.getInputs(inputsId)
-
-    // Check if inputs actually changed (compare by JSON since TemplateValue has nested value)
-    const prevJson = JSON.stringify(prevResultRef.current)
-    const newJson = JSON.stringify(newInputs)
-
-    if (prevJson === newJson) {
-      return prevResultRef.current
-    }
-
-    prevResultRef.current = newInputs
-    return newInputs
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputsId, blockInputs])
+  // Keep returning the previous array while its content is unchanged, for
+  // referential stability (compare by JSON since TemplateValue has nested value)
+  const [stable, setStable] = useState({ source: inputs, value: inputs })
+  if (stable.source !== inputs) {
+    const value = JSON.stringify(stable.value) === JSON.stringify(inputs) ? stable.value : inputs
+    setStable({ source: inputs, value })
+    return value
+  }
+  return stable.value
 }
 
 /**
@@ -108,16 +111,13 @@ export function useInputs(inputsId: string | string[] | undefined): TemplateValu
  * @returns The block's outputs, or undefined if no outputs exist
  */
 export function useOutputs(blockId: string | undefined): OutputValue[] | undefined {
-  const context = useContext(RunbookContext)
-
-  // Get the blockOutputs from context to track changes
-  const blockOutputs = context?.blockOutputs
+  // getOutputs changes exactly when the registered outputs do.
+  const getOutputs = useContext(RunbookContext)?.getOutputs
 
   return useMemo(() => {
-    if (!context || !blockId) return undefined
-    return context.getOutputs(blockId)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockId, blockOutputs])
+    if (!getOutputs || !blockId) return undefined
+    return getOutputs(blockId)
+  }, [getOutputs, blockId])
 }
 
 /**
@@ -127,6 +127,25 @@ export function useOutputs(blockId: string | undefined): OutputValue[] | undefin
 export function useAllOutputs(): Record<string, BlockOutputs> {
   const context = useContext(RunbookContext)
   return context?.blockOutputs ?? {}
+}
+
+/**
+ * Hook to get the names of the input variables any block marks `sensitive`.
+ * A value that reaches a block through `inputsId` carries no sensitive flag
+ * of its own, so this is how to tell that it may hold a secret.
+ */
+export function useSensitiveInputNames(): ReadonlySet<string> {
+  const context = useContext(RunbookContext)
+  const blockInputs = context?.blockInputs
+  return useMemo(() => {
+    const names = new Set<string>()
+    for (const { config } of Object.values(blockInputs ?? {})) {
+      for (const variable of config.variables ?? []) {
+        if (variable.sensitive) names.add(variable.name)
+      }
+    }
+    return names
+  }, [blockInputs])
 }
 
 /**
@@ -141,15 +160,11 @@ export function useAllOutputs(): Record<string, BlockOutputs> {
  * // → { inputs: { region: "us-west-2" }, outputs: { create_account: { account_id: "123" } } }
  */
 export function useTemplateContext(inputsId?: string | string[]): TemplateContext {
-  const context = useContext(RunbookContext)
-
-  // Track both inputs and outputs for re-renders
-  const blockInputs = context?.blockInputs
-  const blockOutputs = context?.blockOutputs
+  // getTemplateContext changes exactly when the inputs or outputs do.
+  const getTemplateContext = useContext(RunbookContext)?.getTemplateContext
 
   return useMemo(() => {
-    if (!context) return EMPTY_TEMPLATE_CONTEXT
-    return context.getTemplateContext(inputsId)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputsId, blockInputs, blockOutputs])
+    if (!getTemplateContext) return EMPTY_TEMPLATE_CONTEXT
+    return getTemplateContext(inputsId)
+  }, [getTemplateContext, inputsId])
 }

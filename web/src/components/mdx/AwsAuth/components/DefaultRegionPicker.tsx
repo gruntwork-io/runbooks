@@ -10,16 +10,8 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { AWS_REGIONS } from "../constants"
 
 interface DefaultRegionPickerProps {
@@ -28,37 +20,48 @@ interface DefaultRegionPickerProps {
   disabled?: boolean
 }
 
-export function DefaultRegionPicker({ selectedRegion, setSelectedRegion, disabled }: DefaultRegionPickerProps) {
+export function DefaultRegionPicker({
+  selectedRegion,
+  setSelectedRegion,
+  disabled,
+}: DefaultRegionPickerProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
   const listRef = useRef<HTMLDivElement>(null)
-  
+
   // Scroll to top whenever search changes or popover opens
   useEffect(() => {
     if (open && listRef.current) {
       listRef.current.scrollTo({ top: 0 })
     }
   }, [open, search])
-  
+
   return (
     <div>
       <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
         Default Region
         <Tooltip>
           <TooltipTrigger asChild>
-            <button type="button" className="text-muted-foreground hover:text-foreground cursor-help">
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground cursor-help"
+            >
               <Info className="size-3.5" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-[280px]">
-            This is the AWS region used by CLI commands that don't explicitly specify a region. This sets the <code>AWS_REGION</code> environment variable.
+            This is the AWS region used by CLI commands that don't explicitly specify a region. This
+            sets the <code>AWS_REGION</code> environment variable.
           </TooltipContent>
         </Tooltip>
       </label>
-      <Popover open={open} onOpenChange={(isOpen) => {
-        setOpen(isOpen)
-        if (!isOpen) setSearch("") // Reset search when closing
-      }}>
+      <Popover
+        open={open}
+        onOpenChange={(isOpen) => {
+          setOpen(isOpen)
+          if (!isOpen) setSearch("") // Reset search when closing
+        }}
+      >
         <PopoverTrigger asChild>
           <Button
             variant="outline"
@@ -80,10 +83,15 @@ export function DefaultRegionPicker({ selectedRegion, setSelectedRegion, disable
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[400px] p-0" align="start" side="bottom" avoidCollisions={false}>
+        <PopoverContent
+          className="w-[400px] p-0"
+          align="start"
+          side="bottom"
+          avoidCollisions={false}
+        >
           <Command>
-            <CommandInput 
-              placeholder="Search regions..." 
+            <CommandInput
+              placeholder="Search regions..."
               value={search}
               onValueChange={setSearch}
             />
@@ -103,15 +111,13 @@ export function DefaultRegionPicker({ selectedRegion, setSelectedRegion, disable
                     <Check
                       className={cn(
                         "h-4 w-4 shrink-0",
-                        selectedRegion === region.code ? "opacity-100" : "opacity-0"
+                        selectedRegion === region.code ? "opacity-100" : "opacity-0",
                       )}
                     />
                     <span className="font-mono text-xs text-muted-foreground w-[120px] shrink-0">
                       {region.code}
                     </span>
-                    <span className="text-foreground truncate">
-                      {region.name}
-                    </span>
+                    <span className="text-foreground truncate">{region.name}</span>
                   </CommandItem>
                 ))}
               </CommandGroup>
