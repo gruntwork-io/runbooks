@@ -87,6 +87,13 @@ Once the files are generated, create a pull request to add them to your infrastr
 <Command
   id="create-pr"
   path="scripts/create-initial-pr.sh"
+  env={{
+    GITHUB_ORG: "{{ .inputs.GithubOrgName }}",
+    REPO_NAME: "{{ .inputs.GithubRepoName }}",
+    FUNCTION_NAME: "{{ .inputs.FunctionName }}",
+    ENVIRONMENT: "{{ .inputs.Environment }}",
+    AWS_REGION: "{{ .inputs.AwsRegion }}",
+  }}
   title="Create Pull Request"
   description="Create a pull request with the generated Lambda configuration in exactly the right folder location."
   successMessage="Pull request created successfully!"
@@ -121,6 +128,13 @@ In this case, you can go ahead and manually run the plan and apply commands:
 <Command
   id="terragrunt-plan"
   path="scripts/terragrunt-plan.sh"
+  env={{
+    GITHUB_ORG: "{{ .inputs.GithubOrgName }}",
+    REPO_NAME: "{{ .inputs.GithubRepoName }}",
+    FUNCTION_NAME: "{{ .inputs.FunctionName }}",
+    ENVIRONMENT: "{{ .inputs.Environment }}",
+    AWS_REGION: "{{ .inputs.AwsRegion }}",
+  }}
   title="Terragrunt Plan"
   description="Clone the repo, checkout the PR branch, and preview the infrastructure changes."
   successMessage="Plan completed successfully! Review the changes above."
@@ -132,6 +146,13 @@ In this case, you can go ahead and manually run the plan and apply commands:
 <Command
   id="terragrunt-apply"
   path="scripts/terragrunt-apply.sh"
+  env={{
+    GITHUB_ORG: "{{ .inputs.GithubOrgName }}",
+    REPO_NAME: "{{ .inputs.GithubRepoName }}",
+    FUNCTION_NAME: "{{ .inputs.FunctionName }}",
+    ENVIRONMENT: "{{ .inputs.Environment }}",
+    AWS_REGION: "{{ .inputs.AwsRegion }}",
+  }}
   title="Terragrunt Apply"
   description="Clone the repo, checkout the PR branch, and apply the infrastructure changes to deploy the Lambda function."
   successMessage="Lambda function deployed successfully!"
@@ -147,6 +168,10 @@ Congratulations! Your Lambda function has been deployed. Let's test it!
 <Check
   id="test-function"
   path="checks/test-lambda.sh"
+  env={{
+    FUNCTION_NAME: "{{ .inputs.FunctionName }}-{{ .inputs.Environment }}",
+    AWS_REGION: "{{ .inputs.AwsRegion }}",
+  }}
   title="Test the Lambda function"
   description="Test the Lambda function by invoking it with a test event"
   successMessage="Lambda function invoked successfully!"

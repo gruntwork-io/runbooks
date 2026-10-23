@@ -25,7 +25,8 @@ This block writes an output, `workspace`, that a block in the next chapter reads
 <Command
     id="prepare"
     title="Prepare a workspace"
-    command='echo "workspace=/tmp/{{ .inputs.AppName }}" >> "$RUNBOOK_OUTPUT" && echo "Workspace ready."'
+    env={{ APP_NAME: "{{ .inputs.AppName }}" }}
+    command='echo "workspace=/tmp/$APP_NAME" >> "$RUNBOOK_OUTPUT" && echo "Workspace ready."'
     inputsId="app"
     successMessage="Workspace ready."
 />
@@ -41,7 +42,8 @@ Chapters only change what's on screen. A block can use the inputs and outputs of
 <Command
     id="deploy"
     title="Deploy the app"
-    command='echo "Deploying {{ .inputs.AppName }} from {{ .outputs.prepare.workspace }}" && echo "source={{ .outputs.prepare.workspace }}" >> "$RUNBOOK_OUTPUT"'
+    env={{ APP_NAME: "{{ .inputs.AppName }}", WORKSPACE: "{{ .outputs.prepare.workspace }}" }}
+    command='echo "Deploying $APP_NAME from $WORKSPACE" && echo "source=$WORKSPACE" >> "$RUNBOOK_OUTPUT"'
     inputsId="app"
     successMessage="Deployed."
 />
@@ -55,7 +57,8 @@ Chapters only change what's on screen. A block can use the inputs and outputs of
 <Check
     id="verify"
     title="Check that the app is up"
-    command='echo "{{ .inputs.AppName }} is up."'
+    env={{ APP_NAME: "{{ .inputs.AppName }}" }}
+    command='echo "$APP_NAME is up."'
     inputsId="app"
     successMessage="The app is up."
 />

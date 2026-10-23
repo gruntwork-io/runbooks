@@ -36,4 +36,9 @@ variables:
 
 <Iframe id="region-picker" src="./assets/picker/index.html" title="Region picker" height={220} inputsId="deploy-config" outputs={["region"]} />
 
-<Command id="show-region" inputsId="deploy-config" command="echo 'Deploying {{ .inputs.environment }} to {{ .outputs.region_picker.region }}'" />
+<Command
+  id="show-region"
+  inputsId="deploy-config"
+  env={{ ENVIRONMENT: "{{ .inputs.environment }}", REGION: "{{ .outputs.region_picker.region }}" }}
+  command='echo "Deploying $ENVIRONMENT to $REGION"'
+/>

@@ -4,10 +4,7 @@
 # Demonstrates how DEBUG=true enables verbose log_debug output
 # =============================================================================
 
-# Set DEBUG based on input variable (passed from Runbooks Inputs block)
-if [ "{{ .inputs.EnableDebug }}" = "true" ]; then
-  export DEBUG=true
-fi
+# The block's env prop sets DEBUG from the EnableDebug input, for this run only
 
 log_info "Starting system check..."
 

@@ -11,10 +11,9 @@
 # Cloud SDK is installed, and the IAM Credentials REST API (plain curl) when it
 # is not.
 #
+# TARGET_SA and LIFETIME come from the block's env prop, set from its inputs.
+#
 set -euo pipefail
-
-TARGET_SA="{{ .inputs.TargetServiceAccount }}"
-LIFETIME="{{ .inputs.Lifetime }}"
 
 CLOUD_PLATFORM_SCOPE="https://www.googleapis.com/auth/cloud-platform"
 TOKEN_URI="https://oauth2.googleapis.com/token"

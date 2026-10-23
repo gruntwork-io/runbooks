@@ -4,13 +4,11 @@ set -e
 # Create a release on the infra-catalog repo.
 #
 # Environment variables:
+#   - MODULE_NAME, RELEASE_TAG: set by the block's env prop from its inputs
+#   - CATALOG_DIR: set by the block's env prop from clone-catalog's clone_path
 #   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
 
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
-
-MODULE_NAME="{{ .inputs.ModuleName }}"
-CATALOG_DIR="{{ .outputs.clone_catalog.clone_path }}"
-RELEASE_TAG="{{ .inputs.ReleaseTag }}"
 
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "🏷️  Dry-run mode: Simulating release creation..."

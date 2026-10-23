@@ -1,19 +1,20 @@
 #!/bin/bash
-# Note: Block IDs use underscores in templates (hyphens aren't valid in Go template syntax)
+# ACCOUNT_ID, REGION and ROLE_ARN are outputs of earlier blocks, which the
+# block's env prop passes in
 echo "Verifying setup..."
-echo "Account: {{ .outputs.create_account.account_id }}"
-echo "Region: {{ .outputs.create_account.region }}"
-echo "Role: {{ .outputs.create_resources.role_arn }}"
+echo "Account: $ACCOUNT_ID"
+echo "Region: $REGION"
+echo "Role: $ROLE_ARN"
 
 # Validation logic
-if [[ -n "{{ .outputs.create_account.account_id }}" ]]; then
+if [[ -n "$ACCOUNT_ID" ]]; then
   echo "✓ Account ID present"
 else
   echo "✗ Account ID missing"
   exit 1
 fi
 
-if [[ -n "{{ .outputs.create_resources.role_arn }}" ]]; then
+if [[ -n "$ROLE_ARN" ]]; then
   echo "✓ Role ARN present"
 else
   echo "✗ Role ARN missing"

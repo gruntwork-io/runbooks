@@ -1,29 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The block's env prop sets APP_LANGUAGE, USE_TAILWIND, BUNDLER and
+# IMPORT_ALIAS from its inputs
+
 cd "$REPO_FILES"
 
 # Remove default files that GitHub generates when creating a repo.
 # create-next-app refuses to run in a directory with conflicting files.
 rm -f README.md LICENSE .gitignore .gitattributes
 
-ARGS=(--yes --app --src-dir --use-bun --import-alias "{{ .inputs.ImportAlias }}")
+ARGS=(--yes --app --src-dir --use-bun --import-alias "$IMPORT_ALIAS")
 
-{{ if eq .inputs.Language "JavaScript" -}}
-ARGS+=(--javascript)
-{{ else -}}
-ARGS+=(--typescript)
-{{ end -}}
+if [ "$APP_LANGUAGE" = "JavaScript" ]; then
+  ARGS+=(--javascript)
+else
+  ARGS+=(--typescript)
+fi
 
-{{ if eq .inputs.UseTailwind "Yes" -}}
-ARGS+=(--tailwind)
-{{ end -}}
+if [ "$USE_TAILWIND" = "Yes" ]; then
+  ARGS+=(--tailwind)
+fi
 
-{{ if eq .inputs.Bundler "Webpack" -}}
-ARGS+=(--webpack)
-{{ else -}}
-ARGS+=(--turbopack)
-{{ end -}}
+if [ "$BUNDLER" = "Webpack" ]; then
+  ARGS+=(--webpack)
+else
+  ARGS+=(--turbopack)
+fi
 
 bunx --bun create-next-app@latest . "${ARGS[@]}"
 

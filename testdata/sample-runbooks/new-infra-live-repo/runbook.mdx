@@ -63,6 +63,7 @@ Create a new empty repository on GitHub. The scaffolded files will be pushed to 
 <Command
   id="create-repo"
   path="scripts/create-repo.sh"
+  env={{ REPO_NAME: "{{ .inputs.RepoName }}", ORG_NAME: "{{ .inputs.OrgName }}" }}
   title="Create GitHub Repository"
   description="Create a new GitHub repository for infra-live."
   successMessage="Repository created!"
@@ -127,6 +128,7 @@ Review and merge the pull request on GitHub, then verify it's been merged.
 <Check
   id="check-pr-merged"
   path="checks/check-pr-merged.sh"
+  env={{ PR_URL: "{{ .outputs.pr_scaffold.PR_URL }}" }}
   title="Verify PR is Merged"
   description="Check that the scaffold pull request has been merged to main."
   successMessage="PR is merged! Your infra-live repo is ready."
@@ -156,7 +158,8 @@ variables:
 
 <Command
   id="create-catalog-repo"
-  command="gh repo create {{ .inputs.OrgName }}/{{ .inputs.CatalogRepoName }} --public --description 'Reusable OpenTofu/Terraform modules catalog' --clone=false && echo 'Repository created: https://github.com/{{ .inputs.OrgName }}/{{ .inputs.CatalogRepoName }}'"
+  env={{ ORG: "{{ .inputs.OrgName }}", REPO: "{{ .inputs.CatalogRepoName }}" }}
+  command={`gh repo create "$ORG/$REPO" --public --description 'Reusable OpenTofu/Terraform modules catalog' --clone=false && echo "Repository created: https://github.com/$ORG/$REPO"`}
   title="Create infra-catalog Repository"
   description="Create a new GitHub repository for reusable OpenTofu modules."
   successMessage="infra-catalog repository created!"

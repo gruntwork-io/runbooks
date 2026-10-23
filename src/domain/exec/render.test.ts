@@ -1,7 +1,5 @@
 import { describe, it, expect } from "bun:test"
 import { Effect, Result, Layer } from "effect"
-import * as nodeFs from "node:fs"
-import * as nodePath from "node:path"
 import { renderBlockEnv, renderScriptForExec } from "./render.ts"
 import { WasmBoilerplateLive } from "../../layers/WasmBoilerplate.ts"
 import { WasmRuntime } from "../../services/WasmRuntime.ts"
@@ -161,14 +159,25 @@ describe("renderScriptForExec", () => {
     expect(out).toBe("yes")
   })
 
-  it("honors every eq branch in the next-app sample script", async () => {
-    const script = nodeFs.readFileSync(
-      nodePath.join(
-        import.meta.dirname,
-        "../../../testdata/sample-runbooks/next-app/scripts/create-next-app.sh",
-      ),
-      "utf8",
-    )
+  it("honors every eq branch in a script that picks its flags with templates", async () => {
+    const script = `ARGS=(--yes --import-alias "{{ .inputs.ImportAlias }}")
+
+{{ if eq .inputs.Language "JavaScript" -}}
+ARGS+=(--javascript)
+{{ else -}}
+ARGS+=(--typescript)
+{{ end -}}
+
+{{ if eq .inputs.UseTailwind "Yes" -}}
+ARGS+=(--tailwind)
+{{ end -}}
+
+{{ if eq .inputs.Bundler "Webpack" -}}
+ARGS+=(--webpack)
+{{ else -}}
+ARGS+=(--turbopack)
+{{ end -}}
+`
     const out = await renderOk(script, {
       inputs: {
         ImportAlias: "@/*",

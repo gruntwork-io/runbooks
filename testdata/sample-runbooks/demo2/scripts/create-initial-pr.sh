@@ -4,25 +4,20 @@
 # It handles the complete workflow of cloning the repo, adding files, committing,
 # pushing, and creating a PR.
 #
-# This script is designed to be called from the runbook Command block, which
-# automatically passes values from the boilerplate input block with id
-# "infrastructure-live-root-repo-inputs" as command-line arguments:
-#   - GithubOrgName -> $1
-#   - GithubRepoName -> $2
+# This script is designed to be called from the runbook Command block, whose
+# env prop passes values from the boilerplate input block with id
+# "infrastructure-live-root-repo-inputs" as environment variables:
+#   - GithubOrgName -> $GITHUB_ORG
+#   - GithubRepoName -> $REPO_NAME
 
 set -e
 
 # Save the original directory before any cd commands
 ORIGINAL_DIR=$(pwd)
 
-# Parse arguments (automatically passed from boilerplate inputs in the runbook)
-GITHUB_ORG="{{ .inputs.GithubOrgName }}"
-REPO_NAME="{{ .inputs.GithubRepoName }}"
-
-if [ -z "$GITHUB_ORG" ] || [ -z "$REPO_NAME" ]; then
-    echo "Error: Missing required arguments"
-    echo "Usage: $0 <github-org> <repo-name>"
-    echo "Example: $0 acme-corp infrastructure-live-root"
+if [ -z "${GITHUB_ORG:-}" ] || [ -z "${REPO_NAME:-}" ]; then
+    echo "Error: GITHUB_ORG and REPO_NAME must be set"
+    echo "Example: GITHUB_ORG=acme-corp REPO_NAME=infrastructure-live-root $0"
     exit 1
 fi
 

@@ -42,6 +42,7 @@ Run this check with and without debug mode to see the difference:
 <Check 
     id="debug-check" 
     path="checks/debug-check.sh"
+    env={{ DEBUG: "{{ .inputs.EnableDebug }}" }}
     title="Check with Debug Output"
     description="Run with DEBUG=true to see verbose output"
     successMessage="Check passed!"

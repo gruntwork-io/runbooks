@@ -1,12 +1,10 @@
 #!/bin/bash
 set -e
 
-# Create a new GitHub repository for infra-live.
+# Create a new GitHub repository for infra-live. The Command's env prop sets
+# REPO_NAME and ORG_NAME from its inputs.
 
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
-
-REPO_NAME="{{ .inputs.RepoName }}"
-ORG_NAME="{{ .inputs.OrgName }}"
 
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "📦 Dry-run mode: Simulating repo creation..."

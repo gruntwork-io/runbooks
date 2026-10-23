@@ -164,6 +164,7 @@ Review and merge the pull request on GitHub, then verify it's been merged.
 <Check
   id="check-pr-merged"
   path="checks/check-pr-merged.sh"
+  env={{ PR_URL: "{{ .outputs.pr_catalog.PR_URL }}" }}
   title="Verify PR is Merged"
   description="Check that the infra-catalog pull request has been merged to main."
   successMessage="PR is merged!"
@@ -178,6 +179,11 @@ Tag the infra-catalog repo so Terragrunt can pull a pinned version of the module
 <Command
   id="release-catalog"
   path="scripts/release-catalog.sh"
+  env={{
+    MODULE_NAME: "{{ .inputs.ModuleName }}",
+    CATALOG_DIR: "{{ .outputs.clone_catalog.clone_path }}",
+    RELEASE_TAG: "{{ .inputs.ReleaseTag }}",
+  }}
   title="Create Release"
   description="Create a release on the infra-catalog repo."
   successMessage="Release created!"
@@ -244,6 +250,7 @@ Review and merge the pull request on GitHub, then verify it's been merged.
 <Check
   id="check-live-pr-merged"
   path="checks/check-live-pr-merged.sh"
+  env={{ PR_URL: "{{ .outputs.pr_live.PR_URL }}" }}
   title="Verify infra-live PR is Merged"
   description="Check that the infra-live pull request has been merged to main."
   successMessage="PR is merged!"
@@ -258,6 +265,12 @@ Preview the changes with a plan, then apply.
 <Command
   id="terragrunt-plan"
   path="scripts/terragrunt-plan.sh"
+  env={{
+    INSTANCE_NAME: "{{ .inputs.InstanceName }}",
+    AWS_REGION: "{{ .inputs.AwsRegion }}",
+    ACCOUNT_NAME: "{{ .inputs.AccountName }}",
+    MODULE_NAME: "{{ .inputs.ModuleName }}",
+  }}
   title="Terragrunt Plan"
   description="Preview the infrastructure changes that will be made to deploy OpenClaw."
   successMessage="Plan completed successfully! Review the changes above."
@@ -269,6 +282,12 @@ Preview the changes with a plan, then apply.
 <Command
   id="terragrunt-apply"
   path="scripts/terragrunt-apply.sh"
+  env={{
+    INSTANCE_NAME: "{{ .inputs.InstanceName }}",
+    AWS_REGION: "{{ .inputs.AwsRegion }}",
+    ACCOUNT_NAME: "{{ .inputs.AccountName }}",
+    MODULE_NAME: "{{ .inputs.ModuleName }}",
+  }}
   title="Terragrunt Apply"
   description="Apply the infrastructure changes to deploy OpenClaw on EC2."
   successMessage="OpenClaw deployed successfully!"
@@ -284,6 +303,13 @@ OpenClaw is accessed via **SSM port forwarding**, which securely tunnels the Ope
 <Command
   id="instance-info"
   path="scripts/save-ssh-key.sh"
+  env={{
+    INSTANCE_NAME: "{{ .inputs.InstanceName }}",
+    GATEWAY_PORT: "{{ .inputs.GatewayPort }}",
+    ACCOUNT_NAME: "{{ .inputs.AccountName }}",
+    AWS_REGION: "{{ .inputs.AwsRegion }}",
+    MODULE_NAME: "{{ .inputs.ModuleName }}",
+  }}
   title="Get Connection Info"
   description="Retrieve the instance ID and connection commands."
   successMessage="Connection info retrieved!"
@@ -360,6 +386,11 @@ tail -f /var/log/cloud-init-output.log
 <Check
   id="test-openclaw"
   path="checks/test-openclaw.sh"
+  env={{
+    INSTANCE_NAME: "{{ .inputs.InstanceName }}",
+    AWS_REGION: "{{ .inputs.AwsRegion }}",
+    GATEWAY_PORT: "{{ .inputs.GatewayPort }}",
+  }}
   title="Verify OpenClaw Deployment"
   description="Check that the EC2 instance is running and OpenClaw is operational."
   successMessage="OpenClaw is deployed and running!"
@@ -375,6 +406,12 @@ When you're done with OpenClaw, you can tear down all the infrastructure created
 <Command
   id="terragrunt-destroy"
   path="scripts/terragrunt-destroy.sh"
+  env={{
+    INSTANCE_NAME: "{{ .inputs.InstanceName }}",
+    AWS_REGION: "{{ .inputs.AwsRegion }}",
+    ACCOUNT_NAME: "{{ .inputs.AccountName }}",
+    MODULE_NAME: "{{ .inputs.ModuleName }}",
+  }}
   title="Terragrunt Destroy"
   description="Destroy all OpenClaw infrastructure. This action is irreversible."
   successMessage="All OpenClaw resources have been destroyed."

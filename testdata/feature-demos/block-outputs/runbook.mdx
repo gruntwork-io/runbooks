@@ -8,7 +8,7 @@ This runbook demonstrates how blocks can produce outputs that downstream blocks 
 
 1. Scripts write outputs to the `$RUNBOOK_OUTPUT` environment variable file
 2. The format is `key=value`, one per line
-3. Downstream blocks access outputs via `{{ .outputs.block_id.outputName }}`
+3. Downstream blocks access outputs via `{{ .outputs.block_id.outputName }}`. A script gets one through its block's `env` prop, as data: `env={{ ACCOUNT_ID: "{{ .outputs.create_account.account_id }}" }}` sets `$ACCOUNT_ID`
 
 **Note:** Block IDs with hyphens are converted to underscores in template syntax (Go templates don't support hyphens in dot notation). For example, a block with `id="create-account"` is accessed as `{{ .outputs.create_account.x }}`.
 
@@ -19,7 +19,7 @@ This runbook demonstrates both syntaxes:
 - **Standard inputs** (from `<Inputs>` blocks): `{{ .inputs.variableName }}`
 - **Block outputs** (from previous Command/Check blocks): `{{ .outputs.block_id.outputName }}`
 
-Both can be used together in the same script or template.
+Both can be used together in the same block's `env` or in the same template.
 
 ### Outputs in Templates
 
@@ -50,13 +50,17 @@ This command uses the account ID from Step 1 to create resources.
 <Command
   id="create-resources"
   path="scripts/create-resources.sh"
+  env={{
+    ACCOUNT_ID: "{{ .outputs.create_account.account_id }}",
+    REGION: "{{ .outputs.create_account.region }}",
+  }}
   title="Create Resources"
   description="Creates IAM resources in account {{ .outputs.create_account.account_id }} ({{ .outputs.create_account.region }})"
 />
 
 ## Step 3: Tag Resources (Mixed Syntax Example)
 
-This step demonstrates using **both** standard inputs and block outputs together in the same script.
+This step demonstrates using **both** standard inputs and block outputs together in the same block's `env`.
 
 ### Syntax Comparison
 
@@ -88,6 +92,13 @@ variables:
   id="tag-resources"
   path="scripts/tag-resources.sh"
   inputsId="tagging-inputs"
+  env={{
+    ENVIRONMENT: "{{ .inputs.environment }}",
+    OWNER: "{{ .inputs.owner }}",
+    ACCOUNT_ID: "{{ .outputs.create_account.account_id }}",
+    REGION: "{{ .outputs.create_account.region }}",
+    ROLE_ARN: "{{ .outputs.create_resources.role_arn }}",
+  }}
   title="Tag Resources"
   description="Applies tags using inputs AND outputs from previous steps"
 />
@@ -255,13 +266,17 @@ After you run the command below, **View Outputs** shows `api_user` as usual but 
   description="Outputs an API user and a token marked sensitive"
 />
 
-The output's key is still `api_token`, so a downstream block reads it as `{{ .outputs.fetch_api_token.api_token }}`. The script below does. Its script view shows `<redacted>` in place of the token, but it runs with the real value: the length it prints is the token's, not the 10 characters of `<redacted>`.
+The output's key is still `api_token`, so a downstream block reads it as `{{ .outputs.fetch_api_token.api_token }}`. The block below passes it to its script in `env`. Its list of environment variables shows `<redacted>` for `TOKEN`, but the script runs with the real value: the length it prints is the token's, not the 10 characters of `<redacted>`.
 
 <Command
   id="use-api-token"
   path="scripts/use-api-token.sh"
+  env={{
+    TOKEN: "{{ .outputs.fetch_api_token.api_token }}",
+    API_USER: "{{ .outputs.fetch_api_token.api_user }}",
+  }}
   title="Use API Token"
-  description="Uses the sensitive token through a template"
+  description="Uses the sensitive token through its env"
 />
 
 ## Step 8: Verify Setup
@@ -271,6 +286,11 @@ This check validates that everything was set up correctly.
 <Check
   id="verify-setup"
   path="scripts/verify-setup.sh"
+  env={{
+    ACCOUNT_ID: "{{ .outputs.create_account.account_id }}",
+    REGION: "{{ .outputs.create_account.region }}",
+    ROLE_ARN: "{{ .outputs.create_resources.role_arn }}",
+  }}
   title="Verify Setup"
   successMessage="All resources created and verified!"
   failMessage="Verification failed - check the outputs above"

@@ -196,6 +196,10 @@ This is the service account impersonation analogue of `sts assume-role`: a short
 <Command
   id="impersonate-service-account"
   path="scripts/impersonate-sa.sh"
+  env={{
+    TARGET_SA: "{{ .inputs.TargetServiceAccount }}",
+    LIFETIME: "{{ .inputs.Lifetime }}",
+  }}
   title="Impersonate a Service Account"
   googleAuthId="google-auth"
 >
@@ -223,6 +227,10 @@ This is the service account impersonation analogue of `sts assume-role`: a short
 <Command
   id="impersonate-service-account"
   path="scripts/impersonate-sa.sh"
+  env={{
+    TARGET_SA: "{{ .inputs.TargetServiceAccount }}",
+    LIFETIME: "{{ .inputs.Lifetime }}",
+  }}
   title="Impersonate a Service Account"
   description="Mints a short-lived access token for another service account and writes it to `$RUNBOOK_OUTPUT`. Configure the target service account below."
   googleAuthId="google-auth"
