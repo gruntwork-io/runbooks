@@ -152,13 +152,23 @@ describe("Chapter", () => {
   it("names a chapter by a title written as a literal expression, or by its number with none", async () => {
     const user = userEvent.setup()
     await renderRunbook(
-      '<Chapter title={"Set up"}>\n\nOne.\n\n</Chapter>\n\n<Chapter>\n\nTwo.\n\n</Chapter>\n',
+      [
+        '<Chapter title={"Set up"}>\n\nOne.\n\n</Chapter>',
+        "<Chapter>\n\nTwo.\n\n</Chapter>",
+        // A literal that isn't text counts as no title.
+        "<Chapter title={42}>\n\nThree.\n\n</Chapter>",
+      ].join("\n\n"),
     )
-    await waitFor(() => expect(position()).toBe("Chapter 1 of 2 · Set up"))
+    await waitFor(() => expect(position()).toBe("Chapter 1 of 3 · Set up"))
 
     await user.click(within(bar()).getByRole("button", { name: "Next chapter: Chapter 2" }))
     expect(screen.getByText("Two.")).toBeVisible()
     expect(screen.getByText(/Chapter 2 has no title/)).toBeVisible()
+
+    await user.click(within(bar()).getByRole("button", { name: "Next chapter: Chapter 3" }))
+    expect(screen.getByText("Three.")).toBeVisible()
+    expect(screen.getByRole("region", { name: "Chapter 3" })).toBeVisible()
+    expect(screen.getByText(/Chapter 3 has no title/)).toBeVisible()
   })
 
   it("reports a chapter that isn't at the top level, and shows its content where it is", async () => {

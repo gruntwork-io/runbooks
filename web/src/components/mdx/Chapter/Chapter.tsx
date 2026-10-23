@@ -32,6 +32,8 @@ export function Chapter({ title, chapterIndex, children }: ChapterProps) {
   const index = chapterIndex === undefined ? undefined : Number(chapterIndex)
   const isCurrent = index === current
   const errorId = useId()
+  // A literal such as title={42} reaches the block as it is, not as text.
+  const name = typeof title === "string" ? title.trim() : ""
 
   // Count this chapter's steps for its table of contents entry, while they
   // still count toward the runbook's own progress.
@@ -43,8 +45,8 @@ export function Chapter({ title, chapterIndex, children }: ChapterProps) {
   const configError =
     index === undefined
       ? "A <Chapter> must be at the top level of the runbook, not inside another block or chapter."
-      : !title?.trim()
-        ? `Chapter ${index + 1} has no title. Name it with a title prop, such as <Chapter title="Deploy">.`
+      : !name
+        ? `Chapter ${index + 1} has no title. Name it with a title prop that holds text, such as <Chapter title="Deploy">.`
         : null
   useEffect(() => {
     if (!configError) return
@@ -96,7 +98,7 @@ export function Chapter({ title, chapterIndex, children }: ChapterProps) {
     )
   }
 
-  const label = title?.trim() || `Chapter ${index + 1}`
+  const label = name || `Chapter ${index + 1}`
   return (
     <section
       ref={sectionRef}
