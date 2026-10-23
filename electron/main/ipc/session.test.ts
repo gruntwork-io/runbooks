@@ -41,20 +41,34 @@ describe("session IPC handlers", () => {
   // Both channels declare { ok: true }; the handlers returned nothing.
   it("session:set-env adds the vars and returns { ok: true }", async () => {
     const result = await handlers.get("session:set-env")!(undefined, {
-      env: { RUNBOOKS_TEST_VAR: "set" },
+      env: { AWS_ACCESS_KEY_ID: "AKIA_SET_ENV" },
     })
 
     expect(result).toEqual({ ok: true })
-    expect((await sessionEnv()).RUNBOOKS_TEST_VAR).toBe("set")
+    expect((await sessionEnv()).AWS_ACCESS_KEY_ID).toBe("AKIA_SET_ENV")
+  })
+
+  it("session:set-env refuses a var an <AwsAuth> block doesn't write, and sets nothing", async () => {
+    const before = await sessionEnv()
+
+    const set = handlers.get("session:set-env")!(undefined, {
+      env: { AWS_ACCESS_KEY_ID: "AKIA_SET_ENV", PATH: "/tmp/evil-bin", BASH_ENV: "/tmp/evil.sh" },
+    })
+
+    await expect(set).rejects.toThrow("BASH_ENV, PATH")
+    expect(await sessionEnv()).toEqual(before)
   })
 
   it("session:reset restores the initial env and returns { ok: true }", async () => {
-    await handlers.get("session:set-env")!(undefined, { env: { RUNBOOKS_TEST_VAR: "set" } })
+    const initial = (await sessionEnv()).AWS_ACCESS_KEY_ID
+    await handlers.get("session:set-env")!(undefined, {
+      env: { AWS_ACCESS_KEY_ID: "AKIA_SET_ENV" },
+    })
 
     const result = await handlers.get("session:reset")!(undefined)
 
     expect(result).toEqual({ ok: true })
-    expect((await sessionEnv()).RUNBOOKS_TEST_VAR).toBeUndefined()
+    expect((await sessionEnv()).AWS_ACCESS_KEY_ID).toBe(initial)
   })
 
   describe("on the open runbook's saved session", () => {

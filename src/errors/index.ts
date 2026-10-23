@@ -194,6 +194,12 @@ export class ExecTimeoutError extends Data.TaggedError("ExecTimeoutError")<{
   readonly timeoutMs: number
 }> {}
 
+/** A run's env overrides named vars no auth block passes (see domain/exec/authEnv.ts). */
+export class ExecEnvOverrideError extends Data.TaggedError("ExecEnvOverrideError")<{
+  readonly names: readonly string[]
+  readonly message: string
+}> {}
+
 /** PATH couldn't be read again from where the app first got it. `message` says why, in words fit to show the user. */
 export class PathRefreshError extends Data.TaggedError("PathRefreshError")<{
   readonly message: string
