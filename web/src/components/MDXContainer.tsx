@@ -4,8 +4,7 @@ import { evaluate } from "@mdx-js/mdx"
 import * as runtime from "react/jsx-runtime"
 import type { AppError } from "@/types/error"
 import { rewriteAssetUrl } from "@/lib/assetPaths"
-import { errorMessage } from "../../../src/errors/message"
-import { RUNBOOK_REMARK_PLUGINS, stripFrontMatter } from "../../../src/mdx"
+import { mdxErrorMessage, RUNBOOK_REMARK_PLUGINS, stripFrontMatter } from "../../../src/mdx"
 
 // Support MDX components
 import { Inputs } from "@/components/mdx/Inputs"
@@ -93,7 +92,7 @@ function MDXContainer({
         console.error("Error processing MDX content:", err)
         setError({
           message: "Error processing MDX content",
-          details: errorMessage(err),
+          details: mdxErrorMessage(err),
         })
       }
     }
