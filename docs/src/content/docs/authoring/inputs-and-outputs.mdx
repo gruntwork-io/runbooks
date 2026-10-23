@@ -26,15 +26,12 @@ variables:
 <Command
   id="create-account"
   inputsId="account"
-  command='aws organizations create-account --email "{{ .inputs.Email }}" --account-name "{{ .inputs.AccountName }}"'
+  env={{ EMAIL: "{{ .inputs.Email }}", ACCOUNT_NAME: "{{ .inputs.AccountName }}" }}
+  command='aws organizations create-account --email "$EMAIL" --account-name "$ACCOUNT_NAME"'
 />
 `````
 
-When this block runs, Runbooks fills in `{{ .inputs.Email }}` and `{{ .inputs.AccountName }}` with the values entered in the `account` form, producing a command like:
-
-```bash
-aws organizations create-account --email "alice@example.com" --account-name "my-account"
-```
+When this block runs, Runbooks fills in `{{ .inputs.Email }}` and `{{ .inputs.AccountName }}` with the values entered in the `account` form, such as `alice@example.com` and `my-account`, and the command gets them as the environment variables `EMAIL` and `ACCOUNT_NAME`. See [Passing values as environment variables](/authoring/blocks/command/#passing-values-as-environment-variables). A script can also reference `{{ .inputs.Email }}` itself, which inserts the value into the script's source; see [Templates in the script](/authoring/blocks/command/#templates-in-the-script).
 
 ### Boilerplate variables
 
@@ -98,7 +95,7 @@ variables:
 ```
 </Inputs>
 
-<Command id="create-dir" inputsId="config" command='mkdir "{{ .inputs.ProjectName }}"' />
+<Command id="create-dir" inputsId="config" env={{ PROJECT: "{{ .inputs.ProjectName }}" }} command='mkdir "$PROJECT"' />
 `````
 
 Values reach a block only through `inputsId` or a nested `<Inputs>`. A Command or Check that references `{{ .inputs.* }}` without either shows a **Configuration Required** message in place of its button.
@@ -111,7 +108,8 @@ Pass an array of IDs to `inputsId` to merge variables from more than one input p
 <Command
   id="deploy"
   inputsId={["global-config", "local-config"]}
-  command='deploy --env "{{ .inputs.Environment }}" --name "{{ .inputs.AppName }}"'
+  env={{ ENVIRONMENT: "{{ .inputs.Environment }}", APP_NAME: "{{ .inputs.AppName }}" }}
+  command='deploy --env "$ENVIRONMENT" --name "$APP_NAME"'
 />
 ```
 
@@ -120,7 +118,7 @@ Pass an array of IDs to `inputsId` to merge variables from more than one input p
 An `<Inputs>` block nested inside a `<Command>` or `<Check>` feeds the parent without `inputsId`:
 
 `````mdx
-<Command id="greet" command='echo "Hello, {{ .inputs.Name }}!"'>
+<Command id="greet" env={{ NAME: "{{ .inputs.Name }}" }} command='echo "Hello, $NAME!"'>
   <Inputs id="greeting">
   ```yaml
   variables:
@@ -236,7 +234,17 @@ For example, a Command whose `id` is `create-account` that outputs `account_id` 
 {{ .outputs.create_account.account_id }}
 ```
 
-This syntax works in `<Command>`, `<Check>` and `<Finish>` scripts, `<Template>` files, and `<TemplateInline>` content.
+This syntax works in the `env` prop and the scripts of `<Command>`, `<Check>` and `<Finish>` blocks, `<Template>` files, and `<TemplateInline>` content.
+
+An output often holds text from outside the runbook, such as a PR title or an API response. To use one in a script, pass it with [`env`](/authoring/blocks/command/#passing-values-as-environment-variables): the script gets the value as data, so nothing in it runs, whatever it holds.
+
+```mdx
+<Command
+  id="tag-account"
+  env={{ ACCOUNT_ID: "{{ .outputs.create_account.account_id }}" }}
+  command='aws organizations tag-resource --resource-id "$ACCOUNT_ID" --tags Key=team,Value=platform'
+/>
+```
 
 <Aside type="note">
 Block IDs can use hyphens or underscores (`id="create-account"` or `id="create_account"`). In template syntax, use underscores, because Go templates read a hyphen as subtraction. IDs that normalize to the same value, such as `create-account` and `create_account`, cannot coexist in one runbook.

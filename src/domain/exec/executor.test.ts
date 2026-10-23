@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test"
-import { Effect, Layer, Stream } from "effect"
+import { Effect, Layer, Result, Stream } from "effect"
+import { ExecEnvOverrideError } from "../../errors/index.ts"
 import { executeScript, type ExecEvent } from "./executor.ts"
 import { encodeOutputs } from "./outputValues.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
@@ -150,6 +151,107 @@ describe("executeScript", () => {
 })
 
 // ---------------------------------------------------------------------------
+// envVarsOverride: an auth block's vars only
+// ---------------------------------------------------------------------------
+
+describe("executeScript — env overrides", () => {
+  /** Run with `envVarsOverride`, recording the env the script would get if spawned. */
+  async function runWithOverride(envVarsOverride: Record<string, string>) {
+    let spawnedEnv: Record<string, string> | undefined
+    const files: Record<string, string> = {}
+    const spawner = Layer.succeed(ProcessSpawner, {
+      spawn: (_command, _args, options) =>
+        Effect.sync(() => {
+          spawnedEnv = { ...(options?.env as Record<string, string>) }
+          return {
+            output: Stream.empty,
+            exitCode: Effect.succeed(0),
+            kill: Effect.void,
+          }
+        }),
+    })
+    const layer = Layer.mergeAll(
+      makeTestFileSystem(files),
+      spawner,
+      makeTestEnvironment({ PATH: "/usr/bin" }),
+    )
+    const result = await Effect.runPromise(
+      Effect.result(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const { completionEffect } = yield* executeScript(
+              "aws sts get-caller-identity",
+              "",
+              { envVarsOverride },
+              {
+                env: { PATH: "/usr/bin", AWS_ACCESS_KEY_ID: "AKIA_SESSION", GITHUB_TOKEN: "ghp_x" },
+                workDir: "/work",
+              },
+              "",
+              "/output",
+              "/logs/block",
+            )
+            return yield* completionEffect
+          }),
+        ),
+      ).pipe(Effect.provide(layer)),
+    )
+    return { result, spawnedEnv, files }
+  }
+
+  it("refuses names no auth block passes, before creating or spawning anything", async () => {
+    const { result, spawnedEnv, files } = await runWithOverride({
+      AWS_ACCESS_KEY_ID: "AKIA_BLOCK",
+      PATH: "/tmp/evil-bin",
+      BASH_ENV: "/tmp/evil.sh",
+      ENV: "/tmp/evil.sh",
+      LD_PRELOAD: "/tmp/evil.so",
+      DYLD_INSERT_LIBRARIES: "/tmp/evil.dylib",
+      NODE_OPTIONS: "--require /tmp/evil.js",
+      RUNBOOK_ERROR_LOG: "/elsewhere",
+    })
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(ExecEnvOverrideError)
+      expect((result.failure as ExecEnvOverrideError).names).toEqual([
+        "BASH_ENV",
+        "DYLD_INSERT_LIBRARIES",
+        "ENV",
+        "LD_PRELOAD",
+        "NODE_OPTIONS",
+        "PATH",
+        "RUNBOOK_ERROR_LOG",
+      ])
+    }
+    expect(spawnedEnv).toBeUndefined()
+    expect(Object.keys(files)).toEqual([])
+  })
+
+  it("passes every auth block's vars over the session's", async () => {
+    const { result, spawnedEnv } = await runWithOverride({
+      AWS_ACCESS_KEY_ID: "AKIA_BLOCK",
+      AWS_SESSION_TOKEN: "",
+      GITHUB_TOKEN: "ghp_block",
+      GITLAB_TOKEN: "glpat_block",
+      GOOGLE_CLOUD_PROJECT: "proj",
+      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: "",
+    })
+
+    expect(Result.isSuccess(result)).toBe(true)
+    expect(spawnedEnv).toMatchObject({
+      PATH: "/usr/bin",
+      AWS_ACCESS_KEY_ID: "AKIA_BLOCK",
+      AWS_SESSION_TOKEN: "",
+      GITHUB_TOKEN: "ghp_block",
+      GITLAB_TOKEN: "glpat_block",
+      GOOGLE_CLOUD_PROJECT: "proj",
+      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: "",
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
 // GOOGLE_APPLICATION_CREDENTIALS pre-flight
 // ---------------------------------------------------------------------------
 
@@ -261,8 +363,7 @@ describe("executeScript — log files", () => {
           const { logStream, completionEffect } = yield* executeScript(
             "log_info hi",
             "",
-            // A block can't point a log file somewhere else.
-            { envVarsOverride: { RUNBOOK_ERROR_LOG: "/elsewhere" } },
+            {},
             { env: { PATH: "/usr/bin" }, workDir: "/work" },
             "",
             "/output",
@@ -310,6 +411,50 @@ describe("executeScript — log files", () => {
       `[ERROR] raw ${env.RUNBOOK_ERROR_LOG}`,
       `[DEBUG] raw ${env.RUNBOOK_DEBUG_LOG}`,
     ])
+  })
+})
+
+describe("executeScript — block env", () => {
+  it("sets the block's env over the session's and the auth block's, under the runbook's own vars", async () => {
+    let received: Record<string, string> = {}
+    const spawner = Layer.succeed(ProcessSpawner, {
+      spawn: (_command, _args, options) =>
+        Effect.sync(() => {
+          received = { ...(options?.env as Record<string, string>) }
+          return { output: Stream.empty, exitCode: Effect.succeed(0), kill: Effect.void }
+        }),
+    })
+    const layer = Layer.mergeAll(
+      makeTestFileSystem(),
+      spawner,
+      makeTestEnvironment({ PATH: "/usr/bin" }),
+    )
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { logStream, completionEffect } = yield* executeScript(
+            'aws s3 mb "s3://$BUCKET"',
+            "",
+            { envVarsOverride: { AWS_ACCESS_KEY_ID: "AKIA_AUTH", AWS_REGION: "us-east-1" } },
+            { env: { PATH: "/usr/bin", BUCKET: "session-bucket" }, workDir: "/work" },
+            "",
+            "/output",
+            "/logs/block",
+            // parseBlockEnv refuses RUNBOOK_OUTPUT; it is here to show the
+            // runbook's own value wins even so.
+            { BUCKET: "block-bucket", AWS_REGION: "eu-west-1", RUNBOOK_OUTPUT: "/elsewhere" },
+          )
+          yield* Stream.runDrain(logStream)
+          yield* completionEffect
+        }),
+      ).pipe(Effect.provide(layer)),
+    )
+
+    expect(received.BUCKET).toBe("block-bucket")
+    expect(received.AWS_REGION).toBe("eu-west-1")
+    expect(received.AWS_ACCESS_KEY_ID).toBe("AKIA_AUTH")
+    expect(received.RUNBOOK_OUTPUT).toEndWith("/output.txt")
   })
 })
 

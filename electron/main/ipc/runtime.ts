@@ -88,10 +88,11 @@ export const noSessionCredential = () =>
  * Resolve an auth token for a git PROVIDER from the current session's
  * environment.
  *
- * Tokens are populated by the GitAuth block (github:* / gitlab:* handlers via
- * session:set-env) and are the single source of truth for "which token do git
- * and API calls use" — the renderer never holds them directly. The PROVIDER —
- * NOT the remote hostname — selects which env var to read:
+ * Tokens are populated by the GitAuth block (the github:* / gitlab:* handlers
+ * write them to the session env) and are the single source of truth for
+ * "which token do git and API calls use" — the renderer never holds them
+ * directly. The PROVIDER — NOT the remote hostname — selects which env var
+ * to read:
  *   - github -> the session's GitHub host credential (GITHUB_TOKEN, then
  *     GH_TOKEN, or GH_ENTERPRISE_TOKEN for a GHES GH_HOST — see
  *     getGitHubSessionCredential)

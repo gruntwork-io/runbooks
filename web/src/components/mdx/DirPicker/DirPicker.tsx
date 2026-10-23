@@ -3,7 +3,6 @@ import { useEffect, useMemo } from "react"
 import { InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { useDirPicker } from "./hooks/useDirPicker"
@@ -68,13 +67,6 @@ function DirPickerInteractive({
   )
 
   const { reportError, clearError } = useErrorReporting()
-
-  const { trackBlockRender } = useTelemetry()
-
-  // Track render
-  useEffect(() => {
-    trackBlockRender("DirPicker")
-  }, [id, trackBlockRender])
 
   // Cap dropdown depth to dirLabels.length unless dirLabelsExtra is true. When
   // dirLabels is omitted (empty), leave depth unbounded — levels then fall back

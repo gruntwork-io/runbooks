@@ -7,8 +7,8 @@ import type { GitLabAuthProps } from "@/components/mdx/GitAuth/types"
  * A GitLab-locked alias of the generic <GitAuth> block — equivalent to
  * `<GitAuth provider="gitlab" hideProviderSelect />`. It renders with no
  * provider picker and authenticates to GitLab only. The internal
- * `__registryType` keeps its duplicate-id, telemetry, and error-message
- * identity reporting as "GitLabAuth".
+ * `__registryType` keeps its duplicate-id and error-message identity reporting
+ * as "GitLabAuth".
  */
 export function GitLabAuth(props: GitLabAuthProps) {
   return (

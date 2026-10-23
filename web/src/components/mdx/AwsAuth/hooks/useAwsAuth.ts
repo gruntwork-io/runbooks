@@ -20,6 +20,7 @@ import type {
   DetectedAwsCredentials,
 } from "../types"
 import { resolveDefaultAuthMethod } from "../utils"
+import { AWS_AUTH_ENV_VARS } from "../../../../../../src/domain/exec/authEnv.ts"
 
 interface UseAwsAuthOptions {
   id: string
@@ -245,7 +246,7 @@ export function useAwsAuth({
         AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
         AWS_REGION: creds.region,
         AWS_SESSION_TOKEN: creds.sessionToken || "",
-      } satisfies Record<string, string>
+      } satisfies Record<(typeof AWS_AUTH_ENV_VARS)[number], string>
 
       publishCredentials(creds)
       setExpiresAt(creds.expiresAt)

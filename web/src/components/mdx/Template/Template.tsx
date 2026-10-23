@@ -8,7 +8,6 @@ import { useApiBoilerplateRender } from "@/hooks/useApiBoilerplateRender"
 import { useRunbookContext, useInputs, useAllOutputs, flattenInputs } from "@/contexts/useRunbook"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import {
   buildRenderVariables,
   computeUnmetOutputDependencies,
@@ -70,13 +69,6 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, "Template")
 
   const { reportError, clearError } = useErrorReporting()
-
-  const { trackBlockRender } = useTelemetry()
-
-  // Track block render on mount
-  useEffect(() => {
-    trackBlockRender("Template")
-  }, [trackBlockRender])
 
   // The form resumes from the values the session's history has for it. One it
   // has as generated resumes as generated: it renders again on every change,

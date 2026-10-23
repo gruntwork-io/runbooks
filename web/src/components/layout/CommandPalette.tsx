@@ -2,6 +2,7 @@ import { useState, type ComponentType, type ReactNode } from "react"
 import { defaultFilter } from "cmdk"
 import {
   BookOpen,
+  BookMarked,
   Bug,
   Check,
   Code,
@@ -29,6 +30,8 @@ import {
   CommandShortcut,
 } from "../ui/command"
 import { useApi } from "@/contexts/ApiContext"
+import { chapterName } from "@/components/mdx/Chapter/ChapterNav"
+import { useChaptersControl, useRunbookChapters } from "@/contexts/useRunbookChapters"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useTheme } from "@/contexts/useTheme"
 import { INSTRUCTION_MODE_NAME } from "@/contexts/InstructionModeContext.types"
@@ -92,10 +95,17 @@ interface HeadingEntry {
   el: HTMLElement
 }
 
+interface ChapterEntry {
+  index: number
+  /** The chapter's number and name, such as "2. Deploy". */
+  label: string
+}
+
 /** A group of the root list after filtering, with the score of its best match. */
 type RankedGroup =
   | { kind: "commands"; heading: string; entries: Command[]; best: number }
   | { kind: "headings"; heading: string; entries: HeadingEntry[]; best: number }
+  | { kind: "chapters"; heading: string; entries: ChapterEntry[]; best: number }
 
 /**
  * The entries matching `search`, best first, with cmdk's own fuzzy scoring.
@@ -166,7 +176,8 @@ function collectHeadings(): HeadingEntry[] {
 /**
  * The command palette (View > Command Palette…, Cmd/Ctrl+K): every action of
  * the Header menu and the native menus, searchable, plus "Jump to section",
- * which lists the runbook's headings.
+ * which lists the runbook's headings, and "Go to chapter", which lists its
+ * chapters when it has them.
  */
 export function CommandPalette({ open, onOpenChange, ctx }: CommandPaletteProps) {
   return (
@@ -191,7 +202,7 @@ export function CommandPalette({ open, onOpenChange, ctx }: CommandPaletteProps)
  */
 function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "open">) {
   const api = useApi()
-  const [mode, setMode] = useState<"commands" | "sections">("commands")
+  const [mode, setMode] = useState<"commands" | "sections" | "chapters">("commands")
   const [query, setQuery] = useState("")
   // Collected once per open; jumpToHeading looks the heading up again.
   const [headings] = useState(collectHeadings)
@@ -199,6 +210,16 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
   const { enabled: instructionMode, setEnabled: setInstructionMode } = useInstructionMode()
   const { hasLogs, downloadRaw, downloadJson } = useDownloadLogs()
   const version = useAppVersion()
+  const { chapters: runbookChapters, current: currentChapter } = useRunbookChapters()
+  const { goTo: goToChapter } = useChaptersControl()
+  // Like the chapter bar, only a runbook in more than one chapter has any.
+  const chapters: ChapterEntry[] =
+    runbookChapters.length > 1
+      ? runbookChapters.map((chapter, index) => ({
+          index,
+          label: `${index + 1}. ${chapterName(chapter, index)}`,
+        }))
+      : []
 
   const openExternal = (url: string) => {
     api.invoke("native:open-external", { url }).catch((err: unknown) => {
@@ -272,6 +293,23 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
       run: () => {
         setQuery("")
         setMode("sections")
+      },
+    })
+  }
+
+  if (chapters.length > 0) {
+    navigateCommands.unshift({
+      id: "go-to-chapter",
+      label: "Go to chapter…",
+      icon: BookMarked,
+      keywords: ["page", "contents", "table of contents"],
+      trailing: (
+        <span className="ml-auto text-xs text-muted-foreground">{`${chapters.length} chapters`}</span>
+      ),
+      keepsOpen: true,
+      run: () => {
+        setQuery("")
+        setMode("chapters")
       },
     })
   }
@@ -428,8 +466,16 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
     })
   }
 
+  /** Show `entry`'s chapter, which brings its start into view and takes focus. */
+  const goToChapterEntry = (entry: ChapterEntry) => {
+    closeThen(() => {
+      ctx.onRevealRunbook()
+      goToChapter(entry.index)
+    })
+  }
+
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (mode === "sections" && e.key === "Backspace" && query.length === 0) {
+    if (mode !== "commands" && e.key === "Backspace" && query.length === 0) {
       e.preventDefault()
       setMode("commands")
     }
@@ -453,6 +499,11 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
   }))
   if (search) {
     rootGroups.push({
+      kind: "chapters",
+      heading: "Chapters",
+      ...rank(chapters, search, (entry) => ({ value: `${entry.label} (chapter)` })),
+    })
+    rootGroups.push({
       kind: "headings",
       heading: "Sections",
       ...rank(headings, search, (entry) => ({ value: `${entry.label} (section)` })),
@@ -464,11 +515,18 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
   // never dead-ends while one is open.
   const showFindRow = search !== "" && ctx.hasRunbookOpen
   const browsedHeadings = rank(headings, search, (entry) => ({ value: entry.label })).entries
+  const browsedChapters = rank(chapters, search, (entry) => ({ value: entry.label })).entries
 
   return (
     <>
       <CommandInput
-        placeholder={mode === "commands" ? "Type a command or search…" : "Jump to section…"}
+        placeholder={
+          mode === "commands"
+            ? "Type a command or search…"
+            : mode === "sections"
+              ? "Jump to section…"
+              : "Go to chapter…"
+        }
         value={query}
         onValueChange={setQuery}
         onKeyDown={handleInputKeyDown}
@@ -498,17 +556,29 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
                         </CommandItem>
                       )
                     })
-                  : group.entries.map((entry) => (
-                      <CommandItem
-                        key={entry.label}
-                        value={`${entry.label} (section)`}
-                        onSelect={() => jumpToHeading(entry)}
-                      >
-                        <Hash />
-                        <span className="text-muted-foreground">Jump to section › </span>
-                        <span>{entry.label}</span>
-                      </CommandItem>
-                    ))}
+                  : group.kind === "chapters"
+                    ? group.entries.map((entry) => (
+                        <CommandItem
+                          key={entry.index}
+                          value={`${entry.label} (chapter)`}
+                          onSelect={() => goToChapterEntry(entry)}
+                        >
+                          <BookMarked />
+                          <span className="text-muted-foreground">Go to chapter › </span>
+                          <span>{entry.label}</span>
+                        </CommandItem>
+                      ))
+                    : group.entries.map((entry) => (
+                        <CommandItem
+                          key={entry.label}
+                          value={`${entry.label} (section)`}
+                          onSelect={() => jumpToHeading(entry)}
+                        >
+                          <Hash />
+                          <span className="text-muted-foreground">Jump to section › </span>
+                          <span>{entry.label}</span>
+                        </CommandItem>
+                      ))}
               </CommandGroup>
             ))}
 
@@ -527,6 +597,30 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
                 </CommandItem>
               </CommandGroup>
             )}
+          </>
+        )}
+
+        {mode === "chapters" && (
+          <>
+            {browsedChapters.length === 0 && <EmptyNotice>No matching chapters.</EmptyNotice>}
+            <CommandGroup heading="Chapters">
+              {browsedChapters.map((entry) => (
+                <CommandItem
+                  key={entry.index}
+                  value={entry.label}
+                  onSelect={() => goToChapterEntry(entry)}
+                >
+                  <BookMarked />
+                  <span>{entry.label}</span>
+                  {entry.index === currentChapter && (
+                    <>
+                      <Check className="ml-auto" />
+                      <span className="sr-only">current</span>
+                    </>
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
           </>
         )}
 
@@ -552,8 +646,10 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
 
       <div className="flex items-center gap-4 border-t px-3 py-2 text-xs text-muted-foreground">
         <KeyHint keys="↑↓">Navigate</KeyHint>
-        <KeyHint keys="↵">{mode === "sections" ? "Jump" : "Run"}</KeyHint>
-        {mode === "sections" && <KeyHint keys="⌫">Back</KeyHint>}
+        <KeyHint keys="↵">
+          {mode === "commands" ? "Run" : mode === "sections" ? "Jump" : "Go"}
+        </KeyHint>
+        {mode !== "commands" && <KeyHint keys="⌫">Back</KeyHint>}
         <KeyHint keys="Esc">Close</KeyHint>
       </div>
     </>

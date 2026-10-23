@@ -31,6 +31,17 @@ import { createAppError } from "@/types/error"
 import { useScriptFileChange } from "./useScriptFileChange"
 import { useTemplateDependencies } from "./useTemplateDependencies"
 import type { ScriptFileChange } from "../../../../../../electron/shared/channels.ts"
+import {
+  AWS_AUTH_ENV_VARS,
+  GIT_AUTH_ENV_VARS,
+  GITHUB_AUTH_ENV_VARS,
+  GOOGLE_AUTH_ENV_VARS,
+} from "../../../../../../src/domain/exec/authEnv.ts"
+import {
+  parseBlockEnv,
+  sameBlockEnv,
+  type BlockEnv,
+} from "../../../../../../src/domain/exec/blockEnv.ts"
 
 interface UseScriptExecutionProps {
   componentId: string
@@ -52,7 +63,11 @@ interface UseScriptExecutionProps {
   usePty?: boolean | undefined
   /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout applies. */
   timeoutMs?: number | undefined
+  /** The block's `env` prop, as the runbook gives it: checked here (see blockEnv.ts). */
+  env?: unknown
 }
+
+const NO_ENV: BlockEnv = {}
 
 /** Information about an unmet auth dependency (AWS or GitHub) */
 export interface UnmetAuthDependency {
@@ -91,27 +106,6 @@ export function checkAuthDependency(
 
   return { blockId: authId }
 }
-
-/**
- * The env vars a `googleAuthId` reference injects for one execution. Exported so
- * the block-routing contract is asserted in one place: `GOOGLE_APPLICATION_CREDENTIALS`
- * is the credential itself, the rest pin the project/account/region/zone that
- * gcloud, the client libraries, and the OpenTofu `google` provider each read
- * under a different name.
- */
-export const GOOGLE_AUTH_ENV_KEYS = [
-  "GOOGLE_APPLICATION_CREDENTIALS",
-  "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
-  "GOOGLE_CLOUD_PROJECT",
-  "CLOUDSDK_CORE_PROJECT",
-  "GOOGLE_PROJECT",
-  "CLOUDSDK_CORE_ACCOUNT",
-  "GOOGLE_CLOUD_REGION",
-  "CLOUDSDK_COMPUTE_REGION",
-  "GOOGLE_REGION",
-  "CLOUDSDK_COMPUTE_ZONE",
-  "GOOGLE_ZONE",
-] as const
 
 /**
  * Pure helper: collect the given env-var keys from an auth block's outputs.
@@ -153,7 +147,7 @@ export function buildGoogleAuthEnvVars(
   if (!blockId) return undefined
   const blockOutputs = allOutputs[normalizeBlockId(blockId)]
   if (!blockOutputs?.values) return undefined
-  const envVars = buildAuthEnvVars(blockId, allOutputs, GOOGLE_AUTH_ENV_KEYS) ?? {}
+  const envVars = buildAuthEnvVars(blockId, allOutputs, GOOGLE_AUTH_ENV_VARS) ?? {}
   envVars.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE =
     revealOutput(blockOutputs.values.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE) || ""
   return envVars
@@ -187,6 +181,18 @@ interface UseScriptExecutionReturn {
 
   // File loading
   fileError: AppError | null
+
+  // The block's env prop
+  /** Its variables' templates by name; none when the prop isn't valid. */
+  envTemplates: BlockEnv
+  /**
+   * Its variables as the script will get them: rendered with the current
+   * values, as the script is, else as written. Sensitive outputs show as
+   * <redacted>.
+   */
+  envVars: Array<{ name: string; value: string }>
+  /** Why the env prop isn't valid, or null when it is. */
+  envError: string | null
 
   // Variables
   /** All input dependency names found in the script (for "missing config" detection) */
@@ -265,6 +271,7 @@ export function useScriptExecution({
   componentType,
   usePty,
   timeoutMs,
+  env,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // IPC bridge for rendering the script's template
   const api = useApi()
@@ -357,6 +364,17 @@ export function useScriptExecution({
   const rawScriptContent = command || fileContent || ""
   const language = fileData?.language
 
+  // The block's env prop. MDX passes a new object on every render, so it's
+  // keyed by its JSON. Run uses the registry's copy, which the main process
+  // read from the runbook (see hasScriptDrift).
+  const envKey = env === undefined ? "" : JSON.stringify(env)
+  const parsedEnv = useMemo(
+    () => parseBlockEnv(envKey === "" ? undefined : JSON.parse(envKey)),
+    [envKey],
+  )
+  const envTemplates = parsedEnv.ok ? parsedEnv.env : NO_ENV
+  const envError = parsedEnv.ok ? null : parsedEnv.error
+
   // State for computed hash of inline command content (for drift detection)
   // Store the command along with its hash to avoid race conditions when command prop changes
   const [commandHashResult, setCommandHashResult] = useState<{
@@ -387,6 +405,9 @@ export function useScriptExecution({
     const executable = getExecutableByComponentId(componentId)
     if (!executable?.contentHash) return false
 
+    // Run sets the registry's env, so a changed env prop has drifted too
+    if (!sameBlockEnv(executable.env ?? NO_ENV, envTemplates)) return true
+
     // For inline commands, compare computed hash against registry hash
     if (command) {
       // If the hash we have is not for the current command, we can't know the drift status yet.
@@ -400,7 +421,14 @@ export function useScriptExecution({
     // For file-based scripts, the main process compares the file on disk
     // against the registry's copy
     return scriptFileChange !== null
-  }, [command, commandHashResult, scriptFileChange, componentId, getExecutableByComponentId])
+  }, [
+    command,
+    commandHashResult,
+    scriptFileChange,
+    componentId,
+    getExecutableByComponentId,
+    envTemplates,
+  ])
 
   // Extract inline Inputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
@@ -426,10 +454,11 @@ export function useScriptExecution({
     return ids
   }, [inputsId, inlineInputsId])
 
-  // Extract all template dependencies (inputs + outputs) from script content
+  // Extract all template dependencies (inputs + outputs) from the script and
+  // its env, so Run waits for the values either one needs
   const allDeps = useMemo(
-    () => extractTemplateDependenciesFromString(rawScriptContent),
-    [rawScriptContent],
+    () => extractTemplateDependenciesFromString(rawScriptContent, ...Object.values(envTemplates)),
+    [rawScriptContent, envTemplates],
   )
 
   // Resolve them against the inputs (typed for API requests, flattened for
@@ -477,12 +506,12 @@ export function useScriptExecution({
     // session token that might be in the session environment from a different auth block.
     // Without this, using IAM user credentials (no session token) after SSO credentials
     // (which have a session token) would result in InvalidToken errors.
-    const envVars: Record<string, string> = {
+    const envVars = {
       AWS_ACCESS_KEY_ID: accessKeyId,
       AWS_SECRET_ACCESS_KEY: secretAccessKey,
       AWS_REGION: values.AWS_REGION || "",
       AWS_SESSION_TOKEN: values.AWS_SESSION_TOKEN || "",
-    }
+    } satisfies Record<(typeof AWS_AUTH_ENV_VARS)[number], string>
 
     return envVars
   }, [awsAuthId, allOutputs])
@@ -496,7 +525,7 @@ export function useScriptExecution({
   // Get GitHub auth credentials from outputs if githubAuthId is specified
   // These will be passed as per-execution env vars (overriding session env)
   const githubAuthEnvVars = useMemo(
-    () => buildAuthEnvVars(githubAuthId, allOutputs, ["GITHUB_TOKEN", "GITHUB_USER"]),
+    () => buildAuthEnvVars(githubAuthId, allOutputs, GITHUB_AUTH_ENV_VARS),
     [githubAuthId, allOutputs],
   )
 
@@ -506,13 +535,7 @@ export function useScriptExecution({
   // block's GITLAB_TOKEN/GITLAB_USER reach the spawned process under the right
   // names.
   const gitAuthEnvVars = useMemo(
-    () =>
-      buildAuthEnvVars(gitAuthId, allOutputs, [
-        "GITHUB_TOKEN",
-        "GITHUB_USER",
-        "GITLAB_TOKEN",
-        "GITLAB_USER",
-      ]),
+    () => buildAuthEnvVars(gitAuthId, allOutputs, GIT_AUTH_ENV_VARS),
     [gitAuthId, allOutputs],
   )
 
@@ -546,8 +569,9 @@ export function useScriptExecution({
     [outputDeps, allOutputs],
   )
 
-  // State for rendered script content
+  // State for rendered script content, and the env vars rendered with it
   const [renderedScript, setRenderedScript] = useState<string | null>(null)
+  const [renderedEnv, setRenderedEnv] = useState<Record<string, string> | null>(null)
   const [renderError, setRenderError] = useState<AppError | null>(null)
   const [isRendering, setIsRendering] = useState(false)
 
@@ -583,6 +607,14 @@ export function useScriptExecution({
   // Determine the actual script content to use
   const sourceCode =
     !discardsRender(renderMode) && renderedScript !== null ? renderedScript : rawScriptContent
+  const envVars = useMemo(
+    () =>
+      Object.entries(envTemplates).map(([name, template]) => ({
+        name,
+        value: (discardsRender(renderMode) ? undefined : renderedEnv?.[name]) ?? template,
+      })),
+    [envTemplates, renderMode, renderedEnv],
+  )
 
   // The block's last run, from the session's history. The block starts from
   // it, and its outputs go back in the runbook context for the blocks that
@@ -670,6 +702,11 @@ export function useScriptExecution({
         // Each API call is isolated, so no risk of collision between components
         "script.sh": rawScriptContent,
       }
+      // The env vars render with the script, each as its own file
+      const envNames = Object.keys(envTemplates).filter((name) =>
+        envTemplates[name]!.includes("{{"),
+      )
+      for (const name of envNames) templateFiles[`env:${name}`] = envTemplates[name]!
 
       try {
         const responseData = await api.invoke("boilerplate:render-inline", {
@@ -694,6 +731,14 @@ export function useScriptExecution({
         }
 
         setRenderedScript(renderedFiles["script.sh"].content)
+        setRenderedEnv(
+          Object.fromEntries(
+            envNames.flatMap((name) => {
+              const file = renderedFiles[`env:${name}`]
+              return file ? [[name, file.content]] : []
+            }),
+          ),
+        )
         setIsRendering(false)
       } catch (err) {
         // Check if component is still mounted and this is still the latest render
@@ -704,7 +749,7 @@ export function useScriptExecution({
         setIsRendering(false)
       }
     },
-    [api, rawScriptContent],
+    [api, rawScriptContent, envTemplates],
   )
 
   // Template context for prop resolution by callers (Command/Check resolve display string props)
@@ -729,10 +774,21 @@ export function useScriptExecution({
       inputs: templateContext.inputs,
       outputs: maskTemplateOutputs(templateContext.outputs),
     })
-    // The script is part of the key so a changed command with unchanged values
-    // still re-renders.
-    return { payload, key: JSON.stringify([rawScriptContent, payload]), errorDetails }
-  }, [renderMode, inputs, templateContext, rawScriptContent, displayMasksSensitiveOutput])
+    // The script and env are part of the key so a changed command with
+    // unchanged values still re-renders.
+    return {
+      payload,
+      key: JSON.stringify([rawScriptContent, envTemplates, payload]),
+      errorDetails,
+    }
+  }, [
+    renderMode,
+    inputs,
+    templateContext,
+    rawScriptContent,
+    envTemplates,
+    displayMasksSensitiveOutput,
+  ])
 
   const [prevRenderKey, setPrevRenderKey] = useState(pendingRender?.key ?? null)
   if (renderMode !== prevRenderMode) {
@@ -740,6 +796,7 @@ export function useScriptExecution({
     if (discardsRender(renderMode)) {
       setIsRendering(false)
       setRenderedScript(null)
+      setRenderedEnv(null)
       setPrevRenderKey(null)
       if (renderMode === "awaiting-outputs") {
         setRenderError(null)
@@ -869,6 +926,11 @@ export function useScriptExecution({
 
     // File loading
     fileError: getFileError,
+
+    // The block's env prop
+    envTemplates,
+    envVars,
+    envError,
 
     // Variables
     inputDependencies: inputDeps,

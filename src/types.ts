@@ -1,3 +1,4 @@
+import type { BlockEnv } from "./domain/exec/blockEnv.ts"
 import type { OutputValues } from "./domain/exec/outputValues.ts"
 
 // ---------------------------------------------------------------------------
@@ -263,6 +264,11 @@ export interface Executable {
   language: string
   path?: string
   templateVars: string[]
+  /**
+   * The block's `env` prop: the variables its script runs with, as templates
+   * (see blockEnv.ts). Empty for a block without one.
+   */
+  env: BlockEnv
 }
 
 /** A script file whose content on disk differs from the registry's copy of it. */

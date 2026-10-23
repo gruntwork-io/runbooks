@@ -37,12 +37,6 @@ vi.mock("../hooks/useGitAuth", () => ({
   },
 }))
 
-// trackBlockRender spy via the telemetry hook.
-const trackBlockRender = vi.fn()
-vi.mock("@/contexts/useTelemetry", () => ({
-  useTelemetry: () => ({ trackBlockRender }),
-}))
-
 import { GitAuth } from "../GitAuth"
 
 function renderGitAuth(props: Record<string, unknown> = {}) {
@@ -55,7 +49,6 @@ function renderGitAuth(props: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   hookCalls.length = 0
-  trackBlockRender.mockClear()
   cancelOAuth.mockClear()
   clearRegisteredOutputs.mockClear()
   resetAuth.mockClear()
@@ -106,26 +99,25 @@ describe("GitAuth", () => {
     expect((hookCalls.at(-1)!.provider as { id: string }).id).toBe("gitlab")
   })
 
-  it("reports telemetry/registry identity as 'GitAuth' by default", () => {
-    renderGitAuth()
-    expect(trackBlockRender).toHaveBeenCalledWith("GitAuth")
-  })
-
-  it("honors an internal __registryType override (alias support)", () => {
-    render(
-      <TestWrapper>
-        <GitAuth id="git" __registryType="GitHubAuth" />
-      </TestWrapper>,
-    )
-    expect(trackBlockRender).toHaveBeenCalledWith("GitHubAuth")
-  })
-
-  it("shows an error for a missing id", () => {
+  it("shows an error for a missing id, naming the block 'GitAuth' by default", () => {
     render(
       <TestWrapper>
         <GitAuth id="" />
       </TestWrapper>,
     )
-    expect(screen.getByText(/requires a non-empty 'id' prop/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/The <GitAuth> component requires a non-empty 'id' prop/),
+    ).toBeInTheDocument()
+  })
+
+  it("honors an internal __registryType override (alias support)", () => {
+    render(
+      <TestWrapper>
+        <GitAuth id="" __registryType="GitHubAuth" />
+      </TestWrapper>,
+    )
+    expect(
+      screen.getByText(/The <GitHubAuth> component requires a non-empty 'id' prop/),
+    ).toBeInTheDocument()
   })
 })

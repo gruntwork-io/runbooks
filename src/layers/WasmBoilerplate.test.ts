@@ -117,6 +117,26 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
     expect(spawner.processes[0]!.killed()).toBe(true)
   })
 
+  it("turns the CLI's shell helper off for a var file with a shell call in it", async () => {
+    // The CLI renders every var-file value as a template, block outputs
+    // included, and auto-confirms `shell` in --non-interactive mode. Only
+    // --no-shell stops this published output from running `touch`.
+    const files: Record<string, string> = {}
+    const { spawner, renderer } = makeRenderer(files)
+    const title = 'Fix typo {{ shell "touch" "/tmp/runbooks-pwned" }}'
+
+    const render = Effect.runPromise(
+      renderer.renderTemplate("/tpl", "/out", { outputs: { fetch_pr: { TITLE: title } } }),
+    )
+    await until(() => spawner.processes.length === 1)
+    const args = spawner.processes[0]!.args
+    expect(files[args[args.indexOf("--var-file") + 1]!]).toContain(title)
+    expect(args).toContain("--no-shell")
+
+    spawner.processes[0]!.finish(0)
+    await render
+  })
+
   it("fails with the CLI's stderr when boilerplate exits non-zero", async () => {
     const { spawner, renderer } = makeRenderer()
 

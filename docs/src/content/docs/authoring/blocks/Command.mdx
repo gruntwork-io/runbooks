@@ -34,7 +34,8 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 - `description` (string): longer description of what the command does. Supports inline markdown.
 - `command` (string): inline command to execute. Set exactly one of `command` and `path`. If both are set, `command` runs.
 - `path` (string): path to a script file, relative to the runbook's folder, such as `scripts/deploy.sh`. The file must be inside that folder, so a path with a `..` segment fails. Use either this or `command`.
-- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones. A script that uses `{{ .inputs.* }}` needs this prop or a nested Inputs block. See [With variables](#with-variables).
+- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones. A block that uses `{{ .inputs.* }}`, in `env` or in the script, needs this prop or a nested Inputs block. See [With variables](#with-variables).
+- `env` (object): environment variables the script runs with, by name, such as `env={{ BUCKET: "{{ .inputs.BucketName }}" }}`. Each value can reference inputs and block outputs. See [Passing values as environment variables](#passing-values-as-environment-variables).
 - `awsAuthId` (string): ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Run button is disabled until authentication completes.
 - `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block, for either provider. Its credentials are passed as environment variables (`GITHUB_TOKEN` and `GITHUB_USER`, or `GITLAB_TOKEN` and `GITLAB_USER`). The Run button is disabled until authentication completes.
 - `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block. GitHub only. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Run button is disabled until authentication completes. Prefer `gitAuthId`.
@@ -53,7 +54,8 @@ You can nest an `<Inputs>` component directly inside the Command:
 ````mdx
 <Command 
     id="echo-message" 
-    command='echo "Hello, {{ .inputs.Name }}!"'
+    env={{ NAME: "{{ .inputs.Name }}" }}
+    command='echo "Hello, $NAME!"'
     title="Print Greeting"
 >
     <Inputs id="inline-greeting">
@@ -247,6 +249,8 @@ end
 
 ### With variables
 
+A script gets the values it needs as environment variables, which the [`env`](#passing-values-as-environment-variables) prop sets from inputs and block outputs. The examples below take inputs from different places.
+
 #### Using inputsId
 
 The command or script pulls its values from a separate Inputs block.
@@ -266,13 +270,16 @@ variables:
 
 <Command 
     id="create-repo" 
-    command='gh repo create "{{ .inputs.OrgName }}/{{ .inputs.RepoName }}" --private'
     inputsId="repo-config"
+    env={{ ORG: "{{ .inputs.OrgName }}", REPO: "{{ .inputs.RepoName }}" }}
+    command='gh repo create "$ORG/$REPO" --private'
     title="Create GitHub Repository"
     successMessage="Repository {{ .inputs.RepoName }} created!"
     failMessage="Failed to create repository"
 />
 ````
+
+The message props can reference inputs and outputs directly, since Runbooks only shows them.
 
 #### Using inline inputs
 
@@ -281,7 +288,8 @@ The Command collects input values directly. Other blocks can read them like any 
 ````mdx
 <Command 
     id="echo-message" 
-    command='echo "Hello, {{ .inputs.Name }}!"'
+    env={{ NAME: "{{ .inputs.Name }}" }}
+    command='echo "Hello, $NAME!"'
     title="Print Greeting"
 >
     <Inputs id="inline-greeting">
@@ -320,6 +328,7 @@ variables:
     id="deploy-lambda" 
     path="scripts/deploy.sh"
     inputsId={["lambda-config", "repo-config"]}
+    env={{ ORG: "{{ .inputs.GithubOrgName }}", REPO: "{{ .inputs.GithubRepoName }}" }}
     title="Deploy Lambda Function"
     description="Deploy the Lambda function using variables from both inputs"
 />
@@ -327,12 +336,38 @@ variables:
 
 If both blocks define a variable with the same name, the value from `repo-config` wins.
 
-#### How values are inserted
+#### Passing values as environment variables
 
-Variable values are inserted into the script verbatim, with no quoting or escaping. Quote a reference where the shell needs it, for example `REGION="{{ .inputs.AwsRegion }}"`, and compare strings directly, for example `{{ if eq .inputs.Language "JavaScript" }}`.
+The `env` prop sets environment variables for the script, by name. Each value is a template, rendered with the block's inputs and the outputs of other blocks, and the script reads the result like any other environment variable:
+
+```mdx
+<Command
+    id="label-pr"
+    inputsId="pr-config"
+    env={{
+        REPO: "{{ .inputs.RepoName }}",
+        PR_TITLE: "{{ .outputs.fetch_pr.title }}",
+        DRY_RUN: false,
+    }}
+    command='gh pr edit --repo "$REPO" --title "[infra] $PR_TITLE"'
+/>
+```
+
+Runbooks gives the script the values as data. The shell never runs anything in them, so a value can hold quotes, `$(...)` or backticks, as a PR title or an API response can. Quote each variable where you use it, as above, so a value with spaces stays in one piece.
+
+- **The block shows the values.** Before you click Run, the block lists each variable with the value the script will get, once the inputs and outputs it references are set. The block waits for them, as it waits for the values its script references. A [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) shows as `<redacted>`, and the script gets its real value.
+- **Instruction mode exports them.** In [instruction mode](/intro/instruction-mode/), the block shows an `export` line for each variable before the command, quoted for the shell, so you can copy and run them together.
+- **They are this block's.** The variables are set for this run only, and later blocks don't see them. If the script changes one, the new value carries forward like any other [export](#execution-context). To pass a value to later blocks, write it as a [block output](#block-outputs).
+- **They override other variables.** A variable in `env` replaces one of the same name from the session or from an auth block, so `env={{ AWS_REGION: "{{ .inputs.Region }}" }}` picks the region for a block that uses `awsAuthId`.
+
+A name has letters, digits and underscores, and doesn't start with a digit. A value is a string, a number or a boolean. Runbooks sets `GENERATED_FILES`, `REPO_FILES` and every name that starts with `RUNBOOK_` itself, so `env` can't use them. A block whose `env` breaks these rules shows the error and can't run.
+
+#### Templates in the script
+
+A script can also reference values directly, as `{{ .inputs.Name }}` or `{{ .outputs.build.tag }}`. Runbooks inserts them into the script's source before it runs, verbatim, with no quoting or escaping. Quote a reference where the shell needs it, for example `REGION="{{ .inputs.AwsRegion }}"`, and compare strings directly, for example `{{ if eq .inputs.Language "JavaScript" }}`.
 
 :::caution
-Quoting keeps a value with spaces in one piece, but it does not make an untrusted value safe to run. Double quotes still expand `$(...)`. For values you don't control, such as another block's outputs, have the upstream block `export` an environment variable and read that instead.
+Quoting keeps a value with spaces in one piece, but it does not make an untrusted value safe to run. Double quotes still expand `$(...)`. For values you don't control, such as another block's outputs, use [`env`](#passing-values-as-environment-variables).
 :::
 
 If the script can't be rendered, for example because it calls an unknown function or contains a `{{ }}` expression meant for another tool, the block fails with the template error and the script does not run. To pass `{{ }}` through to a tool such as `docker ps --format`, write it as a raw string: ``--format '{{`{{.Names}}`}}'``.
@@ -402,13 +437,22 @@ log_info "Deployment complete!"
 
 #### Parameterized script
 
+```mdx
+<Command
+    id="create-vpc"
+    path="scripts/create-vpc.sh"
+    inputsId="vpc-config"
+    env={{
+        REGION: "{{ .inputs.AwsRegion }}",
+        VPC_NAME: "{{ .inputs.VpcName }}",
+        CIDR_BLOCK: "{{ .inputs.CidrBlock }}",
+    }}
+/>
+```
+
 ```bash
 #!/bin/bash
 # scripts/create-vpc.sh
-
-REGION="{{ .inputs.AwsRegion }}"
-VPC_NAME="{{ .inputs.VpcName }}"
-CIDR_BLOCK="{{ .inputs.CidrBlock }}"
 
 log_info "Creating VPC $VPC_NAME in $REGION..."
 log_debug "CIDR block: $CIDR_BLOCK"

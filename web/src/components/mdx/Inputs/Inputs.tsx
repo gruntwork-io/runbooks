@@ -121,7 +121,7 @@ function Inputs({
     }
   }, [boilerplateConfig, prefilledVariables, registeredValues])
 
-  // Shared registration logic (ID registry, error reporting, telemetry, form state, debouncing)
+  // Shared registration logic (ID registry, error reporting, form state, debouncing)
   const {
     isDuplicate,
     isNormalizedCollision,

@@ -89,12 +89,15 @@ Runbooks watches the script files that `<Check>`, `<Command>` and `<Finish>` blo
 
 1. The main process checks that the executable ID is in the registry.
 2. It renders template references such as `{{ .inputs.VarName }}` and `{{ .outputs.block_id.name }}` into the script.
-3. It writes the script to a temporary file.
-4. It reads the shebang line to pick the interpreter, defaulting to `bash`.
-5. It runs the interpreter on the file in a non-interactive shell.
-6. It streams stdout and stderr to the renderer over IPC.
-7. It deletes the temporary file.
+3. It renders the block's [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) values, from the registry's copy of the runbook, with the same values.
+4. It writes the script to a temporary file.
+5. It reads the shebang line to pick the interpreter, defaulting to `bash`.
+6. It runs the interpreter on the file in a non-interactive shell, with the `env` values set as environment variables for this run.
+7. It streams stdout and stderr to the renderer over IPC.
+8. It deletes the temporary file.
 
 Scripts run with your user's permissions and full environment. Only run runbooks you trust.
+
+A value rendered into the script becomes part of its source, so the shell runs whatever code the value holds. A value in `env` reaches the script as data and never runs. A block output often holds text from outside the runbook, such as a PR title or an API response, so pass outputs to scripts with `env`.
 
 For interpreter detection, shell limitations and how environment changes persist between scripts, see [Shell execution context](/security/shell-execution-context/).

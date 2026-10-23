@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { InstructionModeProvider } from "@/contexts/InstructionModeContext"
-import { TelemetryContext, defaultContextValue } from "@/contexts/TelemetryContext.types"
 import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
 import { GeneratedFilesProvider } from "@/contexts/GeneratedFilesContext"
 import { IpcGitWorkTreeProvider } from "@/contexts/IpcGitWorkTreeContext"
@@ -213,18 +212,16 @@ function renderApp(options?: ApiOptions) {
     <ApiProvider api={mock.api}>
       <ThemeProvider>
         <InstructionModeProvider>
-          <TelemetryContext.Provider value={defaultContextValue}>
-            <ErrorReportingProvider>
-              <GeneratedFilesProvider>
-                <IpcGitWorkTreeProvider>
-                  <LogsProvider>
-                    <LogSeeder />
-                    <App />
-                  </LogsProvider>
-                </IpcGitWorkTreeProvider>
-              </GeneratedFilesProvider>
-            </ErrorReportingProvider>
-          </TelemetryContext.Provider>
+          <ErrorReportingProvider>
+            <GeneratedFilesProvider>
+              <IpcGitWorkTreeProvider>
+                <LogsProvider>
+                  <LogSeeder />
+                  <App />
+                </LogsProvider>
+              </IpcGitWorkTreeProvider>
+            </GeneratedFilesProvider>
+          </ErrorReportingProvider>
         </InstructionModeProvider>
       </ThemeProvider>
     </ApiProvider>,

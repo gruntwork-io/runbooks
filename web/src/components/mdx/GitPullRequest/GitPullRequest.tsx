@@ -17,7 +17,6 @@ import {
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useRunbookContext, useAllOutputs, useOutputs } from "@/contexts/useRunbook"
 import { resolveTemplateReferences, type TemplateContext } from "@/lib/templateUtils"
@@ -117,7 +116,6 @@ function GitPullRequestInteractive({
     __registryType,
   )
   const { reportError, clearError } = useErrorReporting()
-  const { trackBlockRender } = useTelemetry()
   const { activeWorkTree } = useGitWorkTree()
 
   // Runbook context for metadata
@@ -173,10 +171,6 @@ function GitPullRequestInteractive({
 
   // Template context for resolving expressions (blocking + display props)
   const templateCtx = useMemo(() => ({ inputs, outputs }), [inputs, outputs])
-
-  useEffect(() => {
-    trackBlockRender(__registryType)
-  }, [id, trackBlockRender, __registryType])
 
   // The request the block opened, and the form fields the user edited, from
   // the session's history

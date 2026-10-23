@@ -9,6 +9,7 @@ import { useInstructionResolution } from "../hooks/useInstructionResolution"
 import { useBlockCompletion } from "../hooks/useBlockCompletion"
 import { normalizeCommandList } from "../lib/instructionResolution"
 import type { TemplateContext } from "@/lib/templateUtils"
+import { exportLines } from "../../../../../../src/domain/exec/blockEnv.ts"
 
 /** A file-backed script to display via the collapsible source viewer. */
 export interface InstructionSource {
@@ -31,6 +32,12 @@ export interface InstructionProps {
   /** Template context (Inputs-form values) used to resolve the command/source. */
   templateContext?: TemplateContext | undefined
   /**
+   * Env vars the command or script needs, as templates by name (a script
+   * block's `env` prop). They're resolved like the command and shown as
+   * `export` lines before it, so one copy sets them and runs it.
+   */
+  env?: Readonly<Record<string, string>> | undefined
+  /**
    * An embedded form shown before the command — e.g. a Command's nested
    * `<Inputs>`. Its values reach `templateContext`, so the command updates as
    * the user fills it in.
@@ -50,6 +57,7 @@ export interface InstructionProps {
 }
 
 const EMPTY_CONTEXT: TemplateContext = { inputs: {}, outputs: {} }
+const NO_ENV: Readonly<Record<string, string>> = {}
 
 /**
  * Shared presentation primitive for instruction mode (spec §6.3). Renders a
@@ -68,6 +76,7 @@ export function Instruction({
   command,
   source,
   templateContext = EMPTY_CONTEXT,
+  env = NO_ENV,
   inputs,
   note,
   icon: Icon = ListChecks,
@@ -75,9 +84,15 @@ export function Instruction({
   onMarkedDone,
 }: InstructionProps) {
   const commandList = normalizeCommandList(command)
-  // Resolve commands and the source content in a single pass so manual fields
-  // are detected across both and we make at most one render call.
-  const allTexts = source ? [...commandList, source.content] : commandList
+  const envNames = Object.keys(env)
+  // Resolve commands, the source content and the env in a single pass so
+  // manual fields are detected across all of them and we make at most one
+  // render call.
+  const allTexts = [
+    ...commandList,
+    ...(source ? [source.content] : []),
+    ...envNames.map((name) => env[name]!),
+  ]
   const { resolvedCommands, manualFields, usedFallback } = useInstructionResolution({
     command: allTexts,
     templateContext,
@@ -85,6 +100,16 @@ export function Instruction({
 
   const resolvedCmds = resolvedCommands.slice(0, commandList.length)
   const resolvedSource = source ? resolvedCommands[commandList.length] : undefined
+  const envStart = commandList.length + (source ? 1 : 0)
+  const exports = exportLines(
+    Object.fromEntries(envNames.map((name, i) => [name, resolvedCommands[envStart + i] ?? ""])),
+  )
+  // The exports go before the first command, in its block, or in a block of
+  // their own before a script's source
+  const shownCmds =
+    exports && resolvedCmds.length > 0
+      ? [`${exports}\n${resolvedCmds[0]}`, ...resolvedCmds.slice(1)]
+      : resolvedCmds
 
   const { completed, toggle } = useBlockCompletion(id ?? "")
   // Called here, not inside toggle's state updater, which StrictMode runs twice.
@@ -152,11 +177,18 @@ export function Instruction({
           )}
 
           {/* Resolved command(s) as copyable code blocks. */}
-          {resolvedCmds.map((cmd, i) => (
+          {shownCmds.map((cmd, i) => (
             <CodeBlock key={i}>
               <code className="language-bash whitespace-pre-wrap">{cmd}</code>
             </CodeBlock>
           ))}
+
+          {/* A script's env vars, to set before running it. */}
+          {exports && resolvedCmds.length === 0 && (
+            <CodeBlock>
+              <code className="language-bash whitespace-pre-wrap">{exports}</code>
+            </CodeBlock>
+          )}
 
           {note && <div className="text-sm text-muted-foreground">{note}</div>}
 

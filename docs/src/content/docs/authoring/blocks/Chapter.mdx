@@ -1,0 +1,90 @@
+---
+title: <Chapter>
+---
+
+The `<Chapter>` block splits a long runbook into chapters, which Runbooks shows one at a time. Use it for a runbook that's best worked through in phases, such as setting up, deploying, and checking a service.
+
+## Basic usage
+
+```mdx
+# Deploy the service
+
+This runbook sets up the service, deploys it, and checks that it's up.
+
+<Chapter title="Set up">
+
+## Configure the service
+
+<Inputs id="service" path="templates/service" />
+
+</Chapter>
+
+<Chapter title="Deploy">
+
+## Deploy
+
+<Command id="deploy" path="scripts/deploy.sh" inputsId="service" />
+
+</Chapter>
+
+<Chapter title="Verify">
+
+## Check the service
+
+<Check id="health" command="curl --fail https://my-service.example.com/health" />
+
+</Chapter>
+```
+
+Leave a blank line after the opening tag and before the closing tag, so that the content between them is read as markdown.
+
+Write each `<Chapter>` at the top level of the runbook. A `<Chapter>` inside another block or another chapter shows a configuration error, with its content where it is.
+
+## Moving between chapters
+
+In a runbook with two or more chapters, the chapter on screen starts with a bar that stays at the top of the runbook as you scroll it:
+
+- **Contents** opens the table of contents, which lists every chapter by number and title, with how many of its [steps](/authoring/blocks/#progress) are done, such as "1/3". A chapter whose steps are all done gets a check mark. Pick a chapter to go to it.
+- The bar names the chapter on screen, such as "Chapter 2 of 3 · Deploy".
+- The **‹** and **›** buttons go to the previous and next chapters.
+
+Each chapter ends with links to the previous and next chapters. The [command palette](/intro/ui_tour/) has **Go to chapter…**, which lists the chapters, and typing a chapter's title there offers it directly.
+
+A runbook with no chapters, or with only one, has none of these: it shows all of its content at once, as it would without the block.
+
+A runbook opens at its first chapter, and so does a new or [resumed](/commands/sessions/#resuming-a-session) session. A resumed session's blocks come back as the user left them, so the table of contents shows which chapters are done. Editing the runbook while [watch mode](/commands/watch/) reloads it keeps the chapter on screen.
+
+## Content outside chapters
+
+Content outside every chapter shows with each of them, where it is in the runbook. Put the runbook's title and introduction above the first chapter, so they head every chapter. A block outside the chapters, such as a `<Prerequisites>` above the first one, is on screen whichever chapter is.
+
+## Blocks in chapters
+
+Chapters only change what's on screen. A hidden chapter's blocks stay loaded, so:
+
+- Block IDs are shared by the whole runbook: each must be unique across every chapter.
+- A block can use the [inputs and outputs](/authoring/inputs-and-outputs/) of a block in any other chapter, and the credentials of an auth block in another chapter.
+- A block keeps its state while another chapter is on screen: a form keeps its values, and a command that's running keeps running.
+- The [progress](/authoring/blocks/#progress) bar in the title bar counts the steps of every chapter.
+
+A link to something in another chapter, such as the link a block shows to a block it's waiting for, goes to that chapter first.
+
+Find in page (**Cmd+F** on macOS, or **Ctrl+F** on Windows and Linux) searches the chapter on screen and the content outside the chapters, as does the command palette's **Jump to section**.
+
+## Props
+
+### Required props
+
+- `title` (string): the chapter's name, shown in the chapter bar, the table of contents, and the command palette. A chapter without one shows a configuration error, and is named by its number, such as "Chapter 2".
+
+## Instruction mode
+
+Chapters work the same in [instruction mode](/intro/instruction-mode/). The table of contents counts each chapter's steps as the user marks them done.
+
+## Testing
+
+[Runbook tests](/authoring/testing/) don't see chapters. They run the blocks in document order, whichever chapter each one is in, and a step can use the outputs of a block in an earlier chapter.
+
+:::tip[See it in action]
+The [chapters feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/chapters) splits a runbook into three chapters, with a command in one chapter that reads the output of a command in another.
+:::
