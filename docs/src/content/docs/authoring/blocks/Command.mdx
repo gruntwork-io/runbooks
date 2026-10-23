@@ -95,8 +95,8 @@ Inline scripts suit one-liners. For anything longer, use an external script file
 
 A command that contains both kinds of quotes, or spans several lines, can go in a template literal: ``command={`echo "It's done"`}``. Two things work differently there:
 
-- `${...}` is a JavaScript substitution, which Runbooks rejects when the runbook opens. Write `$VAR`, not `${VAR}`.
-- Runbooks registers the command before JavaScript processes its backslash escapes, such as `\n` or a `\` at the end of a line. A command with one shows a "Script changed" notice that reloading doesn't clear, and it runs with the backslashes as written. Leave escapes out, or move the script to a file.
+- `${...}` is a JavaScript substitution, which Runbooks rejects when the runbook opens. Write `$VAR` or `\${VAR}`, not `${VAR}`.
+- JavaScript reads backslash escapes, as in any JavaScript string: `\n` is a line break, `` \` `` a backtick, and so on. Write `\\` for each backslash the shell should see, such as `grep '\\.tf$'`.
 
 #### External scripts
 

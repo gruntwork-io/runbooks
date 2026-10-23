@@ -59,6 +59,9 @@ const LITERALS_HINT =
  * prop that is not listed is allowed. They are defense in depth on top of the
  * renderer's sandbox, context isolation, production CSP and will-navigate
  * guard, not a complete HTML sanitizer.
+ *
+ * It's one of RUNBOOK_REMARK_PLUGINS (src/mdx.ts), so the main process and the
+ * test CLI refuse the runbooks the renderer refuses.
  */
 export function remarkLiteralOnly() {
   return (tree: MdxNode) => {

@@ -1,140 +1,255 @@
 import { describe, it, expect } from "bun:test"
-import { findFencedCodeBlockRanges, isInsideFencedCodeBlock } from "./mdx.ts"
+import { parseMdx, stringArrayProp, stringProp, stripFrontMatter } from "./mdx.ts"
 
-describe("findFencedCodeBlockRanges", () => {
-  it("returns empty for content without fences", () => {
-    expect(findFencedCodeBlockRanges("hello world")).toEqual([])
+/** The JSX elements of `content`, which must be valid MDX. */
+function elementsOf(content: string) {
+  const parsed = parseMdx(content)
+  if (!parsed.ok) throw new Error(parsed.error)
+  return parsed.elements
+}
+
+/** The props of the single element in `content`. */
+function propsOf(content: string) {
+  const [element, ...rest] = elementsOf(content)
+  expect(rest).toEqual([])
+  return element!.props
+}
+
+describe("parseMdx", () => {
+  describe("reads each prop as the renderer passes it", () => {
+    it.each([
+      ["a double-quoted string", 'command="echo hi"', "echo hi"],
+      ["a single-quoted string", "command='echo hi'", "echo hi"],
+      ["spaces around the =", 'command = "echo hi"', "echo hi"],
+      [
+        "a JSX string with escaped quotes",
+        String.raw`command={"gh repo create org/repo --private && echo \"Done\""}`,
+        'gh repo create org/repo --private && echo "Done"',
+      ],
+      [
+        "a JSX single-quoted string with an escaped quote",
+        String.raw`command={'echo it\'s'}`,
+        "echo it's",
+      ],
+      ["a template literal with escaped backticks", "command={`echo \\`date\\``}", "echo `date`"],
+      ["a template literal with an escaped ${", "command={`echo \\${HOME}`}", "echo ${HOME}"],
+      ["a template literal with a \\n escape", "command={`printf 'a\\nb'`}", "printf 'a\nb'"],
+      ["a JSX string with spaces inside the braces", 'command={ "echo hi" }', "echo hi"],
+      ["a JSX string after a comment", 'command={/* note */ "echo hi"}', "echo hi"],
+      [
+        "a JSX string's character reference, kept as written",
+        'command={"echo &amp; done"}',
+        "echo &amp; done",
+      ],
+      [
+        "a quoted string's character references, every kind decoded",
+        'command="echo &#34;hi&#34; &#x27;x&#x27; &amp; &copy;"',
+        "echo \"hi\" 'x' & ©",
+      ],
+    ])("%s", (_name, prop, expected) => {
+      expect(propsOf(`<Command id="c" ${prop} />`).command).toBe(expected)
+    })
+
+    it("reads a bare prop as true, and numbers, null, arrays and objects as their values", () => {
+      const props = propsOf(
+        "<GoogleAuth usePty timeout={300} offset={-5} none={null} " +
+          "outputs={[\"region\", 'zone', `x`]} " +
+          "detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']} />",
+      )
+      expect(props).toEqual({
+        usePty: true,
+        timeout: 300,
+        offset: -5,
+        none: null,
+        outputs: ["region", "zone", "x"],
+        detectCredentials: [{ env: { prefix: "PROD_" } }, "env"],
+      })
+    })
+
+    it("leaves out a regex or bigint prop, which no block takes", () => {
+      expect(propsOf('<Command id="c" pattern={/x/} size={1n} list={[/y/]} />')).toEqual({
+        id: "c",
+      })
+    })
+
+    it("lets a later duplicate prop win, as JSX does", () => {
+      expect(propsOf('<Command id="first" id="second" />').id).toBe("second")
+    })
   })
 
-  it("returns one range for a single fenced block", () => {
-    const content = "before\n```\ncode\n```\nafter"
-    const ranges = findFencedCodeBlockRanges(content)
-    expect(ranges).toHaveLength(1)
-    expect(ranges[0]![0]).toBeLessThan(ranges[0]![1])
+  it("finds the blocks after one whose JSX string holds an escaped quote and a >", () => {
+    const mdx = [
+      String.raw`<Command id="a" command={'echo it\'s > out.txt'} />`,
+      "",
+      '<Command id="b" command="echo b" />',
+      "",
+      '<Command id="c">',
+      "",
+      "Some text.",
+      "",
+      "</Command>",
+    ].join("\n")
+    expect(elementsOf(mdx).map((e) => [e.props.id, e.props.command])).toEqual([
+      ["a", "echo it's > out.txt"],
+      ["b", "echo b"],
+      ["c", undefined],
+    ])
   })
 
-  it("returns multiple ranges for multiple blocks", () => {
-    const content = "```\nblock1\n```\ntext\n```\nblock2\n```"
-    const ranges = findFencedCodeBlockRanges(content)
-    expect(ranges).toHaveLength(2)
+  it("finds nested blocks in document order, including those in a fragment or a list", () => {
+    const mdx = [
+      '<Admonition type="info">',
+      '<Command id="nested" command="x" />',
+      "</Admonition>",
+      "",
+      "<>",
+      '<Check id="in-fragment" command="y" />',
+      "</>",
+      "",
+      '- Step <Command id="inline" command="z" /> inline',
+    ].join("\n")
+    expect(elementsOf(mdx).map((e) => [e.name, e.props.id])).toEqual([
+      ["Admonition", undefined],
+      ["Command", "nested"],
+      ["Check", "in-fragment"],
+      ["Command", "inline"],
+    ])
   })
 
-  it("handles triple-tilde syntax", () => {
-    const content = "before\n~~~\ncode\n~~~\nafter"
-    const ranges = findFencedCodeBlockRanges(content)
-    expect(ranges).toHaveLength(1)
-  })
-
-  it("handles leading whitespace", () => {
-    const content = "  ```\ncode\n  ```"
-    const ranges = findFencedCodeBlockRanges(content)
-    expect(ranges).toHaveLength(1)
-  })
-
-  it("keeps a nested ```mdx example inside a longer ```` fence", () => {
-    const content = [
+  it("reads no block, and refuses no code, in a code fence, in inline code or in a comment", () => {
+    const mdx = [
       "````mdx",
       "```mdx",
-      '<Command id="deploy" command="echo example" />',
+      '<Command id="fenced" command={run()} />',
       "```",
       "````",
       "",
-      '<Command id="deploy" command="tofu apply" />',
-    ].join("\n")
-    const ranges = findFencedCodeBlockRanges(content)
-    expect(ranges).toEqual([[0, content.indexOf("````\n\n") + 4]])
-    expect(isInsideFencedCodeBlock(content.indexOf("echo example"), ranges)).toBe(true)
-    expect(isInsideFencedCodeBlock(content.indexOf("tofu apply"), ranges)).toBe(false)
-  })
-
-  it("does not close a ~~~ fence on a ``` line", () => {
-    const content = ["~~~", "```", '<Command id="example" />', "~~~", '<Command id="real" />'].join(
-      "\n",
-    )
-    const ranges = findFencedCodeBlockRanges(content)
-    expect(ranges).toHaveLength(1)
-    expect(isInsideFencedCodeBlock(content.indexOf('id="example"'), ranges)).toBe(true)
-    expect(isInsideFencedCodeBlock(content.indexOf('id="real"'), ranges)).toBe(false)
-  })
-
-  it("does not close a fence on a line with an info string", () => {
-    // Shape of the Check/Command docs: an indented ```yaml (and an escaped
-    // closer) inside a ```mdx example, followed by more examples
-    const content = [
-      "```mdx",
-      '<Check id="example-1" command="echo">',
-      "    ```yaml",
-      "    variables: []",
-      "    \\```",
-      "</Check>",
-      "```",
+      'Write `<Command id="inline-code" command={run()} />` to add one.',
       "",
-      '<Check id="real" command="echo" />',
+      '{/* <Command id="commented" command={run()} /> */}',
       "",
-      "```mdx",
-      '<Check id="example-2" command="echo" />',
-      "```",
+      '<Command id="real" command="y" />',
     ].join("\n")
-    const ranges = findFencedCodeBlockRanges(content)
-    expect(ranges).toHaveLength(2)
-    expect(isInsideFencedCodeBlock(content.indexOf('id="example-1"'), ranges)).toBe(true)
-    expect(isInsideFencedCodeBlock(content.indexOf('id="real"'), ranges)).toBe(false)
-    expect(isInsideFencedCodeBlock(content.indexOf('id="example-2"'), ranges)).toBe(true)
+    expect(elementsOf(mdx).map((e) => e.props.id)).toEqual(["real"])
   })
 
-  it("does not treat a line of inline code as a backtick opener", () => {
-    const content = '```x```\n<Command id="real" />\n'
-    expect(findFencedCodeBlockRanges(content)).toEqual([])
-  })
-
-  it("opens a fence on a list-item line and closes it on the indented run", () => {
-    for (const marker of ["-", "*", "1.", "2)"]) {
-      const content = `${marker} \`\`\`bash\n   echo hi\n   \`\`\`\n\n<Command id="real" />\n`
-      const ranges = findFencedCodeBlockRanges(content)
-      expect(ranges).toHaveLength(1)
-      expect(isInsideFencedCodeBlock(content.indexOf("echo hi"), ranges)).toBe(true)
-      expect(isInsideFencedCodeBlock(content.indexOf('id="real"'), ranges)).toBe(false)
-    }
-  })
-
-  it("does not close a fence on a list-item line", () => {
-    const content = [
+  it("keeps the source between the tags as written, and the props as written", () => {
+    const mdx = [
+      '<Prerequisites id="tools" title="Tools">',
+      "```yaml",
+      "tools: [git]",
       "```",
-      "- ```",
-      '<Command id="example" />',
-      "```",
-      '<Command id="real" />',
+      "</ Prerequisites >",
+      '<Inputs id="i">name: x</Inputs>',
+      '<Command id="c"  command="a > b" />',
+      '<Check id="empty"></Check>',
     ].join("\n")
-    const ranges = findFencedCodeBlockRanges(content)
-    expect(ranges).toHaveLength(1)
-    expect(isInsideFencedCodeBlock(content.indexOf('id="example"'), ranges)).toBe(true)
-    expect(isInsideFencedCodeBlock(content.indexOf('id="real"'), ranges)).toBe(false)
+    expect(elementsOf(mdx).map((e) => [e.content, e.propsSource])).toEqual([
+      ["\n```yaml\ntools: [git]\n```\n", 'id="tools" title="Tools"'],
+      ["name: x", 'id="i"'],
+      ["", 'id="c"  command="a > b"'],
+      ["", 'id="empty"'],
+    ])
   })
 
-  it("runs an unclosed fence to the end of the content", () => {
-    const content = 'intro\n\n```\n<Command id="example" />\n'
-    expect(findFencedCodeBlockRanges(content)).toEqual([[content.indexOf("```"), content.length]])
+  it("records each element's offset in the source", () => {
+    const mdx = 'Intro\n\n<Check id="a" command="echo a" />\n<Check id="b" command="echo b" />\n'
+    expect(elementsOf(mdx).map((e) => e.index)).toEqual([
+      mdx.indexOf('<Check id="a"'),
+      mdx.indexOf('<Check id="b"'),
+    ])
+  })
+
+  it("skips front matter, which isn't MDX", () => {
+    const mdx = '---\ntitle: Deploy\ntags: {a: b}\n---\n<Command id="c" command="x" />\n'
+    expect(elementsOf(mdx).map((e) => e.props.id)).toEqual(["c"])
+  })
+
+  it("parses GitHub Flavored Markdown, as the renderer does", () => {
+    const mdx = '| Step | Block |\n| --- | --- |\n| 1 | <Command id="in-table" command="x" /> |\n'
+    expect(elementsOf(mdx).map((e) => e.props.id)).toEqual(["in-table"])
+  })
+
+  it("reports where a runbook stops being valid MDX", () => {
+    const parsed = parseMdx('# Title\n\n<Command id="c" command="echo \\"Done\\"" />\n')
+    expect(parsed.ok).toBe(false)
+    expect(!parsed.ok && parsed.error).toStartWith("Line 3: Unexpected character `\\` (U+005C)")
+  })
+
+  describe("refuses a runbook with code in it, as the renderer does, saying where", () => {
+    it.each([
+      [
+        "a prop that isn't a literal",
+        '<Command id="c" command={run()} />',
+        "the `command` prop of <Command> must be a literal value, not {run()}.",
+      ],
+      [
+        "a template substitution",
+        '<Command id="c" command={`echo ${HOME}`} />',
+        "the `command` prop of <Command> must be a literal value, not {`echo ${HOME}`}.",
+      ],
+      [
+        "a spread prop",
+        '<Command id="c" {...rest} />',
+        "spread props like {...rest} on <Command> are not allowed in runbooks.",
+      ],
+      [
+        "a __proto__ prop",
+        '<Command id="c" __proto__={{ command: "evil" }} />',
+        "the `__proto__` prop of <Command> is not allowed in runbooks.",
+      ],
+      [
+        "an expression in text",
+        "Hello {name()} there",
+        "the expression {name()} is not allowed in runbooks.",
+      ],
+      [
+        "an export",
+        "export const x = 1",
+        "`import` and `export` statements are not allowed in runbooks.",
+      ],
+      [
+        "a script element",
+        '<script src="./x.js" />',
+        "<script> elements are not allowed in runbooks.",
+      ],
+    ])("%s", (_name, code, error) => {
+      const parsed = parseMdx(`# Title\n\n${code}\n\n<Command id="after" command="echo hi" />\n`)
+      expect(parsed.ok).toBe(false)
+      expect(!parsed.ok && parsed.error).toStartWith(`Line 3: ${error}`)
+    })
   })
 })
 
-describe("isInsideFencedCodeBlock", () => {
-  it("returns true for position inside a range", () => {
-    const ranges: Array<[number, number]> = [[5, 20]]
-    expect(isInsideFencedCodeBlock(10, ranges)).toBe(true)
+describe("stripFrontMatter", () => {
+  it("replaces front matter with a blank line per line it spanned", () => {
+    expect(stripFrontMatter("---\ntitle: x\n---\n# Body\n")).toBe("\n\n\n# Body\n")
   })
 
-  it("returns false for position outside all ranges", () => {
-    const ranges: Array<[number, number]> = [[5, 20]]
-    expect(isInsideFencedCodeBlock(25, ranges)).toBe(false)
+  it("leaves content without front matter, or with unclosed front matter, as it is", () => {
+    expect(stripFrontMatter("# Body\n---\n")).toBe("# Body\n---\n")
+    expect(stripFrontMatter("---\ntitle: x\n# Body\n")).toBe("---\ntitle: x\n# Body\n")
   })
+})
 
-  it("returns true at boundary start", () => {
-    const ranges: Array<[number, number]> = [[5, 20]]
-    expect(isInsideFencedCodeBlock(5, ranges)).toBe(true)
+describe("stringProp", () => {
+  it("returns a string prop, and an empty string for any other prop", () => {
+    const props = { id: "c", timeout: 300, usePty: true, outputs: ["a"] }
+    expect(stringProp(props, "id")).toBe("c")
+    expect(stringProp(props, "timeout")).toBe("")
+    expect(stringProp(props, "usePty")).toBe("")
+    expect(stringProp(props, "outputs")).toBe("")
+    expect(stringProp(props, "missing")).toBe("")
   })
+})
 
-  it("returns true at boundary end", () => {
-    const ranges: Array<[number, number]> = [[5, 20]]
-    expect(isInsideFencedCodeBlock(20, ranges)).toBe(true)
+describe("stringArrayProp", () => {
+  it("returns an array of strings, and undefined for any other prop", () => {
+    const props = { outputs: ["region", "zone"], empty: [], mixed: ["a", 1], region: "x" }
+    expect(stringArrayProp(props, "outputs")).toEqual(["region", "zone"])
+    expect(stringArrayProp(props, "empty")).toEqual([])
+    expect(stringArrayProp(props, "mixed")).toBeUndefined()
+    expect(stringArrayProp(props, "region")).toBeUndefined()
+    expect(stringArrayProp(props, "missing")).toBeUndefined()
   })
 })
