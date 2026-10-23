@@ -17,11 +17,11 @@
   "dependencies": {
     "@astrojs/starlight": "0.42.6",
     "@vercel/analytics": "2.0.1",
-    "astro": "7.3.8",
+    "astro": "7.4.0",
     "sharp": "0.35.5"
   },
   "devDependencies": {
-    "cspell": "10.3.6",
+    "cspell": "10.4.0",
     "linkinator": "8.1.0"
   }
 }
