@@ -76,7 +76,11 @@ variables:
 
 <Iframe id="region-picker" src="./assets/picker/index.html" inputsId="cluster" outputs={["region"]} />
 
-<Command id="configure-kubectl" command="aws eks update-kubeconfig --name my-cluster --region {{ .outputs.region_picker.region }}" />
+<Command
+  id="configure-kubectl"
+  env={{ REGION: "{{ .outputs.region_picker.region }}" }}
+  command='aws eks update-kubeconfig --name my-cluster --region "$REGION"'
+/>
 ````
 
 ### Receiving input values
@@ -107,7 +111,7 @@ The page sets outputs by posting a message to the runbook:
 parent.postMessage({ type: "runbooks:set-outputs", outputs: { region: "eu-west-1" } }, "*")
 ```
 
-Later blocks read them like any block's outputs: `{{ .outputs.region_picker.region }}`, with hyphens in the block ID turned into underscores. Each message adds to or replaces the outputs the page set before. The block shows the current outputs under the frame.
+Later blocks read them like any block's outputs: `{{ .outputs.region_picker.region }}`, with hyphens in the block ID turned into underscores. Each message adds to or replaces the outputs the page set before. The block shows the current outputs under the frame. The page decides what they hold, so pass them to a script with the block's [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) prop, which hands the script each value as data.
 
 The block refuses a whole message, and shows why under the frame, when any of these is true:
 

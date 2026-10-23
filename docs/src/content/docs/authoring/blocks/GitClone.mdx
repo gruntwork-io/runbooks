@@ -277,17 +277,26 @@ For a local checkout, `clone_path` is the repository root the user selected, and
 
 Because `org_id` and `repo_id` (and, for a checkout without a remote, `repo_owner` and `repo_name`) can be missing, read them behind a `hasKey` guard. Otherwise a block that references them waits until they exist, which without a GitHub token is never. See [Outputs a block emits only sometimes](/authoring/inputs-and-outputs/#outputs-a-block-emits-only-sometimes).
 
-```
-{{ if hasKey .outputs.clone_repo "org_id" }}--org-id {{ .outputs.clone_repo.org_id }}{{ end }}
+```mdx
+<Command
+  id="register-repo"
+  env={{
+    ORG_ID: '{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}',
+  }}
+  command='my-tool register ${ORG_ID:+--org-id "$ORG_ID"}'
+/>
 ```
 
-Reference outputs in later blocks with template expressions:
+`ORG_ID` is empty when the output is missing, and `${ORG_ID:+...}` then leaves out the flag.
+
+Pass outputs to a later block's script with its [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) prop:
 
 ```mdx
 <Command
   id="list-files"
   title="List Cloned Files"
-  command='ls -la "{{ .outputs.clone_repo.clone_path }}"'
+  env={{ REPO_DIR: "{{ .outputs.clone_repo.clone_path }}" }}
+  command='ls -la "$REPO_DIR"'
 />
 ```
 
@@ -333,6 +342,7 @@ The GitClone block has a collapsible **View Logs** section, like the [Command](/
   id="apply-changes"
   githubAuthId="gh-auth"
   title="Apply OpenTofu Changes"
-  command='cd "{{ .outputs.clone_infra.clone_path }}" && tofu apply -auto-approve'
+  env={{ REPO_DIR: "{{ .outputs.clone_infra.clone_path }}" }}
+  command='cd "$REPO_DIR" && tofu apply -auto-approve'
 />
 ```

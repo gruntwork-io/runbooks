@@ -296,7 +296,7 @@ Other forms aren't recognized, such as a guard on a variable (`{{ if hasKey $rep
 
 <Aside type="caution">
 - **The upstream block has to publish at least one output.** A `<Command>` that succeeded without writing any outputs looks the same as one that failed, so a block that reads its outputs only behind guards keeps waiting.
-- **Guards work only where the template engine renders.** That covers `<Command>` and `<Check>` scripts, `<Template>` files and `<TemplateInline>` content. Props the app fills in itself can't evaluate `if`, so every output they reference is required: the `prefilled*` props of `<GitClone>` and `<GitPullRequest>`, and the `outputPath` of `<TemplateInline>`.
+- **Guards work only where the template engine renders.** That covers `<Command>` and `<Check>` scripts and their `env` values, `<Template>` files and `<TemplateInline>` content. Each `env` value is its own template, so a guard in one doesn't cover a reference in another or in the script. Props the app fills in itself can't evaluate `if`, so every output they reference is required: the `prefilled*` props of `<GitClone>` and `<GitPullRequest>`, and the `outputPath` of `<TemplateInline>`.
 </Aside>
 
 ### Combining inputs and outputs

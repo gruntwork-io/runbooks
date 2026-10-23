@@ -241,7 +241,7 @@ A check's output streams into the same **View Logs** panel as a command's. See [
 
 ## Block outputs
 
-A check script can write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and later blocks reference them as `{{ .outputs.<block-id>.<key> }}`:
+A check script can write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and later blocks reference them as `{{ .outputs.<block-id>.<key> }}`, or pass them to a script with [`env`](/authoring/blocks/command/#passing-values-as-environment-variables):
 
 ```bash
 #!/bin/bash

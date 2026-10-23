@@ -91,13 +91,14 @@ After a successful PR creation, the block produces outputs that can be reference
 | `PR_ID` | The pull request number | `42` |
 | `PR_URL` | The full URL of the created pull request | `https://github.com/org/repo/pull/42` |
 
-Reference outputs in downstream blocks using template variables:
+Pass an output to a later block's script with its [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) prop:
 
 ```mdx
 <Command
   id="notify"
   title="Post PR Link"
-  command="echo 'PR created: {{ .outputs.create_pr.PR_URL }}'"
+  env={{ PR_URL: "{{ .outputs.create_pr.PR_URL }}" }}
+  command='echo "PR created: $PR_URL"'
 />
 ```
 
@@ -188,7 +189,8 @@ See [GitHub Enterprise support](/authoring/blocks/githubauth/#github-enterprise-
 <Command
   id="make-changes"
   title="Apply Configuration"
-  command='echo "new_setting = true" >> "{{ .outputs.clone_infra.clone_path }}/config.hcl"'
+  env={{ REPO_DIR: "{{ .outputs.clone_infra.clone_path }}" }}
+  command='echo "new_setting = true" >> "$REPO_DIR/config.hcl"'
 />
 
 <GitHubPullRequest

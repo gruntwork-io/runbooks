@@ -101,7 +101,7 @@ Until the user first clicks **Submit**, other blocks get the values the form sta
 
 ## Using variables in Commands and Checks
 
-Command, Check, Finish, Template and TemplateInline blocks read the values of an Inputs block through `inputsId`. A Command or Check whose script references `{{ .inputs.X }}` needs `inputsId` or an [embedded](#embedded-in-command-or-check) Inputs block. Without one, the block shows only a "Configuration Required" warning and can't run.
+Command, Check, Finish, Template and TemplateInline blocks read the values of an Inputs block through `inputsId`. A Command or Check whose script or `env` references `{{ .inputs.X }}` needs `inputsId` or an [embedded](#embedded-in-command-or-check) Inputs block. Without one, the block shows only a "Configuration Required" warning and can't run.
 
 ### Reference by `inputsId`
 
@@ -121,7 +121,8 @@ variables:
 
 <Command 
     id="create-vpc" 
-    command="aws ec2 create-vpc --cidr-block {{ .inputs.CidrBlock }} --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value={{ .inputs.VpcName }}}]'"
+    env={{ CIDR_BLOCK: "{{ .inputs.CidrBlock }}", VPC_NAME: "{{ .inputs.VpcName }}" }}
+    command='aws ec2 create-vpc --cidr-block "$CIDR_BLOCK" --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=$VPC_NAME}]"'
     inputsId="vpc-config"
     title="Create VPC"
     successMessage="VPC {{ .inputs.VpcName }} created!"
@@ -158,6 +159,11 @@ variables:
     id="deploy" 
     path="scripts/deploy.sh"
     inputsId={["global-config", "app-config"]}
+    env={{
+        ENVIRONMENT: "{{ .inputs.Environment }}",
+        APP_NAME: "{{ .inputs.AppName }}",
+        PORT: "{{ .inputs.Port }}",
+    }}
     title="Deploy Application"
 />
 `````
@@ -169,7 +175,8 @@ You can embed Inputs directly inside a Command or Check block:
 `````mdx
 <Command 
     id="greet" 
-    command='echo "Hello, {{ .inputs.Name }}!"'
+    env={{ NAME: "{{ .inputs.Name }}" }}
+    command='echo "Hello, $NAME!"'
     title="Say Hello"
 >
     <Inputs id="greeting-inputs">
@@ -266,7 +273,12 @@ Now create the repository:
 
 <Command 
     id="create-repo" 
-    command='gh repo create "{{ .inputs.OrgName }}/{{ .inputs.RepoName }}" "--{{ .inputs.Visibility }}"'
+    env={{
+        ORG: "{{ .inputs.OrgName }}",
+        REPO: "{{ .inputs.RepoName }}",
+        VISIBILITY: "{{ .inputs.Visibility }}",
+    }}
+    command='gh repo create "$ORG/$REPO" "--$VISIBILITY"'
     inputsId="repo-settings"
     title="Create Repository"
     successMessage="Repository {{ .inputs.OrgName }}/{{ .inputs.RepoName }} created!"
@@ -277,7 +289,8 @@ Verify the repository was created:
 
 <Check 
     id="verify-repo" 
-    command='gh repo view "{{ .inputs.OrgName }}/{{ .inputs.RepoName }}"'
+    env={{ ORG: "{{ .inputs.OrgName }}", REPO: "{{ .inputs.RepoName }}" }}
+    command='gh repo view "$ORG/$REPO"'
     inputsId="repo-settings"
     title="Verify Repository Exists"
     successMessage="Repository verified!"
