@@ -244,6 +244,15 @@ describe("stripFrontMatter", () => {
   it("leaves content without front matter, or with unclosed front matter, as it is", () => {
     expect(stripFrontMatter("# Body\n---\n")).toBe("# Body\n---\n")
     expect(stripFrontMatter("---\ntitle: x\n# Body\n")).toBe("---\ntitle: x\n# Body\n")
+    // Only a line that is just --- closes it.
+    expect(stripFrontMatter("---\ntitle: x\n---oops\n# Body\n")).toBe(
+      "---\ntitle: x\n---oops\n# Body\n",
+    )
+  })
+
+  it("strips empty front matter, and front matter that ends the file", () => {
+    expect(stripFrontMatter("---\n---\n# Body\n")).toBe("\n\n# Body\n")
+    expect(stripFrontMatter("---\ntitle: x\n---")).toBe("\n\n")
   })
 })
 
@@ -253,11 +262,14 @@ describe("frontMatter", () => {
       'title: x\nrunbooks: ">= 0.28"',
     )
     expect(frontMatter("---\r\ntitle: x\r\n---\r\n# Body\r\n")).toBe("title: x")
+    expect(frontMatter("---\n---\n# Body\n")).toBe("")
+    expect(frontMatter("---\ntitle: x\n---")).toBe("title: x")
   })
 
   it("is null for content without front matter, or with unclosed front matter", () => {
     expect(frontMatter("# Body\n---\ntitle: x\n---\n")).toBeNull()
     expect(frontMatter("---\ntitle: x\n# Body\n")).toBeNull()
+    expect(frontMatter("---\ntitle: x\n---oops\n# Body\n")).toBeNull()
   })
 })
 

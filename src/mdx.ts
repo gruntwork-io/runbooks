@@ -122,10 +122,10 @@ export function mdxErrorMessage(err: unknown): string {
 }
 
 /**
- * Front matter: a `---` line at the very start of the file, the YAML, and the
- * next `---` line.
+ * Front matter: a `---` line at the very start of the file, the YAML, if
+ * any, and the next line that is just `---`.
  */
-const FRONT_MATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
+const FRONT_MATTER = /^---\r?\n(?:([\s\S]*?)\r?\n)?---(?:\r?\n|$)/
 
 /**
  * Strips YAML front matter from MDX content.
@@ -152,7 +152,8 @@ export function stripFrontMatter(content: string): string {
 
 /** The YAML of a runbook's front matter, or null when it has none. */
 export function frontMatter(content: string): string | null {
-  return FRONT_MATTER.exec(content)?.[1] ?? null
+  const match = FRONT_MATTER.exec(content)
+  return match ? (match[1] ?? "") : null
 }
 
 /** A string prop's value, or "" when the prop is absent or not a string. */
