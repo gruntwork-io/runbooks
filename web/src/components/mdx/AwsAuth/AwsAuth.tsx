@@ -6,7 +6,6 @@ import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdo
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { useTheme } from "@/contexts/useTheme"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -75,8 +74,6 @@ function AwsAuthInteractive({
   // Error reporting context (for configuration errors only)
   const { reportError, clearError } = useErrorReporting()
 
-  const { trackBlockRender } = useTelemetry()
-
   // Theme — swap the AWS wordmark for its light variant on dark surfaces
   const { resolvedTheme } = useTheme()
 
@@ -94,11 +91,6 @@ function AwsAuthInteractive({
   const expiry = useCredentialExpiry(
     auth.authStatus === "authenticated" ? auth.expiresAt : undefined,
   )
-
-  // Track block render on mount
-  useEffect(() => {
-    trackBlockRender("AwsAuth")
-  }, [trackBlockRender])
 
   // Load available profiles when profile tab is selected
   const { authMethod, profiles, loadAwsProfiles } = auth

@@ -7,8 +7,8 @@ import type { GitHubAuthProps } from "@/components/mdx/GitAuth/types"
  * GitHubAuth is now a GitHub-locked alias of the generic <GitAuth> block —
  * equivalent to `<GitAuth provider="github" hideProviderSelect />`. It renders
  * with no provider picker and behaves exactly as before. The internal
- * `__registryType` keeps its duplicate-id, telemetry, and error-message
- * identity reporting as "GitHubAuth".
+ * `__registryType` keeps its duplicate-id and error-message identity reporting
+ * as "GitHubAuth".
  */
 export function GitHubAuth(props: GitHubAuthProps) {
   return (

@@ -4,7 +4,6 @@ import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdo
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
@@ -105,8 +104,6 @@ function GoogleAuthInteractive({
   // inline via the hook's errorMessage/detectionWarning).
   const { reportError, clearError } = useErrorReporting()
 
-  const { trackBlockRender } = useTelemetry()
-
   const auth = useGoogleAuth({
     id,
     ...(resolvedProject ? { project: resolvedProject } : {}),
@@ -123,11 +120,6 @@ function GoogleAuthInteractive({
 
   const expiresAt = auth.authStatus === "authenticated" ? auth.accountInfo?.expiresAt : undefined
   const expiry = useCredentialExpiry(expiresAt)
-
-  // Track block render on mount
-  useEffect(() => {
-    trackBlockRender("GoogleAuth")
-  }, [trackBlockRender])
 
   // Load the gcloud configurations when that tab is selected (mirrors AwsAuth's
   // lazy profile load — a pure disk read, but not one worth doing on mount).

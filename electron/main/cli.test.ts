@@ -250,9 +250,11 @@ describe("parseCliArgs", () => {
     expect(config.runbookPath).toBe("/home/me/rb")
   })
 
-  it("parses --no-telemetry", () => {
-    const config = parseCliArgs(["runbooks", "--no-telemetry"])
+  // --no-telemetry has no effect for now, but existing launch commands pass it.
+  it("accepts --no-telemetry without taking it as the runbook path", () => {
+    const config = parseCliArgs(["runbooks", "--no-telemetry", "./rb"], "/home/me")
     expect(config.noTelemetry).toBe(true)
+    expect(config.runbookPath).toBe("/home/me/rb")
   })
 
   // -----------------------------------------------------------------------

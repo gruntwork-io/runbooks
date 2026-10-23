@@ -22,7 +22,6 @@ import type { ExecutionStatus } from "@/components/mdx/_shared/types"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import { isRunBlocked } from "@/lib/blockRuns"
 import { revealOutputs } from "@/lib/outputValues"
 import type { AppError } from "@/types/error"
@@ -139,7 +138,6 @@ function Prerequisites({
     "Prerequisites",
   )
   const { reportError, clearError } = useErrorReporting()
-  const { trackBlockRender } = useTelemetry()
   const { enabled: instructionMode } = useInstructionMode()
   const toolList = parseToolList(id, children)
   const { state, check, cancel, error } = usePrerequisitesRun(id)
@@ -156,10 +154,6 @@ function Prerequisites({
     stop: cancel,
     reveal: revealSelf,
   })
-
-  useEffect(() => {
-    trackBlockRender("Prerequisites")
-  }, [trackBlockRender])
 
   const configError = toolList.ok ? null : toolList.error.message
   useEffect(() => {

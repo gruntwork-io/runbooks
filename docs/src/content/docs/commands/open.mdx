@@ -110,7 +110,7 @@ These tokens are used only for HTTPS sources. SSH sources (`git@...` or `ssh://.
 | Flag | Effect |
 |------|--------|
 | `--watch` | Turns on [watch mode](/commands/watch/), which reloads the runbook when you save it. |
-| `--no-telemetry` | Turns off anonymous telemetry. Setting `RUNBOOKS_TELEMETRY_DISABLE=1` does the same. |
+| `--no-telemetry` | Has no effect, because Runbooks sends no usage data (see [Telemetry](/security/telemetry/)). It is still accepted so existing launch commands keep working, as is the `RUNBOOKS_TELEMETRY_DISABLE` environment variable. |
 | `--verbose` | Keeps the command attached to the terminal and prints the app's logs there until you quit Runbooks. Use it to troubleshoot a launch that shows no window. It shows logs only for a Runbooks it starts. If Runbooks is already running, the command hands the runbook to it and exits. |
 
 ## What it does

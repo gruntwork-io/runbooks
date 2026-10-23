@@ -882,12 +882,6 @@ export interface IpcChannelMap {
   // Watch Mode
   "watch:subscribe": { params: void; result: { ok: true } }
 
-  // Telemetry
-  "telemetry:config": {
-    params: void
-    result: { enabled: boolean; token?: string; anonymousId?: string; version?: string }
-  }
-
   // CLI
   "cli:check-install": {
     params: void
@@ -941,7 +935,6 @@ export interface IpcChannelMap {
       runbookPath?: string
       remoteUrl?: string
       watch?: boolean
-      noTelemetry?: boolean
       disableLiveFileReload?: boolean
     }
   }
