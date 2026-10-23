@@ -49,16 +49,28 @@ hello
     expect(b!.content.trim()).toBe("hello")
   })
 
-  it("parses generateFile=true variants", () => {
+  it("reads generateFile as the block does: on for any truthy value", () => {
     const p = writeRunbook(`
 <TemplateInline id="a" outputPath="a" generateFile="true">x</TemplateInline>
 <TemplateInline id="b" outputPath="b" generateFile={true}>y</TemplateInline>
 <TemplateInline id="c" outputPath="c">z</TemplateInline>
+<TemplateInline id="d" outputPath="d" generateFile>w</TemplateInline>
+<TemplateInline id="e" outputPath="e" generateFile={false}>v</TemplateInline>
 `)
     const blocks = parseTemplateInlineBlocks(p)
     expect(blocks.get("a")?.generateFile).toBe(true)
     expect(blocks.get("b")?.generateFile).toBe(true)
     expect(blocks.get("c")?.generateFile).toBe(false)
+    expect(blocks.get("d")?.generateFile).toBe(true)
+    expect(blocks.get("e")?.generateFile).toBe(false)
+  })
+
+  it("reads props written as JSX expressions", () => {
+    const p = writeRunbook(
+      '<TemplateInline id={"tpl"} outputPath={`out.txt`} inputsId={\'i1\'} target={"worktree"}>x</TemplateInline>\n',
+    )
+    const b = parseTemplateInlineBlocks(p).get("tpl")
+    expect([b?.outputPath, b?.inputsId, b?.target]).toEqual(["out.txt", "i1", "worktree"])
   })
 
   it("ignores TemplateInline blocks without an id", () => {
@@ -90,7 +102,7 @@ example content
     v.init()
     const comps = v.getComponents()
     expect(comps).toHaveLength(1)
-    expect(comps[0]!.props).toContain('outputPath="real.txt"')
+    expect(comps[0]!.props.outputPath).toBe("real.txt")
   })
 })
 
@@ -174,6 +186,12 @@ describe("parseRunDependencies", () => {
 `)
 
     expect(parseRunDependencies(p).size).toBe(0)
+  })
+
+  it("reads an id and dependsOn written as JSX expressions", () => {
+    const p = writeRunbook('<Command id={"deploy"} command="true" dependsOn={`login`} />\n')
+
+    expect([...parseRunDependencies(p)]).toEqual([["deploy", ["login"]]])
   })
 })
 
@@ -302,6 +320,14 @@ describe("parseAuthDependencies", () => {
     const p = writeRunbook(`<AwsAuth id="aws1" />`)
     expect(parseAuthDependencies(p).size).toBe(0)
   })
+
+  it("reads a JSX expression reference after a block whose command holds an escaped quote", () => {
+    const p = writeRunbook(String.raw`<AwsAuth id="aws1" />
+<Command id="first" command={'echo it\'s > out.txt'} />
+<Command id={"cmd1"} awsAuthId={"aws1"} command="aws sts get-caller-identity" />
+`)
+    expect(parseAuthDependencies(p).get("cmd1")?.authBlockId).toBe("aws1")
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -408,6 +434,31 @@ describe("InputValidator", () => {
     v.init()
     const errs = v.getConfigErrors().filter((e) => e.componentType === "MysteryBlock")
     expect(errs).toEqual([])
+  })
+
+  it("ignores unknown blocks in inline code or a comment, and reports a nested one", () => {
+    const p = writeRunbook(
+      [
+        "Write `<InlineBlock />` to add one.",
+        "",
+        "{/* <CommentedBlock /> */}",
+        "",
+        '<Admonition type="info">',
+        "<NestedBlock />",
+        "</Admonition>",
+      ].join("\n"),
+    )
+    const v = new InputValidator(p)
+    v.init()
+    expect(v.getConfigErrors().map((e) => e.componentType)).toEqual(["NestedBlock"])
+  })
+
+  it("throws, with the line it fails on, for a runbook that isn't valid MDX", () => {
+    const p = writeRunbook('# Title\n\n<Command id="c" command="echo \\"x\\"" />\n')
+    const v = new InputValidator(p)
+    expect(() => v.init()).toThrow(
+      "runbook.mdx is not a valid runbook: Line 3: Unexpected character",
+    )
   })
 
   it("flags Inputs missing both 'path' and inline content", () => {

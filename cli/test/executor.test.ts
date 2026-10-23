@@ -76,6 +76,74 @@ describe("TestExecutor — config-error surfacing", () => {
     // runTest can surface it. We assert init does not throw.
     await executor.init()
   })
+
+  it.each([
+    ["isn't valid MDX", '<Command id="c" command="echo \\"x\\"" />', "Unexpected character"],
+    [
+      "has code in it, which the app refuses",
+      '<Command id="c" command={run()} />',
+      "the `command` prop of <Command> must be a literal value, not {run()}.",
+    ],
+  ])(
+    "fails to start, with the line it fails on, for a runbook that %s",
+    async (_name, block, error) => {
+      const rb = path.join(tmp, "runbook.mdx")
+      fs.writeFileSync(rb, `# Bad Runbook\n\n${block}\n`)
+
+      const executor = new TestExecutor(rb, tmp, "generated", {
+        timeout: 5_000,
+        verbose: false,
+      })
+      await expect(executor.init()).rejects.toThrow(
+        `runbook.mdx is not a valid runbook: Line 3: ${error}`,
+      )
+    },
+  )
+})
+
+// ---------------------------------------------------------------------------
+// Props written as JSX expressions run as the app runs them.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — JSX expression props", () => {
+  let tmp: string
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-jsx-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("runs commands with JavaScript escapes, and the blocks after them", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      [
+        "# Escapes",
+        "",
+        String.raw`<Command id={"quoted"} command={"printf '%s' \"Done\" > quoted.txt"} />`,
+        "",
+        String.raw`<Command id="single" command={'echo "it\'s" > single.txt'} />`,
+        "",
+        '<Check id="verify" command="test &quot;$(cat quoted.txt)&quot; = Done" />',
+        "",
+        '<Check id="verify-single" command={`grep -qx "it\'s" single.txt`} />',
+        "",
+      ].join("\n"),
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    const result = await executor.runTest({ name: "escapes" })
+
+    expect(result.stepResults.map((r) => [r.block, r.actualStatus])).toEqual([
+      ["command:quoted", "success"],
+      ["command:single", "success"],
+      ["check:verify", "success"],
+      ["check:verify-single", "success"],
+    ])
+    expect(result.status).toBe("passed")
+  })
 })
 
 // ---------------------------------------------------------------------------

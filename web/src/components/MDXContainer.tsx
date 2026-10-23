@@ -2,11 +2,10 @@ import React, { useState, useEffect, useMemo } from "react"
 import type { ReactNode, Ref } from "react"
 import { evaluate } from "@mdx-js/mdx"
 import * as runtime from "react/jsx-runtime"
-import remarkGfm from "remark-gfm"
 import type { AppError } from "@/types/error"
-import { remarkLiteralOnly } from "@/lib/remarkLiteralOnly"
 import { rewriteAssetUrl } from "@/lib/assetPaths"
 import { errorMessage } from "../../../src/errors/message"
+import { RUNBOOK_REMARK_PLUGINS, stripFrontMatter } from "../../../src/mdx"
 
 // Support MDX components
 import { Inputs } from "@/components/mdx/Inputs"
@@ -304,33 +303,6 @@ function rehypeTaskListIds() {
   }
 }
 
-// Strips YAML front matter from MDX content.
-// Front matter is YAML metadata between --- delimiters at the start of the file.
-// Example:
-//   ---
-//   title: My Runbook
-//   ---
-//   # Content here
-// The block is replaced with one blank line per line it spanned, so line
-// numbers in compile errors (e.g. remarkLiteralOnly's "Line N: ...") still
-// match the runbook file.
-const stripFrontMatter = (content: string): string => {
-  // Front matter must start at the beginning of the file with ---
-  if (!content.startsWith("---")) {
-    return content
-  }
-
-  // Find the closing --- delimiter (must be on its own line)
-  const endMatch = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)
-  if (!endMatch) {
-    return content
-  }
-
-  // Replace the front matter block with the same number of line breaks
-  const lineBreaks = endMatch[0].split("\n").length - 1
-  return "\n".repeat(lineBreaks) + content.slice(endMatch[0].length)
-}
-
 /**
  * The MDX element → block component registry. Exported so tests can enumerate
  * the exact set of blocks the renderer supports and assert each interactive
@@ -381,10 +353,11 @@ export const compileMDX = async (
   const compiledMDX = await evaluate(mdxContent, {
     ...runtime,
     development: false, // Keep development false to avoid jsxDEV issues
-    remarkPlugins: [
-      remarkGfm, // Enable GitHub Flavored Markdown (strikethrough, tables, etc.)
-      remarkLiteralOnly, // Reject ESM and non-literal expressions so opening a runbook cannot run code
-    ],
+    // GitHub Flavored Markdown (strikethrough, tables, etc.), and
+    // remarkLiteralOnly, which rejects ESM and non-literal expressions so
+    // opening a runbook cannot run code. Shared with the main process and the
+    // test CLI, so they parse and refuse runbooks as this does.
+    remarkPlugins: [...RUNBOOK_REMARK_PLUGINS],
     rehypePlugins: [[rehypeTransformAssetPaths, { assetHost }], rehypeTaskListIds],
     useMDXComponents: () => MDX_COMPONENTS,
   })

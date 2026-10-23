@@ -88,7 +88,7 @@
       }
     },
     {
-      "files": ["web/src/lib/remarkLiteralOnly.ts"],
+      "files": ["src/remarkLiteralOnly.ts", "src/mdx.ts"],
       "rules": {
         "typescript/switch-exhaustiveness-check": "off"
       }

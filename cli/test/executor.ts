@@ -11,8 +11,8 @@ import * as path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
 import { Result, ManagedRuntime } from "effect"
 
-import { extractProp, extractStringArrayProp } from "../../src/domain/registry/executable.ts"
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
+import { stringArrayProp, stringProp, type PropValue, type Props } from "../../src/mdx.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
 import {
@@ -243,6 +243,21 @@ function renderGoTemplate(content: string, vars: Record<string, unknown>): strin
   )
 
   return result
+}
+
+/** A block's props with the templates in their strings, nested ones included, rendered. */
+function renderPropTemplates(props: Props, vars: Record<string, unknown>): Props {
+  const render = (value: PropValue): PropValue => {
+    if (typeof value === "string") {
+      return value.includes("{{") ? renderGoTemplate(value, vars) : value
+    }
+    if (Array.isArray(value)) return value.map(render)
+    if (typeof value === "object" && value !== null) {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, render(item)]))
+    }
+    return value
+  }
+  return Object.fromEntries(Object.entries(props).map(([name, value]) => [name, render(value)]))
 }
 
 /**
@@ -742,22 +757,20 @@ export class TestExecutor {
       return result
     }
 
-    // Render template vars in block props if needed. The app resolves props
-    // for display and shows a sensitive output in them as <redacted>, so they
-    // get the same here.
-    if (block.props.includes("{{")) {
-      try {
-        block = {
-          ...block,
-          props: renderGoTemplate(block.props, this.buildTemplateVars(block.id, maskOutputs)),
-        }
-      } catch (e: unknown) {
-        result.passed = false
-        result.actualStatus = "error"
-        result.error = `Failed to render template in block props: ${errorMessage(e)}`
-        result.duration = Date.now() - start
-        return result
+    // Render template vars in block props. The app resolves props for display
+    // and shows a sensitive output in them as <redacted>, so they get the
+    // same here.
+    try {
+      block = {
+        ...block,
+        props: renderPropTemplates(block.props, this.buildTemplateVars(block.id, maskOutputs)),
       }
+    } catch (e: unknown) {
+      result.passed = false
+      result.actualStatus = "error"
+      result.error = `Failed to render template in block props: ${errorMessage(e)}`
+      result.duration = Date.now() - start
+      return result
     }
 
     switch (block.type) {
@@ -793,7 +806,7 @@ export class TestExecutor {
       // nothing to run: finishing the runbook is the whole block, as in the app,
       // where it also counts as a successful run for the blocks that depend on it.
       case "Finish":
-        if (!extractProp(block.props, "command") && !extractProp(block.props, "path")) {
+        if (!stringProp(block.props, "command") && !stringProp(block.props, "path")) {
           result.actualStatus = "success"
           result.passed = this.matchesExpectedStatus(step.expect, "success")
           this.passedScripts.add(normalizeBlockId(block.id))
@@ -813,7 +826,7 @@ export class TestExecutor {
         return this.runGitAuth(block, step, start, "gitlab")
 
       case "GitAuth": {
-        const provider = extractProp(block.props, "provider") || "github"
+        const provider = stringProp(block.props, "provider") || "github"
         if (provider !== "github" && provider !== "gitlab") {
           result.passed = false
           result.actualStatus = "error"
@@ -1411,7 +1424,7 @@ export class TestExecutor {
    * enterprise host.
    */
   private findGitHubAuthEnv(block: ParsedComponent, prefix: string): GitAuthLookup {
-    const host = tryNormalizeGitHubHost(extractProp(block.props, "host")) ?? DEFAULT_GITHUB_HOST
+    const host = tryNormalizeGitHubHost(stringProp(block.props, "host")) ?? DEFAULT_GITHUB_HOST
     const env = { ...process.env, ...this.testEnv }
     let token = githubEnvCredentialForHost(host, env, prefix)?.token ?? ""
     if (!prefix && host === DEFAULT_GITHUB_HOST) {
@@ -1432,7 +1445,7 @@ export class TestExecutor {
     if (!token) return { skipReason: "No GitLab credentials found" }
 
     const env: Record<string, string | undefined> = { ...process.env, ...this.testEnv }
-    const pinned = extractProp(block.props, "instanceUrl") || extractProp(block.props, "host")
+    const pinned = stringProp(block.props, "instanceUrl") || stringProp(block.props, "host")
     // Not normalizeGitLabHost: its gitlab.com fallback would bind a typo'd pin
     // to gitlab.com and hand the block a gitlab.com token.
     const host = pinned ? tryNormalizeGitLabHost(pinned) : envTokenHost(env)
@@ -1651,15 +1664,15 @@ export class TestExecutor {
     const project =
       this.firstEnv(prefix, GOOGLE_PROJECT_ENV_VARS) ||
       (prefix ? this.firstEnv("", GOOGLE_PROJECT_ENV_VARS) : "") ||
-      extractProp(block.props, "project")
+      stringProp(block.props, "project")
     const region =
       this.firstEnv(prefix, GOOGLE_REGION_ENV_VARS) ||
       (prefix ? this.firstEnv("", GOOGLE_REGION_ENV_VARS) : "") ||
-      extractProp(block.props, "defaultRegion")
+      stringProp(block.props, "defaultRegion")
     const zone =
       this.firstEnv(prefix, GOOGLE_ZONE_ENV_VARS) ||
       (prefix ? this.firstEnv("", GOOGLE_ZONE_ENV_VARS) : "") ||
-      extractProp(block.props, "defaultZone")
+      stringProp(block.props, "defaultZone")
 
     if (project) for (const name of GOOGLE_PROJECT_WRITE_VARS) blockCreds[name] = project
     if (region) for (const name of GOOGLE_REGION_WRITE_VARS) blockCreds[name] = region
@@ -1704,7 +1717,7 @@ export class TestExecutor {
   private runIframe(block: ParsedComponent, step: TestStep, start: number): StepResult {
     const result = makeStepResult(`iframe:${block.id}`, step.expect)
     const values = step.set_outputs ?? {}
-    const declared = extractStringArrayProp(block.props, "outputs") ?? []
+    const declared = stringArrayProp(block.props, "outputs") ?? []
     const undeclared = Object.keys(values).filter((name) => !declared.includes(name))
     if (undeclared.length > 0) {
       result.passed = false
@@ -1729,16 +1742,16 @@ export class TestExecutor {
 
     // A block pointed at an existing checkout clones nothing — it just adopts
     // the directory, mirroring the app's "Use local checkout" source.
-    const repoDir = extractProp(block.props, "prefilledRepoDir")
-    const source = extractProp(block.props, "source")
+    const repoDir = stringProp(block.props, "prefilledRepoDir")
+    const source = stringProp(block.props, "source")
     if (source === "local" || (!source && repoDir)) {
       return this.runGitCloneLocal(block, step, start, result, repoDir)
     }
 
-    const cloneURL = extractProp(block.props, "prefilledUrl")
-    const ref = extractProp(block.props, "prefilledRef")
-    const repoPath = extractProp(block.props, "prefilledRepoPath")
-    const localPath = extractProp(block.props, "prefilledLocalPath")
+    const cloneURL = stringProp(block.props, "prefilledUrl")
+    const ref = stringProp(block.props, "prefilledRef")
+    const repoPath = stringProp(block.props, "prefilledRepoPath")
+    const localPath = stringProp(block.props, "prefilledLocalPath")
 
     if (!cloneURL) {
       this.blockStates.set(block.id, "skipped")
@@ -1855,7 +1868,7 @@ export class TestExecutor {
     if (url.protocol !== "https:") return process.env
     const host = url.host.toLowerCase()
 
-    const authId = extractProp(block.props, "gitAuthId") || extractProp(block.props, "githubAuthId")
+    const authId = stringProp(block.props, "gitAuthId") || stringProp(block.props, "githubAuthId")
     const provider: GitProvider | undefined =
       (authId ? this.gitAuthTokens.get(authId)?.provider : undefined) ??
       (host === "gitlab.com" ? "gitlab" : isGitHubHost(host) ? "github" : undefined)

@@ -1,90 +1,15 @@
 import { describe, it, expect } from "bun:test"
 import { Effect, Exit } from "effect"
 import {
-  extractProp,
-  extractStringArrayProp,
   computeExecutableId,
   computeComponentId,
-  getComponentRegex,
-  parseComponents,
+  findComponents,
   ExecutableRegistry,
 } from "./executable.ts"
+import { parseMdx } from "../../mdx.ts"
 import { computeContentHash } from "../workspace/file.ts"
 import type { FileSystem } from "../../services/FileSystem.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
-
-describe("extractProp", () => {
-  it("extracts double-quoted value", () => {
-    expect(extractProp('id="my-cmd" command="echo hi"', "command")).toBe("echo hi")
-  })
-
-  it("extracts single-quoted value", () => {
-    expect(extractProp("id='my-cmd'", "id")).toBe("my-cmd")
-  })
-
-  it("extracts JSX backtick value", () => {
-    expect(extractProp("command={`echo hello`}", "command")).toBe("echo hello")
-  })
-
-  it("extracts JSX double-quoted value", () => {
-    expect(extractProp('command={"echo hello"}', "command")).toBe("echo hello")
-  })
-
-  it("extracts JSX single-quoted value", () => {
-    expect(extractProp("command={'echo hello'}", "command")).toBe("echo hello")
-  })
-
-  it("returns empty string for missing prop", () => {
-    expect(extractProp('id="x"', "command")).toBe("")
-  })
-
-  it("extracts JSX boolean value", () => {
-    expect(extractProp("generateFile={true}", "generateFile")).toBe("true")
-  })
-
-  it("does not read a prop name from inside another prop's value", () => {
-    const props =
-      'title="Assume role" command={`aws sts assume-role --external-id="{{ .inputs.ExternalId }}"`} id="assume-role"'
-    expect(extractProp(props, "id")).toBe("assume-role")
-    expect(extractProp('command={`echo id="x"`} id={`real`}', "id")).toBe("real")
-    expect(extractProp('id={`real`} command={`aws --external-id="x"`}', "id")).toBe("real")
-  })
-
-  it("does not match a prop whose name ends with the requested name", () => {
-    expect(extractProp('data-id="foo" id="bar"', "id")).toBe("bar")
-    expect(extractProp('inputsId="foo" id="bar"', "id")).toBe("bar")
-    expect(extractProp('data-id="foo"', "id")).toBe("")
-  })
-
-  it("skips values in unsupported forms", () => {
-    expect(extractProp('timeout={300} id="real"', "id")).toBe("real")
-    expect(extractProp('timeout={300} id="real"', "timeout")).toBe("")
-  })
-})
-
-describe("extractStringArrayProp", () => {
-  it.each([
-    ["double quotes", 'id="p" outputs={["region", "zone"]}', ["region", "zone"]],
-    ["mixed quotes and spacing", "outputs={ [ 'region' ,`zone`] }", ["region", "zone"]],
-    ["a trailing comma", 'outputs={["region",]}', ["region"]],
-    ["an empty array", "outputs={[]}", []],
-  ])("reads %s", (_name, props, expected) => {
-    expect(extractStringArrayProp(props, "outputs")).toEqual(expected)
-  })
-
-  it.each([
-    ["an absent prop", 'id="p"'],
-    ["a non-string item", "outputs={[1, 2]}"],
-    ["items without a separator", 'outputs={["a" "b"]}'],
-    ["a string prop", 'outputs="region"'],
-  ])("returns undefined for %s", (_name, props) => {
-    expect(extractStringArrayProp(props, "outputs")).toBeUndefined()
-  })
-
-  it("matches the whole prop name", () => {
-    expect(extractStringArrayProp('myoutputs={["x"]}', "outputs")).toBeUndefined()
-  })
-})
 
 describe("computeExecutableId", () => {
   it("returns deterministic value", () => {
@@ -118,31 +43,17 @@ describe("computeComponentId", () => {
   })
 })
 
-describe("getComponentRegex", () => {
-  it("matches self-closing component", () => {
-    const re = getComponentRegex("Command")
-    const match = re.exec('<Command id="x" command="echo" />')
-    expect(match).not.toBeNull()
-  })
+/** The components of a type in `mdx`, which must be valid MDX. */
+function componentsOf(mdx: string, componentType: string) {
+  const parsed = parseMdx(mdx)
+  if (!parsed.ok) throw new Error(parsed.error)
+  return findComponents(parsed.elements, componentType)
+}
 
-  it("matches container component", () => {
-    const re = getComponentRegex("Command")
-    const match = re.exec('<Command id="x">script content</Command>')
-    expect(match).not.toBeNull()
-    expect(match![2]).toBe("script content")
-  })
-
-  it("does not match components without props", () => {
-    const re = getComponentRegex("Command")
-    const match = re.exec("<Command/>")
-    expect(match).toBeNull()
-  })
-})
-
-describe("parseComponents", () => {
+describe("findComponents", () => {
   it("extracts components from MDX", () => {
     const mdx = '<Command id="cmd1" command="echo hi" />'
-    const result = parseComponents(mdx, "Command")
+    const result = componentsOf(mdx, "Command")
     expect(result).toHaveLength(1)
     expect(result[0]!.id).toBe("cmd1")
     expect(result[0]!.hasExplicitId).toBe(true)
@@ -150,10 +61,15 @@ describe("parseComponents", () => {
 
   it("generates ID when none is provided", () => {
     const mdx = '<Command command="echo hi" />'
-    const result = parseComponents(mdx, "Command")
+    const result = componentsOf(mdx, "Command")
     expect(result).toHaveLength(1)
-    expect(result[0]!.id).toMatch(/^Command_/)
+    expect(result[0]!.id).toBe(computeComponentId("Command", 'command="echo hi"'))
     expect(result[0]!.hasExplicitId).toBe(false)
+  })
+
+  it("reads an id written as a JSX expression", () => {
+    const result = componentsOf('<Command id={"cmd1"} command={`echo hi`} />', "Command")
+    expect(result.map((c) => [c.id, c.hasExplicitId])).toEqual([["cmd1", true]])
   })
 
   it("skips components inside fenced code blocks", () => {
@@ -164,7 +80,7 @@ Some text
 \`\`\`
 <Command id="real" command="echo real" />
 `
-    const result = parseComponents(mdx, "Command")
+    const result = componentsOf(mdx, "Command")
     expect(result).toHaveLength(1)
     expect(result[0]!.id).toBe("real")
   })
@@ -174,13 +90,13 @@ Some text
 <Command id="cmd1" command="echo a" />
 <Command id="cmd1" command="echo b" />
 `
-    const result = parseComponents(mdx, "Command")
+    const result = componentsOf(mdx, "Command")
     expect(result).toHaveLength(1)
   })
 
   it("parses container components with content", () => {
     const mdx = '<Check id="chk1">echo ok</Check>'
-    const result = parseComponents(mdx, "Check")
+    const result = componentsOf(mdx, "Check")
     expect(result).toHaveLength(1)
     expect(result[0]!.content).toContain("echo ok")
   })
@@ -188,7 +104,7 @@ Some text
   it("uses the id prop, not an id-like flag inside the command", () => {
     const mdx =
       '<Command title="Assume role" command={`aws sts assume-role --role-session-name="runbooks" --external-id="{{ .inputs.ExternalId }}"`} id="assume-role" />'
-    const result = parseComponents(mdx, "Command")
+    const result = componentsOf(mdx, "Command")
     expect(result).toHaveLength(1)
     expect(result[0]!.id).toBe("assume-role")
     expect(result[0]!.hasExplicitId).toBe(true)
@@ -204,15 +120,15 @@ Some text
       "",
       '<Command id="deploy" command="tofu apply" />',
     ].join("\n")
-    const result = parseComponents(mdx, "Command")
+    const result = componentsOf(mdx, "Command")
     expect(result).toHaveLength(1)
     expect(result[0]!.id).toBe("deploy")
-    expect(result[0]!.props).toContain("tofu apply")
+    expect(result[0]!.props.command).toBe("tofu apply")
   })
 
   it("records each component's offset in the source", () => {
     const mdx = 'Intro\n\n<Check id="a" command="echo a" />\n<Check id="b" command="echo b" />\n'
-    const result = parseComponents(mdx, "Check")
+    const result = componentsOf(mdx, "Check")
     expect(result.map((c) => c.index)).toEqual([
       mdx.indexOf('<Check id="a"'),
       mdx.indexOf('<Check id="b"'),
@@ -316,6 +232,88 @@ describe("ExecutableRegistry", () => {
     const entries = Object.keys(registry.getAllExecutables())
     const entry = await Effect.runPromise(registry.getExecutable(entries[0]!))
     expect(entry.content).toContain("& hello")
+  })
+
+  // The block runs the entry registered under its id, and shows "Script
+  // changed" when the hash of its `command` prop isn't the entry's contentHash.
+  it.each([
+    [
+      "a JSX string with escaped quotes",
+      String.raw`command={"gh repo create org/repo --private && echo \"Done\""}`,
+      'gh repo create org/repo --private && echo "Done"',
+    ],
+    ["a JSX string with an escaped single quote", String.raw`command={'echo it\'s'}`, "echo it's"],
+    ["a template literal with escaped backticks", "command={`echo \\`date\\``}", "echo `date`"],
+    ["a JSX string with spaces inside the braces", 'command={ "echo hi" }', "echo hi"],
+    ["a JSX string after a comment", 'command={/* note */ "echo hi"}', "echo hi"],
+    ["spaces around the =", 'command = "echo hi"', "echo hi"],
+    ["a template literal with an escaped ${", "command={`echo \\${HOME}`}", "echo ${HOME}"],
+    ["a template literal with a \\n escape", "command={`printf 'a\\nb'`}", "printf 'a\nb'"],
+    [
+      "a JSX string holding a character reference",
+      'command={"echo &amp; done"}',
+      "echo &amp; done",
+    ],
+    ["a numeric character reference", 'command="echo &#34;hi&#34;"', 'echo "hi"'],
+  ])("registers a command written as %s, as the block shows it", async (_name, prop, script) => {
+    const layer = makeTestFileSystem({ "/runbook.mdx": `<Command id="cmd" ${prop} />` })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    const entries = Object.values(registry.getAllExecutables())
+    expect(entries.map((e) => [e.componentId, e.contentHash])).toEqual([
+      ["cmd", computeContentHash(script)],
+    ])
+    expect(registry.getExecutableSync(entries[0]!.id)?.content).toBe(script)
+  })
+
+  it("registers the blocks after one whose JSX string holds an escaped quote and a >", async () => {
+    const mdx = [
+      String.raw`<Command id="first" command={'echo it\'s > out.txt'} />`,
+      "",
+      '<Command id="second" command="echo second" />',
+      "",
+      '<Check id="third" command="echo third">',
+      "",
+      "Notes.",
+      "",
+      "</Check>",
+    ].join("\n")
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    const componentIds = Object.values(registry.getAllExecutables()).map((e) => e.componentId)
+    expect(componentIds.sort()).toEqual(["first", "second", "third"])
+  })
+
+  it.each([
+    [
+      "isn't valid MDX",
+      String.raw`<Command id="bad" command="echo \"Done\"" />`,
+      "Unexpected character",
+    ],
+    [
+      "has code in it, which the renderer refuses",
+      '<Command id="bad" command={run()} />',
+      "the `command` prop of <Command> must be a literal value, not {run()}.",
+    ],
+  ])("warns, and registers nothing, for a runbook that %s", async (_name, block, error) => {
+    const mdx = `<Command id="ok" command="echo ok" />\n${block}\n`
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    expect(registry.getAllExecutables()).toEqual({})
+    const warnings = registry.getWarnings()
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toStartWith(`runbook.mdx is not a valid runbook: Line 2: ${error}`)
   })
 
   it("registers blocks that share an id-like flag under their own ids", async () => {

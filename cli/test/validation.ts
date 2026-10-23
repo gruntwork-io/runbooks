@@ -10,13 +10,8 @@ import { Effect, Result } from "effect"
 import { parseBoilerplateConfig } from "../../src/domain/boilerplate/config.ts"
 import { isTemplateString } from "../../src/domain/boilerplate/templateString.ts"
 import { validateVariableValue } from "../../src/domain/boilerplate/validators.ts"
-import {
-  extractProp,
-  parseComponents,
-  getComponentRegex,
-  type ParsedComponent,
-} from "../../src/domain/registry/executable.ts"
-import { findFencedCodeBlockRanges, isInsideFencedCodeBlock } from "../../src/mdx.ts"
+import { findComponents, type ParsedComponent } from "../../src/domain/registry/executable.ts"
+import { parseMdx, stringProp, type MdxElement, type Props } from "../../src/mdx.ts"
 import {
   TOOL_LIST_FENCE_HINT,
   extractToolList,
@@ -88,32 +83,35 @@ export class InputValidator {
 
   constructor(private runbookPath: string) {}
 
-  /** Parse and validate all components. Call before using other methods. */
+  /**
+   * Parse and validate all components. Call before using other methods.
+   * Throws for a runbook the app refuses to show.
+   */
   init(): void {
-    const content = fs.readFileSync(this.runbookPath, "utf-8")
+    const elements = readRunbookElements(this.runbookPath)
     const runbookDir = path.dirname(this.runbookPath)
 
     // Detect unknown block types
-    this.detectUnknownBlocks(content)
+    this.detectUnknownBlocks(elements)
 
     // Parse all component types
     const components: ParsedComponent[] = []
-    components.push(...this.parseInputsBlocks(content, runbookDir))
-    components.push(...this.parseRunBlocks(content, "Check"))
-    components.push(...this.parseRunBlocks(content, "Command"))
-    components.push(...this.parseRunBlocks(content, "Finish"))
-    components.push(...this.parseRunBlocks(content, "Prerequisites"))
-    components.push(...this.parseTemplateBlocks(content, runbookDir))
-    components.push(...this.parseTemplateInlineBlocks(content))
+    components.push(...this.parseInputsBlocks(elements, runbookDir))
+    components.push(...this.parseRunBlocks(elements, "Check"))
+    components.push(...this.parseRunBlocks(elements, "Command"))
+    components.push(...this.parseRunBlocks(elements, "Finish"))
+    components.push(...this.parseRunBlocks(elements, "Prerequisites"))
+    components.push(...this.parseTemplateBlocks(elements, runbookDir))
+    components.push(...this.parseTemplateInlineBlocks(elements))
     for (const authType of AUTH_BLOCK_TYPES) {
-      components.push(...this.parseAuthBlocks(content, authType))
+      components.push(...this.parseAuthBlocks(elements, authType))
     }
-    components.push(...this.parseAuthBlocks(content, "GitClone"))
+    components.push(...this.parseAuthBlocks(elements, "GitClone"))
     for (const prType of PR_BLOCK_TYPES) {
-      components.push(...this.parseAuthBlocks(content, prType))
+      components.push(...this.parseAuthBlocks(elements, prType))
     }
     // Only an Iframe with an id can set outputs, so only those are steps.
-    components.push(...parseComponents(content, "Iframe").filter((comp) => comp.hasExplicitId))
+    components.push(...findComponents(elements, "Iframe").filter((comp) => comp.hasExplicitId))
 
     // Sort by document position (each component's own offset in the source)
     components.sort((a, b) => a.index - b.index)
@@ -170,15 +168,12 @@ export class InputValidator {
   // Component parsing
   // -----------------------------------------------------------------------
 
-  private detectUnknownBlocks(content: string): void {
-    const codeBlockRanges = findFencedCodeBlockRanges(content)
-    const blockRe = /[<]([A-Z][a-zA-Z0-9]*)(?:\s|[/]>|>)/g
+  private detectUnknownBlocks(elements: readonly MdxElement[]): void {
     const seen = new Set<string>()
-    let match: RegExpExecArray | null
 
-    while ((match = blockRe.exec(content)) !== null) {
-      if (isInsideFencedCodeBlock(match.index, codeBlockRanges)) continue
-      const blockType = match[1]!
+    for (const { name: blockType } of elements) {
+      // A lowercase name is an HTML element, not a block
+      if (!/^[A-Z]/.test(blockType)) continue
       if (seen.has(blockType) || KNOWN_BLOCK_TYPES.has(blockType)) continue
       seen.add(blockType)
       this.configErrors.push({
@@ -189,8 +184,11 @@ export class InputValidator {
     }
   }
 
-  private parseInputsBlocks(content: string, runbookDir: string): ParsedComponent[] {
-    const components = parseComponents(content, "Inputs")
+  private parseInputsBlocks(
+    elements: readonly MdxElement[],
+    runbookDir: string,
+  ): ParsedComponent[] {
+    const components = findComponents(elements, "Inputs")
     const results: ParsedComponent[] = []
 
     for (const comp of components) {
@@ -205,7 +203,7 @@ export class InputValidator {
 
       const schema: InputsBlockSchema = { id: comp.id, variables: new Map() }
 
-      const configPath = extractProp(comp.props, "path")
+      const configPath = stringProp(comp.props, "path")
       if (configPath) {
         const boilerplatePath = resolveBoilerplatePath(runbookDir, configPath)
         try {
@@ -251,16 +249,22 @@ export class InputValidator {
     return results
   }
 
-  private parseRunBlocks(content: string, componentType: string): ParsedComponent[] {
-    const components = parseComponents(content, componentType)
+  private parseRunBlocks(
+    elements: readonly MdxElement[],
+    componentType: string,
+  ): ParsedComponent[] {
+    const components = findComponents(elements, componentType)
     for (const comp of components) {
       this.configErrors.push(...validateComponent(comp))
     }
     return components
   }
 
-  private parseTemplateBlocks(content: string, runbookDir: string): ParsedComponent[] {
-    const components = parseComponents(content, "Template")
+  private parseTemplateBlocks(
+    elements: readonly MdxElement[],
+    runbookDir: string,
+  ): ParsedComponent[] {
+    const components = findComponents(elements, "Template")
     const results: ParsedComponent[] = []
 
     for (const comp of components) {
@@ -271,7 +275,7 @@ export class InputValidator {
         continue
       }
 
-      const templatePath = extractProp(comp.props, "path")
+      const templatePath = stringProp(comp.props, "path")
       const templateDir = path.join(runbookDir, templatePath)
       if (!fs.existsSync(templateDir)) {
         this.configErrors.push({
@@ -305,16 +309,19 @@ export class InputValidator {
     return results
   }
 
-  private parseTemplateInlineBlocks(content: string): ParsedComponent[] {
-    const components = parseComponents(content, "TemplateInline")
+  private parseTemplateInlineBlocks(elements: readonly MdxElement[]): ParsedComponent[] {
+    const components = findComponents(elements, "TemplateInline")
     for (const comp of components) {
       this.configErrors.push(...validateComponent(comp))
     }
     return components
   }
 
-  private parseAuthBlocks(content: string, componentType: string): ParsedComponent[] {
-    const components = parseComponents(content, componentType)
+  private parseAuthBlocks(
+    elements: readonly MdxElement[],
+    componentType: string,
+  ): ParsedComponent[] {
+    const components = findComponents(elements, componentType)
     for (const comp of components) {
       if (!comp.hasExplicitId) {
         this.configErrors.push({
@@ -333,24 +340,18 @@ export class InputValidator {
 // ---------------------------------------------------------------------------
 
 export function parseAuthDependencies(runbookPath: string): Map<string, AuthDependency> {
-  const content = fs.readFileSync(runbookPath, "utf-8")
+  const elements = readRunbookElements(runbookPath)
   const deps = new Map<string, AuthDependency>()
-  const codeBlockRanges = findFencedCodeBlockRanges(content)
 
   for (const blockType of AUTH_DEPENDENT_TYPES) {
-    const re = getComponentRegex(blockType)
-    let match: RegExpExecArray | null
-    while ((match = re.exec(content)) !== null) {
-      if (isInsideFencedCodeBlock(match.index, codeBlockRanges)) continue
-      const props = match[1] ?? ""
-      const blockId = extractProp(props, "id")
-      if (!blockId) continue
+    for (const comp of findComponents(elements, blockType)) {
+      if (!comp.hasExplicitId) continue
 
       for (const authType of AUTH_BLOCK_TYPES) {
         const propName = authBlockRefPropName(authType)
-        const authId = extractProp(props, propName)
+        const authId = stringProp(comp.props, propName)
         if (authId) {
-          deps.set(blockId, { blockId, authBlockId: authId, authBlockType: authType })
+          deps.set(comp.id, { blockId: comp.id, authBlockId: authId, authBlockType: authType })
           break
         }
       }
@@ -371,19 +372,13 @@ const RUN_DEPENDENT_TYPES = ["Check", "Command", "Finish"] as const
  * by block id. A block without the prop has no entry.
  */
 export function parseRunDependencies(runbookPath: string): Map<string, string[]> {
-  const content = fs.readFileSync(runbookPath, "utf-8")
+  const elements = readRunbookElements(runbookPath)
   const deps = new Map<string, string[]>()
-  const codeBlockRanges = findFencedCodeBlockRanges(content)
 
   for (const blockType of RUN_DEPENDENT_TYPES) {
-    const re = getComponentRegex(blockType)
-    let match: RegExpExecArray | null
-    while ((match = re.exec(content)) !== null) {
-      if (isInsideFencedCodeBlock(match.index, codeBlockRanges)) continue
-      const props = match[1] ?? ""
-      const blockId = extractProp(props, "id")
-      const dependsOn = extractIdList(props, "dependsOn")
-      if (blockId && dependsOn.length > 0) deps.set(blockId, dependsOn)
+    for (const comp of findComponents(elements, blockType)) {
+      const dependsOn = extractIdList(comp.props, "dependsOn")
+      if (comp.hasExplicitId && dependsOn.length > 0) deps.set(comp.id, dependsOn)
     }
   }
 
@@ -411,23 +406,25 @@ export interface TemplateBlock {
   target: string
 }
 
-// Both maps come from parseComponents, like the registry and InputValidator:
+// Both maps come from findComponents, like the registry and InputValidator:
 // fenced examples are skipped and the first block with an id wins, so a
 // documented example can't replace the real block's content.
 
 export function parseTemplateInlineBlocks(runbookPath: string): Map<string, TemplateInlineBlock> {
-  const content = fs.readFileSync(runbookPath, "utf-8")
+  const elements = readRunbookElements(runbookPath)
   const blocks = new Map<string, TemplateInlineBlock>()
 
-  for (const comp of parseComponents(content, "TemplateInline")) {
+  for (const comp of findComponents(elements, "TemplateInline")) {
     if (!comp.hasExplicitId) continue
     blocks.set(comp.id, {
       id: comp.id,
       content: extractTemplateContent(comp.content),
-      outputPath: extractProp(comp.props, "outputPath"),
-      inputsId: extractProp(comp.props, "inputsId"),
-      target: extractProp(comp.props, "target"),
-      generateFile: extractProp(comp.props, "generateFile") === "true",
+      outputPath: stringProp(comp.props, "outputPath"),
+      inputsId: stringProp(comp.props, "inputsId"),
+      target: stringProp(comp.props, "target"),
+      // The block writes its file for any truthy value: a bare `generateFile`,
+      // `generateFile={true}`, and even `generateFile="false"`.
+      generateFile: Boolean(comp.props.generateFile),
     })
   }
 
@@ -435,17 +432,17 @@ export function parseTemplateInlineBlocks(runbookPath: string): Map<string, Temp
 }
 
 export function parseTemplateBlocks(runbookPath: string): Map<string, TemplateBlock> {
-  const content = fs.readFileSync(runbookPath, "utf-8")
+  const elements = readRunbookElements(runbookPath)
   const blocks = new Map<string, TemplateBlock>()
 
-  for (const comp of parseComponents(content, "Template")) {
-    const templatePath = extractProp(comp.props, "path")
+  for (const comp of findComponents(elements, "Template")) {
+    const templatePath = stringProp(comp.props, "path")
     if (!comp.hasExplicitId || !templatePath) continue
     blocks.set(comp.id, {
       id: comp.id,
       templatePath,
       inputsIds: extractIdList(comp.props, "inputsId"),
-      target: extractProp(comp.props, "target"),
+      target: stringProp(comp.props, "target"),
     })
   }
 
@@ -454,17 +451,13 @@ export function parseTemplateBlocks(runbookPath: string): Map<string, TemplateBl
 
 /**
  * The ids a prop such as `inputsId` or `dependsOn` names, in order: one for
- * `inputsId="a"`, each quoted id for `inputsId={["a", "b"]}`, none without the
+ * `inputsId="a"`, each string for `inputsId={["a", "b"]}`, none without the
  * prop.
  */
-export function extractIdList(props: string, propName: "inputsId" | "dependsOn"): string[] {
-  const single = extractProp(props, propName)
-  if (single) return [single]
-  const list = new RegExp(`(?:^|\\s)${propName}=\\{\\s*\\[([^\\]]*)\\]\\s*\\}`).exec(props)
-  if (!list) return []
-  return [...list[1]!.matchAll(/"([^"]*)"|'([^']*)'/g)]
-    .map((m) => m[1] ?? m[2] ?? "")
-    .filter((id) => id !== "")
+export function extractIdList(props: Props, propName: "inputsId" | "dependsOn"): string[] {
+  const value = props[propName]
+  const ids = Array.isArray(value) ? value : [value]
+  return ids.filter((id): id is string => typeof id === "string" && id !== "")
 }
 
 /**
@@ -478,10 +471,27 @@ export function inputsIdsOf(block: ParsedComponent): string[] {
   if (block.type === "Template") return [block.id]
   const ids = extractIdList(block.props, "inputsId")
   if (block.type === "Check" || block.type === "Command") {
-    const nested = parseComponents(block.content, "Inputs").find((comp) => comp.hasExplicitId)
+    // The elements of the block's content are the ones nested in it.
+    const parsed = parseMdx(block.content)
+    const nested = parsed.ok
+      ? findComponents(parsed.elements, "Inputs").find((comp) => comp.hasExplicitId)
+      : undefined
     if (nested) ids.push(nested.id)
   }
   return ids
+}
+
+/**
+ * The JSX elements of the runbook at `runbookPath`, as the app reads them.
+ * Throws for a runbook the app refuses to show: one that isn't valid MDX or
+ * fails remarkLiteralOnly.
+ */
+function readRunbookElements(runbookPath: string): readonly MdxElement[] {
+  const parsed = parseMdx(fs.readFileSync(runbookPath, "utf-8"))
+  if (!parsed.ok) {
+    throw new Error(`${path.basename(runbookPath)} is not a valid runbook: ${parsed.error}`)
+  }
+  return parsed.elements
 }
 
 // ---------------------------------------------------------------------------
@@ -500,7 +510,7 @@ function validateComponent(comp: ParsedComponent): ConfigError[] {
           message: "The 'id' prop is required",
         })
       }
-      if (!extractProp(comp.props, "path") && !comp.content.trim()) {
+      if (!stringProp(comp.props, "path") && !comp.content.trim()) {
         errors.push({
           componentType: "Inputs",
           componentId: comp.id,
@@ -517,7 +527,7 @@ function validateComponent(comp: ParsedComponent): ConfigError[] {
           message: "The 'id' prop is required",
         })
       }
-      if (!extractProp(comp.props, "path")) {
+      if (!stringProp(comp.props, "path")) {
         errors.push({
           componentType: "Template",
           componentId: comp.id,
@@ -534,7 +544,7 @@ function validateComponent(comp: ParsedComponent): ConfigError[] {
           message: "The 'id' prop is required",
         })
       }
-      if (!extractProp(comp.props, "outputPath")) {
+      if (!stringProp(comp.props, "outputPath")) {
         errors.push({
           componentType: "TemplateInline",
           componentId: comp.id,

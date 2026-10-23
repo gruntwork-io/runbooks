@@ -6,7 +6,7 @@
  * must not reach any script until the user confirms an account in the block.
  * The session strips these vars at creation; confirming re-adds them.
  */
-import { parseComponents } from "../registry/executable.ts"
+import { parseMdx } from "../../mdx.ts"
 
 /** The AWS credential vars stripped from a session whose runbook has <AwsAuth>. */
 export const AWS_PROTECTED_ENV_VARS = [
@@ -17,9 +17,17 @@ export const AWS_PROTECTED_ENV_VARS = [
 
 /**
  * The env vars a new session for this runbook must strip: the AWS credential
- * vars when `content` has an <AwsAuth> block outside fenced code (a documented
- * example doesn't count), and none otherwise.
+ * vars when `content` has an <AwsAuth> block (a documented example in a code
+ * fence doesn't count), and none otherwise.
+ *
+ * A runbook the renderer refuses, because it isn't valid MDX or has code in it,
+ * shows no blocks, but the session outlives a watch-mode fix to it, so it
+ * counts as having the block if `<AwsAuth` appears anywhere in it.
  */
 export function protectedEnvVarsForRunbook(content: string): string[] {
-  return parseComponents(content, "AwsAuth").length > 0 ? [...AWS_PROTECTED_ENV_VARS] : []
+  const parsed = parseMdx(content)
+  const hasAwsAuth = parsed.ok
+    ? parsed.elements.some((element) => element.name === "AwsAuth")
+    : content.includes("<AwsAuth")
+  return hasAwsAuth ? [...AWS_PROTECTED_ENV_VARS] : []
 }
