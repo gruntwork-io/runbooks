@@ -74,6 +74,31 @@ Next, share the endpoint with your team.
 </Finish>
 `````
 
+## Front matter
+
+`runbook.mdx` can start with YAML front matter, between two `---` lines. Runbooks doesn't show it.
+
+```mdx
+---
+title: Deploy the service
+runbooks: ">= 0.28"
+---
+
+# Deploy the service
+```
+
+### Requiring a version of Runbooks
+
+`runbooks` in the front matter names the versions of Runbooks the runbook needs, such as the version that added a block or prop it uses. The [release notes](https://github.com/gruntwork-io/runbooks/releases) list what each version added.
+
+A version of Runbooks that doesn't meet the requirement doesn't open the runbook. Instead, it says which versions the runbook needs and which version it is, and to update Runbooks when a later version would meet the requirement. [Runbook tests](/authoring/testing/#running-tests) fail the same way.
+
+The requirement takes the syntax of a [`<Prerequisites>` tool's `version`](/authoring/blocks/prerequisites/#version-constraints), such as `">= 0.28"`, `"~> 0.28"`, or `">= 0.28, < 1.0"`. Quote it: YAML reads an unquoted `0.30` as the number 0.3. A requirement Runbooks can't read, or front matter that isn't valid YAML, stops the runbook from opening, with an error that says what's wrong.
+
+A version of Runbooks that doesn't have a block the runbook uses doesn't open it either, with or without a requirement: it names the block, and says to update Runbooks or check the block's name. A requirement still helps with a prop, which a version of Runbooks that doesn't have it may ignore, so that the block runs without it.
+
+Versions of Runbooks before 0.28 don't read the requirement, and refuse a runbook with a block they don't have with an error that only says the component isn't defined.
+
 ## Folder organization
 
 Blocks reference scripts and templates by path. You can store them anywhere, but this layout is the convention:

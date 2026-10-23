@@ -5,6 +5,7 @@ import * as path from "node:path"
 import * as os from "node:os"
 import { inspect } from "node:util"
 import { TestExecutor } from "./executor.ts"
+import { RUNBOOKS_VERSION } from "../../src/runbooks-version.ts"
 import { revealOutputs } from "../../src/domain/exec/outputValues.ts"
 import { loadConfig, type CleanupAction, type ExpectedStatus } from "./config.ts"
 
@@ -75,6 +76,30 @@ describe("TestExecutor — config-error surfacing", () => {
     // init() should succeed; the validator records the error internally so
     // runTest can surface it. We assert init does not throw.
     await executor.init()
+  })
+
+  it("fails each test, naming every block this version doesn't have", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, `# Bad Runbook\n\n<Chapter title="One">\n\n<Tabs />\n\n</Chapter>\n`)
+
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 5_000, verbose: false })
+    await executor.init()
+    const result = executor.runTest({ name: "happy-path", steps: [] })
+
+    expect(result.status).toBe("failed")
+    expect(result.error).toStartWith(
+      `This runbook uses <Chapter> and <Tabs>, blocks that Runbooks ${RUNBOOKS_VERSION} doesn't have.`,
+    )
+  })
+
+  it("fails to start for a runbook that needs another version of Runbooks", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, `---\nruns: everywhere\nrunbooks: ">= 999"\n---\n\n# Too new\n`)
+
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 5_000, verbose: false })
+    await expect(executor.init()).rejects.toThrow(
+      `This runbook needs Runbooks >= 999, and this is Runbooks ${RUNBOOKS_VERSION}. Update Runbooks to use it.`,
+    )
   })
 
   it.each([

@@ -5,6 +5,11 @@ import * as runtime from "react/jsx-runtime"
 import type { AppError } from "@/types/error"
 import { rewriteAssetUrl } from "@/lib/assetPaths"
 import { mdxErrorMessage, RUNBOOK_REMARK_PLUGINS, stripFrontMatter } from "../../../src/mdx"
+import {
+  unknownBlocks,
+  unknownBlocksError,
+  versionRequirementError,
+} from "../../../src/runbooks-version"
 
 // Support MDX components
 import { Inputs } from "@/components/mdx/Inputs"
@@ -90,10 +95,11 @@ function MDXContainer({
         setCustomMDXComponent(() => compiledComponent)
       } catch (err) {
         console.error("Error processing MDX content:", err)
-        setError({
-          message: "Error processing MDX content",
-          details: mdxErrorMessage(err),
-        })
+        setError(
+          err instanceof UnsupportedRunbookError
+            ? { message: "Runbooks can't open this runbook", details: err.message }
+            : { message: "Error processing MDX content", details: mdxErrorMessage(err) },
+        )
       }
     }
 
@@ -246,6 +252,34 @@ export function rehypeTransformAssetPaths({ assetHost }: { assetHost?: string } 
   }
 }
 
+/**
+ * Why this version of Runbooks can't open a runbook that compiles: it requires
+ * another version, or has blocks this one doesn't (src/runbooks-version.ts).
+ */
+class UnsupportedRunbookError extends Error {}
+
+// Rehype plugin that refuses a runbook with a block this version doesn't have,
+// which may be one a later version added. MDX would only find it rendering,
+// and say just that the component isn't defined.
+function rehypeKnownBlocks() {
+  return (tree: RehypeNode) => {
+    const names: string[] = []
+    const visit = (node: RehypeNode) => {
+      if (
+        (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") &&
+        typeof node.name === "string"
+      ) {
+        names.push(node.name)
+      }
+      node.children?.forEach(visit)
+    }
+    visit(tree)
+
+    const unknown = unknownBlocks(names, new Set(Object.keys(MDX_COMPONENTS)))
+    if (unknown.length > 0) throw new UnsupportedRunbookError(unknownBlocksError(unknown))
+  }
+}
+
 // Custom rehype plugin that gives every GitHub-flavored-markdown task-list
 // checkbox a stable identity so the TaskListCheckbox override can persist its
 // toggled state. GFM renders `- [ ]` / `- [x]` as a disabled
@@ -344,6 +378,11 @@ export const compileMDX = async (
   content: string,
   assetHost?: string,
 ): Promise<React.ComponentType> => {
+  // A runbook for other versions of Runbooks may not compile in this one, so
+  // its requirement comes first.
+  const requirementError = versionRequirementError(content)
+  if (requirementError) throw new UnsupportedRunbookError(requirementError)
+
   // Strip front matter before MDX compilation (front matter is metadata, not content)
   const mdxContent = stripFrontMatter(content)
 
@@ -357,7 +396,11 @@ export const compileMDX = async (
     // opening a runbook cannot run code. Shared with the main process and the
     // test CLI, so they parse and refuse runbooks as this does.
     remarkPlugins: [...RUNBOOK_REMARK_PLUGINS],
-    rehypePlugins: [[rehypeTransformAssetPaths, { assetHost }], rehypeTaskListIds],
+    rehypePlugins: [
+      rehypeKnownBlocks,
+      [rehypeTransformAssetPaths, { assetHost }],
+      rehypeTaskListIds,
+    ],
     useMDXComponents: () => MDX_COMPONENTS,
   })
 
@@ -366,7 +409,8 @@ export const compileMDX = async (
 
 // Error boundary for RUNTIME errors in MDX components
 // This catches errors that occur during component rendering (e.g., accessing undefined properties)
-// It does NOT catch compilation errors (e.g., undefined components) - those are caught in useEffect
+// It does NOT catch compilation errors, or blocks the runbook uses that the
+// renderer doesn't have - those are caught in useEffect
 class CustomMDXComponentErrorBoundary extends React.Component<
   { children: React.ReactNode; onError?: (error: AppError) => void },
   { hasError: boolean; error: AppError | null }
@@ -385,11 +429,6 @@ class CustomMDXComponentErrorBoundary extends React.Component<
     const appError: AppError = {
       message: error.message,
       details: error.stack || "No additional details available",
-    }
-    if (error.message.includes("Expected component")) {
-      appError.message = "Runtime error in MDX component"
-      appError.details =
-        "Your runbook contains a component that is not supported.\n\n" + error.message
     }
     if (this.props.onError) {
       this.props.onError(appError)

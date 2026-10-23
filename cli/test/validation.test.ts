@@ -341,7 +341,7 @@ describe("InputValidator", () => {
     v.init()
     expect(v.hasConfigErrors()).toBe(true)
     const err = v.getConfigErrors().find((e) => e.componentType === "MysteryBlock")
-    expect(err?.message).toContain("Unknown block type")
+    expect(err?.message).toContain("<MysteryBlock>, a block that Runbooks")
   })
 
   it("recognizes GoogleAuth as a known block type", () => {

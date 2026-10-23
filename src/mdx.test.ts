@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { parseMdx, stringArrayProp, stringProp, stripFrontMatter } from "./mdx.ts"
+import { frontMatter, parseMdx, stringArrayProp, stringProp, stripFrontMatter } from "./mdx.ts"
 
 /** The JSX elements of `content`, which must be valid MDX. */
 function elementsOf(content: string) {
@@ -244,6 +244,20 @@ describe("stripFrontMatter", () => {
   it("leaves content without front matter, or with unclosed front matter, as it is", () => {
     expect(stripFrontMatter("# Body\n---\n")).toBe("# Body\n---\n")
     expect(stripFrontMatter("---\ntitle: x\n# Body\n")).toBe("---\ntitle: x\n# Body\n")
+  })
+})
+
+describe("frontMatter", () => {
+  it("is the YAML between the front matter's delimiters", () => {
+    expect(frontMatter('---\ntitle: x\nrunbooks: ">= 0.28"\n---\n# Body\n')).toBe(
+      'title: x\nrunbooks: ">= 0.28"',
+    )
+    expect(frontMatter("---\r\ntitle: x\r\n---\r\n# Body\r\n")).toBe("title: x")
+  })
+
+  it("is null for content without front matter, or with unclosed front matter", () => {
+    expect(frontMatter("# Body\n---\ntitle: x\n---\n")).toBeNull()
+    expect(frontMatter("---\ntitle: x\n# Body\n")).toBeNull()
   })
 })
 

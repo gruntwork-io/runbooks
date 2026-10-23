@@ -1,7 +1,8 @@
 /**
  * Tool versions, and the constraints a <Prerequisites> block checks them
- * against. Shared by the main process, the renderer and the test CLI, so it
- * has no imports.
+ * against, which a runbook's front matter also requires versions of Runbooks
+ * with (src/runbooks-version.ts). Shared by the main process, the renderer and
+ * the test CLI, so it has no imports.
  *
  * A version is its numbers: 1.29.1 in "v1.29.1-eks-508b6b3". Anything after
  * them, such as a pre-release or build suffix, is ignored, so a vendor's
