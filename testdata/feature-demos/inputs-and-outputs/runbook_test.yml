@@ -18,12 +18,6 @@ tests:
   - name: happy-path
     description: Standard successful execution
 
-    inputs:
-      # Override to avoid conflict with the "overrides" Inputs block which
-      # also defines "branch" (with a non-existent ref). Since buildTemplateVars
-      # flattens all Inputs blocks into one namespace, the override would win.
-      overrides.branch: main
-
     steps:
       - block: clone-from-inputs
       - block: clone-merged

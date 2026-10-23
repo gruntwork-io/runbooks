@@ -82,6 +82,7 @@ import { resolveTestInputs } from "./fuzz.ts"
 import { runAssertion, countFiles, envListToRecord, type AssertionContext } from "./assertions.ts"
 import {
   InputValidator,
+  inputsIdsOf,
   parseAuthDependencies,
   parseRunDependencies,
   parseTemplateInlineBlocks,
@@ -305,6 +306,8 @@ export class TestExecutor {
   private templates!: Map<string, TemplateBlock>
   private authDeps!: Map<string, AuthDependency>
   private runDeps!: Map<string, string[]>
+  // The blocks each block reads `.inputs` from, by block ID (inputsIdsOf)
+  private inputsIds!: Map<string, string[]>
 
   // process.env as captured by init(); every test starts from a copy
   private initialSessionEnv: string[] = []
@@ -363,6 +366,9 @@ export class TestExecutor {
     // Parse auth dependencies
     this.authDeps = parseAuthDependencies(this.runbookPath)
     this.runDeps = parseRunDependencies(this.runbookPath)
+    this.inputsIds = new Map(
+      this.validator.getComponents().map((block) => [block.id, inputsIdsOf(block)]),
+    )
 
     // Capture initial environment
     this.initialSessionEnv = Object.entries(process.env)
@@ -466,9 +472,7 @@ export class TestExecutor {
       return result
     }
 
-    // Fill in the variables the test doesn't set, first, so the test's own
-    // values come after them and win where buildTemplateVars flattens every
-    // block into one `.inputs` map (a later key replaces an earlier one).
+    // Fill in the variables the test doesn't set
     resolvedInputs = { ...this.fillUnsetInputs(resolvedInputs), ...resolvedInputs }
 
     // 2. Validate inputs against schemas
@@ -759,7 +763,7 @@ export class TestExecutor {
     try {
       block = {
         ...block,
-        props: renderPropTemplates(block.props, this.buildTemplateVars(maskOutputs)),
+        props: renderPropTemplates(block.props, this.buildTemplateVars(block.id, maskOutputs)),
       }
     } catch (e: unknown) {
       result.passed = false
@@ -894,7 +898,7 @@ export class TestExecutor {
     // Render template vars in script content
     let scriptContent = foundExec.content
     try {
-      scriptContent = renderGoTemplate(scriptContent, this.buildTemplateVars())
+      scriptContent = renderGoTemplate(scriptContent, this.buildTemplateVars(block.id))
     } catch (e: unknown) {
       result.passed = false
       result.actualStatus = "error"
@@ -1210,7 +1214,7 @@ export class TestExecutor {
     // sensitive output as <redacted> instead.
     let rendered: string
     try {
-      rendered = renderGoTemplate(block.content, this.buildTemplateVars())
+      rendered = renderGoTemplate(block.content, this.buildTemplateVars(block.id))
     } catch (e: unknown) {
       result.passed = false
       result.actualStatus = "error"
@@ -1220,7 +1224,7 @@ export class TestExecutor {
     }
 
     // The masked context has the same keys, so this renders whenever the real one does
-    const shown = renderGoTemplate(block.content, this.buildTemplateVars(maskOutputs))
+    const shown = renderGoTemplate(block.content, this.buildTemplateVars(block.id, maskOutputs))
 
     // Write file if generateFile is set
     if (block.generateFile && block.outputPath) {
@@ -1300,16 +1304,11 @@ export class TestExecutor {
     // Template rendering requires the boilerplate WASM binary.
     // For now, we attempt a simple file-copy-with-substitution approach.
     try {
-      const vars = this.buildTemplateVars()
-      // Template blocks expect variables at top level ({{ .config_name }}),
-      // not nested under inputs ({{ .inputs.config_name }}).
-      // Merge this block's inputs into the top level of vars.
-      for (const [key, value] of Object.entries(this.testInputs)) {
-        const [blockId, name] = key.split(".", 2)
-        if (name !== undefined && blockId === block.id) {
-          vars[name] = value
-        }
-      }
+      const { inputs, outputs } = this.buildTemplateVars(block.id)
+      // As in the app, every input is also at the top level ({{ .config_name }}),
+      // whether the Template declares it or imports it. The two namespaces
+      // win over an input with the same name.
+      const vars = { ...inputs, inputs, outputs }
       this.creditGeneratedFiles(block.id, this.renderTemplateDir(templatePath, outputDir, vars))
     } catch (e: unknown) {
       result.passed = false
@@ -2021,28 +2020,60 @@ export class TestExecutor {
   }
 
   /**
-   * The template data context. Outputs get their real values by default, for
-   * what a block runs or writes; pass maskOutputs for what is only shown, so a
-   * sensitive output renders as <redacted>.
+   * The template data context of block `blockId`. Its `.inputs` holds the
+   * values of the blocks it reads them from (inputsIdsOf), merged in order
+   * with a later block's value winning, as the app merges them, so a variable
+   * of a block it doesn't import never reaches it. Outputs get their real
+   * values by default, for what a block runs or writes; pass maskOutputs for
+   * what is only shown, so a sensitive output renders as <redacted>.
    */
   private buildTemplateVars(
+    blockId: string,
     outputValues: (values: OutputValues) => Record<string, string> = revealOutputs,
-  ): Record<string, unknown> {
+  ): { inputs: Record<string, unknown>; outputs: Record<string, Record<string, string>> } {
     const inputs: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(this.testInputs)) {
-      const [, name] = key.split(".", 2)
-      if (name !== undefined) {
-        inputs[name] = value
+    for (const id of this.inputsIds.get(blockId) ?? []) {
+      Object.assign(inputs, this.registeredInputs(id))
+    }
+    return { inputs, outputs: this.templateOutputs(outputValues) }
+  }
+
+  /**
+   * The values block `id` gives a block that imports it, by variable name, as
+   * the app registers them: an Inputs block's variables, or a Template's on
+   * top of the values of the blocks it imports in turn. A Template that is
+   * already being resolved (an inputsId cycle) imports nothing more.
+   */
+  private registeredInputs(id: string, resolving = new Set<string>()): Record<string, unknown> {
+    const values: Record<string, unknown> = {}
+    const tmpl = this.templates.get(id)
+    if (tmpl && !resolving.has(id)) {
+      resolving.add(id)
+      for (const importedId of tmpl.inputsIds) {
+        Object.assign(values, this.registeredInputs(importedId, resolving))
       }
+      resolving.delete(id)
     }
+    for (const [key, value] of Object.entries(this.testInputs)) {
+      const [inputsId, name] = key.split(".", 2)
+      if (inputsId === id && name !== undefined) values[name] = value
+    }
+    return values
+  }
 
-    const outputs: Record<string, unknown> = {}
+  /**
+   * Every block's outputs, keyed the way templates reference them: by block
+   * ID with hyphens turned into underscores, so `outputs.create_account`
+   * finds block "create-account".
+   */
+  private templateOutputs(
+    outputValues: (values: OutputValues) => Record<string, string> = revealOutputs,
+  ): Record<string, Record<string, string>> {
+    const outputs: Record<string, Record<string, string>> = {}
     for (const [blockId, blockOutputs] of this.blockOutputs) {
-      const templateBlockId = normalizeBlockId(blockId)
-      outputs[templateBlockId] = outputValues(Object.fromEntries(blockOutputs))
+      outputs[normalizeBlockId(blockId)] = outputValues(Object.fromEntries(blockOutputs))
     }
-
-    return { inputs, outputs }
+    return outputs
   }
 
   private matchesExpectedStatus(expected: ExpectedStatus, actual: string): boolean {
@@ -2065,13 +2096,9 @@ export class TestExecutor {
   }
 
   private checkMissingOutputs(expected: string[]): string[] {
-    // Look outputs up the way templates reference them: buildTemplateVars keys
-    // them by block id with hyphens turned into underscores, so
-    // `outputs.create_account.account_id` finds block "create-account".
-    const templateOutputs = this.buildTemplateVars().outputs as Record<
-      string,
-      Record<string, string>
-    >
+    // Look outputs up the way templates reference them, so
+    // `outputs.create_account.account_id` finds block "create-account"
+    const templateOutputs = this.templateOutputs()
     const missing: string[] = []
     for (const p of expected) {
       const [root, rawBlockId, outputName] = p.split(".")

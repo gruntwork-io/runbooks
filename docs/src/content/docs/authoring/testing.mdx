@@ -270,6 +270,12 @@ When a `<Template>` imports a block with `inputsId` and both define a variable, 
 
 A value the test sets always wins over one filled in this way.
 
+#### Which blocks get a value
+
+As in the app, a block's `{{ .inputs.Name }}` comes only from the blocks it imports. Those are the blocks its `inputsId` names, merged in order so that a later block's value wins, and then an `<Inputs>` nested in a `<Check>` or `<Command>`. A `<Template>` adds its own variables on top of the ones it imports, and a block whose `inputsId` names a Template gets both.
+
+So when two `<Inputs>` blocks define `Region`, setting `config.Region` changes it only for the blocks that import `config`. A block that imports nothing has no inputs: if its script reads one, the test fails, and the app shows **Configuration Required** instead of running it.
+
 ### Fuzz configuration
 
 The `fuzz` object specifies how to generate random values.
@@ -425,13 +431,12 @@ A test that fails before any block runs skips cleanup, since nothing has run yet
 The runner runs your scripts and renders your templates, but not always as the app does. A test can pass while the runbook fails in the app, or the other way around:
 
 - **Template syntax.** The runner renders scripts, templates and block props with its own renderer. It handles only references such as `{{ .inputs.Name }}` and `{{ .outputs.block_id.name }}`, `{{ if .inputs.Flag }}...{{ else }}...{{ end }}` without nesting, and `{{ fromJson .outputs.block_id.name }}`. Anything else is left in the result as written, including `eq` and the other functions, pipes such as `| upper`, `range`, `with`, the raw-string form, and the `{{-` and `-}}` markers. A reference inside one of those, such as the output behind a `hasKey` guard, is still filled in, or reported as undefined.
-- **Input values.** Every block sees every input. A script's `{{ .inputs.Name }}` gets the value from whichever block defines `Name`, even when the block has no `inputsId`. In the app, a `<Command>`, `<Check>` or `<Finish>` whose script uses `.inputs` without an `inputsId` or a nested `<Inputs>` shows **Configuration Required** and can't run. When two blocks define `Name`, a block can get the other block's value under test.
 - **Working directory.** In the app, scripts start in the [session's directory](/commands/sessions/), never in the runbook's folder. Under test they start in the [working directory](#settings-object): a fresh temporary directory by default, or the runbook's folder with `working_dir: .`. So a script that reads a file next to `runbook.mdx` can pass with `working_dir: .` and fail in the app.
 - **Script paths.** The app refuses a `path` with a `..` segment, such as `../shared/setup.sh`, and shows an error in place of the block. The runner reads the file anyway.
 - **Timeouts.** A block's `timeoutMs` doesn't apply. Every script gets the [`timeout` setting](#settings-object), 5 minutes by default.
 - **A Command that exits 2.** The runner reports it as `warn`, and the blocks whose `dependsOn` names it can run. In the app, the Command shows as failed and those blocks keep waiting. A `<Check>` that exits 2 lets them run in both.
 - **Auth blocks.** The runner ignores `detectCredentials`. It reads the environment variables listed in each auth block's section below, and for `<GoogleAuth>` gcloud's ADC file, whatever the prop says. A block with `detectCredentials={false}` still succeeds when they are set, a `{ block: ... }` source is never used, and a prefix in an `{ env: { prefix } }` source has no effect, since only the step's `env_prefix` sets one. The runner also checks only that an auth block has an `id`. Configuration errors that the app reports for an auth block, such as two `{ block }` sources, don't appear, and an `expect: config_error` step for one fails.
-- **Template blocks.** A `<Template>` renders each file with the runner's renderer. File and directory names aren't rendered, files and directories whose names start with `.` aren't written, and `boilerplate.yml` is read only for its variables, so settings such as `skip_files` are ignored. Only the Template's own variables can be written as `{{ .Name }}`. Write a variable that it only gets through `inputsId` as `{{ .inputs.Name }}`, which works in the app too.
+- **Template blocks.** A `<Template>` renders each file with the runner's renderer. File and directory names aren't rendered, files and directories whose names start with `.` aren't written, and `boilerplate.yml` is read only for its variables, so settings such as `skip_files` are ignored.
 - **TemplateInline blocks.** The runner reports a `<TemplateInline>` without `outputPath` as a configuration error. In the app, `outputPath` defaults to `template.txt`.
 
 ## Testing AwsAuth blocks
