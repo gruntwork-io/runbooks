@@ -211,6 +211,41 @@ describe("exec:run captured env", () => {
     expect(awsKeysOf(ctx.env)).toEqual(AWS_ENV)
   }, 30000)
 
+  it("gives a script its block's env as data, and keeps the variables out of the session", async () => {
+    const marker = nodePath.join(tmpDir, "env-prop.pwned")
+    const out = nodePath.join(tmpDir, "env-prop.out")
+    // What an output taken from a PR title could hold: shell code that would
+    // run if the script's source were built from it.
+    const title = `Fix typo $(touch '${marker}') \`touch '${marker}'\` "; touch '${marker}'; echo "`
+    const env = `{{ PR_TITLE: ${JSON.stringify(title)}, STAGE: "dev" }}`
+    const script = `printf '%s' "$PR_TITLE" > '${out}'; export STAGE=prod`
+    await openRunbook(
+      writeRunbook(
+        "env-prop",
+        `<Command id="cmd" env=${env} command={${JSON.stringify(script)}} />\n`,
+      ),
+    )
+    const { executables } = (await handlers.get("runbook:executables")!({})) as {
+      executables: Record<string, { componentId: string }>
+    }
+    const executableId = Object.keys(executables).find(
+      (id) => executables[id]!.componentId === "cmd",
+    )!
+
+    const result = (await handlers.get("exec:run")!(
+      { sender: { send: () => {} } },
+      { executableId, executionId: "env-prop" },
+    )) as { status: { status: string } | null }
+
+    expect(result.status?.status).toBe("success")
+    expect(fs.readFileSync(out, "utf8")).toBe(title)
+    expect(fs.existsSync(marker)).toBe(false)
+    const ctx = await runtime.runPromise(sessionManager.getExecContext())
+    expect(ctx.env.PR_TITLE).toBeUndefined()
+    // A variable the script exports again is the script's, like any export.
+    expect(ctx.env.STAGE).toBe("prod")
+  }, 30000)
+
   it("keeps session vars that the capture filter drops", async () => {
     const ctx = await runCommand("filtered-keys", "true", {
       sessionEnv: { BASH_SILENCE_DEPRECATION_WARNING: "1" },

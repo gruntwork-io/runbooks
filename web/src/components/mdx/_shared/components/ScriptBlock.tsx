@@ -92,6 +92,8 @@ export interface ScriptBlockProps {
   command?: string | undefined
   /** Reference to one or more Inputs by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[] | undefined
+  /** Environment variables the script runs with, by name. Each value is a template, rendered with the same inputs and outputs as the script, and reaches the script as data: `env={{ BUCKET: "{{ .inputs.BucketName }}" }}` with `"$BUCKET"` in the script. They're set for this run only. */
+  env?: Readonly<Record<string, string | number | boolean>> | undefined
   /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION). */
   awsAuthId?: string | undefined
   /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables (GITHUB_TOKEN, GITHUB_USER). */
@@ -136,6 +138,7 @@ export function ScriptBlock({
   path,
   command,
   inputsId,
+  env,
   awsAuthId,
   githubAuthId,
   gitAuthId,
@@ -181,6 +184,9 @@ export function ScriptBlock({
     rawScriptContent,
     language,
     fileError: getFileError,
+    envTemplates,
+    envVars,
+    envError,
     inputDependencies,
     unmetInputDependencies,
     hasAllInputDependencies,
@@ -222,6 +228,7 @@ export function ScriptBlock({
     componentType: variant.componentType,
     usePty,
     timeoutMs,
+    env,
   })
 
   // With no script to run (a <Finish> without a final check), the Run button
@@ -376,6 +383,13 @@ export function ScriptBlock({
         severity: "error",
         message: getFileError.message,
       })
+    } else if (envError) {
+      reportError({
+        componentId: id,
+        componentType: variant.name,
+        severity: "error",
+        message: envError,
+      })
     } else if (missingInputsConfig) {
       reportError({
         componentId: id,
@@ -391,6 +405,7 @@ export function ScriptBlock({
     id,
     isDuplicate,
     getFileError,
+    envError,
     missingInputsConfig,
     inputDependencies,
     reportError,
@@ -435,6 +450,22 @@ export function ScriptBlock({
                 it?
               </span>
             )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // An env prop that isn't valid registers no script, so the block can't run
+  if (envError) {
+    return (
+      <div className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+        <div className="flex items-center text-destructive">
+          <XCircle className="size-6 mr-4 flex-shrink-0" />
+          <div className="text-md">
+            <strong>{variant.fileErrorHeading}:</strong>
+            <br />
+            {envError}
           </div>
         </div>
       </div>
@@ -499,6 +530,7 @@ export function ScriptBlock({
             : undefined
         }
         templateContext={templateContext}
+        env={scriptless ? undefined : envTemplates}
         inputs={childrenWithVariant}
         note={successContent}
         onMarkedDone={onComplete}
@@ -626,6 +658,21 @@ export function ScriptBlock({
 
           {/* Render inline Inputs children if present */}
           {childrenWithVariant && <div className="mb-4">{childrenWithVariant}</div>}
+
+          {/* The env vars the script gets, so they can be checked before Run */}
+          {!scriptless && envVars.length > 0 && (
+            <div data-testid={`${id}-env`} className={`text-xs mb-3 ${clearIdLabel}`}>
+              <div className="font-semibold text-muted-foreground mb-1">Environment variables</div>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono">
+                {envVars.map(({ name, value }) => (
+                  <div key={name} className="contents">
+                    <dt className="text-muted-foreground">{name}</dt>
+                    <dd className="whitespace-pre-wrap break-all text-foreground">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
 
           {/* Display script metadata for file-based scripts */}
           {variant.showScriptMetadata && scriptMetadata && (

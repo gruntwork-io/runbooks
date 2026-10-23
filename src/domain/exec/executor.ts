@@ -128,6 +128,10 @@ function determineExitStatus(exitCode: number, timedOut: boolean): ExecStatusEve
  * Execute a script and return a Stream of execution events (log lines, status,
  * outputs, captured files, environment capture, and done).
  *
+ * The script's env is the session's, then the request's overrides (auth
+ * blocks' credentials), then `blockEnv` (the block's rendered `env` prop),
+ * then the variables Runbooks sets for every run (RUNBOOK_OUTPUT, ...).
+ *
  * The caller is responsible for:
  *  - Resolving the Executable and rendering template variables before calling this
  *  - Providing the session execution context (env, workDir)
@@ -145,6 +149,7 @@ export const executeScript = (
   workTreePath: string,
   outputPath: string,
   logsDir: string,
+  blockEnv: Readonly<Record<string, string>> = {},
 ) =>
   Effect.gen(function* () {
     log.debug("step 1: getting services")
@@ -203,6 +208,7 @@ export const executeScript = (
     if (request.envVarsOverride && Object.keys(request.envVarsOverride).length > 0) {
       execEnv = { ...execEnv, ...request.envVarsOverride }
     }
+    execEnv = { ...execEnv, ...blockEnv }
 
     // A credential path that no longer exists is worth failing on BEFORE the
     // spawn. Every Google client library and the gcloud CLI report it as

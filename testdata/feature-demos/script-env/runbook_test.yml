@@ -1,0 +1,46 @@
+# Test configuration for the script-env feature demo
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  - name: happy-path
+    description: Every block runs, and nothing in an env value runs as code
+
+    inputs:
+      bucket.BucketName: "demo-bucket"
+
+    assertions:
+      - type: output_equals
+        block: plan-bucket
+        output: bucket
+        value: demo-bucket
+
+      # print-title wrote the title back as an output, exactly as it got it
+      - type: output_equals
+        block: print-title
+        output: title
+        value: 'Fix typo $(touch "$GENERATED_FILES/pwned") `touch "$GENERATED_FILES/pwned"` "; touch "$GENERATED_FILES/pwned"; echo "'
+
+      # No touch ran, in print-title or anywhere else
+      - type: file_not_exists
+        path: pwned
+
+  - name: waits-for-the-output
+    description: print-title is blocked until fetch-title has published the title
+
+    steps:
+      - block: print-title
+        expect: blocked
+        missing_outputs:
+          - outputs.fetch_title.title
+
+      - block: fetch-title
+        expect: success
+
+      - block: print-title
+        expect: success
