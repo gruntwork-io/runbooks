@@ -32,6 +32,7 @@ export class TextReporter implements Reporter {
     let totalPassed = 0
     let totalFailed = 0
     let totalSkipped = 0
+    let totalWarnings = 0
     let totalDuration = 0
 
     for (const suite of suites) {
@@ -41,6 +42,10 @@ export class TextReporter implements Reporter {
         this.write(`\n── Summary: ${relPath} ──\n`)
       } else {
         this.write(`\n=== ${relPath} ===\n`)
+      }
+
+      for (const warning of suite.warnings) {
+        this.write(`  \x1b[33m⚠ ${warning}\x1b[0m\n`)
       }
 
       for (const result of suite.results) {
@@ -99,6 +104,7 @@ export class TextReporter implements Reporter {
       totalPassed += suite.passed
       totalFailed += suite.failed
       totalSkipped += suite.skipped
+      totalWarnings += suite.warnings.length
       totalDuration += suite.duration
     }
 
@@ -106,8 +112,12 @@ export class TextReporter implements Reporter {
     this.write("\n")
     const summaryColor = totalFailed > 0 ? "\x1b[31m" : "\x1b[32m"
     const reset = "\x1b[0m"
+    const warnings =
+      totalWarnings > 0
+        ? `, \x1b[33m${totalWarnings} ${totalWarnings === 1 ? "warning" : "warnings"}${reset}`
+        : ""
     this.write(
-      `${summaryColor}Results: ${totalPassed} passed, ${totalFailed} failed, ${totalSkipped} skipped${reset} (total: ${formatDuration(totalDuration)})\n`,
+      `${summaryColor}Results: ${totalPassed} passed, ${totalFailed} failed, ${totalSkipped} skipped${reset}${warnings} (total: ${formatDuration(totalDuration)})\n`,
     )
     return this.buf.join("")
   }
@@ -159,6 +169,11 @@ export class JUnitReporter implements Reporter {
         cases.push(
           `    <testcase name="${escapeXml(result.testCase)}" classname="${escapeXml(className)}" time="${time}">\n${inner}    </testcase>`,
         )
+      }
+
+      // Warnings don't fail a test, so they go in the suite's error stream
+      if (suite.warnings.length > 0) {
+        cases.push(`    <system-err>${escapeXml(suite.warnings.join("\n"))}</system-err>`)
       }
 
       const suiteTime = (suite.duration / 1000).toFixed(3)

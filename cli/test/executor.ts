@@ -96,6 +96,7 @@ import { AUTH_BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
 import { unknownBlocksError } from "../../src/runbooks-version.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 import { errorMessage } from "../../src/errors/message.ts"
+import { scriptTemplateWarning } from "../../src/domain/exec/scriptTemplates.ts"
 
 // ---------------------------------------------------------------------------
 // Block types & states
@@ -107,6 +108,12 @@ type GitProvider = "github" | "gitlab"
 
 const AUTH_BLOCK_SET = new Set<string>(AUTH_BLOCK_TYPES)
 const PR_BLOCK_SET = new Set<string>(PR_BLOCK_TYPES)
+// Block names by the lowercase componentType the registry gives script entries
+const SCRIPT_BLOCK_NAMES = new Map([
+  ["command", "Command"],
+  ["check", "Check"],
+  ["finish", "Finish"],
+])
 
 function isAuthBlock(blockType: string): boolean {
   return AUTH_BLOCK_SET.has(blockType)
@@ -375,6 +382,22 @@ export class TestExecutor {
     this.initialSessionEnv = Object.entries(process.env)
       .filter(([, v]) => v !== undefined)
       .map(([k, v]) => `${k}=${v}`)
+  }
+
+  /**
+   * A warning for each Command, Check or Finish script that inserts inputs or
+   * outputs into its source, naming the block. The scripts still run.
+   */
+  scriptTemplateWarnings(): string[] {
+    const warnings: string[] = []
+    for (const id of Object.keys(this.registry.getAllExecutables())) {
+      const entry = this.registry.getExecutableSync(id)
+      const blockName = entry && SCRIPT_BLOCK_NAMES.get(entry.componentType)
+      if (!entry || !blockName) continue
+      const warning = scriptTemplateWarning(entry.content)
+      if (warning) warnings.push(`${blockName} "${entry.componentId}": ${warning}`)
+    }
+    return warnings
   }
 
   // -----------------------------------------------------------------------

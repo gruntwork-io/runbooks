@@ -25,6 +25,7 @@ function makeSuite(results: Partial<TestResult>[]): RunbookTestSuite {
     passed: full.filter((r) => r.status === "passed").length,
     failed: full.filter((r) => r.status === "failed").length,
     skipped: full.filter((r) => r.status === "skipped").length,
+    warnings: [],
   }
 }
 
@@ -100,6 +101,20 @@ describe("JUnitReporter", () => {
     expect(xml).not.toContain("example.com")
     expect(xml).not.toMatch(XML_INVALID)
   })
+
+  it("puts a runbook's warnings in its suite's error stream, failing nothing", () => {
+    const suite = { ...makeSuite([{}]), warnings: ['Command "greet": inserts <x>', "second"] }
+    const xml = new JUnitReporter().render([suite])
+
+    expect(xml).toContain(
+      "    <system-err>Command &quot;greet&quot;: inserts &lt;x&gt;\nsecond</system-err>\n  </testsuite>",
+    )
+    expect(xml).toContain('<testsuites tests="1" failures="0"')
+  })
+
+  it("has no error stream for a runbook without warnings", () => {
+    expect(new JUnitReporter().render([makeSuite([{}])])).not.toContain("system-err")
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -111,6 +126,26 @@ describe("TextReporter", () => {
     const text = new TextReporter(false).render([makeSuite([{ status: "passed" }])])
     expect(text).toContain("\x1b[32m")
     expect(text).toContain("Results: 1 passed, 0 failed, 0 skipped")
+  })
+
+  it("lists a runbook's warnings under its heading and counts them in the summary", () => {
+    const suites = [
+      {
+        ...makeSuite([{ status: "passed" }]),
+        warnings: ['Command "greet": one', 'Check "ok": two'],
+      },
+    ]
+    const text = new TextReporter(false, false).render(suites)
+
+    expect(text).toContain(
+      'runbook.mdx ===\n  ⚠ Command "greet": one\n  ⚠ Check "ok": two\n  ✓ case-0',
+    )
+    expect(text).toContain("Results: 1 passed, 0 failed, 0 skipped, 2 warnings")
+  })
+
+  it("leaves warnings out of the summary when there are none", () => {
+    const text = new TextReporter(false, false).render([makeSuite([{ status: "passed" }])])
+    expect(text).not.toContain("warning")
   })
 
   it("renders the same report on every call", () => {

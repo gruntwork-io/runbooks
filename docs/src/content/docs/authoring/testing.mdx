@@ -761,6 +761,10 @@ runbooks-cli test ./runbooks/...
 
 Runbooks are tested one at a time. The `--max-parallel` flag is accepted but currently has no effect.
 
+### Warnings
+
+The runner warns about each `<Command>`, `<Check>` and `<Finish>` script that inserts `{{ .inputs.X }}` or `{{ .outputs.B.K }}` into its source, since [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) passes those values as data. The warnings appear under the runbook's name and are counted in the summary line. In a JUnit report they go in the suite's `<system-err>`. A warning doesn't fail a test.
+
 ### CI output
 
 To write a JUnit XML report:

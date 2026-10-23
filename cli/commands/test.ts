@@ -204,6 +204,7 @@ async function runTestSuite(runbookPath: string, opts: TestOptions): Promise<Run
     passed: 0,
     failed: 0,
     skipped: 0,
+    warnings: [],
   }
 
   let config
@@ -279,6 +280,7 @@ async function runTestSuite(runbookPath: string, opts: TestOptions): Promise<Run
     return suite
   }
 
+  suite.warnings = runner.scriptTemplateWarnings()
   runner.printRunbookHeader()
 
   // Run each test case

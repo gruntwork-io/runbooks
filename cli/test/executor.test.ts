@@ -172,6 +172,51 @@ describe("TestExecutor — JSX expression props", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Scripts that insert inputs or outputs into their source get a warning.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — script template warnings", () => {
+  let tmp: string
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-warn-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("names each script block that inserts inputs or outputs, inline or from a file", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.mkdirSync(path.join(tmp, "scripts"))
+    fs.writeFileSync(path.join(tmp, "scripts", "check.sh"), 'test -n "{{ .outputs.greet.name }}"\n')
+    fs.writeFileSync(
+      rb,
+      [
+        "# Warnings",
+        "",
+        `<Command id="greet" command='echo "hello {{ .inputs.Name }}"' />`,
+        "",
+        `<Command id="greet-env" env={{ NAME: "{{ .inputs.Name }}" }} command='echo "hello $NAME"' />`,
+        "",
+        `<Command id="docker" command="docker ps --format '{{.Names}}'" />`,
+        "",
+        '<Check id="check-file" path="scripts/check.sh" />',
+        "",
+      ].join("\n"),
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    const warnings = executor.scriptTemplateWarnings()
+
+    expect(warnings).toHaveLength(2)
+    expect(warnings[0]).toStartWith('Command "greet": This script inserts {{ .inputs.Name }}')
+    expect(warnings[1]).toStartWith(
+      'Check "check-file": This script inserts {{ .outputs.greet.name }}',
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Blocks run in document order, even when block types are interleaved.
 // ---------------------------------------------------------------------------
 

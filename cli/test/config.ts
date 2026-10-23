@@ -166,6 +166,8 @@ export interface RunbookTestSuite {
   passed: number
   failed: number
   skipped: number
+  /** Things to fix in the runbook that don't fail its tests. */
+  warnings: string[]
 }
 
 // ---------------------------------------------------------------------------
