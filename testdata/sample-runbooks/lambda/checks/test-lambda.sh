@@ -2,16 +2,13 @@
 set -e
 
 # Test Lambda function by invoking it
-# Template variables: FunctionName, Environment, AwsRegion
 #
 # Environment variables:
+#   - FUNCTION_NAME, AWS_REGION: set by the block's env prop from its inputs
 #   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
 
 # Dry-run support
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
-
-FUNCTION_NAME="{{ .inputs.FunctionName }}-{{ .inputs.Environment }}"
-AWS_REGION="{{ .inputs.AwsRegion }}"
 
 # In dry-run mode, simulate the Lambda invocation
 if [[ "$DRY_RUN" == "true" ]]; then

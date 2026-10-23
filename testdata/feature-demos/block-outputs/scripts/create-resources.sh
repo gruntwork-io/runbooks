@@ -1,12 +1,12 @@
 #!/bin/bash
-# Note: Block IDs use underscores in templates (hyphens aren't valid in Go template syntax)
-# The block id="create-account" becomes .outputs.create_account in templates
-echo "Creating resources in account {{ .outputs.create_account.account_id }}..."
-echo "Region: {{ .outputs.create_account.region }}"
+# ACCOUNT_ID and REGION are create-account's outputs, which the block's env
+# prop passes in
+echo "Creating resources in account $ACCOUNT_ID..."
+echo "Region: $REGION"
 sleep 1
 
 # Simulate resource creation
-ROLE_ARN="arn:aws:iam::{{ .outputs.create_account.account_id }}:role/MyRole"
+ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/MyRole"
 
 echo "Created IAM role: $ROLE_ARN"
 

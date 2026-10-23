@@ -31,7 +31,8 @@ If you already have a repository, skip this step — we'll clone it in the next 
 
 <Command
   id="create-repo"
-  command="gh repo create {{ .inputs.GithubOrgName }}/{{ .inputs.RepoName }} --public"
+  env={{ ORG: "{{ .inputs.GithubOrgName }}", REPO: "{{ .inputs.RepoName }}" }}
+  command='gh repo create "$ORG/$REPO" --public'
   githubAuthId="gh-auth"
   title="Create a GitHub repository"
   description="Creates a new public GitHub repository. If it already exists, skip this step and clone it below."
@@ -75,6 +76,12 @@ Choose your project options, then run `create-next-app` to scaffold the app into
 <Command
   id="create-next-app"
   path="scripts/create-next-app.sh"
+  env={{
+    APP_LANGUAGE: "{{ .inputs.Language }}",
+    USE_TAILWIND: "{{ .inputs.UseTailwind }}",
+    BUNDLER: "{{ .inputs.Bundler }}",
+    IMPORT_ALIAS: "{{ .inputs.ImportAlias }}",
+  }}
   title="Run create-next-app"
   description="Scaffolds a new Next.js project with the selected options."
   successMessage="Next.js app scaffolded!"

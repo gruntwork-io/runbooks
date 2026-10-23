@@ -227,7 +227,13 @@ variables:
 
 <Command
   id="cmd-with-inputs"
-  command='echo "String: {{ .inputs.plain_string }}, Int: {{ .inputs.int_field }}, Bool: {{ .inputs.bool_field }}, Enum: {{ .inputs.enum_field }}"'
+  env={{
+    PLAIN_STRING: "{{ .inputs.plain_string }}",
+    INT_FIELD: "{{ .inputs.int_field }}",
+    BOOL_FIELD: "{{ .inputs.bool_field }}",
+    ENUM_FIELD: "{{ .inputs.enum_field }}",
+  }}
+  command='echo "String: $PLAIN_STRING, Int: $INT_FIELD, Bool: $BOOL_FIELD, Enum: $ENUM_FIELD"'
   inputsId="all-types"
   title="Command Using Inputs: {{ .inputs.enum_field }}"
   description="Reads from the all-types Inputs block. Current env: **{{ .inputs.enum_field }}**"
@@ -243,7 +249,11 @@ The `setup-outputs` command above wrote outputs. Now let's consume them downstre
 
 <Command
   id="consume-outputs"
-  command="echo 'Working in account {{ .outputs.setup_outputs.account_id }} in {{ .outputs.setup_outputs.region }}'"
+  env={{
+    ACCOUNT_ID: "{{ .outputs.setup_outputs.account_id }}",
+    REGION: "{{ .outputs.setup_outputs.region }}",
+  }}
+  command='echo "Working in account $ACCOUNT_ID in $REGION"'
   title="Consume Block Outputs"
   description="Account: {{ .outputs.setup_outputs.account_id }}, Region: {{ .outputs.setup_outputs.region }}"
   successMessage="Successfully read outputs from setup-outputs block!"
@@ -254,6 +264,11 @@ The `setup-outputs` command above wrote outputs. Now let's consume them downstre
 <Command
   id="cmd-inline-inputs"
   path="scripts/mixed-inputs-outputs.sh"
+  env={{
+    GREETING: "{{ .inputs.Greeting }}",
+    COUNT: "{{ .inputs.Count }}",
+    ACCOUNT_ID: "{{ .outputs.setup_outputs.account_id }}",
+  }}
   title="Command with Inline Inputs"
   description="Uses both inline inputs and outputs from `setup-outputs`"
 >
@@ -342,7 +357,8 @@ teams:
 
 <Check
   id="check-with-inputs"
-  command='echo "Checking tool version: {{ .inputs.ToolVersion }}" && exit 0'
+  env={{ TOOL_VERSION: "{{ .inputs.ToolVersion }}" }}
+  command='echo "Checking tool version: $TOOL_VERSION" && exit 0'
   title="Parameterized Check"
   description="A check with an inline Inputs form"
   successMessage="Version {{ .inputs.ToolVersion }} looks good!"
@@ -526,7 +542,8 @@ variables:
 <Command
   id="merged-inputs-cmd"
   inputsId={["defaults-merge", "overrides-merge"]}
-  command='echo "Color: {{ .inputs.color }}, Size: {{ .inputs.size }}"'
+  env={{ COLOR: "{{ .inputs.color }}", SIZE: "{{ .inputs.size }}" }}
+  command='echo "Color: $COLOR, Size: $SIZE"'
   title="Merged Inputs"
   description="Uses `inputsId` as an array. Color comes from first, size should show the override value."
 />

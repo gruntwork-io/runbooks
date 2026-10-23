@@ -4,11 +4,10 @@ set -e
 # Verify that the infra-catalog PR has been merged.
 #
 # Environment variables:
+#   - PR_URL: set by the Check's env prop from pr-catalog's output
 #   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
 
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
-
-PR_URL="{{ .outputs.pr_catalog.PR_URL }}"
 
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "🔍 Dry-run mode: Simulating PR merge check..."

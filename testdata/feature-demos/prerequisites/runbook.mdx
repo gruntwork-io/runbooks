@@ -52,7 +52,12 @@ A check that passes, or only warns, publishes each tool's path and the versions 
 <Command
     id="show-tool-paths"
     title="Show where the tools are"
-    command='echo "git {{ .outputs.tools.git_version }} is at {{ .outputs.tools.git_path }}, and runbooks-demo-tool is at {{ .outputs.tools.runbooks_demo_tool_path }}."'
+    env={{
+        GIT_VERSION: "{{ .outputs.tools.git_version }}",
+        GIT_PATH: "{{ .outputs.tools.git_path }}",
+        DEMO_TOOL_PATH: "{{ .outputs.tools.runbooks_demo_tool_path }}",
+    }}
+    command='echo "git $GIT_VERSION is at $GIT_PATH, and runbooks-demo-tool is at $DEMO_TOOL_PATH."'
 />
 
 The path of an `anyOf` list's tool that isn't installed is empty, so a block can use whichever tool is:
@@ -60,7 +65,8 @@ The path of an `anyOf` list's tool that isn't installed is empty, so a block can
 <Command
     id="pick-git-cli"
     title="Use the Git host CLI that's installed"
-    command={`if [ -n "{{ .outputs.tools.runbooks_demo_gh_path }}" ]; then cli=gh; else cli=glab; fi
+    env={{ GH_CLI_PATH: "{{ .outputs.tools.runbooks_demo_gh_path }}" }}
+    command={`if [ -n "$GH_CLI_PATH" ]; then cli=gh; else cli=glab; fi
 echo "A real runbook would run $cli here."
 echo "cli=$cli" >> "$RUNBOOK_OUTPUT"`}
 />

@@ -4,16 +4,16 @@
 # It handles the complete workflow of cloning the repo, adding files, committing,
 # pushing, and creating a PR.
 #
-# This script is designed to be called from the runbook Command block, which
-# automatically passes values from the boilerplate input block with id
-# "lambda-config" as template variables:
-#   - GithubOrgName -> GitHub organization name
-#   - GithubRepoName -> GitHub repository name
-#   - Environment -> Target environment (non-prod, prod)
-#   - AwsRegion -> AWS region for deployment
-#   - FunctionName -> Lambda function name
+# This script is designed to be called from the runbook Command block, whose
+# env prop passes values from the boilerplate input blocks with ids
+# "lambda-config" and "repo-config" as environment variables:
+#   - GITHUB_ORG: GitHub organization name
+#   - REPO_NAME: GitHub repository name
+#   - ENVIRONMENT: Target environment (non-prod, prod)
+#   - AWS_REGION: AWS region for deployment
+#   - FUNCTION_NAME: Lambda function name
 #
-# Environment variables:
+# Other environment variables:
 #   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
 
 set -e
@@ -23,13 +23,6 @@ DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
 
 # Save the original directory before any cd commands
 ORIGINAL_DIR=$(pwd)
-
-# Parse arguments (automatically passed from boilerplate inputs in the runbook)
-GITHUB_ORG="{{ .inputs.GithubOrgName }}"
-REPO_NAME="{{ .inputs.GithubRepoName }}"
-ENVIRONMENT="{{ .inputs.Environment }}"
-AWS_REGION="{{ .inputs.AwsRegion }}"
-FUNCTION_NAME="{{ .inputs.FunctionName }}"
 
 if [ -z "$GITHUB_ORG" ] || [ -z "$REPO_NAME" ]; then
     echo "Error: Missing required arguments"

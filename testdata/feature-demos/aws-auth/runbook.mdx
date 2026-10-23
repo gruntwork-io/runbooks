@@ -141,6 +141,10 @@ This is useful for cross-account access via `sts assume-role`, or any scenario w
 <Command
   id="assume-cross-account-role"
   path="scripts/assume-role.sh"
+  env={{
+    TARGET_ACCOUNT_ID: "{{ .inputs.TargetAccountId }}",
+    ROLE_NAME: "{{ .inputs.RoleName }}",
+  }}
   title="Assume Cross-Account Role"
   awsAuthId="aws-auth"
 >
@@ -169,6 +173,10 @@ This is useful for cross-account access via `sts assume-role`, or any scenario w
 <Command
   id="assume-cross-account-role"
   path="scripts/assume-role.sh"
+  env={{
+    TARGET_ACCOUNT_ID: "{{ .inputs.TargetAccountId }}",
+    ROLE_NAME: "{{ .inputs.RoleName }}",
+  }}
   title="Assume Cross-Account Role"
   description="Assumes a role in another account and outputs temporary credentials. Configure the target account and role below."
   awsAuthId="aws-auth"

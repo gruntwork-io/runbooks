@@ -1,11 +1,10 @@
 #!/bin/bash
 set -e
 
-# Verify that the scaffold PR has been merged.
+# Verify that the scaffold PR has been merged. The Check's env prop sets
+# PR_URL from the pr-scaffold block's output.
 
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
-
-PR_URL="{{ .outputs.pr_scaffold.PR_URL }}"
 
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "🔍 Dry-run mode: Simulating PR merge check..."

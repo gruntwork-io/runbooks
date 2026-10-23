@@ -2,19 +2,19 @@
 set -e
 
 # Run terragrunt destroy for the OpenClaw deployment
-# Template variables from gen-unit:
-#   - InstanceName -> OpenClaw instance name
-#   - AwsRegion -> AWS region
 #
-# Environment variables:
+# Environment variables, which the block's env prop sets from gen-unit and
+# gen-module:
+#   - INSTANCE_NAME: OpenClaw instance name
+#   - AWS_REGION: AWS region
+#   - ACCOUNT_NAME, MODULE_NAME: where the unit is in the infra-live repo
+#
+# Other environment variables:
 #   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
 #   - REPO_FILES: Path to the infra-live clone (set by the most recent GitClone block)
 
 # Dry-run support
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
-
-INSTANCE_NAME="{{ .inputs.InstanceName }}"
-AWS_REGION="{{ .inputs.AwsRegion }}"
 
 # In dry-run mode, skip AWS auth check and simulate the rest
 if [[ "$DRY_RUN" == "true" ]]; then
@@ -89,7 +89,7 @@ echo "   - Security group"
 echo "   - VPC, subnet, internet gateway, and route table"
 echo ""
 
-cd "${REPO_FILES}/{{ .inputs.AccountName }}/{{ .inputs.AwsRegion }}/{{ .inputs.ModuleName }}"
+cd "${REPO_FILES}/${ACCOUNT_NAME}/${AWS_REGION}/${MODULE_NAME}"
 
 if terragrunt run --backend-bootstrap --non-interactive -- destroy -auto-approve; then
   echo ""

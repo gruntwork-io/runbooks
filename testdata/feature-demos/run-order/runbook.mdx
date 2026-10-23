@@ -15,7 +15,8 @@ Command and Check blocks can run at the same time. This runbook shows the three 
 <Command
   id="show-tag"
   title="Show the tag"
-  command="echo Built {{ .outputs.build.tag }}"
+  env={{ TAG: "{{ .outputs.build.tag }}" }}
+  command='echo "Built $TAG"'
 />
 
 ## dependsOn

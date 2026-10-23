@@ -40,7 +40,8 @@ tools:
 Now let's create the `infrastructure-live-root` repo.
 
 <Command id="create-infrastructure-live-root-repo"
-    command="gh repo create {{ .inputs.GithubOrgName }}/{{ .inputs.GithubRepoName }} --private"
+    env={{ ORG: "{{ .inputs.GithubOrgName }}", REPO: "{{ .inputs.GithubRepoName }}" }}
+    command='gh repo create "$ORG/$REPO" --private'
     title="Create the `infrastructure-live-root` repo"
     description="This will create a new private repo in your GitHub organization."
     successMessage="`infrastructure-live-root` repo created successfully!"
@@ -67,7 +68,8 @@ Now let's create the `infrastructure-live-root` repo.
 Let's double check that the repo was created successfully.
 
 <Check id="check-infrastructure-live-root-repo"
-    command="gh repo view {{ .inputs.GithubOrgName }}/{{ .inputs.GithubRepoName }}"
+    env={{ ORG: "{{ .inputs.GithubOrgName }}", REPO: "{{ .inputs.GithubRepoName }}" }}
+    command='gh repo view "$ORG/$REPO"'
     inputsId="infrastructure-live-root-repo-inputs"
     title="Confirm the repo was created successfully"
     description="Let's make sure the repo was created successfully."
@@ -108,7 +110,8 @@ variables:
 </Inputs>
 
 <Command id="test-command1"
-    command='echo "Hello, {{ .inputs.Name }}"'
+    env={{ NAME: "{{ .inputs.Name }}" }}
+    command='echo "Hello, $NAME"'
     inputsId="test1"
     title="Create a pull request with the changes"
     description="This will clone your repo, add all the generated files, commit them, push to a new branch, and create a pull request."
@@ -159,6 +162,7 @@ Now let's generate a bunch of files that will lay a solid foundation for your ne
 <Command id="create-pull-request-with-changes"
     path="scripts/create-initial-pr.sh"
     inputsId="infrastructure-live-root-repo-inputs"
+    env={{ GITHUB_ORG: "{{ .inputs.GithubOrgName }}", REPO_NAME: "{{ .inputs.GithubRepoName }}" }}
     title="Create a pull request with the changes"
     description="This will clone your repo, add all the generated files, commit them, push to a new branch, and create a pull request."
     successMessage="Pull request created successfully!"

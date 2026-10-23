@@ -2,24 +2,20 @@
 set -e
 
 # Run terragrunt plan for the Lambda function
-# Template variables from lambda-config and repo-config:
-#   - GithubOrgName -> GitHub organization name
-#   - GithubRepoName -> GitHub repository name
-#   - FunctionName -> Lambda function name
-#   - Environment -> Target environment
-#   - AwsRegion -> AWS region
 #
-# Environment variables:
+# Environment variables, which the block's env prop sets from lambda-config
+# and repo-config:
+#   - GITHUB_ORG: GitHub organization name
+#   - REPO_NAME: GitHub repository name
+#   - FUNCTION_NAME: Lambda function name
+#   - ENVIRONMENT: Target environment
+#   - AWS_REGION: AWS region
+#
+# Other environment variables:
 #   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
 
 # Dry-run support
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
-
-GITHUB_ORG="{{ .inputs.GithubOrgName }}"
-REPO_NAME="{{ .inputs.GithubRepoName }}"
-FUNCTION_NAME="{{ .inputs.FunctionName }}"
-ENVIRONMENT="{{ .inputs.Environment }}"
-AWS_REGION="{{ .inputs.AwsRegion }}"
 
 BRANCH_NAME="add-lambda-${FUNCTION_NAME}-${ENVIRONMENT}"
 TARGET_PATH="${ENVIRONMENT}/${AWS_REGION}/${FUNCTION_NAME}"
