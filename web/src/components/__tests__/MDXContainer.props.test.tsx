@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest"
-import { render } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import type { ComponentType, ReactNode } from "react"
-import { compileMDX, MDX_COMPONENTS } from "../MDXContainer"
-import { errorMessage } from "../../../../src/errors/message"
+import MDXContainer, { compileMDX, MDX_COMPONENTS } from "../MDXContainer"
 import { parseMdx } from "../../../../src/mdx"
 
 interface BlockProps {
@@ -100,6 +99,11 @@ describe("MDXContainer block props", () => {
 
 describe("A runbook MDXContainer refuses", () => {
   it.each([
+    // Not valid MDX
+    ["an unescaped quote in a prop", '<Command id="c" command="echo \\"x\\"" />'],
+    ["a prop that isn't valid JavaScript", '<Command id="c" command={"x" +} />'],
+    ["a closing tag that doesn't match", "<Admonition></Check>"],
+    // Code, which remarkLiteralOnly refuses
     ["a prop that isn't a literal", '<Command id="c" command={run()} />'],
     ["a template substitution", '<Command id="c" command={`echo ${HOME}`} />'],
     ["a spread prop", '<Command id="c" {...rest} />'],
@@ -112,12 +116,9 @@ describe("A runbook MDXContainer refuses", () => {
     // Front matter, so the line in the error is the line in the file for both.
     const runbook = `---\ntitle: Refused\n---\n\n<Command id="before" command="echo hi" />\n\n${code}\n`
 
-    const error = await compileMDX(runbook).then(
-      () => "compiled",
-      (err: unknown) => errorMessage(err),
-    )
+    render(<MDXContainer content={runbook} />)
+    const details = within(await screen.findByTestId("mdx-error")).getByText(/^Line 7: /)
 
-    expect(error).toMatch(/^Line 7: /)
-    expect(parseMdx(runbook)).toEqual({ ok: false, error })
+    expect(parseMdx(runbook)).toEqual({ ok: false, error: details.textContent })
   })
 })

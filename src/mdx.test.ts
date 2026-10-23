@@ -176,6 +176,21 @@ describe("parseMdx", () => {
     expect(!parsed.ok && parsed.error).toStartWith("Line 3: Unexpected character `\\` (U+005C)")
   })
 
+  describe("gives acorn's reason for JavaScript it can't parse", () => {
+    it.each([
+      [
+        "a string that isn't closed",
+        '<Command id="c" command={"echo} />',
+        "Unterminated string constant",
+      ],
+      ["a template that isn't closed", "{`echo}", "Unterminated template"],
+      ["an expression that isn't finished", "Total: {1 +} items", "Unexpected token"],
+      ["an export that isn't valid", "export const = 1", "Unexpected token"],
+    ])("%s", (_name, code, error) => {
+      expect(parseMdx(`# Title\n\n${code}\n`)).toEqual({ ok: false, error: `Line 3: ${error}` })
+    })
+  })
+
   describe("refuses a runbook with code in it, as the renderer does, saying where", () => {
     it.each([
       [

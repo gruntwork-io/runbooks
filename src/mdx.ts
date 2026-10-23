@@ -65,7 +65,7 @@ export type ParsedMdx = { ok: true; elements: readonly MdxElement[] } | { ok: fa
 /**
  * Parse a runbook's MDX into its JSX elements, nested ones included. For a
  * runbook the renderer refuses to show, because it isn't valid MDX or
- * remarkLiteralOnly rejects it, it gives the error, with its line, instead.
+ * remarkLiteralOnly rejects it, it gives the error the renderer shows instead.
  */
 export function parseMdx(content: string): ParsedMdx {
   const source = stripFrontMatter(content)
@@ -77,7 +77,7 @@ export function parseMdx(content: string): ParsedMdx {
       .use([...RUNBOOK_REMARK_PLUGINS])
     tree = processor.runSync(processor.parse(source)) as MdxNode
   } catch (err) {
-    return { ok: false, error: parseErrorMessage(err) }
+    return { ok: false, error: mdxErrorMessage(err) }
   }
 
   const elements: MdxElement[] = []
@@ -90,6 +90,35 @@ export function parseMdx(content: string): ParsedMdx {
   }
   visit(tree)
   return { ok: true, elements }
+}
+
+/**
+ * The text to show for an error parsing or compiling a runbook: its reason,
+ * with the line it's on in the runbook. The renderer's error box shows it and
+ * parseMdx gives it, so the app, the main process and the test CLI say the
+ * same thing about a runbook they refuse.
+ */
+export function mdxErrorMessage(err: unknown): string {
+  // A parse error, a VFileMessage, has its line and reason apart, and
+  // remarkLiteralOnly's message starts with its line. Bun gives every Error a
+  // `line` too, but that's a line of the JavaScript that made it.
+  if (
+    err instanceof Error &&
+    "reason" in err &&
+    typeof err.reason === "string" &&
+    "line" in err &&
+    typeof err.line === "number"
+  ) {
+    // For JavaScript it can't parse, MDX says only "Could not parse expression
+    // with acorn", its JavaScript parser, and keeps acorn's own reason, such as
+    // "Unterminated string constant", as the cause.
+    const reason =
+      "ruleId" in err && err.ruleId === "acorn" && err.cause instanceof Error
+        ? err.cause.message
+        : err.reason
+    return `Line ${err.line}: ${reason}`
+  }
+  return errorMessage(err)
 }
 
 /**
@@ -241,21 +270,4 @@ function literalValue(node: EstreeNode | null): PropValue | undefined {
     default:
       return undefined
   }
-}
-
-// An error's reason, with the line it's on in the runbook. A parse error, a
-// VFileMessage, has the two apart, and remarkLiteralOnly's message starts with
-// its line. Bun gives every Error a `line` too, but that's a line of the
-// JavaScript that made it.
-function parseErrorMessage(err: unknown): string {
-  if (
-    err instanceof Error &&
-    "reason" in err &&
-    typeof err.reason === "string" &&
-    "line" in err &&
-    typeof err.line === "number"
-  ) {
-    return `Line ${err.line}: ${err.reason}`
-  }
-  return errorMessage(err)
 }
