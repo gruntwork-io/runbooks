@@ -207,6 +207,17 @@
     list-style: none;
   }
 
+  /* github-markdown.css gives a dt a top margin and bold italic text, and a dd
+     side padding and a bottom margin, which put each name in a block's own
+     lists, such as a script's env vars, on the row below its value */
+  .markdown-body .runbook-block dt,
+  .markdown-body .runbook-block dd {
+    margin: 0;
+    padding: 0;
+    font-style: inherit;
+    font-weight: inherit;
+  }
+
   /* Set default styles for Runbook blocks */
   .runbook-block input {
     background-color: var(--card);
