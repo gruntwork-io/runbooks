@@ -17,7 +17,7 @@ Boilerplate is a template engine, similar to [Jinja](https://jinja.palletsprojec
 Boilerplate is built for DevOps and infrastructure work:
 
 - As a CLI, it prompts for the variables defined in `boilerplate.yml`, or takes them from command-line options so it can run in automated tests.
-- Templates are Go templates, with conditionals, loops, and helpers for loading another file, running a shell command, and including partial templates.
+- Templates are Go templates, with conditionals, loops, and helpers for loading another file, running a shell command (off in Runbooks; see [Helper functions](#helper-functions)), and including partial templates.
 - A template can depend on other templates and include them conditionally on variable values.
 - Variables are typed and can have validations.
 - Hooks run arbitrary scripts.
@@ -445,6 +445,8 @@ Boilerplate includes helper functions for common transformations. With `ProjectN
 {{ hasPrefix "prod" .Environment }}  # true if starts with "prod"
 {{ hasSuffix "-dev" .Name }}         # true if ends with "-dev"
 ```
+
+Runbooks turns off the `shell` helper. In a runbook, `{{ shell "..." }}` doesn't run its command and gives `replace-me` instead. Boilerplate renders variable values as templates, including the values people type and the outputs of earlier blocks, so with `shell` on, a value could run a command. Run commands in a [`<Command>`](/authoring/blocks/command/) block, and pass what they produce to the template as a block output.
 
 ## Dynamic file names
 

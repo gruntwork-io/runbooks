@@ -163,6 +163,16 @@ describe("stripTemplateValues", () => {
     expect(stripTemplateValues({ a: "{{ .x }}" })).toBeUndefined()
   })
 
+  it("strips entries whose key is a template, at any depth", () => {
+    expect(stripTemplateValues({ "{{ .x }}:Team": "DevOps", Owner: "ops" })).toEqual({
+      Owner: "ops",
+    })
+    expect(stripTemplateValues({ Envs: { "{{ .x }}": { size: "large" }, dev: {} } })).toEqual({
+      Envs: { dev: {} },
+    })
+    expect(stripTemplateValues({ "{{ .x }}": "v" })).toBeUndefined()
+  })
+
   it("keeps a map that was already empty", () => {
     // `{}` is an explicit user value (e.g. every MapInput entry removed), not
     // an unresolved template, so it must not fall back to the default.
@@ -333,8 +343,8 @@ describe("resolveInputTemplates", () => {
   it("resolves template expressions in map keys", async () => {
     // AccountDefaultTags default in bootstrap is exactly this shape:
     //   "{{ .OrgNamePrefix }}:AWSAccountName": "{{ .AWSAccountName }}"
-    // Boilerplate does not re-render map keys in a var-file, so the key
-    // must be resolved here or it ends up literal in the rendered output.
+    // A key left unresolved is stripped before the var file, so it must be
+    // resolved here or the entry is lost.
     const result = await Effect.runPromise(
       resolveInputTemplates(
         {
@@ -457,6 +467,20 @@ describe("flattenVariables", () => {
     })
     expect(result.inputs).toEqual({ EmailUsername: "alice" })
     expect("LogsAccountEmail" in result).toBe(false)
+  })
+
+  it("never passes a map key that is still a template to the var file", async () => {
+    // A key typed into a MapInput. The boilerplate CLI renders var-file keys
+    // with every helper, and `.This` exists only there, so this one fails to
+    // resolve here and would have run `touch` in the CLI.
+    const payload = '{{ if .This }}{{ shell "touch" "/tmp/runbooks-pwned" }}{{ end }}x'
+    const result = await run({
+      inputs: { Tags: { Team: "DevOps", [payload]: "v" } },
+      outputs: {},
+    })
+    expect(result.inputs).toEqual({ Tags: { Team: "DevOps" } })
+    expect(result.Tags).toEqual({ Team: "DevOps" })
+    expect(JSON.stringify(result)).not.toContain("shell")
   })
 
   it("keeps an explicitly empty map input instead of dropping it", async () => {

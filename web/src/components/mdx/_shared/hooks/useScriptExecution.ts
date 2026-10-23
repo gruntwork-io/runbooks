@@ -32,6 +32,12 @@ import { useScriptFileChange } from "./useScriptFileChange"
 import { useTemplateDependencies } from "./useTemplateDependencies"
 import type { ScriptFileChange } from "../../../../../../electron/shared/channels.ts"
 import {
+  AWS_AUTH_ENV_VARS,
+  GIT_AUTH_ENV_VARS,
+  GITHUB_AUTH_ENV_VARS,
+  GOOGLE_AUTH_ENV_VARS,
+} from "../../../../../../src/domain/exec/authEnv.ts"
+import {
   parseBlockEnv,
   sameBlockEnv,
   type BlockEnv,
@@ -102,27 +108,6 @@ export function checkAuthDependency(
 }
 
 /**
- * The env vars a `googleAuthId` reference injects for one execution. Exported so
- * the block-routing contract is asserted in one place: `GOOGLE_APPLICATION_CREDENTIALS`
- * is the credential itself, the rest pin the project/account/region/zone that
- * gcloud, the client libraries, and the OpenTofu `google` provider each read
- * under a different name.
- */
-export const GOOGLE_AUTH_ENV_KEYS = [
-  "GOOGLE_APPLICATION_CREDENTIALS",
-  "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
-  "GOOGLE_CLOUD_PROJECT",
-  "CLOUDSDK_CORE_PROJECT",
-  "GOOGLE_PROJECT",
-  "CLOUDSDK_CORE_ACCOUNT",
-  "GOOGLE_CLOUD_REGION",
-  "CLOUDSDK_COMPUTE_REGION",
-  "GOOGLE_REGION",
-  "CLOUDSDK_COMPUTE_ZONE",
-  "GOOGLE_ZONE",
-] as const
-
-/**
  * Pure helper: collect the given env-var keys from an auth block's outputs.
  * Returns undefined when no block is referenced, the block has no outputs, or
  * none of the requested keys have a non-empty value.
@@ -162,7 +147,7 @@ export function buildGoogleAuthEnvVars(
   if (!blockId) return undefined
   const blockOutputs = allOutputs[normalizeBlockId(blockId)]
   if (!blockOutputs?.values) return undefined
-  const envVars = buildAuthEnvVars(blockId, allOutputs, GOOGLE_AUTH_ENV_KEYS) ?? {}
+  const envVars = buildAuthEnvVars(blockId, allOutputs, GOOGLE_AUTH_ENV_VARS) ?? {}
   envVars.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE =
     revealOutput(blockOutputs.values.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE) || ""
   return envVars
@@ -521,12 +506,12 @@ export function useScriptExecution({
     // session token that might be in the session environment from a different auth block.
     // Without this, using IAM user credentials (no session token) after SSO credentials
     // (which have a session token) would result in InvalidToken errors.
-    const envVars: Record<string, string> = {
+    const envVars = {
       AWS_ACCESS_KEY_ID: accessKeyId,
       AWS_SECRET_ACCESS_KEY: secretAccessKey,
       AWS_REGION: values.AWS_REGION || "",
       AWS_SESSION_TOKEN: values.AWS_SESSION_TOKEN || "",
-    }
+    } satisfies Record<(typeof AWS_AUTH_ENV_VARS)[number], string>
 
     return envVars
   }, [awsAuthId, allOutputs])
@@ -540,7 +525,7 @@ export function useScriptExecution({
   // Get GitHub auth credentials from outputs if githubAuthId is specified
   // These will be passed as per-execution env vars (overriding session env)
   const githubAuthEnvVars = useMemo(
-    () => buildAuthEnvVars(githubAuthId, allOutputs, ["GITHUB_TOKEN", "GITHUB_USER"]),
+    () => buildAuthEnvVars(githubAuthId, allOutputs, GITHUB_AUTH_ENV_VARS),
     [githubAuthId, allOutputs],
   )
 
@@ -550,13 +535,7 @@ export function useScriptExecution({
   // block's GITLAB_TOKEN/GITLAB_USER reach the spawned process under the right
   // names.
   const gitAuthEnvVars = useMemo(
-    () =>
-      buildAuthEnvVars(gitAuthId, allOutputs, [
-        "GITHUB_TOKEN",
-        "GITHUB_USER",
-        "GITLAB_TOKEN",
-        "GITLAB_USER",
-      ]),
+    () => buildAuthEnvVars(gitAuthId, allOutputs, GIT_AUTH_ENV_VARS),
     [gitAuthId, allOutputs],
   )
 
