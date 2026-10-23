@@ -115,13 +115,14 @@ After a successful create, the block produces outputs that can be referenced by 
 | `PR_ID` | The pull request number, or the GitLab merge request **iid** | `42` |
 | `PR_URL` | The full URL of the created pull/merge request | `https://github.com/org/repo/pull/42` |
 
-Reference outputs in downstream blocks using template variables:
+Pass an output to a later block's script with its [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) prop:
 
 ```mdx
 <Command
   id="notify"
   title="Post PR Link"
-  command="echo 'PR created: {{ .outputs.create_pr.PR_URL }}'"
+  env={{ PR_URL: "{{ .outputs.create_pr.PR_URL }}" }}
+  command='echo "PR created: $PR_URL"'
 />
 ```
 
@@ -222,7 +223,8 @@ Two aliases lock `<GitPullRequest>` to a single provider:
 <Command
   id="make-changes"
   title="Apply Configuration"
-  command='echo "new_setting = true" >> "{{ .outputs.clone_infra.clone_path }}/config.hcl"'
+  env={{ REPO_DIR: "{{ .outputs.clone_infra.clone_path }}" }}
+  command='echo "new_setting = true" >> "$REPO_DIR/config.hcl"'
 />
 
 <GitPullRequest

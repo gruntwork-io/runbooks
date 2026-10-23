@@ -602,7 +602,7 @@ Blocks that don't write a log file, such as [`<GitClone>`](/authoring/blocks/git
 
 ## Block outputs
 
-Commands can produce outputs that later blocks consume. Scripts write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and later blocks reference them via `{{ .outputs.<block-id>.<key> }}`.
+Commands can produce outputs that later blocks consume. Scripts write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and later blocks reference them via `{{ .outputs.<block-id>.<key> }}`. A later block passes one to its script with [`env`](#passing-values-as-environment-variables), as in `env={{ ACCOUNT_ID: "{{ .outputs.create_account.account_id }}" }}`.
 
 ```bash
 #!/bin/bash

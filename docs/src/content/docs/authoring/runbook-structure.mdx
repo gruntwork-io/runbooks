@@ -36,7 +36,8 @@ Run commands on behalf of the user to complete the runbook.
 
 <Command 
     id="do-something"
-    command="echo {{ .inputs.ProjectName }}"
+    env={{ PROJECT_NAME: "{{ .inputs.ProjectName }}" }}
+    command='echo "$PROJECT_NAME"'
     inputsId="config"
     title="Execute action"
     successMessage="Done!"

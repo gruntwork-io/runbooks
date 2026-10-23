@@ -90,7 +90,8 @@ Each tool in the list publishes its own [outputs](#outputs), so a later block ca
 ```mdx
 <Command
   id="open-pr"
-  command={`if [ -n "{{ .outputs.tools.gh_path }}" ]; then
+  env={{ GH_CLI_PATH: "{{ .outputs.tools.gh_path }}" }}
+  command={`if [ -n "$GH_CLI_PATH" ]; then
   gh pr create --fill
 else
   glab mr create --fill
@@ -156,7 +157,11 @@ A check that succeeds or warns publishes outputs for later blocks:
 `<tool>` is the tool's name with each character that isn't a letter, a digit or `_` turned into `_`, so `session-manager-plugin` publishes `session_manager_plugin_path`. A name that starts with a digit gets a `_` in front. Two tools whose names come out the same, such as `docker-compose` and `docker_compose`, are a configuration error.
 
 ```mdx
-<Command id="show-tofu" command='echo "Using tofu {{ .outputs.tools.tofu_version }}"' />
+<Command
+  id="show-tofu"
+  env={{ TOFU_VERSION: "{{ .outputs.tools.tofu_version }}" }}
+  command='echo "Using tofu $TOFU_VERSION"'
+/>
 ```
 
 A check that fails publishes no outputs, so the blocks that read them wait, as they do for a failed Check. See [Block outputs](/authoring/inputs-and-outputs/#block-outputs).

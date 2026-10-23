@@ -62,13 +62,14 @@ After a successful create, the block produces outputs that can be referenced by 
 | `PR_ID` | The merge request **iid**, its number within the project | `42` |
 | `PR_URL` | The full URL of the created merge request | `https://gitlab.com/acme-corp/infrastructure/-/merge_requests/42` |
 
-Reference outputs in downstream blocks using template variables:
+Pass an output to a later block's script with its [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) prop:
 
 ```mdx
 <Command
   id="notify"
   title="Post MR Link"
-  command="echo 'MR created: {{ .outputs.create_mr.PR_URL }}'"
+  env={{ MR_URL: "{{ .outputs.create_mr.PR_URL }}" }}
+  command='echo "MR created: $MR_URL"'
 />
 ```
 
