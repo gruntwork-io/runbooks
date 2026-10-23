@@ -93,6 +93,7 @@ import {
   type AuthDependency,
 } from "./validation.ts"
 import { AUTH_BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
+import { unknownBlocksError } from "../../src/runbooks-version.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 import { errorMessage } from "../../src/errors/message.ts"
 
@@ -451,14 +452,16 @@ export class TestExecutor {
       assertions: [],
     }
 
-    // 0. Check for unknown component errors
-    for (const err of this.validator.getConfigErrors()) {
-      if (err.componentId === "(unknown)") {
-        result.status = "failed"
-        result.error = `<${err.componentType}>: ${err.message}`
-        result.duration = Date.now() - start
-        return result
-      }
+    // 0. Check for blocks this version doesn't have
+    const unknown = this.validator
+      .getConfigErrors()
+      .filter((err) => err.componentId === "(unknown)")
+      .map((err) => err.componentType)
+    if (unknown.length > 0) {
+      result.status = "failed"
+      result.error = unknownBlocksError(unknown)
+      result.duration = Date.now() - start
+      return result
     }
 
     // 1. Resolve test inputs (fuzz + literal)

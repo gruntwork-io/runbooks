@@ -4,10 +4,11 @@
  */
 import { Command } from "commander"
 import { registerTestCommand } from "./commands/test.ts"
+import { RUNBOOKS_VERSION } from "../src/runbooks-version.ts"
 
 const program = new Command()
 
-program.name("runbooks-cli").description("Gruntwork Runbooks CLI tools").version("0.1.0")
+program.name("runbooks-cli").description("Gruntwork Runbooks CLI tools").version(RUNBOOKS_VERSION)
 
 registerTestCommand(program)
 

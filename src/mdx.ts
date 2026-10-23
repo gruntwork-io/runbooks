@@ -122,6 +122,12 @@ export function mdxErrorMessage(err: unknown): string {
 }
 
 /**
+ * Front matter: a `---` line at the very start of the file, the YAML, if
+ * any, and the next line that is just `---`.
+ */
+const FRONT_MATTER = /^---\r?\n(?:([\s\S]*?)\r?\n)?---(?:\r?\n|$)/
+
+/**
  * Strips YAML front matter from MDX content.
  * Front matter is YAML metadata between --- delimiters at the start of the file.
  * Example:
@@ -134,20 +140,20 @@ export function mdxErrorMessage(err: unknown): string {
  * match the runbook file.
  */
 export function stripFrontMatter(content: string): string {
-  // Front matter must start at the beginning of the file with ---
-  if (!content.startsWith("---")) {
-    return content
-  }
-
-  // Find the closing --- delimiter (must be on its own line)
-  const endMatch = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)
-  if (!endMatch) {
+  const match = FRONT_MATTER.exec(content)
+  if (!match) {
     return content
   }
 
   // Replace the front matter block with the same number of line breaks
-  const lineBreaks = endMatch[0].split("\n").length - 1
-  return "\n".repeat(lineBreaks) + content.slice(endMatch[0].length)
+  const lineBreaks = match[0].split("\n").length - 1
+  return "\n".repeat(lineBreaks) + content.slice(match[0].length)
+}
+
+/** The YAML of a runbook's front matter, or null when it has none. */
+export function frontMatter(content: string): string | null {
+  const match = FRONT_MATTER.exec(content)
+  return match ? (match[1] ?? "") : null
 }
 
 /** A string prop's value, or "" when the prop is absent or not a string. */

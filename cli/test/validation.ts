@@ -13,6 +13,11 @@ import { validateVariableValue } from "../../src/domain/boilerplate/validators.t
 import { findComponents, type ParsedComponent } from "../../src/domain/registry/executable.ts"
 import { parseMdx, stringProp, type MdxElement, type Props } from "../../src/mdx.ts"
 import {
+  unknownBlocks,
+  unknownBlocksError,
+  versionRequirementError,
+} from "../../src/runbooks-version.ts"
+import {
   TOOL_LIST_FENCE_HINT,
   extractToolList,
   hasTextOutsideToolList,
@@ -169,17 +174,12 @@ export class InputValidator {
   // -----------------------------------------------------------------------
 
   private detectUnknownBlocks(elements: readonly MdxElement[]): void {
-    const seen = new Set<string>()
-
-    for (const { name: blockType } of elements) {
-      // A lowercase name is an HTML element, not a block
-      if (!/^[A-Z]/.test(blockType)) continue
-      if (seen.has(blockType) || KNOWN_BLOCK_TYPES.has(blockType)) continue
-      seen.add(blockType)
+    const names = elements.map((element) => element.name)
+    for (const blockType of unknownBlocks(names, KNOWN_BLOCK_TYPES)) {
       this.configErrors.push({
         componentType: blockType,
         componentId: "(unknown)",
-        message: `Unknown block type "${blockType}" is not supported by runbooks test`,
+        message: unknownBlocksError([blockType]),
       })
     }
   }
@@ -483,11 +483,14 @@ export function inputsIdsOf(block: ParsedComponent): string[] {
 
 /**
  * The JSX elements of the runbook at `runbookPath`, as the app reads them.
- * Throws for a runbook the app refuses to show: one that isn't valid MDX or
- * fails remarkLiteralOnly.
+ * Throws for a runbook the app refuses to show: one that requires another
+ * version of Runbooks, isn't valid MDX, or fails remarkLiteralOnly.
  */
 function readRunbookElements(runbookPath: string): readonly MdxElement[] {
-  const parsed = parseMdx(fs.readFileSync(runbookPath, "utf-8"))
+  const content = fs.readFileSync(runbookPath, "utf-8")
+  const requirementError = versionRequirementError(content)
+  if (requirementError) throw new Error(requirementError)
+  const parsed = parseMdx(content)
   if (!parsed.ok) {
     throw new Error(`${path.basename(runbookPath)} is not a valid runbook: ${parsed.error}`)
   }
