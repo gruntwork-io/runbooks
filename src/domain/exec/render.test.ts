@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test"
 import { Effect, Result, Layer } from "effect"
 import * as nodeFs from "node:fs"
 import * as nodePath from "node:path"
-import { renderScriptForExec } from "./render.ts"
+import { renderBlockEnv, renderScriptForExec } from "./render.ts"
 import { WasmBoilerplateLive } from "../../layers/WasmBoilerplate.ts"
 import { WasmRuntime } from "../../services/WasmRuntime.ts"
 import type { WasmRuntimeShape } from "../../services/WasmRuntime.ts"
@@ -205,5 +205,64 @@ describe("renderScriptForExec", () => {
       expect(result.failure).toBeInstanceOf(RenderError)
       expect(result.failure.message).toContain('map has no entry for key "Names"')
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// renderBlockEnv
+// ---------------------------------------------------------------------------
+
+function renderEnv(env: Record<string, string>, vars: Record<string, unknown>) {
+  return Effect.runPromise(Effect.result(renderBlockEnv(env, vars)).pipe(Effect.provide(testLayer)))
+}
+
+describe("renderBlockEnv", () => {
+  it("renders each value with the script's inputs and outputs, keeping what an output holds as it is", async () => {
+    const title = 'Fix typo $(touch /tmp/runbooks-pwned) "; rm -rf ~; echo "'
+    const result = await renderEnv(
+      {
+        BUCKET: "{{ .inputs.BucketName }}",
+        PR_TITLE: "{{ .outputs.fetch_pr.TITLE }}",
+        LABEL: "release",
+      },
+      { inputs: { BucketName: "my-bucket" }, outputs: { fetch_pr: { TITLE: title } } },
+    )
+
+    expect(result).toEqual(
+      Result.succeed({ BUCKET: "my-bucket", PR_TITLE: title, LABEL: "release" }),
+    )
+  })
+
+  it("resolves an input that is a template itself, as the script's render does", async () => {
+    const result = await renderEnv(
+      { EMAIL: "{{ .inputs.LogsEmail }}" },
+      {
+        inputs: {
+          User: "ops",
+          Domain: "example.com",
+          LogsEmail: "{{ .inputs.User }}+logs@{{ .inputs.Domain }}",
+        },
+      },
+    )
+    expect(result).toEqual(Result.succeed({ EMAIL: "ops+logs@example.com" }))
+  })
+
+  it("fails, naming the variable, when a value references an output that doesn't exist", async () => {
+    const result = await renderEnv(
+      { PR_TITLE: "{{ .outputs.fetch_pr.TITLE }}" },
+      { inputs: {}, outputs: {} },
+    )
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(RenderError)
+      expect(result.failure.message).toStartWith("PR_TITLE in env: ")
+    }
+  })
+
+  it("renders nothing for literal values and an empty env", async () => {
+    renderCalls.length = 0
+    expect(await renderEnv({ LABEL: "release" }, {})).toEqual(Result.succeed({ LABEL: "release" }))
+    expect(await renderEnv({}, {})).toEqual(Result.succeed({}))
+    expect(renderCalls).toEqual([])
   })
 })

@@ -12,6 +12,9 @@ const baseExecution = {
   rawScriptContent: "echo hello",
   language: "bash",
   fileError: null,
+  envTemplates: {} as Record<string, string>,
+  envVars: [] as Array<{ name: string; value: string }>,
+  envError: null as string | null,
   inputValues: {},
   inputDependencies: [] as string[],
   unmetInputDependencies: [],
@@ -189,6 +192,43 @@ describe("Command — instruction mode", () => {
     await waitFor(() => expect(screen.queryByTestId("instruction-test-cmd")).toBeNull())
     expect(envField()).toHaveValue("prod")
     expect(screen.getByTestId("registered-env")).toHaveTextContent("prod")
+  })
+
+  it("sets the env with export lines before the command, quoted, in one block to copy", () => {
+    mockExecution.rawScriptContent = 'aws s3 mb "s3://$BUCKET"'
+    mockExecution.envTemplates = { BUCKET: "{{ .inputs.BucketName }}", NOTE: "it's $(not run)" }
+    mockExecution.templateContext = { inputs: { BucketName: "my-bucket" }, outputs: {} }
+    renderCommand({ command: 'aws s3 mb "s3://$BUCKET"' })
+
+    const codes = screen.getByTestId("instruction-test-cmd").querySelectorAll("code")
+    expect([...codes].map((code) => code.textContent)).toEqual([
+      "export BUCKET='my-bucket'\nexport NOTE='it'\\''s $(not run)'\naws s3 mb \"s3://$BUCKET\"",
+    ])
+  })
+
+  it("asks for an output the env references, and exports it once filled", async () => {
+    mockExecution.rawScriptContent = 'gh pr edit --title "$PR_TITLE"'
+    mockExecution.envTemplates = { PR_TITLE: "{{ .outputs.fetch_pr.TITLE }}" }
+    renderCommand({ command: 'gh pr edit --title "$PR_TITLE"' })
+
+    const block = screen.getByTestId("instruction-test-cmd")
+    expect(block.querySelector("code")?.textContent).toContain("export PR_TITLE='<TITLE>'")
+
+    fireEvent.change(screen.getByPlaceholderText(/paste the TITLE value/i), {
+      target: { value: "Fix typo" },
+    })
+    await waitFor(() =>
+      expect(block.querySelector("code")?.textContent).toContain("export PR_TITLE='Fix typo'"),
+    )
+  })
+
+  it("sets a script's env in a block of its own, before the script", () => {
+    mockExecution.rawScriptContent = 'aws s3 mb "s3://$BUCKET"'
+    mockExecution.envTemplates = { BUCKET: "my-bucket" }
+    renderCommand({ command: undefined, path: "scripts/make-bucket.sh" })
+
+    const codes = screen.getByTestId("instruction-test-cmd").querySelectorAll("code")
+    expect(codes[0]?.textContent).toBe("export BUCKET='my-bucket'")
   })
 
   it("counts as a step of the runbook, done once marked as done", () => {

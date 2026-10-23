@@ -1,0 +1,55 @@
+# Environment Variables Demo
+
+A `<Command>`, `<Check>` or `<Finish>` block's `env` prop sets environment variables for its script. Each value can use inputs and the outputs of other blocks, and reaches the script as data: nothing in it runs, whatever it holds. The block lists the values before you click Run, and instruction mode shows them as `export` lines.
+
+## From inputs
+
+<Inputs id="bucket">
+```yaml
+variables:
+  - name: BucketName
+    type: string
+    description: Name of the bucket to plan
+    default: my-demo-bucket
+  - name: Copies
+    type: int
+    description: How many copies to keep
+    default: 2
+```
+</Inputs>
+
+<Command
+  id="plan-bucket"
+  title="Plan the bucket"
+  inputsId="bucket"
+  env={{ BUCKET: "{{ .inputs.BucketName }}", COPIES: "{{ .inputs.Copies }}", DRY_RUN: true }}
+  command={`echo "Would create s3://$BUCKET with $COPIES copies (dry run: $DRY_RUN)"
+echo "bucket=$BUCKET" >> "$RUNBOOK_OUTPUT"`}
+/>
+
+## From another block's outputs
+
+`fetch-title` publishes a pull request title with shell syntax in it, as a title from an API can. `print-title` gets it as `$TITLE` and prints it as it is. Nothing in it runs.
+
+<Command
+  id="fetch-title"
+  title="Fetch a pull request title"
+  path="scripts/fetch-title.sh"
+/>
+
+<Check
+  id="print-title"
+  title="Print the title"
+  env={{ TITLE: "{{ .outputs.fetch_title.title }}" }}
+  path="checks/print-title.sh"
+/>
+
+## Only for that block
+
+The variables are the block's own. The next block doesn't see `TITLE`.
+
+<Check
+  id="title-is-gone"
+  title="Check that TITLE is gone"
+  command='test -z "${TITLE:-}"'
+/>
