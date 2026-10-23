@@ -4,13 +4,12 @@ set -e
 # Print the SSM connect and port forwarding commands after deployment.
 #
 # Environment variables:
+#   - INSTANCE_NAME, GATEWAY_PORT, ACCOUNT_NAME, AWS_REGION, MODULE_NAME: set
+#     by the block's env prop from its inputs
 #   - REPO_FILES: Path to the infra-live clone
 #   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
 
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
-
-INSTANCE_NAME="{{ .inputs.InstanceName }}"
-GATEWAY_PORT="{{ .inputs.GatewayPort }}"
 
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "Dry-run mode: Simulating connection info..."
@@ -22,7 +21,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
     exit 0
 fi
 
-cd "${REPO_FILES}/{{ .inputs.AccountName }}/{{ .inputs.AwsRegion }}/{{ .inputs.ModuleName }}"
+cd "${REPO_FILES}/${ACCOUNT_NAME}/${AWS_REGION}/${MODULE_NAME}"
 
 # Get instance ID from terragrunt output, fall back to AWS CLI
 INSTANCE_ID=$(terragrunt output -raw instance_id 2>/dev/null || true)

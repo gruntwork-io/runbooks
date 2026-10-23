@@ -42,9 +42,9 @@ test.describe("feature-demos/chapters", () => {
     await expect(bar).toContainText("Chapter 2 of 3 · Deploy")
     await expect(page.getByRole("heading", { name: "Name the app" })).toBeHidden()
 
-    // The deploy command reads the workspace the Set up chapter's command wrote.
+    // The deploy command gets the workspace the Set up chapter's command wrote.
     const deploy = page.getByTestId("deploy")
-    await expect(deploy).toContainText("Deploying hello-world from /tmp/hello-world")
+    await expect(deploy.getByTestId("deploy-env")).toContainText("/tmp/hello-world")
     await deploy.getByRole("button", { name: "Run" }).click()
     await expect(deploy.getByTestId("icon-success")).toBeVisible({ timeout: 15_000 })
 

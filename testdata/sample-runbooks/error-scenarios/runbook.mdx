@@ -33,11 +33,12 @@ This Command has a redirect character that may cause parsing issues:
 
 ### 1.3 Command with Missing Variables
 
-This Command uses variables but doesn't have an Inputs component:
+This Command's env uses variables but the Command doesn't have an Inputs component:
 
 <Command 
   id="cmd-missing-vars" 
-  command='echo "Hello {{ .inputs.name }}, welcome to {{ .inputs.location }}!"'
+  env={{ NAME: "{{ .inputs.name }}", LOCATION: "{{ .inputs.location }}" }}
+  command='echo "Hello $NAME, welcome to $LOCATION!"'
   title="Command with unresolved variables"
   description="This should show a configuration required warning"
   successMessage="Variables resolved!"
@@ -280,7 +281,8 @@ variables:
 <Command 
   id="working-cmd-with-inputs" 
   inputsId="working-inputs"
-  command='echo "{{ .inputs.greeting }}, {{ .inputs.name }}!"'
+  env={{ GREETING: "{{ .inputs.greeting }}", NAME: "{{ .inputs.name }}" }}
+  command='echo "$GREETING, $NAME!"'
   title="Command with inputs"
   description="Uses variables from the Inputs block above"
   successMessage="Greeting displayed!"

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Example script that assumes a role and outputs credentials
-# The target account ID and role name can be customized via inputs
+# TARGET_ACCOUNT_ID and ROLE_NAME come from the block's env prop, set from
+# its inputs
 
-TARGET_ACCOUNT_ID="{{ .inputs.TargetAccountId }}"
-ROLE_NAME="{{ .inputs.RoleName }}"
 ROLE_ARN="arn:aws:iam::${TARGET_ACCOUNT_ID}:role/${ROLE_NAME}"
 SESSION_NAME="runbook-session"
 

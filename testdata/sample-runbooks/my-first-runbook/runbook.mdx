@@ -37,7 +37,15 @@ In this example, we're going to verify that git is installed:
 
 That was a pretty simple check, so now let's load our check from a script, and allow users to _customize_ that script on the fly.
 
-<Check id="check-git-version" path="checks/check-git-version.sh" title="Check Git Version" description="Verify that you're running a specific version of git" failMessage="Hmm, your git version seems off. Try again." successMessage="Success! Well now, look who's got the expected git version.">
+<Check
+    id="check-git-version"
+    path="checks/check-git-version.sh"
+    env={{ EXPECTED_VERSION: "{{ .inputs.GitVersion }}" }}
+    title="Check Git Version"
+    description="Verify that you're running a specific version of git"
+    failMessage="Hmm, your git version seems off. Try again."
+    successMessage="Success! Well now, look who's got the expected git version."
+>
   <Inputs id="git-version-inputs">
     ```yaml
     variables:
@@ -65,6 +73,14 @@ variables:
 
 We declare the variables using [Gruntwork Boilerplate syntax](https://runbooks.gruntwork.io/authoring/boilerplate/), and we have significant control over how the webform renders based on what the [Inputs block](https://runbooks.gruntwork.io/authoring/blocks/inputs/) supports.
 
+The Check's `env` prop hands the value to the script as an environment variable:
+
+```mdx
+env={{ EXPECTED_VERSION: "{{ .inputs.GitVersion }}" }}
+```
+
+The script reads it as `$EXPECTED_VERSION`. The Check lists the variable with its value, so you can see what the script will get before you run it.
+
 ## Generate files
 
 Now let's generate some files. We're going to specify a Gruntwork Boilerplate template, that includes a declaration of the variables in that template, and the template files themselves. 
@@ -81,12 +97,17 @@ On your local machine, all the newly generated files are saved in a subfolder of
 
 Runbooks also gives you the [Command block](https://runbooks.gruntwork.io/authoring/blocks/command/), which allows you to run arbitrary scripts.
 
-You can even parameterize the scripts with a custom set of inputs, or any of the inputs we collected above.
+You can even parameterize the scripts with a custom set of inputs, or any of the inputs we collected above. This one uses the Template's inputs, through its `env` prop:
 
 <Command 
     id="run-setup"
     path="scripts/setup.sh"
     inputsId="project"
+    env={{
+        PROJECT_NAME: "{{ .inputs.ProjectName }}",
+        AUTHOR: "{{ .inputs.Author }}",
+        LANGUAGE: "{{ .inputs.Language }}",
+    }}
     title="Run Project Setup"
     description="Creates your project structure"
     successMessage="Project setup complete!"
