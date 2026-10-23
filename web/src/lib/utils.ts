@@ -51,9 +51,10 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
     // fall through to legacy fallback
   }
 
-  // Legacy fallback (sync) via library
+  // Fallback via library (execCommand). It's async since v4, so await it
+  // here or a rejection would skip this catch.
   try {
-    return copy(text)
+    return await copy(text)
   } catch {
     return false
   }
