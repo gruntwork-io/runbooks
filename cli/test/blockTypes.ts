@@ -27,6 +27,7 @@ export const BLOCK_TYPES = [
   "GitLabMergeRequest",
   "DirPicker",
   "Admonition",
+  "Chapter",
   "Iframe",
 ] as const
 

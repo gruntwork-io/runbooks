@@ -1,15 +1,7 @@
 import { XCircle, Square, AlertTriangle } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Admonition } from "@/components/mdx/Admonition"
-import {
-  useState,
-  useMemo,
-  useCallback,
-  cloneElement,
-  isValidElement,
-  useRef,
-  useEffect,
-} from "react"
+import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import {
@@ -28,6 +20,7 @@ import { DuplicateIdError } from "./DuplicateIdError"
 import { ProgressStep } from "./ProgressStep"
 import { ScriptChangeNotice } from "./ScriptChangeNotice"
 import { useRunSequencing } from "../hooks/useRunSequencing"
+import { useRevealSelf } from "../hooks/useRevealSelf"
 import { isRunBlocked } from "@/lib/blockRuns"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -266,9 +259,7 @@ export function ScriptBlock({
   }, [status, onComplete])
 
   const blockRef = useRef<HTMLDivElement>(null)
-  const revealSelf = useCallback(() => {
-    blockRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
-  }, [])
+  const revealSelf = useRevealSelf(blockRef)
   const {
     blockers: runBlockers,
     stopRun,

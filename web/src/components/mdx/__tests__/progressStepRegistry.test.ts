@@ -56,9 +56,18 @@ const STEP_SOURCE: Record<string, string> = {
 // - TemplateInline renders files from another block's values, with nothing of
 //   its own for the user to do.
 // - Admonition and Iframe only display something.
+// - Chapter only groups other blocks, which count as themselves.
 // - `a`, `pre` and `input` override plain elements. A task-list checkbox
 //   (`input`) belongs to the author's own list, not to a block.
-const NOT_STEPS = ["TemplateInline", "Admonition", "Iframe", "a", "pre", "input"] as const
+const NOT_STEPS = [
+  "TemplateInline",
+  "Admonition",
+  "Chapter",
+  "Iframe",
+  "a",
+  "pre",
+  "input",
+] as const
 
 describe("progress steps — MDX registry coverage", () => {
   it("every registry entry is classified (a new block forces a decision)", () => {

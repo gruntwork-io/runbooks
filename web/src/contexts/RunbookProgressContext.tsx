@@ -1,9 +1,6 @@
-import { useMemo, useState, type ReactNode } from "react"
-import {
-  ProgressRegistryContext,
-  RunbookProgressContext,
-  type ProgressRegistry,
-} from "./RunbookProgressContext.types"
+import type { ReactNode } from "react"
+import { ProgressRegistryContext, RunbookProgressContext } from "./RunbookProgressContext.types"
+import { useStepCounter } from "./useStepCounter"
 
 /**
  * Counts the steps of the open runbook, and how many of them are done, for the
@@ -13,29 +10,7 @@ import {
  * its blocks, and the count with them.
  */
 export function RunbookProgressProvider({ children }: { children: ReactNode }) {
-  // Whether each mounted step is done, keyed by the step's useId()
-  const [steps, setSteps] = useState<Readonly<Record<string, boolean>>>({})
-
-  const registry = useMemo<ProgressRegistry>(
-    () => ({
-      reportStep: (key, done) => {
-        setSteps((prev) => (prev[key] === done ? prev : { ...prev, [key]: done }))
-      },
-      removeStep: (key) => {
-        setSteps((prev) => {
-          if (!(key in prev)) return prev
-          const { [key]: _removed, ...rest } = prev
-          return rest
-        })
-      },
-    }),
-    [],
-  )
-
-  const states = Object.values(steps)
-  const total = states.length
-  const done = states.filter(Boolean).length
-  const progress = useMemo(() => ({ total, done }), [total, done])
+  const [progress, registry] = useStepCounter()
 
   return (
     <ProgressRegistryContext.Provider value={registry}>

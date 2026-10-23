@@ -5,6 +5,8 @@ import { ApiProvider } from "@/contexts/ApiContext"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { InstructionModeProvider } from "@/contexts/InstructionModeContext"
 import { LogsProvider } from "@/contexts/LogsContext"
+import { RunbookChaptersProvider } from "@/contexts/RunbookChaptersContext"
+import { useChaptersControl, useRunbookChapters } from "@/contexts/useRunbookChapters"
 import { useLogs } from "@/contexts/useLogs"
 import { useTheme } from "@/contexts/useTheme"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -19,6 +21,16 @@ function SomeLogs() {
     registerLogs("block-1", [{ line: "hello", timestamp: "1970-01-01T00:00:00Z" }])
   }, [registerLogs])
   return null
+}
+
+/** Gives the runbook these chapters, as MDXContainer does once it compiles, and shows the one on screen. */
+function Chapters({ titles }: { titles: readonly string[] }) {
+  const { setChapters } = useChaptersControl()
+  const { current } = useRunbookChapters()
+  useEffect(() => {
+    setChapters(titles.map((title) => ({ title })))
+  }, [titles, setChapters])
+  return <output data-testid="current-chapter">{current}</output>
 }
 
 /** Shows the theme and mode the palette's commands set. */
@@ -50,6 +62,8 @@ interface RenderOptions {
   ctx?: Partial<CommandPaletteContext>
   /** The runbook on the page behind the palette. */
   runbook?: ReactNode
+  /** The runbook's chapter titles. */
+  chapters?: readonly string[]
   withLogs?: boolean
 }
 
@@ -77,7 +91,9 @@ function Providers({
     <ApiProvider api={api}>
       <ThemeProvider>
         <InstructionModeProvider>
-          <LogsProvider>{children}</LogsProvider>
+          <LogsProvider>
+            <RunbookChaptersProvider>{children}</RunbookChaptersProvider>
+          </LogsProvider>
         </InstructionModeProvider>
       </ThemeProvider>
     </ApiProvider>
@@ -85,13 +101,19 @@ function Providers({
 }
 
 /** Render the palette open, and wait for the version row, the last to arrive. */
-async function renderPalette({ ctx: overrides, runbook, withLogs = false }: RenderOptions = {}) {
+async function renderPalette({
+  ctx: overrides,
+  runbook,
+  chapters,
+  withLogs = false,
+}: RenderOptions = {}) {
   const ctx = makeCtx(overrides)
   const { api, invoke } = makeApi()
   const onOpenChange = vi.fn()
   render(
     <Providers api={api}>
       {withLogs && <SomeLogs />}
+      {chapters && <Chapters titles={chapters} />}
       <Settings />
       <div className="markdown-body">{runbook}</div>
       <CommandPalette open onOpenChange={onOpenChange} ctx={ctx} />
@@ -506,6 +528,50 @@ describe("CommandPalette", () => {
         "Command line",
         "Help",
       ])
+    })
+  })
+  describe("Go to chapter", () => {
+    const chapters = ["Set up", "Deploy", "Verify"]
+    const current = () => screen.getByTestId("current-chapter").textContent
+
+    it("is absent from a runbook without chapters, or with only one", async () => {
+      await renderPalette({ chapters: ["Only"] })
+      expect(within(dialog()).queryByRole("option", { name: /Go to chapter/ })).toBeNull()
+      fireEvent.change(input(), { target: { value: "only" } })
+      expect(groupNames()).not.toContain("Chapters")
+    })
+
+    it("lists the chapters, marks the one on screen, and goes to the one picked", async () => {
+      const { ctx, onOpenChange } = await renderPalette({ chapters })
+      expect(option(/^Go to chapter…/).textContent).toBe("Go to chapter…3 chapters")
+      await select(/^Go to chapter…/)
+
+      expect(groupNames()).toEqual(["Chapters"])
+      expect(optionNames()).toEqual(["1. Set upcurrent", "2. Deploy", "3. Verify"])
+      expect(input()).toHaveAttribute("placeholder", "Go to chapter…")
+
+      await select("3. Verify")
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+      expect(ctx.onRevealRunbook).toHaveBeenCalledOnce()
+      expect(current()).toBe("2")
+    })
+
+    it("surfaces matching chapters from the root list once the user types", async () => {
+      await renderPalette({ chapters })
+      expect(within(dialog()).queryByRole("option", { name: /Go to chapter › / })).toBeNull()
+
+      fireEvent.change(input(), { target: { value: "deploy" } })
+      expect(optionNames()[0]).toBe("Go to chapter › 2. Deploy")
+
+      await select("Go to chapter › 2. Deploy")
+      expect(current()).toBe("1")
+    })
+
+    it("goes back to the commands on Backspace in an empty search", async () => {
+      await renderPalette({ chapters })
+      await select(/^Go to chapter…/)
+      fireEvent.keyDown(input(), { key: "Backspace" })
+      expect(groupNames()).toContain("Navigate")
     })
   })
 })

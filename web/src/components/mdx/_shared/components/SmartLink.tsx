@@ -1,14 +1,17 @@
 import React from "react"
+import { useShowChapterOf } from "@/contexts/useRunbookChapters"
 
 type SmartLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement>
 
 /**
  * A smart link component that:
  * - Opens external links in a new window/tab with rel="noopener noreferrer"
- * - Handles internal anchor links (like footnotes) with smooth scrolling
+ * - Handles internal anchor links (like footnotes) with smooth scrolling,
+ *   showing the chapter the target is in first
  */
 export const SmartLink = ({ href, children, onClick, ...props }: SmartLinkProps) => {
   const isAnchorLink = href?.startsWith("#")
+  const showChapterOf = useShowChapterOf()
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (isAnchorLink && href) {
@@ -16,6 +19,7 @@ export const SmartLink = ({ href, children, onClick, ...props }: SmartLinkProps)
       const targetId = href.slice(1) // Remove the # prefix
       const targetElement = document.getElementById(targetId)
       if (targetElement) {
+        showChapterOf(targetElement)
         targetElement.scrollIntoView({ behavior: "smooth", block: "start" })
         // Update URL hash without jumping
         window.history.pushState(null, "", href)
