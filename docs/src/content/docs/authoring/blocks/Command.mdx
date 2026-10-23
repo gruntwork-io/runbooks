@@ -370,6 +370,8 @@ A script can also reference values directly, as `{{ .inputs.Name }}` or `{{ .out
 Quoting keeps a value with spaces in one piece, but it does not make an untrusted value safe to run. Double quotes still expand `$(...)`. For values you don't control, such as another block's outputs, use [`env`](#passing-values-as-environment-variables).
 :::
 
+A block whose script references inputs or outputs shows a note above the script that names them, and [runbook tests](/authoring/testing/#warnings) print a warning for it. The script still runs.
+
 If the script can't be rendered, for example because it calls an unknown function or contains a `{{ }}` expression meant for another tool, the block fails with the template error and the script does not run. To pass `{{ }}` through to a tool such as `docker ps --format`, write it as a raw string: ``--format '{{`{{.Names}}`}}'``.
 
 :::note

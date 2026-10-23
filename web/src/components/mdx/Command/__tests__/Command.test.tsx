@@ -11,6 +11,7 @@ import { sensitiveOutput, type OutputValues } from "@/lib/outputValues"
 
 const defaultScriptExecution = {
   sourceCode: 'echo "hello"',
+  rawScriptContent: 'echo "hello"',
   language: "bash",
   fileError: null as { message: string; details?: string } | null,
   envTemplates: {} as Record<string, string>,
@@ -276,6 +277,31 @@ describe("Command", () => {
   it("shows no env section for a block without env vars", () => {
     renderCommand()
     expect(screen.queryByTestId("test-cmd-env")).toBeNull()
+  })
+
+  it("notes a script that inserts inputs or outputs into its source, and still runs it", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      rawScriptContent: 'gh pr edit --title "{{ .outputs.fetch_pr.title }}"',
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand()
+    expect(screen.getByTestId("test-cmd-template-warning")).toHaveTextContent(
+      "This script inserts {{ .outputs.fetch_pr.title }} into its source. Pass values in the block's env prop instead",
+    )
+    expect(screen.getByRole("button", { name: "Run" })).toBeEnabled()
+  })
+
+  it("has no note for a script that reads its values from env", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      rawScriptContent: 'gh pr edit --title "$PR_TITLE"',
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand()
+    expect(screen.queryByTestId("test-cmd-template-warning")).toBeNull()
   })
 
   it("shows why an env prop isn't valid, with no Run button", () => {

@@ -30,6 +30,7 @@ import { useSessionHistory } from "@/contexts/useSessionHistory"
 import { runEnded } from "@/lib/sessionHistory"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import type { AppError } from "@/types/error"
+import { scriptTemplateWarning } from "../../../../../../src/domain/exec/scriptTemplates.ts"
 import type { ComponentType, ExecutionStatus } from "../types"
 import type { StatusStyles } from "../lib/statusStyles"
 
@@ -234,6 +235,8 @@ export function ScriptBlock({
   // any other run, so the block starts completed when the session resumes.
   const history = useSessionHistory()
   const scriptless = !!variant.scriptOptional && !command && !path
+  // Templates in the script still work, but env is the way to pass values
+  const templateWarning = scriptless ? null : scriptTemplateWarning(rawScriptContent)
   const [scriptlessDone, setScriptlessDone] = useState(execStatus === "success")
   const completeScriptless = () => {
     setScriptlessDone(true)
@@ -663,6 +666,16 @@ export function ScriptBlock({
                   </div>
                 ))}
               </dl>
+            </div>
+          )}
+
+          {templateWarning && (
+            <div
+              data-testid={`${id}-template-warning`}
+              className={`text-xs text-warning-foreground flex items-start gap-1.5 mb-3 ${clearIdLabel}`}
+            >
+              <AlertTriangle className="size-3.5 mt-px flex-shrink-0" />
+              <span>{templateWarning}</span>
             </div>
           )}
 
