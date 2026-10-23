@@ -9,6 +9,7 @@ import {
 import { ComponentIdRegistryProvider } from "@/contexts/ComponentIdRegistry"
 import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
 import { RunbookProgressProvider } from "@/contexts/RunbookProgressContext"
+import { RunbookChaptersProvider } from "@/contexts/RunbookChaptersContext"
 import { useRunbookProgress } from "@/contexts/useRunbookProgress"
 
 /**
@@ -33,7 +34,9 @@ export function TestWrapper({
               remoteSource={remoteSource}
               assetHost={assetHost}
             >
-              <RunbookProgressProvider>{children}</RunbookProgressProvider>
+              <RunbookProgressProvider>
+                <RunbookChaptersProvider>{children}</RunbookChaptersProvider>
+              </RunbookProgressProvider>
             </RunbookContextProvider>
           </ComponentIdRegistryProvider>
         </ErrorReportingProvider>

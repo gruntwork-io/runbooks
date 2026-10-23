@@ -13,6 +13,7 @@ import { ErrorReportingProvider } from "./contexts/ErrorReportingContext"
 import { LogsProvider } from "./contexts/LogsContext"
 import { IpcSessionProvider } from "./contexts/IpcSessionContext"
 import { RunbookProgressProvider } from "./contexts/RunbookProgressContext"
+import { RunbookChaptersProvider } from "./contexts/RunbookChaptersContext"
 
 const root = document.getElementById("root")!
 
@@ -47,7 +48,9 @@ if (!window.api) {
                       <WorkspaceGitDataProvider>
                         <LogsProvider>
                           <RunbookProgressProvider>
-                            <App />
+                            <RunbookChaptersProvider>
+                              <App />
+                            </RunbookChaptersProvider>
                           </RunbookProgressProvider>
                         </LogsProvider>
                       </WorkspaceGitDataProvider>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import Command from "../Command"
@@ -13,6 +13,9 @@ const defaultScriptExecution = {
   sourceCode: 'echo "hello"',
   language: "bash",
   fileError: null as { message: string; details?: string } | null,
+  envTemplates: {} as Record<string, string>,
+  envVars: [] as Array<{ name: string; value: string }>,
+  envError: null as string | null,
   inputValues: {},
   inputDependencies: [] as string[],
   unmetInputDependencies: [],
@@ -251,6 +254,43 @@ describe("Command", () => {
     }
     renderCommand({ path: "scripts/missing.sh", command: undefined })
     expect(screen.getByText(/File not found/)).toBeInTheDocument()
+  })
+
+  it("shows the env vars the script will get, before Run", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      envVars: [
+        { name: "BUCKET", value: "my-bucket" },
+        { name: "PR_TITLE", value: "Fix typo $(touch /tmp/x)" },
+      ],
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand()
+    const env = within(screen.getByTestId("test-cmd-env"))
+    expect(env.getByText("BUCKET")).toBeInTheDocument()
+    expect(env.getByText("my-bucket")).toBeInTheDocument()
+    expect(env.getByText("Fix typo $(touch /tmp/x)")).toBeInTheDocument()
+  })
+
+  it("shows no env section for a block without env vars", () => {
+    renderCommand()
+    expect(screen.queryByTestId("test-cmd-env")).toBeNull()
+  })
+
+  it("shows why an env prop isn't valid, with no Run button", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      envError:
+        "RUNBOOK_OUTPUT in env is a variable Runbooks sets for every script. Pick another name.",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand()
+    expect(
+      screen.getByText(/RUNBOOK_OUTPUT in env is a variable Runbooks sets/),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull()
   })
 
   it("shows render error when template substitution fails", () => {

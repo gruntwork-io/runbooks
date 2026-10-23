@@ -313,6 +313,50 @@ describe("executeScript — log files", () => {
   })
 })
 
+describe("executeScript — block env", () => {
+  it("sets the block's env over the session's and the auth block's, under the runbook's own vars", async () => {
+    let received: Record<string, string> = {}
+    const spawner = Layer.succeed(ProcessSpawner, {
+      spawn: (_command, _args, options) =>
+        Effect.sync(() => {
+          received = { ...(options?.env as Record<string, string>) }
+          return { output: Stream.empty, exitCode: Effect.succeed(0), kill: Effect.void }
+        }),
+    })
+    const layer = Layer.mergeAll(
+      makeTestFileSystem(),
+      spawner,
+      makeTestEnvironment({ PATH: "/usr/bin" }),
+    )
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { logStream, completionEffect } = yield* executeScript(
+            'aws s3 mb "s3://$BUCKET"',
+            "",
+            { envVarsOverride: { AWS_ACCESS_KEY_ID: "AKIA_AUTH", AWS_REGION: "us-east-1" } },
+            { env: { PATH: "/usr/bin", BUCKET: "session-bucket" }, workDir: "/work" },
+            "",
+            "/output",
+            "/logs/block",
+            // parseBlockEnv refuses RUNBOOK_OUTPUT; it is here to show the
+            // runbook's own value wins even so.
+            { BUCKET: "block-bucket", AWS_REGION: "eu-west-1", RUNBOOK_OUTPUT: "/elsewhere" },
+          )
+          yield* Stream.runDrain(logStream)
+          yield* completionEffect
+        }),
+      ).pipe(Effect.provide(layer)),
+    )
+
+    expect(received.BUCKET).toBe("block-bucket")
+    expect(received.AWS_REGION).toBe("eu-west-1")
+    expect(received.AWS_ACCESS_KEY_ID).toBe("AKIA_AUTH")
+    expect(received.RUNBOOK_OUTPUT).toEndWith("/output.txt")
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Files written to $GENERATED_FILES
 // ---------------------------------------------------------------------------
