@@ -1,0 +1,74 @@
+# Chapters Demo
+
+This runbook shows the `<Chapter>` block, which splits a long runbook into chapters shown one at a time. Open **Contents** in the bar below to see every chapter and how many of its steps are done, or move on with the buttons at the end of each chapter.
+
+Content outside every chapter, like this introduction, shows with each of them.
+
+<Chapter title="Set up">
+
+## Name the app
+
+<Inputs id="app">
+```yaml
+variables:
+  - name: AppName
+    type: string
+    description: The name of the app to deploy
+    default: hello-world
+```
+</Inputs>
+
+## Prepare a workspace
+
+This block writes an output, `workspace`, that a block in the next chapter reads.
+
+<Command
+    id="prepare"
+    title="Prepare a workspace"
+    command='echo "workspace=/tmp/{{ .inputs.AppName }}" >> "$RUNBOOK_OUTPUT" && echo "Workspace ready."'
+    inputsId="app"
+    successMessage="Workspace ready."
+/>
+
+</Chapter>
+
+<Chapter title="Deploy">
+
+## Deploy the app
+
+Chapters only change what's on screen. A block can use the inputs and outputs of blocks in any other chapter, so this one reads the name from the *Set up* chapter's form and the workspace its command prepared.
+
+<Command
+    id="deploy"
+    title="Deploy the app"
+    command='echo "Deploying {{ .inputs.AppName }} from {{ .outputs.prepare.workspace }}" && echo "source={{ .outputs.prepare.workspace }}" >> "$RUNBOOK_OUTPUT"'
+    inputsId="app"
+    successMessage="Deployed."
+/>
+
+</Chapter>
+
+<Chapter title="Verify">
+
+## Check the deployment
+
+<Check
+    id="verify"
+    title="Check that the app is up"
+    command='echo "{{ .inputs.AppName }} is up."'
+    inputsId="app"
+    successMessage="The app is up."
+/>
+
+## Finish
+
+<Finish
+    id="finish"
+    description="Marks the runbook finished."
+>
+
+You've moved through every chapter. Read the [`<Chapter>` docs](https://runbooks.gruntwork.io/authoring/blocks/chapter/) to split your own runbook into chapters.
+
+</Finish>
+
+</Chapter>
