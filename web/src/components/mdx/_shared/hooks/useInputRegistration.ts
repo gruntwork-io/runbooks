@@ -14,7 +14,6 @@ import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import { savedFormValue } from "@/lib/sessionHistory"
 import { untouchedValue } from "../lib/untouchedValue"
 import { useFormHistory } from "./useFormHistory"
@@ -25,7 +24,7 @@ import { useFormHistory } from "./useFormHistory"
 interface UseInputRegistrationOptions {
   /** Unique component ID used for registration, error reporting, and form submission. */
   id: string
-  /** Block type identifier (e.g. "Inputs") for telemetry and the ID registry. */
+  /** Block type identifier (e.g. "Inputs") for the ID registry and error reports. */
   componentType: BlockComponentType
   /** Parsed variable definitions that drive form state; null while still loading. */
   boilerplateConfig: BoilerplateConfig | null
@@ -61,10 +60,9 @@ interface UseInputRegistrationReturn {
  * Encapsulates the common lifecycle:
  * 1. Component ID registration and duplicate detection
  * 2. Error reporting to the global error banner
- * 3. Telemetry tracking
- * 4. Form state initialization from BoilerplateConfig
- * 5. Auto-update debouncing after first submit
- * 6. Form submission
+ * 3. Form state initialization from BoilerplateConfig
+ * 4. Auto-update debouncing after first submit
+ * 5. Form submission
  */
 export function useInputRegistration({
   id,
@@ -83,13 +81,7 @@ export function useInputRegistration({
   // 2. Error reporting
   const { reportError, clearError } = useErrorReporting()
 
-  // 3. Telemetry
-  const { trackBlockRender } = useTelemetry()
-  useEffect(() => {
-    trackBlockRender(componentType)
-  }, [trackBlockRender, componentType])
-
-  // 4. Form state. The form resumes from the session's history: the values it
+  // 3. Form state. The form resumes from the session's history: the values it
   // was left with, and whether it had been submitted.
   const { saved, noteValues } = useFormHistory(id)
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null)
@@ -157,7 +149,7 @@ export function useInputRegistration({
     }
   }, [id, boilerplateConfig, initialData, defaults, saved, registerInputs])
 
-  // 5. Error effect — report config/setup issues to the global banner.
+  // 4. Error effect — report config/setup issues to the global banner.
   // apiError is intentionally omitted here; it is rendered inline by the component (e.g., ErrorDisplay).
   useEffect(() => {
     if (isDuplicate) {
@@ -186,7 +178,7 @@ export function useInputRegistration({
     }
   }, [id, componentType, isDuplicate, validationError, extraError, reportError, clearError])
 
-  // 6. Auto-update debouncing
+  // 5. Auto-update debouncing
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const handleAutoUpdate = useCallback(
@@ -215,7 +207,7 @@ export function useInputRegistration({
     }
   }, [])
 
-  // 7. Submit handler
+  // 6. Submit handler
   const handleSubmit = useCallback(
     async (formData: Record<string, unknown>) => {
       if (boilerplateConfig) {

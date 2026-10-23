@@ -346,6 +346,48 @@ describe("ExecutableRegistry", () => {
     expect(entry.templateVars).toContain("Region")
   })
 
+  it("registers each script block's env prop as written, for inline and file scripts", async () => {
+    const mdx = [
+      '<Command id="make-bucket" env={{ BUCKET: "{{ .inputs.BucketName }}", COUNT: 2 }} command={`aws s3 mb "s3://$BUCKET"`} />',
+      '<Check id="check-pr" env={{ PR_TITLE: "{{ .outputs.fetch_pr.TITLE }}" }} path="checks/pr.sh" />',
+      '<Command id="plain" command="echo hi" />',
+    ].join("\n")
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx, "/checks/pr.sh": 'echo "$PR_TITLE"' })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    const envs = Object.fromEntries(
+      Object.values(registry.getAllExecutables()).map((e) => [e.componentId, e.env]),
+    )
+    expect(envs).toEqual({
+      "make-bucket": { BUCKET: "{{ .inputs.BucketName }}", COUNT: "2" },
+      "check-pr": { PR_TITLE: "{{ .outputs.fetch_pr.TITLE }}" },
+      plain: {},
+    })
+    expect(registry.getWarnings()).toEqual([])
+  })
+
+  it("registers nothing for a block whose env prop isn't valid, and says why", async () => {
+    const mdx = [
+      '<Command id="ok" command="echo ok" />',
+      '<Command id="bad-name" env={{ "MY-VAR": "x" }} command="echo hi" />',
+      '<Check id="reserved" env={{ RUNBOOK_OUTPUT: "/elsewhere" }} path="check.sh" />',
+    ].join("\n")
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx, "/check.sh": "exit 0" })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    expect(Object.values(registry.getAllExecutables()).map((e) => e.componentId)).toEqual(["ok"])
+    expect(registry.getWarnings()).toEqual([
+      '<Command id="bad-name">: "MY-VAR" in env is not a variable name. Use letters, digits and underscores, and don\'t start with a digit.',
+      '<Check id="reserved">: RUNBOOK_OUTPUT in env is a variable Runbooks sets for every script. Pick another name.',
+    ])
+  })
+
   it("registers a <Finish> block's inline and file-based final checks", async () => {
     const mdx = [
       '<Finish id="finish-inline" command="test -f done.txt">',

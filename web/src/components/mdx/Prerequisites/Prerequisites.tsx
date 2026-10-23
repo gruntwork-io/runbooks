@@ -14,6 +14,7 @@ import { CodeBlock } from "@/components/mdx/_shared/components/CodeBlock"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
+import { useRevealSelf } from "@/components/mdx/_shared/hooks/useRevealSelf"
 import { useRunSequencing } from "@/components/mdx/_shared/hooks/useRunSequencing"
 import { extractYamlFromChildren } from "@/components/mdx/_shared/lib/extractYamlFromChildren"
 import { makeStatusStyles } from "@/components/mdx/_shared/lib/statusStyles"
@@ -21,7 +22,6 @@ import type { ExecutionStatus } from "@/components/mdx/_shared/types"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import { isRunBlocked } from "@/lib/blockRuns"
 import { revealOutputs } from "@/lib/outputValues"
 import type { AppError } from "@/types/error"
@@ -138,13 +138,13 @@ function Prerequisites({
     "Prerequisites",
   )
   const { reportError, clearError } = useErrorReporting()
-  const { trackBlockRender } = useTelemetry()
   const { enabled: instructionMode } = useInstructionMode()
   const toolList = parseToolList(id, children)
   const { state, check, cancel, error } = usePrerequisitesRun(id)
   const status: ExecutionStatus = state.status
 
   const blockRef = useRef<HTMLDivElement>(null)
+  const revealSelf = useRevealSelf(blockRef)
   const { blockers, stopRun, revealBlock } = useRunSequencing({
     blockId: id,
     status,
@@ -152,12 +152,8 @@ function Prerequisites({
     dependsOn: undefined,
     outputDependencyIds: NO_OUTPUT_DEPENDENCIES,
     stop: cancel,
-    reveal: () => blockRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }),
+    reveal: revealSelf,
   })
-
-  useEffect(() => {
-    trackBlockRender("Prerequisites")
-  }, [trackBlockRender])
 
   const configError = toolList.ok ? null : toolList.error.message
   useEffect(() => {

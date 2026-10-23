@@ -11,6 +11,8 @@ export interface Executable {
   path?: string
   templateVars?: string[]
   language?: string
+  /** The block's `env` prop: its variables' templates by name. */
+  env?: Record<string, string>
 }
 
 export type ExecutableRegistry = Record<string, Executable>

@@ -5,7 +5,6 @@ import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useSessionHistory } from "@/contexts/useSessionHistory"
@@ -108,8 +107,6 @@ function GitAuthInteractive({
   // Error reporting context (for configuration errors only)
   const { reportError, clearError } = useErrorReporting()
 
-  const { trackBlockRender } = useTelemetry()
-
   // The sign-in the session's history has for this block. The block starts
   // on its provider, when the picker lets the user choose one.
   const history = useSessionHistory()
@@ -170,11 +167,6 @@ function GitAuthInteractive({
   const expiry = useCredentialExpiry(
     auth.authStatus === "authenticated" ? auth.expiresAt : undefined,
   )
-
-  // Track block render on mount
-  useEffect(() => {
-    trackBlockRender(__registryType)
-  }, [trackBlockRender, __registryType])
 
   // "Other instance…" in the host picker asks for the instance-URL field.
   // Focused from here rather than from PatForm: the form remounts whenever

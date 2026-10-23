@@ -1,79 +1,27 @@
 ---
 title: Telemetry
-description: What usage data Runbooks sends, when it sends it, and how to turn it off
+description: Runbooks sends no usage data. What its update check sends to GitHub.
 ---
 
-Runbooks can send usage events to [Mixpanel](https://mixpanel.com/), a third-party analytics service. Telemetry is on unless you [opt out](#how-to-disable-telemetry).
+Runbooks sends no usage data. It has no analytics and no crash reporting.
 
-## When telemetry is sent
+Earlier versions contained code for sending usage events to Mixpanel, but no release was configured to send them. That code has been removed.
 
-Runbooks sends events only when it has a Mixpanel project token in two places: `VITE_MIXPANEL_TOKEN` when the app is built, and `MIXPANEL_TOKEN` in the app's environment when it runs. If either is missing, nothing is sent. The release workflow in this repository sets neither, and a build from source sets neither unless you do.
+## Update checks
 
-## What is sent
+The installed app checks GitHub for a new release each time it starts, about ten seconds after launch. It uses [electron-updater](https://github.com/electron-userland/electron-builder/tree/master/packages/electron-updater) with the [releases of gruntwork-io/runbooks](https://github.com/gruntwork-io/runbooks/releases):
 
-The renderer sends two events.
+1. It reads `https://github.com/gruntwork-io/runbooks/releases.atom` to find the newest release.
+2. It downloads that release's update file: `latest-mac.yml` on macOS, `latest.yml` on Windows or `latest-linux.yml` on Linux.
 
-| Event | When | Extra properties |
-|-------|------|------------------|
-| `app_loaded` | The app window loads | None |
-| `runbook_loaded` | Half a second after the blocks of a runbook finish rendering | `block_counts`, the number of blocks of each type in the runbook (such as `Command: 3`), and `total_blocks` |
+If that release is newer than yours, Runbooks tells you, downloads it from GitHub and asks whether to restart to install it. If you choose not to restart, the update installs when you quit.
 
-Block counts cover Command, Check, Finish, Prerequisites, Inputs, Template, TemplateInline, DirPicker, GitClone, the auth blocks and the pull request blocks. Admonition and Iframe blocks are not counted.
+These requests go to GitHub, not to Gruntwork. GitHub sees your IP address, as it does for any request. electron-updater also sends an `x-user-staging-id` header with a random ID that it creates once and keeps in a file named `.updaterId` in the Runbooks data folder. The ID is not derived from your machine or your account. GitHub counts how often each release file is downloaded, and Gruntwork can see those counts but not who made the downloads.
 
-Every event also has these properties:
+A build you run from source with `just dev` does not check for updates. There is no setting to turn the check off.
 
-| Property | Value |
-|----------|-------|
-| `distinct_id`, `$user_id` | The [install identifier](#the-install-identifier) |
-| `$device_id` | A random ID the Mixpanel library generates and keeps in the app's local storage |
-| `version` | The Runbooks version |
-| `platform` | Always `electron` |
-| `$os`, `$browser`, `$browser_version` | Read from the app's user agent string by the Mixpanel library |
-| `$screen_width`, `$screen_height` | Your screen size in pixels |
-| `$current_url` | The `file://` URL of the app's own page |
-| `$initial_referrer`, `$initial_referring_domain` | Always `$direct`, because the app has no referrer |
-| `mp_lib`, `$lib_version`, `$insert_id`, `time` | The Mixpanel library name and version, a random event ID and a timestamp |
+The update check is in [`electron/main/updater.ts`](https://github.com/gruntwork-io/runbooks/blob/main/electron/main/updater.ts).
 
-`$current_url` is the path of the installed app, so it includes your OS username if you installed Runbooks under your home directory. It also includes the `#anchor` of the last in-page link you clicked in a runbook.
+## The `--no-telemetry` flag
 
-## What is not sent
-
-- Runbook text, scripts and commands, apart from the anchor described above
-- The location of your runbooks on disk
-- Values you type into inputs
-- Script output
-- Your IP address. The Mixpanel client is configured with `ip: false`, which tells Mixpanel not to store the address the request came from.
-
-## The install identifier
-
-Events are tied together by a SHA-256 hash of `hostname:username`. Mixpanel receives only the hash. The hash is the same every time you run Runbooks as that user on that machine.
-
-The hash is a pseudonym. Anyone who knows or guesses your hostname and username can compute it and match it to your events.
-
-## How to disable telemetry
-
-Pass `--no-telemetry` when you start Runbooks:
-
-```bash
-runbooks open --no-telemetry path/to/runbook
-```
-
-Or set `RUNBOOKS_TELEMETRY_DISABLE` to `1`, `true` or `yes`:
-
-```bash
-# Add to your shell profile (~/.bashrc, ~/.zshrc) to opt out permanently
-export RUNBOOKS_TELEMETRY_DISABLE=1
-```
-
-## Where the data goes
-
-Events go to Mixpanel over HTTPS and are kept according to Mixpanel's data retention policies. The Gruntwork team has access to them.
-
-## Source
-
-The telemetry code is in two files:
-
-- Main process: [`src/telemetry.ts`](https://github.com/gruntwork-io/runbooks/blob/main/src/telemetry.ts)
-- Renderer: [`web/src/contexts/IpcTelemetryContext.tsx`](https://github.com/gruntwork-io/runbooks/blob/main/web/src/contexts/IpcTelemetryContext.tsx)
-
-Gruntwork uses the data to see which block types runbooks use and which Runbooks versions are in use. If you have questions about telemetry, [open an issue](https://github.com/gruntwork-io/runbooks/issues).
+Runbooks still accepts the `--no-telemetry` flag and the `RUNBOOKS_TELEMETRY_DISABLE` environment variable, so existing launch commands keep working. Neither has any effect, because there is nothing to turn off.

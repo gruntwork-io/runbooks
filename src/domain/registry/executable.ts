@@ -20,6 +20,7 @@ import { computeContentHash } from "../workspace/file.js"
 import { ExecutableNotFoundError, ScriptReloadConflictError } from "../../errors/index.js"
 import { parseMdx, stringProp, type MdxElement, type Props } from "../../mdx.ts"
 import { extractToolList } from "../prerequisites/spec.ts"
+import { parseBlockEnv, type BlockEnv } from "../exec/blockEnv.ts"
 import type { Executable, ExecutableType, ScriptFileChange } from "../../types.js"
 
 // ---------------------------------------------------------------------------
@@ -163,7 +164,9 @@ export class ExecutableRegistry {
   /**
    * Parse the runbook MDX content and register every Command, Check and
    * Finish that has a script (a `command` or `path` prop), and every
-   * Prerequisites block's tool list.
+   * Prerequisites block's tool list. A block whose `env` prop isn't valid
+   * registers nothing, so it can't run without the variables its script
+   * expects.
    */
   parseAndRegister(runbookPath: string, contentOverride?: string) {
     return Effect.gen({ self: this }, function* () {
@@ -186,11 +189,18 @@ export class ExecutableRegistry {
         for (const comp of components) {
           const commandProp = stringProp(comp.props, "command")
           const pathProp = stringProp(comp.props, "path")
+          if (!commandProp && !pathProp) continue
+
+          const env = parseBlockEnv(comp.props.env)
+          if (!env.ok) {
+            this.warnings.push(`<${componentType} id="${comp.id}">: ${env.error}`)
+            continue
+          }
 
           if (commandProp) {
-            this.registerInlineEntry(comp.id, componentType, commandProp)
-          } else if (pathProp) {
-            yield* this.registerFileEntry(fs, comp.id, componentType, pathProp, runbookDir)
+            this.registerInlineEntry(comp.id, componentType, commandProp, env.env)
+          } else {
+            yield* this.registerFileEntry(fs, comp.id, componentType, pathProp, runbookDir, env.env)
           }
         }
       }
@@ -226,6 +236,7 @@ export class ExecutableRegistry {
       contentHash: computeContentHash(toolList),
       language: "yaml",
       templateVars: [],
+      env: {},
     })
   }
 
@@ -237,6 +248,7 @@ export class ExecutableRegistry {
     componentId: string,
     componentType: string,
     scriptContent: string,
+    env: BlockEnv,
   ): void {
     const entryId = computeExecutableId(componentId, scriptContent)
 
@@ -254,6 +266,7 @@ export class ExecutableRegistry {
       contentHash: computeContentHash(scriptContent),
       language: "",
       templateVars: extractTemplateVars(scriptContent),
+      env,
     })
   }
 
@@ -267,6 +280,7 @@ export class ExecutableRegistry {
     componentType: string,
     scriptPath: string,
     runbookDir: string,
+    env: BlockEnv,
   ) {
     return Effect.gen({ self: this }, function* () {
       const fullPath = path.join(runbookDir, scriptPath)
@@ -298,6 +312,7 @@ export class ExecutableRegistry {
         language: "",
         path: scriptPath,
         templateVars: extractTemplateVars(scriptContent),
+        env,
       })
       this.scriptPaths.set(entryId, fullPath)
     })

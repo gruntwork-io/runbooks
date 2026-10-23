@@ -16,7 +16,7 @@ import { resolveGeneratedDir, resolveRunLogsDir } from "./path-guard.ts"
 import { executeScript } from "../../../src/domain/exec/executor.ts"
 import { executePrerequisites } from "../../../src/domain/prerequisites/check.ts"
 import { appendPathEntries, filterCapturedEnv } from "../../../src/domain/session/manager.ts"
-import { renderScriptForExec } from "../../../src/domain/exec/render.ts"
+import { renderBlockEnv, renderScriptForExec } from "../../../src/domain/exec/render.ts"
 import type { ExecRequest, ExecStatusEvent } from "../../../src/types.ts"
 import { encodeOutputs, type OutputValues } from "../../../src/domain/exec/outputValues.ts"
 import { PathRefreshError } from "../../../src/errors/index.ts"
@@ -143,6 +143,14 @@ export function registerExecHandlers(): void {
               )
             }
 
+            // The block's `env` prop, from the registry's copy of the runbook,
+            // rendered with the same values. They reach the script as env
+            // vars, so nothing in them is parsed as shell.
+            const blockEnv = yield* renderBlockEnv(
+              executable.env,
+              (params.templateVarValues ?? {}) as Record<string, unknown>,
+            )
+
             const workTreePath = sessionManager.getActiveWorkTreePath()
             const outputPath = (yield* resolveGeneratedDir()).absolutePath
             const logsDir = yield* resolveRunLogsDir(executable.componentId)
@@ -164,6 +172,7 @@ export function registerExecHandlers(): void {
                   workTreePath,
                   outputPath,
                   logsDir,
+                  blockEnv,
                 )
 
             // Surface the on-disk log path up front so the UI can offer it
@@ -205,13 +214,17 @@ export function registerExecHandlers(): void {
                   // with, not a replacement: auth blocks may have written to
                   // the session while the script ran (see applyCapturedEnv).
                   // That start env is the session snapshot plus this run's
-                  // block-scoped overrides (awsAuthId, githubAuthId, ...),
-                  // filtered like the capture. Otherwise the per-run
-                  // credentials read as exports and land in the session, and
-                  // keys the filter drops (BASH_*, SHLVL, ...) read as unsets
-                  // and are deleted from it.
+                  // block-scoped overrides (awsAuthId, githubAuthId, ...) and
+                  // `env` prop, filtered like the capture. Otherwise the
+                  // per-run credentials and variables read as exports and
+                  // land in the session, and keys the filter drops (BASH_*,
+                  // SHLVL, ...) read as unsets and are deleted from it.
                   yield* sessionManager.applyCapturedEnv({
-                    before: filterCapturedEnv({ ...context.env, ...params.envVarsOverride }),
+                    before: filterCapturedEnv({
+                      ...context.env,
+                      ...params.envVarsOverride,
+                      ...blockEnv,
+                    }),
                     after: filterCapturedEnv(execEvent.env),
                     startWorkDir: context.workDir,
                     pwd: execEvent.pwd,

@@ -23,7 +23,6 @@ import { DuplicateIdError } from "../_shared/components/DuplicateIdError"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import {
   buildTemplatePayload,
   hasEmptyNumericInputs,
@@ -105,13 +104,6 @@ function TemplateInline({
   )
 
   const { reportError, clearError } = useErrorReporting()
-
-  const { trackBlockRender } = useTelemetry()
-
-  // Track block render on mount
-  useEffect(() => {
-    trackBlockRender("TemplateInline")
-  }, [trackBlockRender])
 
   // Render state — tracks whether we've ever rendered (for the "waiting" UI)
   const [hasRendered, setHasRendered] = useState(false)

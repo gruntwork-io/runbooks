@@ -524,7 +524,8 @@ function App() {
                           )
                         )
                       }
-                      className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
+                      // --runbook-padding lets a chapter's bar stick to the box's top edge.
+                      className="[--runbook-padding:--spacing(6)] lg:[--runbook-padding:--spacing(8)] p-(--runbook-padding) w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
                     />
                   </IpcSessionHistoryProvider>
 

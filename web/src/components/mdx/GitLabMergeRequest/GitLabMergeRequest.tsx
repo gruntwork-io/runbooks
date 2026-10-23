@@ -6,8 +6,8 @@ import type { GitLabMergeRequestProps } from "@/components/mdx/GitPullRequest/ty
  * <GitPullRequest> block, equivalent to
  * `<GitPullRequest provider="gitlab" hideProviderSelect />`. It renders with
  * Merge Request terminology and defaults the title to "Create Merge Request".
- * The internal `__registryType` keeps its duplicate-id, telemetry, and
- * error-message identity reporting as "GitLabMergeRequest".
+ * The internal `__registryType` keeps its duplicate-id and error-message
+ * identity reporting as "GitLabMergeRequest".
  */
 export function GitLabMergeRequest(props: GitLabMergeRequestProps) {
   return (

@@ -196,7 +196,7 @@ function toElement(node: MdxNode, name: string, source: string): MdxElement {
   for (const attribute of attributes) {
     // A spread ({...props}) is an mdxJsxExpressionAttribute, which the renderer refuses.
     if (attribute.type !== "mdxJsxAttribute" || !attribute.name) continue
-    const value = attributeValue(attribute.value)
+    const value = jsxAttributeValue(attribute.value)
     if (value !== undefined) props.push([attribute.name, value])
   }
 
@@ -216,7 +216,12 @@ function toElement(node: MdxNode, name: string, source: string): MdxElement {
   }
 }
 
-function attributeValue(value: MdxNode["value"]): PropValue | undefined {
+/**
+ * The value the renderer passes a block for one of its JSX attributes, given
+ * the attribute's `value` in the MDX syntax tree; undefined for a value that
+ * isn't a literal.
+ */
+export function jsxAttributeValue(value: MdxNode["value"]): PropValue | undefined {
   // A bare prop, such as `usePty`
   if (value === null || value === undefined) return true
   // A quoted value, whose character references the parser has decoded

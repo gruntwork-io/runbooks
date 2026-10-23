@@ -42,6 +42,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 ### Show content
 
 - [`<Admonition>`](/authoring/blocks/admonition) renders a note, info, warning, or danger callout.
+- [`<Chapter>`](/authoring/blocks/chapter) splits a long runbook into chapters, shown one at a time with a table of contents.
 - [`<Iframe>`](/authoring/blocks/iframe) embeds a web page: an external site, or an HTML page from the runbook's `assets/` folder.
 
 ## Block IDs
@@ -79,6 +80,6 @@ Each block the user acts on is a step. It is done once the block shows it's done
 | `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>` | It opened its pull or merge request. |
 | `<DirPicker>` | It has a path. |
 
-`<TemplateInline>`, `<Admonition>` and `<Iframe>` aren't steps, as there is nothing in them for the user to do. Neither is an `<Inputs>` nested in a `<Command>` or `<Check>`, which is part of that block, nor a block that shows a configuration error, such as a duplicate ID, in its place.
+`<TemplateInline>`, `<Admonition>`, `<Chapter>` and `<Iframe>` aren't steps, as there is nothing in them for the user to do. The blocks inside a `<Chapter>` are steps as they would be anywhere else, and its table of contents counts them per chapter. Neither is an `<Inputs>` nested in a `<Command>` or `<Check>`, which is part of that block, nor a block that shows a configuration error, such as a duplicate ID, in its place.
 
 A [resumed session](/commands/sessions/#resuming-a-session) brings the blocks back as the user left them, so their steps are done as they were. In [instruction mode](/intro/instruction-mode/#tracking-your-progress), a step is done once the user marks it as done.
