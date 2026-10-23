@@ -6,7 +6,6 @@ import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel } from "@/component
 import { LocalPathRow } from "@/components/artifacts/workspace/rows/LocalPathRow"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useOutputs } from "@/contexts/useRunbook"
 import { useSessionHistory } from "@/contexts/useSessionHistory"
@@ -148,15 +147,9 @@ function GitCloneInteractive({
 
   const { reportError, clearError } = useErrorReporting()
 
-  const { trackBlockRender } = useTelemetry()
-
   // Git worktree context for registering cloned repos with the workspace
   const { registerWorkTree, unregisterWorkTree } = useGitWorkTree()
   const displayPath = useDisplayPath()
-
-  useEffect(() => {
-    trackBlockRender("GitClone")
-  }, [id, trackBlockRender])
 
   // The repository the block had when the session was last open, from the
   // session's history. The block starts on it, and the hook checks it is

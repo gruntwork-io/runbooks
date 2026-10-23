@@ -10,7 +10,6 @@ import { IpcGitWorkTreeProvider } from "./contexts/IpcGitWorkTreeContext"
 import { WorkspaceGitDataProvider } from "./contexts/WorkspaceGitDataContext"
 import { IpcExecutableRegistryProvider } from "./contexts/IpcExecutableRegistryContext"
 import { ErrorReportingProvider } from "./contexts/ErrorReportingContext"
-import { IpcTelemetryProvider } from "./contexts/IpcTelemetryContext"
 import { LogsProvider } from "./contexts/LogsContext"
 import { IpcSessionProvider } from "./contexts/IpcSessionContext"
 import { RunbookProgressProvider } from "./contexts/RunbookProgressContext"
@@ -40,25 +39,23 @@ if (!window.api) {
       <ApiProvider api={window.api}>
         <ThemeProvider>
           <InstructionModeProvider>
-            <IpcTelemetryProvider>
-              <IpcSessionProvider>
-                <ErrorReportingProvider>
-                  <IpcExecutableRegistryProvider>
-                    <GeneratedFilesProvider>
-                      <IpcGitWorkTreeProvider>
-                        <WorkspaceGitDataProvider>
-                          <LogsProvider>
-                            <RunbookProgressProvider>
-                              <App />
-                            </RunbookProgressProvider>
-                          </LogsProvider>
-                        </WorkspaceGitDataProvider>
-                      </IpcGitWorkTreeProvider>
-                    </GeneratedFilesProvider>
-                  </IpcExecutableRegistryProvider>
-                </ErrorReportingProvider>
-              </IpcSessionProvider>
-            </IpcTelemetryProvider>
+            <IpcSessionProvider>
+              <ErrorReportingProvider>
+                <IpcExecutableRegistryProvider>
+                  <GeneratedFilesProvider>
+                    <IpcGitWorkTreeProvider>
+                      <WorkspaceGitDataProvider>
+                        <LogsProvider>
+                          <RunbookProgressProvider>
+                            <App />
+                          </RunbookProgressProvider>
+                        </LogsProvider>
+                      </WorkspaceGitDataProvider>
+                    </IpcGitWorkTreeProvider>
+                  </GeneratedFilesProvider>
+                </IpcExecutableRegistryProvider>
+              </ErrorReportingProvider>
+            </IpcSessionProvider>
           </InstructionModeProvider>
         </ThemeProvider>
       </ApiProvider>

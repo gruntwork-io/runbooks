@@ -33,7 +33,6 @@ import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTelemetry } from "@/contexts/useTelemetry"
 import { useSessionHistory } from "@/contexts/useSessionHistory"
 import { runEnded } from "@/lib/sessionHistory"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
@@ -49,7 +48,7 @@ import type { StatusStyles } from "../lib/statusStyles"
 export interface ScriptBlockVariant {
   /** componentType forwarded to useScriptExecution. */
   componentType: ComponentType
-  /** Registry/telemetry/error-reporting name and the `<Name>` shown in messages. */
+  /** Registry/error-reporting name and the `<Name>` shown in messages. */
   name: "Command" | "Check" | "Finish"
   /** Primary action button label. */
   runLabel: string
@@ -177,8 +176,6 @@ export function ScriptBlock({
   )
 
   const { reportError, clearError } = useErrorReporting()
-
-  const { trackBlockRender } = useTelemetry()
 
   // Instruction mode flattens this block into a copy-pasteable instruction.
   const { enabled: instructionMode } = useInstructionMode()
@@ -362,11 +359,6 @@ export function ScriptBlock({
   // Check if component requires variables but none are configured. Only Inputs
   // blocks supply `.inputs` values; an auth block reference never does.
   const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !inlineInputsId
-
-  // Track block render on mount
-  useEffect(() => {
-    trackBlockRender(variant.name)
-  }, [trackBlockRender, variant.name])
 
   // Report errors to the error reporting context
   useEffect(() => {

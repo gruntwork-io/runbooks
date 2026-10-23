@@ -1,7 +1,7 @@
 /**
  * System-trust TLS: make every Node TLS client in the main process (VCS
- * HttpClient layers, OAuth device flow, AWS SDK, Mixpanel) honor the OS trust
- * store in ADDITION to Node's bundled Mozilla roots, so a custom enterprise
+ * HttpClient layers, OAuth device flow, AWS SDK) honor the OS trust store in
+ * ADDITION to Node's bundled Mozilla roots, so a custom enterprise
  * root CA installed in the OS store stops failing token validation as
  * "Invalid credentials detected". Strictly additive — verification is never
  * disabled.

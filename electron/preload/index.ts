@@ -93,7 +93,6 @@ const INVOKE_CHANNELS = {
   "cli:uninstall-with-dialog": true,
   "file:read": true,
   "watch:subscribe": true,
-  "telemetry:config": true,
   "native:open-external": true,
   "native:show-open-dialog": true,
   "native:open-runbook-dialog": true,
