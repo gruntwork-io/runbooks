@@ -109,7 +109,14 @@ export function mdxErrorMessage(err: unknown): string {
     "line" in err &&
     typeof err.line === "number"
   ) {
-    return `Line ${err.line}: ${err.reason}`
+    // For JavaScript it can't parse, MDX says only "Could not parse expression
+    // with acorn", its JavaScript parser, and keeps acorn's own reason, such as
+    // "Unterminated string constant", as the cause.
+    const reason =
+      "ruleId" in err && err.ruleId === "acorn" && err.cause instanceof Error
+        ? err.cause.message
+        : err.reason
+    return `Line ${err.line}: ${reason}`
   }
   return errorMessage(err)
 }
