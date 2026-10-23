@@ -9,7 +9,7 @@ Earlier versions contained code for sending usage events to Mixpanel, but no rel
 
 ## Update checks
 
-The installed app checks GitHub for a new release each time it starts, about ten seconds after launch. It uses [electron-updater](https://www.electron.build/auto-update) with the [releases of gruntwork-io/runbooks](https://github.com/gruntwork-io/runbooks/releases):
+The installed app checks GitHub for a new release each time it starts, about ten seconds after launch. It uses [electron-updater](https://github.com/electron-userland/electron-builder/tree/master/packages/electron-updater) with the [releases of gruntwork-io/runbooks](https://github.com/gruntwork-io/runbooks/releases):
 
 1. It reads `https://github.com/gruntwork-io/runbooks/releases.atom` to find the newest release.
 2. It downloads that release's update file: `latest-mac.yml` on macOS, `latest.yml` on Windows or `latest-linux.yml` on Linux.
