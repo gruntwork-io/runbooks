@@ -17,7 +17,12 @@ export interface CliConfig {
   remoteUrl: string | null
   /** Enable watch mode for live-reloading. */
   watch: boolean
-  /** Disable telemetry. */
+  /**
+   * `--no-telemetry`. Currently has no effect: Runbooks sends no usage data.
+   * The flag (like the RUNBOOKS_TELEMETRY_DISABLE env var, which nothing
+   * reads) is still accepted so existing launch commands keep working, and is
+   * reserved for turning off a future anonymous usage ping.
+   */
   noTelemetry: boolean
   /** Freeze the executable registry in watch mode (don't rebuild on file changes). */
   disableLiveFileReload: boolean

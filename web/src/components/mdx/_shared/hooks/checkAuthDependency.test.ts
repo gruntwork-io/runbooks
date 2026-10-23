@@ -1,10 +1,6 @@
 import { describe, it, expect } from "vitest"
-import {
-  checkAuthDependency,
-  buildAuthEnvVars,
-  buildGoogleAuthEnvVars,
-  GOOGLE_AUTH_ENV_KEYS,
-} from "./useScriptExecution"
+import { checkAuthDependency, buildAuthEnvVars, buildGoogleAuthEnvVars } from "./useScriptExecution"
+import { GOOGLE_AUTH_ENV_VARS } from "../../../../../../src/domain/exec/authEnv.ts"
 
 describe("checkAuthDependency", () => {
   const emptyOutputs: Record<string, { values: Record<string, string> }> = {}
@@ -92,7 +88,7 @@ describe("buildAuthEnvVars — googleAuthId routing", () => {
   }
 
   it("collects the Google credential + project vars from the referenced block", () => {
-    expect(buildAuthEnvVars("target-project", googleBlockOutputs, GOOGLE_AUTH_ENV_KEYS)).toEqual({
+    expect(buildAuthEnvVars("target-project", googleBlockOutputs, GOOGLE_AUTH_ENV_VARS)).toEqual({
       GOOGLE_APPLICATION_CREDENTIALS: "/tmp/runbooks-gcp-BBB/adc.json",
       GOOGLE_CLOUD_PROJECT: "target-proj",
       CLOUDSDK_CORE_PROJECT: "target-proj",
@@ -105,13 +101,13 @@ describe("buildAuthEnvVars — googleAuthId routing", () => {
   })
 
   it("never leaks non-Google output keys into the execution env", () => {
-    const envVars = buildAuthEnvVars("target-project", googleBlockOutputs, GOOGLE_AUTH_ENV_KEYS)
+    const envVars = buildAuthEnvVars("target-project", googleBlockOutputs, GOOGLE_AUTH_ENV_VARS)
     expect(envVars).not.toHaveProperty("__AUTHENTICATED")
     expect(envVars).not.toHaveProperty("GOOGLE_AUTH_TYPE")
   })
 
   it("returns undefined for a GoogleAuth block that has not authenticated", () => {
-    expect(buildAuthEnvVars("target-project", {}, GOOGLE_AUTH_ENV_KEYS)).toBeUndefined()
+    expect(buildAuthEnvVars("target-project", {}, GOOGLE_AUTH_ENV_VARS)).toBeUndefined()
   })
 })
 

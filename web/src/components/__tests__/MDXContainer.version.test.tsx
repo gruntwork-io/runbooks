@@ -30,18 +30,18 @@ describe("MDXContainer, for a runbook this version of Runbooks can't open", () =
         "",
         "</Admonition>",
         "",
-        '<Chapter title="One">',
+        '<Quiz title="One">',
         "",
         "One.",
         "",
-        "</Chapter>",
+        "</Quiz>",
         "",
       ].join("\n"),
     )
 
     expect(title).toBe("Runbooks can't open this runbook")
     expect(details).toBe(
-      `This runbook uses <Badge> and <Chapter>, blocks that Runbooks ${RUNBOOKS_VERSION} doesn't have. If a later version of Runbooks added them, update Runbooks to use this runbook. Otherwise, check their names.`,
+      `This runbook uses <Badge> and <Quiz>, blocks that Runbooks ${RUNBOOKS_VERSION} doesn't have. If a later version of Runbooks added them, update Runbooks to use this runbook. Otherwise, check their names.`,
     )
     expect(screen.queryByText("Guide")).toBeNull()
   })
@@ -56,7 +56,7 @@ describe("MDXContainer, for a runbook this version of Runbooks can't open", () =
         "",
         "# Guide",
         "",
-        "<Chapter />",
+        "<Quiz />",
         "",
       ].join("\n"),
     )

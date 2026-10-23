@@ -31,7 +31,6 @@ import { registerGitHandlers } from "./git.ts"
 import { registerWorkspaceHandlers } from "./workspace.ts"
 import { registerFileHandlers } from "./files.ts"
 import { registerWatchHandlers } from "./watch.ts"
-import { registerTelemetryHandlers } from "./telemetry.ts"
 import { registerThemeHandlers } from "./theme.ts"
 import { withVcs } from "./vcs-tristate.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
@@ -87,7 +86,6 @@ export function registerAllIpcHandlers(): void {
   registerWorkspaceHandlers()
   registerFileHandlers()
   registerWatchHandlers()
-  registerTelemetryHandlers()
   registerThemeHandlers()
   registerVcsStatusHandler()
 }

@@ -15,8 +15,6 @@ import { GoogleClient } from "../services/GoogleClient.ts"
 import type { GoogleClientShape } from "../services/GoogleClient.ts"
 import { BoilerplateRenderer } from "../services/BoilerplateRenderer.ts"
 import type { BoilerplateRendererShape } from "../services/BoilerplateRenderer.ts"
-import { Telemetry } from "../services/Telemetry.ts"
-import type { TelemetryShape } from "../services/Telemetry.ts"
 import {
   AwsAuthError,
   AwsConfigError,
@@ -298,14 +296,6 @@ const makeStubBoilerplate = (
   ...overrides,
 })
 
-const makeStubTelemetry = (overrides: Partial<TelemetryShape> = {}): TelemetryShape => ({
-  track: (_event, _properties) => Effect.void,
-  trackCommand: (_command) => Effect.void,
-  trackError: (_errorType) => Effect.void,
-  isEnabled: () => Effect.succeed(false),
-  ...overrides,
-})
-
 // ---------------------------------------------------------------------------
 // Public layer factories
 // ---------------------------------------------------------------------------
@@ -328,9 +318,6 @@ export const makeTestGoogleClient = (overrides: Partial<GoogleClientShape> = {})
 export const makeTestBoilerplate = (overrides: Partial<BoilerplateRendererShape> = {}) =>
   Layer.succeed(BoilerplateRenderer, makeStubBoilerplate(overrides))
 
-export const makeTestTelemetry = (overrides: Partial<TelemetryShape> = {}) =>
-  Layer.succeed(Telemetry, makeStubTelemetry(overrides))
-
 // ---------------------------------------------------------------------------
 // Combined test layer
 // ---------------------------------------------------------------------------
@@ -345,7 +332,6 @@ export interface TestLayerOptions {
   readonly git?: Partial<GitClientShape>
   readonly google?: Partial<GoogleClientShape>
   readonly boilerplate?: Partial<BoilerplateRendererShape>
-  readonly telemetry?: Partial<TelemetryShape>
 }
 
 export const makeTestLayer = (options: TestLayerOptions = {}) =>
@@ -359,5 +345,4 @@ export const makeTestLayer = (options: TestLayerOptions = {}) =>
     makeTestGitClient(options.git),
     makeTestGoogleClient(options.google),
     makeTestBoilerplate(options.boilerplate),
-    makeTestTelemetry(options.telemetry),
   )

@@ -17,11 +17,15 @@ import { Template } from "@/components/mdx/Template"
 import { TemplateInline } from "@/components/mdx/TemplateInline"
 import { ComponentIdRegistryProvider } from "@/contexts/ComponentIdRegistry"
 import { RunbookContextProvider } from "@/contexts/RunbookContext"
+import type { ChapterInfo } from "@/contexts/RunbookChaptersContext.types"
+import { useChaptersControl } from "@/contexts/useRunbookChapters"
 import { Check } from "@/components/mdx/Check"
 import { Command } from "@/components/mdx/Command"
 import { Finish } from "@/components/mdx/Finish"
 import { Prerequisites } from "@/components/mdx/Prerequisites"
 import { Admonition } from "@/components/mdx/Admonition"
+import { Chapter } from "@/components/mdx/Chapter"
+import { rehypeChapters } from "@/components/mdx/Chapter/rehypeChapters"
 import { Iframe } from "@/components/mdx/Iframe"
 import { AwsAuth } from "@/components/mdx/AwsAuth"
 import { GoogleAuth } from "@/components/mdx/GoogleAuth"
@@ -77,6 +81,7 @@ function MDXContainer({
 }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
+  const { setChapters } = useChaptersControl()
 
   // Extract runbook name from its directory path (last segment)
   // e.g., "testdata/feature-demos/github-pull-request" → "github-pull-request"
@@ -86,13 +91,17 @@ function MDXContainer({
     return segments[segments.length - 1] || undefined
   }, [runbookPath])
 
-  // Compile the MDX content into a React component that the browser can render
+  // Compile the MDX content into a React component that the browser can render.
+  // Its chapters are set in the same render, so the chapter bar shows with
+  // them. A runbook that fails to compile keeps the chapters it had, so a
+  // watch-mode reload that fixes it is still on the same chapter.
   useEffect(() => {
     const createMDXComponent = async () => {
       try {
         setError(null)
-        const compiledComponent = await compileMDX(content, assetHost)
-        setCustomMDXComponent(() => compiledComponent)
+        const { Content, chapters } = await compileRunbook(content, assetHost)
+        setCustomMDXComponent(() => Content)
+        setChapters(chapters)
       } catch (err) {
         console.error("Error processing MDX content:", err)
         setError(
@@ -104,7 +113,11 @@ function MDXContainer({
     }
 
     void createMDXComponent()
-  }, [content, assetHost])
+  }, [content, assetHost, setChapters])
+
+  // Another runbook, or another session of this one, mounts a new container,
+  // which starts at its first chapter.
+  useEffect(() => () => setChapters([]), [setChapters])
 
   if (error) {
     return (
@@ -366,6 +379,7 @@ export const MDX_COMPONENTS = {
   GitLabMergeRequest,
   // Utility components
   Admonition,
+  Chapter,
   Iframe,
   a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
   pre: CodeBlock, // Code blocks with copy-on-hover button
@@ -377,7 +391,16 @@ export const MDX_COMPONENTS = {
 export const compileMDX = async (
   content: string,
   assetHost?: string,
-): Promise<React.ComponentType> => {
+): Promise<React.ComponentType> => (await compileRunbook(content, assetHost)).Content
+
+/** A compiled runbook: the component that renders it, and its chapters. */
+interface CompiledRunbook {
+  Content: React.ComponentType
+  /** The <Chapter> blocks at the top level, in document order. */
+  chapters: ChapterInfo[]
+}
+
+async function compileRunbook(content: string, assetHost?: string): Promise<CompiledRunbook> {
   // A runbook for other versions of Runbooks may not compile in this one, so
   // its requirement comes first.
   const requirementError = versionRequirementError(content)
@@ -385,6 +408,7 @@ export const compileMDX = async (
 
   // Strip front matter before MDX compilation (front matter is metadata, not content)
   const mdxContent = stripFrontMatter(content)
+  const chapters: ChapterInfo[] = []
 
   // Compile and evaluate the MDX content. No `baseUrl`: runbooks cannot import
   // modules (remarkLiteralOnly rejects import/export before it would matter).
@@ -400,11 +424,12 @@ export const compileMDX = async (
       rehypeKnownBlocks,
       [rehypeTransformAssetPaths, { assetHost }],
       rehypeTaskListIds,
+      [rehypeChapters, { chapters }],
     ],
     useMDXComponents: () => MDX_COMPONENTS,
   })
 
-  return compiledMDX.default
+  return { Content: compiledMDX.default, chapters }
 }
 
 // Error boundary for RUNTIME errors in MDX components

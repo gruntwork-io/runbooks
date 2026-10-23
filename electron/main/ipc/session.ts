@@ -5,6 +5,7 @@
  * All handlers are process-local and trusted.
  */
 import { ipcMain } from "electron"
+import { AWS_AUTH_ENV_VARS, disallowedEnvVars } from "../../../src/domain/exec/authEnv.ts"
 import {
   runtime,
   saveVcsSessionMeta,
@@ -28,7 +29,14 @@ export function registerSessionHandlers(): void {
     return { ok: true as const }
   })
 
+  // An <AwsAuth> block's credentials, its only caller. The session env
+  // reaches every later script, so any other name is refused: a caller
+  // can't set PATH, BASH_ENV, LD_PRELOAD and the like for them.
   ipcMain.handle("session:set-env", async (_event, params: { env: Record<string, string> }) => {
+    const refused = disallowedEnvVars(params.env, AWS_AUTH_ENV_VARS)
+    if (refused.length > 0) {
+      throw new Error(`session:set-env only takes AWS credentials, not ${refused.join(", ")}`)
+    }
     await runtime.runPromise(sessionManager.appendToEnv(params.env))
     return { ok: true as const }
   })

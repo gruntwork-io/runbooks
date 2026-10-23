@@ -5,8 +5,9 @@ import { Effect, Ref, Stream } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { Environment } from "../../services/Environment.ts"
-import { ExecTimeoutError } from "../../errors/index.ts"
+import { ExecEnvOverrideError, ExecTimeoutError } from "../../errors/index.ts"
 import { buildFileTree } from "../workspace/file-tree.ts"
+import { disallowedEnvVars } from "./authEnv.ts"
 import { makeLogger } from "../../logger.ts"
 
 const log = makeLogger("domain:exec")
@@ -128,6 +129,10 @@ function determineExitStatus(exitCode: number, timedOut: boolean): ExecStatusEve
  * Execute a script and return a Stream of execution events (log lines, status,
  * outputs, captured files, environment capture, and done).
  *
+ * The script's env is the session's, then the request's overrides (auth
+ * blocks' credentials), then `blockEnv` (the block's rendered `env` prop),
+ * then the variables Runbooks sets for every run (RUNBOOK_OUTPUT, ...).
+ *
  * The caller is responsible for:
  *  - Resolving the Executable and rendering template variables before calling this
  *  - Providing the session execution context (env, workDir)
@@ -145,8 +150,20 @@ export const executeScript = (
   workTreePath: string,
   outputPath: string,
   logsDir: string,
+  blockEnv: Readonly<Record<string, string>> = {},
 ) =>
   Effect.gen(function* () {
+    // The overrides are an auth block's vars for this run only (see
+    // authEnv.ts). Refuse any other name before anything is created, so no
+    // caller can set PATH, BASH_ENV, LD_PRELOAD or a runbook-managed var.
+    const refused = disallowedEnvVars(request.envVarsOverride ?? {})
+    if (refused.length > 0) {
+      return yield* new ExecEnvOverrideError({
+        names: refused,
+        message: `Refused to run with env vars that no auth block passes: ${refused.join(", ")}`,
+      })
+    }
+
     log.debug("step 1: getting services")
     const fs = yield* FileSystem
     const spawner = yield* ProcessSpawner
@@ -199,10 +216,11 @@ export const executeScript = (
     // Build the execution environment
     let execEnv: Record<string, string> = yield* withSystemPath(sessionContext.env)
 
-    // Apply per-request env var overrides
+    // Apply per-request env var overrides, checked above
     if (request.envVarsOverride && Object.keys(request.envVarsOverride).length > 0) {
       execEnv = { ...execEnv, ...request.envVarsOverride }
     }
+    execEnv = { ...execEnv, ...blockEnv }
 
     // A credential path that no longer exists is worth failing on BEFORE the
     // spawn. Every Google client library and the gcloud CLI report it as

@@ -74,6 +74,30 @@ Next, share the endpoint with your team.
 </Finish>
 `````
 
+### Chapters
+
+A long runbook that's best worked through in phases can split its content into [chapters](/authoring/blocks/chapter/), which Runbooks shows one at a time, with a table of contents to move between them:
+
+```mdx
+# Runbook title
+
+Introduction paragraph, shown with every chapter.
+
+<Chapter title="Pre-flight checks">
+
+...
+
+</Chapter>
+
+<Chapter title="Deploy">
+
+...
+
+</Chapter>
+```
+
+Chapters only change what's on screen: a block in one chapter can use the inputs and outputs of a block in any other.
+
 ## Front matter
 
 `runbook.mdx` can start with YAML front matter, between two `---` lines. Runbooks doesn't show it.

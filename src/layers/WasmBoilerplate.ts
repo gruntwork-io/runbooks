@@ -10,7 +10,8 @@
  *
  *  - `renderTemplate`: shells out to the `boilerplate` CLI. This covers the
  *    full boilerplate feature surface (dependencies, skip_files, hooks,
- *    partials, all built-in functions) for the cold-render path.
+ *    partials, every built-in function except `shell`) for the cold-render
+ *    path.
  *
  * The WASM render hard-codes `OnMissingKey=ExitWithError`, and every
  * template-level failure (missing key, parse error, unknown function) comes
@@ -186,6 +187,13 @@ export function runBoilerplateCli(
 
 /**
  * Shell out to the boilerplate CLI to render a template tree.
+ *
+ * `--no-shell` turns the `shell` template helper off: it returns
+ * `replace-me` instead of running its command, as it already does in the
+ * WASM renders. The CLI renders every var-file value and map key as a
+ * template, block outputs included, and `--non-interactive` runs a `shell`
+ * call without asking. Without the flag, a value a script published, such as
+ * a PR title, could run a command here.
  */
 function runBoilerplate(templateDir: string, outputDir: string, varFilePath: string) {
   return runBoilerplateCli(
@@ -198,6 +206,7 @@ function runBoilerplate(templateDir: string, outputDir: string, varFilePath: str
       varFilePath,
       "--non-interactive",
       "--disable-dependency-prompt",
+      "--no-shell",
     ],
     "boilerplate",
   )

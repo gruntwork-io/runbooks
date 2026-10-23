@@ -6,8 +6,8 @@
  *      other inputs + outputs map, so a form value like
  *      `{{ .inputs.A }}+suffix@{{ .inputs.B }}` produces the composed
  *      string before it reaches boilerplate.
- *   2. Strip any template values that survived resolution. A raw
- *      `{{ .inputs.X }}` reaching boilerplate as a var-file value crashes
+ *   2. Strip any template values, and map keys, that survived resolution. A
+ *      raw `{{ .inputs.X }}` reaching boilerplate as a var-file value crashes
  *      when boilerplate re-evaluates the var-file string inside a
  *      dependency that doesn't expose the `inputs` namespace — stripping
  *      forces fallback to the variable's own `default:` clause, which
@@ -52,8 +52,10 @@ function liftInputsToRoot(
 }
 
 /**
- * Recursively drop any value that's still a Go-template expression. A map
- * that had entries, all of which were stripped, is dropped entirely so the
+ * Recursively drop any value that's still a Go-template expression, and any
+ * map entry whose key still is. The boilerplate CLI renders var-file keys
+ * as templates too, so a key left in would run there. A map that had
+ * entries, all of which were stripped, is dropped entirely so the
  * dependency's own defaults apply instead. A map that was already empty is
  * kept as-is — it's an explicit user value (e.g. every MapInput entry
  * removed), not an unresolved template.
@@ -68,6 +70,7 @@ export function stripTemplateValues(value: unknown): unknown {
     if (entries.length === 0) return value
     const cleaned: Record<string, unknown> = {}
     for (const [k, v] of entries) {
+      if (isTemplateString(k)) continue
       const stripped = stripTemplateValues(v)
       if (stripped !== undefined) cleaned[k] = stripped
     }
@@ -184,9 +187,9 @@ function resolveTree(
       for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
         // Map keys can themselves be templates (e.g. the `AccountDefaultTags`
         // default in bootstrap is `{ "{{ .OrgNamePrefix }}:Team": "DevOps" }`).
-        // Boilerplate doesn't re-evaluate var-file map keys, so unless we
-        // render the key here the literal `{{ ... }}` flows through to the
-        // rendered output.
+        // Render the key here, against the same context as the values. A key
+        // that doesn't resolve is stripped with the values that don't (see
+        // stripTemplateValues).
         let resolvedKey = k
         if (isTemplateString(k)) {
           const keyResult = yield* renderString(k, wasm, varsJSON)

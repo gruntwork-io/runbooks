@@ -9,8 +9,7 @@ import type { GitHubPullRequestProps } from "@/components/mdx/GitPullRequest/typ
  * `<GitPullRequest provider="github" hideProviderSelect />`. It keeps its
  * existing props (including `githubAuthId`) and default title, so existing
  * runbooks behave exactly as before. The internal `__registryType` keeps its
- * duplicate-id, telemetry, and error-message identity reporting as
- * "GitHubPullRequest".
+ * duplicate-id and error-message identity reporting as "GitHubPullRequest".
  */
 export function GitHubPullRequest(props: GitHubPullRequestProps) {
   return (

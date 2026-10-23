@@ -13,7 +13,6 @@ import { WasmBoilerplateLive } from "./WasmBoilerplate.ts"
 import { NodeWasmRuntimeLive } from "./NodeWasmRuntime.ts"
 import { NodeBundleProducerLive } from "./NodeBundleProducer.ts"
 import { NodeWarmRenderDispatcherLive } from "./NodeWarmRenderDispatcher.ts"
-import { MixpanelTelemetryLive } from "./MixpanelTelemetry.ts"
 import { GitCliClientLive } from "./GitCliClient.ts"
 import { VcsCredentialsLive } from "./VcsCredentialsLive.ts"
 
@@ -44,7 +43,6 @@ const BaseLive = Layer.mergeAll(
   GoogleSdkClientLive,
   GitHubHttpClientLive,
   GitLabHttpClientLive,
-  MixpanelTelemetryLive,
   VcsCredentialsWithDeps,
 )
 

@@ -80,7 +80,7 @@ describe("TestExecutor — config-error surfacing", () => {
 
   it("fails each test, naming every block this version doesn't have", async () => {
     const rb = path.join(tmp, "runbook.mdx")
-    fs.writeFileSync(rb, `# Bad Runbook\n\n<Chapter title="One">\n\n<Tabs />\n\n</Chapter>\n`)
+    fs.writeFileSync(rb, `# Bad Runbook\n\n<Quiz title="One">\n\n<Tabs />\n\n</Quiz>\n`)
 
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 5_000, verbose: false })
     await executor.init()
@@ -88,7 +88,7 @@ describe("TestExecutor — config-error surfacing", () => {
 
     expect(result.status).toBe("failed")
     expect(result.error).toStartWith(
-      `This runbook uses <Chapter> and <Tabs>, blocks that Runbooks ${RUNBOOKS_VERSION} doesn't have.`,
+      `This runbook uses <Quiz> and <Tabs>, blocks that Runbooks ${RUNBOOKS_VERSION} doesn't have.`,
     )
   })
 
@@ -805,6 +805,64 @@ describe("TestExecutor — block outputs", () => {
     const result = executor.runTest({ name: "outputs" })
 
     expect(result.stepResults[0]?.outputs).toEqual({ MSG: " hi", OK: "1" })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A script block's env prop: values reach the script as env vars, for that
+// block only, as in the app.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — block env", () => {
+  let tmp: string
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-env-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  const runbookWith = async (blocks: string[]) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, ["# Env", ...blocks, ""].join("\n\n"))
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  it("passes an output to the script as data, and not to the blocks after it", async () => {
+    const marker = path.join(tmp, "pwned")
+    // What an output taken from a PR title could hold.
+    const title = `Fix typo $(touch '${marker}') \`touch '${marker}'\` "; touch '${marker}'; echo "`
+    const fetch = `cat >> "$RUNBOOK_OUTPUT" <<'EOF'\nTITLE=${title}\nEOF`
+    const use = `printf 'title=%s\\n' "$PR_TITLE" >> "$RUNBOOK_OUTPUT"`
+    const after = `echo "title=\${PR_TITLE:-unset}" >> "$RUNBOOK_OUTPUT"`
+    const executor = await runbookWith([
+      `<Command id="fetch" command={${JSON.stringify(fetch)}} />`,
+      `<Command id="use" env={{ PR_TITLE: "{{ .outputs.fetch.TITLE }}" }} command={${JSON.stringify(use)}} />`,
+      `<Check id="after" command={${JSON.stringify(after)}} />`,
+    ])
+
+    const result = executor.runTest({ name: "env" })
+
+    expect(result.error).toBeUndefined()
+    const outputs = Object.fromEntries(result.stepResults.map((s) => [s.block, s.outputs]))
+    expect(outputs["command:use"]).toEqual({ title })
+    expect(outputs["check:after"]).toEqual({ title: "unset" })
+    expect(fs.existsSync(marker)).toBe(false)
+  })
+
+  it("reports a block whose env prop isn't valid as a config error, saying why", async () => {
+    const executor = await runbookWith([
+      `<Command id="bad" env={{ RUNBOOK_OUTPUT: "/elsewhere" }} command="true" />`,
+    ])
+
+    const result = executor.runTest({ name: "bad-env" })
+
+    expect(result.stepResults[0]?.actualStatus).toBe("config_error")
+    expect(result.stepResults[0]?.error).toBe(
+      '<Command id="bad">: RUNBOOK_OUTPUT in env is a variable Runbooks sets for every script. Pick another name.',
+    )
   })
 })
 

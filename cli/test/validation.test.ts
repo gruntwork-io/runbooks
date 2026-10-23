@@ -351,6 +351,28 @@ describe("InputValidator", () => {
     expect(v.hasConfigErrors()).toBe(false)
   })
 
+  it("recognizes Chapter, and finds the blocks in each chapter in document order", () => {
+    const p = writeRunbook(`
+<Chapter title="Set up">
+
+<Command id="first" command="echo one" />
+
+</Chapter>
+
+<Command id="between" command="echo two" />
+
+<Chapter title="Deploy">
+
+<Check id="last" command="echo three" />
+
+</Chapter>
+`)
+    const v = new InputValidator(p)
+    v.init()
+    expect(v.hasConfigErrors()).toBe(false)
+    expect(v.getComponents().map((c) => c.id)).toEqual(["first", "between", "last"])
+  })
+
   it("parses GoogleAuth blocks into the component list", () => {
     const p = writeRunbook(`
 <GoogleAuth id="gcp1" />

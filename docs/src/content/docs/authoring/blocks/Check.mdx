@@ -35,7 +35,8 @@ A Check has a **Check** button where a Command has **Run**. It also accepts a `w
 - `description` (string): longer description of what's being checked. Supports inline markdown.
 - `command` (string): inline command to execute. Set exactly one of `command` and `path`. If both are set, `command` runs.
 - `path` (string): path to a script file, relative to the runbook's folder, such as `scripts/check.sh`. The file must be inside that folder, so a path with a `..` segment fails. Use either this or `command`.
-- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones. A script that uses `{{ .inputs.* }}` needs this prop or a nested Inputs block. See [With variables](#with-variables).
+- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones. A block that uses `{{ .inputs.* }}`, in `env` or in the script, needs this prop or a nested Inputs block. See [With variables](#with-variables).
+- `env` (object): environment variables the script runs with, by name, such as `env={{ BUCKET_NAME: "{{ .inputs.BucketName }}" }}`. Each value can reference inputs and block outputs. See [Passing values as environment variables](/authoring/blocks/command/#passing-values-as-environment-variables).
 - `awsAuthId` (string): ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Check button is disabled until authentication completes.
 - `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block, for either provider. Its credentials are passed as environment variables (`GITHUB_TOKEN` and `GITHUB_USER`, or `GITLAB_TOKEN` and `GITLAB_USER`). The Check button is disabled until authentication completes.
 - `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block. GitHub only. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Check button is disabled until authentication completes. Prefer `gitAuthId`.
@@ -56,6 +57,7 @@ You can nest an `<Inputs>` component directly inside the Check:
 <Check 
     id="check-s3-bucket" 
     path="checks/s3-bucket-exists.sh"
+    env={{ BUCKET_NAME: "{{ .inputs.BucketName }}" }}
     title="Verify S3 Bucket Exists"
 >
     <Inputs id="bucket-config">
@@ -142,7 +144,7 @@ Check scripts get the same `log_info`, `log_warn`, `log_error` and `log_debug` f
 
 ### With variables
 
-A Check takes variables the same way a Command does: from `inputsId`, from several `inputsId` values, or from a nested `<Inputs>`. Reference a value as `{{ .inputs.VariableName }}` in the command, the script, or the message props.
+A Check takes variables the same way a Command does: from `inputsId`, from several `inputsId` values, or from a nested `<Inputs>`. Pass a value to the script with the `env` prop, and reference it as `{{ .inputs.VariableName }}` in the message props.
 
 ````mdx
 <Inputs id="region-config">
@@ -157,7 +159,8 @@ variables:
 
 <Check 
     id="check-region" 
-    command='aws ec2 describe-availability-zones --region "{{ .inputs.AwsRegion }}"'
+    env={{ REGION: "{{ .inputs.AwsRegion }}" }}
+    command='aws ec2 describe-availability-zones --region "$REGION"'
     inputsId="region-config"
     title="Check AWS Region Accessibility"
     successMessage="Region {{ .inputs.AwsRegion }} is accessible!"
@@ -165,7 +168,7 @@ variables:
 />
 ````
 
-See [With variables](/authoring/blocks/command/#with-variables) in the Command block docs for merging several Inputs blocks, and [How values are inserted](/authoring/blocks/command/#how-values-are-inserted) for quoting and for passing `{{ }}` through to another tool.
+See [With variables](/authoring/blocks/command/#with-variables) in the Command block docs for merging several Inputs blocks and for what `env` does, and [Templates in the script](/authoring/blocks/command/#templates-in-the-script) for referencing values in the script itself.
 
 ### Execution context
 
@@ -214,11 +217,11 @@ fi
 
 #### Parameterized script
 
+The `check-s3-bucket` block in [Inline content](#inline-content) sets `BUCKET_NAME` for this script with its `env` prop.
+
 ```bash
 #!/bin/bash
 # checks/s3-bucket-exists.sh
-
-BUCKET_NAME="{{ .inputs.BucketName }}"
 
 log_info "Checking if S3 bucket exists..."
 log_debug "Bucket name: ${BUCKET_NAME}"

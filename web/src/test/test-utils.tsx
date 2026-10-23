@@ -9,14 +9,11 @@ import {
 import { ComponentIdRegistryProvider } from "@/contexts/ComponentIdRegistry"
 import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
 import { RunbookProgressProvider } from "@/contexts/RunbookProgressContext"
+import { RunbookChaptersProvider } from "@/contexts/RunbookChaptersContext"
 import { useRunbookProgress } from "@/contexts/useRunbookProgress"
-import { TelemetryContext, defaultContextValue } from "@/contexts/TelemetryContext.types"
 
 /**
  * Wraps children in all required context providers for component tests.
- *
- * Telemetry is provided via the raw context with a disabled default so tests
- * don't trigger an IPC init path that isn't what's under test here.
  */
 export function TestWrapper({
   children,
@@ -30,19 +27,19 @@ export function TestWrapper({
   return (
     <ThemeProvider>
       <InstructionModeProvider>
-        <TelemetryContext.Provider value={defaultContextValue}>
-          <ErrorReportingProvider>
-            <ComponentIdRegistryProvider>
-              <RunbookContextProvider
-                runbookName="test"
-                remoteSource={remoteSource}
-                assetHost={assetHost}
-              >
-                <RunbookProgressProvider>{children}</RunbookProgressProvider>
-              </RunbookContextProvider>
-            </ComponentIdRegistryProvider>
-          </ErrorReportingProvider>
-        </TelemetryContext.Provider>
+        <ErrorReportingProvider>
+          <ComponentIdRegistryProvider>
+            <RunbookContextProvider
+              runbookName="test"
+              remoteSource={remoteSource}
+              assetHost={assetHost}
+            >
+              <RunbookProgressProvider>
+                <RunbookChaptersProvider>{children}</RunbookChaptersProvider>
+              </RunbookProgressProvider>
+            </RunbookContextProvider>
+          </ComponentIdRegistryProvider>
+        </ErrorReportingProvider>
       </InstructionModeProvider>
     </ThemeProvider>
   )

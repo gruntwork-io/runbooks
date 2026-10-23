@@ -898,10 +898,20 @@ export class TestExecutor {
       return result
     }
 
-    // Render template vars in script content
+    // Render template vars in script content, and the block's env with the
+    // same values
     let scriptContent = foundExec.content
+    const blockEnv: Record<string, string> = {}
     try {
-      scriptContent = renderGoTemplate(scriptContent, this.buildTemplateVars(block.id))
+      const vars = this.buildTemplateVars(block.id)
+      scriptContent = renderGoTemplate(scriptContent, vars)
+      for (const [name, template] of Object.entries(foundExec.env)) {
+        try {
+          blockEnv[name] = renderGoTemplate(template, vars)
+        } catch (e: unknown) {
+          throw new Error(`${name} in env: ${errorMessage(e)}`, { cause: e })
+        }
+      }
     } catch (e: unknown) {
       result.passed = false
       result.actualStatus = "error"
@@ -971,6 +981,9 @@ export class TestExecutor {
           }
         }
       }
+
+      // Then the block's env, as data, as in the app
+      Object.assign(env, blockEnv)
 
       // Run the script. spawnSync returns only once the script has exited, so
       // it can't order stdout, stderr and the log files by arrival the way
@@ -1051,7 +1064,7 @@ export class TestExecutor {
         }
 
         // Carry the script's exports and final cwd into later blocks
-        if (isBash) this.applyEnvCapture(envCapturePath, pwdCapturePath)
+        if (isBash) this.applyEnvCapture(envCapturePath, pwdCapturePath, blockEnv)
 
         // Copy captured files to output directory
         this.creditGeneratedFiles(block.id, this.captureFiles(filesDir, this.resolveOutputPath()))
@@ -1183,9 +1196,15 @@ export class TestExecutor {
    * Apply a bash block's env/pwd capture the way the app's session does after
    * a successful run: the captured env, minus shell internals and per-block
    * vars like RUNBOOK_OUTPUT, replaces the session env, and a non-empty pwd
-   * becomes the cwd for later blocks.
+   * becomes the cwd for later blocks. A variable of the block's env (`blockEnv`,
+   * as the script got it) stays the block's unless the script changed it: the
+   * session keeps the value it had.
    */
-  private applyEnvCapture(envCapturePath: string, pwdCapturePath: string): void {
+  private applyEnvCapture(
+    envCapturePath: string,
+    pwdCapturePath: string,
+    blockEnv: Record<string, string>,
+  ): void {
     let env: Record<string, string> | undefined
     try {
       env = parseEnvCaptureContent(fs.readFileSync(envCapturePath, "utf-8"))
@@ -1194,7 +1213,14 @@ export class TestExecutor {
     }
     if (!env) return
 
-    this.sessionEnv = Object.entries(filterCapturedEnv(env)).map(([k, v]) => `${k}=${v}`)
+    const captured = filterCapturedEnv(env)
+    const before = envListToRecord(this.sessionEnv)
+    for (const [name, value] of Object.entries(blockEnv)) {
+      if (captured[name] !== value) continue
+      if (Object.hasOwn(before, name)) captured[name] = before[name]!
+      else delete captured[name]
+    }
+    this.sessionEnv = Object.entries(captured).map(([k, v]) => `${k}=${v}`)
 
     let pwd = ""
     try {
