@@ -657,4 +657,53 @@ test.describe("Saved sessions", () => {
       await third.app.close()
     }
   })
+
+  test("View > Reload shows the runbook open now, in its session, not the one the app was launched with", async () => {
+    const historyDir = path.join(tmpDir, "history-runbook")
+    fs.mkdirSync(historyDir)
+    fs.writeFileSync(path.join(historyDir, "runbook.mdx"), HISTORY_RUNBOOK)
+    fs.writeFileSync(path.join(historyDir, "greet.sh"), GREET_SCRIPT)
+    fs.writeFileSync(path.join(historyDir, "reply.sh"), REPLY_SCRIPT)
+    const historyHeading = (page: Page) => page.getByRole("heading", { name: "History runbook" })
+
+    const { app, page } = await launch(terminalDir("project"), [runbookDir])
+    try {
+      await expectRunbook(page)
+      // File > Open of another runbook.
+      await runInMain(
+        app,
+        ({ BrowserWindow }, dir) => {
+          BrowserWindow.getAllWindows()[0]?.webContents.send("file:open-runbook", { path: dir })
+        },
+        historyDir,
+      )
+      await expect(historyHeading(page)).toBeVisible({ timeout: 60_000 })
+      const trustButton = page.getByRole("button", { name: "I trust this Runbook" })
+      if (await trustButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await trustButton.click()
+        await expect(trustButton).not.toBeVisible({ timeout: 5_000 })
+      }
+      const name = await sessionName(page)
+      await run(page, "greet")
+
+      // What View > Reload does.
+      await runInMain(
+        app,
+        ({ BrowserWindow }) => {
+          BrowserWindow.getAllWindows()[0]?.webContents.reload()
+        },
+        undefined,
+      )
+
+      await expect(historyHeading(page)).toBeVisible({ timeout: 60_000 })
+      await expect(page.getByRole("heading", { name: "Session runbook" })).toHaveCount(0)
+      expect(await sessionName(page)).toBe(name)
+      // The session's history is back: the script that ran shows its run.
+      await expect(
+        page.locator('[data-testid="greet"]').locator('[data-testid="icon-success"]'),
+      ).toBeVisible()
+    } finally {
+      await app.close()
+    }
+  })
 })

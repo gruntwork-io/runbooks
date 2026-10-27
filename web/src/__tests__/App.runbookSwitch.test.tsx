@@ -67,6 +67,8 @@ interface ApiOptions {
    * last session.
    */
   replacesFinished?: Record<string, { name: string; finishedAt: string }>
+  /** The runbook `native:get-cli-config` tells the page to open, if any. */
+  pageRunbook?: { runbookPath: string; remoteSource?: string; reload?: true }
 }
 
 /**
@@ -81,6 +83,7 @@ function makeApi({
   watchMode = false,
   resumed = {},
   replacesFinished = {},
+  pageRunbook,
 }: ApiOptions = {}) {
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   let current: RunbookFixture | null = null
@@ -94,7 +97,7 @@ function makeApi({
     async (channel: string, params?: { path?: string; remoteSource?: string; name?: string }) => {
       switch (channel) {
         case "native:get-cli-config":
-          return {}
+          return pageRunbook ?? {}
         case "session:rename":
           return { name: params?.name }
         case "session:list":
@@ -586,6 +589,44 @@ describe("App runbook switching", () => {
       expect(screen.queryByText(resultTitle)).not.toBeInTheDocument()
     },
   )
+})
+
+describe("App page loads", () => {
+  afterEach(() => {
+    window.api = originalApi
+  })
+
+  it("opens the runbook the app was launched with", async () => {
+    const { invoke } = renderApp({ pageRunbook: { runbookPath: "/work/a" } })
+
+    expect(await screen.findByRole("heading", { name: "Runbook A" })).toBeInTheDocument()
+    expect(callsTo(invoke, "runbook:get")).toHaveLength(1)
+    expect(callsTo(invoke, "runbook:get")[0]?.[1]).not.toHaveProperty("reload")
+  })
+
+  it("after View > Reload, reloads the runbook the page showed, remote source included", async () => {
+    const { invoke, emit } = renderApp({
+      pageRunbook: {
+        runbookPath: "/work/b/runbook.mdx",
+        remoteSource: "https://github.com/acme/runbooks//b",
+        reload: true,
+      },
+    })
+
+    expect(await screen.findByRole("heading", { name: "Runbook B" })).toBeInTheDocument()
+    expect(callsTo(invoke, "runbook:get")).toHaveLength(1)
+    // A reload, which keeps a finished session where an open replaces it.
+    expect(callsTo(invoke, "runbook:get")[0]?.[1]).toMatchObject({
+      path: "/work/b/runbook.mdx",
+      remoteSource: "https://github.com/acme/runbooks//b",
+      reload: true,
+    })
+
+    // An open after it is an open again.
+    await openRunbook(emit, "/work/a", "Runbook A")
+    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).not.toHaveProperty("reload")
+    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]?.remoteSource).toBeUndefined()
+  })
 })
 
 describe("App resumed sessions", () => {

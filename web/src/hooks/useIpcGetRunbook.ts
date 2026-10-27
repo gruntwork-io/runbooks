@@ -34,7 +34,8 @@ export interface UseIpcGetRunbookReturn extends UseIpcReturn<GetFileReturn> {
  * 1. On mount, fetches the CLI config to get the initial runbook path: the
  *    local path on the command line or, with none, the runbook of the session
  *    the launch resumes. If that runbook is remote, the main process clones
- *    it and sends a "file:open-runbook" event once the clone is ready.
+ *    it and sends a "file:open-runbook" event once the clone is ready. After
+ *    View > Reload it is the runbook the page showed before, reloaded.
  * 2. Listens for "file:open-runbook" events (sent by main process for a remote
  *    runbook at launch, second-instance, macOS open-file, the Open
  *    menu/dialog, and Reset Session).
@@ -68,13 +69,16 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
   // Fetch CLI config on mount to get the initial runbook path. Main sends no
   // file:open-runbook for it, which would load the runbook twice. Remote URLs
   // are handled by the main process (index.ts) which sends file:open-runbook
-  // after resolving, so we only handle local paths here.
+  // after resolving, so we only handle local paths here (a remote runbook
+  // that a reload opens again is its clone, with its remoteSource).
   useEffect(() => {
     api
       .invoke("native:get-cli-config")
       .then((config) => {
         if (config.runbookPath) {
           setRunbookPath(config.runbookPath)
+          setRemoteSource(config.remoteSource)
+          if (config.reload) setIsReload(true)
         }
       })
       .catch((err: unknown) => {
