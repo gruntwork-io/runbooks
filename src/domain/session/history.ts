@@ -18,6 +18,8 @@ import { SessionEventError } from "../../errors/index.ts"
  *  - `clone`: a repository cloned or selected, or given up.
  *  - `pull-request`: a pull or merge request opened, or set aside for another.
  *  - `auth`: a sign-in, or a sign-out.
+ *  - `overrides`: the values a script block uses in place of other blocks'
+ *    outputs, entered by hand or reset.
  */
 export const SESSION_EVENT_KINDS = [
   "inputs",
@@ -26,6 +28,7 @@ export const SESSION_EVENT_KINDS = [
   "clone",
   "pull-request",
   "auth",
+  "overrides",
 ] as const
 
 export type SessionEventKind = (typeof SESSION_EVENT_KINDS)[number]

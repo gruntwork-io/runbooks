@@ -24,12 +24,26 @@ import {
   type BlockOutput,
   type TemplateContext,
 } from "@/lib/templateUtils"
-import { revealOutput, revealOutputs, type OutputValues } from "@/lib/outputValues"
+import {
+  revealOutput,
+  revealOutputs,
+  type OutputValue,
+  type OutputValues,
+} from "@/lib/outputValues"
 import type { ComponentType, ExecutionStatus } from "../types"
 import type { AppError } from "@/types/error"
 import { createAppError } from "@/types/error"
 import { useScriptFileChange } from "./useScriptFileChange"
 import { useTemplateDependencies } from "./useTemplateDependencies"
+import { useOutputOverrides } from "./useOutputOverrides"
+import {
+  applyOverrides,
+  envValueParts,
+  isOverridden,
+  overrideFor,
+  type EnvVar,
+  type OutputRef,
+} from "../lib/outputOverrides"
 import type { ScriptFileChange } from "../../../../../../electron/shared/channels.ts"
 import {
   AWS_AUTH_ENV_VARS,
@@ -190,9 +204,13 @@ interface UseScriptExecutionReturn {
    * values, as the script is, else as written. Sensitive outputs show as
    * <redacted>.
    */
-  envVars: Array<{ name: string; value: string }>
+  envVars: EnvVar[]
   /** Why the env prop isn't valid, or null when it is. */
   envError: string | null
+  /** Use `value` for an output the env reads, in place of what its block outputs. */
+  overrideOutput: (ref: OutputRef, value: OutputValue) => void
+  /** Go back to what the output's block outputs. */
+  resetOutputOverride: (ref: OutputRef) => void
 
   // Variables
   /** All input dependency names found in the script (for "missing config" detection) */
@@ -375,6 +393,28 @@ export function useScriptExecution({
   const envTemplates = parsedEnv.ok ? parsedEnv.env : NO_ENV
   const envError = parsedEnv.ok ? null : parsedEnv.error
 
+  // The env values made of text and output references. The user can enter any
+  // of those outputs by hand (see lib/outputOverrides.ts).
+  const envParts = useMemo(
+    () =>
+      new Map(Object.entries(envTemplates).map(([name, value]) => [name, envValueParts(value)])),
+    [envTemplates],
+  )
+  const overridableOutputs = useMemo(() => {
+    const refs = new Map<string, OutputRef>()
+    for (const parts of envParts.values()) {
+      for (const part of parts ?? []) {
+        if (part.kind === "output") refs.set(part.ref.fullPath, part.ref)
+      }
+    }
+    return refs
+  }, [envParts])
+  const {
+    overrides: outputOverrides,
+    setOverride: overrideOutput,
+    resetOverride: resetOutputOverride,
+  } = useOutputOverrides(componentId, overridableOutputs)
+
   // State for computed hash of inline command content (for drift detection)
   // Store the command along with its hash to avoid race conditions when command prop changes
   const [commandHashResult, setCommandHashResult] = useState<{
@@ -460,6 +500,14 @@ export function useScriptExecution({
     () => extractTemplateDependenciesFromString(rawScriptContent, ...Object.values(envTemplates)),
     [rawScriptContent, envTemplates],
   )
+  // An output entered by hand isn't waited for
+  const neededDeps = useMemo(
+    () =>
+      allDeps.filter(
+        (dep) => dep.type !== "output" || !isOverridden(outputOverrides, dep.fullPath),
+      ),
+    [allDeps, outputOverrides],
+  )
 
   // Resolve them against the inputs (typed for API requests, flattened for
   // lookups) and block outputs
@@ -471,7 +519,12 @@ export function useScriptExecution({
     outputDeps,
     unmetInputDeps: unmetInputDependencies,
     unmetOutputDeps: unmetOutputDependencies,
-  } = useTemplateDependencies(allDeps, allInputsIds.length > 0 ? allInputsIds : undefined)
+  } = useTemplateDependencies(neededDeps, allInputsIds.length > 0 ? allInputsIds : undefined)
+  // The outputs the block renders with: the entered ones in place of their blocks'
+  const outputsWithOverrides = useMemo(
+    () => applyOverrides(flattenedOutputs, outputOverrides),
+    [flattenedOutputs, outputOverrides],
+  )
 
   const outputDependencyBlockIds = useMemo(
     () => [...new Set(outputDeps.map((dep) => dep.blockId))],
@@ -608,12 +661,28 @@ export function useScriptExecution({
   const sourceCode =
     !discardsRender(renderMode) && renderedScript !== null ? renderedScript : rawScriptContent
   const envVars = useMemo(
-    () =>
-      Object.entries(envTemplates).map(([name, template]) => ({
-        name,
-        value: (discardsRender(renderMode) ? undefined : renderedEnv?.[name]) ?? template,
-      })),
-    [envTemplates, renderMode, renderedEnv],
+    (): EnvVar[] =>
+      Object.entries(envTemplates).map(([name, template]) => {
+        const value = (discardsRender(renderMode) ? undefined : renderedEnv?.[name]) ?? template
+        const parts = envParts.get(name)
+        if (!parts) return { name, value }
+        return {
+          name,
+          value,
+          parts: parts.map((part) =>
+            part.kind === "text"
+              ? part
+              : {
+                  kind: "output",
+                  ref: part.ref,
+                  output:
+                    flattenedOutputs[normalizeBlockId(part.ref.blockId)]?.[part.ref.outputName],
+                  override: overrideFor(outputOverrides, part.ref),
+                },
+          ),
+        }
+      }),
+    [envTemplates, envParts, renderMode, renderedEnv, flattenedOutputs, outputOverrides],
   )
 
   // The block's last run, from the session's history. The block starts from
@@ -754,8 +823,8 @@ export function useScriptExecution({
 
   // Template context for prop resolution by callers (Command/Check resolve display string props)
   const templateContext = useMemo(
-    () => ({ inputs: inputValues, outputs: flattenedOutputs }),
-    [inputValues, flattenedOutputs],
+    () => ({ inputs: inputValues, outputs: outputsWithOverrides }),
+    [inputValues, outputsWithOverrides],
   )
 
   // The payload and dedupe key for the next auto-render, or null when the
@@ -856,10 +925,11 @@ export function useScriptExecution({
 
     // The execution API expects template_var_values as a nested map matching the
     // Go template dot context: { inputs: { region: "us-west-2" }, outputs: { ... } }.
-    // The script runs with the real values of sensitive outputs.
+    // The script runs with the real values of sensitive outputs, and with the
+    // outputs entered by hand in place of their blocks'.
     const processedVariables: Record<string, unknown> = {
       inputs: ctx.inputs,
-      outputs: revealTemplateOutputs(ctx.outputs),
+      outputs: revealTemplateOutputs(applyOverrides(ctx.outputs, outputOverrides)),
     }
 
     // Merge AWS, GitHub, generic Git, and Google Cloud auth env vars
@@ -895,6 +965,7 @@ export function useScriptExecution({
     getExecutableByComponentId,
     allInputsIds,
     getTemplateContext,
+    outputOverrides,
     awsAuthEnvVars,
     githubAuthEnvVars,
     gitAuthEnvVars,
@@ -931,6 +1002,8 @@ export function useScriptExecution({
     envTemplates,
     envVars,
     envError,
+    overrideOutput,
+    resetOutputOverride,
 
     // Variables
     inputDependencies: inputDeps,

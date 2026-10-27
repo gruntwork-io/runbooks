@@ -17,6 +17,7 @@ import {
   Instruction,
 } from "@/components/mdx/_shared"
 import { DuplicateIdError } from "./DuplicateIdError"
+import { EnvVars } from "./EnvVars"
 import { ProgressStep } from "./ProgressStep"
 import { ScriptChangeNotice } from "./ScriptChangeNotice"
 import { useRunSequencing } from "../hooks/useRunSequencing"
@@ -185,6 +186,8 @@ export function ScriptBlock({
     envTemplates,
     envVars,
     envError,
+    overrideOutput,
+    resetOutputOverride,
     inputDependencies,
     unmetInputDependencies,
     hasAllInputDependencies,
@@ -656,17 +659,14 @@ export function ScriptBlock({
 
           {/* The env vars the script gets, so they can be checked before Run */}
           {!scriptless && envVars.length > 0 && (
-            <div data-testid={`${id}-env`} className={`text-xs mb-3 ${clearIdLabel}`}>
-              <div className="font-semibold text-muted-foreground mb-1">Environment variables</div>
-              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono">
-                {envVars.map(({ name, value }) => (
-                  <div key={name} className="contents">
-                    <dt className="text-muted-foreground">{name}</dt>
-                    <dd className="whitespace-pre-wrap break-all text-foreground">{value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
+            <EnvVars
+              blockId={id}
+              envVars={envVars}
+              onOverride={overrideOutput}
+              onReset={resetOutputOverride}
+              disabled={status === "running"}
+              className={clearIdLabel}
+            />
           )}
 
           {templateWarning && (

@@ -266,6 +266,8 @@ When a block references outputs from a block that hasn't run yet, a warning name
 
 A Command or Check block's button is also disabled while the upstream block is running again. See [Run order](/authoring/blocks/command/#run-order).
 
+A Command, Check or Finish block that reads an output through its `env` prop lets you enter the value yourself instead, and then doesn't wait for the upstream block. See [Entering an output by hand](/authoring/blocks/command/#entering-an-output-by-hand).
+
 After a block runs, **View Outputs** below the log viewer lists its outputs in a table. [Sensitive outputs](#sensitive-outputs) are masked there.
 
 <Aside type="note">

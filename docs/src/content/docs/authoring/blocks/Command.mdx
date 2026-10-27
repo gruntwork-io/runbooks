@@ -356,11 +356,24 @@ The `env` prop sets environment variables for the script, by name. Each value is
 Runbooks gives the script the values as data. The shell never runs anything in them, so a value can hold quotes, `$(...)` or backticks, as a PR title or an API response can. Quote each variable where you use it, as above, so a value with spaces stays in one piece.
 
 - **The block shows the values.** Before you click Run, the block lists each variable with the value the script will get, once the inputs and outputs it references are set. The block waits for them, as it waits for the values its script references. A [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) shows as `<redacted>`, and the script gets its real value.
+- **You can enter an output's value yourself.** See [Entering an output by hand](#entering-an-output-by-hand).
 - **Instruction mode exports them.** In [instruction mode](/intro/instruction-mode/), the block shows an `export` line for each variable before the command, quoted for the shell, so you can copy and run them together.
 - **They are this block's.** The variables are set for this run only, and later blocks don't see them. If the script changes one, the new value carries forward like any other [export](#execution-context). To pass a value to later blocks, write it as a [block output](#block-outputs).
 - **They override other variables.** A variable in `env` replaces one of the same name from the session or from an auth block, so `env={{ AWS_REGION: "{{ .inputs.Region }}" }}` picks the region for a block that uses `awsAuthId`.
 
 A name has letters, digits and underscores, and doesn't start with a digit. A value is a string, a number or a boolean. Runbooks sets `GENERATED_FILES`, `REPO_FILES` and every name that starts with `RUNBOOK_` itself, so `env` can't use them. A block whose `env` breaks these rules shows the error and can't run.
+
+#### Entering an output by hand
+
+In the block's list of variables, each output a value reads is a chip. It shows the value the script will get, or, before the block that produces it has run, which output it is. Click the chip and it turns into a field, in its place, where you can type another value. Press Enter, or click away after changing it, to use it. Press Escape to get the chip back. The block then uses that value in place of the output, in its `env` and in its script, and doesn't wait for the block that produces it. Use this to run the block when that block can't run on your machine, or to try another value.
+
+- **Reset goes back to the output.** A value you entered stays in its field, where you can change it, with a reset button next to it that brings the chip back.
+- **The value is this block's.** Other blocks that read the same output still get the output.
+- **A secret stays a secret.** A value you enter for a [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) is sensitive too. The field hides what you type, and starts empty rather than showing the output or the value you entered before.
+- **The session keeps it.** A [resumed session](/commands/sessions/#resuming-a-session) brings back the values you entered.
+- **`dependsOn` still applies.** A block that names the producing block in [`dependsOn`](#run-order) waits for it to run anyway.
+
+Chips appear for values made of text and plain references, such as `"{{ .outputs.fetch_pr.title }}"` or `"s3://{{ .outputs.create_bucket.name }}/logs"`. A value with other template code, such as an input, a pipe or a condition, shows the value the script will get, without chips.
 
 #### Templates in the script
 
