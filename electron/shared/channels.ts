@@ -932,7 +932,15 @@ export interface IpcChannelMap {
   "native:get-cli-config": {
     params: void
     result: {
+      /**
+       * The local runbook the page opens: the one the app was launched with,
+       * or, after View > Reload, the one the page before it showed.
+       */
       runbookPath?: string
+      /** Where `runbookPath` was cloned from, when it is a remote runbook. */
+      remoteSource?: string
+      /** The page reloaded: runbook:get should be told so, to keep the session it showed. */
+      reload?: true
       remoteUrl?: string
       watch?: boolean
       disableLiveFileReload?: boolean

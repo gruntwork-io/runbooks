@@ -34,6 +34,7 @@ const {
   expectLaunch,
   isSessionOpen,
   markRunbookClosed,
+  pageRunbook,
   resetToNewSession,
 } = await import("./runbook.ts")
 const { closeRunbook, stopWatchers } = await import("./watch.ts")
@@ -754,6 +755,48 @@ describe("runbook IPC handlers", () => {
           closeRunbook()
 
           expect(isSessionOpen(a.sessionId)).toBe(false)
+        })
+      })
+
+      // Every test before this one loaded or closed a runbook, so the
+      // startup runbook is no longer the one a page opens.
+      describe("pageRunbook", () => {
+        const startup = "/launched/with/runbook.mdx"
+
+        it("is the runbook open now, as a reload, not the one the app was launched with", async () => {
+          await getRunbook(dirA)
+          await getRunbook(dirB)
+
+          expect(pageRunbook(startup)).toEqual({
+            runbookPath: path.join(dirB, "runbook.mdx"),
+            reload: true,
+          })
+        })
+
+        it("keeps a remote runbook's source", async () => {
+          await getRunbook(dirA, { remoteSource: "https://github.com/acme/runbooks//a" })
+
+          expect(pageRunbook(startup)).toEqual({
+            runbookPath: path.join(dirA, "runbook.mdx"),
+            remoteSource: "https://github.com/acme/runbooks//a",
+            reload: true,
+          })
+        })
+
+        it("is the runbook shown before an open that failed", async () => {
+          await getRunbook(dirA)
+          await expect(getRunbook(path.join(tmp, "missing"))).rejects.toThrow()
+
+          expect(pageRunbook(startup)).toMatchObject({
+            runbookPath: path.join(dirA, "runbook.mdx"),
+          })
+        })
+
+        it("is none once the runbook was closed", async () => {
+          await getRunbook(dirA)
+          closeRunbook()
+
+          expect(pageRunbook(startup)).toEqual({})
         })
       })
     })

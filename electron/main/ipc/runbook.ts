@@ -81,6 +81,12 @@ function inSessionTurn<A>(switchSession: () => Promise<A>): Promise<A> {
 let openRunbook: OpenRunbookPayload | null = null
 
 /**
+ * Whether a runbook:get has loaded a runbook, or the runbook was closed,
+ * since the app started. Until then a page opens the startup runbook.
+ */
+let startupRunbookReplaced = false
+
+/**
  * Record that the runbook was closed, and end every runbook:get still running
  * as superseded, as a newer one would: a load in flight at the close must not
  * start a watcher or set a registry for a runbook that is no longer open.
@@ -88,6 +94,31 @@ let openRunbook: OpenRunbookPayload | null = null
 export function markRunbookClosed(): void {
   loadGeneration++
   openRunbook = null
+  startupRunbookReplaced = true
+}
+
+/** The runbook a page opens when it loads, as native:get-cli-config tells it. */
+export interface PageRunbook {
+  runbookPath?: string
+  remoteSource?: string
+  /** The page reloaded (View > Reload): runbook:get keeps the session it showed. */
+  reload?: true
+}
+
+/**
+ * The runbook a page opens when it loads. The app's first page opens
+ * `startupPath`, the runbook it was launched with. A page that View > Reload
+ * loads opens the runbook the page it replaced showed, which may be another
+ * by then, or none when that page had closed it.
+ */
+export function pageRunbook(startupPath: string | null): PageRunbook {
+  if (!startupRunbookReplaced) return startupPath === null ? {} : { runbookPath: startupPath }
+  if (openRunbook === null) return {}
+  return {
+    runbookPath: openRunbook.path,
+    ...(openRunbook.remoteSource !== undefined ? { remoteSource: openRunbook.remoteSource } : {}),
+    reload: true,
+  }
 }
 
 /** How the command line asked for a runbook, kept for the runbook:get that loads it. */
@@ -341,6 +372,7 @@ export function registerRunbookHandlers(): void {
         path: runbookPath,
         ...(params.remoteSource !== undefined ? { remoteSource: params.remoteSource } : {}),
       }
+      startupRunbookReplaced = true
 
       return {
         path: runbookPath,

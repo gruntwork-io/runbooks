@@ -30,7 +30,7 @@ import {
   sessionPersistence,
   setSessionPersistence,
 } from "./ipc/runtime.ts"
-import { expectLaunch, isSessionOpen, resetToNewSession } from "./ipc/runbook.ts"
+import { expectLaunch, isSessionOpen, pageRunbook, resetToNewSession } from "./ipc/runbook.ts"
 import { closeRunbook, stopWatchers } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
@@ -235,7 +235,7 @@ function openRemoteRunbook(win: BrowserWindow, url: string): void {
 const cliConfig = parseCliArgs(process.argv, launchDir, app.getAppPath())
 
 /**
- * The local runbook the renderer opens when it starts, which it asks for with
+ * The local runbook the app's first page opens, which it asks for with
  * native:get-cli-config: the path on the command line or, with no arguments,
  * the runbook of the session this launch resumes (prepareStartupLaunch).
  */
@@ -414,7 +414,7 @@ ipcMain.handle("cli:uninstall-with-dialog", async () => {
 ipcMain.handle("native:get-home-dir", () => ({ path: os.homedir() }))
 
 ipcMain.handle("native:get-cli-config", () => ({
-  runbookPath: startupRunbookPath,
+  ...pageRunbook(startupRunbookPath),
   remoteUrl: cliConfig.remoteUrl,
   watch: cliConfig.watch,
   disableLiveFileReload: cliConfig.disableLiveFileReload,
