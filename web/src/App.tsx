@@ -15,6 +15,7 @@ import { SessionsDialog } from "./components/layout/SessionsDialog"
 import MDXContainer from "./components/MDXContainer"
 import { ArtifactsContainer } from "./components/layout/ArtifactsContainer"
 import { ViewContainerToggle } from "./components/layout/ViewContainerToggle"
+import { ResizeHandle } from "./components/ui/ResizeHandle"
 import {
   GeneratedFilesAlert,
   shouldShowGeneratedFilesAlert,
@@ -26,6 +27,7 @@ import { useGitWorkTree } from "./contexts/useGitWorkTree"
 import { useIpcWatchMode } from "./hooks/useIpcWatchMode"
 import { useIpcGeneratedFilesCheck } from "./hooks/useIpcGeneratedFilesCheck"
 import { useWheelScrollFallback } from "./hooks/useWheelScrollFallback"
+import { useResizableSplit } from "./hooks/useResizableSplit"
 import { DESKTOP_LAYOUT_QUERY, useMediaQuery } from "./hooks/useMediaQuery"
 import { useErrorReporting } from "./contexts/useErrorReporting"
 import { useLogs } from "./contexts/useLogs"
@@ -37,6 +39,17 @@ import type { AppError } from "./types/error"
 
 /** The window title while no runbook is open, as in index.html. */
 const APP_TITLE = "Gruntwork Runbooks"
+
+/** localStorage key for the width the runbook was dragged to beside the generated files. */
+const RUNBOOK_WIDTH_STORAGE_KEY = "runbooks-runbook-width"
+/** Narrowest the runbook can be dragged to beside the generated files, in pixels. */
+const RUNBOOK_MIN_WIDTH = 400
+/**
+ * Width a dragged runbook leaves the handle (2rem) and the generated files
+ * (25rem at the narrowest), in pixels. Must agree with the runbook's
+ * `lg:max-w-[calc(100%-27rem)]`, which keeps it when the window narrows.
+ */
+const RUNBOOK_RESERVED_WIDTH = 432
 
 /**
  * Clears the root logs store whenever the loaded runbook or its session
@@ -74,6 +87,19 @@ function App() {
   const findBarRef = useRef<FindBarHandle>(null)
   const handleWheel = useWheelScrollFallback(runbookScrollRef)
   const isDesktopLayout = useMediaQuery(DESKTOP_LAYOUT_QUERY)
+  const {
+    width: runbookWidth,
+    isResizing: isResizingRunbook,
+    containerRef: splitRef,
+    paneRef: runbookPaneRef,
+    paneStyle: runbookPaneStyle,
+    handleProps: splitHandleProps,
+  } = useResizableSplit({
+    storageKey: RUNBOOK_WIDTH_STORAGE_KEY,
+    minWidth: RUNBOOK_MIN_WIDTH,
+    reservedWidth: RUNBOOK_RESERVED_WIDTH,
+  })
+  const isRunbookDragged = runbookWidth !== null
 
   const handleOpenRunbook = useCallback(async () => {
     await api.invoke("native:open-runbook-dialog")
@@ -476,13 +502,27 @@ function App() {
 
             {/* Single MDXContainer that adapts to screen size - used by both mobile and desktop views */}
             <div className="lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20 pt-20 lg:pt-0">
-              <div className="flex flex-col lg:flex-row gap-0 lg:gap-8 lg:h-[calc(100vh-5rem)] lg:overflow-hidden justify-start lg:justify-center">
+              {/* Desktop: capped at the widest the runbook (48rem), the handle
+                  (2rem) and the artifacts panel (80rem) grow to side by side,
+                  so a runbook dragged for the first time keeps its place. */}
+              <div
+                ref={splitRef}
+                className={cn(
+                  "flex flex-col lg:flex-row gap-0 lg:h-[calc(100vh-5rem)] lg:max-w-[130rem] lg:mx-auto lg:overflow-hidden justify-start lg:justify-center",
+                  isResizingRunbook && "select-none",
+                )}
+              >
                 {/* MDX Container - Single instance with responsive visibility
                     Desktop: always visible, sizing depends on artifacts panel
+                    and on the width the runbook was dragged to beside it
                     Mobile: visible only when 'markdown' tab is active */}
                 <div
+                  ref={runbookPaneRef}
+                  style={runbookPaneStyle}
                   className={cn("relative w-full px-4 lg:px-0 lg:block", {
-                    "lg:flex-1 lg:max-w-3xl lg:min-w-xl": showArtifacts,
+                    "lg:flex-1 lg:max-w-3xl lg:min-w-xl": showArtifacts && !isRunbookDragged,
+                    "lg:flex-none lg:w-(--pane-width) lg:max-w-[calc(100%-27rem)]":
+                      showArtifacts && isRunbookDragged,
                     "lg:w-full lg:max-w-4xl": !showArtifacts,
                     hidden: activeMobileSection !== "markdown",
                   })}
@@ -541,13 +581,30 @@ function App() {
                   )}
                 </div>
 
+                {/* Drags the runbook's width beside the artifacts panel. While
+                    the panel is hidden, it's an inert gap. */}
+                <ResizeHandle
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize the runbook"
+                  title="Drag to resize. Double-click to reset."
+                  tabIndex={0}
+                  subtle
+                  inert={!showArtifacts}
+                  className="hidden lg:flex w-8"
+                  {...splitHandleProps}
+                />
+
                 {/* Artifacts - Desktop layout (grows/shrinks width smoothly).
                     Inert while hidden: it stays mounted at zero width, and
-                    find in page and the keyboard must skip its content. */}
+                    find in page and the keyboard must skip its content.
+                    Beside a dragged runbook, it takes all the width left. */}
                 <div
-                  className={`hidden lg:block relative max-w-7xl transition-all duration-700 ease-in-out overflow-hidden ${
-                    showArtifacts ? "flex-2" : "w-0"
-                  }`}
+                  className={cn(
+                    "hidden lg:block relative transition-all duration-700 ease-in-out overflow-hidden",
+                    showArtifacts ? "flex-2" : "w-0",
+                    !isRunbookDragged && "max-w-7xl",
+                  )}
                   inert={!showArtifacts}
                 >
                   <ArtifactsContainer
