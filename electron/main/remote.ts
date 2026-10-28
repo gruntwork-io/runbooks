@@ -238,6 +238,20 @@ export function cleanupTempClones(): void {
 // Remote runbook resolution
 // ---------------------------------------------------------------------------
 
+/** A Windows device name, with or without an extension. */
+const WINDOWS_DEVICE_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i
+
+/**
+ * The folder a repo is cloned into: the repo's name, or "repo" for a name
+ * that isn't a plain folder name. The name comes from the URL, so `..` or a
+ * separator must not leave the temp directory, and a name Windows reserves
+ * for a device (`aux`, `con.txt`) can't be a folder there.
+ */
+function cloneDirName(repo: string): string {
+  const plain = /^[\w.-]+$/.test(repo) && repo !== "." && repo !== ".."
+  return plain && !WINDOWS_DEVICE_NAME.test(repo) ? repo : "repo"
+}
+
 export interface RemoteRunbookResult {
   localPath: string
   remoteSource: string
@@ -347,7 +361,9 @@ export const openRemoteRunbook = (rawUrl: string) =>
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-remote-"))
     registerTempCloneDir(tempDir)
 
-    const dest = path.join(tempDir, "repo")
+    // Named after the repo: the title bar names a runbook after its folder,
+    // which for a runbook at the repo's root is the clone's.
+    const dest = path.join(tempDir, cloneDirName(parsed.repo))
     log.info("Cloning to:", dest, "ref:", parsed.ref)
 
     const git = yield* GitClient

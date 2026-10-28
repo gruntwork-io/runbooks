@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from "react"
 import {
   ChevronDown,
   Download,
+  FileText,
   FolderOpen,
   History,
+  Link,
   Pencil,
   RotateCcw,
   SquareTerminal,
@@ -31,6 +33,12 @@ import { useTheme } from "@/contexts/useTheme"
 import { formatShortcut, isMac } from "@/lib/platform"
 
 interface HeaderProps {
+  /** The open runbook's name, e.g. `setup-vpc`. Undefined while no runbook is open. */
+  runbookName?: string | undefined
+  /** The path of the open runbook's file */
+  runbookFilePath?: string | undefined
+  /** The URL the open runbook was opened from, if it is remote */
+  remoteSource?: string | undefined
   /** The open runbook's session name, e.g. `elegant-elephant`. Undefined while no runbook is open. */
   sessionName?: string | undefined
   /** The absolute path of that session's own directory */
@@ -44,16 +52,20 @@ interface HeaderProps {
 }
 
 /**
- * A fixed header component that displays the branding and the open runbook's
- * session name, which the user can rename here, with a button that copies the
- * path of the session's directory. It is the app's title bar: the window has
- * no native one.
+ * A fixed header component that displays the branding, the open runbook's
+ * name with a button that copies its path (its URL when it is remote), and
+ * its session name, which the user can rename here, with a button that copies
+ * the path of the session's directory. It is the app's title bar: the window
+ * has no native one.
  *
  * The header uses a responsive design where mobile devices show only the
  * session name and its button, while desktop devices show the full layout
  * with branding and navigation.
  *
  * @param props - The component props
+ * @param props.runbookName - The runbook's name
+ * @param props.runbookFilePath - The path of the runbook's file
+ * @param props.remoteSource - The URL of a remote runbook
  * @param props.sessionName - The session name
  * @param props.sessionDir - The session's directory
  * @param props.onSessionRenamed - Called with the new name after a rename
@@ -62,6 +74,9 @@ interface HeaderProps {
  * @param props.onCloseRunbook - Called by the menu's Close Runbook item
  */
 export function Header({
+  runbookName,
+  runbookFilePath,
+  remoteSource,
   sessionName,
   sessionDir,
   onSessionRenamed,
@@ -88,6 +103,9 @@ export function Header({
   }, [api])
 
   const hasRunbookOpen = sessionName !== undefined
+
+  // A remote runbook's file is in a temporary clone: its URL is where it is.
+  const runbookLocation = remoteSource ?? runbookFilePath
 
   // The open runbook's steps: the blocks that show whether they are done
   const progress = useRunbookProgress()
@@ -131,14 +149,50 @@ export function Header({
             draggable={false}
           />
         </div>
-        <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-48">
+        {/* md:mx-60 clears the logo on the left and, on Windows and Linux, the
+            Menu beside the window controls on the right: a long runbook name
+            fills the space between them. */}
+        <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-60">
+          {runbookName !== undefined && (
+            <div className="hidden md:flex items-center gap-1.5 min-w-0">
+              {runbookLocation !== undefined && (
+                <CopyIconButton
+                  value={runbookLocation}
+                  icon={remoteSource !== undefined ? Link : FileText}
+                  label={remoteSource !== undefined ? "Copy runbook URL" : "Copy runbook path"}
+                  copiedLabel={
+                    remoteSource !== undefined ? "Runbook URL copied" : "Runbook path copied"
+                  }
+                />
+              )}
+              {/* The name alone, as the title: the button before it copies
+                  where the runbook is. */}
+              <span
+                className="truncate text-sm text-foreground"
+                // Out of the drag region, which gets no hover: a cut-off name
+                // shows in full in its tooltip.
+                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+                title={runbookName}
+                data-testid="runbook-name"
+              >
+                {runbookName}
+              </span>
+              <span aria-hidden className="mx-2 h-4 border-l border-border" />
+            </div>
+          )}
           {sessionName !== undefined && (
-            <SessionName
-              name={sessionName}
-              isRenaming={isRenaming}
-              onRenamingChange={setIsRenaming}
-              onRenamed={onSessionRenamed}
-            />
+            <>
+              {/* Says what the second name is: the two are both short slugs.
+                  Dropped below lg, with the step count, so a narrow window
+                  leaves room for the runbook's name. */}
+              <span className="hidden lg:inline flex-shrink-0 text-xs font-normal">Session</span>
+              <SessionName
+                name={sessionName}
+                isRenaming={isRenaming}
+                onRenamingChange={setIsRenaming}
+                onRenamed={onSessionRenamed}
+              />
+            </>
           )}
           {/* The session's own directory, where its scripts start and its files are */}
           {sessionDir !== undefined && (
