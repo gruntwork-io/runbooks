@@ -45,6 +45,18 @@ Scripts run by [Command](/authoring/blocks/command/), [Check](/authoring/blocks/
 
 Files written to `$GENERATED_FILES` appear in the workspace when the script exits with code 0 or 2.
 
+### Reviewing changed files
+
+The workspace highlights each generated file that changed since you last reviewed it. A Template you have already generated renders again when you change an input, so the highlights show what that change did to the files.
+
+- In the file tree, a file marked **A** was added and a file marked **M** was modified. A dot next to a folder means a file inside it changed.
+- In the code, the file has a colored border and an **Added** or **Modified** label with its count of added and removed lines. The changed lines are highlighted, and a red line marks where lines were removed.
+- The header above the files shows how many changed.
+
+Click a modified file in the tree to jump to its first change. It stays highlighted while it's selected, and counts as reviewed once you select another file. Changes to the file while it's selected, such as a Template rendering again as you edit its form, show up in its highlights as they happen and count as reviewed with the rest. Scrolling down past a file's changes also counts as reviewing it: once its last changed line, or the end of a file that was added, goes past the top of the workspace. While files are left to review, there's room below the last file to scroll it past the top too. Only your own scrolling counts, not a jump to a file you clicked in the tree, and a collapsed file isn't reviewed until you expand it. To stop highlighting a file without scrolling past it, click **Dismiss** on the file, or **Dismiss all** in the header.
+
+Which files are left to review is saved with the [session](/commands/sessions/), so a resumed session still highlights them.
+
 ### Where generated files are stored
 
 Runbooks writes generated files to a `generated/` folder inside the runbook's [session directory](/commands/sessions/), which Runbooks keeps in its own data folder. Nothing is written to the folder that contains the runbook file. Template blocks and `$GENERATED_FILES` captures both write there, even after a script has `cd`'d somewhere else:

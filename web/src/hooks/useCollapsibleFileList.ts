@@ -55,8 +55,13 @@ export function useCollapsibleFileList<T>({
     setDisplayLimit((prev) => prev + SHOW_MORE_INCREMENT)
   }, [])
 
+  /**
+   * Expand an item and scroll to it. `target` picks a part of the item to
+   * center instead, such as a line; without one, or when it finds none, the
+   * item's top is scrolled into view.
+   */
   const expandAndJump = useCallback(
-    (key: string, index: number) => {
+    (key: string, index: number, target?: (item: HTMLDivElement) => Element | null) => {
       setCollapsedFiles((prev) => {
         const next = new Set(prev)
         next.delete(key)
@@ -67,13 +72,20 @@ export function useCollapsibleFileList<T>({
       }
       requestAnimationFrame(() => {
         const el = itemRefs.current.get(key)
-        if (el) {
+        if (!el) return
+        const part = target?.(el)
+        if (part) {
+          part.scrollIntoView({ behavior: "auto", block: "center" })
+        } else {
           el.scrollIntoView({ behavior: "auto", block: "start" })
         }
       })
     },
     [displayLimit],
   )
+
+  /** The element of an item that is shown */
+  const itemElement = useCallback((key: string) => itemRefs.current.get(key), [])
 
   const setItemRef = useCallback((key: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -90,6 +102,7 @@ export function useCollapsibleFileList<T>({
     toggleCollapse,
     showMore,
     expandAndJump,
+    itemElement,
     setItemRef,
   }
 }

@@ -20,6 +20,8 @@ import { SessionEventError } from "../../errors/index.ts"
  *  - `auth`: a sign-in, or a sign-out.
  *  - `overrides`: the values a script block uses in place of other blocks'
  *    outputs, entered by hand or reset.
+ *  - `review`: the generated files that changed since the user last reviewed
+ *    them in the Files workspace, which records it as if it were a block.
  */
 export const SESSION_EVENT_KINDS = [
   "inputs",
@@ -29,6 +31,7 @@ export const SESSION_EVENT_KINDS = [
   "pull-request",
   "auth",
   "overrides",
+  "review",
 ] as const
 
 export type SessionEventKind = (typeof SESSION_EVENT_KINDS)[number]
@@ -67,11 +70,11 @@ export function isSessionEventKind(value: unknown): value is SessionEventKind {
 /**
  * Whether an event takes the place of the one before it when both are the
  * same block's. Typing into a form reports every change, and a template
- * writes its files again on each, so the history keeps the form and its files
- * as the user left them, not each keystroke.
+ * writes its files again on each, so the history keeps the form, its files
+ * and what is left to review of them as the user left them, not each keystroke.
  */
 export function replacesPreviousEvent(kind: SessionEventKind): boolean {
-  return kind === "inputs" || kind === "render"
+  return kind === "inputs" || kind === "render" || kind === "review"
 }
 
 /**

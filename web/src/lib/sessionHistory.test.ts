@@ -6,7 +6,18 @@ import {
   revealOutputs,
   sensitiveOutput,
 } from "@/lib/outputValues"
-import { parseSavedForm, restoreRun, runEnded, runStarted, savedFormValue } from "./sessionHistory"
+import type { File } from "@/components/artifacts/code/FileTree"
+import { fileChanges } from "@/lib/fileReview"
+import {
+  fileReviewChanged,
+  parseSavedFileReview,
+  parseSavedForm,
+  restoreFileReview,
+  restoreRun,
+  runEnded,
+  runStarted,
+  savedFormValue,
+} from "./sessionHistory"
 
 const line = (n: number, text = `line ${n}`): LogEntry => ({
   line: text,
@@ -221,5 +232,66 @@ describe("a saved run", () => {
     for (const payload of [undefined, {}, { status: "done" }, { status: "success" }]) {
       expect(restoreRun(payload)).toBeUndefined()
     }
+  })
+})
+
+describe("the generated files left to review", () => {
+  const files = (contents: Record<string, string>) =>
+    new Map(
+      Object.entries(contents).map(([path, content]): [string, File] => [
+        path,
+        { name: path, path, content, language: "hcl", size: content.length },
+      ]),
+    )
+
+  /** Save what is left to review, and restore it from the saved event. */
+  const roundTrip = (
+    before: Map<string, File>,
+    reviewed: Map<string, string | null>,
+    after = before,
+  ) => {
+    const saved = parseSavedFileReview(
+      stored(fileReviewChanged(fileChanges(before, reviewed), reviewed)),
+    )
+    return restoreFileReview(saved, after)
+  }
+
+  it("gives back what the user reviewed of each changed file, and every other file as reviewed", () => {
+    const now = files({ "main.tf": "b\n", "new.tf": "n\n", "same.tf": "s\n" })
+    const reviewed = new Map([
+      ["main.tf", "a\n"],
+      ["same.tf", "s\n"],
+    ])
+
+    expect(roundTrip(now, reviewed)).toEqual(reviewed)
+  })
+
+  it("skips the files that are gone since", () => {
+    const now = files({ "main.tf": "b\n" })
+    const restored = roundTrip(now, new Map([["main.tf", "a\n"]]), files({ "other.tf": "o\n" }))
+    expect(restored).toEqual(new Map([["other.tf", "o\n"]]))
+  })
+
+  it("keeps a modified file without what it was once the reviewed contents pass 512 KiB of JSON", () => {
+    const big = "x".repeat(400 * 1024)
+    const now = files({ "a.tf": "a\n", "b.tf": "b\n" })
+    const reviewed = new Map([
+      ["a.tf", big],
+      ["b.tf", big],
+    ])
+
+    const event = fileReviewChanged(fileChanges(now, reviewed), reviewed)
+    expect(event.files).toEqual([
+      { path: "a.tf", status: "modified", reviewed: big },
+      { path: "b.tf", status: "modified" },
+    ])
+    // Still modified, but which of its lines is not known.
+    expect(restoreFileReview(event, now).get("b.tf")).toBeNull()
+  })
+
+  it("starts with every file reviewed when there is no event, or one of another shape", () => {
+    const now = files({ "main.tf": "m\n" })
+    expect(restoreFileReview(undefined, now)).toEqual(new Map([["main.tf", "m\n"]]))
+    expect(parseSavedFileReview({ files: [{ path: "main.tf", status: "gone" }] })).toBeUndefined()
   })
 })
