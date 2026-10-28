@@ -13,6 +13,7 @@ import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { GitAuthInstruction } from "./GitAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
 import { CredentialExpiryNotice } from "@/components/mdx/_shared/components/CredentialExpiryNotice"
 import { useCredentialExpiry } from "@/components/mdx/_shared/hooks/useCredentialExpiry"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
@@ -101,9 +102,11 @@ function GitAuthInteractive({
   )
 
   // Check for duplicate component IDs
+  const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
     id,
     __registryType,
+    blockRef,
   )
 
   // Error reporting context (for configuration errors only)
@@ -264,6 +267,7 @@ function GitAuthInteractive({
   return (
     <AutoCollapse enabled={autoCollapse} done={done}>
       <div
+        ref={blockRef}
         data-fold="path"
         data-testid={id}
         className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
@@ -333,9 +337,15 @@ function GitAuthInteractive({
               <div className="mb-4 text-info text-sm flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin" />
                 <span>
-                  {auth.waitingForBlockId
-                    ? `Waiting for "${auth.waitingForBlockId}" to run...`
-                    : "Checking for existing authentication..."}
+                  {auth.waitingForBlockId ? (
+                    <>
+                      Waiting for{" "}
+                      <BlockLink blockId={auth.waitingForBlockId} className="bg-info-muted" /> to
+                      run...
+                    </>
+                  ) : (
+                    "Checking for existing authentication..."
+                  )}
                 </span>
               </div>
             )}

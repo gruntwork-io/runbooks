@@ -341,7 +341,7 @@ TOKEN=$(vault read -field=token secret/github)
 echo "sensitive:GITHUB_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"
 ```
 
-Sources are tried in the order you list them. If the referenced block has not run yet, GitHubAuth shows *Waiting for "fetch-token" to run...* and detection pauses there without moving to a later source. If the block ran without writing a usable `GITHUB_TOKEN`, for example because the script failed, detection moves on to the next source, and the manual sign-in form appears if none of them finds a credential.
+Sources are tried in the order you list them. If the referenced block has not run yet, GitHubAuth shows *Waiting for fetch-token to run...*, with a link to that block, and detection pauses there without moving to a later source. If the block ran without writing a usable `GITHUB_TOKEN`, for example because the script failed, detection moves on to the next source, and the manual sign-in form appears if none of them finds a credential.
 
 ## Permissions
 

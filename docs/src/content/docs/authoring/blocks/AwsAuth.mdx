@@ -328,7 +328,7 @@ The `AWS_REGION` output is optional. If not provided, the AwsAuth block's `defau
 
 The `AWS_CREDENTIAL_EXPIRATION` output is optional too. With it, the block warns before the credentials expire, as [Expiring credentials](#expiring-credentials) describes. AwsAuth reads `AWS_CREDENTIAL_EXPIRATION` from the environment as well, with the source's prefix if it has one.
 
-If the referenced block has not run yet, AwsAuth shows *Waiting for "assume-cross-account" to run...* and pauses detection there. It does not skip to a later source. If the block ran but its outputs hold no valid credentials, detection moves on to the next source.
+If the referenced block has not run yet, AwsAuth shows *Waiting for assume-cross-account to run...*, with a link to that block, and pauses detection there. It does not skip to a later source. If the block ran but its outputs hold no valid credentials, detection moves on to the next source.
 
 <Aside type="caution">
 Only one `{ block: 'id' }` entry is allowed per AwsAuth block. More than one is a configuration error, and the block renders an error card in place of the authentication UI.

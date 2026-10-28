@@ -15,7 +15,6 @@ import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateI
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
-import { useRevealSelf } from "@/components/mdx/_shared/hooks/useRevealSelf"
 import { useRunSequencing } from "@/components/mdx/_shared/hooks/useRunSequencing"
 import { extractYamlFromChildren } from "@/components/mdx/_shared/lib/extractYamlFromChildren"
 import { makeStatusStyles } from "@/components/mdx/_shared/lib/statusStyles"
@@ -137,9 +136,11 @@ function Prerequisites({
   children,
   autoCollapse,
 }: PrerequisitesProps) {
+  const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
     id,
     "Prerequisites",
+    blockRef,
   )
   const { reportError, clearError } = useErrorReporting()
   const { enabled: instructionMode } = useInstructionMode()
@@ -147,16 +148,13 @@ function Prerequisites({
   const { state, check, cancel, error } = usePrerequisitesRun(id)
   const status: ExecutionStatus = state.status
 
-  const blockRef = useRef<HTMLDivElement>(null)
-  const revealSelf = useRevealSelf(blockRef)
-  const { blockers, stopRun, revealBlock } = useRunSequencing({
+  const { blockers, stopRun } = useRunSequencing({
     blockId: id,
     status,
     exclusive: false,
     dependsOn: undefined,
     outputDependencyIds: NO_OUTPUT_DEPENDENCIES,
     stop: cancel,
-    reveal: revealSelf,
   })
 
   const configError = toolList.ok ? null : toolList.error.message
@@ -291,7 +289,6 @@ function Prerequisites({
               exclusive={false}
               blockers={blockers}
               onStop={stopRun}
-              onReveal={revealBlock}
             />
 
             {error && (

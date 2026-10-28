@@ -122,6 +122,7 @@ function Inputs({
   }, [boilerplateConfig, prefilledVariables, registeredValues])
 
   // Shared registration logic (ID registry, error reporting, form state, debouncing)
+  const blockRef = useRef<HTMLDivElement>(null)
   const {
     isDuplicate,
     isNormalizedCollision,
@@ -134,6 +135,7 @@ function Inputs({
   } = useInputRegistration({
     id,
     componentType: "Inputs",
+    blockRef,
     boilerplateConfig: boilerplateConfigWithPrefilledVariables,
     validationError,
     extraError: inlineContentError,
@@ -178,7 +180,7 @@ function Inputs({
   }
 
   return (
-    <div data-testid={id}>
+    <div ref={blockRef} data-testid={id}>
       <BoilerplateInputsForm
         id={id}
         blockType="Inputs"

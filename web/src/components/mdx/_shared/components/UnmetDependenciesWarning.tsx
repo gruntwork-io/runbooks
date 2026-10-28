@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react"
 import { formatVariableLabel } from "../lib/formatVariableLabel"
 import type { InputName, BlockOutput } from "@/lib/templateUtils"
+import { BlockLink } from "./BlockLink"
 
 interface UnmetDependenciesWarningProps {
   /** The type of block (used in the help text) */
@@ -50,7 +51,7 @@ export const UnmetDependenciesWarning: React.FC<UnmetDependenciesWarningProps> =
             {unmetOutputDeps.map((dep, i) => (
               <span key={dep.blockId}>
                 {i > 0 && ", "}
-                <code className="bg-warning-muted px-1 rounded text-xs">{dep.blockId}</code>
+                <BlockLink blockId={dep.blockId} />
                 {/* A block waited on only for optional outputs has no names to list */}
                 {dep.outputNames.length > 0 && ` (${dep.outputNames.join(", ")})`}
               </span>

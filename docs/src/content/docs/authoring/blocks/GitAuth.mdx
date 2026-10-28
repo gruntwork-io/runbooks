@@ -43,7 +43,7 @@ If no credentials are detected, users authenticate manually.
 
 To read prefixed variables such as `CI_GITHUB_TOKEN` or `CI_GITLAB_TOKEN`, add `{ env: { prefix: 'CI_' } }` to `detectCredentials`. See [`<GitHubAuth>`](/authoring/blocks/githubauth/#detection-sources) and [`<GitLabAuth>`](/authoring/blocks/gitlabauth/#prefixed-environment-variables) for the variables each provider reads.
 
-`detectCredentials` can also list `{ block: 'block-id' }` to take the token another block wrote to its outputs (`GITHUB_TOKEN`/`GH_TOKEN` or `GITLAB_TOKEN`), or the credential another `<GitAuth>` block authenticated. Sources are tried in the order you list them. If that block has not run yet, the block shows *Waiting for "block-id" to run...* and detection pauses there without moving to a later source. If the block ran without leaving a usable token, detection moves on to the next source.
+`detectCredentials` can also list `{ block: 'block-id' }` to take the token another block wrote to its outputs (`GITHUB_TOKEN`/`GH_TOKEN` or `GITLAB_TOKEN`), or the credential another `<GitAuth>` block authenticated. Sources are tried in the order you list them. If that block has not run yet, the block shows *Waiting for block-id to run...*, with a link to that block, and detection pauses there without moving to a later source. If the block ran without leaving a usable token, detection moves on to the next source.
 
 ### Disabling detection
 

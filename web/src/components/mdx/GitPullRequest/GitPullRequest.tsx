@@ -44,6 +44,7 @@ import { PRForm } from "./components/PRForm"
 import { PRResultDisplay } from "./components/PRResult"
 import { WrongProviderError } from "./components/WrongProviderError"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
 import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -113,9 +114,11 @@ function GitPullRequestInteractive({
     return null
   }, [id, __registryType])
 
+  const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
     id,
     __registryType,
+    blockRef,
   )
   const { reportError, clearError } = useErrorReporting()
   const { activeWorkTree } = useGitWorkTree()
@@ -516,6 +519,7 @@ function GitPullRequestInteractive({
   return (
     <AutoCollapse enabled={autoCollapse} done={done}>
       <div
+        ref={blockRef}
         data-fold="path"
         data-testid={id}
         className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
@@ -558,7 +562,7 @@ function GitPullRequestInteractive({
             )}
 
             {/* Dependency warnings */}
-            {!wrongProvider && !authMet && (
+            {!wrongProvider && !authMet && authId !== undefined && (
               <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
                 <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
                 <div>
@@ -566,7 +570,8 @@ function GitPullRequestInteractive({
                     Waiting for {cfg.label} authentication
                   </p>
                   <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                    Complete the &apos;{authId}&apos; {cfg.label} authentication block above.
+                    Complete the <BlockLink blockId={authId} /> {cfg.label} authentication block
+                    above.
                   </p>
                 </div>
               </div>
