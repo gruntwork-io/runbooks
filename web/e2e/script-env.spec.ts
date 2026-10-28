@@ -45,8 +45,17 @@ test.describe("feature-demos/script-env", () => {
     const fetch = page.getByTestId("fetch-title")
     await fetch.getByRole("button", { name: "Run" }).click()
     await expect(fetch.getByTestId("icon-success")).toBeVisible({ timeout: 15_000 })
-    await expect(env.getByRole("button", { name: /^fetch_title\.title: Fix typo/ })).toBeVisible()
+    const linked = env.getByRole("button", { name: /^fetch_title\.title: Fix typo/ })
+    await expect(linked).toBeVisible()
     await expect(check).toBeEnabled({ timeout: 10_000 })
+
+    // The field for that long title scrolls inside the block, not past it
+    await linked.click()
+    const fieldBox = (await field.boundingBox())!
+    const blockBox = (await block.boundingBox())!
+    expect(fieldBox.x + fieldBox.width).toBeLessThanOrEqual(blockBox.x + blockBox.width)
+    await field.press("Escape")
+    await expect(linked).toBeVisible()
 
     expectNoConsoleErrors(consoleMessages)
   })
