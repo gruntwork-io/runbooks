@@ -1,9 +1,10 @@
-import { useState, useRef, useMemo, forwardRef, memo } from "react"
+import { useState, useMemo, forwardRef, memo, type CSSProperties } from "react"
 import { useCollapsibleFileList } from "@/hooks/useCollapsibleFileList"
+import { useUserScrolls } from "@/hooks/useUserScrolls"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { coy } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { FileTree, type FileTreeNode } from "./FileTree"
-import { FolderOpen, FileCode, AlertTriangle } from "lucide-react"
+import { FolderOpen, FileCode, AlertTriangle, Check } from "lucide-react"
 import { cn, formatFileSize } from "@/lib/utils"
 import { useResizablePanel } from "@/hooks/useResizablePanel"
 import { ResizeHandle } from "@/components/ui/ResizeHandle"
@@ -12,6 +13,8 @@ import { SHOW_MORE_INCREMENT } from "@/lib/fileListDisplay"
 import { PRISM_LINE_NUMBER_STYLE } from "@/lib/prismStyles"
 import { ShowMoreBanner } from "@/lib/ShowMoreBanner"
 import { CollapsibleFileHeader } from "@/components/artifacts/CollapsibleFileHeader"
+import { sameChange, scrolledPast, type FileChange } from "@/lib/fileReview"
+import type { GeneratedFilesReviewContextType } from "@/contexts/GeneratedFilesContext.types"
 
 interface CodeFileCollectionProps {
   data: FileTreeNode[]
@@ -19,6 +22,11 @@ interface CodeFileCollectionProps {
   hideContent?: boolean | undefined
   /** Backend truncation metadata (heavy dir recommendation) */
   truncationInfo?: TruncationInfo | null | undefined
+  /**
+   * The files changed since the user reviewed them, which are highlighted,
+   * and the selection that reviews them. Without it, nothing is highlighted.
+   */
+  review?: GeneratedFilesReviewContextType | undefined
 }
 
 export const CodeFileCollection = ({
@@ -26,10 +34,11 @@ export const CodeFileCollection = ({
   className = "",
   hideContent = false,
   truncationInfo,
+  review,
 }: CodeFileCollectionProps) => {
   const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel()
   const [focusedFileId, setFocusedFileId] = useState<string | null>(null)
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const [filesPane, setFilesPane] = useState<HTMLDivElement | null>(null)
 
   // Extract only file items (with content) from FileTreeNode
   const fileItems = useMemo(() => {
@@ -61,6 +70,7 @@ export const CodeFileCollection = ({
     toggleCollapse: toggleFileCollapse,
     showMore: handleShowMore,
     expandAndJump,
+    itemElement: fileElement,
     setItemRef: setFileRef,
   } = useCollapsibleFileList({
     items: fileItems,
@@ -68,13 +78,35 @@ export const CodeFileCollection = ({
     changeKey: fileIdsKey,
   })
 
+  // Scrolling down past a changed file's changes reviews it, so a large set
+  // of changes doesn't take a Dismiss for each file. Files that are collapsed
+  // or not shown aren't, since the user didn't see them.
+  useUserScrolls(filesPane, (scroll) => {
+    if (!filesPane || !review || review.changes.size === 0) return
+    const top = filesPane.getBoundingClientRect().top - filesPane.scrollTop
+    const ends = new Map<string, number>()
+    for (const [path, change] of review.changes) {
+      const file = collapsedFiles.has(path) ? undefined : fileElement(path)
+      if (!file) continue
+      const end =
+        change.lastLine === undefined ? file : (lineElement(file, change.lastLine) ?? file)
+      ends.set(path, end.getBoundingClientRect().bottom - top)
+    }
+    const past = scrolledPast(ends, scroll)
+    if (past.length > 0) review.dismissFiles(past)
+  })
+
   // CFC tree-click guard: only act on file nodes (not folders).
+  // A changed file opens at its first change.
   const handleFileTreeClick = (item: FileTreeNode) => {
     if (item.type === "file" && item.file) {
+      const firstLine = review?.changes.get(item.id)?.firstLine
+      review?.selectFile(item.id)
       setFocusedFileId(item.id)
       expandAndJump(
         item.id,
         fileItems.findIndex((f) => f.id === item.id),
+        firstLine === undefined ? undefined : (file) => lineElement(file, firstLine),
       )
     }
   }
@@ -109,13 +141,19 @@ export const CodeFileCollection = ({
             className="flex-shrink-0 overflow-y-auto"
             style={{ width: `${treeWidth}px` }}
           >
-            <FileTree items={data} onItemClick={handleFileTreeClick} className="relative" />
+            <FileTree
+              items={data}
+              onItemClick={handleFileTreeClick}
+              selectedId={review?.selectedPath}
+              changes={review?.changes}
+              className="relative"
+            />
           </div>
 
           <ResizeHandle onMouseDown={handleMouseDown} />
 
           {/* All Files View */}
-          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-3">
+          <div ref={setFilesPane} className="flex-1 overflow-y-auto p-3">
             <div className="flex flex-col gap-3">
               {/* Backend truncation banner */}
               {truncationInfo?.truncatedTree && (
@@ -165,6 +203,8 @@ export const CodeFileCollection = ({
                   isCollapsed={collapsedFiles.has(fileItem.id)}
                   isFocused={focusedFileId === fileItem.id}
                   onToggleCollapse={() => toggleFileCollapse(fileItem.id)}
+                  change={review?.changes.get(fileItem.id)}
+                  onDismiss={() => review?.dismissFiles([fileItem.id])}
                   ref={(el) => setFileRef(fileItem.id, el)}
                 />
               ))}
@@ -182,6 +222,12 @@ export const CodeFileCollection = ({
                 />
               )}
             </div>
+            {/* Room below the files while some are left to review, so the
+                last of them can be scrolled past the top too: the pane's
+                height, less its top padding. */}
+            {review && review.changes.size > 0 && (
+              <div aria-hidden="true" className="h-[calc(100%+0.75rem)]" />
+            )}
           </div>
         </div>
       )}
@@ -198,10 +244,14 @@ interface CollapsibleCodeFileProps {
   isCollapsed: boolean
   isFocused: boolean
   onToggleCollapse: () => void
+  /** How the file changed since the user reviewed it, when it did */
+  change?: FileChange | undefined
+  /** Mark the file reviewed */
+  onDismiss: () => void
 }
 
 const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>(
-  ({ fileItem, isCollapsed, isFocused, onToggleCollapse }, ref) => {
+  ({ fileItem, isCollapsed, isFocused, onToggleCollapse, change, onDismiss }, ref) => {
     const filePath = fileItem.file?.path || fileItem.name
     const code = fileItem.file?.content || ""
     const language = fileItem.file?.language || "text"
@@ -210,13 +260,21 @@ const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFilePr
 
     const fileSize = fileItem.file?.size ?? 0
     const fileSizeLabel = formatFileSize(fileSize)
+    const showsLines =
+      change !== undefined && (change.changedLines.size > 0 || change.removedBefore.size > 0)
 
     return (
       <div
         ref={ref}
         data-testid={`code-file-${filePath}`}
+        data-change={change?.status}
         className={cn(
-          "border border-border rounded-md overflow-hidden bg-card",
+          "border rounded-md overflow-hidden bg-card",
+          change === undefined
+            ? "border-border"
+            : change.status === "added"
+              ? "border-success"
+              : "border-warning",
           isFocused && "ring-2 ring-ring",
         )}
       >
@@ -227,9 +285,12 @@ const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFilePr
           path={filePath}
           icon={<FileCode className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
           trailing={
-            <span className="text-xs text-muted-foreground flex-shrink-0">
-              {isTruncated ? fileSizeLabel : `${lineCount} ${lineCount === 1 ? "line" : "lines"}`}
-            </span>
+            <>
+              {change && <ChangeSummary change={change} onDismiss={onDismiss} />}
+              <span className="text-xs text-muted-foreground flex-shrink-0">
+                {isTruncated ? fileSizeLabel : `${lineCount} ${lineCount === 1 ? "line" : "lines"}`}
+              </span>
+            </>
           }
         />
 
@@ -252,7 +313,19 @@ const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFilePr
                 padding: "14px 0px",
                 overflowX: "auto",
               }}
-              lineNumberStyle={PRISM_LINE_NUMBER_STYLE}
+              lineNumberStyle={
+                showsLines && change
+                  ? (lineNumber) => changedLineNumberStyle(change, lineNumber)
+                  : PRISM_LINE_NUMBER_STYLE
+              }
+              // Each line its own element, so changed ones can be highlighted
+              // and scrolled to. Only for those: it slows rendering down.
+              wrapLines={showsLines}
+              lineProps={
+                showsLines && change
+                  ? (lineNumber) => changedLineProps(change, lineNumber, lineCount)
+                  : {}
+              }
             >
               {code}
             </SyntaxHighlighter>
@@ -274,6 +347,8 @@ CollapsibleCodeFileImpl.displayName = "CollapsibleCodeFileImpl"
 const CollapsibleCodeFile = memo(CollapsibleCodeFileImpl, (prev, next) => {
   if (prev.isCollapsed !== next.isCollapsed) return false
   if (prev.isFocused !== next.isFocused) return false
+  // onDismiss, like onToggleCollapse, only ever acts on this file.
+  if (!sameChange(prev.change, next.change)) return false
   const a = prev.fileItem
   const b = next.fileItem
   if (a === b) return true
@@ -287,3 +362,76 @@ const CollapsibleCodeFile = memo(CollapsibleCodeFileImpl, (prev, next) => {
   return true
 })
 CollapsibleCodeFile.displayName = "CollapsibleCodeFile"
+
+/** What a changed file's header says of the change, with a button that marks it reviewed. */
+function ChangeSummary({ change, onDismiss }: { change: FileChange; onDismiss: () => void }) {
+  return (
+    <span className="flex items-center gap-2 text-xs flex-shrink-0">
+      {change.status === "added" ? (
+        <span className="font-medium text-success">Added</span>
+      ) : (
+        <span className="font-medium text-warning-foreground">
+          Modified
+          {(change.additions > 0 || change.deletions > 0) && (
+            <>
+              {" "}
+              <span className="text-success">+{change.additions}</span>{" "}
+              <span className="text-destructive">-{change.deletions}</span>
+            </>
+          )}
+        </span>
+      )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          onDismiss()
+        }}
+        className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-background cursor-pointer"
+        title="Mark as reviewed: stop highlighting this file's changes"
+      >
+        <Check className="w-3 h-3" />
+        Dismiss
+      </button>
+    </span>
+  )
+}
+
+// A tint rather than a surface color: the code keeps its light Prism theme
+// whatever the app's theme is.
+const CHANGED_LINE_BACKGROUND = "color-mix(in oklch, var(--success) 20%, transparent)"
+
+/** The line number of a changed line stands out, like the line. */
+function changedLineNumberStyle(change: FileChange, lineNumber: number): CSSProperties {
+  return change.changedLines.has(lineNumber)
+    ? { ...PRISM_LINE_NUMBER_STYLE, color: "#555", fontWeight: 600 }
+    : PRISM_LINE_NUMBER_STYLE
+}
+
+/**
+ * Props of line `lineNumber` (1-based) of a changed file's `lineCount`: a
+ * changed line is highlighted, and a mark shows where lines were removed.
+ */
+function changedLineProps(
+  change: FileChange,
+  lineNumber: number,
+  lineCount: number,
+): { style: CSSProperties; "data-line": number } {
+  const shadows: string[] = []
+  const style: CSSProperties = { display: "block" }
+  if (change.changedLines.has(lineNumber)) style.backgroundColor = CHANGED_LINE_BACKGROUND
+  if (change.removedBefore.has(lineNumber)) {
+    shadows.push("inset 0 2px 0 var(--destructive)")
+  }
+  // Lines removed from the end of a file without a final newline
+  if (lineNumber === lineCount && change.removedBefore.has(lineNumber + 1)) {
+    shadows.push("inset 0 -2px 0 var(--destructive)")
+  }
+  if (shadows.length > 0) style.boxShadow = shadows.join(", ")
+  return { style, "data-line": lineNumber }
+}
+
+/** Line `line` (1-based) of a file's highlighted code, or its last line when it has fewer. */
+function lineElement(file: HTMLDivElement, line: number): Element | null {
+  const lines = file.querySelectorAll("[data-line]")
+  return lines[Math.min(line, lines.length) - 1] ?? null
+}
