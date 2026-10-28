@@ -162,7 +162,7 @@ The built-in Gruntwork Runbooks OAuth app only exists on `github.com`. To offer 
 | `id` | string | required | Unique identifier for this component |
 | `title` | string | "GitHub Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
-| `autoCollapse` | boolean | `false` | Folds the block into a bar with its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks) |
+| `autoCollapse` | boolean | `false` | Folds the block down to its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks) |
 | `inputsId` | string or string[] | - | ID of one or more [Inputs](/authoring/blocks/inputs/) blocks. `title` and `description` resolve `{{ .inputs.VarName }}` expressions against them |
 | `detectCredentials` | `false` or `CredentialSource[]` | `['env', 'cli']` | Whether and how the block detects credentials in the user's environment |
 | `host` | string | - | Pins the GitHub host (`github.com`, a GHE.com tenant such as `acme.ghe.com`, or a GitHub Enterprise Server host such as `github.example.com`) and hides the host picker. See [GitHub Enterprise support](#github-enterprise-support) |

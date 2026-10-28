@@ -16,7 +16,7 @@ import {
   BlockIdLabel,
   Instruction,
 } from "@/components/mdx/_shared"
-import { AutoCollapse, CollapseButton } from "./AutoCollapse"
+import { AutoCollapse, CollapseButton, WhenFolded } from "./AutoCollapse"
 import { DuplicateIdError } from "./DuplicateIdError"
 import { EnvVars } from "./EnvVars"
 import { ProgressStep } from "./ProgressStep"
@@ -357,11 +357,6 @@ export function ScriptBlock({
     [runningMessage, variant.defaultRunningMessage, templateContext],
   )
 
-  // Folded, a block without a title shows what it runs
-  const collapsedTitle = resolvedTitle || (
-    <code className="font-mono text-sm font-normal">{path ?? sourceCode.split("\n")[0]}</code>
-  )
-
   // The ID label is pinned to the block's top-right corner. Without a title
   // row beside it, the full-width command box (or, with `path`, the separator)
   // can be the first row: a pending Check has no placeholder line. Keep both
@@ -542,7 +537,6 @@ export function ScriptBlock({
         note={successContent}
         onMarkedDone={onComplete}
         autoCollapse={autoCollapse}
-        collapsedTitle={collapsedTitle}
       />
     )
   }
@@ -561,14 +555,9 @@ export function ScriptBlock({
 
   // Main render
   return (
-    <AutoCollapse
-      enabled={autoCollapse}
-      done={done}
-      warn={status === "warn"}
-      id={id}
-      title={collapsedTitle}
-    >
+    <AutoCollapse enabled={autoCollapse} done={done}>
       <div
+        data-fold="path"
         ref={blockRef}
         data-testid={id}
         className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
@@ -576,7 +565,7 @@ export function ScriptBlock({
         <ProgressStep done={done} />
 
         {/* ID label - positioned at top right */}
-        <div className="absolute top-3 right-3 z-20 flex items-center gap-1">
+        <div data-fold="keep" className="absolute top-3 right-3 z-20 flex items-center gap-1">
           <BlockIdLabel id={id} size="large" />
           <CollapseButton />
         </div>
@@ -622,8 +611,11 @@ export function ScriptBlock({
         )}
 
         {/* Main container */}
-        <div className="flex @container">
-          <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
+        <div data-fold="path" className="flex @container">
+          <div
+            data-fold="keep"
+            className="border-r border-border pr-2 mr-4 flex flex-col items-center"
+          >
             <variant.statusStyles.StatusIcon
               status={status}
               data-testid={`icon-${status}`}
@@ -632,7 +624,7 @@ export function ScriptBlock({
           </div>
 
           {/* Main body */}
-          <div className="flex-1 min-w-0 space-y-2">
+          <div data-fold="path" className="flex-1 min-w-0 space-y-2">
             {variant.showPendingPlaceholder && status === "pending" && command && !title && (
               <div className="text-muted-foreground font-semibold text-sm">Run a command</div>
             )}
@@ -646,9 +638,20 @@ export function ScriptBlock({
 
             {/* Title and description */}
             {resolvedTitle && (
-              <div className="text-md font-bold text-muted-foreground">
+              <div data-fold="title" className="text-md font-bold text-muted-foreground">
                 <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
               </div>
+            )}
+            {/* Folded, a block without a title shows what it runs in its place */}
+            {!resolvedTitle && (
+              <WhenFolded>
+                <div
+                  data-fold="title"
+                  className={`font-mono text-sm text-muted-foreground truncate ${clearIdLabel}`}
+                >
+                  {path ?? sourceCode.split("\n")[0]}
+                </div>
+              </WhenFolded>
             )}
             {resolvedDescription && (
               <div className="text-md text-muted-foreground mb-3">

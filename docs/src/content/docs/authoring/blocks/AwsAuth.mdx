@@ -47,7 +47,7 @@ The user can still switch tabs. `defaultTab` only chooses the starting one.
 | `inputsId` | string or string[] | - | ID of one or more [Inputs](/authoring/blocks/inputs/) blocks. `title` and `description` resolve `{{ .inputs.VarName }}` expressions against them |
 | `title` | string | "AWS Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
-| `autoCollapse` | boolean | `false` | Folds the block into a bar with its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks) |
+| `autoCollapse` | boolean | `false` | Folds the block down to its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks) |
 | `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable. GovCloud regions (`us-gov-east-1`, `us-gov-west-1`) are supported. When the credentials don't name a region themselves, this region also decides which partition (commercial or GovCloud) they are validated in |
 | `defaultTab` | `'credentials'`, `'sso'`, or `'profile'` | `'credentials'` | Which authentication tab the block opens on. An unrecognized value falls back to `'credentials'` |
 | `detectCredentials` | `false` or `CredentialSource[]` | `['env']` | Whether and how to detect existing credentials. See [Credential detection](#credential-detection) |

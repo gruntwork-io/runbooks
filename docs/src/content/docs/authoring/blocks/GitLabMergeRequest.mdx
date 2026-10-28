@@ -41,7 +41,7 @@ You can pre-populate the MR title, description, labels, branch name, and commit 
 | `id` | `string` | Yes | Unique block identifier. |
 | `title` | `string` | No | Display title. Defaults to `Create Merge Request`. |
 | `description` | `string` | No | Description text below the title. |
-| `autoCollapse` | `boolean` | No | Folds the block into a bar with its title once the merge request is opened. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
+| `autoCollapse` | `boolean` | No | Folds the block down to its title once the merge request is opened. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
 | `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth) block. |
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID. The template expressions in the props below can use their values. |
 | `prefilledPullRequestTitle` | `string` | No | Pre-fills the MR title field. Supports template expressions. |

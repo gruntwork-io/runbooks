@@ -92,7 +92,7 @@ A block that the user acts on once and then doesn't need to look at again, such 
 <Command id="install-tools" title="Install the tools" command="brew bundle" autoCollapse />
 ```
 
-Once the block is done, as in the [Progress](#progress) table, it folds into a bar with its title and a check mark, or a warning sign for a `<Check>` or `<Prerequisites>` that ended with a warning. Click the bar to show the block in full, and the arrow beside its **ID** badge to fold it again. The bar of a `<Command>` or `<Check>` without a title shows its command, or its script's path.
+Once the block is done, as in the [Progress](#progress) table, it folds down to its title: its status icon, title and **ID** badge stay where they were, and the rest is hidden. Click anywhere on it to show the block in full, and the arrow beside its **ID** badge to fold it again. A `<Command>` or `<Check>` without a title shows its command, or its script's path, in place of one.
 
 The block folds each time it becomes done, such as when a run succeeds again, and shows in full whenever it isn't done, such as a sign-in whose credentials are about to expire. A [resumed session](/commands/sessions/#resuming-a-session) brings its done blocks back folded. Folding only hides a block: its logs, outputs and values stay as they were, for the blocks that use them.
 

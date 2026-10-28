@@ -140,8 +140,8 @@ describe("Finish", () => {
 
       await userEvent.click(screen.getByRole("button", { name: "Finish" }))
 
-      expect(screen.queryByTestId("finish-collapsed")).toBeNull()
       expect(screen.getByText("Next: tell your team.")).toBeVisible()
+      expect(screen.queryByRole("button", { name: "Expand block" })).toBeNull()
     })
 
     it("marks the session finished, and saves the block as finished in its history", async () => {

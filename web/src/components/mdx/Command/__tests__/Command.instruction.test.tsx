@@ -245,18 +245,17 @@ describe("Command — instruction mode", () => {
     expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
   })
 
-  it("with autoCollapse, folds once marked as done, and expands to be un-marked", () => {
+  it("with autoCollapse, folds down to its title and checkbox once marked as done", () => {
     renderCommand({ title: "Install the tools", autoCollapse: true })
-    expect(screen.queryByTestId("test-cmd-collapsed")).toBeNull()
+    expect(screen.getByText("echo hello")).toBeVisible()
 
     fireEvent.click(screen.getByRole("button", { name: "Mark step as done" }))
-    expect(screen.getByTestId("test-cmd-collapsed")).toHaveTextContent("Install the tools")
-    expect(screen.getByTestId("instruction-test-cmd")).not.toBeVisible()
+    expect(screen.getByText("Install the tools")).toBeVisible()
+    expect(screen.getByText("echo hello")).not.toBeVisible()
 
-    fireEvent.click(screen.getByRole("button", { name: "Install the tools", expanded: false }))
     fireEvent.click(screen.getByRole("button", { name: "Mark step as not done" }))
-    expect(screen.getByTestId("instruction-test-cmd")).toBeVisible()
-    expect(screen.queryByRole("button", { name: "Collapse block" })).toBeNull()
+    expect(screen.getByText("echo hello")).toBeVisible()
+    expect(screen.queryByRole("button", { name: /^(Expand|Collapse) block$/ })).toBeNull()
   })
 
   it("renders the interactive Run button when the flag is off", () => {

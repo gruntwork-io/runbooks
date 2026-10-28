@@ -573,7 +573,7 @@ describe("Command", () => {
 
   // --- autoCollapse ---
 
-  it("with autoCollapse, folds into a bar with its title once it succeeds, still a done step", async () => {
+  it("with autoCollapse, folds down to its title once it succeeds, still a done step", async () => {
     mockScriptExecution = { ...defaultScriptExecution, status: "success" }
     render(
       <TestWrapper>
@@ -582,35 +582,42 @@ describe("Command", () => {
       </TestWrapper>,
     )
 
-    expect(screen.getByTestId("test-cmd-collapsed")).toHaveTextContent("Install the tools")
-    expect(screen.getByTestId("test-cmd")).not.toBeVisible()
+    expect(screen.getByText("Install the tools")).toBeVisible()
+    expect(screen.getByTestId("icon-success")).toBeVisible()
+    expect(screen.getByText("Success")).not.toBeVisible()
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull()
     expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "Install the tools", expanded: false }),
-    )
-    expect(screen.getByTestId("test-cmd")).toBeVisible()
-    expect(screen.getByRole("button", { name: "Run" })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Expand block" }))
+    expect(screen.getByText("Success")).toBeVisible()
+    expect(screen.getByRole("button", { name: "Run" })).toBeVisible()
   })
 
-  it("with autoCollapse, folds an untitled command into a bar showing what it runs", () => {
+  it("with autoCollapse, shows what an untitled command runs in place of a title once folded", async () => {
     mockScriptExecution = { ...defaultScriptExecution, status: "success" }
     renderCommand({ title: undefined, autoCollapse: true })
-    expect(screen.getByTestId("test-cmd-collapsed")).toHaveTextContent('echo "hello"')
+
+    // The command box with it is hidden
+    const [title, box] = screen.getAllByText('echo "hello"')
+    expect(title).toBeVisible()
+    expect(box).not.toBeVisible()
+
+    await userEvent.click(screen.getByRole("button", { name: "Expand block" }))
+    expect(screen.getAllByText('echo "hello"')).toHaveLength(1)
   })
 
   it.each(["pending", "running", "fail"])("with autoCollapse, stays in full while %s", (status) => {
     mockScriptExecution = { ...defaultScriptExecution, status }
     renderCommand({ autoCollapse: true })
-    expect(screen.queryByTestId("test-cmd-collapsed")).toBeNull()
-    expect(screen.getByTestId("test-cmd")).toBeVisible()
+    expect(screen.getByRole("button", { name: "Run" })).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Expand block" })).toBeNull()
   })
 
   it("without autoCollapse, stays in full once it succeeds", () => {
     mockScriptExecution = { ...defaultScriptExecution, status: "success" }
     renderCommand()
-    expect(screen.queryByTestId("test-cmd-collapsed")).toBeNull()
-    expect(screen.queryByRole("button", { name: "Collapse block" })).toBeNull()
+    expect(screen.getByRole("button", { name: "Run" })).toBeVisible()
+    expect(screen.queryByRole("button", { name: /^(Expand|Collapse) block$/ })).toBeNull()
   })
 
   // --- Template resolution ---

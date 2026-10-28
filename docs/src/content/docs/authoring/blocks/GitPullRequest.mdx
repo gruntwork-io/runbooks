@@ -96,7 +96,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
 | `title` | `string` | No | Display title for the block header. Supports inline markdown and template expressions. Defaults per provider (`Create Pull Request` / `Create Merge Request`). |
 | `description` | `string` | No | Description text below the title. Supports inline markdown and template expressions. |
-| `autoCollapse` | `boolean` | No | Folds the block into a bar with its title once the pull or merge request is opened. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
+| `autoCollapse` | `boolean` | No | Folds the block down to its title once the pull or merge request is opened. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
 | `provider` | `'github' \| 'gitlab'` | No | Locks the provider. Left unset, the provider is derived as described in [Provider detection](#provider-detection). Write the value in lowercase. Any other value, such as `"GitHub"`, makes the block fail to render. |
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). |
 | `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) block (either provider). The block waits for authentication to complete and uses its token/provider for this execution. |

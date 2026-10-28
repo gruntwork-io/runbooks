@@ -55,10 +55,8 @@ export interface InstructionProps {
    * not for a done state restored on load). <Finish> celebrates with it.
    */
   onMarkedDone?: (() => void) | undefined
-  /** The block's `autoCollapse` prop: once marked done, it folds into a bar. */
+  /** The block's `autoCollapse` prop: once marked done, it folds down to its title. */
   autoCollapse?: boolean | undefined
-  /** What the bar of a folded block shows, when not the title. */
-  collapsedTitle?: ReactNode
 }
 
 const EMPTY_CONTEXT: TemplateContext = { inputs: {}, outputs: {} }
@@ -88,7 +86,6 @@ export function Instruction({
   id,
   onMarkedDone,
   autoCollapse,
-  collapsedTitle,
 }: InstructionProps) {
   const commandList = normalizeCommandList(command)
   const envNames = Object.keys(env)
@@ -126,13 +123,9 @@ export function Instruction({
   }
 
   return (
-    <AutoCollapse
-      enabled={autoCollapse}
-      done={!!id && completed}
-      id={id ?? ""}
-      title={collapsedTitle ?? title}
-    >
+    <AutoCollapse enabled={autoCollapse} done={!!id && completed}>
       <div
+        data-fold="path"
         data-testid={id ? `instruction-${id}` : "instruction"}
         data-instruction-mode="true"
         data-completed={completed || undefined}
@@ -141,25 +134,31 @@ export function Instruction({
         }`}
       >
         {id && (
-          <div className="absolute top-3 right-3 z-20 flex items-center gap-1">
+          <div data-fold="keep" className="absolute top-3 right-3 z-20 flex items-center gap-1">
             <BlockIdLabel id={id} size="large" />
             <CollapseButton />
           </div>
         )}
 
-        <div className="flex">
-          <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
+        <div data-fold="path" className="flex">
+          <div
+            data-fold="keep"
+            className="border-r border-border pr-2 mr-4 flex flex-col items-center"
+          >
             <Icon className={`size-6 ${completed ? "text-success" : "text-muted-foreground"}`} />
           </div>
 
-          <div className="flex-1 min-w-0 space-y-3">
+          <div data-fold="path" className="flex-1 min-w-0 space-y-3">
             {id && (
               // Clear of the ID label, and the collapse button beside it
-              <div className={`flex justify-end -mb-1 ${autoCollapse ? "mr-14" : "mr-8"}`}>
+              <div
+                data-fold="keep"
+                className={`flex justify-end -mb-1 ${autoCollapse ? "mr-14" : "mr-8"}`}
+              >
                 <CompletionCheckbox completed={completed} onToggle={handleToggle} />
               </div>
             )}
-            <div className="text-md font-bold text-foreground">
+            <div data-fold="title" className="text-md font-bold text-foreground">
               <InlineMarkdown>{title}</InlineMarkdown>
             </div>
             {description && (

@@ -1,0 +1,12 @@
+/* A folded block (see AutoCollapse.tsx) shows only its header, where it was:
+   the parts marked data-fold="keep" or "title", and the elements that lead to
+   them, marked data-fold="path". Hiding the rest, rather than drawing a bar
+   in the block's place, keeps the header from moving as the block folds. */
+.block-folded [data-fold="path"] > :not([data-fold]) {
+  display: none;
+}
+
+/* Nothing follows the title while the block is folded */
+.block-folded [data-fold="title"] {
+  margin-block-end: 0;
+}

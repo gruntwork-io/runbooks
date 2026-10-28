@@ -124,7 +124,7 @@ Five minutes before the token expires, the block turns red, says when it expires
 | `hideProviderSelect` | `boolean` | No | `false` | When `true`, hide the provider dropdown and lock the provider to `provider`. |
 | `title` | `string` | No | `"Git Authentication"` | Block title (supports template expressions). |
 | `description` | `string` | No | - | Block description (supports template expressions). |
-| `autoCollapse` | `boolean` | No | `false` | Folds the block into a bar with its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
+| `autoCollapse` | `boolean` | No | `false` | Folds the block down to its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
 | `host` | `string` | No | - | Pins the host for the provider set by `provider` and hides the host picker. GitHub: `github.com`, a GitHub Enterprise Server host (`github.example.com`), or a GHE.com tenant (`acme.ghe.com`). GitLab: `gitlab.com` or a self-managed instance. See [Hosts](#hosts). |
 | `oauthClientId` | `string \| Record<string, string>` | No | Gruntwork's app (`github.com` only) | Custom GitHub OAuth App client ID. A string applies to `host` when set, otherwise to `github.com`. A map is keyed by host. Required for OAuth on GitHub Enterprise hosts. GitHub only. |
 | `oauthScopes` | `string[]` | No | `['repo']` (GitHub) | OAuth scopes to request on GitHub. GitLab has no OAuth flow, so for GitLab this only changes the scopes that [instruction mode](/intro/instruction-mode/) lists, `read_repository` and `write_repository` by default. |

@@ -514,30 +514,37 @@ function GitPullRequestInteractive({
 
   const done = effectiveStatus === "success"
   return (
-    <AutoCollapse enabled={autoCollapse} done={done} id={id} title={resolvedDisplayTitle}>
+    <AutoCollapse enabled={autoCollapse} done={done}>
       <div
+        data-fold="path"
         data-testid={id}
         className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
       >
         <ProgressStep done={done} />
 
         {/* ID label */}
-        <div className="absolute top-3 right-3 z-20 flex items-center gap-1">
+        <div data-fold="keep" className="absolute top-3 right-3 z-20 flex items-center gap-1">
           <BlockIdLabel id={id} size="large" />
           <CollapseButton />
         </div>
 
         {/* Main container with left icon column */}
-        <div className="flex @container">
-          <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
+        <div data-fold="path" className="flex @container">
+          <div
+            data-fold="keep"
+            className="border-r border-border pr-2 mr-4 flex flex-col items-center"
+          >
             <IconComponent
               className={`size-6 ${iconClasses} ${isSpinning ? "animate-spin" : ""}`}
             />
           </div>
 
-          <div className="flex-1 min-w-0 space-y-2">
+          <div data-fold="path" className="flex-1 min-w-0 space-y-2">
             {/* Title and description */}
-            <div className="flex items-center gap-1 text-md font-bold text-foreground">
+            <div
+              data-fold="title"
+              className="flex items-center gap-1 text-md font-bold text-foreground"
+            >
               <cfg.Logo className="size-6 text-foreground" />
               <InlineMarkdown>{resolvedDisplayTitle}</InlineMarkdown>
             </div>

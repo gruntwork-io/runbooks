@@ -6,10 +6,11 @@ import { MDX_COMPONENTS } from "@/components/MDXContainer"
 /**
  * Registry-completeness guard for the `autoCollapse` prop.
  *
- * A step of the runbook (see progressStepRegistry.test.ts) can fold into a bar
- * once it's done. This test enumerates the real MDX registry and fails if a
- * block is added without a decision on whether it folds, or if a block that
- * folds doesn't render an <AutoCollapse> with a collapse button.
+ * A step of the runbook (see progressStepRegistry.test.ts) can fold down to its
+ * header once it's done. This test enumerates the real MDX registry and fails
+ * if a block is added without a decision on whether it folds, or if a block
+ * that folds doesn't render an <AutoCollapse>, a collapse button, and a title
+ * marked to stay in view.
  */
 
 // Blocks that take `autoCollapse`
@@ -58,7 +59,7 @@ const INSTRUCTION_SOURCE: Record<(typeof COLLAPSIBLE_BLOCKS)[number], string> = 
 
 // Entries that never fold:
 // - Finish shows the author's next steps once the runbook is finished.
-// - Inputs and Template have no title to show on the bar, and their values are
+// - Inputs and Template have no title to fold down to, and their values are
 //   worth reviewing.
 // - DirPicker is done from its first pick, before the user has picked every
 //   level.
@@ -93,19 +94,21 @@ describe("autoCollapse — MDX registry coverage", () => {
     }
   })
 
-  it.each(COLLAPSIBLE_BLOCKS)("%s folds once done, with a collapse button", (block) => {
+  it.each(COLLAPSIBLE_BLOCKS)("%s folds once done, down to its title", (block) => {
     const source = sourceOf(BLOCK_SOURCE[block] ?? `${block}/${block}.tsx`)
     expect(source).toContain("<AutoCollapse")
     expect(source).toContain("<CollapseButton />")
+    expect(source).toContain('data-fold="title"')
   })
 
   it.each(COLLAPSIBLE_BLOCKS)("%s passes autoCollapse to its instruction", (block) => {
     expect(sourceOf(INSTRUCTION_SOURCE[block])).toContain("autoCollapse={autoCollapse}")
   })
 
-  it("the shared instruction folds once marked done, with a collapse button", () => {
+  it("the shared instruction folds once marked done, down to its title", () => {
     const source = sourceOf("_shared/components/Instruction.tsx")
     expect(source).toContain("<AutoCollapse")
     expect(source).toContain("<CollapseButton />")
+    expect(source).toContain('data-fold="title"')
   })
 })

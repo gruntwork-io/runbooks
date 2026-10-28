@@ -241,27 +241,25 @@ function Prerequisites({
   // A warning means only optional tools are missing
   const done = status === "success" || status === "warn"
   return (
-    <AutoCollapse
-      enabled={autoCollapse}
-      done={done}
-      warn={status === "warn"}
-      id={id}
-      title={title ?? "Tools this runbook needs"}
-    >
+    <AutoCollapse enabled={autoCollapse} done={done}>
       <div
+        data-fold="path"
         ref={blockRef}
         data-testid={id}
         className={`runbook-block relative rounded-sm border ${STATUS_STYLES.getStatusClasses(status)} mb-5 p-4`}
       >
         <ProgressStep done={done} />
 
-        <div className="absolute top-3 right-3 z-20 flex items-center gap-1">
+        <div data-fold="keep" className="absolute top-3 right-3 z-20 flex items-center gap-1">
           <BlockIdLabel id={id} size="large" />
           <CollapseButton />
         </div>
 
-        <div className="flex @container">
-          <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
+        <div data-fold="path" className="flex @container">
+          <div
+            data-fold="keep"
+            className="border-r border-border pr-2 mr-4 flex flex-col items-center"
+          >
             <STATUS_STYLES.StatusIcon
               status={status}
               data-testid={`icon-${status}`}
@@ -269,8 +267,8 @@ function Prerequisites({
             />
           </div>
 
-          <div className="flex-1 min-w-0 space-y-2">
-            <div className="text-md font-bold text-muted-foreground mr-12">
+          <div data-fold="path" className="flex-1 min-w-0 space-y-2">
+            <div data-fold="title" className="text-md font-bold text-muted-foreground mr-12">
               <InlineMarkdown>{title ?? "Tools this runbook needs"}</InlineMarkdown>
             </div>
             {description && (

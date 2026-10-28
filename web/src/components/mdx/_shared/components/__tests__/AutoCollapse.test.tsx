@@ -1,98 +1,114 @@
 import { describe, it, expect } from "vitest"
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { AutoCollapse, CollapseButton } from "../AutoCollapse"
+import { AutoCollapse, CollapseButton, WhenFolded } from "../AutoCollapse"
 
-function Block({
-  enabled = true,
-  done,
-  warn,
-}: {
-  enabled?: boolean
-  done: boolean
-  warn?: boolean
-}) {
+// A block laid out as the real ones are: its header marked with data-fold
+function Block({ enabled = true, done }: { enabled?: boolean; done: boolean }) {
   return (
-    <AutoCollapse enabled={enabled} done={done} warn={warn} id="deploy" title="**Deploy** the app">
-      <div data-testid="deploy">
-        <CollapseButton />
-        <input aria-label="Note" />
+    <AutoCollapse enabled={enabled} done={done}>
+      <div data-fold="path" data-testid="deploy">
+        <div data-fold="keep">
+          <CollapseButton />
+        </div>
+        <div data-fold="path">
+          <div data-fold="title">Deploy the app</div>
+          <WhenFolded>
+            <div data-fold="title">./deploy.sh</div>
+          </WhenFolded>
+          <input aria-label="Note" />
+        </div>
+        <div>Logs</div>
       </div>
     </AutoCollapse>
   )
 }
 
-const bar = () => screen.queryByTestId("deploy-collapsed")
-const expandButton = () => screen.getByRole("button", { name: "Deploy the app", expanded: false })
-const collapseButton = () => screen.queryByRole("button", { name: "Collapse block" })
+const note = () => screen.getByLabelText("Note")
+const expandButton = () => screen.queryByRole("button", { name: "Expand block", expanded: false })
+const collapseButton = () =>
+  screen.queryByRole("button", { name: "Collapse block", expanded: true })
+
+function expectFolded() {
+  expect(screen.getByText("Deploy the app")).toBeVisible()
+  expect(note()).not.toBeVisible()
+  expect(screen.getByText("Logs")).not.toBeVisible()
+  expect(expandButton()).toBeInTheDocument()
+}
+
+function expectInFull() {
+  expect(screen.getByText("Deploy the app")).toBeVisible()
+  expect(note()).toBeVisible()
+  expect(screen.getByText("Logs")).toBeVisible()
+  expect(expandButton()).toBeNull()
+}
 
 describe("AutoCollapse", () => {
   it("shows a done block in full without autoCollapse", () => {
     render(<Block enabled={false} done />)
-    expect(screen.getByTestId("deploy")).toBeVisible()
-    expect(bar()).toBeNull()
+    expectInFull()
     expect(collapseButton()).toBeNull()
   })
 
   it("shows a block in full while it isn't done", () => {
     render(<Block done={false} />)
-    expect(screen.getByTestId("deploy")).toBeVisible()
-    expect(bar()).toBeNull()
+    expectInFull()
     expect(collapseButton()).toBeNull()
   })
 
-  it("starts folded into a bar with its title when it's done on mount", () => {
+  it("starts folded down to its header when it's done on mount", () => {
     render(<Block done />)
-    expect(bar()).toHaveTextContent("Deploy the app")
-    expect(screen.getByText("Deploy").tagName).toBe("STRONG")
-    expect(screen.getByTestId("deploy")).not.toBeVisible()
+    expectFolded()
   })
 
   it("folds once it becomes done, keeping what was entered in it", async () => {
     const { rerender } = render(<Block done={false} />)
-    await userEvent.type(screen.getByRole("textbox", { name: "Note" }), "staging")
+    await userEvent.type(note(), "staging")
 
     rerender(<Block done />)
-    expect(bar()).toBeInTheDocument()
-    expect(screen.getByTestId("deploy")).not.toBeVisible()
+    expectFolded()
 
-    await userEvent.click(expandButton())
-    expect(screen.getByRole("textbox", { name: "Note" })).toHaveValue("staging")
+    await userEvent.click(expandButton()!)
+    expect(note()).toHaveValue("staging")
   })
 
-  it("expands from its bar and folds again from the collapse button", async () => {
+  it("expands from its button and folds again from it", async () => {
     render(<Block done />)
 
-    await userEvent.click(expandButton())
-    expect(bar()).toBeNull()
-    expect(screen.getByTestId("deploy")).toBeVisible()
+    await userEvent.click(expandButton()!)
+    expectInFull()
 
     await userEvent.click(collapseButton()!)
-    expect(bar()).toBeInTheDocument()
-    expect(screen.getByTestId("deploy")).not.toBeVisible()
+    expectFolded()
   })
 
-  it("expands when it's no longer done, and folds again once it's done again", async () => {
+  it("expands on a click anywhere on it while folded, and only then", async () => {
+    render(<Block done />)
+
+    await userEvent.click(screen.getByText("Deploy the app"))
+    expectInFull()
+
+    await userEvent.click(screen.getByText("Deploy the app"))
+    expectInFull()
+  })
+
+  it("shows what only a folded block shows, only while folded", async () => {
+    render(<Block done />)
+    expect(screen.getByText("./deploy.sh")).toBeVisible()
+
+    await userEvent.click(expandButton()!)
+    expect(screen.queryByText("./deploy.sh")).toBeNull()
+  })
+
+  it("shows in full once it's no longer done, and folds again once it's done again", async () => {
     const { rerender } = render(<Block done />)
-    await userEvent.click(expandButton())
+    await userEvent.click(expandButton()!)
 
     rerender(<Block done={false} />)
-    expect(screen.getByTestId("deploy")).toBeVisible()
+    expectInFull()
     expect(collapseButton()).toBeNull()
 
     rerender(<Block done />)
-    expect(bar()).toBeInTheDocument()
-  })
-
-  it("shows a folded block that is done in full once it's no longer done", () => {
-    const { rerender } = render(<Block done />)
-    rerender(<Block done={false} />)
-    expect(bar()).toBeNull()
-    expect(screen.getByTestId("deploy")).toBeVisible()
-  })
-
-  it("shows a warning bar for a block done with a warning", () => {
-    render(<Block done warn />)
-    expect(bar()).toHaveClass("bg-warning-muted")
+    expectFolded()
   })
 })

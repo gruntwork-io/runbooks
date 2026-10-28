@@ -168,31 +168,32 @@ function AwsAuthInteractive({
 
   const done = shownStatus === "authenticated"
   return (
-    <AutoCollapse enabled={autoCollapse} done={done} id={id} title={resolvedTitle}>
+    <AutoCollapse enabled={autoCollapse} done={done}>
       <div
+        data-fold="path"
         data-testid={id}
         className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
       >
         <ProgressStep done={done} />
 
         {/* ID label - positioned at top right */}
-        <div className="absolute top-3 right-3 z-20 flex items-center gap-1">
+        <div data-fold="keep" className="absolute top-3 right-3 z-20 flex items-center gap-1">
           <BlockIdLabel id={id} size="large" />
           <CollapseButton />
         </div>
 
         {/* Header with AWS Logo */}
-        <div className="flex items-start gap-4 @container">
-          <div className="border-r border-warning/30 pr-3 mr-0 self-stretch">
+        <div data-fold="path" className="flex items-start gap-4 @container">
+          <div data-fold="keep" className="border-r border-warning/30 pr-3 mr-0 self-stretch">
             <StatusIcon
               status={shownStatus}
               className={`size-6 ${iconClasses} ${auth.authStatus === "authenticating" ? "animate-spin" : ""}`}
             />
           </div>
 
-          <div className="flex-1 min-w-0">
+          <div data-fold="path" className="flex-1 min-w-0">
             {/* Title row with AWS logo */}
-            <div className="flex items-center gap-3 mb-2">
+            <div data-fold="title" className="flex items-center gap-3 mb-2">
               <img
                 src={resolvedTheme === "dark" ? awsLogoLight : awsLogo}
                 alt="AWS"

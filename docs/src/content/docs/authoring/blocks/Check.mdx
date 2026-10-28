@@ -33,7 +33,7 @@ A Check has a **Check** button where a Command has **Run**. It also accepts a `w
 
 - `title` (string): display title shown in the UI. Supports inline markdown (bold, italic, links, code).
 - `description` (string): longer description of what's being checked. Supports inline markdown.
-- `autoCollapse` (boolean): whether the block folds into a bar with its title once it's done. Defaults to `false`. Click the bar to show the block again. See [Folding done blocks](/authoring/blocks/#folding-done-blocks).
+- `autoCollapse` (boolean): whether the block folds down to its title once it's done. Defaults to `false`. Click it to show the block in full again. See [Folding done blocks](/authoring/blocks/#folding-done-blocks).
 - `command` (string): inline command to execute. Set exactly one of `command` and `path`. If both are set, `command` runs.
 - `path` (string): path to a script file, relative to the runbook's folder, such as `scripts/check.sh`. The file must be inside that folder, so a path with a `..` segment fails. Use either this or `command`.
 - `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones. A block that uses `{{ .inputs.* }}`, in `env` or in the script, needs this prop or a nested Inputs block. See [With variables](#with-variables).

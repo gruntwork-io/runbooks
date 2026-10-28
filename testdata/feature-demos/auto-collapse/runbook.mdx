@@ -1,6 +1,6 @@
 # Auto-Collapse Demo
 
-A block with `autoCollapse` folds into a bar with its title once it's done. Click the bar to show the block again, and the arrow beside its **ID** badge to fold it again.
+A block with `autoCollapse` folds down to its title once it's done. Click it to show the block in full again, and the arrow beside its **ID** badge to fold it again.
 
 ## A titled command
 
@@ -13,13 +13,13 @@ A block with `autoCollapse` folds into a bar with its title once it's done. Clic
 
 ## An untitled command
 
-Without a title, the bar shows the command.
+Without a title, a folded block shows its command in place of one.
 
 <Command id="configure" command="echo configured" autoCollapse />
 
 ## A check that warns
 
-A check that ends with a warning (exit code 2) is done too, so it folds, into a yellow bar.
+A check that ends with a warning (exit code 2) is done too, so it folds, and stays yellow.
 
 <Check
   id="disk-space"
