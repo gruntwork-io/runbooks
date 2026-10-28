@@ -111,7 +111,7 @@ Each variable supports these properties:
 | `name` | Yes | Variable name, referenced as `{{ .inputs.Name }}`, or as `{{ .Name }}` in the files a `<Template>` renders |
 | `type` | No | Data type: `string`, `int`, `float`, `bool`, `enum`, `list`, `map` (defaults to `string`). Write it in lowercase. The form shows a field of any other type as text, but Boilerplate rejects it, so a `<Template>` that uses it fails |
 | `description` | No | Help text shown in the form |
-| `default` | No | Default value |
+| `default` | No | Default value. Once a field's value differs from it, a **Reset** button next to the field's name puts it back |
 | `options` | For `enum` | List of allowed values for dropdowns |
 | `validations` | No | [Validation rules](#validations) |
 | `sensitive` | No | For a `string`, masks the field like a password input, with a button to show the value |
@@ -180,17 +180,21 @@ Runbooks fills these in, using whatever the other fields hold at that moment, in
 
 Other block props that use the variable through `{{ .inputs.X }}`, like `<GitClone>`'s `prefilledUrl` or `<TemplateInline>`'s `outputPath`, get the expression as written, not the value it resolves to. Give those props a variable with a plain default.
 
-The form doesn't show the `{{ }}` syntax. A linked default shows the value it comes to, with a link icon, and follows the fields it uses as you edit them. Here `BucketName` shows `acme-state`, and `InstanceSize` shows `small` until you pick `prod`. In a `<Template>`, a default can also use the values the block gets through `inputsId`.
+The form doesn't show the `{{ }}` syntax. It shows a linked default as its text, with a chip for each variable or block output it uses. A chip shows the value it links to, with a link icon, and follows that field as you edit it. Here `BucketName` shows an `acme` chip followed by `-state`. A default that does more than insert a variable or an output shows as one chip with the value it comes to, so `InstanceSize` shows `small` until you pick `prod`. In a `<Template>`, a default can also use the values the block gets through `inputsId`.
 
-When the form can't work out the value yet, it shows a token for each variable the default uses instead, named the way that variable's field is labelled: a **Project Name** token followed by `-state`. A default that does more than insert a variable shows one token that says what it's based on, like **Based on Environment**. If the default uses a block output that hasn't been produced yet, its token is yellow; hover over it to see which block has to run first. If no block on the page has the id the default names, the value can never be filled in: the token is red, the field shows an error, the block is red and won't generate until you replace the value, and the error is counted in the runbook's error summary.
+Until a chip's value is known, it names what it links to instead: a variable, labelled the way its field is, or an output, as `create_account.account_id`. A chip for a default that does more says what it's based on, like **Based on Environment**. A chip for a block output that hasn't been produced yet is yellow; hover over it to see which block has to run first. If no block on the page has the id the default names, the value can never be filled in: the chip is red, the field shows an error, the block is red and won't generate until you replace the value, and the error is counted in the runbook's error summary.
 
-A sensitive field, and any default built from a sensitive variable or output, always shows tokens, never the value.
+A sensitive field shows one chip that names the variables its default uses, never its text or its value. A chip for a sensitive variable shows only its name, and one for a sensitive output shows `<redacted>`.
 
-In a text field:
+To change a linked value:
 
-- Hover over the value to see its expression.
-- Click it to edit the expression. When you leave the field, a value that is still an expression is shown as linked again.
-- Click the **X** to clear it and type your own value.
+- **Enter a value for a chip.** Click the chip and it turns into a field, in its place, where you can type another value. Press Enter, or click away after changing it, to use it. Press Escape to get the chip back. The field then uses that value everywhere it used the chip's variable or output, and the rest stays linked. A value entered for an output means the field no longer waits for, or needs, the block that produces it.
+- **Reset goes back to the link.** A value you entered stays in its field, where you can change it, with a reset button next to it that brings the chip back.
+- **Click the X** to clear the whole value and type your own.
+- **Click Reset** next to the field's name to go back to the default, as the runbook wrote it, chips and all.
+- **Hover** over the value to see its expression.
+
+A value you enter for a sensitive field, variable or output is hidden as you type it. A [resumed session](/commands/sessions/#resuming-a-session) brings back the values you entered.
 
 The [template-defaults demo runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/template-defaults) uses each kind.
 

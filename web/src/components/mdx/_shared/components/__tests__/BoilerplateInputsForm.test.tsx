@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest"
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { beforeEach, describe, it, expect, vi } from "vitest"
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react"
 import type { ComponentProps, ReactNode } from "react"
 import { BoilerplateInputsForm } from "../BoilerplateInputsForm"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
@@ -13,6 +13,8 @@ import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import type { ReportedError } from "@/contexts/ErrorReportingContext.types"
 import { sensitiveOutput } from "@/lib/outputValues"
+import userEvent from "@testing-library/user-event"
+import { SessionHistoryContext, type SessionHistory } from "@/contexts/SessionHistoryContext.types"
 
 const config: BoilerplateConfig = {
   variables: [{ name: "region", type: "string", description: "", default: "us-east-1" }],
@@ -182,8 +184,8 @@ describe("BoilerplateInputsForm template-valued defaults", () => {
     for (const input of Array.from(container.querySelectorAll("input, select"))) {
       expect((input as HTMLInputElement).value).not.toContain("{{")
     }
-    // The field's label still points at it
-    expect(screen.getByLabelText("Bucket Name")).toHaveTextContent("Base-state")
+    // The field's label still points at it, and its chip shows the value of Base
+    expect(screen.getByLabelText("Bucket Name")).toHaveTextContent("app-state")
 
     fireEvent.click(screen.getByRole("button", { name: "Generate" }))
     expect(onGenerate).toHaveBeenCalledWith({
@@ -202,6 +204,291 @@ describe("BoilerplateInputsForm template-valued defaults", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Generate" }))
     expect(onGenerate).toHaveBeenCalledWith(expect.objectContaining({ BucketName: "" }))
+  })
+})
+
+// The session's history: what a block saved, and what it records
+let saved: Record<string, unknown> = {}
+const record = vi.fn()
+const history: SessionHistory = {
+  saved: (blockId, kind) => saved[`${blockId}/${kind}`],
+  record,
+  finish: () => {},
+}
+
+// Each chip of a linked value takes a value in its place, which the form sends
+// in the expression's place, and can be reset. The values entered are kept in
+// the session's history.
+describe("BoilerplateInputsForm values entered in place of chips", () => {
+  const linkedConfig: BoilerplateConfig = {
+    variables: [
+      { name: "Org", type: "string", description: "", default: "acme" },
+      { name: "Repo", type: "string", description: "", default: "{{ .Org }}/{{ .Name }}" },
+      { name: "Name", type: "string", description: "", default: "infra" },
+      {
+        name: "Repos",
+        type: "list",
+        description: "",
+        default: ["github.com/{{ .Org }}/catalog", "github.com/{{ .Org }}/modules"],
+      },
+      {
+        name: "Secret",
+        type: "string",
+        description: "",
+        default: "{{ .Org }}-key",
+        sensitive: true,
+      },
+    ],
+  }
+
+  function renderEntered() {
+    const user = userEvent.setup()
+    const onGenerate = vi.fn()
+    const utils = render(
+      <SessionHistoryContext.Provider value={history}>
+        <BoilerplateInputsForm
+          id="tpl"
+          blockType="Template"
+          boilerplateConfig={linkedConfig}
+          onGenerate={onGenerate}
+          enableAutoRender={false}
+          variant="standard"
+        />
+      </SessionHistoryContext.Provider>,
+    )
+    const generated = () => {
+      fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+      return onGenerate.mock.lastCall![0] as Record<string, unknown>
+    }
+    return { ...utils, user, generated }
+  }
+
+  const field = (name: string) => screen.getByTestId(`field-${name}`)
+  const chip = (name: string, label: string) =>
+    within(field(name)).getByRole("button", { name: new RegExp(`^${label}:`) })
+
+  beforeEach(() => {
+    saved = {}
+    record.mockClear()
+  })
+
+  it("sends the value entered for a chip in its place, keeping the others linked", async () => {
+    const { user, generated } = renderEntered()
+
+    await user.click(chip("Repo", "Org"))
+    await user.keyboard("globex{Enter}")
+
+    expect(within(field("Repo")).getByLabelText("Value for Org")).toHaveValue("globex")
+    expect(field("Repo")).toHaveTextContent("/infra")
+    expect(generated()).toMatchObject({ Repo: "globex/{{ .Name }}" })
+    expect(record).toHaveBeenLastCalledWith("tpl", "overrides", {
+      fields: { Repo: { linked: "{{ .Org }}/{{ .Name }}", entered: { "inputs.Org": "globex" } } },
+    })
+  })
+
+  it("goes back to the linked value when the chip is reset", async () => {
+    const { user, generated } = renderEntered()
+    await user.click(chip("Repo", "Org"))
+    await user.keyboard("globex{Enter}")
+
+    await user.click(within(field("Repo")).getByRole("button", { name: "Reset Org" }))
+
+    expect(chip("Repo", "Org")).toHaveTextContent("acme")
+    expect(generated()).toMatchObject({ Repo: "{{ .Org }}/{{ .Name }}" })
+    expect(record).toHaveBeenLastCalledWith("tpl", "overrides", { fields: {} })
+  })
+
+  it("sends a value with nothing linked left as plain text", async () => {
+    const { user, generated } = renderEntered()
+
+    await user.click(chip("Repo", "Org"))
+    await user.keyboard("globex{Enter}")
+    await user.click(chip("Repo", "Name"))
+    await user.keyboard("live{Enter}")
+
+    expect(generated()).toMatchObject({ Repo: "globex/live" })
+    // Still shown as chips, each of which can be reset
+    expect(within(field("Repo")).getByRole("button", { name: "Reset Name" })).toBeInTheDocument()
+  })
+
+  it("enters a value in a list entry, and keeps it when another entry is removed", async () => {
+    const { user, generated } = renderEntered()
+
+    await user.click(within(field("Repos")).getAllByRole("button", { name: /^Org:/ })[1]!)
+    await user.keyboard("globex{Enter}")
+    expect(generated()).toMatchObject({
+      Repos: ["github.com/globex/catalog", "github.com/globex/modules"],
+    })
+
+    await user.click(within(field("Repos")).getAllByTitle("Remove entry")[0]!)
+    // An entered value shows in its field, not as text
+    expect(within(field("Repos")).getByLabelText("Value for Org")).toHaveValue("globex")
+    expect(generated()).toMatchObject({ Repos: ["github.com/globex/modules"] })
+  })
+
+  it("drops the values entered for a field once its link is cleared", async () => {
+    const { user, generated } = renderEntered()
+    await user.click(chip("Repo", "Org"))
+    await user.keyboard("globex{Enter}")
+
+    await user.click(within(field("Repo")).getByRole("button", { name: "Clear linked value" }))
+
+    expect(generated()).toMatchObject({ Repo: "" })
+    expect(record).toHaveBeenLastCalledWith("tpl", "overrides", { fields: {} })
+  })
+
+  it("takes a sensitive field's value as a whole, without showing it", async () => {
+    const { user, generated, container } = renderEntered()
+
+    await user.click(chip("Secret", "Based on Org"))
+    await user.keyboard("hunter2{Enter}")
+
+    expect(generated()).toMatchObject({ Secret: "hunter2" })
+    expect(within(field("Secret")).getByLabelText("Value for Based on Org")).toHaveValue("")
+    expect(container.innerHTML).not.toContain("hunter2")
+  })
+
+  it("starts from the values the session's history has entered", () => {
+    saved["tpl/overrides"] = {
+      fields: { Repo: { linked: "{{ .Org }}/{{ .Name }}", entered: { "inputs.Org": "globex" } } },
+    }
+    // The form's values come from the history too: the form starts from them
+    render(
+      <SessionHistoryContext.Provider value={history}>
+        <BoilerplateInputsForm
+          id="tpl"
+          blockType="Template"
+          boilerplateConfig={linkedConfig}
+          initialData={{ Repo: "globex/{{ .Name }}" }}
+          enableAutoRender={false}
+          variant="standard"
+        />
+      </SessionHistoryContext.Provider>,
+    )
+
+    expect(within(field("Repo")).getByLabelText("Value for Org")).toHaveValue("globex")
+    expect(within(field("Repo")).getByRole("button", { name: "Reset Org" })).toBeInTheDocument()
+  })
+
+  it("leaves the entered values behind when the field's value is no longer the one they make", () => {
+    saved["tpl/overrides"] = {
+      fields: { Repo: { linked: "{{ .Org }}/{{ .Name }}", entered: { "inputs.Org": "globex" } } },
+    }
+    renderEntered()
+
+    expect(field("Repo")).toHaveTextContent("acme/infra")
+    expect(within(field("Repo")).queryByRole("button", { name: "Reset Org" })).toBeNull()
+  })
+
+  it("puts a field's linked default back, without the values entered for its chips", async () => {
+    const { user, generated } = renderEntered()
+    await user.click(chip("Repo", "Org"))
+    await user.keyboard("globex{Enter}")
+
+    await user.click(screen.getByRole("button", { name: "Reset Repo to its default" }))
+
+    expect(chip("Repo", "Org")).toHaveTextContent("acme")
+    expect(generated()).toMatchObject({ Repo: "{{ .Org }}/{{ .Name }}" })
+    expect(record).toHaveBeenLastCalledWith("tpl", "overrides", { fields: {} })
+    expect(screen.queryByRole("button", { name: "Reset Repo to its default" })).toBeNull()
+  })
+
+  it("puts a linked default back as chips once the link was cleared for a value of the user's own", async () => {
+    const { user, generated } = renderEntered()
+    await user.click(within(field("Repo")).getByRole("button", { name: "Clear linked value" }))
+    await user.keyboard("mine")
+
+    await user.click(screen.getByRole("button", { name: "Reset Repo to its default" }))
+
+    expect(chip("Repo", "Name")).toHaveTextContent("infra")
+    expect(generated()).toMatchObject({ Repo: "{{ .Org }}/{{ .Name }}" })
+  })
+})
+
+// Each field the user can change offers to put the runbook's value back once
+// it no longer has it.
+describe("BoilerplateInputsForm reset to default", () => {
+  const plainConfig: BoilerplateConfig = {
+    variables: [
+      { name: "Region", type: "string", description: "", default: "us-east-1" },
+      { name: "Count", type: "int", description: "", default: 3 },
+      { name: "Enabled", type: "bool", description: "", default: true },
+      { name: "Zones", type: "list", description: "", default: ["a"] },
+      { name: "Note", type: "string", description: "" },
+    ],
+  }
+  const resetButton = (label: string) =>
+    screen.queryByRole("button", { name: `Reset ${label} to its default` })
+
+  it("offers no reset while every field has its default", () => {
+    renderForm({ boilerplateConfig: plainConfig })
+
+    expect(screen.queryByRole("button", { name: /to its default$/ })).toBeNull()
+  })
+
+  it("puts back the default of each kind of field once it's changed", async () => {
+    const user = userEvent.setup()
+    const { onGenerate } = renderForm({ boilerplateConfig: plainConfig })
+
+    await user.clear(screen.getByLabelText("Region"))
+    await user.type(screen.getByLabelText("Region"), "eu-west-1")
+    await user.clear(screen.getByLabelText("Count"))
+    await user.type(screen.getByLabelText("Count"), "5")
+    await user.click(screen.getByLabelText("Enabled"))
+    await user.click(within(screen.getByTestId("field-Zones")).getByTitle("Remove entry"))
+    // Emptied again, a field without a default has it
+    await user.type(screen.getByLabelText("Note"), "x{Backspace}")
+    expect(resetButton("Note")).toBeNull()
+    await user.type(screen.getByLabelText("Note"), "hi")
+
+    for (const label of ["Region", "Count", "Enabled", "Zones", "Note"]) {
+      await user.click(resetButton(label)!)
+      expect(resetButton(label)).toBeNull()
+    }
+
+    expect(screen.getByLabelText("Region")).toHaveValue("us-east-1")
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalledWith({
+      Region: "us-east-1",
+      Count: 3,
+      Enabled: true,
+      Zones: ["a"],
+      Note: undefined,
+    })
+  })
+
+  it("offers it for a field that starts from another value, such as one a session saved", () => {
+    renderForm({ boilerplateConfig: plainConfig, initialData: { Region: "eu-west-1" } })
+
+    fireEvent.click(resetButton("Region")!)
+
+    expect(screen.getByLabelText("Region")).toHaveValue("us-east-1")
+  })
+
+  it("puts back the defaults it is given rather than the config's", () => {
+    renderForm({ boilerplateConfig: plainConfig, defaults: { Region: "ap-south-1" } })
+
+    fireEvent.click(resetButton("Region")!)
+
+    expect(screen.getByLabelText("Region")).toHaveValue("ap-south-1")
+  })
+
+  it("offers none for a field that can't be changed here", () => {
+    renderForm({
+      boilerplateConfig: {
+        variables: [
+          { name: "Region", type: "string", description: "", default: "us-east-1" },
+          { name: "Provider", type: "string", description: "", default: "github", locked: true },
+        ],
+      },
+      initialData: { Provider: "gitlab" },
+      sharedVarNames: new Set(["Region"]),
+      liveVarValues: { Region: "eu-west-1" },
+    })
+
+    expect(screen.getByLabelText(/^Region/)).toHaveValue("eu-west-1")
+    expect(resetButton("Region")).toBeNull()
+    expect(resetButton("Provider")).toBeNull()
   })
 })
 
@@ -484,12 +771,12 @@ describe("BoilerplateInputsForm resolved linked values", () => {
   it("shows what each linked value comes to", async () => {
     const { container } = renderWithResolver(linkedConfig)
 
-    // The field's label names the chip; its text is what the value comes to
+    // The field's label names the box; its chips show the values they link to
     await waitFor(() =>
       expect(screen.getByLabelText("Bucket Name")).toHaveTextContent("acme-state"),
     )
-    expect(screen.getByText("github.com/acme/modules")).toBeInTheDocument()
-    expect(screen.getByText("acme:Team")).toBeInTheDocument()
+    expect(screen.getByTestId("field-Repos")).toHaveTextContent("github.com/acme/modules")
+    expect(screen.getByTestId("field-Tags")).toHaveTextContent("acme:Team")
     // Only the field's own label: no token names it
     expect(screen.getAllByText("Project Name")).toHaveLength(1)
     expect(container.textContent).not.toContain("{{")
@@ -497,12 +784,14 @@ describe("BoilerplateInputsForm resolved linked values", () => {
 
   it("follows a change to the value it is linked to", async () => {
     renderWithResolver(linkedConfig)
-    await screen.findByText("acme-state")
+    await waitFor(() =>
+      expect(screen.getByLabelText("Bucket Name")).toHaveTextContent("acme-state"),
+    )
 
     fireEvent.change(screen.getByLabelText("Project Name"), { target: { value: "globex" } })
 
-    expect(await screen.findByText("globex-state")).toBeInTheDocument()
-    expect(screen.getByText("github.com/globex/modules")).toBeInTheDocument()
+    expect(screen.getByLabelText("Bucket Name")).toHaveTextContent("globex-state")
+    expect(screen.getByTestId("field-Repos")).toHaveTextContent("github.com/globex/modules")
   })
 
   it("never sends a sensitive value, so what is built from one keeps its tokens", async () => {
@@ -571,7 +860,8 @@ describe("BoilerplateInputsForm resolved linked values", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Account ID")).toHaveTextContent("123456789012"),
     )
-    expect(screen.getByLabelText("Token")).toHaveTextContent("Set automatically")
+    expect(screen.getByLabelText("Token")).toHaveTextContent("<redacted>")
+    expect(screen.getByTestId("field-Token").innerHTML).not.toContain("s3cr3t")
     for (const request of requests()) {
       expect(request.outputs).toEqual({ make_account: { account_id: "123456789012" } })
     }
@@ -719,6 +1009,23 @@ describe("BoilerplateInputsForm linked default using a block that isn't on the p
     expect(onGenerate).toHaveBeenCalledWith({ Region: "us-east-1", AccountAlias: "acme-prod" })
   })
 
+  it("generates once a value is entered in place of the output", async () => {
+    const user = userEvent.setup()
+    const { onGenerate, block } = renderOnPage(["tpl", "other-block"])
+    await screen.findByText(/no block on this page has that id/)
+
+    await user.click(screen.getByRole("button", { name: /^create_account\.account_id/ }))
+    await user.keyboard("123456789012{Enter}")
+    expect(screen.queryByText(/no block on this page has that id/)).toBeNull()
+    expect(block().className).not.toContain("bg-destructive-muted")
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalledWith({
+      Region: "us-east-1",
+      AccountAlias: "acme-123456789012",
+    })
+  })
+
   it("adds it to the page-level error report until the value is replaced", async () => {
     renderOnPage(["tpl", "other-block"])
     await screen.findByText(/no block on this page has that id/)
@@ -778,7 +1085,7 @@ describe("BoilerplateInputsForm linked default using a block that isn't on the p
   it("is only waiting, not an error, when the block is on the page", async () => {
     const { block, onGenerate } = renderOnPage(["tpl", "create-account"])
 
-    expect(await screen.findByTitle("Waiting for create-account to run")).toBeInTheDocument()
+    expect(await screen.findByTitle(/Waiting for create-account to run/)).toBeInTheDocument()
     expect(screen.queryByText(/no block on this page/)).toBeNull()
     expect(reported).toEqual([])
     expect(block().className).not.toContain("bg-destructive-muted")

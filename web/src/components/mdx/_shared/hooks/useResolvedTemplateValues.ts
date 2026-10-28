@@ -17,7 +17,8 @@ interface Resolution {
  * right now, by variable name, for display. Main resolves them the way a
  * render does (boilerplate:resolve-inputs), against the form's other values,
  * the values its block imports through `inputsId` and the block outputs. The
- * form's own values win over imported ones, as they do in a render.
+ * form's own values win over imported ones, as they do in a render. Imported
+ * values that are templates are resolved too, for the chips that show them.
  *
  * Only values the form may show are sent. A variable that this form or any
  * other block marks sensitive is left out, and so are sensitive outputs, so a
@@ -72,12 +73,12 @@ export function useResolvedTemplateValues(
   return useMemo(() => {
     const result: Record<string, unknown> = {}
     if (!resolution) return result
-    for (const [name, value] of Object.entries(values)) {
+    for (const [name, value] of Object.entries({ ...importedValues, ...values })) {
       if (!containsTemplateValue(value) || !(name in resolution.resolved)) continue
       // A result for an earlier version of this value would show the wrong thing.
       if (JSON.stringify(resolution.sent[name]) !== JSON.stringify(value)) continue
       result[name] = resolution.resolved[name]
     }
     return result
-  }, [resolution, values])
+  }, [resolution, values, importedValues])
 }

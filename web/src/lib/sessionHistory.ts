@@ -445,3 +445,43 @@ export function restoreOverrides(payload: unknown): TemplateOutputs {
     ]),
   )
 }
+
+// ---------------------------------------------------------------------------
+// Values entered in place of a form's chips (`overrides` events)
+// ---------------------------------------------------------------------------
+
+const LinkedFieldSchema = z.object({
+  /** The field's value with all its chips, as it was when the first got a value */
+  linked: z.unknown(),
+  /** The values entered in place of its chips, by chip key */
+  entered: z.record(z.string(), z.string()),
+})
+
+/** A form field whose chips were given values by hand (see useEnteredValues). */
+export interface LinkedField {
+  linked: unknown
+  entered: Record<string, string>
+}
+
+const SavedEnteredValuesSchema = z.object({
+  /** The form's fields with values entered in place of chips, by variable name */
+  fields: z.record(z.string(), LinkedFieldSchema),
+})
+
+/** The event of the values entered in place of a form's chips changing, with all of them. */
+export function enteredValuesChanged(fields: Record<string, LinkedField>): unknown {
+  // The values as entered, secrets too: the main process encrypts the payload.
+  return { fields } satisfies z.infer<typeof SavedEnteredValuesSchema>
+}
+
+/** The values a form's chips were given by hand, given its latest `overrides` event. */
+export function restoreEnteredValues(payload: unknown): Record<string, LinkedField> {
+  const parsed = SavedEnteredValuesSchema.safeParse(payload)
+  if (!parsed.success) return {}
+  return Object.fromEntries(
+    Object.entries(parsed.data.fields).map(([name, { linked, entered }]) => [
+      name,
+      { linked, entered },
+    ]),
+  )
+}

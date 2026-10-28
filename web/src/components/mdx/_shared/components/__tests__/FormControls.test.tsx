@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { FormControl } from "../FormControls"
+import type { FieldLinks } from "../TemplateValue"
+import { sensitiveOutput } from "@/lib/outputValues"
 import type { BoilerplateVariable } from "@/types/boilerplateVariable"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import { RunbookStateStub } from "@/test/test-utils"
@@ -178,8 +181,8 @@ describe("FormControls selects match form state", () => {
 
 // A boilerplate default can be an expression over other variables, like
 // `{{ .SecurityModulesVersion }}`. The form keeps that expression as the value
-// (main resolves it when rendering) but shows it as linked tokens, never as
-// raw `{{ }}` text.
+// (main resolves it when rendering) but shows it as its text and chips, never
+// as raw `{{ }}` text. Each chip takes a value in its place when clicked.
 describe("FormControls template-valued values", () => {
   const stringVar = (overrides: Partial<BoilerplateVariable> = {}): BoilerplateVariable => ({
     name: "ModuleVersion",
@@ -193,20 +196,34 @@ describe("FormControls template-valued values", () => {
       expect((input as HTMLInputElement).value).not.toContain("{{")
     }
   }
+  /** What the form gives a field's chips: the values of other variables, and those entered. */
+  const fieldLinks = (overrides: Partial<FieldLinks> = {}): FieldLinks => ({
+    variableValue: () => undefined,
+    isSensitive: () => false,
+    entered: {},
+    enter: vi.fn(),
+    reset: vi.fn(),
+    ...overrides,
+  })
 
-  it("shows a linked string value as a token instead of a textbox", () => {
+  it("shows a linked string value as a chip in a field-sized box the label points at", () => {
     const { container } = render(
       <FormControl
         id="f"
         variable={stringVar()}
         value="{{ .SecurityModulesVersion }}"
         onChange={vi.fn()}
+        links={fieldLinks()}
       />,
     )
 
     expect(screen.queryByRole("textbox")).toBeNull()
-    const chip = screen.getByRole("button", { name: /Security Modules Version/ })
-    expect(chip.id).toBe("f-ModuleVersion")
+    expect(container.querySelector("output#f-ModuleVersion")).toHaveTextContent(
+      "Security Modules Version",
+    )
+    expect(
+      screen.getByRole("button", { name: /^Security Modules Version: The value of/ }),
+    ).toHaveAttribute("data-state", "linked")
     expect(container.querySelector('[title="{{ .SecurityModulesVersion }}"]')).not.toBeNull()
     expectNoRawTemplateText(container)
   })
@@ -218,60 +235,138 @@ describe("FormControls template-valued values", () => {
         variable={stringVar()}
         value="aws-sso@{{ .EmailDomainName }}"
         onChange={vi.fn()}
+        links={fieldLinks()}
       />,
     )
 
-    expect(screen.getByRole("button", { name: /aws-sso@\s*Email Domain Name/ })).toBeInTheDocument()
+    expect(container.querySelector("output")).toHaveTextContent("aws-sso@Email Domain Name")
     expectNoRawTemplateText(container)
   })
 
-  it("summarises a computed value", () => {
+  it("shows the value of the variable a chip links to once the form knows it", () => {
+    const { container } = render(
+      <FormControl
+        id="f"
+        variable={stringVar()}
+        value="aws-sso@{{ .EmailDomainName }}"
+        onChange={vi.fn()}
+        links={fieldLinks({
+          variableValue: (name) => (name === "EmailDomainName" ? "acme.io" : undefined),
+        })}
+      />,
+    )
+
+    expect(container.querySelector("output")).toHaveTextContent("aws-sso@acme.io")
+    expect(screen.getByRole("button", { name: "Email Domain Name: acme.io" })).toBeInTheDocument()
+  })
+
+  it("summarises a computed value as one chip", () => {
     const { container } = render(
       <FormControl
         id="f"
         variable={stringVar()}
         onChange={vi.fn()}
         value={'{{ if eq .SCMProvider "GitHub" }}v4{{ else }}v1{{ end }}'}
+        links={fieldLinks()}
       />,
     )
 
-    expect(screen.getByRole("button", { name: /Based on SCM Provider/ })).toBeInTheDocument()
+    expect(screen.getAllByRole("button", { name: /^Based on SCM Provider/ })).toHaveLength(1)
     expectNoRawTemplateText(container)
   })
 
-  it("expands to the raw expression in a focused textbox when clicked, and stays a textbox while editing", () => {
-    const onChange = vi.fn()
-    const variable = stringVar()
-    const { rerender } = render(
+  it("turns a chip into a field in its place, which enters the value for that variable", async () => {
+    const user = userEvent.setup()
+    const links = fieldLinks({ variableValue: () => "acme.io" })
+    const { container } = render(
       <FormControl
         id="f"
-        variable={variable}
-        value="{{ .SecurityModulesVersion }}"
-        onChange={onChange}
+        variable={stringVar()}
+        value="aws-sso@{{ .EmailDomainName }}"
+        onChange={vi.fn()}
+        links={links}
       />,
     )
 
-    fireEvent.click(screen.getByRole("button", { name: /Security Modules Version/ }))
+    await user.click(screen.getByRole("button", { name: "Email Domain Name: acme.io" }))
+    const field = screen.getByLabelText("Value for Email Domain Name")
+    expect(field).toHaveFocus()
+    expect(field).toHaveValue("acme.io")
+    expect(container.querySelector("output")).toContainElement(field)
 
-    const input = screen.getByRole("textbox") as HTMLInputElement
-    expect(input.value).toBe("{{ .SecurityModulesVersion }}")
-    expect(input.id).toBe("f-ModuleVersion")
-    expect(input).toHaveFocus()
-    expect(onChange).not.toHaveBeenCalled()
+    await user.keyboard("globex.io{Enter}")
+    expect(links.enter).toHaveBeenCalledWith("inputs.EmailDomainName", "globex.io")
+  })
 
-    fireEvent.change(input, { target: { value: "{{ .SecurityModulesVersion }}-x" } })
-    expect(onChange).toHaveBeenCalledWith("{{ .SecurityModulesVersion }}-x")
-    rerender(
+  it("enters a value for a block output, and for a whole computed value, under their keys", async () => {
+    const user = userEvent.setup()
+    const links = fieldLinks()
+    render(
+      <>
+        <FormControl
+          id="f"
+          variable={stringVar({ name: "Alias" })}
+          value="acme-{{ .outputs.make-account.account_id }}"
+          onChange={vi.fn()}
+          links={links}
+        />
+        <FormControl
+          id="f"
+          variable={stringVar({ name: "Size" })}
+          value='{{ if eq .Env "prod" }}large{{ else }}small{{ end }}'
+          onChange={vi.fn()}
+          links={links}
+        />
+      </>,
+    )
+
+    await user.click(screen.getByRole("button", { name: /^make-account\.account_id/ }))
+    await user.keyboard("123{Enter}")
+    expect(links.enter).toHaveBeenCalledWith("outputs.make_account.account_id", "123")
+
+    await user.click(screen.getByRole("button", { name: /^Based on Env/ }))
+    await user.keyboard("medium{Enter}")
+    expect(links.enter).toHaveBeenCalledWith(
+      '={{ if eq .Env "prod" }}large{{ else }}small{{ end }}',
+      "medium",
+    )
+  })
+
+  it("shows an entered value in its field, with a button that resets it", async () => {
+    const user = userEvent.setup()
+    const links = fieldLinks({ entered: { "inputs.EmailDomainName": "globex.io" } })
+    render(
       <FormControl
         id="f"
-        variable={variable}
-        value="{{ .SecurityModulesVersion }}-x"
-        onChange={onChange}
+        variable={stringVar()}
+        value="aws-sso@{{ .EmailDomainName }}"
+        onChange={vi.fn()}
+        links={links}
       />,
     )
-    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe(
-      "{{ .SecurityModulesVersion }}-x",
+
+    const field = screen.getByLabelText("Value for Email Domain Name")
+    expect(field).toHaveValue("globex.io")
+    expect(field).toHaveAttribute("data-state", "entered")
+
+    await user.click(screen.getByRole("button", { name: "Reset Email Domain Name" }))
+    expect(links.reset).toHaveBeenCalledWith("inputs.EmailDomainName")
+  })
+
+  it("asks for a value in place of a sensitive variable in a password field", async () => {
+    const user = userEvent.setup()
+    render(
+      <FormControl
+        id="f"
+        variable={stringVar()}
+        value="postgres://app:{{ .DbPassword }}@db"
+        onChange={vi.fn()}
+        links={fieldLinks({ isSensitive: (name) => name === "DbPassword" })}
+      />,
     )
+
+    await user.click(screen.getByRole("button", { name: /^DB Password/ }))
+    expect(screen.getByLabelText("Value for DB Password")).toHaveAttribute("type", "password")
   })
 
   it("clears the link into an empty, focused textbox", () => {
@@ -283,6 +378,7 @@ describe("FormControls template-valued values", () => {
         variable={variable}
         value="{{ .SecurityModulesVersion }}"
         onChange={onChange}
+        links={fieldLinks()}
       />,
     )
 
@@ -295,38 +391,60 @@ describe("FormControls template-valued values", () => {
     expect(input).toHaveFocus()
   })
 
-  it("shows a disabled linked value as tokens with nothing to click", () => {
+  it.each([
+    ["disabled", true, fieldLinks()],
+    ["given nowhere to keep a value", false, undefined],
+  ])("shows a linked value's chips with nothing to click when %s", (_case, disabled, links) => {
     const { container } = render(
       <FormControl
         id="f"
         variable={stringVar()}
         value="{{ .SecurityModulesVersion }}"
         onChange={vi.fn()}
-        disabled
+        disabled={disabled}
+        links={links}
       />,
     )
 
     expect(screen.getByText("Security Modules Version")).toBeInTheDocument()
-    expect(screen.queryByRole("button")).toBeNull()
+    expect(screen.queryByRole("button", { name: /Security Modules Version/ })).toBeNull()
     expect(screen.queryByRole("textbox")).toBeNull()
     expectNoRawTemplateText(container)
   })
 
-  it("shows a linked sensitive value as a token too", () => {
+  it("shows a linked sensitive value as one chip, which takes a value in a password field", async () => {
+    const user = userEvent.setup()
+    const links = fieldLinks()
     const { container } = render(
       <FormControl
         id="f"
         variable={stringVar({ sensitive: true })}
         value="{{ .SharedSecret }}"
         onChange={vi.fn()}
+        links={links}
       />,
     )
 
-    expect(screen.getByRole("button", { name: /Shared Secret/ })).toBeInTheDocument()
     expect(container.querySelector('input[type="password"]')).toBeNull()
-
-    fireEvent.click(screen.getByRole("button", { name: /Shared Secret/ }))
+    await user.click(screen.getByRole("button", { name: /^Same as Shared Secret/ }))
     expect(container.querySelector('input[type="password"]')).toHaveFocus()
+    await user.keyboard("hunter2{Enter}")
+    expect(links.enter).toHaveBeenCalledWith("={{ .SharedSecret }}", "hunter2")
+  })
+
+  it("never puts a value entered for a sensitive field in the page", () => {
+    const { container } = render(
+      <FormControl
+        id="f"
+        variable={stringVar({ sensitive: true })}
+        value="{{ .SharedSecret }}"
+        onChange={vi.fn()}
+        links={fieldLinks({ entered: { "={{ .SharedSecret }}": "hunter2" } })}
+      />,
+    )
+
+    expect(screen.getByLabelText("Value for Same as Shared Secret")).toHaveValue("")
+    expect(container.innerHTML).not.toContain("hunter2")
   })
 
   // Only the names of the linked variables are shown: literal text in a
@@ -341,12 +459,14 @@ describe("FormControls template-valued values", () => {
           onChange={vi.fn()}
           disabled={disabled}
           value="postgres://admin:hunter2@{{ .DbHost }}/app"
+          links={fieldLinks({ variableValue: () => "db.internal" })}
         />,
       )
 
       expect(screen.getByText("Based on DB Host")).toBeInTheDocument()
       expect(container.innerHTML).not.toContain("hunter2")
       expect(container.innerHTML).not.toContain("postgres://")
+      expect(container.innerHTML).not.toContain("db.internal")
     },
   )
 
@@ -361,8 +481,16 @@ describe("FormControls template-valued values", () => {
     const onChange = vi.fn()
     const onBlur = vi.fn()
     const variable = stringVar()
+    const links = fieldLinks()
     const { rerender } = render(
-      <FormControl id="f" variable={variable} value="" onChange={onChange} onBlur={onBlur} />,
+      <FormControl
+        id="f"
+        variable={variable}
+        value=""
+        onChange={onChange}
+        onBlur={onBlur}
+        links={links}
+      />,
     )
 
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "{{ .inputs.A }}" } })
@@ -373,6 +501,7 @@ describe("FormControls template-valued values", () => {
         value="{{ .inputs.A }}"
         onChange={onChange}
         onBlur={onBlur}
+        links={links}
       />,
     )
 
@@ -382,90 +511,66 @@ describe("FormControls template-valued values", () => {
     fireEvent.blur(screen.getByRole("textbox"))
     expect(onBlur).toHaveBeenCalled()
     expect(screen.queryByRole("textbox")).toBeNull()
-    expect(screen.getByRole("button", { name: /^A$/ })).toBeInTheDocument()
-  })
-
-  it("shows the chip again when the user leaves an expression they opened", () => {
-    render(
-      <FormControl
-        id="f"
-        variable={stringVar()}
-        value="{{ .SecurityModulesVersion }}"
-        resolvedValue="v1.4.0"
-        onChange={vi.fn()}
-      />,
-    )
-
-    fireEvent.click(screen.getByRole("button", { name: /v1\.4\.0/ }))
-    fireEvent.blur(screen.getByRole("textbox"))
-
-    expect(screen.queryByRole("textbox")).toBeNull()
-    expect(screen.getByRole("button", { name: /v1\.4\.0/ })).toBeInTheDocument()
-  })
-
-  it("keeps a textbox when the user leaves a value that is no longer an expression", () => {
-    const onChange = vi.fn()
-    const variable = stringVar()
-    const { rerender } = render(
-      <FormControl
-        id="f"
-        variable={variable}
-        value="{{ .SecurityModulesVersion }}"
-        onChange={onChange}
-      />,
-    )
-
-    fireEvent.click(screen.getByRole("button", { name: /Security Modules Version/ }))
-    rerender(<FormControl id="f" variable={variable} value="v2.0.0" onChange={onChange} />)
-    fireEvent.blur(screen.getByRole("textbox"))
-
-    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("v2.0.0")
+    expect(screen.getByRole("button", { name: /^A: / })).toBeInTheDocument()
   })
 
   it("keeps a sensitive expression open while focus moves to its show button", () => {
-    const { container } = render(
-      <FormControl
-        id="f"
-        variable={stringVar({ sensitive: true })}
-        value="{{ .SharedSecret }}"
-        onChange={vi.fn()}
-      />,
+    const variable = stringVar({ sensitive: true })
+    const { container, rerender } = render(
+      <FormControl id="f" variable={variable} value="" onChange={vi.fn()} links={fieldLinks()} />,
     )
 
-    fireEvent.click(screen.getByRole("button", { name: /Shared Secret/ }))
     const input = container.querySelector('input[type="password"]')!
+    fireEvent.change(input, { target: { value: "{{ .SharedSecret }}" } })
+    rerender(
+      <FormControl
+        id="f"
+        variable={variable}
+        value="{{ .SharedSecret }}"
+        onChange={vi.fn()}
+        links={fieldLinks()}
+      />,
+    )
     const showButton = screen.getByRole("button", { name: "Show sensitive input" })
     fireEvent.blur(input, { relatedTarget: showButton })
     expect(container.querySelector('input[type="password"]')).not.toBeNull()
 
     fireEvent.blur(showButton, { relatedTarget: document.body })
     expect(container.querySelector("input")).toBeNull()
-    expect(screen.getByRole("button", { name: /Shared Secret/ })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /^Same as Shared Secret/ })).toBeInTheDocument()
   })
 
-  it("shows a linked list entry as tokens, and removing it still works", () => {
+  it("shows a linked list entry with its chips, which take values, and removing it still works", async () => {
+    const user = userEvent.setup()
     const variable: BoilerplateVariable = {
       name: "CatalogRepositories",
       type: "list",
       description: "",
     }
     const onChange = vi.fn()
+    const links = fieldLinks({
+      variableValue: (name) => (name === "RepoBaseUrl" ? "github.com" : undefined),
+    })
     const value = ["github.com/acme/catalog", "{{ .RepoBaseUrl }}/{{ .InfraModulesRepoName }}"]
     const { container } = render(
-      <FormControl id="f" variable={variable} value={value} onChange={onChange} />,
+      <FormControl id="f" variable={variable} value={value} onChange={onChange} links={links} />,
     )
 
     expect(screen.getByText("github.com/acme/catalog")).toBeInTheDocument()
-    expect(screen.getByText("Repo Base URL")).toBeInTheDocument()
-    expect(screen.getByText("Infra Modules Repo Name")).toBeInTheDocument()
-    expect(container.querySelector(`[title="${value[1]}"]`)).not.toBeNull()
+    expect(container.querySelector(`[title="${value[1]}"]`)).toHaveTextContent(
+      "github.com/Infra Modules Repo Name",
+    )
     expectNoRawTemplateText(container)
+
+    await user.click(screen.getByRole("button", { name: /^Infra Modules Repo Name/ }))
+    await user.keyboard("infra-modules{Enter}")
+    expect(links.enter).toHaveBeenCalledWith("inputs.InfraModulesRepoName", "infra-modules")
 
     fireEvent.click(screen.getAllByTitle("Remove entry")[1]!)
     expect(onChange).toHaveBeenCalledWith(["github.com/acme/catalog"])
   })
 
-  it("shows a linked map key and a linked map value as tokens", () => {
+  it("shows the chips of a linked map key and a linked map value, with the values they know", () => {
     const variable: BoilerplateVariable = { name: "DefaultTags", type: "map", description: "" }
     const { container } = render(
       <FormControl
@@ -473,16 +578,19 @@ describe("FormControls template-valued values", () => {
         variable={variable}
         onChange={vi.fn()}
         value={{ "{{ .OrgNamePrefix }}:Team": "DevOps", Owner: "{{ .TeamEmail }}" }}
+        links={fieldLinks({
+          variableValue: (name) => (name === "TeamEmail" ? "ops@acme.io" : undefined),
+        })}
       />,
     )
 
-    expect(screen.getByText("Org Name Prefix")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /^Org Name Prefix/ })).toBeInTheDocument()
     expect(screen.getByText("DevOps")).toBeInTheDocument()
-    expect(screen.getByText("Team Email")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Team Email: ops@acme.io" })).toBeInTheDocument()
     expectNoRawTemplateText(container)
   })
 
-  it("shows linked fields of a structured map entry as tokens", () => {
+  it("shows the chips of linked fields of a structured map entry", () => {
     const variable: BoilerplateVariable = {
       name: "Accounts",
       type: "map",
@@ -495,16 +603,17 @@ describe("FormControls template-valued values", () => {
         variable={variable}
         onChange={vi.fn()}
         value={{ security: { email: "security@{{ .EmailDomainName }}", name: "Security" } }}
+        links={fieldLinks({ variableValue: () => "acme.io" })}
       />,
     )
 
     expect(screen.getByText("security")).toBeInTheDocument()
-    expect(screen.getByText("Email Domain Name")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Email Domain Name: acme.io" })).toBeInTheDocument()
     expect(screen.getByText("Security")).toBeInTheDocument()
     expectNoRawTemplateText(container)
   })
 
-  it("shows what a linked value comes to when it is known, with the expression on hover", () => {
+  it("shows what a computed value comes to when it is known, with the expression on hover", () => {
     const { container } = render(
       <FormControl
         id="f"
@@ -512,12 +621,11 @@ describe("FormControls template-valued values", () => {
         value='{{ if eq .Environment "prod" }}large{{ else }}small{{ end }}'
         resolvedValue="small"
         onChange={vi.fn()}
+        links={fieldLinks()}
       />,
     )
 
-    const chip = screen.getByRole("button", { name: "small" })
-    expect(chip.id).toBe("f-ModuleVersion")
-    expect(screen.queryByText(/Based on/)).toBeNull()
+    expect(screen.getByRole("button", { name: "Based on Environment: small" })).toBeInTheDocument()
     expect(
       container.querySelector(
         `[title='{{ if eq .Environment "prod" }}large{{ else }}small{{ end }}']`,
@@ -530,19 +638,25 @@ describe("FormControls template-valued values", () => {
     ["not resolved yet", undefined],
     ["unresolvable", "{{ now }}"],
     ["empty", ""],
-  ])("keeps the tokens when what the value comes to is %s", (_case, resolvedValue) => {
-    render(
-      <FormControl
-        id="f"
-        variable={stringVar()}
-        value="{{ now }}"
-        resolvedValue={resolvedValue}
-        onChange={vi.fn()}
-      />,
-    )
+  ])(
+    "names what a computed value is based on when what it comes to is %s",
+    (_case, resolvedValue) => {
+      render(
+        <FormControl
+          id="f"
+          variable={stringVar()}
+          value="{{ now }}"
+          resolvedValue={resolvedValue}
+          onChange={vi.fn()}
+          links={fieldLinks()}
+        />,
+      )
 
-    expect(screen.getByRole("button", { name: /Set automatically/ })).toBeInTheDocument()
-  })
+      expect(screen.getByRole("button", { name: /^Set automatically/ })).toHaveTextContent(
+        "Set automatically",
+      )
+    },
+  )
 
   // A value built from a block's output can't be known until that block runs.
   describe("waiting on a block that hasn't run", () => {
@@ -553,18 +667,20 @@ describe("FormControls template-valued values", () => {
       <FormControl
         id="f"
         variable={stringVar()}
-        value="{{ .outputs.make_account.account_id }}"
+        value="acme-{{ .outputs.make_account.account_id }}"
         onChange={vi.fn()}
+        links={fieldLinks()}
         {...props}
       />
     )
 
-    it("shows its token in yellow, naming the block on hover", () => {
+    it("shows its chip in yellow, naming the output and, on hover, the block", () => {
       render(withOutputs(accountIdField(), {}))
 
-      const token = screen.getByTitle("Waiting for make_account to run")
-      expect(token).toHaveTextContent("Set automatically")
-      expect(token.className).toContain("bg-warning-muted")
+      const chip = screen.getByTitle(/Waiting for make_account to run/)
+      expect(chip).toHaveTextContent("make_account.account_id")
+      expect(chip).toHaveAttribute("data-state", "waiting")
+      expect(chip.className).toContain("bg-warning-muted")
     })
 
     function PageBlock({ id }: { id: string }) {
@@ -580,11 +696,11 @@ describe("FormControls template-valued values", () => {
         </ComponentIdRegistryProvider>,
       )
 
-      expect(await screen.findByTitle("Waiting for make-account to run")).toBeInTheDocument()
+      expect(await screen.findByTitle(/Waiting for make-account to run/)).toBeInTheDocument()
     })
 
     // No such block can ever run, so the value can never be filled in.
-    it("shows its token in red when no block on the page has that id", async () => {
+    it("shows its chip in red when no block on the page has that id", async () => {
       render(
         <ComponentIdRegistryProvider>
           <PageBlock id="other-block" />
@@ -592,9 +708,9 @@ describe("FormControls template-valued values", () => {
         </ComponentIdRegistryProvider>,
       )
 
-      const token = await screen.findByTitle('No block on this page has the id "make_account"')
-      expect(token).toHaveTextContent("Set automatically")
-      expect(token.className).toContain("bg-destructive-muted")
+      const chip = await screen.findByTitle(/No block on this page has the id "make_account"/)
+      expect(chip).toHaveTextContent("make_account.account_id")
+      expect(chip.className).toContain("bg-destructive-muted")
       expect(screen.queryByTitle(/Waiting for/)).toBeNull()
     })
 
@@ -607,33 +723,51 @@ describe("FormControls template-valued values", () => {
         </ComponentIdRegistryProvider>,
       )
 
-      expect(screen.getByTitle("Waiting for make_account to run")).toBeInTheDocument()
+      expect(screen.getByTitle(/Waiting for make_account to run/)).toBeInTheDocument()
     })
 
-    it("shows the token in yellow for a sensitive value too", () => {
+    it("shows the chip in yellow for a sensitive value too", () => {
       render(withOutputs(accountIdField({ variable: stringVar({ sensitive: true }) }), {}))
 
-      expect(screen.getByTitle("Waiting for make_account to run").className).toContain(
-        "bg-warning-muted",
-      )
+      const chip = screen.getByTitle(/Waiting for make_account to run/)
+      expect(chip).toHaveTextContent("Set automatically")
+      expect(chip.className).toContain("bg-warning-muted")
     })
 
-    it("shows a yellow token, not an earlier value, once the output is gone", () => {
-      render(withOutputs(accountIdField({ resolvedValue: "123456789012" }), {}))
-
-      expect(screen.queryByText("123456789012")).toBeNull()
-      expect(screen.getByTitle("Waiting for make_account to run")).toBeInTheDocument()
-    })
-
-    it("stops being yellow once the block has produced the output", () => {
+    it("shows the output, once the block has produced it", () => {
       const outputs = { make_account: { values: { account_id: "123456789012" }, timestamp: "" } }
-      const { rerender } = render(withOutputs(accountIdField(), outputs))
+      render(withOutputs(accountIdField(), outputs))
 
       expect(screen.queryByTitle(/Waiting for/)).toBeNull()
-      expect(screen.getByText("Set automatically").className).toContain("bg-muted")
+      const chip = screen.getByRole("button", { name: "make_account.account_id: 123456789012" })
+      expect(chip).toHaveAttribute("data-state", "linked")
+      expect(chip.className).toContain("bg-muted")
+    })
 
-      rerender(withOutputs(accountIdField({ resolvedValue: "123456789012" }), outputs))
-      expect(screen.getByText("123456789012")).toBeInTheDocument()
+    it("shows a secret output as <redacted>", () => {
+      const outputs = {
+        make_account: { values: { account_id: sensitiveOutput("s3cr3t") }, timestamp: "" },
+      }
+      const { container } = render(withOutputs(accountIdField(), outputs))
+
+      expect(screen.getByRole("button", { name: /^make_account\.account_id/ })).toHaveTextContent(
+        "<redacted>",
+      )
+      expect(container.innerHTML).not.toContain("s3cr3t")
+    })
+
+    it("shows an entered value in place of the output, which nothing waits for", () => {
+      render(
+        withOutputs(
+          accountIdField({
+            links: fieldLinks({ entered: { "outputs.make_account.account_id": "999" } }),
+          }),
+          {},
+        ),
+      )
+
+      expect(screen.getByLabelText("Value for make_account.account_id")).toHaveValue("999")
+      expect(screen.queryByTitle(/Waiting for/)).toBeNull()
     })
 
     it("shows a yellow list entry", () => {
@@ -651,7 +785,7 @@ describe("FormControls template-valued values", () => {
       )
 
       expect(screen.getByText("111111111111")).toBeInTheDocument()
-      expect(screen.getByTitle("Waiting for make_account to run")).toBeInTheDocument()
+      expect(screen.getByTitle(/Waiting for make_account to run/)).toBeInTheDocument()
     })
   })
 
@@ -666,6 +800,7 @@ describe("FormControls template-valued values", () => {
           resolvedValue="postgres://admin:hunter2@db/app"
           onChange={vi.fn()}
           disabled={disabled}
+          links={fieldLinks()}
         />,
       )
 
@@ -673,61 +808,6 @@ describe("FormControls template-valued values", () => {
       expect(container.innerHTML).not.toContain("hunter2")
     },
   )
-
-  it("shows what linked list entries come to", () => {
-    const variable: BoilerplateVariable = { name: "Repos", type: "list", description: "" }
-    const { container } = render(
-      <FormControl
-        id="f"
-        variable={variable}
-        value={["github.com/acme/catalog", "github.com/{{ .ProjectName }}/modules"]}
-        resolvedValue={["github.com/acme/catalog", "github.com/acme/modules"]}
-        onChange={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByText("github.com/acme/modules")).toBeInTheDocument()
-    expect(screen.queryByText("Project Name")).toBeNull()
-    expectNoRawTemplateText(container)
-  })
-
-  it("shows what linked map keys and values come to", () => {
-    const variable: BoilerplateVariable = { name: "DefaultTags", type: "map", description: "" }
-    const { container } = render(
-      <FormControl
-        id="f"
-        variable={variable}
-        value={{ "{{ .OrgNamePrefix }}:Team": "DevOps", Owner: "{{ .TeamEmail }}" }}
-        resolvedValue={{ "acme:Team": "DevOps", Owner: "ops@acme.io" }}
-        onChange={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByText("acme:Team")).toBeInTheDocument()
-    expect(screen.getByText("ops@acme.io")).toBeInTheDocument()
-    expectNoRawTemplateText(container)
-  })
-
-  it("shows what linked structured map fields come to", () => {
-    const variable: BoilerplateVariable = {
-      name: "Accounts",
-      type: "map",
-      description: "",
-      schema: { email: "string", name: "string" },
-    }
-    render(
-      <FormControl
-        id="f"
-        variable={variable}
-        onChange={vi.fn()}
-        value={{ security: { email: "security@{{ .EmailDomainName }}", name: "Security" } }}
-        resolvedValue={{ security: { email: "security@acme.io", name: "Security" } }}
-      />,
-    )
-
-    expect(screen.getByText("security@acme.io")).toBeInTheDocument()
-    expect(screen.queryByText("Email Domain Name")).toBeNull()
-  })
 
   it("labels a linked enum value by what it comes to when that is known", () => {
     const variable: BoilerplateVariable = {

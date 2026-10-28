@@ -181,6 +181,23 @@ describe("Inputs in a session", () => {
     expect(field("count")).toHaveValue(3)
   })
 
+  it("resets a field to the runbook's value, not the one it was left with", async () => {
+    const user = userEvent.setup()
+    render(
+      <Session saved={{ values: { region: "eu-west-1", count: 5 }, submitted: true }}>
+        <Inputs id="test-inputs" path="boilerplate.yml" prefilledVariables={{ count: 7 }} />
+      </Session>,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Reset Region to its default" }))
+    await user.click(screen.getByRole("button", { name: "Reset Count to its default" }))
+
+    // The config's default, and the prefilled value over it
+    expect(field("region")).toHaveValue("us-east-1")
+    expect(field("count")).toHaveValue(7)
+    await waitFor(() => expect(registered()).toEqual({ ...DEFAULTS, count: 7 }))
+  })
+
   it("starts a locked variable from the runbook's value, not the one it was left with", async () => {
     loaded.locked = true
     render(
