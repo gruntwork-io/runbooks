@@ -14,6 +14,7 @@ import { parseSavedClone, type SavedClone } from "@/lib/sessionHistory"
 import { omitUndefined } from "@/lib/omitUndefined"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
+import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
 import { hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
 import { gitRemoteOwnerRepo } from "@/lib/gitRemoteUrl"
 import { isGitHubRepoHost } from "@/components/mdx/_shared/lib/githubHost"
@@ -145,7 +146,13 @@ function GitCloneInteractive({
 
   // --- End template dependency resolution ---
 
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, "GitClone")
+  const blockRef = useRef<HTMLDivElement>(null)
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    "GitClone",
+    blockRef,
+  )
+  const authBlockId = githubAuthId ?? gitAuthId
 
   const { reportError, clearError } = useErrorReporting()
 
@@ -565,6 +572,7 @@ function GitCloneInteractive({
   return (
     <AutoCollapse enabled={autoCollapse} done={done}>
       <div
+        ref={blockRef}
         data-fold="path"
         data-testid={id}
         className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
@@ -607,7 +615,7 @@ function GitCloneInteractive({
             )}
 
             {/* Blocked state: waiting for the referenced auth block */}
-            {hasAllBlockingDependencies && !gitHubAuthMet && (
+            {hasAllBlockingDependencies && !gitHubAuthMet && authBlockId !== undefined && (
               <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
                 <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
                 <div>
@@ -615,7 +623,7 @@ function GitCloneInteractive({
                     Waiting for git authentication
                   </p>
                   <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                    Complete the &apos;{githubAuthId ?? gitAuthId}&apos; authentication block above
+                    Complete the <BlockLink blockId={authBlockId} /> authentication block above
                     before {isLocalSource ? "selecting a repository" : "cloning"}.
                   </p>
                 </div>

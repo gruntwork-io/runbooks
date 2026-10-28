@@ -518,7 +518,7 @@ Accepted output keys are `GOOGLE_APPLICATION_CREDENTIALS` (a path), `GOOGLE_CRED
 
 When a script writes the credential itself, rather than a path to it, mark it sensitive, as in `echo "sensitive:GOOGLE_OAUTH_ACCESS_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"`. The Command's **View Outputs** then masks it, and GoogleAuth still reads it by its plain name. See [Sensitive outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
 
-If the referenced block has not run yet, GoogleAuth shows *Waiting for "impersonate-sa" to run...* and pauses detection there. It does not skip to a later source.
+If the referenced block has not run yet, GoogleAuth shows *Waiting for impersonate-sa to run...*, with a link to that block, and pauses detection there. It does not skip to a later source.
 
 <Aside type="caution">
 Only one `{ block: 'id' }` entry is allowed per GoogleAuth block. More than one is a configuration error, and the block renders an error card in place of the authentication UI.

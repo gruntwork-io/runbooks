@@ -144,7 +144,9 @@ describe("AwsAuth — detection", () => {
       </>,
     )
 
-    expect(await screen.findByText('Waiting for "assume-role" to run...')).toBeInTheDocument()
+    expect(await screen.findByText(/Waiting for/)).toHaveTextContent(
+      "Waiting for assume-role to run...",
+    )
     expect(screen.queryByRole("button", { name: "Static Credentials" })).toBeNull()
 
     fireEvent.click(screen.getByRole("button", { name: "Run assume-role" }))

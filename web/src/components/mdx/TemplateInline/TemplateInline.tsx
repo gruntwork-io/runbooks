@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { LoadingDisplay } from "@/components/mdx/_shared/components/LoadingDisplay"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
+import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
 import { useAllOutputs, useRunbookContext } from "@/contexts/useRunbook"
 import {
   extractTemplateDependencies,
@@ -98,9 +99,11 @@ function TemplateInline({
   const effectiveGenerateFile = instructionMode ? false : generateFile
 
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
+  const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
     id,
     "TemplateInline",
+    blockRef,
   )
 
   const { reportError, clearError } = useErrorReporting()
@@ -316,7 +319,7 @@ function TemplateInline({
 
   // Render UI
   return (
-    <div data-testid={id}>
+    <div ref={blockRef} data-testid={id}>
       {/* Show warning when waiting for input blocks to submit values */}
       {unmetInputsIds.length > 0 && (
         <div className="mb-3 text-sm text-warning flex items-start gap-2">
@@ -326,7 +329,7 @@ function TemplateInline({
             {unmetInputsIds.map((inputId, i) => (
               <span key={inputId}>
                 {i > 0 && ", "}
-                <code className="bg-warning-muted px-1 rounded text-xs">{inputId}</code>
+                <BlockLink blockId={inputId} />
               </span>
             ))}
             <div className="text-xs mt-1 text-warning">

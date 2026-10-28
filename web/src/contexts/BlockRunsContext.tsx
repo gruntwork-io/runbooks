@@ -11,7 +11,7 @@ import {
 /**
  * Tracks the run status of every Command and Check block, so a block can tell
  * whether a block it must wait for is running or has succeeded, and can stop
- * or scroll to that block.
+ * that block.
  */
 export function BlockRunsProvider({ children }: { children?: ReactNode }) {
   const [runs, setRuns] = useState<Record<string, BlockRun>>({})
@@ -46,13 +46,9 @@ export function BlockRunsProvider({ children }: { children?: ReactNode }) {
     handlersRef.current.get(normalizeBlockId(blockId))?.stop()
   }, [])
 
-  const revealBlock = useCallback((blockId: string) => {
-    handlersRef.current.get(normalizeBlockId(blockId))?.reveal()
-  }, [])
-
   const value = useMemo(
-    (): BlockRunsContextType => ({ runs, registerBlock, reportRun, stopRun, revealBlock }),
-    [runs, registerBlock, reportRun, stopRun, revealBlock],
+    (): BlockRunsContextType => ({ runs, registerBlock, reportRun, stopRun }),
+    [runs, registerBlock, reportRun, stopRun],
   )
 
   return <BlockRunsContext.Provider value={value}>{children}</BlockRunsContext.Provider>

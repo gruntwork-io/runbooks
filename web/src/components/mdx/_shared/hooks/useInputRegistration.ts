@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import type { RefObject } from "react"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import type { AppError } from "@/types/error"
 import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
@@ -26,6 +27,8 @@ interface UseInputRegistrationOptions {
   id: string
   /** Block type identifier (e.g. "Inputs") for the ID registry and error reports. */
   componentType: BlockComponentType
+  /** The block's outermost element, for links to it from blocks waiting on it. */
+  blockRef: RefObject<HTMLElement | null>
   /** Parsed variable definitions that drive form state; null while still loading. */
   boilerplateConfig: BoilerplateConfig | null
   /** Error from prop/config validation (reported to the global error banner). */
@@ -67,6 +70,7 @@ interface UseInputRegistrationReturn {
 export function useInputRegistration({
   id,
   componentType,
+  blockRef,
   boilerplateConfig,
   validationError,
   extraError,
@@ -76,6 +80,7 @@ export function useInputRegistration({
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
     id,
     componentType,
+    blockRef,
   )
 
   // 2. Error reporting

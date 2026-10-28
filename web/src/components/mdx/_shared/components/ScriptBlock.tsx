@@ -22,7 +22,6 @@ import { EnvVars } from "./EnvVars"
 import { ProgressStep } from "./ProgressStep"
 import { ScriptChangeNotice } from "./ScriptChangeNotice"
 import { useRunSequencing } from "../hooks/useRunSequencing"
-import { useRevealSelf } from "../hooks/useRevealSelf"
 import { isRunBlocked } from "@/lib/blockRuns"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -172,9 +171,11 @@ export function ScriptBlock({
   }, [id, variant.name])
 
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
+  const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
     id,
     variant.name,
+    blockRef,
   )
 
   const { reportError, clearError } = useErrorReporting()
@@ -272,20 +273,13 @@ export function ScriptBlock({
     if (status === "success" && prev !== "success") onComplete?.()
   }, [status, onComplete])
 
-  const blockRef = useRef<HTMLDivElement>(null)
-  const revealSelf = useRevealSelf(blockRef)
-  const {
-    blockers: runBlockers,
-    stopRun,
-    revealBlock,
-  } = useRunSequencing({
+  const { blockers: runBlockers, stopRun } = useRunSequencing({
     blockId: id,
     status,
     exclusive,
     dependsOn,
     outputDependencyIds: outputDependencyBlockIds,
     stop: cancel,
-    reveal: revealSelf,
   })
 
   // Clone children and add variant="embedded" prop if it's an Inputs component
@@ -796,7 +790,6 @@ export function ScriptBlock({
               exclusive={exclusive}
               blockers={runBlockers}
               onStop={stopRun}
-              onReveal={revealBlock}
             />
 
             {renderError && hasAllOutputDependencies && (

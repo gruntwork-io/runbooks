@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react"
 import type { RunBlockers, RunningBlocker } from "@/lib/blockRuns"
+import { BlockLink } from "./BlockLink"
 
 interface RunBlockedWarningProps {
   /** The type of block (used in the help text) */
@@ -9,8 +10,6 @@ interface RunBlockedWarningProps {
   blockers: RunBlockers
   /** Stops the named block's running script */
   onStop: (blockId: string) => void
-  /** Scrolls the named block into view */
-  onReveal: (blockId: string) => void
 }
 
 function runningReason(blocker: RunningBlocker, blockType: string, exclusive: boolean): string {
@@ -29,7 +28,6 @@ export const RunBlockedWarning: React.FC<RunBlockedWarningProps> = ({
   exclusive,
   blockers,
   onStop,
-  onReveal,
 }) => {
   const { running, notSucceeded } = blockers
   if (running.length === 0 && notSucceeded.length === 0) return null
@@ -44,13 +42,7 @@ export const RunBlockedWarning: React.FC<RunBlockedWarningProps> = ({
         {running.map((blocker) => (
           <div key={blocker.run.blockId} className="mb-1">
             <strong>Waiting for a running block:</strong>{" "}
-            <button
-              type="button"
-              className="cursor-pointer underline underline-offset-2"
-              onClick={() => onReveal(blocker.run.blockId)}
-            >
-              <code className="bg-warning-muted px-1 rounded text-xs">{blocker.run.blockId}</code>
-            </button>{" "}
+            <BlockLink blockId={blocker.run.blockId} />{" "}
             {runningReason(blocker, blockType, exclusive)}{" "}
             <button
               type="button"
@@ -67,13 +59,7 @@ export const RunBlockedWarning: React.FC<RunBlockedWarningProps> = ({
             {notSucceeded.map((blockId, i) => (
               <span key={blockId}>
                 {i > 0 && ", "}
-                <button
-                  type="button"
-                  className="cursor-pointer underline underline-offset-2"
-                  onClick={() => onReveal(blockId)}
-                >
-                  <code className="bg-warning-muted px-1 rounded text-xs">{blockId}</code>
-                </button>
+                <BlockLink blockId={blockId} />
               </span>
             ))}
             <div className="text-xs mt-1 text-warning-foreground">
