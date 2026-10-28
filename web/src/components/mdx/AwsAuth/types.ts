@@ -70,6 +70,8 @@ export interface AwsAuthProps {
   id: string
   title?: string
   description?: string
+  /** Whether the block folds into a bar with its title once it's done, which expands it again when clicked. */
+  autoCollapse?: boolean
   /** AWS SSO start URL for SSO authentication */
   ssoStartUrl?: string
   /** AWS SSO region - the region where your IAM Identity Center is configured */

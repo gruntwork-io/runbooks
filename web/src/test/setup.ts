@@ -1,5 +1,7 @@
 import "@testing-library/jest-dom/vitest"
 import { expect, vi } from "vitest"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { Equal, Redacted } from "effect"
 
 // A Redacted (a sensitive block output) keeps its value outside the object, so
@@ -42,3 +44,13 @@ if (!window.ResizeObserver) {
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {}
 }
+
+// A block folded by autoCollapse hides its parts with a stylesheet, which
+// jsdom applies once it's on the page, so toBeVisible sees what the app shows.
+// Vitest blanks imported CSS, even with ?raw, so it's read from disk.
+const autoCollapseStyle = document.createElement("style")
+autoCollapseStyle.textContent = readFileSync(
+  resolve(__dirname, "../components/mdx/_shared/components/AutoCollapse.css"),
+  "utf8",
+)
+document.head.appendChild(autoCollapseStyle)

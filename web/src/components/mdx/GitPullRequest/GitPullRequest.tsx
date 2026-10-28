@@ -44,6 +44,7 @@ import { PRForm } from "./components/PRForm"
 import { PRResultDisplay } from "./components/PRResult"
 import { WrongProviderError } from "./components/WrongProviderError"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { GitPullRequestInstruction } from "./GitPullRequestInstruction"
@@ -99,6 +100,7 @@ function GitPullRequestInteractive({
   gitAuthId,
   provider: propProvider,
   __registryType = "GitPullRequest",
+  autoCollapse,
 }: GitPullRequestInternalProps) {
   // Validate required props
   const validationError = useMemo((): AppError | null => {
@@ -510,191 +512,204 @@ function GitPullRequestInteractive({
     return null
   }
 
+  const done = effectiveStatus === "success"
   return (
-    <div
-      data-testid={id}
-      className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
-    >
-      <ProgressStep done={effectiveStatus === "success"} />
+    <AutoCollapse enabled={autoCollapse} done={done}>
+      <div
+        data-fold="path"
+        data-testid={id}
+        className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
+      >
+        <ProgressStep done={done} />
 
-      {/* ID label */}
-      <div className="absolute top-3 right-3 z-20">
-        <BlockIdLabel id={id} size="large" />
-      </div>
-
-      {/* Main container with left icon column */}
-      <div className="flex @container">
-        <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <IconComponent className={`size-6 ${iconClasses} ${isSpinning ? "animate-spin" : ""}`} />
+        {/* ID label */}
+        <div data-fold="keep" className="absolute top-3 right-3 z-20 flex items-center gap-1">
+          <BlockIdLabel id={id} size="large" />
+          <CollapseButton />
         </div>
 
-        <div className="flex-1 min-w-0 space-y-2">
-          {/* Title and description */}
-          <div className="flex items-center gap-1 text-md font-bold text-foreground">
-            <cfg.Logo className="size-6 text-foreground" />
-            <InlineMarkdown>{resolvedDisplayTitle}</InlineMarkdown>
+        {/* Main container with left icon column */}
+        <div data-fold="path" className="flex @container">
+          <div
+            data-fold="keep"
+            className="border-r border-border pr-2 mr-4 flex flex-col items-center"
+          >
+            <IconComponent
+              className={`size-6 ${iconClasses} ${isSpinning ? "animate-spin" : ""}`}
+            />
           </div>
-          <div className="text-md text-muted-foreground mb-3">
-            <InlineMarkdown>{resolvedDisplayDescription}</InlineMarkdown>
-          </div>
 
-          {/* Wrong-auth-block error (blocking, both providers) */}
-          {wrongProvider && authDerivedProvider && (
-            <WrongProviderError cfg={cfg} authDerivedProvider={authDerivedProvider} />
-          )}
-
-          {/* Dependency warnings */}
-          {!wrongProvider && !authMet && (
-            <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
-              <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-warning-foreground m-0">
-                  Waiting for {cfg.label} authentication
-                </p>
-                <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                  Complete the &apos;{authId}&apos; {cfg.label} authentication block above.
-                </p>
-              </div>
+          <div data-fold="path" className="flex-1 min-w-0 space-y-2">
+            {/* Title and description */}
+            <div
+              data-fold="title"
+              className="flex items-center gap-1 text-md font-bold text-foreground"
+            >
+              <cfg.Logo className="size-6 text-foreground" />
+              <InlineMarkdown>{resolvedDisplayTitle}</InlineMarkdown>
             </div>
-          )}
-
-          {!wrongProvider && !activeWorkTree && authMet && (
-            <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
-              <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-warning-foreground m-0">
-                  No repository available
-                </p>
-                <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                  Clone a repository using a GitClone block first.
-                </p>
-              </div>
+            <div className="text-md text-muted-foreground mb-3">
+              <InlineMarkdown>{resolvedDisplayDescription}</InlineMarkdown>
             </div>
-          )}
 
-          {/* Template dependency warnings (blocking only) */}
-          {!hasAllBlockingDependencies && (
-            <div className="mb-4">
-              <UnmetDependenciesWarning
-                blockType={cfg.noun.lower}
-                unmetInputDeps={unmetInputDeps}
-                unmetOutputDeps={unmetOutputDeps}
+            {/* Wrong-auth-block error (blocking, both providers) */}
+            {wrongProvider && authDerivedProvider && (
+              <WrongProviderError cfg={cfg} authDerivedProvider={authDerivedProvider} />
+            )}
+
+            {/* Dependency warnings */}
+            {!wrongProvider && !authMet && (
+              <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
+                <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-warning-foreground m-0">
+                    Waiting for {cfg.label} authentication
+                  </p>
+                  <p className="text-xs text-warning-foreground m-0 mt-0.5">
+                    Complete the &apos;{authId}&apos; {cfg.label} authentication block above.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {!wrongProvider && !activeWorkTree && authMet && (
+              <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
+                <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-warning-foreground m-0">
+                    No repository available
+                  </p>
+                  <p className="text-xs text-warning-foreground m-0 mt-0.5">
+                    Clone a repository using a GitClone block first.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Template dependency warnings (blocking only) */}
+            {!hasAllBlockingDependencies && (
+              <div className="mb-4">
+                <UnmetDependenciesWarning
+                  blockType={cfg.noun.lower}
+                  unmetInputDeps={unmetInputDeps}
+                  unmetOutputDeps={unmetOutputDeps}
+                />
+              </div>
+            )}
+
+            {/* Error message */}
+            {errorMessage && effectiveStatus === "fail" && (
+              <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
+                <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-destructive m-0">
+                    {cfg.noun.singular} creation failed
+                  </p>
+                  <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{errorMessage}</p>
+                  {errorCode === "branch_exists" && conflictBranchName && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteBranch}
+                      disabled={deletingBranch}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-destructive bg-destructive-muted hover:bg-destructive-muted/80 border border-destructive/30 rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="size-3" />
+                      {deletingBranch
+                        ? "Deleting..."
+                        : `Delete branch "${conflictBranchName}" and retry`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Success state */}
+            {(effectiveStatus === "success" || effectiveStatus === "pushing") && prResult ? (
+              <PRResultDisplay
+                noun={cfg.noun}
+                refSymbol={cfg.refSymbol}
+                result={prResult}
+                status={effectiveStatus}
+                pushError={pushError}
+                changeSummary={changeSummary}
+                onPush={handlePush}
+                onCreateAnother={handleCreateAnother}
               />
-            </div>
-          )}
-
-          {/* Error message */}
-          {errorMessage && effectiveStatus === "fail" && (
-            <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
-              <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-destructive m-0">
-                  {cfg.noun.singular} creation failed
-                </p>
-                <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{errorMessage}</p>
-                {errorCode === "branch_exists" && conflictBranchName && (
-                  <button
-                    type="button"
-                    onClick={handleDeleteBranch}
-                    disabled={deletingBranch}
-                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-destructive bg-destructive-muted hover:bg-destructive-muted/80 border border-destructive/30 rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Trash2 className="size-3" />
-                    {deletingBranch
-                      ? "Deleting..."
-                      : `Delete branch "${conflictBranchName}" and retry`}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Success state */}
-          {(effectiveStatus === "success" || effectiveStatus === "pushing") && prResult ? (
-            <PRResultDisplay
-              noun={cfg.noun}
-              refSymbol={cfg.refSymbol}
-              result={prResult}
-              status={effectiveStatus}
-              pushError={pushError}
-              changeSummary={changeSummary}
-              onPush={handlePush}
-              onCreateAnother={handleCreateAnother}
-            />
-          ) : (
-            /* Form state */
-            <PRForm
-              noun={cfg.noun}
-              providerLabel={cfg.label}
-              prTitle={prTitle}
-              setPRTitle={(v) => {
-                setPRTitle(v)
-                setUserEditedTitle(true)
-                recordEdit({ title: v })
-              }}
-              prDescription={prDescription}
-              setPRDescription={(v) => {
-                setPRDescription(v)
-                setUserEditedDescription(true)
-                recordEdit({ description: v })
-              }}
-              branchName={branchName}
-              setBranchName={(v) => {
-                setBranchName(v)
-                setUserEditedBranch(true)
-                recordEdit({ branchName: v })
-              }}
-              commitMessage={commitMessage}
-              setCommitMessage={(v) => {
-                setCommitMessage(v)
-                setUserEditedCommitMessage(true)
-                recordEdit({ commitMessage: v })
-              }}
-              defaultCommitMessage={defaultCommitMessage}
-              selectedLabels={selectedLabels}
-              setSelectedLabels={(next) => {
-                setSelectedLabels(next)
-                recordEdit({ labels: next })
-              }}
-              availableLabels={labels}
-              labelsLoading={labelsLoading}
-              status={effectiveStatus}
-              disabled={isFormDisabled}
-              changeSummary={changeSummary}
-              onSubmit={handleCreatePR}
-              onCancel={cancel}
-            />
-          )}
+            ) : (
+              /* Form state */
+              <PRForm
+                noun={cfg.noun}
+                providerLabel={cfg.label}
+                prTitle={prTitle}
+                setPRTitle={(v) => {
+                  setPRTitle(v)
+                  setUserEditedTitle(true)
+                  recordEdit({ title: v })
+                }}
+                prDescription={prDescription}
+                setPRDescription={(v) => {
+                  setPRDescription(v)
+                  setUserEditedDescription(true)
+                  recordEdit({ description: v })
+                }}
+                branchName={branchName}
+                setBranchName={(v) => {
+                  setBranchName(v)
+                  setUserEditedBranch(true)
+                  recordEdit({ branchName: v })
+                }}
+                commitMessage={commitMessage}
+                setCommitMessage={(v) => {
+                  setCommitMessage(v)
+                  setUserEditedCommitMessage(true)
+                  recordEdit({ commitMessage: v })
+                }}
+                defaultCommitMessage={defaultCommitMessage}
+                selectedLabels={selectedLabels}
+                setSelectedLabels={(next) => {
+                  setSelectedLabels(next)
+                  recordEdit({ labels: next })
+                }}
+                availableLabels={labels}
+                labelsLoading={labelsLoading}
+                status={effectiveStatus}
+                disabled={isFormDisabled}
+                changeSummary={changeSummary}
+                onSubmit={handleCreatePR}
+                onCancel={cancel}
+              />
+            )}
+          </div>
         </div>
+
+        {/* View Logs */}
+        {logs.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <ViewLogs
+              logs={logs}
+              status={
+                isSpinning
+                  ? "running"
+                  : effectiveStatus === "success"
+                    ? "success"
+                    : effectiveStatus === "fail"
+                      ? "fail"
+                      : "pending"
+              }
+              autoOpen={isSpinning}
+              blockId={id}
+            />
+          </div>
+        )}
+
+        {/* View Outputs */}
+        {outputValues && (
+          <div className="mt-2">
+            <ViewOutputs outputs={outputValues} autoOpen={effectiveStatus === "success"} />
+          </div>
+        )}
       </div>
-
-      {/* View Logs */}
-      {logs.length > 0 && (
-        <div className="mt-4 space-y-2">
-          <ViewLogs
-            logs={logs}
-            status={
-              isSpinning
-                ? "running"
-                : effectiveStatus === "success"
-                  ? "success"
-                  : effectiveStatus === "fail"
-                    ? "fail"
-                    : "pending"
-            }
-            autoOpen={isSpinning}
-            blockId={id}
-          />
-        </div>
-      )}
-
-      {/* View Outputs */}
-      {outputValues && (
-        <div className="mt-2">
-          <ViewOutputs outputs={outputValues} autoOpen={effectiveStatus === "success"} />
-        </div>
-      )}
-    </div>
+    </AutoCollapse>
   )
 }
 

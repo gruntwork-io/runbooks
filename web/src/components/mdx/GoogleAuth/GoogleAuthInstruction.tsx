@@ -25,6 +25,7 @@ export function GoogleAuthInstruction({
   defaultRegion,
   gcloudConfiguration,
   inputsId,
+  autoCollapse,
 }: GoogleAuthProps) {
   const templateCtx = useTemplateContext(inputsId)
 
@@ -64,6 +65,7 @@ export function GoogleAuthInstruction({
   return (
     <Instruction
       id={id}
+      autoCollapse={autoCollapse}
       icon={LogIn}
       title={heading}
       description={resolvedDescription}

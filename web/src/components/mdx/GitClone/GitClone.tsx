@@ -30,6 +30,7 @@ import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTempl
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { GitCloneInstruction } from "./GitCloneInstruction"
@@ -65,6 +66,7 @@ function GitCloneInteractive({
   source,
   hideSourceSelect = false,
   prefilledRepoDir = "",
+  autoCollapse,
 }: GitCloneProps) {
   const validationError = useMemo((): AppError | null => {
     if (!id) {
@@ -559,396 +561,405 @@ function GitCloneInteractive({
     return null
   }
 
+  const done = cloneStatus === "success" && !refMismatch
   return (
-    <div
-      data-testid={id}
-      className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
-    >
-      <ProgressStep done={cloneStatus === "success" && !refMismatch} />
+    <AutoCollapse enabled={autoCollapse} done={done}>
+      <div
+        data-fold="path"
+        data-testid={id}
+        className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
+      >
+        <ProgressStep done={done} />
 
-      {/* ID label - positioned at top right */}
-      <div className="absolute top-3 right-3 z-20">
-        <BlockIdLabel id={id} size="large" />
-      </div>
-
-      {/* Main container with left icon column */}
-      <div className="flex @container">
-        <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <IconComponent
-            className={`size-6 ${iconClasses} ${cloneStatus === "running" ? "animate-spin" : ""}`}
-          />
+        {/* ID label - positioned at top right */}
+        <div data-fold="keep" className="absolute top-3 right-3 z-20 flex items-center gap-1">
+          <BlockIdLabel id={id} size="large" />
+          <CollapseButton />
         </div>
 
-        <div className="flex-1 min-w-0 space-y-2">
-          {/* Title and description */}
-          <div className="text-md font-bold text-foreground">
-            <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
-          </div>
-          <div className="text-md text-muted-foreground mb-3">
-            <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
-          </div>
-
-          {/* Unmet template dependencies (blocking only) */}
-          {!hasAllBlockingDependencies && (
-            <UnmetDependenciesWarning
-              blockType="git-clone"
-              unmetInputDeps={unmetInputDeps}
-              unmetOutputDeps={unmetOutputDeps}
+        {/* Main container with left icon column */}
+        <div data-fold="path" className="flex @container">
+          <div
+            data-fold="keep"
+            className="border-r border-border pr-2 mr-4 flex flex-col items-center"
+          >
+            <IconComponent
+              className={`size-6 ${iconClasses} ${cloneStatus === "running" ? "animate-spin" : ""}`}
             />
-          )}
+          </div>
 
-          {/* Blocked state: waiting for the referenced auth block */}
-          {hasAllBlockingDependencies && !gitHubAuthMet && (
-            <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
-              <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-warning-foreground m-0">
-                  Waiting for git authentication
-                </p>
-                <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                  Complete the &apos;{githubAuthId ?? gitAuthId}&apos; authentication block above
-                  before {isLocalSource ? "selecting a repository" : "cloning"}.
-                </p>
-              </div>
+          <div data-fold="path" className="flex-1 min-w-0 space-y-2">
+            {/* Title and description */}
+            <div data-fold="title" className="text-md font-bold text-foreground">
+              <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
             </div>
-          )}
-
-          {/* The repository the session's history had is gone from disk */}
-          {restoreError && cloneStatus !== "success" && (
-            <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
-              <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-warning-foreground m-0">
-                  This block&apos;s repository is gone
-                </p>
-                <p className="text-xs text-warning-foreground m-0 mt-0.5 break-words">
-                  {restoreError} Clone it again, or select another checkout.
-                </p>
-              </div>
+            <div className="text-md text-muted-foreground mb-3">
+              <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
             </div>
-          )}
 
-          {/* Success state */}
-          {cloneStatus === "success" && cloneResult ? (
-            <div className="space-y-3">
-              {refMismatch && (
-                <div
-                  role="alert"
-                  className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2"
-                >
-                  <AlertTriangle className="size-4 text-destructive mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-destructive m-0">
-                      {refMismatch.current
-                        ? `This repository is on ${refMismatch.current}, not ${refMismatch.saved}`
-                        : `This repository is no longer on ${refMismatch.saved}`}
-                    </p>
-                    <p className="text-xs text-destructive m-0 mt-0.5 break-words">
-                      This session was working on <code>{refMismatch.saved}</code>, and the blocks
-                      that follow expect it. Run <code>git checkout {refMismatch.saved}</code> in
-                      the repository, or clone again.
-                    </p>
-                  </div>
+            {/* Unmet template dependencies (blocking only) */}
+            {!hasAllBlockingDependencies && (
+              <UnmetDependenciesWarning
+                blockType="git-clone"
+                unmetInputDeps={unmetInputDeps}
+                unmetOutputDeps={unmetOutputDeps}
+              />
+            )}
+
+            {/* Blocked state: waiting for the referenced auth block */}
+            {hasAllBlockingDependencies && !gitHubAuthMet && (
+              <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
+                <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-warning-foreground m-0">
+                    Waiting for git authentication
+                  </p>
+                  <p className="text-xs text-warning-foreground m-0 mt-0.5">
+                    Complete the &apos;{githubAuthId ?? gitAuthId}&apos; authentication block above
+                    before {isLocalSource ? "selecting a repository" : "cloning"}.
+                  </p>
                 </div>
-              )}
-              {/* An empty repo is a success as far as the clone goes, but it
+              </div>
+            )}
+
+            {/* The repository the session's history had is gone from disk */}
+            {restoreError && cloneStatus !== "success" && (
+              <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
+                <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-warning-foreground m-0">
+                    This block&apos;s repository is gone
+                  </p>
+                  <p className="text-xs text-warning-foreground m-0 mt-0.5 break-words">
+                    {restoreError} Clone it again, or select another checkout.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Success state */}
+            {cloneStatus === "success" && cloneResult ? (
+              <div className="space-y-3">
+                {refMismatch && (
+                  <div
+                    role="alert"
+                    className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2"
+                  >
+                    <AlertTriangle className="size-4 text-destructive mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-destructive m-0">
+                        {refMismatch.current
+                          ? `This repository is on ${refMismatch.current}, not ${refMismatch.saved}`
+                          : `This repository is no longer on ${refMismatch.saved}`}
+                      </p>
+                      <p className="text-xs text-destructive m-0 mt-0.5 break-words">
+                        This session was working on <code>{refMismatch.saved}</code>, and the blocks
+                        that follow expect it. Run <code>git checkout {refMismatch.saved}</code> in
+                        the repository, or clone again.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {/* An empty repo is a success as far as the clone goes, but it
                   can't take a pull request yet — say so here rather than
                   letting later blocks discover it the hard way. */}
-              {cloneResult.hasCommits === false && (
-                <EmptyRepoWarning
-                  suggestedBranch={cloneResult.ref || "main"}
-                  status={seedStatus}
-                  error={seedError}
-                  onCreateDefaultBranch={initDefaultBranch}
-                />
-              )}
-              <CloneResultDisplay
-                result={cloneResult}
-                source={activeSource}
-                remoteUrl={localPreview?.remoteUrl ?? selectedLocalInfo?.remoteUrl}
-                warn={cloneResult.hasCommits === false}
-                onCloneAgain={handleCloneAgain}
-              />
-            </div>
-          ) : (
-            /* Form state (ready, running, fail) */
-            <div className="space-y-3">
-              {/* Repository source: clone a remote repo, or use a local checkout */}
-              {hideSourceSelect ? (
-                <div className="border-b border-border"></div>
-              ) : (
-                <SourceSelect
+                {cloneResult.hasCommits === false && (
+                  <EmptyRepoWarning
+                    suggestedBranch={cloneResult.ref || "main"}
+                    status={seedStatus}
+                    error={seedError}
+                    onCreateDefaultBranch={initDefaultBranch}
+                  />
+                )}
+                <CloneResultDisplay
+                  result={cloneResult}
                   source={activeSource}
-                  onSelect={handleSourceSelect}
-                  disabled={cloneStatus === "running"}
+                  remoteUrl={localPreview?.remoteUrl ?? selectedLocalInfo?.remoteUrl}
+                  warn={cloneResult.hasCommits === false}
+                  onCloneAgain={handleCloneAgain}
                 />
-              )}
+              </div>
+            ) : (
+              /* Form state (ready, running, fail) */
+              <div className="space-y-3">
+                {/* Repository source: clone a remote repo, or use a local checkout */}
+                {hideSourceSelect ? (
+                  <div className="border-b border-border"></div>
+                ) : (
+                  <SourceSelect
+                    source={activeSource}
+                    onSelect={handleSourceSelect}
+                    disabled={cloneStatus === "running"}
+                  />
+                )}
 
-              {isLocalSource && (
-                <LocalRepoForm
-                  repoDir={repoDir}
-                  onRepoDirChange={setRepoDir}
-                  onBrowse={handleBrowseForRepo}
-                  previewStatus={localPreviewStatus}
-                  preview={localPreview}
-                  previewError={localPreviewError}
-                  disabled={isFormDisabled}
-                />
-              )}
-
-              {/* Clone form: remote URL, repo browser, and clone options */}
-              {!isLocalSource && (
-                <>
-                  {/* Git URL input */}
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-1 block">
-                      Git URL
-                    </label>
-                    <input
-                      type="text"
-                      value={gitUrl}
-                      onChange={(e) => setGitUrl(e.target.value)}
-                      placeholder={`https://${githubHost}/org/repo.git`}
-                      disabled={isFormDisabled}
-                      className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
-                    />
-                  </div>
-
-                  {/* GitHub Browser (only if token available) */}
-                  {tokenChecked && hasGitHubToken && (
-                    <GitHubBrowser
-                      key={githubHost}
-                      host={githubHost}
-                      onRepoSelected={handleRepoSelected}
-                      onRefSelected={handleRefSelected}
-                      fetchOrgs={fetchOrgs}
-                      fetchRepos={fetchRepos}
-                      fetchRefs={fetchRefs}
-                      disabled={isFormDisabled}
-                      initialOrg={prefilledGitHub?.org}
-                      initialRepo={prefilledGitHub?.repo}
-                      defaultOpen={false}
-                    />
-                  )}
-
-                  {/* Additional Settings (Ref, Repo Path, Local Path) */}
-                  <CollapsibleToggle
-                    expanded={showAdditionalSettings}
-                    onToggle={() => setShowAdditionalSettings((prev) => !prev)}
-                    label="Additional Settings"
+                {isLocalSource && (
+                  <LocalRepoForm
+                    repoDir={repoDir}
+                    onRepoDirChange={setRepoDir}
+                    onBrowse={handleBrowseForRepo}
+                    previewStatus={localPreviewStatus}
+                    preview={localPreview}
+                    previewError={localPreviewError}
                     disabled={isFormDisabled}
-                  >
-                    <div className="space-y-3 mt-3">
-                      {/* Ref (branch/tag) */}
-                      <div>
-                        <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
-                          Ref <span className="font-normal text-muted-foreground">(optional)</span>
-                          <InfoTooltip>
-                            The branch or tag to clone. Defaults to the repository&apos;s default
-                            branch if not specified.
-                            {tokenChecked && hasGitHubToken && (
-                              <>
-                                <br />
-                                <br />
-                                <strong>Tip:</strong> Use the GitHub browser above to browse
-                                branches and tags.
-                              </>
-                            )}
-                          </InfoTooltip>
-                        </label>
-                        <input
-                          type="text"
-                          value={ref}
-                          onChange={(e) => setRef(e.target.value)}
-                          placeholder="Defaults to default branch"
-                          disabled={isFormDisabled}
-                          className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
-                        />
-                      </div>
+                  />
+                )}
 
-                      {/* Repo Path (sparse checkout) */}
-                      <div>
-                        <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
-                          Repo Path{" "}
-                          <span className="font-normal text-muted-foreground">(optional)</span>
-                          <InfoTooltip>
-                            Check out one subdirectory of the repository using sparse checkout. For
-                            example, <code>modules/vpc</code> checks out that directory (plus the
-                            files at the top of the repo) instead of the entire repo.
-                          </InfoTooltip>
-                        </label>
-                        <input
-                          type="text"
-                          value={repoPath}
-                          onChange={(e) => setRepoPath(e.target.value)}
-                          placeholder="e.g., modules/vpc"
-                          disabled={isFormDisabled}
-                          className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
-                        />
-                      </div>
+                {/* Clone form: remote URL, repo browser, and clone options */}
+                {!isLocalSource && (
+                  <>
+                    {/* Git URL input */}
+                    <div>
+                      <label className="text-sm font-medium text-foreground mb-1 block">
+                        Git URL
+                      </label>
+                      <input
+                        type="text"
+                        value={gitUrl}
+                        onChange={(e) => setGitUrl(e.target.value)}
+                        placeholder={`https://${githubHost}/org/repo.git`}
+                        disabled={isFormDisabled}
+                        className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
+                      />
+                    </div>
 
-                      {/* Local Path (destination) */}
-                      <div>
-                        <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
-                          Local Path{" "}
-                          <span className="font-normal text-muted-foreground">(optional)</span>
-                          <InfoTooltip>
-                            The directory where the cloned files will be saved, relative to the
-                            current working directory. Defaults to the repository name if not
-                            specified.
-                          </InfoTooltip>
-                        </label>
-                        <input
-                          type="text"
-                          value={localPath}
-                          onChange={(e) => setLocalPath(e.target.value)}
-                          placeholder="Defaults to repo name"
-                          disabled={isFormDisabled}
-                          className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
-                        />
-                        {/* Shortened destination; hover shows, and copy copies, the absolute path. */}
-                        {pathPreview && (
-                          <LocalPathRow
-                            displayText={pathPreview.shown}
-                            copyPath={pathPreview.absolute}
-                            className="mt-1.5"
+                    {/* GitHub Browser (only if token available) */}
+                    {tokenChecked && hasGitHubToken && (
+                      <GitHubBrowser
+                        key={githubHost}
+                        host={githubHost}
+                        onRepoSelected={handleRepoSelected}
+                        onRefSelected={handleRefSelected}
+                        fetchOrgs={fetchOrgs}
+                        fetchRepos={fetchRepos}
+                        fetchRefs={fetchRefs}
+                        disabled={isFormDisabled}
+                        initialOrg={prefilledGitHub?.org}
+                        initialRepo={prefilledGitHub?.repo}
+                        defaultOpen={false}
+                      />
+                    )}
+
+                    {/* Additional Settings (Ref, Repo Path, Local Path) */}
+                    <CollapsibleToggle
+                      expanded={showAdditionalSettings}
+                      onToggle={() => setShowAdditionalSettings((prev) => !prev)}
+                      label="Additional Settings"
+                      disabled={isFormDisabled}
+                    >
+                      <div className="space-y-3 mt-3">
+                        {/* Ref (branch/tag) */}
+                        <div>
+                          <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
+                            Ref{" "}
+                            <span className="font-normal text-muted-foreground">(optional)</span>
+                            <InfoTooltip>
+                              The branch or tag to clone. Defaults to the repository&apos;s default
+                              branch if not specified.
+                              {tokenChecked && hasGitHubToken && (
+                                <>
+                                  <br />
+                                  <br />
+                                  <strong>Tip:</strong> Use the GitHub browser above to browse
+                                  branches and tags.
+                                </>
+                              )}
+                            </InfoTooltip>
+                          </label>
+                          <input
+                            type="text"
+                            value={ref}
+                            onChange={(e) => setRef(e.target.value)}
+                            placeholder="Defaults to default branch"
+                            disabled={isFormDisabled}
+                            className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                           />
-                        )}
+                        </div>
+
+                        {/* Repo Path (sparse checkout) */}
+                        <div>
+                          <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
+                            Repo Path{" "}
+                            <span className="font-normal text-muted-foreground">(optional)</span>
+                            <InfoTooltip>
+                              Check out one subdirectory of the repository using sparse checkout.
+                              For example, <code>modules/vpc</code> checks out that directory (plus
+                              the files at the top of the repo) instead of the entire repo.
+                            </InfoTooltip>
+                          </label>
+                          <input
+                            type="text"
+                            value={repoPath}
+                            onChange={(e) => setRepoPath(e.target.value)}
+                            placeholder="e.g., modules/vpc"
+                            disabled={isFormDisabled}
+                            className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
+                          />
+                        </div>
+
+                        {/* Local Path (destination) */}
+                        <div>
+                          <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
+                            Local Path{" "}
+                            <span className="font-normal text-muted-foreground">(optional)</span>
+                            <InfoTooltip>
+                              The directory where the cloned files will be saved, relative to the
+                              current working directory. Defaults to the repository name if not
+                              specified.
+                            </InfoTooltip>
+                          </label>
+                          <input
+                            type="text"
+                            value={localPath}
+                            onChange={(e) => setLocalPath(e.target.value)}
+                            placeholder="Defaults to repo name"
+                            disabled={isFormDisabled}
+                            className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
+                          />
+                          {/* Shortened destination; hover shows, and copy copies, the absolute path. */}
+                          {pathPreview && (
+                            <LocalPathRow
+                              displayText={pathPreview.shown}
+                              copyPath={pathPreview.absolute}
+                              className="mt-1.5"
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </CollapsibleToggle>
-                </>
-              )}
+                    </CollapsibleToggle>
+                  </>
+                )}
 
-              {/* Error message */}
-              {errorMessage && cloneStatus === "fail" && (
-                <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
-                  <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-destructive m-0">
-                      {isLocalSource ? "Couldn't use that repository" : "Clone failed"}
-                    </p>
-                    <p className="text-xs text-destructive m-0 mt-0.5 font-mono">
-                      {displayPath(errorMessage)}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Overwrite confirmation (clone only) */}
-              {showOverwriteConfirm && !isLocalSource && (
-                <div className="p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
-                  <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-warning-foreground m-0">
-                      Local path already exists
-                    </p>
-                    <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                      The local path
-                      {pathPreview ? (
-                        <>
-                          {" "}
-                          (
-                          <code className="text-warning-foreground" title={pathPreview.absolute}>
-                            {pathPreview.shown}
-                          </code>
-                          )
-                        </>
-                      ) : (
-                        ""
-                      )}{" "}
-                      is not empty. Delete it and continue with git clone? Any changes you&apos;ve
-                      made to files in this directory will be lost.
-                    </p>
-                    <div className="flex items-center gap-2 mt-2">
-                      <Button size="sm" variant="destructive" onClick={() => handleClone(true)}>
-                        Delete &amp; Clone
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setShowOverwriteConfirm(false)}
-                      >
-                        Cancel
-                      </Button>
+                {/* Error message */}
+                {errorMessage && cloneStatus === "fail" && (
+                  <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
+                    <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-destructive m-0">
+                        {isLocalSource ? "Couldn't use that repository" : "Clone failed"}
+                      </p>
+                      <p className="text-xs text-destructive m-0 mt-0.5 font-mono">
+                        {displayPath(errorMessage)}
+                      </p>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Action buttons */}
-              {!showOverwriteConfirm && (
-                <div className="flex items-center gap-2">
-                  {isLocalSource ? (
-                    <Button size="sm" disabled={isUseRepoDisabled} onClick={handleUseLocalRepo}>
-                      {cloneStatus === "running" ? (
-                        <>
-                          <Loader2 className="size-4 mr-1 animate-spin" />
-                          Selecting...
-                        </>
-                      ) : (
-                        "Use This Repo"
-                      )}
-                    </Button>
-                  ) : (
-                    <>
-                      <Button size="sm" disabled={isCloneDisabled} onClick={() => handleClone()}>
-                        {cloneStatus === "running" ? (
+                {/* Overwrite confirmation (clone only) */}
+                {showOverwriteConfirm && !isLocalSource && (
+                  <div className="p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
+                    <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-warning-foreground m-0">
+                        Local path already exists
+                      </p>
+                      <p className="text-xs text-warning-foreground m-0 mt-0.5">
+                        The local path
+                        {pathPreview ? (
                           <>
-                            <Loader2 className="size-4 mr-1 animate-spin" />
-                            {cancelling ? "Cancelling..." : "Cloning..."}
+                            {" "}
+                            (
+                            <code className="text-warning-foreground" title={pathPreview.absolute}>
+                              {pathPreview.shown}
+                            </code>
+                            )
                           </>
                         ) : (
-                          "Clone"
-                        )}
-                      </Button>
-                      {cloneStatus === "running" && (
+                          ""
+                        )}{" "}
+                        is not empty. Delete it and continue with git clone? Any changes you&apos;ve
+                        made to files in this directory will be lost.
+                      </p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Button size="sm" variant="destructive" onClick={() => handleClone(true)}>
+                          Delete &amp; Clone
+                        </Button>
                         <Button
-                          variant="outline"
                           size="sm"
-                          disabled={cancelling}
-                          onClick={cancel}
-                          className="text-destructive hover:text-destructive hover:bg-destructive-muted"
+                          variant="outline"
+                          onClick={() => setShowOverwriteConfirm(false)}
                         >
                           Cancel
                         </Button>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                {!showOverwriteConfirm && (
+                  <div className="flex items-center gap-2">
+                    {isLocalSource ? (
+                      <Button size="sm" disabled={isUseRepoDisabled} onClick={handleUseLocalRepo}>
+                        {cloneStatus === "running" ? (
+                          <>
+                            <Loader2 className="size-4 mr-1 animate-spin" />
+                            Selecting...
+                          </>
+                        ) : (
+                          "Use This Repo"
+                        )}
+                      </Button>
+                    ) : (
+                      <>
+                        <Button size="sm" disabled={isCloneDisabled} onClick={() => handleClone()}>
+                          {cloneStatus === "running" ? (
+                            <>
+                              <Loader2 className="size-4 mr-1 animate-spin" />
+                              {cancelling ? "Cancelling..." : "Cloning..."}
+                            </>
+                          ) : (
+                            "Clone"
+                          )}
+                        </Button>
+                        {cloneStatus === "running" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={cancelling}
+                            onClick={cancel}
+                            className="text-destructive hover:text-destructive hover:bg-destructive-muted"
+                          >
+                            Cancel
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* View Logs - below main content */}
+        {logs.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <ViewLogs
+              logs={logs}
+              status={
+                cloneStatus === "running"
+                  ? "running"
+                  : cloneStatus === "success"
+                    ? "success"
+                    : cloneStatus === "fail"
+                      ? "fail"
+                      : "pending"
+              }
+              autoOpen={cloneStatus === "running"}
+              blockId={id}
+            />
+          </div>
+        )}
+
+        {/* View Outputs - below logs */}
+        {cloneStatus === "success" && (
+          <div className="mt-4 space-y-2">
+            <ViewOutputs outputs={registeredOutputs} autoOpen={false} />
+          </div>
+        )}
       </div>
-
-      {/* View Logs - below main content */}
-      {logs.length > 0 && (
-        <div className="mt-4 space-y-2">
-          <ViewLogs
-            logs={logs}
-            status={
-              cloneStatus === "running"
-                ? "running"
-                : cloneStatus === "success"
-                  ? "success"
-                  : cloneStatus === "fail"
-                    ? "fail"
-                    : "pending"
-            }
-            autoOpen={cloneStatus === "running"}
-            blockId={id}
-          />
-        </div>
-      )}
-
-      {/* View Outputs - below logs */}
-      {cloneStatus === "success" && (
-        <div className="mt-4 space-y-2">
-          <ViewOutputs outputs={registeredOutputs} autoOpen={false} />
-        </div>
-      )}
-    </div>
+    </AutoCollapse>
   )
 }
 

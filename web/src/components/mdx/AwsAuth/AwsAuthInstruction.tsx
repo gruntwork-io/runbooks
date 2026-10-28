@@ -22,6 +22,7 @@ export function AwsAuthInstruction({
   ssoAccountId,
   ssoRoleName,
   inputsId,
+  autoCollapse,
 }: AwsAuthProps) {
   const templateCtx = useTemplateContext(inputsId)
 
@@ -54,6 +55,7 @@ export function AwsAuthInstruction({
   return (
     <Instruction
       id={id}
+      autoCollapse={autoCollapse}
       icon={LogIn}
       title={heading}
       description={resolvedDescription}

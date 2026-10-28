@@ -30,6 +30,7 @@ export function GitCloneInstruction({
   prefilledLocalPath = "",
   prefilledRepoDir = "",
   source,
+  autoCollapse,
 }: GitCloneProps) {
   const templateContext = useTemplateContext(inputsId)
   const isLocalSource = resolveInitialSource({ source, prefilledRepoDir }) === "local"
@@ -70,6 +71,7 @@ export function GitCloneInstruction({
   return (
     <Instruction
       id={id}
+      autoCollapse={autoCollapse}
       icon={GitBranch}
       title={
         title
