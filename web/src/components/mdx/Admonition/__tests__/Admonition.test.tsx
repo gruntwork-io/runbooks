@@ -85,6 +85,13 @@ describe("Admonition", () => {
     expect(screen.getByText("I understand")).toBeInTheDocument()
   })
 
+  it("fills a warning's confirmation button red, not amber, so its white text stays legible", () => {
+    renderAdmonition({ type: "warning", confirmationText: "I trust this Runbook" })
+    const button = screen.getByRole("button", { name: "I trust this Runbook" })
+    expect(button).toHaveClass("bg-destructive", "text-white")
+    expect(button).not.toHaveClass("bg-warning")
+  })
+
   describe("confirming", () => {
     beforeEach(() => {
       vi.useFakeTimers()

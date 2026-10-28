@@ -32,6 +32,8 @@ const admonitionConfig: Record<
     borderColor: string
     textColor: string
     iconColor: string
+    /** Colors for the confirmation button; text must stay legible on the fill */
+    buttonColor: string
     defaultTitle: string
   }
 > = {
@@ -41,6 +43,7 @@ const admonitionConfig: Record<
     borderColor: "border-border",
     textColor: "text-foreground",
     iconColor: "text-muted-foreground",
+    buttonColor: "bg-primary text-primary-foreground hover:bg-primary/90",
     defaultTitle: "Note",
   },
   info: {
@@ -49,6 +52,7 @@ const admonitionConfig: Record<
     borderColor: "border-info/40",
     textColor: "text-info",
     iconColor: "text-info",
+    buttonColor: "bg-info text-info-foreground hover:bg-info/90",
     defaultTitle: "Info",
   },
   warning: {
@@ -57,6 +61,7 @@ const admonitionConfig: Record<
     borderColor: "border-warning/30",
     textColor: "text-warning-foreground",
     iconColor: "text-warning",
+    buttonColor: "bg-destructive text-white hover:bg-destructive/90",
     defaultTitle: "Warning",
   },
   danger: {
@@ -65,6 +70,7 @@ const admonitionConfig: Record<
     borderColor: "border-destructive/30",
     textColor: "text-destructive",
     iconColor: "text-destructive",
+    buttonColor: "bg-destructive text-white hover:bg-destructive/90",
     defaultTitle: "Danger",
   },
 }
@@ -204,7 +210,10 @@ export function Admonition({
             <button
               onClick={handleConfirm}
               disabled={isConfirmed}
-              className="px-4 py-2 text-sm font-medium bg-warning text-white rounded-md hover:bg-warning/90 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className={cn(
+                "px-4 py-2 text-sm font-medium rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+                config.buttonColor,
+              )}
             >
               <InlineMarkdown>{resolvedConfirmationText}</InlineMarkdown>
             </button>
