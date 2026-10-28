@@ -38,7 +38,9 @@ export function EnvVars({
   return (
     <div data-testid={`${blockId}-env`} className={cn("text-xs mb-3", className)}>
       <div className="font-semibold text-muted-foreground mb-1">Environment variables</div>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono">
+      {/* minmax(0, 1fr): a field sized to a long value would otherwise widen
+          the column past the block's edge, rather than scroll */}
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono">
         {envVars.map(({ name, value, parts }) => (
           <div key={name} className="contents">
             <dt className="text-muted-foreground">{name}</dt>
