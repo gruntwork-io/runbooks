@@ -21,7 +21,7 @@ import {
   resolvedValueText,
   summarizeTemplateValue,
 } from "../lib/templateValue"
-import { LinkedValueChip, TemplateValueText } from "./TemplateValue"
+import { LinkedValueChip, TemplateValueText, type FieldLinks } from "./TemplateValue"
 
 /**
  * Base props interface for all form control components
@@ -49,6 +49,11 @@ interface BaseFormControlProps {
   disabled?: boolean | undefined
   /** Why a disabled list or map is read-only, as its header says: "inherited" (the default) or "locked" */
   readOnlyLabel?: string | undefined
+  /**
+   * What the chips of a template value link to, and the values entered in
+   * their place. Without it, the chips can't take a value.
+   */
+  links?: FieldLinks | undefined
 }
 
 /**
@@ -108,10 +113,11 @@ const RemoveEntryButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
  * Text input component for string variables
  * Renders a standard text input field with validation error styling.
  * A template value (e.g. a boilerplate default of `{{ .OtherVar }}`) is shown
- * as a linked chip instead: what it comes to when that is known, else tokens
- * for what it is linked to. Clicking the chip edits the raw expression as
- * text; leaving the field shows the chip again if the value is still a
- * template. A sensitive field's chip names only the variables it is linked to.
+ * as its text and chips instead (see LinkedValueChip), each of which takes a
+ * value in its place when clicked. Its X clears the link for a value of the
+ * user's own. A sensitive field shows one chip, naming only the variables it
+ * is linked to. Typing an expression into the text input keeps the input
+ * until the user leaves it, which then shows the chips.
  */
 export const StringInput: React.FC<BaseFormControlProps> = ({
   variable,
@@ -122,6 +128,7 @@ export const StringInput: React.FC<BaseFormControlProps> = ({
   onBlur,
   id,
   disabled,
+  links,
 }) => {
   const [showSensitive, setShowSensitive] = React.useState(false)
   const [showExpression, setShowExpression] = React.useState(false)
@@ -129,7 +136,7 @@ export const StringInput: React.FC<BaseFormControlProps> = ({
   const focusInputRef = React.useRef(false)
   const inputId = `${id}-${variable.name}`
 
-  // Leaving the chip moves focus into the text input that replaces it.
+  // Clearing the link moves focus into the text input that replaces it.
   React.useEffect(() => {
     if (showExpression && focusInputRef.current) {
       focusInputRef.current = false
@@ -138,10 +145,6 @@ export const StringInput: React.FC<BaseFormControlProps> = ({
   }, [showExpression])
 
   if (isTemplateValue(value) && !showExpression) {
-    const showInput = () => {
-      focusInputRef.current = true
-      setShowExpression(true)
-    }
     return (
       <LinkedValueChip
         id={inputId}
@@ -150,9 +153,10 @@ export const StringInput: React.FC<BaseFormControlProps> = ({
         error={error}
         disabled={disabled}
         sensitive={variable.sensitive}
-        onEdit={showInput}
+        links={links}
         onClear={() => {
-          showInput()
+          focusInputRef.current = true
+          setShowExpression(true)
           onChange("")
         }}
       />
@@ -352,6 +356,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({
   onBlur,
   disabled,
   readOnlyLabel,
+  links,
 }) => {
   const currentList = Array.isArray(value) ? value : []
   const resolvedList = resolvedItems(currentList, resolvedValue)
@@ -421,7 +426,12 @@ export const ListInput: React.FC<BaseFormControlProps> = ({
                 <span
                   className={`text-sm flex-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
                 >
-                  <TemplateValueText value={item} resolved={resolvedList[index]} />
+                  <TemplateValueText
+                    value={item}
+                    resolved={resolvedList[index]}
+                    links={links}
+                    disabled={disabled}
+                  />
                 </span>
                 {!disabled && <RemoveEntryButton onClick={() => removeItem(index)} />}
               </div>
@@ -575,12 +585,19 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({
 const StructuredEntryFields: React.FC<{
   fields: Array<[string, unknown]>
   resolved: unknown
-}> = ({ fields, resolved }) => {
+  links: FieldLinks | undefined
+  disabled: boolean | undefined
+}> = ({ fields, resolved, links, disabled }) => {
   const resolvedFields = resolvedEntries(fields, resolved)
   return fields.map(([fieldKey, fieldVal], index) => (
     <div key={fieldKey}>
       <span className="font-medium">{fieldKey}:</span>{" "}
-      <TemplateValueText value={fieldVal} resolved={resolvedFields[index]?.[1]} />
+      <TemplateValueText
+        value={fieldVal}
+        resolved={resolvedFields[index]?.[1]}
+        links={links}
+        disabled={disabled}
+      />
     </div>
   ))
 }
@@ -598,6 +615,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({
   id,
   disabled,
   readOnlyLabel,
+  links,
 }) => {
   const currentMap =
     typeof value === "object" && value !== null
@@ -756,17 +774,29 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({
                     <div
                       className={`font-medium text-sm mb-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
                     >
-                      <TemplateValueText value={key} resolved={resolved[index]?.[0]} />
+                      <TemplateValueText
+                        value={key}
+                        resolved={resolved[index]?.[0]}
+                        links={links}
+                        disabled={disabled}
+                      />
                     </div>
                     <div className="text-xs text-muted-foreground space-y-0.5">
                       {typeof val === "object" && val !== null ? (
                         <StructuredEntryFields
                           fields={Object.entries(val as Record<string, unknown>)}
                           resolved={resolved[index]?.[1]}
+                          links={links}
+                          disabled={disabled}
                         />
                       ) : (
                         <div>
-                          <TemplateValueText value={val} resolved={resolved[index]?.[1]} />
+                          <TemplateValueText
+                            value={val}
+                            resolved={resolved[index]?.[1]}
+                            links={links}
+                            disabled={disabled}
+                          />
                         </div>
                       )}
                     </div>
@@ -799,6 +829,7 @@ export const MapInput: React.FC<BaseFormControlProps> = ({
   id,
   disabled,
   readOnlyLabel,
+  links,
 }) => {
   const currentMap =
     typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {}
@@ -872,9 +903,20 @@ export const MapInput: React.FC<BaseFormControlProps> = ({
                   className={`text-sm flex-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
                 >
                   <strong>
-                    <TemplateValueText value={key} resolved={resolved[index]?.[0]} />:
+                    <TemplateValueText
+                      value={key}
+                      resolved={resolved[index]?.[0]}
+                      links={links}
+                      disabled={disabled}
+                    />
+                    :
                   </strong>{" "}
-                  <TemplateValueText value={val} resolved={resolved[index]?.[1]} />
+                  <TemplateValueText
+                    value={val}
+                    resolved={resolved[index]?.[1]}
+                    links={links}
+                    disabled={disabled}
+                  />
                 </span>
                 {!disabled && <RemoveEntryButton onClick={() => removeEntry(key)} />}
               </div>

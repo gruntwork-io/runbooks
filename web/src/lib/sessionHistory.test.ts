@@ -6,7 +6,15 @@ import {
   revealOutputs,
   sensitiveOutput,
 } from "@/lib/outputValues"
-import { parseSavedForm, restoreRun, runEnded, runStarted, savedFormValue } from "./sessionHistory"
+import {
+  enteredValuesChanged,
+  parseSavedForm,
+  restoreEnteredValues,
+  restoreRun,
+  runEnded,
+  runStarted,
+  savedFormValue,
+} from "./sessionHistory"
 
 const line = (n: number, text = `line ${n}`): LogEntry => ({
   line: text,
@@ -57,6 +65,28 @@ describe("a saved form", () => {
 
     expect(savedFormValue(saved, { name: "provider", locked: true })).toBeUndefined()
     expect(savedFormValue(saved, { name: "provider", locked: false })).toBe("github")
+  })
+})
+
+describe("values entered in place of a form's chips", () => {
+  it("come back as they were saved, by field", () => {
+    const fields = {
+      Repo: { linked: "{{ .Org }}/{{ .Name }}", entered: { "inputs.Org": "globex" } },
+      Repos: { linked: ["github.com/{{ .Org }}/x"], entered: { "inputs.Org": "" } },
+    }
+
+    expect(restoreEnteredValues(stored(enteredValuesChanged(fields)))).toEqual(fields)
+  })
+
+  it("are none for a payload of another shape, such as a script block's overrides", () => {
+    for (const payload of [
+      undefined,
+      null,
+      { outputs: { fetch_pr: {} } },
+      { fields: { Repo: { linked: "x", entered: { "inputs.Org": 1 } } } },
+    ]) {
+      expect(restoreEnteredValues(payload)).toEqual({})
+    }
   })
 })
 
