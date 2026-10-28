@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect } from "react"
 import type { ReactNode, Ref } from "react"
 import { evaluate } from "@mdx-js/mdx"
 import * as runtime from "react/jsx-runtime"
 import type { AppError } from "@/types/error"
 import { rewriteAssetUrl } from "@/lib/assetPaths"
+import { getRunbookName } from "@/lib/utils"
 import { mdxErrorMessage, RUNBOOK_REMARK_PLUGINS, stripFrontMatter } from "../../../src/mdx"
 import {
   unknownBlocks,
@@ -83,13 +84,8 @@ function MDXContainer({
   const [error, setError] = useState<AppError | null>(null)
   const { setChapters } = useChaptersControl()
 
-  // Extract runbook name from its directory path (last segment)
-  // e.g., "testdata/feature-demos/github-pull-request" → "github-pull-request"
-  const runbookName = useMemo(() => {
-    if (!runbookPath) return undefined
-    const segments = runbookPath.replace(/[\\/]+$/, "").split(/[\\/]/)
-    return segments[segments.length - 1] || undefined
-  }, [runbookPath])
+  // The same name the title bar shows, e.g. "github-pull-request"
+  const runbookName = getRunbookName(runbookPath)
 
   // Compile the MDX content into a React component that the browser can render.
   // Its chapters are set in the same render, so the chapter bar shows with

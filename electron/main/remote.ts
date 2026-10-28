@@ -238,6 +238,15 @@ export function cleanupTempClones(): void {
 // Remote runbook resolution
 // ---------------------------------------------------------------------------
 
+/**
+ * The folder a repo is cloned into: the repo's name, or "repo" for a name
+ * that isn't a plain folder name. The name comes from the URL, so `..` or a
+ * separator must not leave the temp directory.
+ */
+function cloneDirName(repo: string): string {
+  return /^[\w.-]+$/.test(repo) && repo !== "." && repo !== ".." ? repo : "repo"
+}
+
 export interface RemoteRunbookResult {
   localPath: string
   remoteSource: string
@@ -347,7 +356,9 @@ export const openRemoteRunbook = (rawUrl: string) =>
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-remote-"))
     registerTempCloneDir(tempDir)
 
-    const dest = path.join(tempDir, "repo")
+    // Named after the repo: the title bar names a runbook after its folder,
+    // which for a runbook at the repo's root is the clone's.
+    const dest = path.join(tempDir, cloneDirName(parsed.repo))
     log.info("Cloning to:", dest, "ref:", parsed.ref)
 
     const git = yield* GitClient

@@ -488,6 +488,32 @@ describe("App runbook switching", () => {
     expect(writeText).toHaveBeenCalledWith("/sessions/dirs/session-0")
   })
 
+  it("shows the runbook's name in the header, and copies its path, or a remote runbook's URL", async () => {
+    // jsdom has no clipboard; the afterEach below takes this one away again.
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+    const { emit } = renderApp()
+    expect(screen.queryByTestId("runbook-name")).not.toBeInTheDocument()
+
+    await openRunbook(emit, "/work/a", "Runbook A")
+    expect(screen.getByTestId("runbook-name").textContent).toBe("a")
+    fireEvent.click(screen.getByRole("button", { name: "Copy runbook path" }))
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("/work/a/runbook.mdx"))
+
+    // A remote runbook is cloned to a temp folder: the button copies its URL.
+    const url = "https://github.com/acme/runbooks/tree/main/b"
+    await emit("file:open-runbook", { path: "/work/b", remoteSource: url })
+    expect(await screen.findByRole("heading", { name: "Runbook B" })).toBeInTheDocument()
+    expect(screen.getByTestId("runbook-name").textContent).toBe("b")
+    expect(screen.queryByRole("button", { name: "Copy runbook path" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Copy runbook URL" }))
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(url))
+
+    await emit("menu:close-runbook")
+    expect(await screen.findByText("Welcome")).toBeInTheDocument()
+    expect(screen.queryByTestId("runbook-name")).not.toBeInTheDocument()
+  })
+
   it("clears the previous runbook logs when it is closed before the next one opens", async () => {
     const { emit } = renderApp()
     await openRunbook(emit, "/work/a", "Runbook A")

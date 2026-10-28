@@ -102,6 +102,21 @@ export function getDirectoryPath(filePath: string | null | undefined): string | 
 }
 
 /**
+ * A runbook's name: the last segment of its directory's path, the folder its
+ * runbook.mdx is in. Undefined while there is no runbook.
+ *
+ * @example
+ * getRunbookName("testdata/feature-demos/github-pull-request") // returns "github-pull-request"
+ * getRunbookName("C:\\runbooks\\setup-vpc\\") // returns "setup-vpc"
+ * getRunbookName(undefined) // returns undefined
+ */
+export function getRunbookName(runbookDir: string | undefined): string | undefined {
+  if (!runbookDir) return undefined
+  const segments = runbookDir.replace(/[\\/]+$/, "").split(/[\\/]/)
+  return segments[segments.length - 1] || undefined
+}
+
+/**
  * Returns the last segment of a path, ignoring trailing separators.
  * Splits on both separators: the backend builds paths with Node's `path`
  * module, which uses '\' on Windows.

@@ -19,7 +19,7 @@ import {
   GeneratedFilesAlert,
   shouldShowGeneratedFilesAlert,
 } from "./components/layout/GeneratedFilesAlert"
-import { getDirectoryPath, hasGeneratedFiles } from "./lib/utils"
+import { getDirectoryPath, getRunbookName, hasGeneratedFiles } from "./lib/utils"
 import { useIpcGetRunbook } from "./hooks/useIpcGetRunbook"
 import { useGeneratedFiles } from "./hooks/useGeneratedFiles"
 import { useGitWorkTree } from "./contexts/useGitWorkTree"
@@ -285,6 +285,7 @@ function App() {
   const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ""
   const content = getRunbookResult.data?.content || ""
   const runbookPath = getDirectoryPath(getRunbookResult.data?.path || "")
+  const runbookName = getRunbookName(runbookPath)
 
   // The session's name goes in the Header, which is the title bar people see,
   // and in the window title, which the OS shows in its window list and taskbar.
@@ -395,6 +396,9 @@ function App() {
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
       <div className="flex flex-col" onWheel={handleWheel}>
         <Header
+          runbookName={runbookName}
+          runbookFilePath={getRunbookResult.data?.path}
+          remoteSource={getRunbookResult.data?.remoteSource}
           sessionName={sessionName}
           sessionDir={getRunbookResult.data?.sessionDir}
           onSessionRenamed={(name) => setRenamed({ sessionId: loadedSessionId, name })}

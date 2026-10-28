@@ -16,9 +16,11 @@ Runbooks saves the session after every change, so quitting the app keeps it.
 
 ## Session names
 
-Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows the name and [how far through the runbook you are](/authoring/blocks/#progress), but nothing that says which runbook it is, neither its path nor its URL. The window title starts with the name too.
+Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows it after the runbook's name, as in `setup-vpc / elegant-elephant`, along with [how far through the runbook you are](/authoring/blocks/#progress). The window title starts with the session's name too.
 
-The copy button before the name copies it. The folder button after the name copies the path of the session's directory. It is the session's directory for every runbook, including a remote one, whose temporary clone it does not point to.
+A runbook's name is the name of the folder its `runbook.mdx` is in. A remote runbook at the root of its repository is named after the repository. The button before the runbook's name copies the full path of its file, or for a remote runbook the URL you opened it from.
+
+The copy button before the session's name copies it. The folder button after the name copies the path of the session's directory. It is the session's directory for every runbook, including a remote one, whose temporary clone it does not point to.
 
 Paths on screen are shortened: a path in the session's directory starts with `session/`, as in `session/generated`, and any other path in your home directory starts with `~/`. Hover over one to see it in full. Copy buttons copy the full path, and scripts and other blocks get the full path too.
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { basename, getDirectoryPath, normalizeBlockId } from "./utils"
+import { basename, getDirectoryPath, getRunbookName, normalizeBlockId } from "./utils"
 
 describe("getDirectoryPath", () => {
   it("should extract directory path from file path with extension", () => {
@@ -88,6 +88,23 @@ describe("basename", () => {
 
   it("returns a bare name unchanged", () => {
     expect(basename("file")).toBe("file")
+  })
+})
+
+describe("getRunbookName", () => {
+  it("returns the name of the runbook's directory", () => {
+    expect(getRunbookName("testdata/feature-demos/github-pull-request")).toBe("github-pull-request")
+    expect(getRunbookName("C:\\runbooks\\setup-vpc")).toBe("setup-vpc")
+  })
+
+  it("ignores trailing separators", () => {
+    expect(getRunbookName("/runbooks/setup-vpc/")).toBe("setup-vpc")
+  })
+
+  it("returns undefined without a directory", () => {
+    expect(getRunbookName(undefined)).toBeUndefined()
+    expect(getRunbookName("")).toBeUndefined()
+    expect(getRunbookName("/")).toBeUndefined()
   })
 })
 
