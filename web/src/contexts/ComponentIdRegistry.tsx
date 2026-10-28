@@ -8,8 +8,9 @@ import {
   useRef,
   useMemo,
 } from "react"
-import type { ReactNode } from "react"
+import type { ReactNode, RefObject } from "react"
 import { normalizeBlockId } from "../lib/utils"
+import { useShowChapterOf } from "./useRunbookChapters"
 
 export type BlockComponentType =
   | "Command"
@@ -36,6 +37,8 @@ interface ComponentRegistration {
   normalizedId: string // ID with hyphens converted to underscores
   componentType: BlockComponentType
   instanceId: string // Unique per-render instance to track unmounts
+  /** The block's outermost element, for links that scroll to it. */
+  element: RefObject<HTMLElement | null> | undefined
 }
 
 interface DuplicateInfo {
@@ -50,9 +53,15 @@ interface DuplicateInfo {
 }
 
 interface ComponentIdRegistryContextValue {
-  registerComponent: (id: string, componentType: ComponentRegistration["componentType"]) => string // Returns instanceId
+  registerComponent: (
+    id: string,
+    componentType: ComponentRegistration["componentType"],
+    element: ComponentRegistration["element"],
+  ) => string // Returns instanceId
   unregisterComponent: (instanceId: string) => void
   getDuplicateInfo: (id: string, instanceId: string) => DuplicateInfo
+  /** The element of the block with this id, if one is rendered. */
+  elementOf: (templateId: string) => HTMLElement | null
 }
 
 const ComponentIdRegistryContext = createContext<ComponentIdRegistryContextValue | undefined>(
@@ -81,11 +90,18 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
   }, [registrations])
 
   const registerComponent = useCallback(
-    (id: string, componentType: ComponentRegistration["componentType"]): string => {
+    (
+      id: string,
+      componentType: ComponentRegistration["componentType"],
+      element: ComponentRegistration["element"],
+    ): string => {
       const instanceId = `${componentType}-${id}-${++instanceCounter.current}`
       const normalizedId = normalizeBlockId(id)
 
-      setRegistrations((prev) => [...prev, { id, normalizedId, componentType, instanceId }])
+      setRegistrations((prev) => [
+        ...prev,
+        { id, normalizedId, componentType, instanceId, element },
+      ])
 
       return instanceId
     },
@@ -125,14 +141,23 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
     }
   }, [])
 
+  const elementOf = useCallback((templateId: string): HTMLElement | null => {
+    const normalizedId = normalizeBlockId(templateId)
+    for (const r of registrationsRef.current) {
+      if (r.normalizedId === normalizedId && r.element?.current) return r.element.current
+    }
+    return null
+  }, [])
+
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(
     () => ({
       registerComponent,
       unregisterComponent,
       getDuplicateInfo,
+      elementOf,
     }),
-    [registerComponent, unregisterComponent, getDuplicateInfo],
+    [registerComponent, unregisterComponent, getDuplicateInfo, elementOf],
   )
 
   // Separate from `value`, which stays stable, so only the components that
@@ -178,12 +203,29 @@ export function usePageBlocks(): PageBlocks {
 }
 
 /**
+ * Returns a function that scrolls the block with an id to the middle of the
+ * view, for a link to it from a block that waits on it. A block in a hidden
+ * chapter shows that chapter first.
+ */
+export function useRevealBlock(): (templateId: string) => void {
+  const elementOf = useContext(ComponentIdRegistryContext)?.elementOf
+  const showChapterOf = useShowChapterOf()
+  return (templateId) => {
+    const element = elementOf?.(templateId)
+    showChapterOf(element)
+    element?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }
+}
+
+/**
  * Hook to register a component and check for duplicate IDs.
  * Returns duplicate info including whether it's an exact duplicate or normalized collision.
+ * A block passes its outermost element so that other blocks can link to it.
  */
 export function useComponentIdRegistry(
   id: string,
   componentType: ComponentRegistration["componentType"],
+  element?: RefObject<HTMLElement | null>,
 ) {
   const context = useContext(ComponentIdRegistryContext)
   const instanceIdRef = useRef<string | null>(null)
@@ -203,14 +245,14 @@ export function useComponentIdRegistry(
     if (!registerComponent || !unregisterComponent) return
 
     // Register this component
-    instanceIdRef.current = registerComponent(id, componentType)
+    instanceIdRef.current = registerComponent(id, componentType, element)
 
     return () => {
       if (instanceIdRef.current) {
         unregisterComponent(instanceIdRef.current)
       }
     }
-  }, [registerComponent, unregisterComponent, id, componentType])
+  }, [registerComponent, unregisterComponent, id, componentType, element])
 
   // Check for duplicates after registration - use a small delay to allow all components to register
   useEffect(() => {

@@ -2,11 +2,12 @@
 
 A variable's `default` can be built from other variables, such as `default: "{{ .ProjectName }}-state"`. Runbooks fills in the real value when it renders, using whatever the other fields hold at that moment.
 
-The form never shows the `{{ }}` syntax. A linked default shows the value it comes to, with a link icon, and follows the fields it uses as you edit them. When that value can't be worked out yet, the default appears as a token for each variable it uses instead, named the way that variable's field is labelled. A default that does more than insert a variable (a conditional or a function) then appears as one token that says what it's based on. A token is yellow while the default waits on a block output that hasn't been produced.
+The form never shows the `{{ }}` syntax. A linked default shows its text with a chip for each variable or block output it uses. A chip shows the value it links to, with a link icon, and follows that field as you edit it. Until that value is known, the chip names the variable, the way its field is labelled, or the output. A default that does more than insert a variable (a conditional or a function) appears as one chip, with the value it comes to or what it's based on. A chip is yellow while it waits on a block output that hasn't been produced.
 
 - **Hover** over a linked value to see its expression.
-- **Click** it to edit the expression. Leave the field and it shows as linked again.
-- **Click the X** to clear it and type your own value.
+- **Click** a chip to type another value in its place. The reset button next to it brings the chip back.
+- **Click the X** to clear the whole value and type your own.
+- **Click Reset** next to the field's name to go back to the default.
 
 ## In an Inputs block
 
@@ -34,9 +35,9 @@ Service name: {{ .inputs.ServiceName }}
 
 ## Waiting on a script's output
 
-A default can also use another block's output, such as an ID a script prints. Until that block has run, the form can't know the value, so the token is yellow. Hover over it to see which block it's waiting for. If no block on the page has the id the default names, the token is red instead, and the field shows an error until you replace the value.
+A default can also use another block's output, such as an ID a script prints. Until that block has run, the form can't know the value, so the chip is yellow. Hover over it to see which block it's waiting for. If no block on the page has the id the default names, the chip is red instead, and the field shows an error until you replace the value.
 
-`AccountAlias` defaults to `acme-` plus the ID of the account that the **Create Account** script below creates. Run the script and the field shows `acme-123456789012`.
+`AccountAlias` defaults to `acme-` plus the ID of the account that the **Create Account** script below creates. Run the script and the field shows `acme-123456789012`. Or click the chip and type an ID yourself.
 
 <Inputs id="account">
 ```yaml

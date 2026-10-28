@@ -1,5 +1,5 @@
 import { FolderOpen, AlertTriangle } from "lucide-react"
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
@@ -7,6 +7,7 @@ import { useTemplateContext } from "@/contexts/useRunbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { useDirPicker } from "./hooks/useDirPicker"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { DirPickerInstruction } from "./DirPickerInstruction"
@@ -61,9 +62,11 @@ function DirPickerInteractive({
   )
 
   // Check for duplicate component IDs
+  const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
     id,
     "DirPicker",
+    blockRef,
   )
 
   const { reportError, clearError } = useErrorReporting()
@@ -140,6 +143,7 @@ function DirPickerInteractive({
 
   return (
     <div
+      ref={blockRef}
       data-testid={id}
       className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
     >
@@ -185,7 +189,7 @@ function DirPickerInteractive({
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
                 <strong>Waiting for git clone to complete from:</strong>{" "}
-                <code className="bg-warning-muted px-1 rounded text-xs">{gitCloneId}</code>
+                <BlockLink blockId={gitCloneId} />
                 <div className="text-xs mt-1 text-warning">
                   Complete the GitClone block above to browse directories.
                 </div>

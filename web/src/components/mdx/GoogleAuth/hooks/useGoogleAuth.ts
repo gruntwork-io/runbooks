@@ -20,6 +20,7 @@ import type {
   GoogleProjectInfo,
 } from "../types"
 import { resolveDefaultAuthMethod } from "../utils"
+import { signInHint } from "@/components/mdx/_shared/lib/signInHint"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -28,9 +29,6 @@ import { resolveDefaultAuthMethod } from "../utils"
 /** 2s x 150 = 5 minutes, matching the layer's OAUTH_FLOW_TTL_MS. */
 const OAUTH_POLL_INTERVAL_MS = 2000
 const OAUTH_POLL_MAX_ATTEMPTS = 150
-
-/** How long the "no credentials found" retry hint stays on screen. */
-const RETRY_MESSAGE_TIMEOUT_MS = 3000
 
 /**
  * `google:oauth-start` reports a build without a registered OAuth client with
@@ -99,7 +97,7 @@ type DetectionOutcome =
   | { kind: "detected"; credentials: DetectedGoogleCredentials }
   /** Paused on a block source that has not run; `remaining` follow it. */
   | { kind: "waiting"; blockId: string; remaining: GoogleCredentialSource[] }
-  | { kind: "done"; warnings: string[]; isRetry: boolean }
+  | { kind: "done"; warnings: string[] }
 
 /** Identity metadata carried from a completed auth into project selection. */
 interface PendingAccount {
@@ -176,8 +174,11 @@ export interface UseGoogleAuthReturn {
   detectedCredentials: DetectedGoogleCredentials | null
   detectionWarning: string | null
   waitingForBlockId: string | null
-  retryFoundNothing: boolean
-  clearRetryMessage: () => void
+  /**
+   * The line above the sign-in form, ahead of "Check again". Null with
+   * detection off: there is nothing to check again.
+   */
+  manualHint: string | null
 
   // ---- Service-account tab --------------------------------------------------
   serviceAccountKey: string
@@ -339,8 +340,10 @@ export function useGoogleAuth({
     null,
   )
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
-  const [retryFoundNothing, setRetryFoundNothing] = useState(false)
-  // Counter that re-arms the detection effect for "Try auto-detection again".
+  // Whether the last detection run found no credentials, valid or not. Drives
+  // the hint above the sign-in form.
+  const [nothingDetected, setNothingDetected] = useState(false)
+  // Counter that re-arms the detection effect for "Check again".
   const [detectionAttempt, setDetectionAttempt] = useState(0)
   const detectionAttemptedRef = useRef(resumes)
   // For block-based detection, which block we paused the walk on.
@@ -414,15 +417,6 @@ export function useGoogleAuth({
   // whose outputs are still live, so Cancel can return to that card instead of
   // starting over. Cleared by any commit attempt and by any output withdrawal.
   const changingProjectRef = useRef(false)
-
-  // Auto-hide the "no credentials found" retry hint (mirrors AwsAuth).
-  useEffect(() => {
-    if (!retryFoundNothing) return
-    const timer = setTimeout(() => setRetryFoundNothing(false), RETRY_MESSAGE_TIMEOUT_MS)
-    return () => clearTimeout(timer)
-  }, [retryFoundNothing])
-
-  const clearRetryMessage = useCallback(() => setRetryFoundNothing(false), [])
 
   // ---------------------------------------------------------------------------
   // Shared helpers
@@ -940,7 +934,7 @@ export function useGoogleAuth({
    * applyDetectionOutcome once the walk has settled.
    */
   const trySourcesInOrder = useCallback(
-    async (sources: GoogleCredentialSource[], isRetry: boolean): Promise<DetectionOutcome> => {
+    async (sources: GoogleCredentialSource[]): Promise<DetectionOutcome> => {
       const warnings: string[] = []
 
       const succeed = (detected: DetectedGoogleCredentials): DetectionOutcome => ({
@@ -1021,7 +1015,7 @@ export function useGoogleAuth({
         }
       }
 
-      return { kind: "done", warnings, isRetry }
+      return { kind: "done", warnings }
     },
     [tryEnvCredentials, tryBlockCredentials, blockOutputs],
   )
@@ -1029,6 +1023,7 @@ export function useGoogleAuth({
   const applyDetectionOutcome = useCallback((outcome: DetectionOutcome) => {
     switch (outcome.kind) {
       case "detected":
+        setNothingDetected(false)
         setDetectedCredentials(outcome.credentials)
         setDetectionStatus("detected")
         return
@@ -1040,9 +1035,7 @@ export function useGoogleAuth({
         if (outcome.warnings.length > 0) {
           setDetectionWarning(outcome.warnings.join("; "))
         }
-        if (outcome.isRetry) {
-          setRetryFoundNothing(true)
-        }
+        setNothingDetected(outcome.warnings.length === 0)
         setDetectionStatus("done")
     }
   }, [])
@@ -1061,10 +1054,10 @@ export function useGoogleAuth({
     // MDX authors must write detectCredentials={false}; the string "false"
     // would arrive truthy. Anything that is neither `false` nor an array is
     // treated as "no sources" rather than iterated as a string.
-    void trySourcesInOrder(
-      Array.isArray(detectCredentials) ? detectCredentials : [],
-      detectionAttempt > 0,
-    ).then(applyDetectionOutcome)
+    void trySourcesInOrder(Array.isArray(detectCredentials) ? detectCredentials : []).then(
+      applyDetectionOutcome,
+    )
+    // detectionAttempt is unread: bumping it is what re-runs this effect.
   }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt, applyDetectionOutcome])
 
   // Effect #2 — resume the walk once the block we paused on has run.
@@ -1083,7 +1076,7 @@ export function useGoogleAuth({
     // sources stashed at the pause exactly as it would in the walk.
     const remaining = remainingSourcesRef.current
     remainingSourcesRef.current = []
-    void trySourcesInOrder([{ block: waitingForBlockId }, ...remaining], false).then((outcome) => {
+    void trySourcesInOrder([{ block: waitingForBlockId }, ...remaining]).then((outcome) => {
       setWaitingForBlockId(null)
       applyDetectionOutcome(outcome)
     })
@@ -1270,9 +1263,9 @@ export function useGoogleAuth({
   }, [])
 
   /**
-   * "Try auto-detection again" — full reset plus a counter bump to re-fire.
+   * "Check again" — full reset plus a counter bump to re-fire.
    *
-   * The link renders while an OAuth flow may still be live (the form subtree,
+   * The control renders while an OAuth flow may still be live (the form subtree,
    * and with it the flow's Cancel button, unmounts the moment detection goes
    * back to 'pending'), so the flow has to be released here exactly as
    * `handleManualAuth` does. Otherwise MAIN keeps its loopback listener bound,
@@ -1291,7 +1284,6 @@ export function useGoogleAuth({
     setAuthStatus("pending")
     setErrorMessage(null)
     setWarningMessage(null)
-    setRetryFoundNothing(false)
     setWaitingForBlockId(null)
     remainingSourcesRef.current = []
     detectionAttemptedRef.current = false
@@ -1996,6 +1988,7 @@ export function useGoogleAuth({
     setOauthAuthUrl(null)
     setDetectedCredentials(null)
     setDetectionWarning(null)
+    setNothingDetected(false)
     setDetectionStatus("done")
     setWaitingForBlockId(null)
     remainingSourcesRef.current = []
@@ -2226,8 +2219,10 @@ export function useGoogleAuth({
     detectedCredentials,
     detectionWarning,
     waitingForBlockId,
-    retryFoundNothing,
-    clearRetryMessage,
+    manualHint:
+      detectCredentials === false
+        ? null
+        : signInHint({ invalidDetected: detectionWarning !== null, nothingDetected }),
 
     // Service-account tab
     serviceAccountKey,

@@ -162,6 +162,7 @@ The built-in Gruntwork Runbooks OAuth app only exists on `github.com`. To offer 
 | `id` | string | required | Unique identifier for this component |
 | `title` | string | "GitHub Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
+| `autoCollapse` | boolean | `false` | Folds the block down to its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks) |
 | `inputsId` | string or string[] | - | ID of one or more [Inputs](/authoring/blocks/inputs/) blocks. `title` and `description` resolve `{{ .inputs.VarName }}` expressions against them |
 | `detectCredentials` | `false` or `CredentialSource[]` | `['env', 'cli']` | Whether and how the block detects credentials in the user's environment |
 | `host` | string | - | Pins the GitHub host (`github.com`, a GHE.com tenant such as `acme.ghe.com`, or a GitHub Enterprise Server host such as `github.example.com`) and hides the host picker. See [GitHub Enterprise support](#github-enterprise-support) |
@@ -340,7 +341,7 @@ TOKEN=$(vault read -field=token secret/github)
 echo "sensitive:GITHUB_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"
 ```
 
-Sources are tried in the order you list them. If the referenced block has not run yet, GitHubAuth shows *Waiting for "fetch-token" to run...* and detection pauses there without moving to a later source. If the block ran without writing a usable `GITHUB_TOKEN`, for example because the script failed, detection moves on to the next source, and the manual sign-in form appears if none of them finds a credential.
+Sources are tried in the order you list them. If the referenced block has not run yet, GitHubAuth shows *Waiting for fetch-token to run...*, with a link to that block, and detection pauses there without moving to a later source. If the block ran without writing a usable `GITHUB_TOKEN`, for example because the script failed, detection moves on to the next source, and the manual sign-in form appears if none of them finds a credential.
 
 ## Permissions
 

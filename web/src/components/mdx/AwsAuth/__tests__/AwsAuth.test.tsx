@@ -82,8 +82,8 @@ describe("AwsAuth — rendering", () => {
     expect(screen.getByRole("button", { name: "Local Profile" })).toBeInTheDocument()
     expect(screen.getByPlaceholderText("AKIAIOSFODNN7EXAMPLE")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Authenticate" })).toBeDisabled()
-    // Detection is off, so there is no retry link and nothing was invoked.
-    expect(screen.queryByText("← Try auto-detection again")).toBeNull()
+    // Detection is off, so there is no hint or "Check again" and nothing was invoked.
+    expect(screen.queryByTestId("detection-hint")).toBeNull()
     expect(invoke).not.toHaveBeenCalled()
   })
 
@@ -144,7 +144,9 @@ describe("AwsAuth — detection", () => {
       </>,
     )
 
-    expect(await screen.findByText('Waiting for "assume-role" to run...')).toBeInTheDocument()
+    expect(await screen.findByText(/Waiting for/)).toHaveTextContent(
+      "Waiting for assume-role to run...",
+    )
     expect(screen.queryByRole("button", { name: "Static Credentials" })).toBeNull()
 
     fireEvent.click(screen.getByRole("button", { name: "Run assume-role" }))
@@ -193,10 +195,16 @@ describe("AwsAuth — detection", () => {
     expect(screen.getByText("111111111111")).toBeInTheDocument()
     expect(screen.queryByText("AWS Credentials Detected")).toBeNull()
 
-    // Re-authenticate goes back to the manual tabs.
+    // Re-authenticate goes back to the manual tabs, under the hint line and
+    // its "Check again", which brings the detected credentials back.
     fireEvent.click(screen.getByRole("button", { name: "Re-authenticate" }))
     expect(screen.getByRole("button", { name: "Static Credentials" })).toBeInTheDocument()
     expect(screen.queryByText("✓ Authenticated to AWS")).toBeNull()
+    expect(screen.getByTestId("detection-hint")).toHaveTextContent(
+      "Sign in below with different credentials.",
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }))
+    expect(await screen.findByText("AWS Credentials Detected")).toBeInTheDocument()
   })
 
   it("turns red when the credentials expire within minutes, and signs in again on request", async () => {

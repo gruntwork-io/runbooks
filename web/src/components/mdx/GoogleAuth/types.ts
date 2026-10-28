@@ -134,6 +134,8 @@ export interface GoogleAuthProps {
   id: string
   title?: string
   description?: string
+  /** Whether the block folds into a bar with its title once it's done, which expands it again when clicked. */
+  autoCollapse?: boolean
   /**
    * GCP project to authenticate against — the analogue of `ssoAccountId`. When
    * set, the project picker is skipped and this project is pinned.

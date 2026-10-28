@@ -2,7 +2,9 @@
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsbuildinfo",
     "target": "ES2023",
-    "lib": ["ES2023"],
+    // Specs run under Node, and the callbacks they pass to page.evaluate run
+    // in the renderer, so both sets of globals apply.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",

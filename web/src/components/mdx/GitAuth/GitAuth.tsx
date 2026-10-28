@@ -13,9 +13,12 @@ import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { GitAuthInstruction } from "./GitAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
 import { CredentialExpiryNotice } from "@/components/mdx/_shared/components/CredentialExpiryNotice"
+import { DetectionHint } from "@/components/mdx/_shared/components/DetectionHint"
 import { useCredentialExpiry } from "@/components/mdx/_shared/hooks/useCredentialExpiry"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
+import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import type { AppError } from "@/types/error"
 import type { GitAuthProps, GitProvider } from "./types"
@@ -54,6 +57,7 @@ function GitAuthInteractive({
   defaultTab,
   inputsId,
   __registryType = "GitAuth",
+  autoCollapse,
 }: GitAuthInternalProps) {
   const validationError = useMemo((): AppError | null => {
     if (!id) {
@@ -99,9 +103,11 @@ function GitAuthInteractive({
   )
 
   // Check for duplicate component IDs
+  const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
     id,
     __registryType,
+    blockRef,
   )
 
   // Error reporting context (for configuration errors only)
@@ -181,7 +187,7 @@ function GitAuthInteractive({
   // Whether the block looks for existing credentials. With detection off, the
   // controls and copy that re-run or explain detection (Check again, Reload,
   // the host picker's credential annotations, the auto-auth FAQ) are hidden,
-  // as AwsAuth and GoogleAuth hide their "Try auto-detection again".
+  // as AwsAuth and GoogleAuth hide their "Check again".
   const detectionEnabled = detectCredentials !== false
 
   // Host picker + config reload. GitLab shows it with a single known host too,
@@ -258,48 +264,53 @@ function GitAuthInteractive({
     auth.authStatus !== "authenticated" &&
     auth.authMethod === "oauth"
 
+  const done = shownStatus === "authenticated"
   return (
-    <div
-      data-testid={id}
-      className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
-    >
-      <ProgressStep done={shownStatus === "authenticated"} />
+    <AutoCollapse enabled={autoCollapse} done={done}>
+      <div
+        ref={blockRef}
+        data-fold="path"
+        data-testid={id}
+        className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
+      >
+        <ProgressStep done={done} />
 
-      {/* ID label - positioned at top right */}
-      <div className="absolute top-3 right-3 z-20">
-        <BlockIdLabel id={id} size="large" />
-      </div>
-
-      {/* Header with provider logo */}
-      <div className="flex items-start gap-4 @container">
-        <div className="border-r border-border pr-3 mr-0 self-stretch">
-          <StatusIcon
-            status={shownStatus}
-            className={`size-6 ${iconClasses} ${auth.authStatus === "authenticating" ? "animate-spin" : ""}`}
-          />
+        {/* ID label - positioned at top right */}
+        <div data-fold="keep" className="absolute top-3 right-3 z-20 flex items-center gap-1">
+          <BlockIdLabel id={id} size="large" />
+          <CollapseButton />
         </div>
 
-        <div className="flex-1 min-w-0">
-          {/* Title row with provider icon */}
-          <div className="flex items-center gap-1 mb-2">
-            <providerConfig.Logo className="size-6 text-foreground" />
-            <div className="text-md font-bold text-foreground">
-              <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
-            </div>
+        {/* Header with provider logo */}
+        <div data-fold="path" className="flex items-start gap-4 @container">
+          <div data-fold="keep" className="border-r border-border pr-3 mr-0 self-stretch">
+            <StatusIcon
+              status={shownStatus}
+              className={`size-6 ${iconClasses} ${auth.authStatus === "authenticating" ? "animate-spin" : ""}`}
+            />
           </div>
 
-          {resolvedDescription && (
-            <div className="text-md text-muted-foreground mb-4">
-              <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
+          <div data-fold="path" className="flex-1 min-w-0">
+            {/* Title row with provider icon */}
+            <div data-fold="title" className="flex items-center gap-1 mb-2">
+              <providerConfig.Logo className="size-6 text-foreground" />
+              <div className="text-md font-bold text-foreground">
+                <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
+              </div>
             </div>
-          )}
 
-          {/* Provider picker */}
-          {showProviderSelect && (
-            <ProviderSelect provider={provider} onSelect={handleSelectProvider} />
-          )}
+            {resolvedDescription && (
+              <div className="text-md text-muted-foreground mb-4">
+                <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
+              </div>
+            )}
 
-          {/* Host picker + config reload. Auto-detection lands on the CLI's
+            {/* Provider picker */}
+            {showProviderSelect && (
+              <ProviderSelect provider={provider} onSelect={handleSelectProvider} />
+            )}
+
+            {/* Host picker + config reload. Auto-detection lands on the CLI's
               default host first, so the switcher stays visible after
               authenticating whenever more than one host is available — that's
               how the user moves from gitlab.com to a self-managed instance
@@ -308,185 +319,183 @@ function GitAuthInteractive({
               there is a choice, so github.com-only users see no picker.
               With detection off it stays (the host still decides where the
               user signs in) but as a plain list, without Reload. */}
-          {showHostPicker && (
-            <HostSelect
-              id={id}
-              provider={providerConfig}
-              hosts={auth.availableHosts}
-              value={auth.selectedHost}
-              onChange={auth.handleHostSelect}
-              onReload={auth.reloadDetection}
-              downgradedHosts={auth.downgradedHosts}
-              disabled={auth.detectionStatus === "pending"}
-              detectsCredentials={detectionEnabled}
-            />
-          )}
+            {showHostPicker && (
+              <HostSelect
+                id={id}
+                provider={providerConfig}
+                hosts={auth.availableHosts}
+                value={auth.selectedHost}
+                onChange={auth.handleHostSelect}
+                onReload={auth.reloadDetection}
+                downgradedHosts={auth.downgradedHosts}
+                disabled={auth.detectionStatus === "pending"}
+                detectsCredentials={detectionEnabled}
+              />
+            )}
 
-          {/* Detection pending state - waiting for block or checking credentials */}
-          {auth.detectionStatus === "pending" && (
-            <div className="mb-4 text-info text-sm flex items-center gap-2">
-              <Loader2 className="size-4 animate-spin" />
-              <span>
-                {auth.waitingForBlockId
-                  ? `Waiting for "${auth.waitingForBlockId}" to run...`
-                  : "Checking for existing authentication..."}
-              </span>
-            </div>
-          )}
-
-          {/* Success state */}
-          {auth.authStatus === "authenticated" && auth.userInfo && (
-            <AuthSuccess
-              userInfo={auth.userInfo}
-              provider={providerConfig}
-              detectionSource={auth.detectionSource}
-              detectedScopes={auth.detectedScopes}
-              detectedTokenType={auth.detectedTokenType}
-              missingScope={auth.missingScope}
-              sessionEnvWarning={auth.sessionEnvWarning}
-              host={auth.selectedHost}
-              successMeta={auth.successMeta}
-              divergenceHint={auth.divergenceHint}
-              sessionStale={auth.sessionStale}
-              gitSslBackend={auth.cliStatus?.git?.sslBackend}
-              onApplySchannel={auth.applySchannel}
-              onReAuthenticate={auth.reAuthenticate}
-            />
-          )}
-          {expiry && auth.expiresAt && (
-            <CredentialExpiryNotice
-              expiresAt={auth.expiresAt}
-              expiry={expiry}
-              onSignInAgain={auth.reAuthenticate}
-            />
-          )}
-
-          {/* Error state (for manual auth failures) */}
-          {auth.authStatus === "failed" && auth.errorMessage && (
-            <div className="mb-4 text-destructive text-sm flex items-start gap-2">
-              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div className="min-w-0">
-                <strong>Authentication failed:</strong> {auth.errorMessage}
-              </div>
-            </div>
-          )}
-
-          {/* Detection warning (found credentials but they're invalid) */}
-          {auth.detectionWarning && auth.authStatus !== "authenticated" && (
-            <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
-              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div className="min-w-0">
-                <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
-                <br />
-                <span className="text-warning-foreground">
-                  Please authenticate manually below, or fix the credentials and reload.
+            {/* Detection pending state - waiting for block or checking credentials */}
+            {auth.detectionStatus === "pending" && (
+              <div className="mb-4 text-info text-sm flex items-center gap-2">
+                <Loader2 className="size-4 animate-spin" />
+                <span>
+                  {auth.waitingForBlockId ? (
+                    <>
+                      Waiting for{" "}
+                      <BlockLink blockId={auth.waitingForBlockId} className="bg-info-muted" /> to
+                      run...
+                    </>
+                  ) : (
+                    "Checking for existing authentication..."
+                  )}
                 </span>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Unreachable host: a TLS/server-cert/network failure is
+            {/* Success state */}
+            {auth.authStatus === "authenticated" && auth.userInfo && (
+              <AuthSuccess
+                userInfo={auth.userInfo}
+                provider={providerConfig}
+                detectionSource={auth.detectionSource}
+                detectedScopes={auth.detectedScopes}
+                detectedTokenType={auth.detectedTokenType}
+                missingScope={auth.missingScope}
+                sessionEnvWarning={auth.sessionEnvWarning}
+                host={auth.selectedHost}
+                successMeta={auth.successMeta}
+                divergenceHint={auth.divergenceHint}
+                sessionStale={auth.sessionStale}
+                gitSslBackend={auth.cliStatus?.git?.sslBackend}
+                onApplySchannel={auth.applySchannel}
+                onReAuthenticate={auth.reAuthenticate}
+              />
+            )}
+            {expiry && auth.expiresAt && (
+              <CredentialExpiryNotice
+                expiresAt={auth.expiresAt}
+                expiry={expiry}
+                onSignInAgain={auth.reAuthenticate}
+              />
+            )}
+
+            {/* Error state (for manual auth failures) */}
+            {auth.authStatus === "failed" && auth.errorMessage && (
+              <div className="mb-4 text-destructive text-sm flex items-start gap-2">
+                <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <strong>Authentication failed:</strong> {auth.errorMessage}
+                </div>
+              </div>
+            )}
+
+            {/* Detection warning (found credentials but they're invalid) */}
+            {auth.detectionWarning && auth.authStatus !== "authenticated" && (
+              <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
+                <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
+                  <br />
+                  <span className="text-warning-foreground">
+                    Please authenticate manually below, or fix the credentials and reload.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Unreachable host: a TLS/server-cert/network failure is
               NEVER an invalid-credentials warning. The card renders above the
               still-available manual UI. */}
-          {auth.unreachableInfo && auth.authStatus !== "authenticated" && (
-            <TlsErrorCard
-              info={auth.unreachableInfo}
-              onRetry={auth.retryUnreachable}
-              retrying={auth.detectionStatus === "pending"}
-            />
-          )}
+            {auth.unreachableInfo && auth.authStatus !== "authenticated" && (
+              <TlsErrorCard
+                info={auth.unreachableInfo}
+                onRetry={auth.retryUnreachable}
+                retrying={auth.detectionStatus === "pending"}
+              />
+            )}
 
-          {/* Authentication form (only show when not authenticated and detection is done) */}
-          {auth.authStatus !== "authenticated" && auth.detectionStatus === "done" && (
-            <>
-              {/* CLI-status-driven hint + the "Check again" control. The host
+            {/* Authentication form (only show when not authenticated and detection is done) */}
+            {auth.authStatus !== "authenticated" && auth.detectionStatus === "done" && (
+              <>
+                {/* CLI-status-driven hint + the "Check again" control. The host
                   picker carries Reload instead; without the picker (a
                   github.com-only GitHub block, or a `host`-pinned block) this is
                   the only way to re-run detection after Re-authenticate turns
                   focus re-detection off. With detection disabled the hint is
                   neutral copy and there is nothing to check again. */}
-              {auth.manualHint && (
-                <div
-                  data-testid="vcs-cli-hint"
-                  className="mb-4 text-sm text-muted-foreground flex items-center gap-2 flex-wrap"
-                >
-                  <span>{auth.manualHint}</span>
-                  {!showHostPicker && detectionEnabled && (
-                    <button
-                      type="button"
-                      onClick={auth.retryUnreachable}
-                      className="text-info hover:underline cursor-pointer text-sm font-medium"
-                    >
-                      Check again
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Custom OAuth Warning */}
-              {showCustomOAuthWarning && (
-                <CustomOAuthWarning
-                  clientId={auth.effectiveClientId!}
-                  onUseDefault={() => setUseDefaultOAuth(true)}
-                  onContinue={() => setCustomOAuthDismissed(true)}
-                />
-              )}
-
-              {/* Method tabs */}
-              <AuthTabs
-                authMethod={auth.authMethod}
-                setAuthMethod={auth.setAuthMethod}
-                provider={providerConfig}
-                oauthDisabled={oauthDisabled}
-                oauthDisabledReason={auth.oauthUnavailableReason ?? undefined}
-              />
-
-              {/* OAuth Flow (GitHub only) */}
-              {providerConfig.supportsOAuth &&
-                auth.authMethod === "oauth" &&
-                !showCustomOAuthWarning &&
-                !oauthDisabled && (
-                  <OAuthFlow
-                    authStatus={auth.authStatus}
-                    userCode={auth.oauthUserCode}
-                    verificationUri={auth.oauthVerificationUri}
-                    onStartOAuth={auth.startOAuth}
-                    onCancelOAuth={auth.cancelOAuth}
-                    provider={providerConfig}
-                    showAutoAuthInfo={detectionEnabled}
+                {auth.manualHint && (
+                  <DetectionHint
+                    hint={auth.manualHint}
+                    onCheckAgain={
+                      !showHostPicker && detectionEnabled ? auth.retryUnreachable : undefined
+                    }
                   />
                 )}
 
-              {/* PAT Form */}
-              {auth.authMethod === "pat" && (
-                <>
-                  <PatForm
-                    authStatus={auth.authStatus}
-                    patToken={auth.patToken}
-                    setPatToken={auth.setPatToken}
-                    showPatToken={auth.showPatToken}
-                    setShowPatToken={auth.setShowPatToken}
-                    onSubmit={auth.handlePatSubmit}
-                    provider={providerConfig}
-                    host={auth.selectedHost}
-                    instanceUrl={auth.gitlabInstanceUrl}
-                    setInstanceUrl={auth.setGitlabInstanceUrl}
-                    instanceInputRef={instanceFieldRef}
+                {/* Custom OAuth Warning */}
+                {showCustomOAuthWarning && (
+                  <CustomOAuthWarning
+                    clientId={auth.effectiveClientId!}
+                    onUseDefault={() => setUseDefaultOAuth(true)}
+                    onContinue={() => setCustomOAuthDismissed(true)}
                   />
-                  {/* Providers without OAuth (GitLab) surface the auto-detect
-                      FAQ here, since there is no OAuth tab to carry it. */}
-                  {!providerConfig.supportsOAuth && detectionEnabled && (
-                    <div className="mt-4">
-                      <AutoAuthInfo provider={providerConfig} />
-                    </div>
+                )}
+
+                {/* Method tabs */}
+                <AuthTabs
+                  authMethod={auth.authMethod}
+                  setAuthMethod={auth.setAuthMethod}
+                  provider={providerConfig}
+                  oauthDisabled={oauthDisabled}
+                  oauthDisabledReason={auth.oauthUnavailableReason ?? undefined}
+                />
+
+                {/* OAuth Flow (GitHub only) */}
+                {providerConfig.supportsOAuth &&
+                  auth.authMethod === "oauth" &&
+                  !showCustomOAuthWarning &&
+                  !oauthDisabled && (
+                    <OAuthFlow
+                      authStatus={auth.authStatus}
+                      userCode={auth.oauthUserCode}
+                      verificationUri={auth.oauthVerificationUri}
+                      onStartOAuth={auth.startOAuth}
+                      onCancelOAuth={auth.cancelOAuth}
+                      provider={providerConfig}
+                      showAutoAuthInfo={detectionEnabled}
+                    />
                   )}
-                </>
-              )}
-            </>
-          )}
+
+                {/* PAT Form */}
+                {auth.authMethod === "pat" && (
+                  <>
+                    <PatForm
+                      authStatus={auth.authStatus}
+                      patToken={auth.patToken}
+                      setPatToken={auth.setPatToken}
+                      showPatToken={auth.showPatToken}
+                      setShowPatToken={auth.setShowPatToken}
+                      onSubmit={auth.handlePatSubmit}
+                      provider={providerConfig}
+                      host={auth.selectedHost}
+                      instanceUrl={auth.gitlabInstanceUrl}
+                      setInstanceUrl={auth.setGitlabInstanceUrl}
+                      instanceInputRef={instanceFieldRef}
+                    />
+                    {/* Providers without OAuth (GitLab) surface the auto-detect
+                      FAQ here, since there is no OAuth tab to carry it. */}
+                    {!providerConfig.supportsOAuth && detectionEnabled && (
+                      <div className="mt-4">
+                        <AutoAuthInfo provider={providerConfig} />
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </AutoCollapse>
   )
 }
 

@@ -34,6 +34,7 @@ export function GitPullRequestInstruction({
   githubAuthId,
   gitAuthId,
   provider: propProvider,
+  autoCollapse,
 }: GitPullRequestProps) {
   const templateContext = useTemplateContext(inputsId)
   const rawOutputs = useAllOutputs()
@@ -97,6 +98,7 @@ export function GitPullRequestInstruction({
   return (
     <Instruction
       id={id}
+      autoCollapse={autoCollapse}
       icon={GitPullRequestIcon}
       title={cfg.instruction.cliTitle}
       description={resolvedDescription}

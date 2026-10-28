@@ -21,6 +21,7 @@ export function GitAuthInstruction({
   provider = "github",
   oauthScopes,
   inputsId,
+  autoCollapse,
 }: GitAuthProps & { __registryType?: BlockComponentType }) {
   // The interactive block reports an invalid `provider` as a configuration
   // error; here, fall back to GitHub rather than crash the runbook.
@@ -36,6 +37,7 @@ export function GitAuthInstruction({
   return (
     <Instruction
       id={id}
+      autoCollapse={autoCollapse}
       icon={LogIn}
       title={`Log into ${cfg.label}`}
       description={resolvedDescription}

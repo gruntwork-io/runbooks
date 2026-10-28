@@ -47,6 +47,7 @@ The user can still switch tabs. `defaultTab` only chooses the starting one.
 | `inputsId` | string or string[] | - | ID of one or more [Inputs](/authoring/blocks/inputs/) blocks. `title` and `description` resolve `{{ .inputs.VarName }}` expressions against them |
 | `title` | string | "AWS Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
+| `autoCollapse` | boolean | `false` | Folds the block down to its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks) |
 | `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable. GovCloud regions (`us-gov-east-1`, `us-gov-west-1`) are supported. When the credentials don't name a region themselves, this region also decides which partition (commercial or GovCloud) they are validated in |
 | `defaultTab` | `'credentials'`, `'sso'`, or `'profile'` | `'credentials'` | Which authentication tab the block opens on. An unrecognized value falls back to `'credentials'` |
 | `detectCredentials` | `false` or `CredentialSource[]` | `['env']` | Whether and how to detect existing credentials. See [Credential detection](#credential-detection) |
@@ -327,7 +328,7 @@ The `AWS_REGION` output is optional. If not provided, the AwsAuth block's `defau
 
 The `AWS_CREDENTIAL_EXPIRATION` output is optional too. With it, the block warns before the credentials expire, as [Expiring credentials](#expiring-credentials) describes. AwsAuth reads `AWS_CREDENTIAL_EXPIRATION` from the environment as well, with the source's prefix if it has one.
 
-If the referenced block has not run yet, AwsAuth shows *Waiting for "assume-cross-account" to run...* and pauses detection there. It does not skip to a later source. If the block ran but its outputs hold no valid credentials, detection moves on to the next source.
+If the referenced block has not run yet, AwsAuth shows *Waiting for assume-cross-account to run...*, with a link to that block, and pauses detection there. It does not skip to a later source. If the block ran but its outputs hold no valid credentials, detection moves on to the next source.
 
 <Aside type="caution">
 Only one `{ block: 'id' }` entry is allowed per AwsAuth block. More than one is a configuration error, and the block renders an error card in place of the authentication UI.
@@ -343,6 +344,8 @@ When a user clicks "Use Different Credentials":
 
 1. The manual authentication UI is shown (Static Credentials, SSO, or Local Profile tabs)
 2. The user must authenticate manually before any commands can access AWS
+
+A line above the sign-in tabs says what the user can do, followed by a **Check again** button that re-runs detection. It reads *No existing credentials found* when detection found nothing, asks the user to fix the credentials when the ones it found didn't validate, and says to sign in with different credentials after the user turned detected credentials down or clicked **Re-authenticate**. With `detectCredentials={false}` the line and the button are hidden.
 
 Credentials for the wrong account, such as production when the user expected development, were not registered, so no script runs with them.
 

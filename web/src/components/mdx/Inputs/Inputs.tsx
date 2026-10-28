@@ -9,6 +9,7 @@ import type { AppError } from "@/types/error"
 import { useApiGetBoilerplateConfig } from "@/hooks/useApiGetBoilerplateConfig"
 import { extractYamlFromChildren } from "../_shared/lib/extractYamlFromChildren"
 import { useInputRegistration } from "../_shared/hooks/useInputRegistration"
+import { untouchedValue } from "../_shared/lib/untouchedValue"
 
 /**
  * Inputs component - collects user input via a web form.
@@ -121,7 +122,19 @@ function Inputs({
     }
   }, [boilerplateConfig, prefilledVariables, registeredValues])
 
+  // What each field resets to: the runbook's value for it, prefilled or the
+  // config's default. Not a registered or saved value, which the user typed.
+  const defaults = Object.fromEntries(
+    (boilerplateConfig?.variables ?? []).map((variable) => [
+      variable.name,
+      (Object.hasOwn(prefilledVariables, variable.name)
+        ? prefilledVariables[variable.name]
+        : variable.default) ?? untouchedValue(variable),
+    ]),
+  )
+
   // Shared registration logic (ID registry, error reporting, form state, debouncing)
+  const blockRef = useRef<HTMLDivElement>(null)
   const {
     isDuplicate,
     isNormalizedCollision,
@@ -134,6 +147,7 @@ function Inputs({
   } = useInputRegistration({
     id,
     componentType: "Inputs",
+    blockRef,
     boilerplateConfig: boilerplateConfigWithPrefilledVariables,
     validationError,
     extraError: inlineContentError,
@@ -178,7 +192,7 @@ function Inputs({
   }
 
   return (
-    <div data-testid={id}>
+    <div ref={blockRef} data-testid={id}>
       <BoilerplateInputsForm
         id={id}
         blockType="Inputs"
@@ -192,6 +206,7 @@ function Inputs({
         hasGeneratedSuccessfully={hasSubmitted}
         variant={variant}
         isInlineMode={true}
+        defaults={defaults}
       />
     </div>
   )

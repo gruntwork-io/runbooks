@@ -139,8 +139,11 @@ describe("Prerequisites", () => {
     expect(within(row("tofu")).getByText(">= 1.6")).toBeInTheDocument()
     expect(within(row("gh")).getByText("optional")).toBeInTheDocument()
     expect(within(row("gh")).getByText("Opens the pull request.")).toBeInTheDocument()
-    // Install hints are for the tools a check finds a problem with.
-    expect(screen.queryByText("Install OpenTofu")).toBeNull()
+    // Install hints are for the tools a check finds a problem with. Until
+    // then they keep their space, as the status messages do, so the tools
+    // don't move when the check ends.
+    expect(screen.getByText("Install OpenTofu")).not.toBeVisible()
+    expect(screen.getByText("Checking the tools...")).not.toBeVisible()
     expect(screen.getByRole("button", { name: "Check" })).toBeEnabled()
     expect(invoke).not.toHaveBeenCalledWith("exec:run", expect.anything())
   })
@@ -155,7 +158,7 @@ describe("Prerequisites", () => {
       expect.objectContaining({ executableId: "exec-tools" }),
     )
     expect(screen.getByTestId("icon-running")).toBeInTheDocument()
-    expect(screen.getByText("Checking the tools...")).toBeInTheDocument()
+    expect(screen.getByText("Checking the tools...")).toBeVisible()
 
     await act(async () =>
       endRun(
@@ -171,16 +174,43 @@ describe("Prerequisites", () => {
     expect(screen.getByTestId("icon-fail")).toBeInTheDocument()
     expect(
       screen.getByText("Install or update the tools marked below, then check again."),
-    ).toBeInTheDocument()
+    ).toBeVisible()
+    expect(screen.getByText("Checking the tools...")).not.toBeVisible()
     expect(row("git")).toHaveAttribute("data-status", "found")
     expect(row("git")).toHaveTextContent("Found at /usr/bin/git")
     expect(row("tofu")).toHaveAttribute("data-status", "wrong_version")
     expect(row("tofu")).toHaveTextContent("1.5.7 at /opt/homebrew/bin/tofu doesn't meet >= 1.6.")
-    expect(within(row("tofu")).getByRole("link", { name: "Install OpenTofu" })).toBeInTheDocument()
+    expect(within(row("tofu")).getByRole("link", { name: "Install OpenTofu" })).toBeVisible()
     expect(row("gh")).toHaveAttribute("data-status", "missing")
     expect(row("gh")).toHaveTextContent("Not found on PATH.")
-    expect(within(row("gh")).getByText("brew install gh")).toBeInTheDocument()
+    expect(within(row("gh")).getByText("brew install gh")).toBeVisible()
     expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled()
+    // The logs stay closed, so the block doesn't grow when a check runs.
+    expect(screen.getByRole("button", { name: "View Logs" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    )
+  })
+
+  it("marks a tool it found differently from a check that passed", async () => {
+    renderBlock()
+
+    await userEvent.click(screen.getByRole("button", { name: "Check" }))
+    await act(async () =>
+      endRun(
+        finished("success", {
+          git_path: "/usr/bin/git",
+          tofu_path: "/bin/tofu",
+          tofu_version: "1.8.2",
+          gh_path: "/bin/gh",
+        }),
+      ),
+    )
+
+    const blockIcon = screen.getByTestId("icon-success")
+    const toolMark = row("git").querySelector("svg")
+    expect(toolMark).toHaveClass("text-success")
+    expect(toolMark?.innerHTML).not.toBe(blockIcon.innerHTML)
   })
 
   it("publishes its outputs for other blocks when the check passes or warns, and withdraws them when it fails", async () => {
@@ -207,6 +237,7 @@ describe("Prerequisites", () => {
       tofu_version: "1.8.2",
       gh_path: "",
     })
+    expect(screen.getByRole("button", { name: "View Outputs (4)" })).toBeVisible()
 
     await userEvent.click(screen.getByRole("button", { name: "Check again" }))
     await act(async () =>
@@ -215,6 +246,8 @@ describe("Prerequisites", () => {
 
     expect(row("git")).toHaveAttribute("data-status", "missing")
     expect(published()).toEqual({})
+    // The outputs bar keeps its space, hidden, so the block doesn't shrink.
+    expect(screen.getByText(/^View Outputs/)).not.toBeVisible()
   })
 
   it("counts as a step of the runbook, done while only optional tools are missing", async () => {
@@ -342,7 +375,7 @@ describe("Prerequisites", () => {
       expect(row("gh")).toHaveAttribute("data-status", "missing")
       expect(row("gh")).toHaveTextContent("Not found on PATH.")
       expect(failMark("gh")).toBeNull()
-      expect(screen.queryByText("brew install gh")).toBeNull()
+      expect(screen.getByText("brew install gh")).not.toBeVisible()
     })
 
     it("marks each of its tools, with its install hint, when none is found", async () => {
@@ -353,7 +386,7 @@ describe("Prerequisites", () => {
       expect(anyOf()).toHaveAttribute("data-status", "unmet")
       for (const name of ["gh", "glab"]) {
         expect(failMark(name)).not.toBeNull()
-        expect(within(row(name)).getByText(`brew install ${name}`)).toBeInTheDocument()
+        expect(within(row(name)).getByText(`brew install ${name}`)).toBeVisible()
       }
     })
 

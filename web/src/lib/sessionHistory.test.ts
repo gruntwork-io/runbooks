@@ -9,9 +9,11 @@ import {
 import type { File } from "@/components/artifacts/code/FileTree"
 import { fileChanges } from "@/lib/fileReview"
 import {
+  enteredValuesChanged,
   fileReviewChanged,
   parseSavedFileReview,
   parseSavedForm,
+  restoreEnteredValues,
   restoreFileReview,
   restoreRun,
   runEnded,
@@ -68,6 +70,28 @@ describe("a saved form", () => {
 
     expect(savedFormValue(saved, { name: "provider", locked: true })).toBeUndefined()
     expect(savedFormValue(saved, { name: "provider", locked: false })).toBe("github")
+  })
+})
+
+describe("values entered in place of a form's chips", () => {
+  it("come back as they were saved, by field", () => {
+    const fields = {
+      Repo: { linked: "{{ .Org }}/{{ .Name }}", entered: { "inputs.Org": "globex" } },
+      Repos: { linked: ["github.com/{{ .Org }}/x"], entered: { "inputs.Org": "" } },
+    }
+
+    expect(restoreEnteredValues(stored(enteredValuesChanged(fields)))).toEqual(fields)
+  })
+
+  it("are none for a payload of another shape, such as a script block's overrides", () => {
+    for (const payload of [
+      undefined,
+      null,
+      { outputs: { fetch_pr: {} } },
+      { fields: { Repo: { linked: "x", entered: { "inputs.Org": 1 } } } },
+    ]) {
+      expect(restoreEnteredValues(payload)).toEqual({})
+    }
   })
 })
 

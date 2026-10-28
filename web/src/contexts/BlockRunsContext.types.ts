@@ -15,8 +15,6 @@ export interface BlockRun {
 export interface BlockRunHandlers {
   /** Stops the block's running script. */
   stop: () => void
-  /** Scrolls the block into view. */
-  reveal: () => void
 }
 
 export interface BlockRunsContextType {
@@ -27,7 +25,6 @@ export interface BlockRunsContextType {
   /** Records a block's status. */
   reportRun: (run: BlockRun) => void
   stopRun: (blockId: string) => void
-  revealBlock: (blockId: string) => void
 }
 
 export const BlockRunsContext = createContext<BlockRunsContextType | undefined>(undefined)

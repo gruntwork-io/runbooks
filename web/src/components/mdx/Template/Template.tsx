@@ -66,7 +66,12 @@ interface TemplateProps {
 
 function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
   // Register with ID registry to detect duplicates (including normalized collisions like "a-b" vs "a_b")
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, "Template")
+  const blockRef = useRef<HTMLDivElement>(null)
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    "Template",
+    blockRef,
+  )
 
   const { reportError, clearError } = useErrorReporting()
 
@@ -451,7 +456,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
 
   // Render the form with output dependency warning and inline render errors
   return (
-    <div data-testid={id}>
+    <div ref={blockRef} data-testid={id}>
       {/* Show render errors inline (don't unmount the form) */}
       {renderError && <ErrorDisplay error={renderError} />}
 

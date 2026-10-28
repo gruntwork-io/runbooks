@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
+  chipKeysIn,
   containsTemplateValue,
   isTemplateValue,
   outputDependenciesIn,
@@ -8,7 +9,10 @@ import {
   resolvedItems,
   resolvedValueText,
   summarizeTemplateValue,
+  wholeValueKey,
+  withEnteredValues,
 } from "./templateValue"
+import { outputRef } from "./outputOverrides"
 
 describe("isTemplateValue", () => {
   it.each([
@@ -34,25 +38,27 @@ describe("parseTemplateValue", () => {
   it("reads a whole-value reference as one ref segment", () => {
     expect(parseTemplateValue("{{ .SecurityModulesVersion }}")).toEqual({
       kind: "segments",
-      segments: [{ kind: "ref", name: "SecurityModulesVersion" }],
+      segments: [
+        { kind: "ref", name: "SecurityModulesVersion", action: "{{ .SecurityModulesVersion }}" },
+      ],
     })
   })
 
   it("reads an .inputs reference by its variable name", () => {
     expect(parseTemplateValue("{{ .inputs.ProjectName }}")).toEqual({
       kind: "segments",
-      segments: [{ kind: "ref", name: "ProjectName" }],
+      segments: [{ kind: "ref", name: "ProjectName", action: "{{ .inputs.ProjectName }}" }],
     })
   })
 
-  it("reads a reference with trim markers and no spaces", () => {
+  it("reads a reference with trim markers and no spaces, keeping its action without the markers", () => {
     expect(parseTemplateValue("{{- .ProjectName -}}")).toEqual({
       kind: "segments",
-      segments: [{ kind: "ref", name: "ProjectName" }],
+      segments: [{ kind: "ref", name: "ProjectName", action: "{{ .ProjectName }}" }],
     })
     expect(parseTemplateValue("{{.ProjectName}}")).toEqual({
       kind: "segments",
-      segments: [{ kind: "ref", name: "ProjectName" }],
+      segments: [{ kind: "ref", name: "ProjectName", action: "{{.ProjectName}}" }],
     })
   })
 
@@ -61,15 +67,15 @@ describe("parseTemplateValue", () => {
       kind: "segments",
       segments: [
         { kind: "text", text: "aws-sso@" },
-        { kind: "ref", name: "EmailDomainName" },
+        { kind: "ref", name: "EmailDomainName", action: "{{ .EmailDomainName }}" },
       ],
     })
     expect(parseTemplateValue("{{ .RepoBaseUrl }}/{{ .InfraModulesRepoName }}")).toEqual({
       kind: "segments",
       segments: [
-        { kind: "ref", name: "RepoBaseUrl" },
+        { kind: "ref", name: "RepoBaseUrl", action: "{{ .RepoBaseUrl }}" },
         { kind: "text", text: "/" },
-        { kind: "ref", name: "InfraModulesRepoName" },
+        { kind: "ref", name: "InfraModulesRepoName", action: "{{ .InfraModulesRepoName }}" },
       ],
     })
   })
@@ -79,9 +85,9 @@ describe("parseTemplateValue", () => {
       kind: "segments",
       segments: [
         { kind: "text", text: "prefix" },
-        { kind: "ref", name: "A" },
+        { kind: "ref", name: "A", action: "{{ .A }}" },
         { kind: "text", text: " - " },
-        { kind: "ref", name: "B" },
+        { kind: "ref", name: "B", action: "{{ .B }}" },
         { kind: "text", text: "suffix" },
       ],
     })
@@ -134,11 +140,28 @@ describe("parseTemplateValue", () => {
     })
   })
 
-  it("reads block outputs and loop values as computed with no refs", () => {
-    expect(parseTemplateValue("{{ .outputs.create_account.account_id }}")).toEqual({
+  it("reads a block output as an output segment, with the id the template writes", () => {
+    expect(parseTemplateValue("acme-{{ .outputs.create-account.account_id }}")).toEqual({
+      kind: "segments",
+      segments: [
+        { kind: "text", text: "acme-" },
+        {
+          kind: "output",
+          ref: outputRef("create-account", "account_id"),
+          action: "{{ .outputs.create-account.account_id }}",
+        },
+      ],
+    })
+  })
+
+  it("reads anything more done with an output as computed, naming no variable for it", () => {
+    expect(parseTemplateValue("{{ .outputs.create_account.account_id | upper }}")).toEqual({
       kind: "computed",
       refs: [],
     })
+  })
+
+  it("reads loop values as computed with no refs", () => {
     expect(parseTemplateValue("{{ .__each__ }}")).toEqual({ kind: "computed", refs: [] })
     expect(parseTemplateValue("{{ $x := 1 }}{{ $x.Name }}")).toEqual({ kind: "computed", refs: [] })
   })
@@ -165,6 +188,73 @@ describe("summarizeTemplateValue", () => {
       "Set automatically",
     )
     expect(summarizeTemplateValue("{{ now }}")).toBe("Set automatically")
+  })
+})
+
+describe("withEnteredValues", () => {
+  it("puts an entered value in place of every chip for that variable", () => {
+    expect(
+      withEnteredValues("{{ .A }}-{{ .inputs.A }}/{{ .B }}", { "inputs.A": "x", "inputs.C": "z" }),
+    ).toBe("x-x/{{ .B }}")
+  })
+
+  it("puts an entered value in place of a block output, by its reference", () => {
+    const entered = { "outputs.create_account.account_id": "123" }
+    expect(withEnteredValues("acme-{{ .outputs.create-account.account_id }}", entered)).toBe(
+      "acme-123",
+    )
+  })
+
+  it("leaves a value with nothing entered for its chips as it is, trim markers and all", () => {
+    expect(withEnteredValues("a {{- .A }}", { "inputs.B": "x" })).toBe("a {{- .A }}")
+  })
+
+  it("keeps what the trim markers removed out when it puts a value in", () => {
+    expect(withEnteredValues("a  {{- .A -}}  b {{- .B }}", { "inputs.A": " x " })).toBe(
+      "a x b{{ .B }}",
+    )
+  })
+
+  it("keeps an entered {{ as text, not the start of an action", () => {
+    expect(withEnteredValues("{{ .A }}-state", { "inputs.A": "a{{b}}" })).toBe(
+      'a{{ "{{" }}b}}-state',
+    )
+  })
+
+  it("replaces a whole computed or sensitive value entered as one", () => {
+    const computed = '{{ if eq .Env "prod" }}large{{ else }}small{{ end }}'
+    expect(withEnteredValues(computed, { [wholeValueKey(computed)]: "medium" })).toBe("medium")
+    expect(withEnteredValues(computed, { "inputs.Env": "prod" })).toBe(computed)
+    expect(withEnteredValues("{{ .A }}-x", { [wholeValueKey("{{ .A }}-x")]: "s3cr3t" })).toBe(
+      "s3cr3t",
+    )
+  })
+
+  it("enters values in list entries, map keys and map values", () => {
+    expect(
+      withEnteredValues(
+        {
+          repos: ["catalog", "github.com/{{ .Org }}/modules"],
+          tags: { "{{ .Org }}:Team": "DevOps", Owner: { email: "ops@{{ .Org }}.io" } },
+          count: 3,
+        },
+        { "inputs.Org": "acme" },
+      ),
+    ).toEqual({
+      repos: ["catalog", "github.com/acme/modules"],
+      tags: { "acme:Team": "DevOps", Owner: { email: "ops@acme.io" } },
+      count: 3,
+    })
+  })
+})
+
+describe("chipKeysIn", () => {
+  it("has the keys of every chip a value's templates show, by both kinds of key", () => {
+    expect(
+      chipKeysIn(["x", "{{ .A }}-{{ .outputs.b.c }}", { "{{ .D | upper }}": "plain" }]),
+    ).toEqual(
+      new Set(["={{ .A }}-{{ .outputs.b.c }}", "inputs.A", "outputs.b.c", "={{ .D | upper }}"]),
+    )
   })
 })
 

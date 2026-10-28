@@ -13,8 +13,9 @@ import {
 import { CodeBlock } from "@/components/mdx/_shared/components/CodeBlock"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
-import { useRevealSelf } from "@/components/mdx/_shared/hooks/useRevealSelf"
+import { Reserved } from "@/components/mdx/_shared/components/Reserved"
 import { useRunSequencing } from "@/components/mdx/_shared/hooks/useRunSequencing"
 import { extractYamlFromChildren } from "@/components/mdx/_shared/lib/extractYamlFromChildren"
 import { makeStatusStyles } from "@/components/mdx/_shared/lib/statusStyles"
@@ -38,6 +39,8 @@ interface PrerequisitesProps {
   id: string
   title?: string | undefined
   description?: string | undefined
+  /** Whether the block folds into a bar with its title once it's done, which expands it again when clicked. */
+  autoCollapse?: boolean | undefined
   successMessage?: string | undefined
   warnMessage?: string | undefined
   failMessage?: string | undefined
@@ -132,10 +135,13 @@ function Prerequisites({
   failMessage = "Install or update the tools marked below, then check again.",
   runningMessage = "Checking the tools...",
   children,
+  autoCollapse,
 }: PrerequisitesProps) {
+  const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
     id,
     "Prerequisites",
+    blockRef,
   )
   const { reportError, clearError } = useErrorReporting()
   const { enabled: instructionMode } = useInstructionMode()
@@ -143,16 +149,13 @@ function Prerequisites({
   const { state, check, cancel, error } = usePrerequisitesRun(id)
   const status: ExecutionStatus = state.status
 
-  const blockRef = useRef<HTMLDivElement>(null)
-  const revealSelf = useRevealSelf(blockRef)
-  const { blockers, stopRun, revealBlock } = useRunSequencing({
+  const { blockers, stopRun } = useRunSequencing({
     blockId: id,
     status,
     exclusive: false,
     dependsOn: undefined,
     outputDependencyIds: NO_OUTPUT_DEPENDENCIES,
     stop: cancel,
-    reveal: revealSelf,
   })
 
   const configError = toolList.ok ? null : toolList.error.message
@@ -209,9 +212,10 @@ function Prerequisites({
         icon={PackageCheck}
         title={title ?? "Make sure these tools are installed:"}
         description={description}
+        autoCollapse={autoCollapse}
         note={
           <div className="space-y-3">
-            <ToolList requirements={spec.requirements} results={[]} showAllInstallHints />
+            <ToolList requirements={spec.requirements} results={null} />
             <div>To check them, run:</div>
             <CodeBlock>
               <code className="language-bash whitespace-pre-wrap">{checkCommands(spec)}</code>
@@ -225,110 +229,131 @@ function Prerequisites({
   // The outputs say what the check found: each tool's path, and the versions it read.
   const results = state.outputs ? resultsFromOutputs(spec, revealOutputs(state.outputs)) : []
   const finished = status === "success" || status === "warn" || status === "fail"
-  const message = {
-    success: { text: successMessage, className: "text-success" },
-    warn: { text: warnMessage, className: "text-warning" },
-    fail: { text: failMessage, className: "text-destructive" },
-    running: { text: runningMessage, className: "text-info" },
-    pending: null,
-  }[status]
+  const message = (text: string, className: string) => (
+    <span className={className}>
+      <InlineMarkdown>{text}</InlineMarkdown>
+    </span>
+  )
 
+  // A warning means only optional tools are missing
+  const done = status === "success" || status === "warn"
   return (
-    <div
-      ref={blockRef}
-      data-testid={id}
-      className={`runbook-block relative rounded-sm border ${STATUS_STYLES.getStatusClasses(status)} mb-5 p-4`}
-    >
-      {/* A warning means only optional tools are missing */}
-      <ProgressStep done={status === "success" || status === "warn"} />
+    <AutoCollapse enabled={autoCollapse} done={done}>
+      <div
+        data-fold="path"
+        ref={blockRef}
+        data-testid={id}
+        className={`runbook-block relative rounded-sm border ${STATUS_STYLES.getStatusClasses(status)} mb-5 p-4`}
+      >
+        <ProgressStep done={done} />
 
-      <div className="absolute top-3 right-3 z-20">
-        <BlockIdLabel id={id} size="large" />
-      </div>
-
-      <div className="flex @container">
-        <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <STATUS_STYLES.StatusIcon
-            status={status}
-            data-testid={`icon-${status}`}
-            className={`size-6 ${STATUS_STYLES.getStatusIconClasses(status)} ${status === "running" ? "animate-spin" : ""}`}
-          />
+        <div data-fold="keep" className="absolute top-3 right-3 z-20 flex items-center gap-1">
+          <BlockIdLabel id={id} size="large" />
+          <CollapseButton />
         </div>
 
-        <div className="flex-1 min-w-0 space-y-2">
-          <div className="text-md font-bold text-muted-foreground mr-12">
-            <InlineMarkdown>{title ?? "Tools this runbook needs"}</InlineMarkdown>
+        <div data-fold="path" className="flex @container">
+          <div
+            data-fold="keep"
+            className="border-r border-border pr-2 mr-4 flex flex-col items-center"
+          >
+            <STATUS_STYLES.StatusIcon
+              status={status}
+              data-testid={`icon-${status}`}
+              className={`size-6 ${STATUS_STYLES.getStatusIconClasses(status)} ${status === "running" ? "animate-spin" : ""}`}
+            />
           </div>
-          {description && (
-            <div className="text-md text-muted-foreground mb-3">
-              <InlineMarkdown>{description}</InlineMarkdown>
+
+          <div data-fold="path" className="flex-1 min-w-0 space-y-2">
+            <div data-fold="title" className="text-md font-bold text-muted-foreground mr-12">
+              <InlineMarkdown>{title ?? "Tools this runbook needs"}</InlineMarkdown>
             </div>
-          )}
-          {message?.text && (
-            <div className={`${message.className} font-semibold text-sm mb-3`}>
-              <InlineMarkdown>{message.text}</InlineMarkdown>
-            </div>
-          )}
-
-          <ToolList requirements={spec.requirements} results={results} />
-
-          <div className="border-b border-border"></div>
-
-          <RunBlockedWarning
-            blockType="check"
-            exclusive={false}
-            blockers={blockers}
-            onStop={stopRun}
-            onReveal={revealBlock}
-          />
-
-          {error && (
-            <div className="mb-3 text-sm text-destructive flex items-start gap-2">
-              <XCircle className="size-4 mt-0.5 flex-shrink-0" />
-              <div className="min-w-0">
-                <strong>{error.message}</strong>
-                {error.details && (
-                  <div className="text-xs mt-1 text-destructive">{error.details}</div>
-                )}
+            {description && (
+              <div className="text-md text-muted-foreground mb-3">
+                <InlineMarkdown>{description}</InlineMarkdown>
               </div>
-            </div>
-          )}
+            )}
+            {/* Each status's message keeps its space, before the first check
+                too, so the tools don't move as checks run and end. */}
+            <Reserved
+              className="font-semibold text-sm mb-3"
+              variants={{
+                running: message(runningMessage, "text-info"),
+                success: message(successMessage, "text-success"),
+                warn: message(warnMessage, "text-warning"),
+                fail: message(failMessage, "text-destructive"),
+              }}
+              shown={status === "pending" ? null : status}
+            />
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={status === "running" || isRunBlocked(blockers)}
-              onClick={check}
-            >
-              {finished ? "Check again" : "Check"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => cancel()}
-              disabled={status !== "running"}
-              className="text-destructive hover:text-destructive hover:bg-destructive-muted disabled:text-muted-foreground disabled:hover:bg-transparent"
-            >
-              <Square className="size-4 mr-1" />
-              Stop
-            </Button>
+            <ToolList requirements={spec.requirements} results={results} />
+
+            <div className="border-b border-border"></div>
+
+            <RunBlockedWarning
+              blockType="check"
+              exclusive={false}
+              blockers={blockers}
+              onStop={stopRun}
+            />
+
+            {error && (
+              <div className="mb-3 text-sm text-destructive flex items-start gap-2">
+                <XCircle className="size-4 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <strong>{error.message}</strong>
+                  {error.details && (
+                    <div className="text-xs mt-1 text-destructive">{error.details}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={status === "running" || isRunBlocked(blockers)}
+                onClick={check}
+              >
+                <Reserved
+                  className="justify-items-center"
+                  variants={{ check: "Check", checkAgain: "Check again" }}
+                  shown={finished ? "checkAgain" : "check"}
+                />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => cancel()}
+                disabled={status !== "running"}
+                className="text-destructive hover:text-destructive hover:bg-destructive-muted disabled:text-muted-foreground disabled:hover:bg-transparent"
+              >
+                <Square className="size-4 mr-1" />
+                Stop
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="mt-4 space-y-2">
-        <ViewLogs
-          logs={state.logs}
-          status={status}
-          autoOpen={status === "running"}
-          blockId={id}
-          logFilePath={state.logFilePath}
-        />
-        {/* What other blocks can read: a failed check publishes nothing. */}
-        <ViewOutputs outputs={status === "fail" ? null : state.outputs} autoOpen={false} />
+        <div className="mt-4 space-y-2">
+          {/* The tool list shows what the check found, so the logs stay
+              closed, and the block keeps its size, until they're opened. */}
+          <ViewLogs
+            logs={state.logs}
+            status={status}
+            blockId={id}
+            logFilePath={state.logFilePath}
+          />
+          {/* What other blocks can read: a failed check publishes nothing. */}
+          <ViewOutputs
+            outputs={status === "fail" ? null : state.outputs}
+            autoOpen={false}
+            reserveSpace
+          />
+        </div>
       </div>
-    </div>
+    </AutoCollapse>
   )
 }
 

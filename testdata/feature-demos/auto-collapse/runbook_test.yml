@@ -1,0 +1,24 @@
+# Test configuration for the auto-collapse feature demo. autoCollapse only
+# changes how a block shows once it's done, so the blocks run as usual.
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+  parallelizable: true
+
+tests:
+  - name: happy-path
+    description: Every block runs, and the folded install block's output reaches show-version
+    steps:
+      - block: install
+      - block: configure
+      - block: disk-space
+        expect: warn
+      - block: show-version
+        assertions:
+          - type: output_equals
+            block: install
+            output: version
+            value: "1.4.0"

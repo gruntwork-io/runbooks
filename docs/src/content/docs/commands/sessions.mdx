@@ -51,11 +51,11 @@ The blocks come back as you left them, and so does the runbook's [progress](/aut
 
 | Block | What comes back | What is checked |
 |-------|-----------------|-----------------|
-| [\<Inputs\>](/authoring/blocks/inputs/) | The values you typed. A form you had submitted is still submitted. | |
+| [\<Inputs\>](/authoring/blocks/inputs/) | The values you typed, and the values you [entered in place of a linked value's chips](/authoring/boilerplate/#defaults-that-use-other-variables). A form you had submitted is still submitted. | |
 | [\<Command\>](/authoring/blocks/command/) and [\<Check\>](/authoring/blocks/check/) | The last run: its status, logs and outputs. A block that reads another block's output runs without that block running again. The [outputs you entered by hand](/authoring/blocks/command/#entering-an-output-by-hand). | |
 | [\<Finish\>](/authoring/blocks/finish/) | Whether you finished the runbook, with the last run of its final check if it has one. It doesn't celebrate again. | |
 | [\<Prerequisites\>](/authoring/blocks/prerequisites/) | The last check: what it found for each tool, its logs and its outputs. It doesn't check again. | |
-| [\<Template\>](/authoring/blocks/template/) | The values you typed, and whether you had generated its files. | |
+| [\<Template\>](/authoring/blocks/template/) | The values you typed, the values you [entered in place of a linked value's chips](/authoring/boilerplate/#defaults-that-use-other-variables), and whether you had generated its files. | |
 | [\<GitClone\>](/authoring/blocks/gitclone/) | The repository you cloned or selected, with its outputs. | That it is still a git repository on disk. |
 | [\<DirPicker\>](/authoring/blocks/dirpicker/) | The path, with a dropdown selection for each of its directories that is still there. | |
 | [\<GitPullRequest\>](/authoring/blocks/gitpullrequest/), [\<GitHubPullRequest\>](/authoring/blocks/githubpullrequest/) and [\<GitLabMergeRequest\>](/authoring/blocks/gitlabmergerequest/) | The pull or merge request you opened, with its outputs, and the form fields you edited. | |

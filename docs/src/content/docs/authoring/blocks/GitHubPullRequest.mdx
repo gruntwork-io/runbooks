@@ -73,6 +73,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
 | `title` | `string` | No | Display title for the block header. Supports inline markdown and template expressions. |
 | `description` | `string` | No | Description text below the title. Supports inline markdown and template expressions. |
+| `autoCollapse` | `boolean` | No | Folds the block down to its title once the pull request is opened. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). |
 | `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access. |
 | `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) or [`<GitHubAuth>`](/authoring/blocks/githubauth) block. Works like `githubAuthId`. If the linked block signed in to GitLab, the block shows a blocking error. |
@@ -134,7 +135,7 @@ The block shows **Git Push** until you choose "create another".
 
 The block needs a `<GitClone>` block that has cloned or selected a repository, which the PR is created against. With `githubAuthId` or `gitAuthId`, it also needs the auth block it names, a `<GitHubAuth>` block or a `<GitAuth provider="github">` block, to have signed in. It checks both and shows an amber warning for whichever is missing. The Create PR button stays disabled until both are met.
 
-For authentication, the block waits for the `__AUTHENTICATED` output that the block referenced by `githubAuthId` or `gitAuthId` sets once it signs in, whichever way the user signed in. Until then, the block displays "Waiting for GitHub authentication" and names the block to complete. Without `githubAuthId` or `gitAuthId`, the block doesn't wait for an auth block. It creates the PR with the session's GitHub token, and fails if the session has none.
+For authentication, the block waits for the `__AUTHENTICATED` output that the block referenced by `githubAuthId` or `gitAuthId` sets once it signs in, whichever way the user signed in. Until then, the block displays "Waiting for GitHub authentication" and links to the block to complete. Without `githubAuthId` or `gitAuthId`, the block doesn't wait for an auth block. It creates the PR with the session's GitHub token, and fails if the session has none.
 
 For the repository, the block uses the workspace's active repository: the one selected in the workspace's repository dropdown, which is the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until the user selects another. No prop picks a `<GitClone>` block. Until a `<GitClone>` block has added a repository to the workspace, the block displays "No repository available". A `<GitClone>` block with `showFileTree={false}` doesn't add its repository.
 

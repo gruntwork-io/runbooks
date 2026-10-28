@@ -208,7 +208,7 @@ describe("useAwsAuth — profile sign-in reply after the attempt ended", () => {
     secretAccessKey: "dev-secret",
   }
 
-  it("ignores a reply that lands after 'Try auto-detection again'", async () => {
+  it("ignores a reply that lands after 'Check again'", async () => {
     replyWith([DEFAULT])
     const answer = holdProfileAuth()
     const { result } = renderHook(

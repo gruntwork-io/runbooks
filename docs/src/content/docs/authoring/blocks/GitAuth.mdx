@@ -43,7 +43,7 @@ If no credentials are detected, users authenticate manually.
 
 To read prefixed variables such as `CI_GITHUB_TOKEN` or `CI_GITLAB_TOKEN`, add `{ env: { prefix: 'CI_' } }` to `detectCredentials`. See [`<GitHubAuth>`](/authoring/blocks/githubauth/#detection-sources) and [`<GitLabAuth>`](/authoring/blocks/gitlabauth/#prefixed-environment-variables) for the variables each provider reads.
 
-`detectCredentials` can also list `{ block: 'block-id' }` to take the token another block wrote to its outputs (`GITHUB_TOKEN`/`GH_TOKEN` or `GITLAB_TOKEN`), or the credential another `<GitAuth>` block authenticated. Sources are tried in the order you list them. If that block has not run yet, the block shows *Waiting for "block-id" to run...* and detection pauses there without moving to a later source. If the block ran without leaving a usable token, detection moves on to the next source.
+`detectCredentials` can also list `{ block: 'block-id' }` to take the token another block wrote to its outputs (`GITHUB_TOKEN`/`GH_TOKEN` or `GITLAB_TOKEN`), or the credential another `<GitAuth>` block authenticated. Sources are tried in the order you list them. If that block has not run yet, the block shows *Waiting for block-id to run...*, with a link to that block, and detection pauses there without moving to a later source. If the block ran without leaving a usable token, detection moves on to the next source.
 
 ### Disabling detection
 
@@ -124,6 +124,7 @@ Five minutes before the token expires, the block turns red, says when it expires
 | `hideProviderSelect` | `boolean` | No | `false` | When `true`, hide the provider dropdown and lock the provider to `provider`. |
 | `title` | `string` | No | `"Git Authentication"` | Block title (supports template expressions). |
 | `description` | `string` | No | - | Block description (supports template expressions). |
+| `autoCollapse` | `boolean` | No | `false` | Folds the block down to its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
 | `host` | `string` | No | - | Pins the host for the provider set by `provider` and hides the host picker. GitHub: `github.com`, a GitHub Enterprise Server host (`github.example.com`), or a GHE.com tenant (`acme.ghe.com`). GitLab: `gitlab.com` or a self-managed instance. See [Hosts](#hosts). |
 | `oauthClientId` | `string \| Record<string, string>` | No | Gruntwork's app (`github.com` only) | Custom GitHub OAuth App client ID. A string applies to `host` when set, otherwise to `github.com`. A map is keyed by host. Required for OAuth on GitHub Enterprise hosts. GitHub only. |
 | `oauthScopes` | `string[]` | No | `['repo']` (GitHub) | OAuth scopes to request on GitHub. GitLab has no OAuth flow, so for GitLab this only changes the scopes that [instruction mode](/intro/instruction-mode/) lists, `read_repository` and `write_repository` by default. |

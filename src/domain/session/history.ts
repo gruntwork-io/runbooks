@@ -18,8 +18,9 @@ import { SessionEventError } from "../../errors/index.ts"
  *  - `clone`: a repository cloned or selected, or given up.
  *  - `pull-request`: a pull or merge request opened, or set aside for another.
  *  - `auth`: a sign-in, or a sign-out.
- *  - `overrides`: the values a script block uses in place of other blocks'
- *    outputs, entered by hand or reset.
+ *  - `overrides`: values entered by hand in place of what a block links to,
+ *    or reset: a script block's in place of other blocks' outputs, a form's
+ *    in place of the chips of its linked values.
  *  - `review`: the generated files that changed since the user last reviewed
  *    them in the Files workspace, which records it as if it were a block.
  */

@@ -12,14 +12,11 @@ interface UseRunSequencingProps {
   outputDependencyIds: readonly string[]
   /** Stops this block's running script. */
   stop: () => void
-  /** Scrolls this block into view. */
-  reveal: () => void
 }
 
 interface UseRunSequencingReturn {
   blockers: RunBlockers
   stopRun: (blockId: string) => void
-  revealBlock: (blockId: string) => void
 }
 
 /**
@@ -33,21 +30,17 @@ export function useRunSequencing({
   dependsOn,
   outputDependencyIds,
   stop,
-  reveal,
 }: UseRunSequencingProps): UseRunSequencingReturn {
-  const { runs, registerBlock, reportRun, stopRun, revealBlock } = useBlockRuns()
+  const { runs, registerBlock, reportRun, stopRun } = useBlockRuns()
 
-  const handlersRef = useRef({ stop, reveal })
+  const stopRef = useRef(stop)
   useEffect(() => {
-    handlersRef.current = { stop, reveal }
-  }, [stop, reveal])
+    stopRef.current = stop
+  }, [stop])
 
   useEffect(() => {
     if (!blockId) return
-    return registerBlock(blockId, {
-      stop: () => handlersRef.current.stop(),
-      reveal: () => handlersRef.current.reveal(),
-    })
+    return registerBlock(blockId, { stop: () => stopRef.current() })
   }, [blockId, registerBlock])
 
   useEffect(() => {
@@ -71,5 +64,5 @@ export function useRunSequencing({
     [blockId, exclusive, outputDependencyIds, dependsOnIds, runs],
   )
 
-  return { blockers, stopRun, revealBlock }
+  return { blockers, stopRun }
 }

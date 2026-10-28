@@ -1,14 +1,18 @@
 import React, { useMemo, useState, useEffect, useContext } from "react"
-import { ChevronDown, ChevronRight } from "lucide-react"
+import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { BoilerplateVariable } from "@/types/boilerplateVariable"
 import type { BoilerplateConfig, Section } from "@/types/boilerplateConfig"
 import { formatVariableLabel } from "../lib/formatVariableLabel"
 import { FormControl } from "./FormControls"
+import type { FieldLinks } from "./TemplateValue"
 import { useFormState } from "../hooks/useFormState"
 import { useFormValidation } from "../hooks/useFormValidation"
 import { useResolvedTemplateValues } from "../hooks/useResolvedTemplateValues"
 import { useOutputDependencyStatus } from "../hooks/useOutputDependencyStatus"
+import { useEnteredValues } from "../hooks/useEnteredValues"
+import { containsTemplateValue, isTemplateValue } from "../lib/templateValue"
+import { untouchedValue } from "../lib/untouchedValue"
 import { markKeystroke } from "@/lib/renderPerf"
 import { FormStatus } from "./FormStatus"
 import { UnmetDependenciesWarning } from "./UnmetDependenciesWarning"
@@ -16,6 +20,7 @@ import { BlockIdLabel } from "./BlockIdLabel"
 import { ProgressStep } from "./ProgressStep"
 import type { BlockOutput } from "@/lib/templateUtils"
 import { ErrorReportingContext } from "@/contexts/ErrorReportingContext.types"
+import { useSensitiveInputNames } from "@/contexts/useRunbook"
 
 const NO_VARIABLES: BoilerplateVariable[] = []
 const NO_VALUES: Record<string, unknown> = {}
@@ -102,6 +107,13 @@ interface BoilerplateInputsFormProps {
    * work out what linked values come to.
    */
   importedValues?: Record<string, unknown>
+  /**
+   * What each field resets to: the runbook's value for it. Without it, each
+   * variable's default in `boilerplateConfig`, or what its control shows
+   * without one. A block whose config starts from the values it saved passes
+   * the runbook's own.
+   */
+  defaults?: Record<string, unknown>
 }
 
 /**
@@ -110,6 +122,7 @@ interface BoilerplateInputsFormProps {
 interface VariableFieldProps {
   id: string
   variable: BoilerplateVariable
+  /** What the field shows: its value, or its linked value when values were entered for its chips. */
   value: unknown
   /** What a template value comes to right now, if known. */
   resolvedValue?: unknown
@@ -121,6 +134,10 @@ interface VariableFieldProps {
    * the block it's imported from ("inherited"), or the template locks it.
    */
   readOnly?: "inherited" | "locked" | undefined
+  /** What its chips link to, and the values entered in their place. */
+  links: FieldLinks
+  /** Puts the runbook's value back. Undefined while the field has it, or can't be changed. */
+  onReset?: (() => void) | undefined
 }
 
 const VariableField: React.FC<VariableFieldProps> = ({
@@ -132,9 +149,12 @@ const VariableField: React.FC<VariableFieldProps> = ({
   onChange,
   onBlur,
   readOnly,
+  links,
+  onReset,
 }) => {
   const isBooleanType = variable.type === "bool"
   const disabled = readOnly !== undefined
+  const label = formatVariableLabel(variable.name)
 
   return (
     <div className="space-y-1" data-testid={`field-${variable.name}`}>
@@ -145,16 +165,32 @@ const VariableField: React.FC<VariableFieldProps> = ({
             : "contents space-y-1"
         }
       >
-        <label
-          htmlFor={`${id}-${variable.name}`}
-          className={`${isBooleanType ? "cursor-pointer" : "block"} text-md font-medium ${disabled ? "text-muted-foreground" : "text-foreground"}`}
-        >
-          {formatVariableLabel(variable.name)}
-          {variable.required && !disabled && <span className="text-muted-foreground ml-1">*</span>}
-          {readOnly && (
-            <span className="text-muted-foreground ml-2 text-sm font-normal">({readOnly})</span>
+        <div className="flex items-center gap-2">
+          <label
+            htmlFor={`${id}-${variable.name}`}
+            className={`${isBooleanType ? "cursor-pointer" : "block"} text-md font-medium ${disabled ? "text-muted-foreground" : "text-foreground"}`}
+          >
+            {label}
+            {variable.required && !disabled && (
+              <span className="text-muted-foreground ml-1">*</span>
+            )}
+            {readOnly && (
+              <span className="text-muted-foreground ml-2 text-sm font-normal">({readOnly})</span>
+            )}
+          </label>
+          {onReset && (
+            <button
+              type="button"
+              onClick={onReset}
+              aria-label={`Reset ${label} to its default`}
+              title="Reset to the default value"
+              className="inline-flex cursor-pointer items-center gap-1 rounded-sm text-xs text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <RotateCcw className="size-3" aria-hidden="true" />
+              Reset
+            </button>
           )}
-        </label>
+        </div>
 
         <FormControl
           variable={variable}
@@ -166,6 +202,7 @@ const VariableField: React.FC<VariableFieldProps> = ({
           id={id}
           disabled={disabled}
           readOnlyLabel={readOnly}
+          links={links}
         />
 
         {variable.description && (
@@ -204,6 +241,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   liveVarValues = {},
   unmetOutputDependencies = [],
   importedValues = NO_VALUES,
+  defaults,
 }) => {
   // Default button text depends on mode
   const effectiveButtonText = submitButtonText ?? (isInlineMode ? "Submit" : "Generate")
@@ -377,24 +415,66 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     }
   }
 
+  // The values entered in place of the chips of linked values
+  const enteredValues = useEnteredValues(id, formData, handleInputChange)
+
+  // What a chip linked to a variable shows: the variable's value, or what it
+  // comes to when it is a template. Never a sensitive one's.
+  const sensitiveElsewhere = useSensitiveInputNames()
+  const isSensitive = (name: string) =>
+    sensitiveElsewhere.has(name) || variablesByName.get(name)?.sensitive === true
+  const variableValue = (name: string): string | undefined => {
+    if (isSensitive(name)) return undefined
+    const value = Object.hasOwn(formData, name) ? formData[name] : importedValues[name]
+    const known = containsTemplateValue(value) ? resolvedValues[name] : value
+    if (typeof known === "string") return isTemplateValue(known) ? undefined : known
+    return typeof known === "number" || typeof known === "boolean" ? String(known) : undefined
+  }
+
+  // What a field resets to (see the `defaults` prop)
+  const defaultValue = (variable: BoilerplateVariable): unknown =>
+    defaults?.[variable.name] ?? variable.default ?? untouchedValue(variable)
+
   /**
    * Renders a variable's field
    */
-  const renderField = (variable: BoilerplateVariable) => (
-    <VariableField
-      key={variable.name}
-      id={id}
-      variable={variable}
-      value={formData[variable.name]}
-      resolvedValue={resolvedValues[variable.name]}
-      error={shownErrors[variable.name]}
-      onChange={(value) => handleInputChange(variable.name, value)}
-      onBlur={() => handleFieldBlur(variable.name)}
-      readOnly={
-        sharedVarNames.has(variable.name) ? "inherited" : variable.locked ? "locked" : undefined
-      }
-    />
-  )
+  const renderField = (variable: BoilerplateVariable) => {
+    const readOnly = sharedVarNames.has(variable.name)
+      ? "inherited"
+      : variable.locked
+        ? "locked"
+        : undefined
+    // Once the form has its values. A value entered for a chip changes it too;
+    // emptying a field without a default doesn't.
+    const changed =
+      Object.hasOwn(formData, variable.name) &&
+      JSON.stringify(formData[variable.name] ?? "") !== JSON.stringify(defaultValue(variable) ?? "")
+    return (
+      <VariableField
+        key={variable.name}
+        id={id}
+        variable={variable}
+        value={enteredValues.shown(variable.name)}
+        resolvedValue={resolvedValues[variable.name]}
+        error={shownErrors[variable.name]}
+        onChange={(value) => enteredValues.change(variable.name, value)}
+        onBlur={() => handleFieldBlur(variable.name)}
+        readOnly={readOnly}
+        links={{
+          variableValue,
+          isSensitive,
+          entered: enteredValues.entered(variable.name),
+          enter: (key, value) => enteredValues.enter(variable.name, key, value),
+          reset: (key) => enteredValues.reset(variable.name, key),
+        }}
+        onReset={
+          readOnly === undefined && changed
+            ? () => enteredValues.replace(variable.name, defaultValue(variable))
+            : undefined
+        }
+      />
+    )
+  }
 
   /**
    * Renders a section's fields under its heading, which folds a collapsed section

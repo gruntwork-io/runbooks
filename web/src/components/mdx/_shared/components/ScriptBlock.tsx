@@ -16,12 +16,12 @@ import {
   BlockIdLabel,
   Instruction,
 } from "@/components/mdx/_shared"
+import { AutoCollapse, CollapseButton, WhenFolded } from "./AutoCollapse"
 import { DuplicateIdError } from "./DuplicateIdError"
 import { EnvVars } from "./EnvVars"
 import { ProgressStep } from "./ProgressStep"
 import { ScriptChangeNotice } from "./ScriptChangeNotice"
 import { useRunSequencing } from "../hooks/useRunSequencing"
-import { useRevealSelf } from "../hooks/useRevealSelf"
 import { isRunBlocked } from "@/lib/blockRuns"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -121,6 +121,8 @@ export interface ScriptBlockProps {
   successContent?: ReactNode
   /** Called each time the block goes to success (never on mount), or is marked done in instruction mode. */
   onComplete?: (() => void) | undefined
+  /** Whether the block folds into a bar with its title once it's done, which expands it again when clicked. */
+  autoCollapse?: boolean | undefined
   /** Distinguishes the Command, Check and Finish presentation. */
   variant: ScriptBlockVariant
 }
@@ -155,6 +157,7 @@ export function ScriptBlock({
   exclusive = false,
   successContent,
   onComplete,
+  autoCollapse,
   variant,
 }: ScriptBlockProps) {
   const validationError = useMemo((): AppError | null => {
@@ -168,9 +171,11 @@ export function ScriptBlock({
   }, [id, variant.name])
 
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
+  const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
     id,
     variant.name,
+    blockRef,
   )
 
   const { reportError, clearError } = useErrorReporting()
@@ -268,20 +273,13 @@ export function ScriptBlock({
     if (status === "success" && prev !== "success") onComplete?.()
   }, [status, onComplete])
 
-  const blockRef = useRef<HTMLDivElement>(null)
-  const revealSelf = useRevealSelf(blockRef)
-  const {
-    blockers: runBlockers,
-    stopRun,
-    revealBlock,
-  } = useRunSequencing({
+  const { blockers: runBlockers, stopRun } = useRunSequencing({
     blockId: id,
     status,
     exclusive,
     dependsOn,
     outputDependencyIds: outputDependencyBlockIds,
     stop: cancel,
-    reveal: revealSelf,
   })
 
   // Clone children and add variant="embedded" prop if it's an Inputs component
@@ -532,6 +530,7 @@ export function ScriptBlock({
         inputs={childrenWithVariant}
         note={successContent}
         onMarkedDone={onComplete}
+        autoCollapse={autoCollapse}
       />
     )
   }
@@ -550,309 +549,331 @@ export function ScriptBlock({
 
   // Main render
   return (
-    <div
-      ref={blockRef}
-      data-testid={id}
-      className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
-    >
-      <ProgressStep done={done} />
+    <AutoCollapse enabled={autoCollapse} done={done}>
+      <div
+        data-fold="path"
+        ref={blockRef}
+        data-testid={id}
+        className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
+      >
+        <ProgressStep done={done} />
 
-      {/* ID label - positioned at top right */}
-      <div className="absolute top-3 right-3 z-20">
-        <BlockIdLabel id={id} size="large" />
-      </div>
-
-      {/* A changed script file can be reviewed and reloaded in place */}
-      {path && scriptFileChange && (
-        <ScriptChangeNotice
-          path={path}
-          change={scriptFileChange}
-          onReload={reloadScript}
-          isReloading={isReloadingScript}
-          reloadError={scriptReloadError}
-        />
-      )}
-
-      {/* Script drift warning - mr-12 leaves room for the ID label */}
-      {hasScriptDrift && !scriptFileChange && (
-        <Admonition type="warning" title="Script changed" className="space-y-2 mr-12">
-          <p>
-            This script has changed since the runbook was loaded. Although the <em>UI</em> shows the
-            latest version, for security reasons, Runbooks will <em>execute</em> the version that
-            was present when the runbook was last opened or reloaded, or, if Runbooks was started
-            with{" "}
-            <code className="bg-warning-muted px-1 rounded text-xs">
-              --disable-live-file-reload
-            </code>
-            , when it was opened in this app session (opening another runbook and coming back
-            rebuilds it).
-          </p>
-          <p>
-            To execute the latest version, close and reopen the runbook (in watch mode, saving{" "}
-            <code className="bg-warning-muted px-1 rounded text-xs">runbook.mdx</code> also reloads
-            it). If Runbooks was started with{" "}
-            <code className="bg-warning-muted px-1 rounded text-xs">
-              --disable-live-file-reload
-            </code>
-            , quit and restart the app instead. If reloading doesn't resolve this, check for escape
-            sequences (e.g. <code className="bg-warning-muted px-1 rounded text-xs">\n</code>) in
-            inline commands that may be interpreted differently by the browser and backend.
-          </p>
-        </Admonition>
-      )}
-
-      {/* Main container */}
-      <div className="flex @container">
-        <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <variant.statusStyles.StatusIcon
-            status={status}
-            data-testid={`icon-${status}`}
-            className={`size-6 ${iconClasses} ${status === "running" ? "animate-spin" : ""}`}
-          />
+        {/* ID label - positioned at top right */}
+        <div data-fold="keep" className="absolute top-3 right-3 z-20 flex items-center gap-1">
+          <BlockIdLabel id={id} size="large" />
+          <CollapseButton />
         </div>
 
-        {/* Main body */}
-        <div className="flex-1 min-w-0 space-y-2">
-          {variant.showPendingPlaceholder && status === "pending" && command && !title && (
-            <div className="text-muted-foreground font-semibold text-sm">Run a command</div>
-          )}
-          {variant.showPendingPlaceholder && status === "pending" && !command && path && !title && (
-            <div className="text-muted-foreground font-semibold text-sm">Run a script</div>
-          )}
-
-          {/* Title and description */}
-          {resolvedTitle && (
-            <div className="text-md font-bold text-muted-foreground">
-              <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
-            </div>
-          )}
-          {resolvedDescription && (
-            <div className="text-md text-muted-foreground mb-3">
-              <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
-            </div>
-          )}
-
-          {status === "success" && resolvedSuccessMessage && (
-            <div className="text-success font-semibold text-sm mb-3">
-              <InlineMarkdown>{resolvedSuccessMessage}</InlineMarkdown>
-            </div>
-          )}
-          {status === "warn" && resolvedWarnMessage && (
-            <div className="text-warning font-semibold text-sm mb-3">
-              <InlineMarkdown>{resolvedWarnMessage}</InlineMarkdown>
-            </div>
-          )}
-          {status === "fail" && resolvedFailMessage && (
-            <div className="text-destructive font-semibold text-sm mb-3">
-              <InlineMarkdown>{resolvedFailMessage}</InlineMarkdown>
-            </div>
-          )}
-          {status === "running" && resolvedRunningMessage && (
-            <div className="text-info font-semibold text-sm mb-3">
-              <InlineMarkdown>{resolvedRunningMessage}</InlineMarkdown>
-            </div>
-          )}
-          {status === "success" && successContent && <div className="mb-3">{successContent}</div>}
-
-          {/* Render inline Inputs children if present */}
-          {childrenWithVariant && <div className="mb-4">{childrenWithVariant}</div>}
-
-          {/* The env vars the script gets, so they can be checked before Run */}
-          {!scriptless && envVars.length > 0 && (
-            <EnvVars
-              blockId={id}
-              envVars={envVars}
-              onOverride={overrideOutput}
-              onReset={resetOutputOverride}
-              disabled={status === "running"}
-              className={clearIdLabel}
-            />
-          )}
-
-          {templateWarning && (
-            <div
-              data-testid={`${id}-template-warning`}
-              className={`text-xs text-warning-foreground flex items-start gap-1.5 mb-3 ${clearIdLabel}`}
-            >
-              <AlertTriangle className="size-3.5 mt-px flex-shrink-0" />
-              <span>{templateWarning}</span>
-            </div>
-          )}
-
-          {/* Display script metadata for file-based scripts */}
-          {variant.showScriptMetadata && scriptMetadata && (
-            <div className="text-xs text-muted-foreground flex items-center flex-wrap gap-3 mb-2">
-              <span className="inline-flex items-center gap-1">
-                <span className="font-semibold">Language:</span>
-                <span className="font-mono bg-muted rounded">{scriptMetadata.language}</span>
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="font-semibold">Lines:</span>
-                <span className="font-mono">{scriptMetadata.lines}</span>
-              </span>
-              {path && (
-                <span className="inline-flex items-center gap-1 text-muted-foreground">
-                  <span className="font-semibold">Path:</span>
-                  <span className="font-mono truncate max-w-xs" title={path}>
-                    {path}
-                  </span>
-                </span>
-              )}
-              <button
-                onClick={() => {
-                  setShowSourceCode(true)
-                  // Scroll to ViewSourceCode section with a slight delay to ensure it's open
-                  setTimeout(() => {
-                    viewSourceCodeRef.current?.scrollIntoView({
-                      behavior: "smooth",
-                      block: "nearest",
-                    })
-                  }, 100)
-                }}
-                className="inline-flex items-center gap-1 text-primary hover:text-primary/80 hover:underline cursor-pointer"
-              >
-                View Source Code
-              </button>
-            </div>
-          )}
-
-          {/* Display inline command if present */}
-          {displayCommand && (
-            <div
-              className={`font-mono text-xs mb-3 bg-gray-900 rounded p-3 text-gray-100 whitespace-pre-wrap ${clearIdLabel}`}
-            >
-              {displayCommand.content}
-            </div>
-          )}
-
-          {/* Separator */}
-          <div className={`border-b border-border ${clearIdLabel}`}></div>
-
-          {/* Show unmet input/output dependencies */}
-          {!isRendering && (
-            <UnmetDependenciesWarning
-              blockType={variant.componentType}
-              unmetInputDeps={unmetInputDependencies}
-              unmetOutputDeps={unmetOutputDependencies}
-            />
-          )}
-
-          {/* Show unmet AWS auth dependency */}
-          {hasAllInputDependencies && hasAllOutputDependencies && (
-            <UnmetAuthDependencyWarning
-              dependency={unmetAwsAuthDependency}
-              heading="Waiting for AWS authentication:"
-              hint="Authenticate with the referenced AwsAuth block first."
-            />
-          )}
-
-          {/* Show unmet GitHub auth dependency */}
-          {hasAllInputDependencies && hasAllOutputDependencies && (
-            <UnmetAuthDependencyWarning
-              dependency={unmetGitHubAuthDependency}
-              heading="Waiting for git authentication:"
-              hint="Authenticate with the referenced authentication block first."
-            />
-          )}
-
-          {/* Show unmet Google Cloud auth dependency */}
-          {hasAllInputDependencies && hasAllOutputDependencies && (
-            <UnmetAuthDependencyWarning
-              dependency={unmetGoogleAuthDependency}
-              heading="Waiting for Google Cloud authentication:"
-              hint="Authenticate with the referenced GoogleAuth block first."
-            />
-          )}
-
-          <RunBlockedWarning
-            blockType={variant.componentType}
-            exclusive={exclusive}
-            blockers={runBlockers}
-            onStop={stopRun}
-            onReveal={revealBlock}
+        {/* A changed script file can be reviewed and reloaded in place */}
+        {path && scriptFileChange && (
+          <ScriptChangeNotice
+            path={path}
+            change={scriptFileChange}
+            onReload={reloadScript}
+            isReloading={isReloadingScript}
+            reloadError={scriptReloadError}
           />
+        )}
 
-          {renderError && hasAllOutputDependencies && (
-            <div className="mb-3 text-sm text-destructive flex items-start gap-2">
-              <XCircle className="size-4 mt-0.5 flex-shrink-0" />
-              <div className="min-w-0">
-                <strong>{variant.renderErrorLabel}:</strong> {renderError.message}
-                {renderError.details && (
-                  <div className="text-xs mt-1 text-destructive">{renderError.details}</div>
-                )}
+        {/* Script drift warning - mr-12 leaves room for the ID label */}
+        {hasScriptDrift && !scriptFileChange && (
+          <Admonition type="warning" title="Script changed" className="space-y-2 mr-12">
+            <p>
+              This script has changed since the runbook was loaded. Although the <em>UI</em> shows
+              the latest version, for security reasons, Runbooks will <em>execute</em> the version
+              that was present when the runbook was last opened or reloaded, or, if Runbooks was
+              started with{" "}
+              <code className="bg-warning-muted px-1 rounded text-xs">
+                --disable-live-file-reload
+              </code>
+              , when it was opened in this app session (opening another runbook and coming back
+              rebuilds it).
+            </p>
+            <p>
+              To execute the latest version, close and reopen the runbook (in watch mode, saving{" "}
+              <code className="bg-warning-muted px-1 rounded text-xs">runbook.mdx</code> also
+              reloads it). If Runbooks was started with{" "}
+              <code className="bg-warning-muted px-1 rounded text-xs">
+                --disable-live-file-reload
+              </code>
+              , quit and restart the app instead. If reloading doesn't resolve this, check for
+              escape sequences (e.g.{" "}
+              <code className="bg-warning-muted px-1 rounded text-xs">\n</code>) in inline commands
+              that may be interpreted differently by the browser and backend.
+            </p>
+          </Admonition>
+        )}
+
+        {/* Main container */}
+        <div data-fold="path" className="flex @container">
+          <div
+            data-fold="keep"
+            className="border-r border-border pr-2 mr-4 flex flex-col items-center"
+          >
+            <variant.statusStyles.StatusIcon
+              status={status}
+              data-testid={`icon-${status}`}
+              className={`size-6 ${iconClasses} ${status === "running" ? "animate-spin" : ""}`}
+            />
+          </div>
+
+          {/* Main body */}
+          <div data-fold="path" className="flex-1 min-w-0 space-y-2">
+            {variant.showPendingPlaceholder && status === "pending" && command && !title && (
+              <div className="text-muted-foreground font-semibold text-sm">Run a command</div>
+            )}
+            {variant.showPendingPlaceholder &&
+              status === "pending" &&
+              !command &&
+              path &&
+              !title && (
+                <div className="text-muted-foreground font-semibold text-sm">Run a script</div>
+              )}
+
+            {/* Title and description */}
+            {resolvedTitle && (
+              <div data-fold="title" className="text-md font-bold text-muted-foreground">
+                <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
               </div>
-            </div>
-          )}
-
-          {execError && (
-            <div className="mb-3 text-sm text-destructive flex items-start gap-2">
-              <XCircle className="size-4 mt-0.5 flex-shrink-0" />
-              <div className="min-w-0">
-                <strong>{execError.message}</strong>
-                {execError.details && (
-                  <div className="text-xs mt-1 text-destructive">{execError.details}</div>
-                )}
+            )}
+            {/* Folded, a block without a title shows what it runs in its place */}
+            {!resolvedTitle && (
+              <WhenFolded>
+                <div
+                  data-fold="title"
+                  className={`font-mono text-sm text-muted-foreground truncate ${clearIdLabel}`}
+                >
+                  {path ?? sourceCode.split("\n")[0]}
+                </div>
+              </WhenFolded>
+            )}
+            {resolvedDescription && (
+              <div className="text-md text-muted-foreground mb-3">
+                <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="flex items-center w-full justify-between">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={isRunDisabled}
-                onClick={() => (scriptless ? completeScriptless() : handleExecute())}
+            {status === "success" && resolvedSuccessMessage && (
+              <div className="text-success font-semibold text-sm mb-3">
+                <InlineMarkdown>{resolvedSuccessMessage}</InlineMarkdown>
+              </div>
+            )}
+            {status === "warn" && resolvedWarnMessage && (
+              <div className="text-warning font-semibold text-sm mb-3">
+                <InlineMarkdown>{resolvedWarnMessage}</InlineMarkdown>
+              </div>
+            )}
+            {status === "fail" && resolvedFailMessage && (
+              <div className="text-destructive font-semibold text-sm mb-3">
+                <InlineMarkdown>{resolvedFailMessage}</InlineMarkdown>
+              </div>
+            )}
+            {status === "running" && resolvedRunningMessage && (
+              <div className="text-info font-semibold text-sm mb-3">
+                <InlineMarkdown>{resolvedRunningMessage}</InlineMarkdown>
+              </div>
+            )}
+            {status === "success" && successContent && <div className="mb-3">{successContent}</div>}
+
+            {/* Render inline Inputs children if present */}
+            {childrenWithVariant && <div className="mb-4">{childrenWithVariant}</div>}
+
+            {/* The env vars the script gets, so they can be checked before Run */}
+            {!scriptless && envVars.length > 0 && (
+              <EnvVars
+                blockId={id}
+                envVars={envVars}
+                onOverride={overrideOutput}
+                onReset={resetOutputOverride}
+                disabled={status === "running"}
+                className={clearIdLabel}
+              />
+            )}
+
+            {templateWarning && (
+              <div
+                data-testid={`${id}-template-warning`}
+                className={`text-xs text-warning-foreground flex items-start gap-1.5 mb-3 ${clearIdLabel}`}
               >
-                {variant.runLabel}
-              </Button>
-              {!scriptless && (
+                <AlertTriangle className="size-3.5 mt-px flex-shrink-0" />
+                <span>{templateWarning}</span>
+              </div>
+            )}
+
+            {/* Display script metadata for file-based scripts */}
+            {variant.showScriptMetadata && scriptMetadata && (
+              <div className="text-xs text-muted-foreground flex items-center flex-wrap gap-3 mb-2">
+                <span className="inline-flex items-center gap-1">
+                  <span className="font-semibold">Language:</span>
+                  <span className="font-mono bg-muted rounded">{scriptMetadata.language}</span>
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="font-semibold">Lines:</span>
+                  <span className="font-mono">{scriptMetadata.lines}</span>
+                </span>
+                {path && (
+                  <span className="inline-flex items-center gap-1 text-muted-foreground">
+                    <span className="font-semibold">Path:</span>
+                    <span className="font-mono truncate max-w-xs" title={path}>
+                      {path}
+                    </span>
+                  </span>
+                )}
+                <button
+                  onClick={() => {
+                    setShowSourceCode(true)
+                    // Scroll to ViewSourceCode section with a slight delay to ensure it's open
+                    setTimeout(() => {
+                      viewSourceCodeRef.current?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "nearest",
+                      })
+                    }, 100)
+                  }}
+                  className="inline-flex items-center gap-1 text-primary hover:text-primary/80 hover:underline cursor-pointer"
+                >
+                  View Source Code
+                </button>
+              </div>
+            )}
+
+            {/* Display inline command if present */}
+            {displayCommand && (
+              <div
+                className={`font-mono text-xs mb-3 bg-gray-900 rounded p-3 text-gray-100 whitespace-pre-wrap ${clearIdLabel}`}
+              >
+                {displayCommand.content}
+              </div>
+            )}
+
+            {/* Separator */}
+            <div className={`border-b border-border ${clearIdLabel}`}></div>
+
+            {/* Show unmet input/output dependencies */}
+            {!isRendering && (
+              <UnmetDependenciesWarning
+                blockType={variant.componentType}
+                unmetInputDeps={unmetInputDependencies}
+                unmetOutputDeps={unmetOutputDependencies}
+              />
+            )}
+
+            {/* Show unmet AWS auth dependency */}
+            {hasAllInputDependencies && hasAllOutputDependencies && (
+              <UnmetAuthDependencyWarning
+                dependency={unmetAwsAuthDependency}
+                heading="Waiting for AWS authentication:"
+                hint="Authenticate with the referenced AwsAuth block first."
+              />
+            )}
+
+            {/* Show unmet GitHub auth dependency */}
+            {hasAllInputDependencies && hasAllOutputDependencies && (
+              <UnmetAuthDependencyWarning
+                dependency={unmetGitHubAuthDependency}
+                heading="Waiting for git authentication:"
+                hint="Authenticate with the referenced authentication block first."
+              />
+            )}
+
+            {/* Show unmet Google Cloud auth dependency */}
+            {hasAllInputDependencies && hasAllOutputDependencies && (
+              <UnmetAuthDependencyWarning
+                dependency={unmetGoogleAuthDependency}
+                heading="Waiting for Google Cloud authentication:"
+                hint="Authenticate with the referenced GoogleAuth block first."
+              />
+            )}
+
+            <RunBlockedWarning
+              blockType={variant.componentType}
+              exclusive={exclusive}
+              blockers={runBlockers}
+              onStop={stopRun}
+            />
+
+            {renderError && hasAllOutputDependencies && (
+              <div className="mb-3 text-sm text-destructive flex items-start gap-2">
+                <XCircle className="size-4 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <strong>{variant.renderErrorLabel}:</strong> {renderError.message}
+                  {renderError.details && (
+                    <div className="text-xs mt-1 text-destructive">{renderError.details}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {execError && (
+              <div className="mb-3 text-sm text-destructive flex items-start gap-2">
+                <XCircle className="size-4 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <strong>{execError.message}</strong>
+                  {execError.details && (
+                    <div className="text-xs mt-1 text-destructive">{execError.details}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center w-full justify-between">
+              <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => cancel()}
-                  disabled={status !== "running"}
-                  className="text-destructive hover:text-destructive hover:bg-destructive-muted disabled:text-muted-foreground disabled:hover:bg-transparent"
+                  disabled={isRunDisabled}
+                  onClick={() => (scriptless ? completeScriptless() : handleExecute())}
                 >
-                  <Square className="size-4 mr-1" />
-                  Stop
+                  {variant.runLabel}
                 </Button>
-              )}
+                {!scriptless && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => cancel()}
+                    disabled={status !== "running"}
+                    className="text-destructive hover:text-destructive hover:bg-destructive-muted disabled:text-muted-foreground disabled:hover:bg-transparent"
+                  >
+                    <Square className="size-4 mr-1" />
+                    Stop
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Expandable sections inside the main box. Without a script there are
+        {/* Expandable sections inside the main box. Without a script there are
           no logs, outputs or source to show. */}
-      {!scriptless && (
-        <div className="mt-4 space-y-2">
-          <ViewLogs
-            logs={logs}
-            status={status}
-            autoOpen={status === "running"}
-            blockId={id}
-            logFilePath={logFilePath}
-          />
-          <ViewOutputs
-            outputs={outputs}
-            autoOpen={outputs !== null && Object.keys(outputs).length > 0}
-          />
-          {/* Only show ViewSourceCode if path is used */}
-          {path && (
-            <div ref={viewSourceCodeRef}>
-              <ViewSourceCode
-                sourceCode={sourceCode}
-                path={path}
-                language={language}
-                fileName={variant.fileName}
-                isOpen={showSourceCode}
-                onToggle={setShowSourceCode}
-              />
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+        {!scriptless && (
+          <div className="mt-4 space-y-2">
+            <ViewLogs
+              logs={logs}
+              status={status}
+              autoOpen={status === "running"}
+              blockId={id}
+              logFilePath={logFilePath}
+            />
+            <ViewOutputs
+              outputs={outputs}
+              autoOpen={outputs !== null && Object.keys(outputs).length > 0}
+            />
+            {/* Only show ViewSourceCode if path is used */}
+            {path && (
+              <div ref={viewSourceCodeRef}>
+                <ViewSourceCode
+                  sourceCode={sourceCode}
+                  path={path}
+                  language={language}
+                  fileName={variant.fileName}
+                  isOpen={showSourceCode}
+                  onToggle={setShowSourceCode}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </AutoCollapse>
   )
 }
