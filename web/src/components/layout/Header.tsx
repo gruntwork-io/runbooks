@@ -165,26 +165,31 @@ export function Header({
                   }
                 />
               )}
-              {/* The name alone: the button before it copies where the runbook is. */}
+              {/* The name alone, as the title: the button before it copies
+                  where the runbook is. */}
               <span
-                className="truncate text-xs text-foreground font-mono font-normal"
+                className="truncate text-sm text-foreground"
                 title={runbookName}
                 data-testid="runbook-name"
               >
                 {runbookName}
               </span>
-              <span aria-hidden className="text-xs font-normal">
-                /
-              </span>
+              <span aria-hidden className="mx-2 h-4 border-l border-border" />
             </div>
           )}
           {sessionName !== undefined && (
-            <SessionName
-              name={sessionName}
-              isRenaming={isRenaming}
-              onRenamingChange={setIsRenaming}
-              onRenamed={onSessionRenamed}
-            />
+            <>
+              {/* Says what the second name is: the two are both short slugs.
+                  Dropped below lg, with the step count, so a narrow window
+                  leaves room for the runbook's name. */}
+              <span className="hidden lg:inline flex-shrink-0 text-xs font-normal">Session</span>
+              <SessionName
+                name={sessionName}
+                isRenaming={isRenaming}
+                onRenamingChange={setIsRenaming}
+                onRenamed={onSessionRenamed}
+              />
+            </>
           )}
           {/* The session's own directory, where its scripts start and its files are */}
           {sessionDir !== undefined && (

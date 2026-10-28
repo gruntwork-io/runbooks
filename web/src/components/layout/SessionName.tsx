@@ -62,8 +62,9 @@ function SessionNameLabel({ name, onRename }: { name: string; onRename: () => vo
           type="button"
           className={cn(
             PILL,
-            // Plain text until hovered or focused. A transparent border keeps its size.
-            "group flex flex-shrink-0 items-center gap-1 border-transparent cursor-default transition-colors hover:cursor-text hover:border-border hover:bg-accent focus-visible:border-border focus-visible:bg-accent",
+            // A pill, like the field a click turns it into, which sets it apart
+            // from the runbook's name before it.
+            "group flex flex-shrink-0 items-center gap-1 border-border bg-muted cursor-default transition-colors hover:cursor-text hover:border-ring focus-visible:border-ring",
           )}
           style={NO_DRAG}
           aria-label={`Rename session ${name}`}
@@ -71,10 +72,10 @@ function SessionNameLabel({ name, onRename }: { name: string; onRename: () => vo
           onClick={onRename}
         >
           {name}
-          {/* Shown on hover and focus: the name can be edited. */}
+          {/* The name can be edited. */}
           <Pencil
             aria-hidden
-            className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+            className="size-3 text-muted-foreground transition-colors group-hover:text-foreground group-focus-visible:text-foreground"
           />
         </button>
       </TooltipTrigger>
