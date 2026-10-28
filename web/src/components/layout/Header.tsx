@@ -169,6 +169,9 @@ export function Header({
                   where the runbook is. */}
               <span
                 className="truncate text-sm text-foreground"
+                // Out of the drag region, which gets no hover: a cut-off name
+                // shows in full in its tooltip.
+                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                 title={runbookName}
                 data-testid="runbook-name"
               >

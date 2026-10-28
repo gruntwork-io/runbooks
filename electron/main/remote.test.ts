@@ -570,13 +570,19 @@ describe("openRemoteRunbook (real git)", () => {
     git(repo, "add", ".")
     git(repo, "commit", "-m", "initial")
 
-    // A second remote, git.example.com/org/setup-vpc.git, with its runbook at the root.
-    const rootRunbookRepo = nodePath.join(root, "remotes", "org", "setup-vpc.git")
-    nodeFs.mkdirSync(rootRunbookRepo)
-    nodeFs.writeFileSync(nodePath.join(rootRunbookRepo, "runbook.mdx"), "# Setup VPC\n")
-    git(rootRunbookRepo, "init", "-b", "main")
-    git(rootRunbookRepo, "add", ".")
-    git(rootRunbookRepo, "commit", "-m", "initial")
+    // Remotes with their runbook at the root: git.example.com/org/setup-vpc.git,
+    // and org/aux.git, whose name Windows reserves for a device.
+    for (const [name, heading] of [
+      ["setup-vpc", "Setup VPC"],
+      ["aux", "Aux"],
+    ]) {
+      const rootRunbookRepo = nodePath.join(root, "remotes", "org", `${name}.git`)
+      nodeFs.mkdirSync(rootRunbookRepo)
+      nodeFs.writeFileSync(nodePath.join(rootRunbookRepo, "runbook.mdx"), `# ${heading}\n`)
+      git(rootRunbookRepo, "init", "-b", "main")
+      git(rootRunbookRepo, "add", ".")
+      git(rootRunbookRepo, "commit", "-m", "initial")
+    }
 
     // ssh stub: fails the way a real ssh would, with whatever FAKE_SSH_STDERR says.
     const bin = nodePath.join(root, "bin")
@@ -649,6 +655,13 @@ describe("openRemoteRunbook (real git)", () => {
 
     expect(nodePath.basename(nodePath.dirname(result.localPath))).toBe("setup-vpc")
     expect(nodeFs.readFileSync(result.localPath, "utf8")).toBe("# Setup VPC\n")
+  }, 30_000)
+
+  it("clones a repo named for a Windows device into a folder named repo, which Windows allows", async () => {
+    const result = await open("git::https://git.example.com/org/aux.git")
+
+    expect(nodePath.basename(nodePath.dirname(result.localPath))).toBe("repo")
+    expect(nodeFs.readFileSync(result.localPath, "utf8")).toBe("# Aux\n")
   }, 30_000)
 
   it("reports the source without a password typed into it, even one holding an @", async () => {

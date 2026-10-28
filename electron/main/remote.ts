@@ -238,13 +238,18 @@ export function cleanupTempClones(): void {
 // Remote runbook resolution
 // ---------------------------------------------------------------------------
 
+/** A Windows device name, with or without an extension. */
+const WINDOWS_DEVICE_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i
+
 /**
  * The folder a repo is cloned into: the repo's name, or "repo" for a name
  * that isn't a plain folder name. The name comes from the URL, so `..` or a
- * separator must not leave the temp directory.
+ * separator must not leave the temp directory, and a name Windows reserves
+ * for a device (`aux`, `con.txt`) can't be a folder there.
  */
 function cloneDirName(repo: string): string {
-  return /^[\w.-]+$/.test(repo) && repo !== "." && repo !== ".." ? repo : "repo"
+  const plain = /^[\w.-]+$/.test(repo) && repo !== "." && repo !== ".."
+  return plain && !WINDOWS_DEVICE_NAME.test(repo) ? repo : "repo"
 }
 
 export interface RemoteRunbookResult {
