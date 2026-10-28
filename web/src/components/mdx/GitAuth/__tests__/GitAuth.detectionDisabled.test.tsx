@@ -77,7 +77,7 @@ const credentialCalls = (invoke: ReturnType<typeof installApi>) =>
   invoke.mock.calls.filter(([channel]) => channel.endsWith("-credentials"))
 
 function expectNoDetectionAffordances(label: "GitHub" | "GitLab") {
-  expect(screen.getByTestId("vcs-cli-hint")).toHaveTextContent(NEUTRAL_HINT)
+  expect(screen.getByTestId("detection-hint")).toHaveTextContent(NEUTRAL_HINT)
   expect(document.body.textContent).not.toMatch(/auth login/)
   expect(document.body.textContent).not.toMatch(/No existing credentials/)
   expect(screen.queryByRole("button", { name: "Check again" })).toBeNull()
@@ -161,7 +161,7 @@ describe("GitAuth — detectCredentials={false} (real hook)", () => {
     })
 
     renderWithApi(ui())
-    await screen.findByTestId("vcs-cli-hint")
+    await screen.findByTestId("detection-hint")
     await settleCliStatus(invoke)
 
     expectNoDetectionAffordances(label)
@@ -178,7 +178,7 @@ describe("GitAuth — default detection finds nothing (control)", () => {
 
     renderWithApi(<GitAuth id="git" />)
 
-    expect(await screen.findByTestId("vcs-cli-hint")).toHaveTextContent("run 'gh auth login'")
+    expect(await screen.findByTestId("detection-hint")).toHaveTextContent("run 'gh auth login'")
     expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument()
     expect(screen.getByText("How can I authenticate to GitHub automatically?")).toBeInTheDocument()
   })
@@ -188,7 +188,7 @@ describe("GitAuth — default detection finds nothing (control)", () => {
 
     renderWithApi(<GitAuth id="git" provider="gitlab" />)
 
-    expect(await screen.findByTestId("vcs-cli-hint")).toHaveTextContent("run 'glab auth login'")
+    expect(await screen.findByTestId("detection-hint")).toHaveTextContent("run 'glab auth login'")
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument()
     expect(screen.getByTestId("host-sources-git")).toHaveTextContent("glab")
     expect(screen.getByTestId("host-credential-git")).toBeInTheDocument()

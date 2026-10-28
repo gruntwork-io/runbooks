@@ -102,8 +102,8 @@ export function InsufficientScopesPrompt({
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
               Google Sign-In is unavailable in this build. Run the command below as the same
-              principal, then try auto-detection again — or authenticate manually with a credential
-              that already carries these scopes.
+              principal, then check again — or authenticate manually with a credential that already
+              carries these scopes.
             </p>
             <div className="flex items-start gap-2">
               <code className="flex-1 bg-card border border-warning/30 rounded px-2 py-1.5 text-xs font-mono break-all">
@@ -116,7 +116,7 @@ export function InsufficientScopesPrompt({
             </div>
             <div className="flex items-center gap-3 flex-wrap">
               <Button onClick={onRetryDetection} disabled={recovering} size="sm">
-                Try auto-detection again
+                Check again
               </Button>
               <Button onClick={onReject} disabled={recovering} variant="outline" size="sm">
                 Use Different Credentials

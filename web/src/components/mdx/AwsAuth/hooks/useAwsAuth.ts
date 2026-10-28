@@ -20,6 +20,7 @@ import type {
   DetectedAwsCredentials,
 } from "../types"
 import { resolveDefaultAuthMethod } from "../utils"
+import { signInHint } from "@/components/mdx/_shared/lib/signInHint"
 import { AWS_AUTH_ENV_VARS } from "../../../../../../src/domain/exec/authEnv.ts"
 
 interface UseAwsAuthOptions {
@@ -42,7 +43,7 @@ type DetectionOutcome =
   | { kind: "detected"; credentials: DetectedAwsCredentials; warning?: string | undefined }
   /** Paused on a block source that has not run; `remaining` follow it. */
   | { kind: "waiting"; blockId: string; remaining: AwsCredentialSource[] }
-  | { kind: "done"; warnings: string[]; isRetry: boolean }
+  | { kind: "done"; warnings: string[] }
 
 export function useAwsAuth({
   id,
@@ -88,17 +89,11 @@ export function useAwsAuth({
   )
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
   const detectionAttemptedRef = useRef(restored !== undefined)
-  // Counter to trigger detection re-run when user clicks "Try auto-detection again"
+  // Counter to trigger detection re-run when user clicks "Check again"
   const [detectionAttempt, setDetectionAttempt] = useState(0)
-  // Track if the last retry found nothing (for showing feedback message)
-  const [retryFoundNothing, setRetryFoundNothing] = useState(false)
-
-  // Auto-hide the "no credentials found" message after a few seconds
-  useEffect(() => {
-    if (!retryFoundNothing) return
-    const timer = setTimeout(() => setRetryFoundNothing(false), 3000)
-    return () => clearTimeout(timer)
-  }, [retryFoundNothing])
+  // Whether the last detection run found no credentials, valid or not. Drives
+  // the hint above the sign-in form.
+  const [nothingDetected, setNothingDetected] = useState(false)
 
   // For block-based detection, track which block we're waiting for
   const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(null)
@@ -405,7 +400,7 @@ export function useAwsAuth({
   // initial detection effect and the block watcher apply it the same way, and
   // only after the walk has settled.
   const trySourcesInOrder = useCallback(
-    async (sources: AwsCredentialSource[], isRetry: boolean): Promise<DetectionOutcome> => {
+    async (sources: AwsCredentialSource[]): Promise<DetectionOutcome> => {
       const warnings: string[] = []
 
       for (let i = 0; i < sources.length; i++) {
@@ -488,7 +483,7 @@ export function useAwsAuth({
         // Auto-detecting the default profile is complex due to AWS config precedence rules.
       }
 
-      return { kind: "done", warnings, isRetry }
+      return { kind: "done", warnings }
     },
     [tryEnvCredentials, tryBlockCredentials, blockOutputs, defaultRegion],
   )
@@ -496,6 +491,7 @@ export function useAwsAuth({
   const applyDetectionOutcome = useCallback((outcome: DetectionOutcome) => {
     switch (outcome.kind) {
       case "detected":
+        setNothingDetected(false)
         setDetectedCredentials(outcome.credentials)
         if (outcome.warning) {
           setDetectionWarning(outcome.warning)
@@ -511,10 +507,7 @@ export function useAwsAuth({
         if (outcome.warnings.length > 0) {
           setDetectionWarning(outcome.warnings.join("; "))
         }
-        // Nothing found - show feedback if this was a user-initiated retry
-        if (outcome.isRetry) {
-          setRetryFoundNothing(true)
-        }
+        setNothingDetected(outcome.warnings.length === 0)
         setDetectionStatus("done")
     }
   }, [])
@@ -533,7 +526,8 @@ export function useAwsAuth({
 
     detectionAttemptedRef.current = true
 
-    void trySourcesInOrder(detectCredentials, detectionAttempt > 0).then(applyDetectionOutcome)
+    void trySourcesInOrder(detectCredentials).then(applyDetectionOutcome)
+    // detectionAttempt is unread: bumping it is what re-runs this effect.
   }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt, applyDetectionOutcome])
 
   // Watch for block outputs when waiting for a block
@@ -556,7 +550,7 @@ export function useAwsAuth({
     // are tried before falling back to manual auth.
     const remaining = remainingSourcesRef.current
     remainingSourcesRef.current = []
-    void trySourcesInOrder([{ block: waitingForBlockId }, ...remaining], false).then((outcome) => {
+    void trySourcesInOrder([{ block: waitingForBlockId }, ...remaining]).then((outcome) => {
       setWaitingForBlockId(null)
       applyDetectionOutcome(outcome)
     })
@@ -721,8 +715,8 @@ export function useAwsAuth({
     setAuthStatus("pending")
   }, [])
 
-  // Retry credential detection (after user rejected and wants to go back).
-  // The link is shown while an SSO sign-in may be in progress, so stop it.
+  // "Check again": re-run credential detection from the sign-in form.
+  // The form may have an SSO sign-in in progress, so stop it.
   const handleRetryDetection = useCallback(() => {
     stopSsoPolling()
     // Reset detection state so the effect will re-run
@@ -732,7 +726,6 @@ export function useAwsAuth({
     setAuthStatus("pending")
     setErrorMessage(null)
     setWarningMessage(null)
-    setRetryFoundNothing(false)
     remainingSourcesRef.current = []
     // Reset the ref so detection effect will run again
     detectionAttemptedRef.current = false
@@ -1106,6 +1099,7 @@ export function useAwsAuth({
     setSsoRoleSearch("")
     setDetectedCredentials(null)
     setDetectionWarning(null)
+    setNothingDetected(false)
     setDetectionStatus("done")
     setWaitingForBlockId(null)
     remainingSourcesRef.current = []
@@ -1133,8 +1127,12 @@ export function useAwsAuth({
     detectedCredentials,
     detectionWarning,
     waitingForBlockId,
-    retryFoundNothing,
-    clearRetryMessage: () => setRetryFoundNothing(false),
+    // The line above the sign-in form, ahead of "Check again". Null with
+    // detection off: there is nothing to check again.
+    manualHint:
+      detectCredentials === false
+        ? null
+        : signInHint({ invalidDetected: detectionWarning !== null, nothingDetected }),
 
     // Credentials form
     accessKeyId,

@@ -1509,7 +1509,7 @@ export function useGitAuth({
   // would unmount the code panel mid-flow), and a redetect after 'failed'
   // would wipe the failure UI the user is reading. After an explicit
   // Re-authenticate, re-detection is user-initiated only (Check again, Retry,
-  // Reload), as AwsAuth's and GoogleAuth's "Try auto-detection again" is.
+  // Reload), as AwsAuth's and GoogleAuth's "Check again" always is.
   const focusRedetectArmed =
     detectCredentials !== false &&
     detectionStatus === "done" &&

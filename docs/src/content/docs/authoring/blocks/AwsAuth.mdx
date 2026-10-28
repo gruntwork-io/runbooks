@@ -345,6 +345,8 @@ When a user clicks "Use Different Credentials":
 1. The manual authentication UI is shown (Static Credentials, SSO, or Local Profile tabs)
 2. The user must authenticate manually before any commands can access AWS
 
+A line above the sign-in tabs says what the user can do, followed by a **Check again** button that re-runs detection. It reads *No existing credentials found* when detection found nothing, asks the user to fix the credentials when the ones it found didn't validate, and says to sign in with different credentials after the user turned detected credentials down or clicked **Re-authenticate**. With `detectCredentials={false}` the line and the button are hidden.
+
 Credentials for the wrong account, such as production when the user expected development, were not registered, so no script runs with them.
 
 ## Expiring credentials
