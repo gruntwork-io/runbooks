@@ -2,6 +2,7 @@ import { useState, useEffect, useId, useMemo } from "react"
 import { X, Info, AlertTriangle, AlertCircle, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
+import { MarkdownChildren } from "@/components/mdx/_shared/components/MarkdownChildren"
 import { shouldShowAlert, setDontShowAgain as saveHidePreference } from "@/lib/localStorage"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTemplateContext } from "@/contexts/useRunbook"
@@ -194,7 +195,7 @@ export function Admonition({
           {typeof contentToDisplay === "string" ? (
             <InlineMarkdown>{contentToDisplay}</InlineMarkdown>
           ) : (
-            contentToDisplay
+            contentToDisplay && <MarkdownChildren>{contentToDisplay}</MarkdownChildren>
           )}
         </div>
 

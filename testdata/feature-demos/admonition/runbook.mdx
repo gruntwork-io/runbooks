@@ -1,0 +1,46 @@
+# Admonition Demo
+
+This runbook demonstrates the `<Admonition>` block, which renders a callout box for a note, info, warning, or danger message.
+
+## 1. Types
+
+<Admonition type="note" description="A **note** adds context the reader can skip." />
+
+<Admonition type="info" description="An **info** callout points out something helpful." />
+
+<Admonition type="warning" description="A **warning** flags something that can go wrong." />
+
+<Admonition type="danger" description="A **danger** callout flags something that can't be undone." />
+
+## 2. Markdown content
+
+Put the message between the tags, on lines of its own, to write it in markdown, with lists, code blocks, and links.
+
+<Admonition type="info" title="Before you begin">
+You need:
+
+- The AWS CLI
+- OpenTofu v1.6 or later
+
+Then:
+
+1. Sign in to AWS.
+2. Check which account you're signed in to:
+
+```bash
+aws sts get-caller-identity
+```
+
+Read the [`<Admonition>` docs](https://runbooks.gruntwork.io/authoring/blocks/admonition/) for every prop.
+</Admonition>
+
+## 3. Dismissing
+
+<Admonition type="note" title="Closable" description="Close this callout with the **X**." closable={true} />
+
+<Admonition
+    type="danger"
+    title="Confirmation"
+    description="Click the button to acknowledge this callout and dismiss it."
+    confirmationText="I understand"
+/>

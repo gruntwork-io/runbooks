@@ -1,0 +1,11 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+  parallelizable: true
+
+tests:
+  - name: happy-path
+    description: |
+      The runbook has no blocks that run, so the test checks that it parses.
