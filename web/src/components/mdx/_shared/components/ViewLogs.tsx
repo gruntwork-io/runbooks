@@ -128,7 +128,8 @@ export function ViewLogs({ logs, status, autoOpen = false, blockId, logFilePath 
 
   return (
     <div className="border border-border rounded-sm">
-      {/* Toggle button with Copy/Download actions */}
+      {/* Toggle button with Copy/Download actions. The toggle is as tall as
+          the actions, so the bar doesn't grow when they appear. */}
       <div className="flex items-center justify-between px-3 py-2 hover:bg-accent transition-colors">
         <button
           type="button"
@@ -136,7 +137,7 @@ export function ViewLogs({ logs, status, autoOpen = false, blockId, logFilePath 
           onClick={() => {
             setShowLogs(!showLogs)
           }}
-          className="flex items-center gap-2 text-left cursor-pointer flex-1"
+          className="flex items-center gap-2 text-left cursor-pointer flex-1 min-h-6"
         >
           {showLogs ? (
             <ChevronDown className="size-4 text-muted-foreground" />

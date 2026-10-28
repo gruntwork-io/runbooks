@@ -15,6 +15,7 @@ import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateI
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
+import { Reserved } from "@/components/mdx/_shared/components/Reserved"
 import { useRunSequencing } from "@/components/mdx/_shared/hooks/useRunSequencing"
 import { extractYamlFromChildren } from "@/components/mdx/_shared/lib/extractYamlFromChildren"
 import { makeStatusStyles } from "@/components/mdx/_shared/lib/statusStyles"
@@ -214,7 +215,7 @@ function Prerequisites({
         autoCollapse={autoCollapse}
         note={
           <div className="space-y-3">
-            <ToolList requirements={spec.requirements} results={[]} showAllInstallHints />
+            <ToolList requirements={spec.requirements} results={null} />
             <div>To check them, run:</div>
             <CodeBlock>
               <code className="language-bash whitespace-pre-wrap">{checkCommands(spec)}</code>
@@ -228,13 +229,11 @@ function Prerequisites({
   // The outputs say what the check found: each tool's path, and the versions it read.
   const results = state.outputs ? resultsFromOutputs(spec, revealOutputs(state.outputs)) : []
   const finished = status === "success" || status === "warn" || status === "fail"
-  const message = {
-    success: { text: successMessage, className: "text-success" },
-    warn: { text: warnMessage, className: "text-warning" },
-    fail: { text: failMessage, className: "text-destructive" },
-    running: { text: runningMessage, className: "text-info" },
-    pending: null,
-  }[status]
+  const message = (text: string, className: string) => (
+    <span className={className}>
+      <InlineMarkdown>{text}</InlineMarkdown>
+    </span>
+  )
 
   // A warning means only optional tools are missing
   const done = status === "success" || status === "warn"
@@ -274,11 +273,18 @@ function Prerequisites({
                 <InlineMarkdown>{description}</InlineMarkdown>
               </div>
             )}
-            {message?.text && (
-              <div className={`${message.className} font-semibold text-sm mb-3`}>
-                <InlineMarkdown>{message.text}</InlineMarkdown>
-              </div>
-            )}
+            {/* Each status's message keeps its space, before the first check
+                too, so the tools don't move as checks run and end. */}
+            <Reserved
+              className="font-semibold text-sm mb-3"
+              variants={{
+                running: message(runningMessage, "text-info"),
+                success: message(successMessage, "text-success"),
+                warn: message(warnMessage, "text-warning"),
+                fail: message(failMessage, "text-destructive"),
+              }}
+              shown={status === "pending" ? null : status}
+            />
 
             <ToolList requirements={spec.requirements} results={results} />
 
@@ -310,7 +316,11 @@ function Prerequisites({
                 disabled={status === "running" || isRunBlocked(blockers)}
                 onClick={check}
               >
-                {finished ? "Check again" : "Check"}
+                <Reserved
+                  className="justify-items-center"
+                  variants={{ check: "Check", checkAgain: "Check again" }}
+                  shown={finished ? "checkAgain" : "check"}
+                />
               </Button>
               <Button
                 variant="outline"
@@ -327,15 +337,20 @@ function Prerequisites({
         </div>
 
         <div className="mt-4 space-y-2">
+          {/* The tool list shows what the check found, so the logs stay
+              closed, and the block keeps its size, until they're opened. */}
           <ViewLogs
             logs={state.logs}
             status={status}
-            autoOpen={status === "running"}
             blockId={id}
             logFilePath={state.logFilePath}
           />
           {/* What other blocks can read: a failed check publishes nothing. */}
-          <ViewOutputs outputs={status === "fail" ? null : state.outputs} autoOpen={false} />
+          <ViewOutputs
+            outputs={status === "fail" ? null : state.outputs}
+            autoOpen={false}
+            reserveSpace
+          />
         </div>
       </div>
     </AutoCollapse>

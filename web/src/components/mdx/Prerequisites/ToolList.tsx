@@ -1,14 +1,17 @@
-import { AlertTriangle, CheckCircle, CircleDashed, CircleMinus, XCircle } from "lucide-react"
+import { Check, Dot, Minus, X } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared"
+import { Reserved } from "@/components/mdx/_shared/components/Reserved"
 import type { PrerequisiteTool, Requirement } from "../../../../../src/domain/prerequisites/spec"
 import type { ToolResult } from "../../../../../src/domain/prerequisites/results"
 
 interface ToolListProps {
   requirements: readonly Requirement[]
-  /** What the last check found for each tool. A tool it didn't check has none. */
-  results: ReadonlyArray<ToolResult | null>
-  /** Show every tool's install hint, not only those of the tools the check found a problem with. */
-  showAllInstallHints?: boolean
+  /**
+   * What the last check found for each tool. A tool it didn't check has none.
+   * Null for a list nothing checks, as in instruction mode, which shows every
+   * tool's install hint.
+   */
+  results: ReadonlyArray<ToolResult | null> | null
 }
 
 /**
@@ -18,10 +21,15 @@ interface ToolListProps {
  */
 type Mark = "unchecked" | "found" | "not_needed" | "warn" | "fail"
 
-/** The tools a <Prerequisites> block checks, each with what the last check found. */
-export function ToolList({ requirements, results, showAllInstallHints = false }: ToolListProps) {
+/**
+ * The tools a <Prerequisites> block checks, each with what the last check
+ * found. A checked list keeps room for each tool's result and install hint
+ * while it has none, so the tools stay where they are as checks run and end.
+ */
+export function ToolList({ requirements, results }: ToolListProps) {
+  const checked = results !== null
   const resultByName = new Map(
-    results.flatMap((result) => (result ? [[result.tool.name, result] as const] : [])),
+    (results ?? []).flatMap((result) => (result ? [[result.tool.name, result] as const] : [])),
   )
   const resultOf = (tool: PrerequisiteTool) => resultByName.get(tool.name) ?? null
 
@@ -36,7 +44,7 @@ export function ToolList({ requirements, results, showAllInstallHints = false }:
               tool={tool}
               result={resultOf(tool)}
               needed
-              showAllInstallHints={showAllInstallHints}
+              checked={checked}
             />
           )
         }
@@ -45,7 +53,7 @@ export function ToolList({ requirements, results, showAllInstallHints = false }:
             key={requirement.tools.map(({ name }) => name).join(" ")}
             requirement={requirement}
             results={requirement.tools.map(resultOf)}
-            showAllInstallHints={showAllInstallHints}
+            checked={checked}
           />
         )
       })}
@@ -60,20 +68,26 @@ export function ToolList({ requirements, results, showAllInstallHints = false }:
 function AnyOfItem({
   requirement,
   results,
-  showAllInstallHints,
+  checked,
 }: {
   requirement: Requirement
   /** Its tools' results, in order. */
   results: ReadonlyArray<ToolResult | null>
-  showAllInstallHints: boolean
+  checked: boolean
 }) {
   const met = results.some((result) => result?.status === "found")
-  const checked = results.some((result) => result !== null)
-  const mark: Mark = !checked ? "unchecked" : met ? "found" : requirement.optional ? "warn" : "fail"
+  const hasResults = results.some((result) => result !== null)
+  const mark: Mark = !hasResults
+    ? "unchecked"
+    : met
+      ? "found"
+      : requirement.optional
+        ? "warn"
+        : "fail"
   return (
     <li
       data-testid={`any-of-${requirement.tools.map(({ name }) => name).join("-")}`}
-      data-status={checked ? (met ? "met" : "unmet") : "unchecked"}
+      data-status={hasResults ? (met ? "met" : "unmet") : "unchecked"}
       className="flex items-start gap-2"
     >
       <MarkIcon mark={mark} />
@@ -97,7 +111,7 @@ function AnyOfItem({
               result={results[i] ?? null}
               needed={!met}
               inAnyOf
-              showAllInstallHints={showAllInstallHints}
+              checked={checked}
             />
           ))}
         </ul>
@@ -115,14 +129,15 @@ function ToolItem({
   result,
   needed,
   inAnyOf = false,
-  showAllInstallHints,
+  checked,
 }: {
   tool: PrerequisiteTool
   result: ToolResult | null
   needed: boolean
   /** In an `anyOf` list, whose heading says whether it's optional. */
   inAnyOf?: boolean
-  showAllInstallHints: boolean
+  /** Whether a check reads the list: false in instruction mode. */
+  checked: boolean
 }) {
   const notFound = result !== null && result.status !== "found"
   const problem = notFound && needed
@@ -136,6 +151,7 @@ function ToolItem({
           : tool.optional
             ? "warn"
             : "fail"
+  const installHint = tool.install && <InlineMarkdown>{tool.install}</InlineMarkdown>
   return (
     <li
       data-testid={`tool-${tool.name}`}
@@ -156,12 +172,17 @@ function ToolItem({
             <InlineMarkdown>{tool.description}</InlineMarkdown>
           </div>
         )}
-        {result && <ResultLine result={result} />}
-        {tool.install && (problem || showAllInstallHints) && (
-          <div className="text-sm text-foreground">
-            <InlineMarkdown>{tool.install}</InlineMarkdown>
-          </div>
-        )}
+        {checked && <ResultLine result={result} />}
+        {installHint &&
+          (checked ? (
+            <Reserved
+              className="text-sm text-foreground"
+              variants={{ installHint }}
+              shown={problem ? "installHint" : null}
+            />
+          ) : (
+            <div className="text-sm text-foreground">{installHint}</div>
+          ))}
       </div>
     </li>
   )
@@ -171,44 +192,55 @@ function OptionalBadge() {
   return <span className="rounded-sm bg-muted px-1.5 text-xs text-muted-foreground">optional</span>
 }
 
+/**
+ * A tool's mark: a bare check or cross, so it isn't mistaken for the circled
+ * icon that says how the whole check went.
+ */
 function MarkIcon({ mark }: { mark: Mark }) {
   const className = "size-4 mt-0.5 flex-shrink-0"
   switch (mark) {
     case "unchecked":
-      return <CircleDashed aria-hidden className={`${className} text-muted-foreground`} />
+      return <Dot aria-hidden strokeWidth={4} className={`${className} text-muted-foreground`} />
     case "found":
-      return <CheckCircle aria-hidden className={`${className} text-success`} />
+      return <Check aria-hidden strokeWidth={3} className={`${className} text-success`} />
     case "not_needed":
-      return <CircleMinus aria-hidden className={`${className} text-muted-foreground`} />
+      return <Minus aria-hidden strokeWidth={3} className={`${className} text-muted-foreground`} />
     case "warn":
-      return <AlertTriangle aria-hidden className={`${className} text-warning`} />
+      return <X aria-hidden strokeWidth={3} className={`${className} text-warning`} />
     case "fail":
-      return <XCircle aria-hidden className={`${className} text-destructive`} />
+      return <X aria-hidden strokeWidth={3} className={`${className} text-destructive`} />
   }
 }
 
-function ResultLine({ result }: { result: ToolResult }) {
-  const { tool, path, version } = result
-  const at = <code className="font-mono break-all">{path}</code>
+/**
+ * What the check found for a tool, in a line that's there before it has a
+ * result too. A line too long for the block is cut short, with all of it on
+ * hover, so a long path doesn't push the tools below it down.
+ */
+function ResultLine({ result }: { result: ToolResult | null }) {
+  const [before, path, after] = result ? resultParts(result) : ["", "", ""]
   return (
-    <div className="text-xs text-muted-foreground">
-      {result.status === "found" &&
-        (version ? (
-          <>
-            {version} at {at}
-          </>
-        ) : (
-          <>Found at {at}</>
-        ))}
-      {result.status === "missing" && "Not found on PATH."}
-      {result.status === "wrong_version" && (
-        <>
-          {version} at {at} doesn't meet {tool.version}.
-        </>
-      )}
-      {result.status === "unknown_version" && (
-        <>Found at {at}, but the check couldn't read its version. See the logs.</>
-      )}
+    <div
+      className="h-lh truncate text-xs text-muted-foreground"
+      title={result ? `${before}${path}${after}` : undefined}
+    >
+      {before}
+      {path && <code className="font-mono whitespace-nowrap">{path}</code>}
+      {after}
     </div>
   )
+}
+
+/** A result's line: the words before the tool's path, the path, and the words after it. */
+function resultParts({ tool, status, path, version }: ToolResult): [string, string, string] {
+  switch (status) {
+    case "found":
+      return [version ? `${version} at ` : "Found at ", path ?? "", ""]
+    case "missing":
+      return ["Not found on PATH.", "", ""]
+    case "wrong_version":
+      return [`${version} at `, path ?? "", ` doesn't meet ${tool.version}.`]
+    case "unknown_version":
+      return ["Found at ", path ?? "", ", but the check couldn't read its version. See the logs."]
+  }
 }
