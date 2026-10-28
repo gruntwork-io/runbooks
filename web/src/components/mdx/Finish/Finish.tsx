@@ -1,4 +1,5 @@
 import { Flag, PartyPopper, AlertTriangle, XCircle, Loader2 } from "lucide-react"
+import { MarkdownChildren } from "@/components/mdx/_shared/components/MarkdownChildren"
 import {
   ScriptBlock,
   type ScriptBlockProps,
@@ -76,13 +77,8 @@ function Finish({
     history.finish()
   }
 
-  // Markdown lists lose their bullets inside a block (App.css resets them for
-  // block chrome), so give the author's next steps theirs back, and keep a
-  // leading heading's top margin from pushing them down.
   const nextSteps = children ? (
-    <div className="space-y-2 text-foreground [&>:first-child]:mt-0 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6">
-      {children}
-    </div>
+    <MarkdownChildren className="text-foreground">{children}</MarkdownChildren>
   ) : undefined
 
   return (

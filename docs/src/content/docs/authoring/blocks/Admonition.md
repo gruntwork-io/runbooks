@@ -72,25 +72,30 @@ The `<Admonition>` block renders a callout box for a note, info, warning, or dan
 />
 ```
 
-## Inline content
+## Markdown content
 
-You can pass the content as children in place of the `description` prop:
+You can pass the content as children in place of the `description` prop. Children support full markdown, such as lists, code blocks, and links:
 
-```mdx
+````mdx
 <Admonition type="info" title="Prerequisites">
 Before proceeding, you need:
+
 - AWS CLI installed
 - OpenTofu v1.6+
 - Valid AWS credentials configured
-</Admonition>
-```
 
-The content supports inline markdown:
+Check your credentials with:
+
+```bash
+aws sts get-caller-identity
+```
+</Admonition>
+````
+
+Put the content on lines of its own, between the opening and closing tags. Content that starts on the same line as the opening tag must end on that line too, and is read as inline markdown:
 
 ```mdx
-<Admonition type="warning" title="Important">
-Review the [deployment guide](https://example.com/guide) before running these commands. **Do not** run this in production without testing first.
-</Admonition>
+<Admonition type="warning">**Do not** run this in production without testing first.</Admonition>
 ```
 
 ## Closable admonitions
@@ -131,3 +136,7 @@ Let users hide the admonition permanently:
     storageKey="welcome-message"
 />
 ```
+
+:::tip[See it in action]
+The [admonition feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/admonition) shows each type, an admonition written in markdown, and both ways to dismiss one.
+:::
