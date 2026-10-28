@@ -17,9 +17,14 @@ interface ViewOutputsProps {
    */
   outputs: OutputValues | null
   autoOpen?: boolean
+  /**
+   * Keep the bar's space, hidden, while there are no outputs, so the block
+   * doesn't grow when they come.
+   */
+  reserveSpace?: boolean
 }
 
-export function ViewOutputs({ outputs, autoOpen = false }: ViewOutputsProps) {
+export function ViewOutputs({ outputs, autoOpen = false, reserveSpace = false }: ViewOutputsProps) {
   const [showOutputs, setShowOutputs] = useState(autoOpen)
   const { didCopy: copied, copy: doCopy } = useCopyToClipboard(2000)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
@@ -57,12 +62,15 @@ export function ViewOutputs({ outputs, autoOpen = false }: ViewOutputsProps) {
   const hasOutputs = outputs && Object.keys(outputs).length > 0
   const outputCount = outputs ? Object.keys(outputs).length : 0
 
-  if (!hasOutputs) {
+  if (!hasOutputs && !reserveSpace) {
     return null
   }
 
   return (
-    <div className="border border-border rounded-sm">
+    <div
+      className="border border-border rounded-sm"
+      style={hasOutputs ? undefined : { visibility: "hidden" }}
+    >
       {/* Toggle button with Copy action */}
       <div className="flex items-center justify-between px-3 py-2 hover:bg-accent transition-colors">
         <button
@@ -104,7 +112,7 @@ export function ViewOutputs({ outputs, autoOpen = false }: ViewOutputsProps) {
       </div>
 
       {/* Outputs Table */}
-      {showOutputs && (
+      {showOutputs && hasOutputs && (
         <div className="border-t border-border p-3 bg-muted max-h-96 overflow-y-auto">
           <table className="w-full text-sm">
             <thead>

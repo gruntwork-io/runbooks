@@ -125,3 +125,23 @@ describe("ViewOutputs paths", () => {
     expect(writeText).toHaveBeenLastCalledWith(JSON.stringify(outputs, null, 2))
   })
 })
+
+describe("ViewOutputs without outputs", () => {
+  it("shows nothing", () => {
+    const { container } = render(<ViewOutputs outputs={null} />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it("keeps the bar's space, hidden, for a block that asks it to", async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<ViewOutputs outputs={{ region: "us-west-2" }} reserveSpace />)
+    await user.click(screen.getByRole("button", { name: "View Outputs (1)" }))
+    expect(screen.getByText("us-west-2")).toBeVisible()
+
+    // The outputs go, as when a check fails. The bar stays, hidden and closed.
+    rerender(<ViewOutputs outputs={null} reserveSpace />)
+    expect(screen.getByText("View Outputs (0)")).not.toBeVisible()
+    expect(screen.queryByRole("button", { name: /View Outputs/ })).toBeNull()
+    expect(screen.queryByRole("table")).toBeNull()
+  })
+})
