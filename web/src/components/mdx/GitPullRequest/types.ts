@@ -8,6 +8,8 @@ export interface GitPullRequestProps {
   title?: string
   /** Description text (supports inline markdown) */
   description?: string
+  /** Whether the block folds into a bar with its title once it's done, which expands it again when clicked. */
+  autoCollapse?: boolean
   /** Pre-populated PR/MR title (supports template expressions) */
   prefilledPullRequestTitle?: string
   /** Pre-populated PR/MR description (supports template expressions) */

@@ -571,6 +571,48 @@ describe("Command", () => {
     await waitFor(() => expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/0"))
   })
 
+  // --- autoCollapse ---
+
+  it("with autoCollapse, folds into a bar with its title once it succeeds, still a done step", async () => {
+    mockScriptExecution = { ...defaultScriptExecution, status: "success" }
+    render(
+      <TestWrapper>
+        <Command id="test-cmd" title="Install the tools" command='echo "hello"' autoCollapse />
+        <RunbookProgressProbe />
+      </TestWrapper>,
+    )
+
+    expect(screen.getByTestId("test-cmd-collapsed")).toHaveTextContent("Install the tools")
+    expect(screen.getByTestId("test-cmd")).not.toBeVisible()
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Install the tools", expanded: false }),
+    )
+    expect(screen.getByTestId("test-cmd")).toBeVisible()
+    expect(screen.getByRole("button", { name: "Run" })).toBeInTheDocument()
+  })
+
+  it("with autoCollapse, folds an untitled command into a bar showing what it runs", () => {
+    mockScriptExecution = { ...defaultScriptExecution, status: "success" }
+    renderCommand({ title: undefined, autoCollapse: true })
+    expect(screen.getByTestId("test-cmd-collapsed")).toHaveTextContent('echo "hello"')
+  })
+
+  it.each(["pending", "running", "fail"])("with autoCollapse, stays in full while %s", (status) => {
+    mockScriptExecution = { ...defaultScriptExecution, status }
+    renderCommand({ autoCollapse: true })
+    expect(screen.queryByTestId("test-cmd-collapsed")).toBeNull()
+    expect(screen.getByTestId("test-cmd")).toBeVisible()
+  })
+
+  it("without autoCollapse, stays in full once it succeeds", () => {
+    mockScriptExecution = { ...defaultScriptExecution, status: "success" }
+    renderCommand()
+    expect(screen.queryByTestId("test-cmd-collapsed")).toBeNull()
+    expect(screen.queryByRole("button", { name: "Collapse block" })).toBeNull()
+  })
+
   // --- Template resolution ---
 
   it("resolves template expressions in title", () => {

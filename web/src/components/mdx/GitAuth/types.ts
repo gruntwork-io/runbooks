@@ -65,6 +65,8 @@ export interface GitAuthProps {
   id: string
   title?: string
   description?: string
+  /** Whether the block folds into a bar with its title once it's done, which expands it again when clicked. */
+  autoCollapse?: boolean
   /** Initial selected provider (default: 'github'). */
   provider?: GitProvider
   /** When true, the provider picker is hidden and the provider is locked. */

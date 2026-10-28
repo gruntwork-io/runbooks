@@ -53,7 +53,10 @@ const FINISH_VARIANT: ScriptBlockVariant = {
   }),
 }
 
-type FinishProps = Omit<ScriptBlockProps, "variant" | "successContent" | "onComplete">
+type FinishProps = Omit<
+  ScriptBlockProps,
+  "variant" | "successContent" | "onComplete" | "autoCollapse"
+>
 
 /**
  * Marks the end of a runbook. Clicking Finish runs the optional final check
@@ -93,6 +96,8 @@ function Finish({
       failMessage={failMessage}
       successContent={nextSteps}
       onComplete={complete}
+      // Folded once finished, it would hide the next steps it shows then
+      autoCollapse={false}
       variant={FINISH_VARIANT}
     />
   )

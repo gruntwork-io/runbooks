@@ -1,0 +1,41 @@
+# Auto-Collapse Demo
+
+A block with `autoCollapse` folds into a bar with its title once it's done. Click the bar to show the block again, and the arrow beside its **ID** badge to fold it again.
+
+## A titled command
+
+<Command
+  id="install"
+  title="Install the tools"
+  command='echo "Installing..."; sleep 2; echo "version=1.4.0" >> "$RUNBOOK_OUTPUT"'
+  autoCollapse
+/>
+
+## An untitled command
+
+Without a title, the bar shows the command.
+
+<Command id="configure" command="echo configured" autoCollapse />
+
+## A check that warns
+
+A check that ends with a warning (exit code 2) is done too, so it folds, into a yellow bar.
+
+<Check
+  id="disk-space"
+  title="Check the free disk space"
+  command='echo "Less than 10 GB free"; exit 2'
+  warnMessage="Running low on disk space"
+  autoCollapse
+/>
+
+## Without autoCollapse
+
+This block uses an output of the folded `install` block, which folding doesn't hide from it. It stays in full once it succeeds.
+
+<Command
+  id="show-version"
+  title="Show the version"
+  env={{ VERSION: "{{ .outputs.install.version }}" }}
+  command='echo "Installed version $VERSION"'
+/>

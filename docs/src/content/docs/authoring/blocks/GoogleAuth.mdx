@@ -50,6 +50,7 @@ Runbooks never shells out to the `gcloud` binary. Service account keys are valid
 | `id` | `string` | required | Unique identifier for this component |
 | `title` | `string` | `"Google Cloud Authentication"` | Display title shown in the UI (supports template expressions) |
 | `description` | `string` | - | Description of the authentication purpose (supports template expressions) |
+| `autoCollapse` | `boolean` | `false` | Folds the block into a bar with its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks) |
 | `project` | `string` | - | Pin a Google Cloud project. When set, project selection is skipped and this project is used (supports template expressions) |
 | `defaultRegion` | `string` | - | Default compute region for subsequent commands. Sets `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, and `GOOGLE_REGION` |
 | `defaultZone` | `string` | - | Default compute zone for subsequent commands. Sets `CLOUDSDK_COMPUTE_ZONE` and `GOOGLE_ZONE` |

@@ -83,3 +83,17 @@ Each block the user acts on is a step. It is done once the block shows it's done
 `<TemplateInline>`, `<Admonition>`, `<Chapter>` and `<Iframe>` aren't steps, as there is nothing in them for the user to do. The blocks inside a `<Chapter>` are steps as they would be anywhere else, and its table of contents counts them per chapter. Neither is an `<Inputs>` nested in a `<Command>` or `<Check>`, which is part of that block, nor a block that shows a configuration error, such as a duplicate ID, in its place.
 
 A [resumed session](/commands/sessions/#resuming-a-session) brings the blocks back as the user left them, so their steps are done as they were. In [instruction mode](/intro/instruction-mode/#tracking-your-progress), a step is done once the user marks it as done.
+
+## Folding done blocks
+
+A block that the user acts on once and then doesn't need to look at again, such as a `<Command>` that installs tools or a sign-in, can fold out of the way once it's done. Set `autoCollapse` on it:
+
+```mdx
+<Command id="install-tools" title="Install the tools" command="brew bundle" autoCollapse />
+```
+
+Once the block is done, as in the [Progress](#progress) table, it folds into a bar with its title and a check mark, or a warning sign for a `<Check>` or `<Prerequisites>` that ended with a warning. Click the bar to show the block in full, and the arrow beside its **ID** badge to fold it again. The bar of a `<Command>` or `<Check>` without a title shows its command, or its script's path.
+
+The block folds each time it becomes done, such as when a run succeeds again, and shows in full whenever it isn't done, such as a sign-in whose credentials are about to expire. A [resumed session](/commands/sessions/#resuming-a-session) brings its done blocks back folded. Folding only hides a block: its logs, outputs and values stay as they were, for the blocks that use them.
+
+`autoCollapse` works on `<Command>`, `<Check>`, `<Prerequisites>`, `<AwsAuth>`, `<GoogleAuth>`, `<GitAuth>`, `<GitHubAuth>`, `<GitLabAuth>`, `<GitClone>`, `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>`. In [instruction mode](/intro/instruction-mode/#tracking-your-progress), these blocks fold once the user marks them as done.

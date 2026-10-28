@@ -6,6 +6,8 @@ export interface GitCloneProps {
   title?: string | undefined
   /** Description text (supports inline markdown and template expressions) */
   description?: string | undefined
+  /** Whether the block folds into a bar with its title once it's done, which expands it again when clicked. */
+  autoCollapse?: boolean | undefined
   /** ID or array of IDs of Inputs components to get variable values from */
   inputsId?: string | string[] | undefined
   /** Reference to a GitHubAuth block by ID for credentials. Matches the `githubAuthId` prop used by every other block (Command, Check, GitHubPullRequest). */

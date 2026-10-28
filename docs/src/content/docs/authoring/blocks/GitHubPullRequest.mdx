@@ -73,6 +73,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
 | `title` | `string` | No | Display title for the block header. Supports inline markdown and template expressions. |
 | `description` | `string` | No | Description text below the title. Supports inline markdown and template expressions. |
+| `autoCollapse` | `boolean` | No | Folds the block into a bar with its title once the pull request is opened. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). |
 | `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access. |
 | `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) or [`<GitHubAuth>`](/authoring/blocks/githubauth) block. Works like `githubAuthId`. If the linked block signed in to GitLab, the block shows a blocking error. |

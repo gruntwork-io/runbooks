@@ -134,6 +134,16 @@ describe("Finish", () => {
       expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
     })
 
+    it("doesn't fold once finished, even with autoCollapse, so its next steps stay in view", async () => {
+      // An author can still write it in the runbook, where nothing checks props
+      render(finish({ autoCollapse: true } as Partial<React.ComponentProps<typeof Finish>>))
+
+      await userEvent.click(screen.getByRole("button", { name: "Finish" }))
+
+      expect(screen.queryByTestId("finish-collapsed")).toBeNull()
+      expect(screen.getByText("Next: tell your team.")).toBeVisible()
+    })
+
     it("marks the session finished, and saves the block as finished in its history", async () => {
       render(finish())
 

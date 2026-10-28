@@ -4,6 +4,7 @@ import { CodeBlock } from "./CodeBlock"
 import { ViewSourceCode } from "./ViewSourceCode"
 import { InlineMarkdown } from "./InlineMarkdown"
 import { BlockIdLabel } from "./BlockIdLabel"
+import { AutoCollapse, CollapseButton } from "./AutoCollapse"
 import { CompletionCheckbox } from "./CompletionCheckbox"
 import { useInstructionResolution } from "../hooks/useInstructionResolution"
 import { useBlockCompletion } from "../hooks/useBlockCompletion"
@@ -54,6 +55,10 @@ export interface InstructionProps {
    * not for a done state restored on load). <Finish> celebrates with it.
    */
   onMarkedDone?: (() => void) | undefined
+  /** The block's `autoCollapse` prop: once marked done, it folds into a bar. */
+  autoCollapse?: boolean | undefined
+  /** What the bar of a folded block shows, when not the title. */
+  collapsedTitle?: ReactNode
 }
 
 const EMPTY_CONTEXT: TemplateContext = { inputs: {}, outputs: {} }
@@ -82,6 +87,8 @@ export function Instruction({
   icon: Icon = ListChecks,
   id,
   onMarkedDone,
+  autoCollapse,
+  collapsedTitle,
 }: InstructionProps) {
   const commandList = normalizeCommandList(command)
   const envNames = Object.keys(env)
@@ -119,101 +126,110 @@ export function Instruction({
   }
 
   return (
-    <div
-      data-testid={id ? `instruction-${id}` : "instruction"}
-      data-instruction-mode="true"
-      data-completed={completed || undefined}
-      className={`runbook-block relative rounded-sm border mb-5 p-4 ${
-        completed ? "border-success/40 bg-success-muted" : "border-border bg-muted/40"
-      }`}
+    <AutoCollapse
+      enabled={autoCollapse}
+      done={!!id && completed}
+      id={id ?? ""}
+      title={collapsedTitle ?? title}
     >
-      {id && (
-        <div className="absolute top-3 right-3 z-20">
-          <BlockIdLabel id={id} size="large" />
-        </div>
-      )}
-
-      <div className="flex">
-        <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <Icon className={`size-6 ${completed ? "text-success" : "text-muted-foreground"}`} />
-        </div>
-
-        <div className="flex-1 min-w-0 space-y-3">
-          {id && (
-            <div className="flex justify-end mr-8 -mb-1">
-              <CompletionCheckbox completed={completed} onToggle={handleToggle} />
-            </div>
-          )}
-          <div className="text-md font-bold text-foreground">
-            <InlineMarkdown>{title}</InlineMarkdown>
+      <div
+        data-testid={id ? `instruction-${id}` : "instruction"}
+        data-instruction-mode="true"
+        data-completed={completed || undefined}
+        className={`runbook-block relative rounded-sm border mb-5 p-4 ${
+          completed ? "border-success/40 bg-success-muted" : "border-border bg-muted/40"
+        }`}
+      >
+        {id && (
+          <div className="absolute top-3 right-3 z-20 flex items-center gap-1">
+            <BlockIdLabel id={id} size="large" />
+            <CollapseButton />
           </div>
-          {description && (
-            <div className="text-md text-muted-foreground">
-              <InlineMarkdown>{description}</InlineMarkdown>
-            </div>
-          )}
+        )}
 
-          {/* Embedded Inputs form, placed before the command (as in the
+        <div className="flex">
+          <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
+            <Icon className={`size-6 ${completed ? "text-success" : "text-muted-foreground"}`} />
+          </div>
+
+          <div className="flex-1 min-w-0 space-y-3">
+            {id && (
+              // Clear of the ID label, and the collapse button beside it
+              <div className={`flex justify-end -mb-1 ${autoCollapse ? "mr-14" : "mr-8"}`}>
+                <CompletionCheckbox completed={completed} onToggle={handleToggle} />
+              </div>
+            )}
+            <div className="text-md font-bold text-foreground">
+              <InlineMarkdown>{title}</InlineMarkdown>
+            </div>
+            {description && (
+              <div className="text-md text-muted-foreground">
+                <InlineMarkdown>{description}</InlineMarkdown>
+              </div>
+            )}
+
+            {/* Embedded Inputs form, placed before the command (as in the
               interactive layout) so the command updates as the user fills it. */}
-          {inputs && <div>{inputs}</div>}
+            {inputs && <div>{inputs}</div>}
 
-          {/* Manual-input fields for output-derived values (§6.5.2). Placed
+            {/* Manual-input fields for output-derived values (§6.5.2). Placed
               before the command so the command updates as the user fills them. */}
-          {manualFields.length > 0 && (
-            <div className="space-y-2">
-              {manualFields.map((field) => (
-                <label key={field.id} className="block text-sm">
-                  <span className="text-muted-foreground">{field.label}</span>
-                  <input
-                    type="text"
-                    value={field.value}
-                    onChange={(e) => field.onChange(e.target.value)}
-                    placeholder={`Paste the ${field.outputName} value`}
-                    className="mt-1 w-full rounded-sm border border-border bg-bg-default px-2 py-1 font-mono text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                </label>
-              ))}
-            </div>
-          )}
+            {manualFields.length > 0 && (
+              <div className="space-y-2">
+                {manualFields.map((field) => (
+                  <label key={field.id} className="block text-sm">
+                    <span className="text-muted-foreground">{field.label}</span>
+                    <input
+                      type="text"
+                      value={field.value}
+                      onChange={(e) => field.onChange(e.target.value)}
+                      placeholder={`Paste the ${field.outputName} value`}
+                      className="mt-1 w-full rounded-sm border border-border bg-bg-default px-2 py-1 font-mono text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
 
-          {/* Resolved command(s) as copyable code blocks. */}
-          {shownCmds.map((cmd, i) => (
-            <CodeBlock key={i}>
-              <code className="language-bash whitespace-pre-wrap">{cmd}</code>
-            </CodeBlock>
-          ))}
+            {/* Resolved command(s) as copyable code blocks. */}
+            {shownCmds.map((cmd, i) => (
+              <CodeBlock key={i}>
+                <code className="language-bash whitespace-pre-wrap">{cmd}</code>
+              </CodeBlock>
+            ))}
 
-          {/* A script's env vars, to set before running it. */}
-          {exports && resolvedCmds.length === 0 && (
-            <CodeBlock>
-              <code className="language-bash whitespace-pre-wrap">{exports}</code>
-            </CodeBlock>
-          )}
+            {/* A script's env vars, to set before running it. */}
+            {exports && resolvedCmds.length === 0 && (
+              <CodeBlock>
+                <code className="language-bash whitespace-pre-wrap">{exports}</code>
+              </CodeBlock>
+            )}
 
-          {note && <div className="text-sm text-muted-foreground">{note}</div>}
+            {note && <div className="text-sm text-muted-foreground">{note}</div>}
 
-          {usedFallback && (
-            <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-              <AlertTriangle className="size-3.5 mt-0.5 flex-shrink-0 text-warning" />
-              <span>
-                Shown using a simplified resolver — template logic (conditionals, functions) may not
-                be fully evaluated.
-              </span>
-            </div>
-          )}
+            {usedFallback && (
+              <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <AlertTriangle className="size-3.5 mt-0.5 flex-shrink-0 text-warning" />
+                <span>
+                  Shown using a simplified resolver — template logic (conditionals, functions) may
+                  not be fully evaluated.
+                </span>
+              </div>
+            )}
 
-          {/* File-backed scripts keep the source viewer (PRD §5). */}
-          {resolvedSource !== undefined && (
-            <ViewSourceCode
-              sourceCode={resolvedSource}
-              path={source?.path}
-              language={source?.language}
-              fileName={source?.fileName ?? "Script"}
-            />
-          )}
+            {/* File-backed scripts keep the source viewer (PRD §5). */}
+            {resolvedSource !== undefined && (
+              <ViewSourceCode
+                sourceCode={resolvedSource}
+                path={source?.path}
+                language={source?.language}
+                fileName={source?.fileName ?? "Script"}
+              />
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </AutoCollapse>
   )
 }
 

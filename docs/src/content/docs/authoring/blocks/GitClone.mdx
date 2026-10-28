@@ -97,6 +97,7 @@ You can pre-fill the URL, ref, sparse checkout path, and local path fields. User
 | `id` | `string` | Yes | Unique block identifier. Later blocks use it to reference outputs. |
 | `title` | `string` | No | Display title for the block header. Supports inline markdown. Defaults to "Clone Repository". |
 | `description` | `string` | No | Description text below the title. Supports inline markdown. |
+| `autoCollapse` | `boolean` | No | Folds the block into a bar with its title once the repository is cloned. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
 | `inputsId` | `string \| string[]` | No | ID of one or more [`<Inputs>`](/authoring/blocks/inputs) blocks. `title`, `description`, and the `prefilled*` props resolve `{{ .inputs.VarName }}` expressions against them. |
 | `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access and clone authentication. |
 | `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth), [`<GitHubAuth>`](/authoring/blocks/githubauth) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth) block, for either provider. When set, the block waits for authentication to complete and clones with that provider's session token, including from a self-managed GitLab instance. |

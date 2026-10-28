@@ -40,6 +40,7 @@ A [Check](/authoring/blocks/check/) can test anything, but you write the script,
 
 - `title` (string): display title. Default "Tools this runbook needs". Supports inline markdown.
 - `description` (string): longer description, shown under the title. Supports inline markdown.
+- `autoCollapse` (boolean): whether the block folds into a bar with its title once it's done. Defaults to `false`. Click the bar to show the block again. See [Folding done blocks](/authoring/blocks/#folding-done-blocks).
 - `successMessage` (string): message shown when every tool is installed. Default "The tools this runbook needs are installed." Supports inline markdown.
 - `warnMessage` (string): message shown when only optional tools are missing or out of date. Default "The required tools are installed. Some optional ones are missing or out of date." Supports inline markdown.
 - `failMessage` (string): message shown when a required tool is missing or out of date. Default "Install or update the tools marked below, then check again." Supports inline markdown.
