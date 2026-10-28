@@ -318,7 +318,7 @@ describe("useAwsAuth — SSO poll lifecycle", () => {
     expect(channelsCalled()).not.toContain("session:set-env")
   })
 
-  it("stops polling on 'Try auto-detection again'", async () => {
+  it("stops polling on 'Check again'", async () => {
     installApi({})
     const { result } = renderSso()
 

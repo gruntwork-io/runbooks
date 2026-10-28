@@ -95,6 +95,16 @@ describe("useAwsAuth — env credential detection", () => {
     await waitFor(() => expect(result.current.detectionStatus).toBe("done"))
     expect(result.current.detectedCredentials).toBeNull()
     expect(result.current.detectionWarning).toBeNull()
+    expect(result.current.manualHint).toBe("No existing credentials found. Sign in below.")
+  })
+
+  it("has no hint with detection off", () => {
+    installApi({})
+
+    const { result } = renderAwsAuth(false)
+
+    expect(result.current.detectionStatus).toBe("done")
+    expect(result.current.manualHint).toBeNull()
   })
 
   it("warns when credentials are found but invalid", async () => {
@@ -107,26 +117,26 @@ describe("useAwsAuth — env credential detection", () => {
     expect(result.current.detectionWarning).toBe(
       "AWS credentials in environment are invalid or expired",
     )
+    expect(result.current.manualHint).toBe("Fix the credentials, or sign in below.")
   })
 
-  it("'Try auto-detection again' re-runs detection and says when it found nothing", async () => {
+  it("'Check again' re-runs detection", async () => {
     const invoke = installApi({ detect: { found: false } })
 
     const { result } = renderAwsAuth()
     await waitFor(() => expect(result.current.detectionStatus).toBe("done"))
-    // The first, automatic attempt is silent.
-    expect(result.current.retryFoundNothing).toBe(false)
 
     act(() => result.current.handleRetryDetection())
+    expect(result.current.detectionStatus).toBe("pending")
 
-    await waitFor(() => expect(result.current.retryFoundNothing).toBe(true))
-    expect(result.current.detectionStatus).toBe("done")
+    await waitFor(() => expect(result.current.detectionStatus).toBe("done"))
+    expect(result.current.manualHint).toBe("No existing credentials found. Sign in below.")
     expect(invoke.mock.calls.filter(([channel]) => channel === "aws:env-credentials")).toHaveLength(
       2,
     )
   })
 
-  it("'Try auto-detection again' after rejecting the prompt brings it back", async () => {
+  it("'Check again' after rejecting the prompt brings it back", async () => {
     installApi({
       detect: {
         found: true,
@@ -142,6 +152,8 @@ describe("useAwsAuth — env credential detection", () => {
     act(() => result.current.handleRejectDetected())
     expect(result.current.detectionStatus).toBe("done")
     expect(result.current.detectedCredentials).toBeNull()
+    // Credentials were found; the user turned them down.
+    expect(result.current.manualHint).toBe("Sign in below with different credentials.")
 
     act(() => result.current.handleRetryDetection())
 

@@ -207,6 +207,7 @@ describe("useGoogleAuth — detection", () => {
       "Google Cloud credentials in the environment are invalid or expired; Application Default Credentials are invalid or expired",
     )
     expect(result.current.detectedCredentials).toBeNull()
+    expect(result.current.manualHint).toBe("Fix the credentials, or sign in below.")
   })
 
   it("appends MAIN's reason to the per-source copy for a found-but-invalid credential", async () => {
@@ -564,21 +565,20 @@ describe("useGoogleAuth — detection", () => {
     )
   })
 
-  it('retrying detection re-runs the walk and flags "found nothing"', async () => {
+  it('"Check again" re-runs the walk and says when it found nothing', async () => {
     const invoke = installApi(() => ({ found: false }))
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: ["env"] })
     await waitFor(() => expect(result.current.detectionStatus).toBe("done"))
-    expect(result.current.retryFoundNothing).toBe(false)
+    expect(result.current.manualHint).toBe("No existing credentials found. Sign in below.")
     expect(callsTo(invoke, "google:env-credentials")).toHaveLength(1)
 
     act(() => result.current.handleRetryDetection())
+    expect(result.current.detectionStatus).toBe("pending")
 
-    await waitFor(() => expect(result.current.retryFoundNothing).toBe(true))
+    await waitFor(() => expect(result.current.detectionStatus).toBe("done"))
+    expect(result.current.manualHint).toBe("No existing credentials found. Sign in below.")
     expect(callsTo(invoke, "google:env-credentials")).toHaveLength(2)
-
-    act(() => result.current.clearRetryMessage())
-    expect(result.current.retryFoundNothing).toBe(false)
   })
 })
 
@@ -1416,7 +1416,7 @@ describe("useGoogleAuth — OAuth tab", () => {
     expect(invoke).toHaveBeenCalledWith("google:oauth-cancel", { flowId: "flow-9" })
   })
 
-  it('"Try auto-detection again" cancels an in-flight sign-in', async () => {
+  it('"Check again" cancels an in-flight sign-in', async () => {
     const invoke = installApi((channel) => {
       if (channel === "google:oauth-start") {
         return { flowId: "flow-10", authUrl: "https://accounts.google.com/o/oauth2/v2/auth" }

@@ -14,6 +14,7 @@ import { AwsAuthInstruction } from "./AwsAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { CredentialExpiryNotice } from "@/components/mdx/_shared/components/CredentialExpiryNotice"
+import { DetectionHint } from "@/components/mdx/_shared/components/DetectionHint"
 import { useCredentialExpiry } from "@/components/mdx/_shared/hooks/useCredentialExpiry"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
@@ -258,10 +259,6 @@ function AwsAuthInteractive({
                   <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
                   <div className="min-w-0">
                     <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
-                    <br />
-                    <span className="text-warning-foreground">
-                      Please authenticate manually below.
-                    </span>
                   </div>
                 </div>
               )}
@@ -279,15 +276,15 @@ function AwsAuthInteractive({
             {/* Authentication form (only show when not authenticated and detection is done) */}
             {auth.authStatus !== "authenticated" && auth.detectionStatus === "done" && (
               <>
+                {/* The hint line and "Check again", which re-runs detection, as in
+                    GitAuth. Absent with detection off. */}
+                {showTabs && auth.manualHint && (
+                  <DetectionHint hint={auth.manualHint} onCheckAgain={auth.handleRetryDetection} />
+                )}
+
                 {/* Method tabs (hide during account/role selection) */}
                 {showTabs && (
-                  <AuthTabs
-                    authMethod={auth.authMethod}
-                    setAuthMethod={(method) => {
-                      auth.clearRetryMessage()
-                      auth.setAuthMethod(method)
-                    }}
-                  />
+                  <AuthTabs authMethod={auth.authMethod} setAuthMethod={auth.setAuthMethod} />
                 )}
 
                 {/* Static Credentials Form */}
@@ -364,22 +361,6 @@ function AwsAuthInteractive({
                     onProfileAuth={auth.handleProfileAuth}
                     onRefreshProfiles={auth.loadAwsProfiles}
                   />
-                )}
-
-                {/* Option to retry detection when in manual auth mode */}
-                {detectCredentials !== false && showTabs && (
-                  <div className="mt-3 text-sm text-muted-foreground flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={auth.handleRetryDetection}
-                      className="text-primary hover:text-primary/80 hover:underline cursor-pointer"
-                    >
-                      ← Try auto-detection again
-                    </button>
-                    {auth.retryFoundNothing && (
-                      <span className="text-muted-foreground italic">No credentials found</span>
-                    )}
-                  </div>
                 )}
               </>
             )}

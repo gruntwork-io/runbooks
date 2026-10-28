@@ -14,6 +14,7 @@ import { GitAuthInstruction } from "./GitAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { CredentialExpiryNotice } from "@/components/mdx/_shared/components/CredentialExpiryNotice"
+import { DetectionHint } from "@/components/mdx/_shared/components/DetectionHint"
 import { useCredentialExpiry } from "@/components/mdx/_shared/hooks/useCredentialExpiry"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
@@ -183,7 +184,7 @@ function GitAuthInteractive({
   // Whether the block looks for existing credentials. With detection off, the
   // controls and copy that re-run or explain detection (Check again, Reload,
   // the host picker's credential annotations, the auto-auth FAQ) are hidden,
-  // as AwsAuth and GoogleAuth hide their "Try auto-detection again".
+  // as AwsAuth and GoogleAuth hide their "Check again".
   const detectionEnabled = detectCredentials !== false
 
   // Host picker + config reload. GitLab shows it with a single known host too,
@@ -412,21 +413,12 @@ function GitAuthInteractive({
                   focus re-detection off. With detection disabled the hint is
                   neutral copy and there is nothing to check again. */}
                 {auth.manualHint && (
-                  <div
-                    data-testid="vcs-cli-hint"
-                    className="mb-4 text-sm text-muted-foreground flex items-center gap-2 flex-wrap"
-                  >
-                    <span>{auth.manualHint}</span>
-                    {!showHostPicker && detectionEnabled && (
-                      <button
-                        type="button"
-                        onClick={auth.retryUnreachable}
-                        className="text-info hover:underline cursor-pointer text-sm font-medium"
-                      >
-                        Check again
-                      </button>
-                    )}
-                  </div>
+                  <DetectionHint
+                    hint={auth.manualHint}
+                    onCheckAgain={
+                      !showHostPicker && detectionEnabled ? auth.retryUnreachable : undefined
+                    }
+                  />
                 )}
 
                 {/* Custom OAuth Warning */}

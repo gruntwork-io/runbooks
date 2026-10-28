@@ -701,17 +701,22 @@ describe("GoogleAuth — credential detection", () => {
     expect(screen.queryByText(/PROD_PROD_/)).toBeNull()
   })
 
-  it("offers a detection retry from the manual form", async () => {
+  it("offers 'Check again' from the manual form", async () => {
     installApi(NO_CREDENTIALS)
     renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} />)
 
-    const retry = await screen.findByRole("button", { name: "← Try auto-detection again" })
+    const checkAgain = await screen.findByRole("button", { name: "Check again" })
+    expect(screen.getByTestId("detection-hint")).toHaveTextContent(
+      "No existing credentials found. Sign in below.",
+    )
     expect(callsTo("google:env-credentials")).toHaveLength(1)
 
-    fireEvent.click(retry)
+    fireEvent.click(checkAgain)
 
     await waitFor(() => expect(callsTo("google:env-credentials")).toHaveLength(2))
-    expect(await screen.findByText("No credentials found")).toBeInTheDocument()
+    expect(await screen.findByTestId("detection-hint")).toHaveTextContent(
+      "No existing credentials found. Sign in below.",
+    )
   })
 })
 
@@ -792,7 +797,7 @@ describe("GoogleAuth — required scopes", () => {
       ),
     ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Sign in with required scopes" })).toBeNull()
-    expect(screen.getByRole("button", { name: "Try auto-detection again" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument()
   })
 
   it("does not enforce default scopes when the author omits the prop", async () => {
