@@ -9,6 +9,7 @@
 import { z } from "zod"
 import type { ExecState, LogEntry } from "@/hooks/useApiExec"
 import { decodeOutputs, encodeOutputs } from "@/lib/outputValues"
+import type { TemplateOutputs } from "@/lib/templateUtils"
 import { createAppError } from "@/types/error"
 
 // ---------------------------------------------------------------------------
@@ -412,4 +413,35 @@ function logTail(logs: LogEntry[]): LogEntry[] {
     start--
   }
   return logs.slice(start)
+}
+
+// ---------------------------------------------------------------------------
+// Outputs entered by hand (`overrides` events)
+// ---------------------------------------------------------------------------
+
+const SavedOverridesSchema = z.object({
+  /** The values a script block uses in place of other blocks' outputs, by block and output */
+  outputs: z.record(z.string(), EncodedOutputsSchema),
+})
+
+/** The event of a script block's entered outputs changing, with all of them. */
+export function overridesChanged(overrides: TemplateOutputs): unknown {
+  // The real values of sensitive ones: the main process encrypts the payload.
+  return {
+    outputs: Object.fromEntries(
+      Object.entries(overrides).map(([blockId, values]) => [blockId, encodeOutputs(values)]),
+    ),
+  } satisfies z.infer<typeof SavedOverridesSchema>
+}
+
+/** The outputs a script block was given by hand, given its latest `overrides` event. */
+export function restoreOverrides(payload: unknown): TemplateOutputs {
+  const parsed = SavedOverridesSchema.safeParse(payload)
+  if (!parsed.success) return {}
+  return Object.fromEntries(
+    Object.entries(parsed.data.outputs).map(([blockId, values]) => [
+      blockId,
+      decodeOutputs(values),
+    ]),
+  )
 }

@@ -44,6 +44,10 @@ echo "bucket=$BUCKET" >> "$RUNBOOK_OUTPUT"`}
   path="checks/print-title.sh"
 />
 
+### Entering an output by hand
+
+Each output an env value reads is a chip in the block's list of variables. Before `fetch-title` runs, the `TITLE` chip names the output `print-title` waits for. Click it, type a title in its place and press Enter, and `print-title` can run without `fetch-title`. The reset button next to the title brings the chip back.
+
 ## Only for that block
 
 The variables are the block's own. The next block doesn't see `TITLE`.

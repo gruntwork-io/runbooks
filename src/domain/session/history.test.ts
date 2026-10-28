@@ -81,7 +81,7 @@ describe("replacesPreviousEvent", () => {
   it("is true for a form's values and a template's files, and false for the other kinds", () => {
     expect(replacesPreviousEvent("inputs")).toBe(true)
     expect(replacesPreviousEvent("render")).toBe(true)
-    for (const kind of ["run", "clone", "pull-request", "auth"] as const) {
+    for (const kind of ["run", "clone", "pull-request", "auth", "overrides"] as const) {
       expect(replacesPreviousEvent(kind)).toBe(false)
     }
   })
