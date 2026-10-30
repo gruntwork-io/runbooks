@@ -37,7 +37,7 @@
     "@aws-sdk/credential-providers": "^3.1152.0",
     "@aws-sdk/util-endpoints": "^3.996.47",
     "@smithy/core": "^3.36.0",
-    "chokidar": "^5.0.0",
+    "chokidar": "^6.0.0",
     "commander": "^15.0.0",
     "effect": "^4.0.5",
     "electron-updater": "^6.8.9",
