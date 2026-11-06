@@ -137,6 +137,7 @@ export class ExecutableRegistry {
   /** Absolute path each file entry's script was read from, keyed by entry ID. */
   private scriptPaths = new Map<string, string>()
   private warnings: string[] = []
+  private runbookDir = ""
 
   // -----------------------------------------------------------------------
   // Factory
@@ -174,6 +175,7 @@ export class ExecutableRegistry {
 
       const content = contentOverride ?? (yield* fs.readFile(runbookPath))
       const runbookDir = path.dirname(runbookPath)
+      this.runbookDir = runbookDir
 
       // The renderer refuses a runbook that isn't valid MDX or fails
       // remarkLiteralOnly, so none of its blocks can run.
@@ -450,6 +452,11 @@ export class ExecutableRegistry {
    */
   getExecutableSync(id: string): Executable | undefined {
     return this.entries.get(id)
+  }
+
+  /** The folder `path` props are resolved against: the one the runbook file is in. */
+  getRunbookDir(): string {
+    return this.runbookDir
   }
 
   /** Return all warnings collected during parsing. */

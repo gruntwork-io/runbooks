@@ -29,6 +29,7 @@ describe("filterCapturedEnv", () => {
       RUNBOOK_OUTPUT: "/tmp/output",
       GENERATED_FILES: "/tmp/files",
       REPO_FILES: "/tmp/repo",
+      RUNBOOK_SOURCE_FILES: "/tmp/runbook",
       RUNBOOK_LOG: "/tmp/logs/runbook.log",
       RUNBOOK_INFO_LOG: "/tmp/logs/info.log",
       RUNBOOK_WARN_LOG: "/tmp/logs/warn.log",

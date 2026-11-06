@@ -27,7 +27,8 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /**
  * Whether Runbooks sets `name` itself for every run: RUNBOOK_OUTPUT, the log
- * files (RUNBOOK_LOG, RUNBOOK_INFO_LOG, ...), GENERATED_FILES and REPO_FILES.
+ * files (RUNBOOK_LOG, RUNBOOK_INFO_LOG, ...), RUNBOOK_SOURCE_FILES,
+ * GENERATED_FILES and REPO_FILES.
  * The RUNBOOK_ prefix is kept for those.
  */
 function isRunbookEnvVar(name: string): boolean {
