@@ -11,15 +11,24 @@ import App from "../App"
 
 // What App does with the generated files of a session it opens. The mock
 // boundary is the preload API; the artifacts panel stands in for itself by
-// showing the Generated tree it would render.
+// showing the Generated tree it would render, and the files it would
+// highlight as changed since the user reviewed them.
 vi.mock("@/components/layout/ArtifactsContainer", async () => {
   const { useGeneratedFiles } = await import("@/hooks/useGeneratedFiles")
+  const { useGeneratedFilesReview } = await import("@/hooks/useGeneratedFilesReview")
   return {
     ArtifactsContainer: () => {
       const { fileTree } = useGeneratedFiles()
+      const { changes, dismissAll } = useGeneratedFilesReview()
       return (
-        <div data-testid="generated-tree">
-          {(fileTree ?? []).map((node) => node.name).join(",")}
+        <div>
+          <div data-testid="generated-tree">
+            {(fileTree ?? []).map((node) => node.name).join(",")}
+          </div>
+          <div data-testid="generated-changes">
+            {[...changes].map(([path, change]) => `${path}:${change.status}`).join(",")}
+          </div>
+          <button onClick={dismissAll}>Dismiss all</button>
         </div>
       )
     },
@@ -35,6 +44,7 @@ const RUNBOOKS = {
   "/work/b": { name: "B", session: "session-1", file: "b.tf" },
 }
 const ALERT_TITLE = "Existing Generated Files Detected"
+const FILE_CONTENT = 'region = "us-east-1"\n'
 
 /**
  * A preload api whose runbook:get answers with `blockStates` for the session,
@@ -73,7 +83,21 @@ function makeApi(blockStates: unknown[], bChecked: Promise<void> = Promise.resol
           fileCount: 1,
           absoluteOutputPath: `/sessions/dirs/${checking.session}/generated`,
           relativeOutputPath: "generated",
-          fileTree: [{ id: checking.file, name: checking.file, type: "file", children: [] }],
+          fileTree: [
+            {
+              id: checking.file,
+              name: checking.file,
+              type: "file",
+              children: [],
+              file: {
+                name: checking.file,
+                path: checking.file,
+                content: FILE_CONTENT,
+                language: "hcl",
+                size: FILE_CONTENT.length,
+              },
+            },
+          ],
           totalFiles: 1,
           truncatedTree: false,
           heavyDirs: [],
@@ -94,13 +118,13 @@ function makeApi(blockStates: unknown[], bChecked: Promise<void> = Promise.resol
     })
   }
   const api = { invoke, on } as unknown as Parameters<typeof ApiProvider>[0]["api"]
-  return { api, emit }
+  return { api, emit, invoke }
 }
 
 const originalApi = window.api
 
 async function openRunbook(blockStates: unknown[], bChecked?: Promise<void>) {
-  const { api, emit } = makeApi(blockStates, bChecked)
+  const { api, emit, invoke } = makeApi(blockStates, bChecked)
   window.api = api
   render(
     <ApiProvider api={api}>
@@ -123,12 +147,24 @@ async function openRunbook(blockStates: unknown[], bChecked?: Promise<void>) {
   expect(
     await screen.findByRole("heading", { name: "Runbook A", hidden: true }),
   ).toBeInTheDocument()
-  return emit
+  return { emit, invoke }
 }
 
 const RESUMED = [{ blockId: "vpc", kind: "inputs", payload: { values: {}, submitted: true } }]
 
 const shownTrees = () => screen.getAllByTestId("generated-tree").map((tree) => tree.textContent)
+const shownChanges = () =>
+  screen.getAllByTestId("generated-changes").map((changes) => changes.textContent)
+
+/** The `review` events the app saved to a session's history, oldest first. */
+const savedReviews = (invoke: ReturnType<typeof makeApi>["invoke"], sessionId: string) =>
+  invoke.mock.calls
+    .filter(([channel]) => channel === "session:record-event")
+    .map(
+      ([, params]) =>
+        params as unknown as { sessionId: string; blockId: string; kind: string; payload: unknown },
+    )
+    .filter((event) => event.sessionId === sessionId && event.kind === "review")
 
 describe("App opening a session with generated files", () => {
   beforeEach(() => localStorage.clear())
@@ -152,7 +188,7 @@ describe("App opening a session with generated files", () => {
     const bChecked = new Promise<void>((resolve) => {
       releaseB = resolve
     })
-    const emit = await openRunbook(RESUMED, bChecked)
+    const { emit } = await openRunbook(RESUMED, bChecked)
     await waitFor(() => expect(shownTrees()).toContain("main.tf"))
 
     await emit("file:open-runbook", { path: "/work/b" })
@@ -172,5 +208,64 @@ describe("App opening a session with generated files", () => {
     for (const tree of screen.getAllByTestId("generated-tree")) {
       expect(tree.textContent).toBe("")
     }
+  })
+
+  it("keeps highlighting the files the user had yet to review when the session resumes", async () => {
+    await openRunbook([
+      ...RESUMED,
+      {
+        blockId: "generated-files",
+        kind: "review",
+        payload: { files: [{ path: "main.tf", status: "modified", reviewed: 'region = "x"\n' }] },
+      },
+    ])
+
+    await waitFor(() => expect(shownChanges()).toContain("main.tf:modified"))
+  })
+
+  it("starts a resumed session that saved no review with every file reviewed", async () => {
+    await openRunbook(RESUMED)
+
+    await waitFor(() => expect(shownTrees()).toContain("main.tf"))
+    expect(shownChanges()).toEqual(["", ""])
+  })
+
+  const UNREVIEWED = [
+    ...RESUMED,
+    {
+      blockId: "generated-files",
+      kind: "review",
+      payload: { files: [{ path: "main.tf", status: "added" }] },
+    },
+  ]
+
+  it("saves what is left to review in the session's history", async () => {
+    const { invoke } = await openRunbook(UNREVIEWED)
+    await waitFor(() => expect(shownChanges()).toContain("main.tf:added"))
+
+    await act(async () => screen.getAllByRole("button", { name: "Dismiss all" })[0]!.click())
+
+    await waitFor(
+      () => expect(savedReviews(invoke, "session-0").at(-1)?.payload).toEqual({ files: [] }),
+      { timeout: 3000 },
+    )
+    expect(savedReviews(invoke, "session-0").at(-1)?.blockId).toBe("generated-files")
+  })
+
+  it("never saves one session's files to review in the next session's history", async () => {
+    let releaseB!: () => void
+    const bChecked = new Promise<void>((resolve) => {
+      releaseB = resolve
+    })
+    const { emit, invoke } = await openRunbook(UNREVIEWED, bChecked)
+    await waitFor(() => expect(shownChanges()).toContain("main.tf:added"))
+
+    await emit("file:open-runbook", { path: "/work/b" })
+    await screen.findByRole("heading", { name: "Runbook B", hidden: true })
+    await act(async () => releaseB())
+    await waitFor(() => expect(savedReviews(invoke, "session-1")).not.toHaveLength(0), {
+      timeout: 3000,
+    })
+    expect(JSON.stringify(savedReviews(invoke, "session-1"))).not.toContain("main.tf")
   })
 })

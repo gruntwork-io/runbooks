@@ -26,6 +26,8 @@ interface ContextSwitcherProps {
   onContextChange: (context: WorkspaceContext) => void
   /** Optional count for generated files badge */
   generatedCount?: number
+  /** Whether generated files changed since the user reviewed them */
+  generatedHasChanges?: boolean
   /** Additional CSS classes */
   className?: string
 }
@@ -34,6 +36,7 @@ export const ContextSwitcher = ({
   activeContext,
   onContextChange,
   generatedCount,
+  generatedHasChanges = false,
   className = "",
 }: ContextSwitcherProps) => {
   return (
@@ -46,6 +49,11 @@ export const ContextSwitcher = ({
           <button
             key={tab.id}
             onClick={() => onContextChange(tab.id)}
+            aria-description={
+              tab.id === "generated" && generatedHasChanges
+                ? "Files changed since you last reviewed them"
+                : undefined
+            }
             className={cn(
               "relative px-1 pb-2 text-sm font-semibold transition-colors cursor-pointer",
               "focus:outline-none",
@@ -65,6 +73,13 @@ export const ContextSwitcher = ({
                 >
                   {count}
                 </span>
+              )}
+              {tab.id === "generated" && generatedHasChanges && (
+                <span
+                  aria-hidden="true"
+                  className="w-1.5 h-1.5 rounded-full bg-warning"
+                  title="Files changed since you last reviewed them"
+                />
               )}
             </span>
           </button>

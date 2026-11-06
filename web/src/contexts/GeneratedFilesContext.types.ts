@@ -1,5 +1,7 @@
 import { createContext } from "react"
 import type { FileTreeNode } from "../components/artifacts/code/FileTree"
+import type { FileChange, ReviewedFiles } from "../lib/fileReview"
+import type { SavedFileReview } from "../lib/sessionHistory"
 
 /** A top-level subdirectory that contains a disproportionate number of files. */
 export interface HeavyDir {
@@ -36,8 +38,46 @@ export interface GeneratedFilesContextType {
   truncationInfo: TruncationInfo | null
   localPath: string | null
   setLocalPath: (path: string | null) => void
-  /** Single setter for file tree + truncation metadata. Pass null to clear. */
-  updateGeneratedFileTree: (response: FileTreeResponse | null) => void
+  /**
+   * Single setter for file tree + truncation metadata. Pass null to clear,
+   * which also forgets what the user reviewed.
+   *
+   * The files that changed since the user last reviewed them are highlighted.
+   * Pass `resumed` for the files a resumed session's blocks wrote: what the
+   * user had reviewed of them is then what its history saved, and any other
+   * file counts as reviewed.
+   */
+  updateGeneratedFileTree: (
+    response: FileTreeResponse | null,
+    resumed?: { review: SavedFileReview | undefined },
+  ) => void
 }
 
 export const GeneratedFilesContext = createContext<GeneratedFilesContextType | undefined>(undefined)
+
+/**
+ * Which generated files changed since the user last reviewed them. A file
+ * counts as reviewed once the user selects it and then another file, scrolls
+ * past its changes, or dismisses it.
+ */
+export interface GeneratedFilesReviewContextType {
+  /** The changes of the files changed since the user reviewed them, by path */
+  changes: ReadonlyMap<string, FileChange>
+  /** What the user last reviewed of each file (see ReviewedFiles) */
+  reviewed: ReviewedFiles
+  /**
+   * The file the user selected, or null. It stays highlighted while selected,
+   * and selecting another marks it reviewed as it is then.
+   */
+  selectedPath: string | null
+  /** Select a file, marking the one selected before it reviewed. */
+  selectFile: (path: string) => void
+  /** Mark files reviewed. */
+  dismissFiles: (paths: readonly string[]) => void
+  /** Mark every file reviewed. */
+  dismissAll: () => void
+}
+
+export const GeneratedFilesReviewContext = createContext<
+  GeneratedFilesReviewContextType | undefined
+>(undefined)

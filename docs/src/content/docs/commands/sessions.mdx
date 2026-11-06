@@ -135,12 +135,13 @@ Runbooks adds an entry to the session's history each time you act on a block:
 - A \<GitClone\> block gets a repository, or you start it over.
 - A \<GitPullRequest\> block opens a pull or merge request, or you set it aside to open another.
 - An auth block signs in, or you sign it out.
+- The generated files left to [review](/intro/files_workspace/#reviewing-changed-files) change, because a file changed or you reviewed one, and then stay the same for a second. The entry lists them, with what each modified file was when you last reviewed it, up to 512 KiB in total. Past that, a file is kept as modified without what it was, so a resumed session highlights it but not its lines.
 
 The history keeps every entry in order. The app reads only the latest entry of each block, which is what a resumed session shows.
 
 A block also resumes from its latest entry when the runbook is reloaded in [watch mode](/commands/watch/), or closed and opened again without quitting the app.
 
-A resumed session's **Generated** panel lists the files its blocks wrote, and Runbooks doesn't offer to delete them when the runbook opens: they are the session's own.
+A resumed session's **Generated** panel lists the files its blocks wrote, and highlights the ones you had yet to review. Runbooks doesn't offer to delete them when the runbook opens: they are the session's own.
 
 ## Where sessions are stored
 

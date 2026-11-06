@@ -31,6 +31,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { cn } from "../../../lib/utils"
+import { foldersWithChanges, type FileChange } from "../../../lib/fileReview"
 
 // Icon component type that works with both Lucide icons and custom SVG icons
 type IconComponent = LucideIcon | React.FC<SVGProps<SVGSVGElement>>
@@ -240,7 +241,21 @@ export interface FileTreeProps {
   className?: string
   /** Indentation in pixels for each level of nesting (default: FILE_TREE_INDENT) */
   indent?: number
+  /** The selected item's ID, when the caller keeps the selection. Defaults to the last item clicked. */
+  selectedId?: string | null | undefined
+  /** Files that changed since the user reviewed them, by ID. They and the folders holding them are marked. */
+  changes?: ReadonlyMap<string, FileChange> | undefined
 }
+
+/** The mark of a changed file, as the tree shows it after its name. */
+const CHANGE_MARKS = {
+  added: { letter: "A", label: "Added since you last reviewed it", className: "text-success" },
+  modified: {
+    letter: "M",
+    label: "Modified since you last reviewed it",
+    className: "text-warning-foreground",
+  },
+} as const
 
 /**
  * Renders a hierarchical file tree with expand/collapse functionality.
@@ -267,11 +282,15 @@ export const FileTree = ({
   onItemClick,
   className = "",
   indent = FILE_TREE_INDENT, // Indent per level (8 base + 11 = 19px for level 1)
+  selectedId,
+  changes,
 }: FileTreeProps) => {
   /** Set of expanded folder IDs */
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   /** Currently selected item ID */
   const [selectedItem, setSelectedItem] = useState<string | null>(null)
+  const selected = selectedId !== undefined ? selectedId : selectedItem
+  const changedFolders = changes ? foldersWithChanges(items, changes) : undefined
 
   /**
    * Toggles the expanded state of a folder item.
@@ -320,15 +339,23 @@ export const FileTree = ({
    */
   const renderItem = (item: FileTreeNode, level: number = 0) => {
     const isExpanded = expandedItems.has(item.id)
-    const isSelected = selectedItem === item.id
+    const isSelected = selected === item.id
     const isFolder = item.type === "folder"
     const isIgnored = item.isIgnored ?? false
     const FileIcon = !isFolder ? getFileIcon(item.name) : null
+    const change = isFolder ? undefined : changes?.get(item.id)
+    const mark = change && CHANGE_MARKS[change.status]
+    const holdsChanges = isFolder && (changedFolders?.has(item.id) ?? false)
 
     return (
       <div key={item.id} className="w-max min-w-full">
         <button
           role="treeitem"
+          // A description, so the item's name stays the file's name.
+          aria-description={
+            mark?.label ??
+            (holdsChanges ? "Holds files changed since you last reviewed them" : undefined)
+          }
           onClick={() => handleItemClick(item)}
           className={cn(
             "min-w-full w-max flex items-center gap-0.5 py-1 pr-2 text-left text-sm cursor-pointer",
@@ -393,7 +420,25 @@ export const FileTree = ({
             </>
           )}
 
-          <span className="whitespace-nowrap ml-1">{item.name}</span>
+          <span className={cn("whitespace-nowrap ml-1", mark?.className)}>{item.name}</span>
+          {mark && (
+            <span
+              aria-hidden="true"
+              className={cn("ml-auto pl-3 text-xs font-semibold", mark.className)}
+              title={mark.label}
+            >
+              {mark.letter}
+            </span>
+          )}
+          {holdsChanges && (
+            <span
+              aria-hidden="true"
+              className="ml-auto pl-3 flex items-center"
+              title="Holds files changed since you last reviewed them"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-warning" />
+            </span>
+          )}
         </button>
 
         {isFolder &&

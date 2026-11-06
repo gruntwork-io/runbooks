@@ -29,13 +29,18 @@ import { useGitFileChanges } from "@/hooks/useGitFileChanges"
 import type { FileTreeNode } from "../code/FileTree"
 import type { WorkspaceTab, WorkspaceContext } from "@/types/workspace"
 import { ChangeProportionBar } from "./ChangeProportionBar"
-import type { TruncationInfo } from "@/contexts/GeneratedFilesContext.types"
+import type {
+  GeneratedFilesReviewContextType,
+  TruncationInfo,
+} from "@/contexts/GeneratedFilesContext.types"
 
 interface WorkspaceProps {
   /** Generated files tree (from GeneratedFilesContext) */
   generatedFiles: FileTreeNode[]
   /** Truncation metadata from the backend (when file tree exceeds limits) */
   truncationInfo?: TruncationInfo | null | undefined
+  /** Which generated files changed since the user reviewed them (from GeneratedFilesContext) */
+  review?: GeneratedFilesReviewContextType | undefined
   /** Additional CSS classes */
   className?: string | undefined
   /** Callback to hide the workspace */
@@ -51,6 +56,7 @@ interface WorkspaceProps {
 export const Workspace = ({
   generatedFiles,
   truncationInfo,
+  review,
   className = "",
   onHide,
   hideContent = false,
@@ -192,6 +198,7 @@ export const Workspace = ({
           activeContext={activeContext}
           onContextChange={setActiveContext}
           generatedCount={generatedFileCount}
+          generatedHasChanges={(review?.changes.size ?? 0) > 0}
           className="px-3"
         />
       )}
@@ -243,6 +250,8 @@ export const Workspace = ({
           absolutePath={absoluteOutputPath}
           relativePath={relativeOutputPath}
           fileCount={generatedFileCount}
+          changedCount={review?.changes.size ?? 0}
+          onDismissAll={review?.dismissAll}
           className="px-3"
         />
       )}
@@ -256,6 +265,7 @@ export const Workspace = ({
               className="h-full"
               hideContent={hideContent}
               truncationInfo={truncationInfo}
+              review={review}
             />
           </div>
         )}

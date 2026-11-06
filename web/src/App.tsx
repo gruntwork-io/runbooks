@@ -14,6 +14,7 @@ import { FinishedSessionNotice } from "./components/layout/FinishedSessionNotice
 import { SessionsDialog } from "./components/layout/SessionsDialog"
 import MDXContainer from "./components/MDXContainer"
 import { ArtifactsContainer } from "./components/layout/ArtifactsContainer"
+import { GeneratedFilesHistory } from "./components/layout/GeneratedFilesHistory"
 import { ViewContainerToggle } from "./components/layout/ViewContainerToggle"
 import { ResizeHandle } from "./components/ui/ResizeHandle"
 import {
@@ -292,20 +293,11 @@ function App() {
   }, [loadedSessionKey, resetWorkTrees, updateGeneratedFileTree])
 
   // The files a resumed session's blocks wrote, once the check for this
-  // session has read them.
+  // session has read them. GeneratedFilesHistory shows them.
   const resumedFiles =
     resumesBlocks && generatedFilesCheck.data !== staleFilesCheck
       ? generatedFilesCheck.data
       : undefined
-  useEffect(() => {
-    if (!resumedFiles?.fileTree) return
-    updateGeneratedFileTree({
-      fileTree: resumedFiles.fileTree,
-      truncatedTree: resumedFiles.truncatedTree,
-      totalFiles: resumedFiles.totalFiles,
-      heavyDirs: resumedFiles.heavyDirs,
-    })
-  }, [resumedFiles, updateGeneratedFileTree])
 
   // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
   const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ""
@@ -541,6 +533,7 @@ function App() {
                     sessionId={getRunbookResult.data?.sessionId}
                     blockStates={getRunbookResult.data?.blockStates}
                   >
+                    <GeneratedFilesHistory resumedFiles={resumedFiles} />
                     <MDXContainer
                       ref={runbookScrollRef}
                       content={content}

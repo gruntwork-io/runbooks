@@ -7,7 +7,9 @@
  * and a block that can't read its payload starts over.
  */
 import { z } from "zod"
+import type { File } from "@/components/artifacts/code/FileTree"
 import type { ExecState, LogEntry } from "@/hooks/useApiExec"
+import { reviewAll, type FileChange, type ReviewedFiles } from "@/lib/fileReview"
 import { decodeOutputs, encodeOutputs } from "@/lib/outputValues"
 import type { TemplateOutputs } from "@/lib/templateUtils"
 import { createAppError } from "@/types/error"
@@ -444,6 +446,84 @@ export function restoreOverrides(payload: unknown): TemplateOutputs {
       decodeOutputs(values),
     ]),
   )
+}
+
+// ---------------------------------------------------------------------------
+// Generated files left to review (`review` events)
+// ---------------------------------------------------------------------------
+
+/**
+ * The id the Files workspace records its `review` events under. The workspace
+ * isn't a block, but no block records a `review` event, so no block's events
+ * can be taken for its.
+ */
+export const GENERATED_FILES_REVIEW_ID = "generated-files"
+
+// The most JSON the reviewed contents of modified files may be for the event to
+// keep them. The main process refuses an event over
+// SESSION_EVENT_PAYLOAD_MAX_LENGTH (1 MiB). Past this, a file is kept as
+// modified without what it was, so it is highlighted without its lines.
+const MAX_SAVED_REVIEWED_CHARS = 512 * 1024
+
+const SavedFileReviewSchema = z.object({
+  /** The generated files that changed since the user last reviewed them */
+  files: z.array(
+    z.discriminatedUnion("status", [
+      z.object({ path: z.string(), status: z.literal("added") }),
+      z.object({
+        path: z.string(),
+        status: z.literal("modified"),
+        /** The file's content when the user last reviewed it, unless it was too large to keep */
+        reviewed: z.string().optional(),
+      }),
+    ]),
+  ),
+})
+
+export type SavedFileReview = z.infer<typeof SavedFileReviewSchema>
+
+/** The event of the generated files left to review changing, with all of them. */
+export function fileReviewChanged(
+  changes: ReadonlyMap<string, FileChange>,
+  reviewed: ReviewedFiles,
+): SavedFileReview {
+  let chars = 0
+  return {
+    files: [...changes].map(([path, change]): SavedFileReview["files"][number] => {
+      if (change.status === "added") return { path, status: "added" }
+      const content = reviewed.get(path)
+      if (content === null || content === undefined) return { path, status: "modified" }
+      chars += JSON.stringify(content).length
+      return chars > MAX_SAVED_REVIEWED_CHARS
+        ? { path, status: "modified" }
+        : { path, status: "modified", reviewed: content }
+    }),
+  }
+}
+
+export function parseSavedFileReview(payload: unknown): SavedFileReview | undefined {
+  const parsed = SavedFileReviewSchema.safeParse(payload)
+  return parsed.success ? parsed.data : undefined
+}
+
+/**
+ * What the user had reviewed of a resumed session's generated files, given
+ * its latest `review` event. A file the event doesn't list as changed counts
+ * as reviewed as it is now, so a session with no event starts with nothing to
+ * review.
+ */
+export function restoreFileReview(
+  saved: SavedFileReview | undefined,
+  files: ReadonlyMap<string, File>,
+): Map<string, string | null> {
+  const reviewed = reviewAll(files)
+  for (const file of saved?.files ?? []) {
+    // Gone since the event
+    if (!reviewed.has(file.path)) continue
+    if (file.status === "added") reviewed.delete(file.path)
+    else reviewed.set(file.path, file.reviewed ?? null)
+  }
+  return reviewed
 }
 
 // ---------------------------------------------------------------------------
