@@ -992,6 +992,7 @@ export class TestExecutor {
       env["RUNBOOK_OUTPUT"] = outputFile
       env["GENERATED_FILES"] = filesDir
       if (this.activeWorkTreePath) env["REPO_FILES"] = this.activeWorkTreePath
+      env["RUNBOOK_SOURCE_FILES"] = path.resolve(path.dirname(this.runbookPath))
       for (const { envVar, path: logFile } of [scriptLog, ...levelLogs]) env[envVar] = logFile
 
       // Inject auth block credentials if this block has an auth dependency

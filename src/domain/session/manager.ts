@@ -25,6 +25,8 @@ const EXCLUDED_ENV_VARS = new Set<string>([
   "RUNBOOK_OUTPUT",
   "GENERATED_FILES",
   "REPO_FILES",
+  // Points into a remote runbook's clone, which is deleted when Runbooks quits
+  "RUNBOOK_SOURCE_FILES",
   // RUNBOOK_LOG, RUNBOOK_INFO_LOG etc.: per-run files, removed when the run ends
   ...LOG_CHANNELS.map((channel) => channel.envVar),
   "OLDPWD",

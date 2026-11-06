@@ -250,3 +250,45 @@ describe("exec:run outputs", () => {
     expect(result).toEqual({ status: { status: "fail", exitCode: 1 }, outputs: {} })
   }, 20000)
 })
+
+describe("exec:run runbook source files", () => {
+  let sessionDir = ""
+  let runbookDir = ""
+
+  beforeAll(async () => {
+    registerExecHandlers()
+    sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-exec-session-"))
+    runbookDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-exec-runbook-"))
+    await runtime.runPromise(sessionManager.createSession(sessionDir))
+  })
+
+  afterAll(() => {
+    setExecutableRegistry(null)
+    fs.rmSync(sessionDir, { recursive: true, force: true })
+    fs.rmSync(runbookDir, { recursive: true, force: true })
+  })
+
+  it("gives the script the runbook's folder, not the session's directory it starts in", async () => {
+    const registry = new ExecutableRegistry()
+    await runtime.runPromise(
+      registry.parseAndRegister(
+        path.join(runbookDir, "runbook.mdx"),
+        `<Command id="where" command='echo "dir=$RUNBOOK_SOURCE_FILES" >> "$RUNBOOK_OUTPUT"; echo "pwd=$PWD" >> "$RUNBOOK_OUTPUT"' />\n`,
+      ),
+    )
+    setExecutableRegistry(registry)
+    const [executableId] = Object.keys(registry.getAllExecutables())
+
+    const result = await handlers.get("exec:run")!(
+      { sender: { send: () => {} } },
+      { executableId, executionId: "source-files-test" },
+    )
+
+    expect(result).toMatchObject({
+      outputs: {
+        dir: { value: runbookDir },
+        pwd: { value: fs.realpathSync(sessionDir) },
+      },
+    })
+  }, 20000)
+})
