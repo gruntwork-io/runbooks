@@ -68,7 +68,7 @@ Later blocks read the group from the block's outputs.
   title="Show the new group"
   env={{
     GROUP_EMAIL: "{{ .outputs.create_group.GROUP_EMAIL }}",
-    GROUP_NAME: "{{ .outputs.create_group.GROUP_NAME }}",
+    GROUP_NAME: "{{ .outputs.create_group.GROUP_DISPLAY_NAME }}",
   }}
   command='echo "Group $GROUP_EMAIL is $GROUP_NAME"'
 />

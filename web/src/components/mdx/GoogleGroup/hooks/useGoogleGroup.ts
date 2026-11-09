@@ -14,7 +14,7 @@ export function groupOutputs(result: {
 }): Record<string, string> {
   return {
     GROUP_EMAIL: result.group.email,
-    GROUP_NAME: result.group.name,
+    GROUP_RESOURCE_NAME: result.group.name,
     GROUP_ID: result.group.name.replace(/^groups\//, ""),
     GROUP_DISPLAY_NAME: result.group.displayName ?? "",
     GROUP_CREATED: String(result.created),

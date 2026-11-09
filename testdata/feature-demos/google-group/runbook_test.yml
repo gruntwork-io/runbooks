@@ -35,4 +35,4 @@ tests:
         expect: blocked
         missing_outputs:
           - outputs.create_group.GROUP_EMAIL
-          - outputs.create_group.GROUP_NAME
+          - outputs.create_group.GROUP_DISPLAY_NAME
