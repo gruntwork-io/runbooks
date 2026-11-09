@@ -43,19 +43,32 @@ export function renderBlockEnv(
   env: BlockEnv,
   templateVarValues: Record<string, unknown>,
 ): Effect.Effect<Record<string, string>, RenderError, BoilerplateRenderer | WasmRuntime> {
+  return renderTemplateValues(env, templateVarValues, (name) => `${name} in env`)
+}
+
+/**
+ * Render each of `values` that is a template with the same values as a
+ * script, strictly. A failure names the value through `describe`. Values
+ * without `{{` are returned as they are.
+ */
+export function renderTemplateValues(
+  values: Readonly<Record<string, string>>,
+  templateVarValues: Record<string, unknown>,
+  describe: (name: string) => string = (name) => name,
+): Effect.Effect<Record<string, string>, RenderError, BoilerplateRenderer | WasmRuntime> {
   return Effect.gen(function* () {
-    const rendered: Record<string, string> = { ...env }
-    const templated = Object.keys(env).filter((name) => env[name]!.includes("{{"))
+    const rendered: Record<string, string> = { ...values }
+    const templated = Object.keys(values).filter((name) => values[name]!.includes("{{"))
     if (templated.length === 0) return rendered
 
     const renderer = yield* BoilerplateRenderer
     const vars = yield* resolveTemplateVars(templateVarValues)
     for (const name of templated) {
       rendered[name] = yield* renderer
-        .renderFileStrict(env[name]!, vars)
+        .renderFileStrict(values[name]!, vars)
         .pipe(
           Effect.mapError(
-            (err) => new RenderError({ message: `${name} in env: ${err.message}`, cause: err }),
+            (err) => new RenderError({ message: `${describe(name)}: ${err.message}`, cause: err }),
           ),
         )
     }

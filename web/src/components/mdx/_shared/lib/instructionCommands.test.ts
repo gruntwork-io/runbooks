@@ -4,6 +4,7 @@ import {
   buildGhPrCommand,
   buildGlabMrCommand,
   buildBoilerplateInvocation,
+  buildOpItemCreateCommand,
 } from "./instructionCommands"
 
 describe("buildGitCloneCommand", () => {
@@ -91,5 +92,48 @@ describe("buildBoilerplateInvocation", () => {
       target: "worktree",
     })
     expect(cmd).toContain("--output-folder '<repo-directory>'")
+  })
+})
+
+describe("buildOpItemCreateCommand", () => {
+  it("writes each field as an assignment statement", () => {
+    expect(
+      buildOpItemCreateCommand({
+        vault: "Ops",
+        title: "AWS prod",
+        username: "terraform",
+        password: "pw",
+        url: "https://aws.amazon.com",
+        tags: ["aws", "prod"],
+        fields: [
+          { label: "access key id", value: "AKIA", type: "text" },
+          { label: "secret.key", value: "s3cr3t" },
+        ],
+      }),
+    ).toBe(
+      [
+        "op item create",
+        "--vault 'Ops'",
+        "--category 'Login'",
+        "--title 'AWS prod'",
+        "--url 'https://aws.amazon.com'",
+        "--tags 'aws,prod'",
+        "'username=terraform'",
+        "'password=pw'",
+        "'access key id[text]=AKIA'",
+        "'secret\\.key[password]=s3cr3t'",
+      ].join(" \\\n  "),
+    )
+  })
+
+  it("puts an API Credential's password in its credential field", () => {
+    expect(
+      buildOpItemCreateCommand({
+        vault: "v",
+        title: "t",
+        category: "API Credential",
+        password: "p",
+      }),
+    ).toContain("'credential=p'")
   })
 })

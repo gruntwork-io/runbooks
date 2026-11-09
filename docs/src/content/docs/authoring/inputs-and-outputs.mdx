@@ -169,7 +169,7 @@ Runbooks sets `$RUNBOOK_OUTPUT` before the script runs, and reads the file when 
 - The value is everything after the first `=`, up to the end of the line. Put a multi-line value on one line, for example as JSON or base64.
 - When a script writes the same key more than once, the last value wins.
 
-Other blocks publish outputs of their own, which their pages list: the auth blocks, such as [`<AwsAuth>`](/authoring/blocks/awsauth/) and [`<GitAuth>`](/authoring/blocks/gitauth/), [`<GitClone>`](/authoring/blocks/gitclone/), [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/) and its wrappers, [`<DirPicker>`](/authoring/blocks/dirpicker/), and an [`<Iframe>`](/authoring/blocks/iframe/) whose local page sets outputs.
+Other blocks publish outputs of their own, which their pages list: the auth blocks, such as [`<AwsAuth>`](/authoring/blocks/awsauth/) and [`<GitAuth>`](/authoring/blocks/gitauth/), [`<GitClone>`](/authoring/blocks/gitclone/), [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/) and its wrappers, [`<DirPicker>`](/authoring/blocks/dirpicker/), [`<OnePasswordItem>`](/authoring/blocks/onepassworditem/), and an [`<Iframe>`](/authoring/blocks/iframe/) whose local page sets outputs.
 
 A [`<Prerequisites>`](/authoring/blocks/prerequisites/) block publishes where it found each tool and the versions it read, such as `{{ .outputs.<block_id>.tofu_version }}`. See [Outputs](/authoring/blocks/prerequisites/#outputs).
 
@@ -190,6 +190,7 @@ Runbooks hands a sensitive output's real value only to what uses it:
 - A Command, Check or Finish script that references it in a template runs with the real value.
 - A [`<Template>`](/authoring/blocks/template/), or a [`<TemplateInline>`](/authoring/blocks/templateinline/) with `generateFile`, writes the real value into the file it generates.
 - An auth block's `detectCredentials` block source reads the real value.
+- A [`<OnePasswordItem>`](/authoring/blocks/onepassworditem/) saves the real value to 1Password.
 - The copy button on the output's row in **View Outputs** copies the real value.
 - The [test CLI](/authoring/testing/)'s `output_equals` and `output_matches` assertions compare the real value.
 

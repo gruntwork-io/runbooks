@@ -23,6 +23,8 @@ import { SessionEventError } from "../../errors/index.ts"
  *    in place of the chips of its linked values.
  *  - `review`: the generated files that changed since the user last reviewed
  *    them in the Files workspace, which records it as if it were a block.
+ *  - `resource`: something a block created outside the machine, such as a
+ *    1Password item, with the outputs it published for it.
  */
 export const SESSION_EVENT_KINDS = [
   "inputs",
@@ -33,6 +35,7 @@ export const SESSION_EVENT_KINDS = [
   "auth",
   "overrides",
   "review",
+  "resource",
 ] as const
 
 export type SessionEventKind = (typeof SESSION_EVENT_KINDS)[number]

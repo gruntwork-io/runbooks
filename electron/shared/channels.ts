@@ -584,6 +584,15 @@ export interface IpcChannelMap {
     result: { ok: true }
   }
 
+  // <OnePasswordItem>: save an item to a 1Password vault with the `op` CLI.
+  // The item's strings are templates; MAIN renders them with
+  // `templateVarValues`, as it renders a script, so sensitive outputs arrive
+  // with their real values. The reply never carries what was saved.
+  "onepassword:create-item": {
+    params: CreateOnePasswordItemParams
+    result: CreateOnePasswordItemResult
+  }
+
   // GitHub Authentication
   //
   // Every github:* channel targets ONE GitHub host via an optional `host`
@@ -1064,6 +1073,27 @@ export interface ResolveInputsRequest {
   /** Block outputs for `{{ .outputs.<block>.<name> }}`, as plain strings. */
   outputs?: Record<string, Record<string, string>>
 }
+
+export interface CreateOnePasswordItemParams {
+  item: {
+    vault: string
+    title: string
+    category?: string
+    username?: string
+    password?: string
+    url?: string
+    notes?: string
+    tags?: string[]
+    fields?: Array<{ label: string; value: string; type?: string }>
+    account?: string
+  }
+  /** `{ inputs, outputs }` with sensitive outputs revealed, as for exec:run. */
+  templateVarValues?: Record<string, unknown>
+}
+
+export type CreateOnePasswordItemResult =
+  | { ok: true; itemId: string; title: string; vaultId: string; vaultName: string }
+  | { ok: false; error: string }
 
 export interface ProfileInfo {
   name: string

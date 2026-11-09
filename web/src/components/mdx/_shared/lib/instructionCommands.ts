@@ -98,3 +98,64 @@ export function buildBoilerplateInvocation({ path, variables, target }: Boilerpl
   }
   return parts.join(" \\\n  ")
 }
+
+export interface OpItemArgs {
+  vault: string
+  title: string
+  category?: string | undefined
+  username?: string | undefined
+  password?: string | undefined
+  url?: string | undefined
+  notes?: string | undefined
+  tags?: readonly string[] | undefined
+  fields?: ReadonlyArray<{ label: string; value: string; type?: string | undefined }> | undefined
+  account?: string | undefined
+}
+
+const OP_ASSIGNMENT_TYPES: Record<string, string> = {
+  text: "text",
+  concealed: "password",
+  url: "url",
+  email: "email",
+}
+
+/**
+ * `op item create …` with each field as an assignment statement, which is
+ * how a person types it. Field labels have `.`, `=` and `\` escaped, as
+ * assignment syntax needs.
+ */
+export function buildOpItemCreateCommand({
+  vault,
+  title,
+  category = "Login",
+  username,
+  password,
+  url,
+  notes,
+  tags,
+  fields,
+  account,
+}: OpItemArgs): string {
+  const escapeLabel = (label: string) => label.replace(/([\\.=])/g, "\\$1")
+  const parts = [
+    "op item create",
+    `--vault ${shellQuote(vault || "<vault>")}`,
+    `--category ${shellQuote(category)}`,
+    `--title ${shellQuote(title || "<title>")}`,
+  ]
+  if (url) parts.push(`--url ${shellQuote(url)}`)
+  if (tags?.length) parts.push(`--tags ${shellQuote(tags.join(","))}`)
+  if (account) parts.push(`--account ${shellQuote(account)}`)
+  if (username) parts.push(shellQuote(`username=${username}`))
+  if (password) {
+    parts.push(
+      shellQuote(`${category === "API Credential" ? "credential" : "password"}=${password}`),
+    )
+  }
+  if (notes) parts.push(shellQuote(`notesPlain=${notes}`))
+  for (const field of fields ?? []) {
+    const type = OP_ASSIGNMENT_TYPES[field.type ?? "concealed"] ?? "password"
+    parts.push(shellQuote(`${escapeLabel(field.label)}[${type}]=${field.value}`))
+  }
+  return parts.join(" \\\n  ")
+}

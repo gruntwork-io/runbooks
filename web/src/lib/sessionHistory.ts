@@ -133,6 +133,25 @@ export function parseSavedPullRequest(payload: unknown): SavedPullRequest | unde
 }
 
 // ---------------------------------------------------------------------------
+// Things a block created outside the machine (`resource` events)
+// ---------------------------------------------------------------------------
+
+const SavedResourceSchema = z.object({
+  status: z.literal("created"),
+  /** What the block showed for it, a line per step */
+  log: z.array(z.string()),
+  /** The outputs the block published for it. Never secrets. */
+  outputs: z.record(z.string(), z.string()),
+})
+
+export type SavedResource = z.infer<typeof SavedResourceSchema>
+
+export function parseSavedResource(payload: unknown): SavedResource | undefined {
+  const parsed = SavedResourceSchema.safeParse(payload)
+  return parsed.success ? parsed.data : undefined
+}
+
+// ---------------------------------------------------------------------------
 // Sign-ins (`auth` events)
 //
 // Each auth block keeps its own payload, tagged with the block type: a

@@ -1,0 +1,76 @@
+---
+title: 1Password Item Demo
+---
+
+# 1Password Item
+
+This runbook saves a credential to 1Password with the `<OnePasswordItem>` block. A script stands in for whatever creates the credential in a real runbook, such as a command that creates an AWS IAM user and its access key.
+
+You need the [1Password CLI](https://developer.1password.com/docs/cli/get-started/) installed, with **Settings > Developer > Integrate with 1Password CLI** turned on in the 1Password app.
+
+<Prerequisites id="tools">
+```yaml
+tools:
+  - name: op
+    description: The 1Password CLI, which saves the item.
+    install: "[Install the 1Password CLI](https://developer.1password.com/docs/cli/get-started/)"
+```
+</Prerequisites>
+
+## Step 1: Choose where to save it
+
+<Inputs id="item">
+```yaml
+variables:
+  - name: Vault
+    type: string
+    description: The 1Password vault to save the item in
+    default: Private
+  - name: Title
+    type: string
+    description: The item's title
+    default: Runbooks demo credential
+```
+</Inputs>
+
+## Step 2: Create a credential
+
+This script makes up an access key. It writes the secret half with `sensitive:`, so Runbooks masks it everywhere it shows it.
+
+<Command
+  id="make-credential"
+  title="Create a demo credential"
+  command='echo "ACCESS_KEY_ID=AKIA$(LC_ALL=C tr -dc A-Z0-9 </dev/urandom | head -c 16)" >> "$RUNBOOK_OUTPUT"; echo "sensitive:SECRET_ACCESS_KEY=$(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 40)" >> "$RUNBOOK_OUTPUT"'
+/>
+
+## Step 3: Save it to 1Password
+
+1Password asks you to approve the change.
+
+<OnePasswordItem
+  id="save-credential"
+  inputsId="item"
+  vault="{{ .inputs.Vault }}"
+  itemTitle="{{ .inputs.Title }}"
+  category="API Credential"
+  username="{{ .outputs.make_credential.ACCESS_KEY_ID }}"
+  password="{{ .outputs.make_credential.SECRET_ACCESS_KEY }}"
+  url="https://console.aws.amazon.com/"
+  notes="Saved by the 1Password Item demo runbook. Safe to delete."
+  fields={[{ label: "created by", value: "Runbooks demo", type: "text" }]}
+  tags={["runbooks-demo"]}
+/>
+
+## Step 4: Use the item
+
+Later blocks know where the item is, but not what it holds.
+
+<Command
+  id="show-item"
+  title="Show where the item is"
+  env={{
+    OP_VAULT: "{{ .outputs.save_credential.OP_VAULT }}",
+    OP_ITEM_ID: "{{ .outputs.save_credential.OP_ITEM_ID }}",
+  }}
+  command='echo "Saved as op://$OP_VAULT/$OP_ITEM_ID"'
+/>
