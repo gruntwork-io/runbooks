@@ -37,6 +37,7 @@ import { GitClone } from "@/components/mdx/GitClone"
 import { GitPullRequest } from "@/components/mdx/GitPullRequest"
 import { GitHubPullRequest } from "@/components/mdx/GitHubPullRequest"
 import { GitLabMergeRequest } from "@/components/mdx/GitLabMergeRequest"
+import { GoogleGroup } from "@/components/mdx/GoogleGroup"
 import { DirPicker } from "@/components/mdx/DirPicker"
 import { SmartLink } from "@/components/mdx/_shared/components/SmartLink"
 import { CodeBlock } from "@/components/mdx/_shared/components/CodeBlock"
@@ -373,6 +374,8 @@ export const MDX_COMPONENTS = {
   GitPullRequest,
   GitHubPullRequest,
   GitLabMergeRequest,
+  // Google Workspace
+  GoogleGroup,
   // Utility components
   Admonition,
   Chapter,

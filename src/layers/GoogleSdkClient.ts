@@ -27,11 +27,15 @@ import type { AuthClient, ExternalAccountClientOptions } from "google-auth-libra
 import { GoogleClient } from "../services/GoogleClient.ts"
 import type {
   AdcInfo,
+  CreateGoogleGroupParams,
   GcloudConfiguration,
   GcloudConfigListing,
   GoogleClientShape,
   GoogleCredentialRef,
+  GoogleApiCaller,
   GoogleCredentialType,
+  GoogleGroup,
+  GoogleGroupRole,
   GoogleIdentity,
   GoogleProject,
   GoogleProjectAccess,
@@ -54,6 +58,11 @@ import { assertFederatedCredentialAllowed } from "../domain/google/credential-po
 
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 const CRM_BASE = "https://cloudresourcemanager.googleapis.com/v3"
+const CLOUD_IDENTITY_BASE = "https://cloudidentity.googleapis.com/v1"
+const GROUPS_SETTINGS_BASE = "https://www.googleapis.com/groups/v1/groups"
+/** The label that makes a Cloud Identity group an ordinary Google Group with an email inbox. */
+const DISCUSSION_FORUM_LABEL = "cloudidentity.googleapis.com/groups.discussion_forum"
+const GROUPS_SETTINGS_SCOPE = "https://www.googleapis.com/auth/apps.groups.settings"
 const MAX_PROJECTS = 500
 const OAUTH_FLOW_TTL_MS = 5 * 60 * 1000
 
@@ -781,6 +790,97 @@ export function classifyProjectAccessError(err: unknown): GoogleProjectAccess {
 }
 
 // ---------------------------------------------------------------------------
+// Google groups
+// ---------------------------------------------------------------------------
+
+/** The HTTP status and google.rpc.ErrorInfo reasons of a failed Google API call. */
+function apiErrorFacts(err: unknown): { httpStatus?: number; reasons: string[]; message?: string } {
+  const apiError = (err ?? {}) as GoogleApiError
+  const httpStatus =
+    apiError.status ??
+    apiError.response?.status ??
+    (typeof apiError.code === "number" ? apiError.code : undefined)
+  const body = apiError.response?.data?.error
+  const details: readonly GoogleErrorDetail[] = Array.isArray(body?.details) ? body.details : []
+  const reasons = details
+    .map((detail): unknown => detail?.reason)
+    .filter((reason): reason is string => typeof reason === "string" && reason !== "")
+  const message = typeof body?.message === "string" && body.message ? body.message : undefined
+  return {
+    ...(httpStatus !== undefined ? { httpStatus } : {}),
+    reasons,
+    ...(message ? { message } : {}),
+  }
+}
+
+/**
+ * Copy a runbook user can act on for a failed groups call: Google's own
+ * message, which names a disabled API and links to where to enable it, plus
+ * the fix for a token without the scope the call needs.
+ */
+export function describeGroupsApiError(err: unknown, neededScope: string): string {
+  const facts = apiErrorFacts(err)
+  const base = describeCredentialFailure(err) ?? facts.message ?? errorMessage(err)
+  if (facts.reasons.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT")) {
+    return `${base} Add ${neededScope} to the scopes of the GoogleAuth block and sign in again.`
+  }
+  return base
+}
+
+/** Whether a failed create or add says the group or membership already exists. */
+function isAlreadyExists(err: unknown): boolean {
+  return apiErrorFacts(err).httpStatus === 409
+}
+
+/**
+ * Headers for a call made as `caller`. A user credential bills Cloud Identity
+ * calls to the project the GoogleAuth block selected, since the API refuses a
+ * user credential with no quota project. A service account key bills to its
+ * own project.
+ */
+function quotaHeaders(caller: GoogleApiCaller): Record<string, string> {
+  if (caller.creds.kind === "service_account" || !caller.quotaProjectId) return {}
+  return { "x-goog-user-project": caller.quotaProjectId }
+}
+
+interface CloudIdentityGroup {
+  readonly name?: string
+  readonly groupKey?: { readonly id?: string }
+  readonly displayName?: string
+}
+
+function toGoogleGroup(group: CloudIdentityGroup, fallbackEmail: string): GoogleGroup {
+  if (!group.name) throw new Error("Google returned a group without a resource name")
+  return {
+    name: group.name,
+    email: group.groupKey?.id ?? fallbackEmail,
+    ...(group.displayName ? { displayName: group.displayName } : {}),
+  }
+}
+
+async function lookupGroup(
+  client: AuthClient,
+  caller: GoogleApiCaller,
+  email: string,
+): Promise<GoogleGroup> {
+  const lookup = await client.request<{ name?: string }>({
+    url: `${CLOUD_IDENTITY_BASE}/groups:lookup?${new URLSearchParams({ "groupKey.id": email }).toString()}`,
+    headers: quotaHeaders(caller),
+  })
+  if (!lookup.data.name) throw new Error(`Google found no group named ${email}`)
+  const group = await client.request<CloudIdentityGroup>({
+    url: `${CLOUD_IDENTITY_BASE}/${lookup.data.name}`,
+    headers: quotaHeaders(caller),
+  })
+  return toGoogleGroup(group.data, email)
+}
+
+/** The roles a membership holds: MEMBER, plus the one asked for. */
+export function membershipRoles(role: GoogleGroupRole): Array<{ name: GoogleGroupRole }> {
+  return role === "MEMBER" ? [{ name: "MEMBER" }] : [{ name: "MEMBER" }, { name: role }]
+}
+
+// ---------------------------------------------------------------------------
 // Service implementation
 // ---------------------------------------------------------------------------
 
@@ -1146,6 +1246,110 @@ const impl: GoogleClientShape = {
       catch: (err) =>
         new GoogleAuthError({
           message: `Failed to check project: ${errorMessage(err)}`,
+          cause: err,
+        }),
+    }),
+
+  findCustomerIdForDomain: (caller: GoogleApiCaller, domain: string) =>
+    Effect.tryPromise({
+      try: async (): Promise<string | undefined> => {
+        const client = await authClientFor(caller.creds)
+        const resp = await client.request<{
+          organizations?: Array<{ displayName?: string; directoryCustomerId?: string }>
+        }>({
+          url: `${CRM_BASE}/organizations:search?${new URLSearchParams({ query: `domain:${domain}` }).toString()}`,
+          headers: quotaHeaders(caller),
+        })
+        const orgs = resp.data.organizations ?? []
+        const match =
+          orgs.find((org) => org.displayName?.toLowerCase() === domain.toLowerCase()) ?? orgs[0]
+        return match?.directoryCustomerId || undefined
+      },
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Failed to find the organization for ${domain}: ${describeGroupsApiError(err, CLOUD_PLATFORM_SCOPE)}`,
+          cause: err,
+        }),
+    }),
+
+  createGroup: (caller: GoogleApiCaller, params: CreateGoogleGroupParams) =>
+    Effect.tryPromise({
+      try: async (): Promise<{ status: "created" | "exists"; group: GoogleGroup }> => {
+        const client = await authClientFor(caller.creds)
+        try {
+          // groups.create is a long-running operation; its response holds the group.
+          const resp = await client.request<{ done?: boolean; response?: CloudIdentityGroup }>({
+            url: `${CLOUD_IDENTITY_BASE}/groups?initialGroupConfig=WITH_INITIAL_OWNER`,
+            method: "POST",
+            headers: quotaHeaders(caller),
+            data: {
+              groupKey: { id: params.email },
+              parent: `customers/${params.customerId}`,
+              displayName: params.displayName,
+              ...(params.description ? { description: params.description } : {}),
+              labels: { [DISCUSSION_FORUM_LABEL]: "" },
+            },
+          })
+          const created = resp.data.response
+          const group = created?.name
+            ? toGoogleGroup(created, params.email)
+            : await lookupGroup(client, caller, params.email)
+          return { status: "created", group }
+        } catch (err) {
+          if (!isAlreadyExists(err)) throw err
+          return { status: "exists", group: await lookupGroup(client, caller, params.email) }
+        }
+      },
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Failed to create group ${params.email}: ${describeGroupsApiError(err, CLOUD_PLATFORM_SCOPE)}`,
+          cause: err,
+        }),
+    }),
+
+  addGroupMember: (
+    caller: GoogleApiCaller,
+    groupName: string,
+    memberEmail: string,
+    role: GoogleGroupRole,
+  ) =>
+    Effect.tryPromise({
+      try: async (): Promise<"added" | "exists"> => {
+        const client = await authClientFor(caller.creds)
+        try {
+          await client.request({
+            url: `${CLOUD_IDENTITY_BASE}/${groupName}/memberships`,
+            method: "POST",
+            headers: quotaHeaders(caller),
+            data: { preferredMemberKey: { id: memberEmail }, roles: membershipRoles(role) },
+          })
+          return "added"
+        } catch (err) {
+          if (isAlreadyExists(err)) return "exists"
+          throw err
+        }
+      },
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Failed to add ${memberEmail} to the group: ${describeGroupsApiError(err, CLOUD_PLATFORM_SCOPE)}`,
+          cause: err,
+        }),
+    }),
+
+  allowExternalSenders: (caller: GoogleApiCaller, groupEmail: string) =>
+    Effect.tryPromise({
+      try: async (): Promise<void> => {
+        const client = await authClientFor(caller.creds)
+        await client.request({
+          url: `${GROUPS_SETTINGS_BASE}/${encodeURIComponent(groupEmail)}?alt=json`,
+          method: "PATCH",
+          headers: quotaHeaders(caller),
+          data: { whoCanPostMessage: "ANYONE_CAN_POST" },
+        })
+      },
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Failed to let outside senders email ${groupEmail}: ${describeGroupsApiError(err, GROUPS_SETTINGS_SCOPE)}`,
           cause: err,
         }),
     }),

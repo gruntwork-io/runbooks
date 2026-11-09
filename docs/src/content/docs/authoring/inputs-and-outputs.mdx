@@ -169,7 +169,7 @@ Runbooks sets `$RUNBOOK_OUTPUT` before the script runs, and reads the file when 
 - The value is everything after the first `=`, up to the end of the line. Put a multi-line value on one line, for example as JSON or base64.
 - When a script writes the same key more than once, the last value wins.
 
-Other blocks publish outputs of their own, which their pages list: the auth blocks, such as [`<AwsAuth>`](/authoring/blocks/awsauth/) and [`<GitAuth>`](/authoring/blocks/gitauth/), [`<GitClone>`](/authoring/blocks/gitclone/), [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/) and its wrappers, [`<DirPicker>`](/authoring/blocks/dirpicker/), and an [`<Iframe>`](/authoring/blocks/iframe/) whose local page sets outputs.
+Other blocks publish outputs of their own, which their pages list: the auth blocks, such as [`<AwsAuth>`](/authoring/blocks/awsauth/) and [`<GitAuth>`](/authoring/blocks/gitauth/), [`<GitClone>`](/authoring/blocks/gitclone/), [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/) and its wrappers, [`<DirPicker>`](/authoring/blocks/dirpicker/), [`<GoogleGroup>`](/authoring/blocks/googlegroup/), and an [`<Iframe>`](/authoring/blocks/iframe/) whose local page sets outputs.
 
 A [`<Prerequisites>`](/authoring/blocks/prerequisites/) block publishes where it found each tool and the versions it read, such as `{{ .outputs.<block_id>.tofu_version }}`. See [Outputs](/authoring/blocks/prerequisites/#outputs).
 

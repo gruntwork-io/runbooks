@@ -9,6 +9,7 @@ import {
   GoogleSdkClientLive,
   classifyProjectAccessError,
   describeCredentialFailure,
+  describeGroupsApiError,
   isPlausibleOAuthCallback,
   isSelectableProject,
 } from "./GoogleSdkClient.ts"
@@ -693,6 +694,198 @@ describe("validateAccessToken", () => {
       })
     } finally {
       tokenInfo.mockRestore()
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Google groups
+// ---------------------------------------------------------------------------
+
+/** A Gaxios-shaped failure with a google.rpc.Status body. */
+const apiFailure = (status: number, message: string, reason?: string) =>
+  Object.assign(new Error(message), {
+    response: {
+      status,
+      data: {
+        error: {
+          code: status,
+          message,
+          ...(reason
+            ? { details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason }] }
+            : {}),
+        },
+      },
+    },
+  })
+
+describe("describeGroupsApiError", () => {
+  it("keeps Google's own message, which links to the API to enable", () => {
+    const err = apiFailure(
+      403,
+      "Cloud Identity API has not been used in project 123",
+      "SERVICE_DISABLED",
+    )
+    expect(describeGroupsApiError(err, "scope")).toBe(
+      "Cloud Identity API has not been used in project 123",
+    )
+  })
+
+  it("names the scope to add when the token lacks it", () => {
+    const err = apiFailure(403, "Insufficient scopes", "ACCESS_TOKEN_SCOPE_INSUFFICIENT")
+    expect(describeGroupsApiError(err, "https://example/scope")).toContain(
+      "Add https://example/scope to the scopes of the GoogleAuth block",
+    )
+  })
+})
+
+describe("group calls", () => {
+  const caller = {
+    creds: { kind: "access_token" as const, accessToken: "ya29.token" },
+    quotaProjectId: "billing-project",
+  }
+  type Call = { url: string; method?: string; headers?: Record<string, string>; data?: unknown }
+
+  /** Answers each request with the first handler whose URL fragment it contains. */
+  const fakeGoogle = (handlers: Array<[string, (call: Call) => unknown]>) => {
+    const calls: Call[] = []
+    const spy = spyOn(OAuth2Client.prototype, "request").mockImplementation((async (opts: Call) => {
+      calls.push(opts)
+      const handler = handlers.find(([fragment]) => opts.url.includes(fragment))
+      if (!handler) throw new Error(`unexpected request ${opts.url}`)
+      return { data: handler[1](opts) }
+    }) as never)
+    return { calls, spy }
+  }
+
+  it("creates a group with the caller as owner, billed to the quota project", async () => {
+    const { calls, spy } = fakeGoogle([
+      [
+        "/groups?initialGroupConfig=WITH_INITIAL_OWNER",
+        () => ({
+          done: true,
+          response: { name: "groups/abc", groupKey: { id: "ops@example.com" }, displayName: "Ops" },
+        }),
+      ],
+    ])
+    try {
+      const result = await run((client) =>
+        client.createGroup(caller, {
+          email: "ops@example.com",
+          displayName: "Ops",
+          customerId: "C01",
+        }),
+      )
+      expect(result).toEqual({
+        status: "created",
+        group: { name: "groups/abc", email: "ops@example.com", displayName: "Ops" },
+      })
+      expect(calls[0]!.method).toBe("POST")
+      expect(calls[0]!.headers).toEqual({ "x-goog-user-project": "billing-project" })
+      expect(calls[0]!.data).toMatchObject({
+        groupKey: { id: "ops@example.com" },
+        parent: "customers/C01",
+        labels: { "cloudidentity.googleapis.com/groups.discussion_forum": "" },
+      })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("returns a group that already exists instead of failing", async () => {
+    const { spy } = fakeGoogle([
+      [
+        "/groups?initialGroupConfig",
+        () => {
+          throw apiFailure(409, "Entity already exists")
+        },
+      ],
+      ["/groups:lookup?groupKey.id=ops%40example.com", () => ({ name: "groups/abc" })],
+      ["/groups/abc", () => ({ name: "groups/abc", groupKey: { id: "ops@example.com" } })],
+    ])
+    try {
+      const result = await run((client) =>
+        client.createGroup(caller, {
+          email: "ops@example.com",
+          displayName: "Ops",
+          customerId: "C01",
+        }),
+      )
+      expect(result).toEqual({
+        status: "exists",
+        group: { name: "groups/abc", email: "ops@example.com" },
+      })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("adds an owner with the MEMBER role too, and treats an existing membership as done", async () => {
+    let attempt = 0
+    const { calls, spy } = fakeGoogle([
+      [
+        "/groups/abc/memberships",
+        () => {
+          attempt++
+          if (attempt === 2) throw apiFailure(409, "Member already exists")
+          return {}
+        },
+      ],
+    ])
+    try {
+      expect(
+        await run((client) => client.addGroupMember(caller, "groups/abc", "a@b.co", "OWNER")),
+      ).toBe("added")
+      expect(calls[0]!.data).toEqual({
+        preferredMemberKey: { id: "a@b.co" },
+        roles: [{ name: "MEMBER" }, { name: "OWNER" }],
+      })
+      expect(
+        await run((client) => client.addGroupMember(caller, "groups/abc", "a@b.co", "OWNER")),
+      ).toBe("exists")
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("finds the customer ID of the organization named for the domain", async () => {
+    const { spy } = fakeGoogle([
+      [
+        "/organizations:search?query=domain%3Aexample.com",
+        () => ({
+          organizations: [
+            { displayName: "other.com", directoryCustomerId: "C00" },
+            { displayName: "example.com", directoryCustomerId: "C01" },
+          ],
+        }),
+      ],
+    ])
+    try {
+      expect(await run((client) => client.findCustomerIdForDomain(caller, "example.com"))).toBe(
+        "C01",
+      )
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("fails a denied call with Google's reason", async () => {
+    const { spy } = fakeGoogle([
+      [
+        "/groups/abc/memberships",
+        () => {
+          throw apiFailure(403, "Not authorized to access this resource/api")
+        },
+      ],
+    ])
+    try {
+      const result = await runResult((client) =>
+        client.addGroupMember(caller, "groups/abc", "a@b.co", "MEMBER"),
+      )
+      expect(Result.isFailure(result)).toBe(true)
+      expect(JSON.stringify(result)).toContain("Not authorized to access this resource/api")
+    } finally {
+      spy.mockRestore()
     }
   })
 })

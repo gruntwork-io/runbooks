@@ -398,3 +398,74 @@ describe("google:check-project", () => {
     },
   )
 })
+
+describe("google:create-group", () => {
+  // Runs as the named GoogleAuth block's credential, billed to its project.
+  const ACCESS_TOKEN = "ya29.create-group-SECRET"
+  let seen: Array<{ creds: unknown; quotaProjectId?: string | undefined }>
+  let runPromise: ReturnType<typeof spyOn<typeof runtime, "runPromise">>
+
+  beforeEach(() => {
+    seen = []
+    setActiveCredential("gcp", {
+      ref: { kind: "access_token", accessToken: ACCESS_TOKEN },
+      principal: "admin@example.com",
+      credentialType: "authorized_user",
+      projectId: "billing-project",
+    })
+    const google = makeTestGoogleClient({
+      createGroup: (caller, params) => {
+        seen.push(caller)
+        return Effect.succeed({
+          status: "created" as const,
+          group: { name: "groups/abc", email: params.email },
+        })
+      },
+      addGroupMember: () => Effect.succeed("added" as const),
+    })
+    runPromise = spyOn(runtime, "runPromise").mockImplementation((<A, E>(
+      effect: Effect.Effect<A, E, GoogleClient>,
+    ) => Effect.runPromise(Effect.provide(effect, google))) as typeof runtime.runPromise)
+  })
+
+  afterEach(() => {
+    runPromise.mockRestore()
+  })
+
+  it("creates the group as the named block's credential, billed to its project", async () => {
+    const reply = await invoke("google:create-group", {
+      googleAuthId: "gcp",
+      email: "ops@example.com",
+      customerId: "C01",
+      members: ["josh@example.com"],
+    })
+    expect(reply).toEqual({
+      ok: true,
+      group: { name: "groups/abc", email: "ops@example.com" },
+      created: true,
+      customerId: "C01",
+      log: ["Created group ops@example.com", "Added josh@example.com as member"],
+    })
+    expect(seen).toEqual([
+      {
+        creds: { kind: "access_token", accessToken: ACCESS_TOKEN },
+        quotaProjectId: "billing-project",
+      },
+    ])
+  })
+
+  it("never borrows another block's credential", async () => {
+    const reply = await invoke("google:create-group", {
+      googleAuthId: "other",
+      email: "ops@example.com",
+      customerId: "C01",
+    })
+    expect(reply).toEqual({ ok: false, error: 'Sign in with the "other" GoogleAuth block first.' })
+    expect(seen).toEqual([])
+  })
+
+  it("reports a failed step inline", async () => {
+    const reply = await invoke("google:create-group", { googleAuthId: "gcp", email: "nope" })
+    expect(reply).toEqual({ ok: false, error: '"nope" is not an email address.' })
+  })
+})

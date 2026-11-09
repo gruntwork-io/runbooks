@@ -24,7 +24,12 @@ import {
   parsePrerequisitesSpec,
 } from "../../src/domain/prerequisites/spec.ts"
 import type { BoilerplateConfig, BoilerplateVariable } from "../../src/types.ts"
-import { AUTH_BLOCK_TYPES, BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
+import {
+  AUTH_BLOCK_TYPES,
+  BLOCK_TYPES,
+  EXTERNAL_BLOCK_TYPES,
+  PR_BLOCK_TYPES,
+} from "./blockTypes.ts"
 import { errorMessage } from "../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
@@ -57,7 +62,14 @@ const KNOWN_BLOCK_TYPES = new Set<string>(BLOCK_TYPES)
 // Auth block dependency types
 // ---------------------------------------------------------------------------
 
-const AUTH_DEPENDENT_TYPES = ["Check", "Command", "Finish", "GitClone", ...PR_BLOCK_TYPES] as const
+const AUTH_DEPENDENT_TYPES = [
+  "Check",
+  "Command",
+  "Finish",
+  "GitClone",
+  ...PR_BLOCK_TYPES,
+  ...EXTERNAL_BLOCK_TYPES,
+] as const
 
 const AUTH_PROP_NAME_OVERRIDES: Record<string, string> = {
   GitHubAuth: "githubAuthId",
@@ -114,6 +126,9 @@ export class InputValidator {
     components.push(...this.parseAuthBlocks(elements, "GitClone"))
     for (const prType of PR_BLOCK_TYPES) {
       components.push(...this.parseAuthBlocks(elements, prType))
+    }
+    for (const externalType of EXTERNAL_BLOCK_TYPES) {
+      components.push(...this.parseAuthBlocks(elements, externalType))
     }
     // Only an Iframe with an id can set outputs, so only those are steps.
     components.push(...findComponents(elements, "Iframe").filter((comp) => comp.hasExplicitId))

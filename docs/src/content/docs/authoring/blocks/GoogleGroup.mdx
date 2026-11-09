@@ -1,0 +1,124 @@
+---
+title: <GoogleGroup>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<GoogleGroup>` block creates a Google group in your Google Workspace or Cloud Identity organization and adds its members. It runs as the credential of a [`<GoogleAuth>`](/authoring/blocks/googleauth/) block, and whoever that credential belongs to becomes the group's first owner.
+
+A group makes a good shared address, for example for the root user of a new AWS account: everyone in the group receives the account's mail, and nobody's personal address is tied to the account.
+
+## Basic usage
+
+```mdx
+<GoogleAuth id="google-admin" defaultTab="oauth" />
+
+<GoogleGroup
+  id="create-group"
+  googleAuthId="google-admin"
+  email="aws-prod-root@example.com"
+  displayName="AWS prod root"
+  members={["josh@example.com"]}
+/>
+```
+
+The block shows what it will create. When the user clicks **Create group**, it:
+
+1. Finds the organization whose domain is the group email's domain, unless `customerId` is set.
+2. Creates the group, with the signed-in account as its owner. If a group with that email already exists, the block uses it as it is.
+3. Adds each of `members` with `role`. Someone who already belongs to the group keeps the membership they have.
+4. If `allowExternalSenders` is set, lets anyone, including senders outside your organization, email the group.
+
+Every step is safe to repeat, so clicking **Try again** after a failure finishes what the first click started.
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `id` | `string` | required | Unique identifier for this component |
+| `email` | `string` | required | The group's email address (supports template expressions) |
+| `googleAuthId` | `string` | - | The `<GoogleAuth>` block whose credential creates the group. Without it, the block uses the credential the session signed in with most recently |
+| `displayName` | `string` | the part of `email` before the `@` | The group's name, as people see it (supports template expressions) |
+| `groupDescription` | `string` | - | The group's description in Google Groups (supports template expressions) |
+| `members` | `string[]` | `[]` | Email addresses to add to the group, besides the signed-in account (each supports template expressions) |
+| `role` | `'MEMBER'`, `'MANAGER'`, or `'OWNER'` | `'MEMBER'` | The role `members` get |
+| `allowExternalSenders` | `boolean` | `false` | Let anyone, including senders outside your organization, email the group. Needs an extra scope; see [Outside senders](#outside-senders) |
+| `customerId` | `string` | - | Your Google Workspace customer ID, such as `C01abc23d`. Set it when the group's domain is a secondary domain, which the organization lookup can't find (supports template expressions) |
+| `title` | `string` | `"Create a Google group"` | Display title (supports template expressions) |
+| `description` | `string` | - | Display description (supports template expressions) |
+| `autoCollapse` | `boolean` | `false` | Folds the block down to its title once the group exists. See [Folding done blocks](/authoring/blocks/#folding-done-blocks) |
+| `inputsId` | `string \| string[]` | - | Reference one or more [Inputs](/authoring/blocks/inputs/) blocks for template expressions in props |
+
+The **Create group** button stays disabled until the `<GoogleAuth>` block has signed in and every value the props reference exists.
+
+## What the credential needs
+
+The block calls the [Cloud Identity Groups API](https://cloud.google.com/identity/docs/groups). The account that signs in needs:
+
+- Permission to create groups: a Google Workspace or Cloud Identity super administrator or groups administrator, or a service account assigned the Groups Administrator role.
+- The `cloud-platform` scope, which `<GoogleAuth>` requests by default.
+- For a user credential, a Google Cloud project with the Cloud Identity API enabled. The block bills its calls to the project the `<GoogleAuth>` block selected, so pick that project when you sign in. If the API isn't enabled there, the error says so and links to where to enable it.
+
+## Outside senders
+
+By default, a new group takes your organization's default settings, which usually don't let people outside the organization email it. Mail from AWS, for example, would bounce. Set `allowExternalSenders` to let anyone email the group.
+
+That setting goes through the Groups Settings API, which needs the `https://www.googleapis.com/auth/apps.groups.settings` scope. Add it to the `<GoogleAuth>` block's `scopes`, and sign in with Google:
+
+```mdx
+<GoogleAuth
+  id="google-admin"
+  defaultTab="oauth"
+  scopes={[
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/apps.groups.settings",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "openid",
+  ]}
+/>
+
+<GoogleGroup
+  id="create-group"
+  googleAuthId="google-admin"
+  email="aws-prod-root@example.com"
+  allowExternalSenders={true}
+/>
+```
+
+<Aside type="caution">
+A service account key can't get this scope without domain-wide delegation, which `<GoogleAuth>` doesn't support. To use `allowExternalSenders`, sign in as a user.
+</Aside>
+
+## Block outputs
+
+Once the group exists, the block publishes:
+
+| Output | Value |
+|--------|-------|
+| `GROUP_EMAIL` | The group's email address |
+| `GROUP_NAME` | The group's resource name, such as `groups/01abc23d4e5f6g7` |
+| `GROUP_ID` | The group's ID, the part of `GROUP_NAME` after `groups/` |
+| `GROUP_DISPLAY_NAME` | The group's name |
+| `GROUP_CREATED` | `true` when the block created the group, `false` when it already existed |
+| `CUSTOMER_ID` | The customer the group belongs to |
+
+Later blocks read them as `{{ .outputs.<block_id>.GROUP_EMAIL }}`:
+
+```mdx
+<Command
+  id="create-account"
+  awsAuthId="aws-root"
+  env={{ ROOT_EMAIL: "{{ .outputs.create_group.GROUP_EMAIL }}" }}
+  command='aws organizations create-account --email "$ROOT_EMAIL" --account-name prod'
+/>
+```
+
+The block keeps the group it created in the session's history, so reopening the session shows it, with its outputs, without asking Google again.
+
+## Instruction mode
+
+In [instruction mode](/intro/instruction-mode/), the block shows the `gcloud identity groups create` and `gcloud identity groups memberships add` commands that do the same thing, and creates nothing. With `allowExternalSenders`, it also says where to let outside senders email the group.
+
+## Testing
+
+Test mode never creates a Google group, so a step that names a `<GoogleGroup>` block must use `expect: skip`. See [Testing blocks that create something outside your machine](/authoring/testing/#testing-blocks-that-create-something-outside-your-machine).

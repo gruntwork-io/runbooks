@@ -1,0 +1,38 @@
+# CI has no Google credentials, and test mode never creates a Google group, so
+# the sign-in skips and the group and the block that reads it skip with it.
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  - name: skip-without-credentials
+    description: Without Google credentials the sign-in skips, and so do the
+      group and the block that reads its outputs.
+    inputs:
+      group.GroupEmail: aws-prod-root@example.com
+      group.YourEmail: josh@example.com
+    env:
+      GOOGLE_APPLICATION_CREDENTIALS: ""
+      GOOGLE_CREDENTIALS: ""
+      GOOGLE_OAUTH_ACCESS_TOKEN: ""
+      CLOUDSDK_AUTH_ACCESS_TOKEN: ""
+      CLOUDSDK_CORE_PROJECT: ""
+      GOOGLE_CLOUD_PROJECT: ""
+      GOOGLE_PROJECT: ""
+      GCLOUD_PROJECT: ""
+      CLOUDSDK_CONFIG: ""
+    steps:
+      - block: group
+        expect: success
+      - block: google-admin
+        expect: skip
+      - block: create-group
+        expect: skip
+      - block: show-group
+        expect: blocked
+        missing_outputs:
+          - outputs.create_group.GROUP_EMAIL
+          - outputs.create_group.GROUP_NAME

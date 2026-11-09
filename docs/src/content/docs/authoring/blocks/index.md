@@ -39,6 +39,10 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 - [`<GitHubPullRequest>`](/authoring/blocks/githubpullrequest) is `<GitPullRequest>` locked to GitHub.
 - [`<GitLabMergeRequest>`](/authoring/blocks/gitlabmergerequest) is `<GitPullRequest>` locked to GitLab.
 
+### Work with Google Workspace
+
+- [`<GoogleGroup>`](/authoring/blocks/googlegroup) creates a Google group and adds its members, as a `<GoogleAuth>` block's credential.
+
 ### Show content
 
 - [`<Admonition>`](/authoring/blocks/admonition) renders a note, info, warning, or danger callout.

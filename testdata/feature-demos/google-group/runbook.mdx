@@ -1,0 +1,74 @@
+---
+title: Google Group Demo
+---
+
+# Google Group
+
+This runbook creates a Google group with the `<GoogleGroup>` block, and adds you to it. A group like this makes a good address for something many people need to receive mail for, such as the root user of a new AWS account.
+
+You need to be a Google Workspace or Cloud Identity administrator who can create groups, and the Cloud Identity API must be enabled in the Google Cloud project you pick when you sign in.
+
+## Step 1: Choose the group
+
+<Inputs id="group">
+```yaml
+variables:
+  - name: GroupEmail
+    type: string
+    description: The new group's email address, such as aws-prod-root@example.com
+    validations: "required"
+  - name: GroupName
+    type: string
+    description: The group's name, as people see it
+    default: AWS prod root
+  - name: YourEmail
+    type: string
+    description: Your email address, to add you as a member
+    validations: "required"
+```
+</Inputs>
+
+## Step 2: Sign in to Google
+
+Sign in as an administrator. Signing in with Google needs the Groups Settings scope too, because this runbook lets outside senders, such as AWS, email the group.
+
+<GoogleAuth
+  id="google-admin"
+  title="Sign in as a Google Workspace administrator"
+  defaultTab="oauth"
+  scopes={[
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/apps.groups.settings",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "openid",
+  ]}
+/>
+
+## Step 3: Create the group
+
+You become the group's first owner. The block also adds the email address you entered as a member.
+
+<GoogleGroup
+  id="create-group"
+  googleAuthId="google-admin"
+  inputsId="group"
+  email="{{ .inputs.GroupEmail }}"
+  displayName="{{ .inputs.GroupName }}"
+  groupDescription="Created by the Google Group demo runbook"
+  members={["{{ .inputs.YourEmail }}"]}
+  allowExternalSenders={true}
+/>
+
+## Step 4: Use the group
+
+Later blocks read the group from the block's outputs.
+
+<Command
+  id="show-group"
+  title="Show the new group"
+  env={{
+    GROUP_EMAIL: "{{ .outputs.create_group.GROUP_EMAIL }}",
+    GROUP_NAME: "{{ .outputs.create_group.GROUP_NAME }}",
+  }}
+  command='echo "Group $GROUP_EMAIL is $GROUP_NAME"'
+/>

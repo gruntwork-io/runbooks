@@ -573,6 +573,13 @@ export interface IpcChannelMap {
     params: { blockId?: string; projectId: string }
     result: { enabled: boolean; warning?: string }
   }
+  // <GoogleGroup>: create a group if it doesn't exist and add its members, as
+  // the credential of the GoogleAuth block `googleAuthId` names. MAIN resolves
+  // the credential; the renderer sends only what the group should be.
+  "google:create-group": {
+    params: CreateGoogleGroupParams
+    result: CreateGoogleGroupResult
+  }
   // The renderer has published `credentialsPath` as this block's
   // GOOGLE_APPLICATION_CREDENTIALS output, so any file the block superseded on
   // the way here is finally safe to zero. MAIN cannot infer this moment: it
@@ -1064,6 +1071,30 @@ export interface ResolveInputsRequest {
   /** Block outputs for `{{ .outputs.<block>.<name> }}`, as plain strings. */
   outputs?: Record<string, Record<string, string>>
 }
+
+export interface CreateGoogleGroupParams {
+  /** The GoogleAuth block whose credential creates the group. */
+  googleAuthId?: string
+  email: string
+  displayName?: string
+  description?: string
+  customerId?: string
+  members?: string[]
+  role?: "MEMBER" | "MANAGER" | "OWNER"
+  allowExternalSenders?: boolean
+}
+
+export type CreateGoogleGroupResult =
+  | {
+      ok: true
+      group: { name: string; email: string; displayName?: string | undefined }
+      /** False when a group with this email already existed. */
+      created: boolean
+      customerId: string
+      /** What MAIN did, a line per step. */
+      log: string[]
+    }
+  | { ok: false; error: string }
 
 export interface ProfileInfo {
   name: string

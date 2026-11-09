@@ -43,6 +43,7 @@ import {
   resolveOAuthClient,
 } from "../../../src/domain/google/auth.ts"
 import { credentialTypeFromDocumentType } from "../../../src/domain/google/gcloud-config.ts"
+import { ensureGoogleGroup } from "../../../src/domain/google/groups.ts"
 import {
   evaluateRequiredGoogleScopes,
   insufficientScopesErrorMessage,
@@ -56,6 +57,8 @@ import type {
 } from "../../../src/services/GoogleClient.ts"
 import type {
   AdcInfoIpc,
+  CreateGoogleGroupParams as CreateGoogleGroupIpcParams,
+  CreateGoogleGroupResult,
   GcloudConfigurationIpc,
   GoogleAccountInfo,
   GoogleCredentialTypeIpc,
@@ -1253,6 +1256,13 @@ export function registerGoogleHandlers(): void {
     },
   )
 
+  // <GoogleGroup>: runs as the credential the named GoogleAuth block signed in
+  // with, never a neighbour's. Without a name, the block uses whatever the
+  // session is signed in to, as a <Command> without googleAuthId does.
+  ipcMain.handle("google:create-group", (_event, params: CreateGoogleGroupIpcParams) =>
+    createGoogleGroup(params),
+  )
+
   // The renderer's half of the deferred-release contract in
   // google-credential-registry.ts. Best-effort by construction: every path this
   // can miss (renderer crash, abandoned project picker) merely delays a 0600
@@ -1265,4 +1275,45 @@ export function registerGoogleHandlers(): void {
       return { ok: true as const }
     },
   )
+}
+
+/** The `google:create-group` handler, outside ipcMain so tests can call it. */
+export async function createGoogleGroup(
+  params: CreateGoogleGroupIpcParams,
+): Promise<CreateGoogleGroupResult> {
+  const active = activeCredentialFor(params.googleAuthId)
+  const ref = active?.ref ?? (params.googleAuthId ? undefined : await resolveCredentialRef())
+  if (!ref) {
+    return {
+      ok: false,
+      error: params.googleAuthId
+        ? `Sign in with the "${params.googleAuthId}" GoogleAuth block first.`
+        : "No Google credentials in this session. Sign in with a GoogleAuth block first.",
+    }
+  }
+  try {
+    const result = await runtime.runPromise(
+      ensureGoogleGroup(
+        { creds: ref, quotaProjectId: active?.projectId },
+        {
+          email: params.email,
+          displayName: params.displayName,
+          description: params.description,
+          customerId: params.customerId,
+          members: params.members ?? [],
+          role: params.role ?? "MEMBER",
+          allowExternalSenders: params.allowExternalSenders ?? false,
+        },
+      ),
+    )
+    return {
+      ok: true,
+      group: result.group,
+      created: result.created,
+      customerId: result.customerId,
+      log: [...result.log],
+    }
+  } catch (err) {
+    return { ok: false, error: toErrorMessage(err) }
+  }
 }

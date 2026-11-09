@@ -130,6 +130,35 @@ export interface OAuthFlowResult {
   readonly error?: string
 }
 
+/**
+ * Who a Google Workspace API call runs as, and the project it bills to. A user
+ * credential needs a quota project for the Cloud Identity API; a service
+ * account bills to its own project, so `quotaProjectId` is ignored for one.
+ */
+export interface GoogleApiCaller {
+  readonly creds: GoogleCredentialRef
+  readonly quotaProjectId?: string | undefined
+}
+
+/** A Google group, as the Cloud Identity Groups API names it. */
+export interface GoogleGroup {
+  /** The group's resource name, `groups/<id>`. */
+  readonly name: string
+  readonly email: string
+  readonly displayName?: string | undefined
+}
+
+export interface CreateGoogleGroupParams {
+  readonly email: string
+  readonly displayName: string
+  readonly description?: string | undefined
+  /** The Google Workspace or Cloud Identity customer the group belongs to, e.g. `C01abc23d`. */
+  readonly customerId: string
+}
+
+/** The roles a group member can hold. Every member holds MEMBER; the others add to it. */
+export type GoogleGroupRole = "MEMBER" | "MANAGER" | "OWNER"
+
 export interface GoogleClientShape {
   /** <- AwsClient.validateCredentials. Parses + JWT-authorizes a service-account key. */
   readonly validateServiceAccountKey: (
@@ -193,6 +222,47 @@ export interface GoogleClientShape {
     projectId: string,
     creds: GoogleCredentialRef,
   ) => Effect.Effect<GoogleProjectAccess, GoogleAuthError>
+
+  /**
+   * The customer ID of the Google Cloud organization whose domain is `domain`
+   * (Cloud Resource Manager v3 organizations:search). Undefined when the
+   * caller can see no such organization.
+   */
+  readonly findCustomerIdForDomain: (
+    caller: GoogleApiCaller,
+    domain: string,
+  ) => Effect.Effect<string | undefined, GoogleAuthError>
+
+  /**
+   * Create a group with the caller as its first owner (Cloud Identity Groups
+   * API). A group that already has this email is looked up and returned as
+   * `exists`, so running the same create twice is safe.
+   */
+  readonly createGroup: (
+    caller: GoogleApiCaller,
+    params: CreateGoogleGroupParams,
+  ) => Effect.Effect<{ status: "created" | "exists"; group: GoogleGroup }, GoogleAuthError>
+
+  /**
+   * Add `memberEmail` to the group with `role`. A member who already belongs
+   * to the group is left as they are and reported as `exists`.
+   */
+  readonly addGroupMember: (
+    caller: GoogleApiCaller,
+    groupName: string,
+    memberEmail: string,
+    role: GoogleGroupRole,
+  ) => Effect.Effect<"added" | "exists", GoogleAuthError>
+
+  /**
+   * Let anyone, including senders outside the organization, email the group
+   * (Groups Settings API `whoCanPostMessage`). Needs the
+   * `apps.groups.settings` scope.
+   */
+  readonly allowExternalSenders: (
+    caller: GoogleApiCaller,
+    groupEmail: string,
+  ) => Effect.Effect<void, GoogleAuthError>
 }
 
 export class GoogleClient extends Context.Service<GoogleClient, GoogleClientShape>()(

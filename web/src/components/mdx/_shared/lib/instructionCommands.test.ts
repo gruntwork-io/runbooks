@@ -4,6 +4,7 @@ import {
   buildGhPrCommand,
   buildGlabMrCommand,
   buildBoilerplateInvocation,
+  buildGcloudGroupCommands,
 } from "./instructionCommands"
 
 describe("buildGitCloneCommand", () => {
@@ -91,5 +92,33 @@ describe("buildBoilerplateInvocation", () => {
       target: "worktree",
     })
     expect(cmd).toContain("--output-folder '<repo-directory>'")
+  })
+})
+
+describe("buildGcloudGroupCommands", () => {
+  it("creates the group in the email's organization, then adds each member", () => {
+    expect(
+      buildGcloudGroupCommands({
+        email: "ops@example.com",
+        members: ["josh@example.com"],
+        role: "OWNER",
+      }),
+    ).toEqual([
+      "gcloud identity groups create 'ops@example.com' \\\n  --organization='example.com' \\\n  --display-name='ops' \\\n  --with-initial-owner=WITH_INITIAL_OWNER",
+      "gcloud identity groups memberships add \\\n  --group-email='ops@example.com' \\\n  --member-email='josh@example.com' \\\n  --roles=MEMBER,OWNER",
+    ])
+  })
+
+  it("names the customer instead of the organization when one is given", () => {
+    const [create] = buildGcloudGroupCommands({
+      email: "ops@example.com",
+      customerId: "C01",
+      displayName: "Ops team",
+      description: "Josh's group",
+    })
+    expect(create).toContain("--customer='C01'")
+    expect(create).not.toContain("--organization")
+    expect(create).toContain("--display-name='Ops team'")
+    expect(create).toContain("--description='Josh'\\''s group'")
   })
 })

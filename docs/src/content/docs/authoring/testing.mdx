@@ -121,7 +121,7 @@ tests:
 | `description` | string | No | Human-readable description of what the test validates. |
 | `env` | map | No | Environment variables to set for all blocks, `script` assertions and cleanup actions in this test. Keys and values are strings. |
 | `inputs` | map | No | Variable values for the test. Keys use `inputsID.varName` format. Values can be literals or fuzz configs. |
-| `steps` | array | No | Blocks to execute, in the order listed. A block can be listed more than once, and blocks that aren't listed don't run. A step whose `block` matches no block in the runbook fails the test. If empty, every block runs once in document order and is expected to succeed, except [pull request blocks](#testing-pull-request-blocks), which are expected to skip. |
+| `steps` | array | No | Blocks to execute, in the order listed. A block can be listed more than once, and blocks that aren't listed don't run. A step whose `block` matches no block in the runbook fails the test. If empty, every block runs once in document order and is expected to succeed, except [pull request blocks](#testing-pull-request-blocks) and [blocks that create something outside your machine](#testing-blocks-that-create-something-outside-your-machine), which are expected to skip. |
 | `assertions` | array | No | Validations to run after all steps complete. |
 | `cleanup` | array | No | Actions to run after the test's blocks and assertions, even if one of them fails. |
 
@@ -670,6 +670,10 @@ tests:
       - block: create-pr
         expect: skip
 ```
+
+## Testing blocks that create something outside your machine
+
+A [`<GoogleGroup>`](/authoring/blocks/googlegroup/) block never runs in tests, since it would create a real Google group. As with a pull request block, a step that names one must use `expect: skip`, or `expect: blocked` when the auth block it references hasn't run or was skipped, and a test with no `steps` expects it to skip. Its outputs never exist under test, so a block that reads them can only be tested with `expect: blocked` or `expect: skip`.
 
 ## Testing Finish blocks
 

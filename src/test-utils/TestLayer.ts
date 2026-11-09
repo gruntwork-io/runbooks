@@ -284,6 +284,18 @@ const makeStubGoogleClient = (overrides: Partial<GoogleClientShape> = {}): Googl
     Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "listProjects") })),
   checkProject: (_projectId, _creds) =>
     Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "checkProject") })),
+  findCustomerIdForDomain: (_caller, _domain) =>
+    Effect.fail(
+      new GoogleAuthError({ message: notConfigured("GoogleClient", "findCustomerIdForDomain") }),
+    ),
+  createGroup: (_caller, _params) =>
+    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "createGroup") })),
+  addGroupMember: (_caller, _groupName, _memberEmail, _role) =>
+    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "addGroupMember") })),
+  allowExternalSenders: (_caller, _groupEmail) =>
+    Effect.fail(
+      new GoogleAuthError({ message: notConfigured("GoogleClient", "allowExternalSenders") }),
+    ),
   ...overrides,
 })
 

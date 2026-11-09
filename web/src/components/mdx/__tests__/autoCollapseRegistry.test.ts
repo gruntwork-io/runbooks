@@ -27,6 +27,7 @@ const COLLAPSIBLE_BLOCKS = [
   "GitPullRequest",
   "GitHubPullRequest",
   "GitLabMergeRequest",
+  "GoogleGroup",
 ] as const
 
 // Collapsible blocks whose interactive UI lives in a file other than
@@ -55,6 +56,7 @@ const INSTRUCTION_SOURCE: Record<(typeof COLLAPSIBLE_BLOCKS)[number], string> = 
   GitPullRequest: "GitPullRequest/GitPullRequestInstruction.tsx",
   GitHubPullRequest: "GitPullRequest/GitPullRequestInstruction.tsx",
   GitLabMergeRequest: "GitPullRequest/GitPullRequestInstruction.tsx",
+  GoogleGroup: "GoogleGroup/GoogleGroupInstruction.tsx",
 }
 
 // Entries that never fold:

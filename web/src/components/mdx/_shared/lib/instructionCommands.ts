@@ -98,3 +98,50 @@ export function buildBoilerplateInvocation({ path, variables, target }: Boilerpl
   }
   return parts.join(" \\\n  ")
 }
+
+export interface GcloudGroupArgs {
+  email: string
+  displayName?: string | undefined
+  description?: string | undefined
+  customerId?: string | undefined
+  members?: readonly string[] | undefined
+  role?: "MEMBER" | "MANAGER" | "OWNER" | undefined
+}
+
+/**
+ * `gcloud identity groups create …`, then one `memberships add` per member.
+ * The group belongs to the organization named for the email's domain unless a
+ * customer ID is given, as in the app.
+ */
+export function buildGcloudGroupCommands({
+  email,
+  displayName,
+  description,
+  customerId,
+  members,
+  role = "MEMBER",
+}: GcloudGroupArgs): string[] {
+  const groupEmail = email || "<group-email>"
+  const at = email.indexOf("@")
+  const create = [`gcloud identity groups create ${shellQuote(groupEmail)}`]
+  if (customerId) create.push(`--customer=${shellQuote(customerId)}`)
+  else create.push(`--organization=${shellQuote(at >= 0 ? email.slice(at + 1) : "<domain>")}`)
+  create.push(
+    `--display-name=${shellQuote(displayName || (at >= 0 ? email.slice(0, at) : groupEmail))}`,
+  )
+  if (description) create.push(`--description=${shellQuote(description)}`)
+  create.push("--with-initial-owner=WITH_INITIAL_OWNER")
+
+  const roles = role === "MEMBER" ? "MEMBER" : `MEMBER,${role}`
+  const adds = (members ?? [])
+    .filter((member) => member)
+    .map((member) =>
+      [
+        "gcloud identity groups memberships add",
+        `--group-email=${shellQuote(groupEmail)}`,
+        `--member-email=${shellQuote(member)}`,
+        `--roles=${roles}`,
+      ].join(" \\\n  "),
+    )
+  return [create.join(" \\\n  "), ...adds]
+}

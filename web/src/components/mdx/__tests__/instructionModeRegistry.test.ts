@@ -33,6 +33,7 @@ const INTERACTIVE_BLOCKS = [
   "GitHubPullRequest",
   "GitLabMergeRequest",
   "DirPicker",
+  "GoogleGroup",
 ] as const
 
 // Blocks whose instruction-mode wiring (useInstructionMode) lives in a file

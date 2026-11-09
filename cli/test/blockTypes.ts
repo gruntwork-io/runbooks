@@ -26,6 +26,7 @@ export const BLOCK_TYPES = [
   "GitHubPullRequest",
   "GitLabMergeRequest",
   "DirPicker",
+  "GoogleGroup",
   "Admonition",
   "Chapter",
   "Iframe",
@@ -45,3 +46,9 @@ export const AUTH_BLOCK_TYPES = [
  * runs them, so they can only be tested with `expect: skip`.
  */
 export const PR_BLOCK_TYPES = ["GitPullRequest", "GitHubPullRequest", "GitLabMergeRequest"] as const
+
+/**
+ * Blocks that create something outside the machine, such as a Google group.
+ * Test mode never runs them, so they can only be tested with `expect: skip`.
+ */
+export const EXTERNAL_BLOCK_TYPES = ["GoogleGroup"] as const
