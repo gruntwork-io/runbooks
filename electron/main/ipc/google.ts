@@ -45,6 +45,11 @@ import {
 import { credentialTypeFromDocumentType } from "../../../src/domain/google/gcloud-config.ts"
 import { ensureGoogleGroup } from "../../../src/domain/google/groups.ts"
 import {
+  MOCK_CREDENTIAL,
+  mockGoogleGroupsEnabled,
+  withMockGoogleGroups,
+} from "./google-groups-mock.ts"
+import {
   evaluateRequiredGoogleScopes,
   insufficientScopesErrorMessage,
 } from "../../../src/domain/google/scopes.ts"
@@ -1281,8 +1286,11 @@ export function registerGoogleHandlers(): void {
 export async function createGoogleGroup(
   params: CreateGoogleGroupIpcParams,
 ): Promise<CreateGoogleGroupResult> {
+  const mock = mockGoogleGroupsEnabled()
   const active = activeCredentialFor(params.googleAuthId)
-  const ref = active?.ref ?? (params.googleAuthId ? undefined : await resolveCredentialRef())
+  const ref =
+    active?.ref ??
+    (params.googleAuthId ? undefined : mock ? MOCK_CREDENTIAL : await resolveCredentialRef())
   if (!ref) {
     return {
       ok: false,
@@ -1292,20 +1300,19 @@ export async function createGoogleGroup(
     }
   }
   try {
-    const result = await runtime.runPromise(
-      ensureGoogleGroup(
-        { creds: ref, quotaProjectId: active?.projectId },
-        {
-          email: params.email,
-          displayName: params.displayName,
-          description: params.description,
-          customerId: params.customerId,
-          members: params.members ?? [],
-          role: params.role ?? "MEMBER",
-          allowExternalSenders: params.allowExternalSenders ?? false,
-        },
-      ),
+    const ensure = ensureGoogleGroup(
+      { creds: ref, quotaProjectId: active?.projectId },
+      {
+        email: params.email,
+        displayName: params.displayName,
+        description: params.description,
+        customerId: params.customerId,
+        members: params.members ?? [],
+        role: params.role ?? "MEMBER",
+        allowExternalSenders: params.allowExternalSenders ?? false,
+      },
     )
+    const result = await runtime.runPromise(mock ? withMockGoogleGroups(ensure) : ensure)
     return {
       ok: true,
       group: result.group,

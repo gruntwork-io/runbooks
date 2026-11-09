@@ -1,0 +1,65 @@
+---
+title: Google Group Preview
+---
+
+# Google Group preview
+
+This runbook previews the `<GoogleGroup>` block against a **mock** of the Google group API, so nothing is written to Google. Start the app with `RUNBOOKS_MOCK_GOOGLE_GROUPS=1` for that. Without it, the block calls the real API.
+
+Things to try:
+
+- Create the group with the default values.
+- Use an email that starts with `existing`, such as `existing@example.com`, to see what happens when the group is already there. The block adds you to it and doesn't create a second one.
+- Use an email that starts with `denied`, such as `denied@example.com`, to see how the block shows an error.
+- Turn on instruction mode to see the `gcloud` commands the block stands for.
+
+The real runbook signs in with a `<GoogleAuth>` block first and passes its id as `googleAuthId`. This preview leaves sign-in out, because the mock needs no credentials.
+
+## Step 1: Choose the group
+
+<Inputs id="group">
+```yaml
+variables:
+  - name: GroupEmail
+    type: string
+    description: The new group's email address
+    default: aws-prod-root@example.com
+    validations: "required"
+  - name: GroupName
+    type: string
+    description: The group's name, as people see it
+    default: AWS prod root
+  - name: YourEmail
+    type: string
+    description: Your email address, to add you as a member
+    default: josh@example.com
+    validations: "required"
+```
+</Inputs>
+
+## Step 2: Create the group
+
+<GoogleGroup
+  id="create-group"
+  inputsId="group"
+  email="{{ .inputs.GroupEmail }}"
+  displayName="{{ .inputs.GroupName }}"
+  groupDescription="Root email for a new AWS account"
+  members={["{{ .inputs.YourEmail }}"]}
+  allowExternalSenders={true}
+/>
+
+## Step 3: Use the group
+
+Later blocks read the group from the block's outputs, such as the next step of an AWS account runbook, which would use it as the account's root email.
+
+<Command
+  id="show-group"
+  title="Show the new group"
+  env={{
+    GROUP_EMAIL: "{{ .outputs.create_group.GROUP_EMAIL }}",
+    GROUP_NAME: "{{ .outputs.create_group.GROUP_DISPLAY_NAME }}",
+    GROUP_CREATED: "{{ .outputs.create_group.GROUP_CREATED }}",
+  }}
+  command='echo "Group $GROUP_EMAIL ($GROUP_NAME), created this run: $GROUP_CREATED"'
+/>
