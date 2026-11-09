@@ -818,9 +818,15 @@ function apiErrorFacts(err: unknown): { httpStatus?: number; reasons: string[]; 
  * message, which names a disabled API and links to where to enable it, plus
  * the fix for a token without the scope the call needs.
  */
-export function describeGroupsApiError(err: unknown, neededScope: string): string {
+export function describeGroupsApiError(
+  err: unknown,
+  neededScope: string,
+  creds?: GoogleCredentialRef,
+): string {
   const facts = apiErrorFacts(err)
-  const base = describeCredentialFailure(err) ?? facts.message ?? errorMessage(err)
+  const kind =
+    creds?.kind === "service_account" || creds?.kind === "access_token" ? creds.kind : "adc"
+  const base = describeCredentialFailure(err, kind) ?? facts.message ?? errorMessage(err)
   if (facts.reasons.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT")) {
     return `${base} Add ${neededScope} to the scopes of the GoogleAuth block and sign in again.`
   }
@@ -1267,7 +1273,7 @@ const impl: GoogleClientShape = {
       },
       catch: (err) =>
         new GoogleAuthError({
-          message: `Failed to find the organization for ${domain}: ${describeGroupsApiError(err, CLOUD_PLATFORM_SCOPE)}`,
+          message: `Failed to find the organization for ${domain}: ${describeGroupsApiError(err, CLOUD_PLATFORM_SCOPE, caller.creds)}`,
           cause: err,
         }),
     }),
@@ -1302,7 +1308,7 @@ const impl: GoogleClientShape = {
       },
       catch: (err) =>
         new GoogleAuthError({
-          message: `Failed to create group ${params.email}: ${describeGroupsApiError(err, CLOUD_PLATFORM_SCOPE)}`,
+          message: `Failed to create group ${params.email}: ${describeGroupsApiError(err, CLOUD_PLATFORM_SCOPE, caller.creds)}`,
           cause: err,
         }),
     }),
@@ -1331,7 +1337,7 @@ const impl: GoogleClientShape = {
       },
       catch: (err) =>
         new GoogleAuthError({
-          message: `Failed to add ${memberEmail} to the group: ${describeGroupsApiError(err, CLOUD_PLATFORM_SCOPE)}`,
+          message: `Failed to add ${memberEmail} to the group: ${describeGroupsApiError(err, CLOUD_PLATFORM_SCOPE, caller.creds)}`,
           cause: err,
         }),
     }),
@@ -1349,7 +1355,7 @@ const impl: GoogleClientShape = {
       },
       catch: (err) =>
         new GoogleAuthError({
-          message: `Failed to let outside senders email ${groupEmail}: ${describeGroupsApiError(err, GROUPS_SETTINGS_SCOPE)}`,
+          message: `Failed to let outside senders email ${groupEmail}: ${describeGroupsApiError(err, GROUPS_SETTINGS_SCOPE, caller.creds)}`,
           cause: err,
         }),
     }),

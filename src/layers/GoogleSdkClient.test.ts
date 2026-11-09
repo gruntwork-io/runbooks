@@ -737,6 +737,19 @@ describe("describeGroupsApiError", () => {
       "Add https://example/scope to the scopes of the GoogleAuth block",
     )
   })
+
+  it("gives advice that fits the credential that failed", () => {
+    const err = new Error("invalid_grant: Token has been expired or revoked.")
+    expect(
+      describeGroupsApiError(err, "scope", { kind: "service_account", keyJson: "{}" }),
+    ).toContain("service account key")
+    expect(
+      describeGroupsApiError(err, "scope", { kind: "access_token", accessToken: "t" }),
+    ).toContain("access token has expired")
+    expect(describeGroupsApiError(err, "scope", { kind: "file", path: "/adc.json" })).toContain(
+      "gcloud auth application-default login",
+    )
+  })
 })
 
 describe("group calls", () => {
