@@ -24,7 +24,7 @@ import { validateSessionPath } from "./path-guard.ts"
 import { activeSimulationScenario, simulationEnabled } from "./simulation.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
-import { errorMessage } from "../../../src/errors/message.ts"
+import { describeFailure } from "./ipc-error.ts"
 import { isRemoteSource } from "../../../src/remote-source.ts"
 import { filesAtBase } from "../../../src/domain/tf-module/repoFiles.ts"
 import { loadModule } from "../../../src/domain/tf-module/load.ts"
@@ -188,7 +188,7 @@ export const renderInRepo = (
     const spec = yield* loadModule(dir)
     const folder = yield* Effect.try({
       try: () => repoFolder(repo.path),
-      catch: (cause) => fail(errorMessage(cause)),
+      catch: (cause) => fail(describeFailure(cause)),
     })
     const rendered = yield* renderTemplate(ref.template, values, spec.source ?? dir)
     const tool = toolFor(rendered)
@@ -251,7 +251,7 @@ const writeFiles = (dir: string, files: readonly UnitFile[]) =>
         await fs.writeFile(target, file.content)
       }
     },
-    catch: (cause) => fail(`Couldn't write the code: ${errorMessage(cause)}`),
+    catch: (cause) => fail(`Couldn't write the code: ${describeFailure(cause)}`),
   })
 
 /** What runs a block's code, where, and where Terragrunt keeps what it downloads. */
@@ -429,7 +429,7 @@ function spawnTool(command: string, args: readonly string[], run: ToolRun): Prom
       } else if (err.name === "AbortError") {
         reject(fail("Stopped."))
       } else {
-        reject(fail(`Couldn't run ${name}: ${errorMessage(err)}`))
+        reject(fail(`Couldn't run ${name}: ${describeFailure(err)}`))
       }
     })
     child.on("close", (code) => {
@@ -498,7 +498,7 @@ function simulatePlan(
     send({ kind: "step", step: "plan" })
     const plan = yield* Effect.try({
       try: () => simulatedPlan(answer, values),
-      catch: (cause) => (cause instanceof TfModuleError ? cause : fail(errorMessage(cause))),
+      catch: (cause) => (cause instanceof TfModuleError ? cause : fail(describeFailure(cause))),
     })
     for (const resource of plan.resources) {
       send({ kind: "log", line: `${resource.address}: Plan to ${resource.action}` })
@@ -601,7 +601,7 @@ export function registerTfModuleRunHandlers(): void {
                   onLog: run.send,
                 }),
               catch: (cause) =>
-                cause instanceof TfModuleError ? cause : fail(errorMessage(cause)),
+                cause instanceof TfModuleError ? cause : fail(describeFailure(cause)),
             })
           }
           let planning = false
@@ -621,7 +621,8 @@ export function registerTfModuleRunHandlers(): void {
                 onEvent,
                 onLog: run.send,
               }),
-            catch: (cause) => (cause instanceof TfModuleError ? cause : fail(errorMessage(cause))),
+            catch: (cause) =>
+              cause instanceof TfModuleError ? cause : fail(describeFailure(cause)),
           })
           const shown = yield* Effect.tryPromise({
             try: () =>
@@ -630,7 +631,8 @@ export function registerTfModuleRunHandlers(): void {
                 env,
                 signal: run.signal,
               }),
-            catch: (cause) => (cause instanceof TfModuleError ? cause : fail(errorMessage(cause))),
+            catch: (cause) =>
+              cause instanceof TfModuleError ? cause : fail(describeFailure(cause)),
           })
           savedPlans.set(params.blockId, { location, inputs })
           return { resources: plannedResources(JSON.parse(shown)) } satisfies PlanResult
@@ -674,7 +676,7 @@ export function registerTfModuleRunHandlers(): void {
                   streamed ? { ...quiet, onEvent: run.send, onLog: run.send } : quiet,
                 ),
               catch: (cause) =>
-                cause instanceof TfModuleError ? cause : fail(errorMessage(cause)),
+                cause instanceof TfModuleError ? cause : fail(describeFailure(cause)),
             })
           run.send({ kind: "step", step: "apply" })
           yield* attempt(["apply", "-json", planFile], true)

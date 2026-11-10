@@ -16,7 +16,7 @@ import { simulationEnabled } from "./simulation.ts"
 import { resolveGitHubTokenForRepo } from "./git.ts"
 import { fail, pause, renderInRepo, startRun, unitFilesOf } from "./tf-module-run.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
-import { errorMessage } from "../../../src/errors/message.ts"
+import { describeFailure } from "./ipc-error.ts"
 import {
   createPullRequest,
   mergePullRequest,
@@ -39,7 +39,7 @@ const SIMULATED_STEP_MS = 500
 const SIMULATED_NUMBER = 42
 
 const asTfModuleError = (cause: unknown) =>
-  cause instanceof TfModuleError ? cause : fail(errorMessage(cause))
+  cause instanceof TfModuleError ? cause : fail(describeFailure(cause))
 
 /**
  * Writes the block's unit to its folder in the repository: the code the Code
