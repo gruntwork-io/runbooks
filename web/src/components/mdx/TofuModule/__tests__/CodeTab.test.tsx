@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { CodeTab } from "../components/CodeTab"
-import { templateParts } from "../components/CodeFacts"
 import type { TofuModuleCode } from "../../../../../../electron/shared/channels"
 
 const repoCode = (
@@ -28,11 +27,7 @@ const renderTab = (code: TofuModuleCode, selected?: string) =>
   render(
     <CodeTab
       code={code}
-      blockId="group"
-      values={{ id: "eng" }}
-      pathTemplate="google-groups/{{ .id }}"
       moduleFolder="google-group"
-      simulated={false}
       error={null}
       repository={{ name: "acme/infrastructure-live", baseBranch: "main" }}
       errorCount={0}
@@ -42,14 +37,15 @@ const renderTab = (code: TofuModuleCode, selected?: string) =>
   )
 
 describe("CodeTab in a repository", () => {
-  it("lists where the code goes, and where each value came from", () => {
+  it("lists the repository, the branch, and the module, linked to GitHub", () => {
     renderTab(repoCode())
     expect(screen.getByText("acme/infrastructure-live")).toBeInTheDocument()
-    expect(screen.getByText("<GitClone>")).toBeInTheDocument()
-    // The folder marks the part the path template filled in from an input.
-    expect(screen.getByTitle(".id")).toHaveTextContent("eng")
-    expect(screen.getByText('path="google-groups/{{ .id }}"')).toBeInTheDocument()
-    expect(screen.getByText("runbooks.yml › source")).toBeInTheDocument()
+    expect(screen.getByText("main")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /group/ })).toHaveAttribute(
+      "href",
+      "https://github.com/acme/catalog/tree/v1.0.0/modules/group",
+    )
+    expect(screen.getByText("v1.0.0")).toBeInTheDocument()
   })
 
   it("shows the unit in its folder, marked against the base branch, beside the files above it", () => {
@@ -78,22 +74,8 @@ describe("CodeTab in a repository", () => {
 
   it("warns when the module has no pinned source, and when the repository has no root.hcl", () => {
     renderTab(repoCode({ source: undefined, rootHcl: false }))
-    expect(screen.getByText('source="google-group"')).toBeInTheDocument()
+    expect(screen.getByText("google-group")).toBeInTheDocument()
     expect(screen.getByLabelText(/Add a pinned source to runbooks\.yml/)).toBeInTheDocument()
-    expect(screen.getByText("no root.hcl above the folder")).toBeInTheDocument()
-  })
-})
-
-describe("templateParts", () => {
-  it("splits a template into its text and the values it read", () => {
-    expect(templateParts("groups/{{ .id }}/x", { id: "eng" })).toEqual([
-      { text: "groups/" },
-      { text: "eng", field: "id" },
-      { text: "/x" },
-    ])
-  })
-
-  it("renders a template with conditions as one part", () => {
-    expect(templateParts("{{ if .a }}yes{{ end }}", { a: true })).toEqual([{ text: "yes" }])
+    expect(screen.getByLabelText(/has no root\.hcl above this folder/)).toBeInTheDocument()
   })
 })

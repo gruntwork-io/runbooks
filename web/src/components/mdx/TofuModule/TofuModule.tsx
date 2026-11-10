@@ -364,11 +364,7 @@ function TofuModuleForm({
         <div role="tabpanel" id={`${id}-panel-code`} aria-labelledby={`${id}-tab-code`}>
           <CodeTab
             code={unitCode.code}
-            blockId={id}
-            values={published}
-            pathTemplate={path}
             moduleFolder={source}
-            simulated={simulation.enabled}
             error={unitCode.error}
             repository={
               prTarget && {

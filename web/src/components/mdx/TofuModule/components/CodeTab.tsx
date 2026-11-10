@@ -15,14 +15,8 @@ import type { RepoFile, UnitFile } from "../../../../../../src/domain/tofu-modul
 
 interface CodeTabProps {
   code: TofuModuleCode | null
-  blockId: string
-  /** The block's inputs as it publishes them. */
-  values: Record<string, unknown>
-  /** The block's `path` prop, a template over the inputs. */
-  pathTemplate: string | undefined
   /** The block's `source` prop, the module's folder. */
   moduleFolder: string
-  simulated: boolean
   error: string | null
   /** The repository the code goes to, as `owner/repo`, and the branch it's compared with. */
   repository?: { name: string; baseBranch: string } | undefined
@@ -117,11 +111,7 @@ function repoChanges(files: readonly RepoFile[]): Map<string, FileChange> {
  */
 export function CodeTab({
   code,
-  blockId,
-  values,
-  pathTemplate,
   moduleFolder,
-  simulated,
   error,
   repository,
   errorCount,
@@ -165,15 +155,7 @@ export function CodeTab({
 
   return (
     <div className="space-y-3">
-      <CodeFacts
-        code={code}
-        blockId={blockId}
-        values={values}
-        pathTemplate={pathTemplate}
-        moduleFolder={moduleFolder}
-        repository={repository}
-        simulated={simulated}
-      />
+      <CodeFacts code={code} moduleFolder={moduleFolder} repository={repository} />
       {errorCount > 0 && (
         <p className="flex items-center gap-1.5 text-sm text-warning-foreground">
           <TriangleAlert className="size-4" />
