@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { useApi } from "@/contexts/ApiContext"
+import { useSimulation } from "@/contexts/useSimulation"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import type { TfModuleCode, TfModuleRepo } from "../../../../../../electron/shared/channels"
 
@@ -10,6 +11,8 @@ const DEBOUNCE_MS = 300
  * The block's Terragrunt code with its inputs as they are now: in the
  * repository's tree when there is one, otherwise in the block's workspace.
  * Renders only while `enabled`, and keeps the last code while it renders again.
+ * Renders again when the simulation's answers change, since the repository's
+ * files may have.
  */
 export function useUnitCode(
   blockId: string,
@@ -19,6 +22,7 @@ export function useUnitCode(
   enabled: boolean,
 ) {
   const api = useApi()
+  const { revision } = useSimulation()
   const [code, setCode] = useState<TfModuleCode | null>(null)
   const [error, setError] = useState<string | null>(null)
   const key = JSON.stringify({ values, repo })
@@ -47,7 +51,7 @@ export function useUnitCode(
       cancelled = true
       clearTimeout(timer)
     }
-  }, [api, source, blockId, key, enabled])
+  }, [api, source, blockId, key, enabled, revision])
 
   return { code, error }
 }
