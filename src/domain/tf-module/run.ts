@@ -258,3 +258,10 @@ export function inputsKey(values: Record<string, unknown>): string {
       : value,
   )
 }
+
+/** A shell line that runs `command` in `cwd`, quoting what a shell would split. */
+export function commandLine(cwd: string, command: string, args: readonly string[]): string {
+  const quote = (word: string) =>
+    /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, "'\\''")}'`
+  return `$ cd ${quote(cwd)} && ${[command, ...args].map(quote).join(" ")}`
+}

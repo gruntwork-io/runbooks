@@ -30,6 +30,7 @@ import { filesAtBase } from "../../../src/domain/tf-module/repoFiles.ts"
 import { loadModule } from "../../../src/domain/tf-module/load.ts"
 import {
   appliedResources,
+  commandLine,
   inputsKey,
   moduleOutputs,
   plannedResources,
@@ -389,6 +390,9 @@ async function runTool(tool: CodeTool, args: readonly string[], run: ToolRun): P
 function spawnTool(command: string, args: readonly string[], run: ToolRun): Promise<string> {
   const name =
     command === "terragrunt" ? "Terragrunt" : command === "tofu" ? "OpenTofu" : "Terraform"
+  // The command first, so a run that prints nothing for a while still shows
+  // what it's waiting on, in a form that can be run again in a terminal.
+  run.onLog?.({ kind: "log", line: commandLine(run.cwd, command, args) })
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: run.cwd,

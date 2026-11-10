@@ -2,7 +2,11 @@ import { useState } from "react"
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react"
 import type { LogLine } from "../runMachine"
 
-/** A run's log, folded until opened. While folded and running, its header shows the latest line. */
+/**
+ * A run's log, folded until opened. While folded and running, its header shows
+ * the latest line. A run shows it before its first line, so it's clear the
+ * run is waiting on its tool.
+ */
 export function LogView({
   title,
   log,
@@ -13,7 +17,7 @@ export function LogView({
   running: boolean
 }) {
   const [open, setOpen] = useState(false)
-  if (log.length === 0) return null
+  if (log.length === 0 && !running) return null
   return (
     <div className="rounded-md border border-border bg-card">
       <button
@@ -26,14 +30,17 @@ export function LogView({
         <span className="shrink-0">{open ? title : `${title} (${log.length} lines)`}</span>
         {running && <Loader2 className="size-3 shrink-0 animate-spin" />}
         {running && !open && (
-          <span className="min-w-0 truncate font-mono font-normal">{log.at(-1)?.line}</span>
+          <span className="min-w-0 truncate font-mono font-normal">
+            {log.at(-1)?.line ?? "Waiting for output…"}
+          </span>
         )}
       </button>
       {open && (
         <pre
           data-testid="tf-module-log"
-          className="max-h-72 overflow-auto border-t border-border px-3 py-2 font-mono text-xs leading-relaxed"
+          className="max-h-72 overflow-auto whitespace-pre-wrap break-words border-t border-border px-3 py-2 font-mono text-xs leading-relaxed"
         >
+          {log.length === 0 && <div className="text-muted-foreground">Waiting for output…</div>}
           {log.map((entry, i) => (
             <div
               key={i}

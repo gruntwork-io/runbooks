@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { appliedResources, moduleOutputs, plannedResources, uiEvents } from "./run.ts"
+import { appliedResources, commandLine, moduleOutputs, plannedResources, uiEvents } from "./run.ts"
 
 describe("plannedResources", () => {
   it("keeps managed changes and what an existing resource was, hiding what's unknown or sensitive", () => {
@@ -178,5 +178,20 @@ describe("uiEvents", () => {
       { kind: "log", line: "The id must be an email address.", level: "error" },
     ])
     expect(uiEvents("plain text")).toEqual([{ kind: "log", line: "plain text" }])
+  })
+})
+
+describe("commandLine", () => {
+  it("runs the command in its folder, quoting what a shell would split", () => {
+    expect(
+      commandLine("/Users/sam/My Repos/live", "terragrunt", [
+        "plan",
+        "-out=/tmp/plan.tfplan",
+        "--non-interactive",
+        "it's",
+      ]),
+    ).toBe(
+      "$ cd '/Users/sam/My Repos/live' && terragrunt plan -out=/tmp/plan.tfplan --non-interactive 'it'\\''s'",
+    )
   })
 })
