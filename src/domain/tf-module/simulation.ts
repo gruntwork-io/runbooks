@@ -87,6 +87,34 @@ export interface SimulationScenario {
   readonly modules: Readonly<Record<string, SimulatedModule>>
   /** The simulated repository's files, by path, with what the scenario extends merged in. */
   readonly repository: Readonly<Record<string, string>>
+  /** The signed-in project, and which of its Google APIs are off. */
+  readonly googleApis: SimulatedGoogleApis
+}
+
+export interface SimulatedGoogleApis {
+  readonly project: string
+  readonly disabled: readonly string[]
+}
+
+const SIMULATED_GOOGLE_APIS: SimulatedGoogleApis = { project: "simulated-project", disabled: [] }
+
+function readGoogleApis(
+  raw: unknown,
+  base: SimulatedGoogleApis,
+  where: string,
+): SimulatedGoogleApis {
+  if (raw === undefined) return base
+  if (!isRecord(raw)) {
+    throw new TfModuleError({ message: `${where} must be a map with "project" and "disabled".` })
+  }
+  const disabled = raw.disabled ?? base.disabled
+  if (!Array.isArray(disabled) || !disabled.every((api) => typeof api === "string")) {
+    throw new TfModuleError({ message: `${where}.disabled must be a list of service names.` })
+  }
+  return {
+    project: typeof raw.project === "string" ? raw.project : base.project,
+    disabled,
+  }
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -219,6 +247,10 @@ export function parseSimulation(content: string): SimulationScenario[] {
       entry.repository,
       `${SIMULATION_FILE}: scenarios.${name}.repository`,
     )
+    const baseGoogleApis =
+      typeof entry.extends === "string"
+        ? resolve(entry.extends, [...chain, name]).googleApis
+        : SIMULATED_GOOGLE_APIS
     const scenario: SimulationScenario = {
       name,
       label: typeof entry.label === "string" ? entry.label : name,
@@ -226,6 +258,11 @@ export function parseSimulation(content: string): SimulationScenario[] {
       lookups: { ...base, ...own },
       modules: { ...baseModules, ...ownModules },
       repository: { ...baseRepository, ...ownRepository },
+      googleApis: readGoogleApis(
+        entry.googleApis,
+        baseGoogleApis,
+        `${SIMULATION_FILE}: scenarios.${name}.googleApis`,
+      ),
     }
     resolved.set(name, scenario)
     return scenario

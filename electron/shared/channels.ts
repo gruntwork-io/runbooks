@@ -206,6 +206,10 @@ export interface IpcChannelMap {
     params: TfModuleLookupRequest
     result: { rows: Record<string, unknown>[] }
   }
+  "tf-module:readiness": {
+    params: TfModuleReadinessRequest
+    result: TfModuleReadiness
+  }
 
   // Simulation mode
   /** The Terragrunt code a <TfModule> block runs, rendered with its inputs. */
@@ -1207,6 +1211,25 @@ export interface TfModuleLookupRequest {
   from: string
   /** What the user typed so far. */
   query?: string
+}
+
+export interface TfModuleReadinessRequest {
+  /** The Google APIs the block needs on, by service name. */
+  services: string[]
+  /** The block's template, whose files say what runs its code. */
+  template: string
+}
+
+/** Whether the block has what it needs to plan and apply, outside its own inputs. */
+export interface TfModuleReadiness {
+  google:
+    | { kind: "none" }
+    | { kind: "signed-out" }
+    | { kind: "no-project" }
+    | { kind: "checked"; project: string; enabled: Record<string, boolean> }
+    | { kind: "error"; project: string; message: string }
+  /** The commands the code runs with, each found on PATH or not; none in simulation. */
+  tools: { command: string; found: boolean; version?: string; install: string }[]
 }
 
 export type SimulationState =

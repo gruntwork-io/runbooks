@@ -302,6 +302,8 @@ const makeStubGoogleClient = (overrides: Partial<GoogleClientShape> = {}): Googl
     Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "listDomains") })),
   searchPeople: () =>
     Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "searchPeople") })),
+  enabledServices: () =>
+    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "enabledServices") })),
   ...overrides,
 })
 

@@ -135,6 +135,8 @@ export interface TfModuleSpec {
   readonly variables: readonly TfModuleVariable[]
   /** Templates over the form's values that start the pull request the block opens. */
   readonly pullRequest?: TfModulePullRequest
+  /** The Google APIs the module's resources call, such as `cloudidentity.googleapis.com`. */
+  readonly googleApis: readonly string[]
   /** Problems in runbook_block.yml that don't stop the form, such as a key Runbooks doesn't know. */
   readonly warnings: readonly string[]
 }

@@ -59,6 +59,7 @@ const CRM_BASE = "https://cloudresourcemanager.googleapis.com/v3"
 const MAX_PROJECTS = 500
 const DIRECTORY_BASE = "https://admin.googleapis.com/admin/directory/v1"
 const PEOPLE_BASE = "https://people.googleapis.com/v1"
+const SERVICE_USAGE_BASE = "https://serviceusage.googleapis.com/v1"
 const OAUTH_FLOW_TTL_MS = 5 * 60 * 1000
 
 /**
@@ -667,6 +668,15 @@ interface DirectoryPeopleResponse {
   }[]
 }
 
+/** Service Usage's answer to services:batchGet. */
+interface ServiceUsageBatchResponse {
+  readonly services?: readonly {
+    readonly name?: string
+    readonly config?: { readonly name?: string }
+    readonly state?: string
+  }[]
+}
+
 /**
  * Bills a user credential's calls to a project. Google needs one for APIs
  * like the Admin SDK and People API when the credential is gcloud's own
@@ -1216,6 +1226,38 @@ const impl: GoogleClientShape = {
       catch: (err) =>
         new GoogleAuthError({
           message: `Couldn't search your directory: ${apiErrorMessage(err)}`,
+          cause: err,
+        }),
+    }),
+
+  enabledServices: (
+    creds: GoogleCredentialRef,
+    project: string,
+    services: readonly string[],
+    quotaProjectId?: string,
+  ) =>
+    Effect.tryPromise({
+      try: async (): Promise<Record<string, boolean>> => {
+        if (services.length === 0) return {}
+        const authClient = await authClientFor(creds)
+        const parent = `projects/${encodeURIComponent(project)}`
+        const params = new URLSearchParams(
+          services.map((service) => ["names", `${parent}/services/${service}`]),
+        )
+        const resp = await authClient.request<ServiceUsageBatchResponse>({
+          url: `${SERVICE_USAGE_BASE}/${parent}/services:batchGet?${params.toString()}`,
+          headers: quotaHeaders(quotaProjectId),
+        })
+        const enabled = Object.fromEntries(services.map((service) => [service, false]))
+        for (const service of resp.data.services ?? []) {
+          const name = service.config?.name ?? service.name?.split("/").pop()
+          if (name && name in enabled) enabled[name] = service.state === "ENABLED"
+        }
+        return enabled
+      },
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Couldn't check which APIs are on in ${project}: ${apiErrorMessage(err)}`,
           cause: err,
         }),
     }),

@@ -39,6 +39,20 @@ describe("parseSimulation", () => {
     })
   })
 
+  it("takes the project and its off APIs from what a scenario extends, unless it says its own", () => {
+    const [base, same, off] = parseSimulation(`
+scenarios:
+  base: {}
+  same: { extends: base }
+  off:
+    extends: base
+    googleApis: { project: acme-ops, disabled: [admin.googleapis.com] }
+`)
+    expect(base!.googleApis).toEqual({ project: "simulated-project", disabled: [] })
+    expect(same!.googleApis).toEqual(base!.googleApis)
+    expect(off!.googleApis).toEqual({ project: "acme-ops", disabled: ["admin.googleapis.com"] })
+  })
+
   it("refuses scenarios that extend each other in a loop", () => {
     expect(() => parseSimulation("scenarios:\n  a: { extends: b }\n  b: { extends: a }\n")).toThrow(
       "loop",

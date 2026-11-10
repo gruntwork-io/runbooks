@@ -50,6 +50,10 @@ describe("loadModule", () => {
   it("reads the google-group module with its runbook_block.yml", async () => {
     const spec = await loaded(GOOGLE_GROUP)
     expect(spec.title).toBe("Create a Google Group")
+    expect(spec.googleApis).toEqual([
+      "cloudidentity.googleapis.com",
+      "cloudresourcemanager.googleapis.com",
+    ])
     expect(spec.source).toBe(
       "git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=v0.14.0",
     )

@@ -69,8 +69,8 @@ import type {
 
 /** Where a plan is saved between the Plan and Apply steps, in the block's workspace. */
 const PLAN_FILE = "runbooks.tfplan"
-const TERRAGRUNT_INSTALL = "https://terragrunt.gruntwork.io/docs/getting-started/install/"
-const TOFU_INSTALL = "https://opentofu.org/docs/intro/install/"
+export const TERRAGRUNT_INSTALL = "https://terragrunt.gruntwork.io/docs/getting-started/install/"
+export const TOFU_INSTALL = "https://opentofu.org/docs/intro/install/"
 
 /** Runs that can be cancelled, by run id. */
 const activeRuns = new Map<string, AbortController>()
@@ -344,7 +344,7 @@ interface ToolRun {
 }
 
 /** Whether `name` is an executable file in a folder on `env`'s PATH. */
-async function onPath(name: string, env: Record<string, string>): Promise<boolean> {
+export async function onPath(name: string, env: Record<string, string>): Promise<boolean> {
   for (const dir of (env.PATH ?? "").split(path.delimiter)) {
     if (!dir) continue
     const ok = await fs.access(path.join(dir, name), fs.constants.X_OK).then(

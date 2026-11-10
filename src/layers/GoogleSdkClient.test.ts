@@ -761,6 +761,45 @@ describe("directory lookups", () => {
     }
   })
 
+  it("asks Service Usage which services are on, in one call", async () => {
+    const api = answering({
+      services: [
+        {
+          name: "projects/123/services/cloudidentity.googleapis.com",
+          config: { name: "cloudidentity.googleapis.com" },
+          state: "ENABLED",
+        },
+        {
+          name: "projects/123/services/admin.googleapis.com",
+          config: { name: "admin.googleapis.com" },
+          state: "DISABLED",
+        },
+      ],
+    })
+    try {
+      const enabled = await run((c) =>
+        c.enabledServices(
+          TOKEN,
+          "acme-ops",
+          ["cloudidentity.googleapis.com", "admin.googleapis.com", "people.googleapis.com"],
+          "acme-ops",
+        ),
+      )
+      expect(enabled).toEqual({
+        "cloudidentity.googleapis.com": true,
+        "admin.googleapis.com": false,
+        "people.googleapis.com": false,
+      })
+      expect(api.calls).toHaveLength(1)
+      expect(api.calls[0]!.url).toBe(
+        "https://serviceusage.googleapis.com/v1/projects/acme-ops/services:batchGet?names=projects%2Facme-ops%2Fservices%2Fcloudidentity.googleapis.com&names=projects%2Facme-ops%2Fservices%2Fadmin.googleapis.com&names=projects%2Facme-ops%2Fservices%2Fpeople.googleapis.com",
+      )
+      expect(api.calls[0]!.headers).toEqual({ "x-goog-user-project": "acme-ops" })
+    } finally {
+      api.restore()
+    }
+  })
+
   it("fails with Google's own explanation", async () => {
     const request = spyOn(OAuth2Client.prototype, "request").mockRejectedValue({
       response: {

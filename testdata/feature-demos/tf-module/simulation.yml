@@ -108,6 +108,14 @@ scenarios:
       google.people:
         error: "The signed-in account can't read your directory. Sign in with an account that has the directory.readonly scope."
 
+  apis-off:
+    label: APIs off
+    description: The signed-in project has the Cloud Identity and Admin SDK APIs off, so the block lists them before you plan.
+    extends: happy-path
+    googleApis:
+      project: acme-ops
+      disabled: [cloudidentity.googleapis.com, admin.googleapis.com]
+
   apply-fails:
     label: Apply fails
     description: Google refuses to create the group, so the apply stops with an error.

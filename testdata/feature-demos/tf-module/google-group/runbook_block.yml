@@ -6,6 +6,13 @@ version: 0
 # Where code in an infrastructure repository finds this module. Pin it to a release.
 source: git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=v0.14.0
 
+# The Google APIs the module's resources call. The block checks they're on in the signed-in project.
+requires:
+  google:
+    apis:
+      - cloudidentity.googleapis.com
+      - cloudresourcemanager.googleapis.com
+
 block:
   title: Create a Google Group
   description: Creates a Google group and adds its owners, managers, and members.

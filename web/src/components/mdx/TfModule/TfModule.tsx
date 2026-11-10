@@ -21,6 +21,10 @@ import { ApplyTab } from "./components/ApplyTab"
 import { PullRequestTab } from "./components/PullRequestTab"
 import { useTfRun } from "./hooks/useTfRun"
 import { useUnitCode } from "./hooks/useUnitCode"
+import { useReadiness } from "./hooks/useReadiness"
+import { Readiness } from "./components/Readiness"
+import { readinessReport } from "./readiness"
+import { requiredApis } from "../../../../../src/domain/tf-module/requirements"
 import type { TfModuleRepo } from "../../../../../electron/shared/channels"
 import { usePullRequest, type PullRequestTarget } from "./hooks/usePullRequest"
 import { unitPath } from "./pullRequest"
@@ -287,6 +291,17 @@ function TfModuleForm({
   const run = useTfRun(id, codeRef, published, repo)
   const pr = usePullRequest(id, codeRef, published, repoPath)
   const unitCode = useUnitCode(id, codeRef, published, repo, tab === "code" || tab === "pr")
+  const apis = requiredApis(spec)
+  const ready = useReadiness(
+    apis.map((api) => api.service),
+    template,
+  )
+  const readinessProps = {
+    report: ready.readiness && readinessReport(apis, ready.readiness),
+    error: ready.error,
+    checking: ready.checking,
+    onRecheck: ready.recheck,
+  }
   const applied = run.status === "current"
   const stage = stageOf({ inputsValid: isValid, hasRepo, pr: pr.status, applied })
   const blocked =
@@ -345,6 +360,8 @@ function TfModuleForm({
           </ul>
         </div>
       )}
+
+      <Readiness {...readinessProps} />
 
       <div role="tablist" aria-label="Module" className="mb-5 flex gap-1 border-b border-border">
         {TABS.map(({ tab: name, label }) => (

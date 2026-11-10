@@ -220,6 +220,17 @@ export interface GoogleClientShape {
   ) => Effect.Effect<GooglePerson[], GoogleAuthError>
 
   /**
+   * Which of the services are turned on in the project, from Service Usage's
+   * batchGet, by service name. Needs serviceusage.services.get on the project.
+   */
+  readonly enabledServices: (
+    creds: GoogleCredentialRef,
+    project: string,
+    services: readonly string[],
+    quotaProjectId?: string,
+  ) => Effect.Effect<Record<string, boolean>, GoogleAuthError>
+
+  /**
    * <- AwsClient.checkRegion. Confirms the project exists AND is readable.
    * Fails only when the credential cannot produce a client at all; every
    * request-level outcome is reported through `GoogleProjectAccess`.

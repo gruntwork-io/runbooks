@@ -8,20 +8,10 @@ This runbook creates a real Google group in your Google Workspace or Cloud Ident
 
 ## Before you start
 
+- **OpenTofu 1.12.6 or later** on your `PATH`.
 - **An admin who can create groups**, such as a Groups Admin or Super Admin, to sign in as.
-- **A Google Cloud project** for this runbook. Google bills its API calls to that project, so you need permission to use its services, which an Owner or Editor has. The check after sign-in says which of its APIs to turn on.
+- **A Google Cloud project** for this runbook. Google bills its API calls to that project, so you need permission to use its services, which an Owner or Editor has. Once you sign in, the block below checks which of its APIs to turn on.
 - **A Desktop app OAuth client** for Google Sign-In, from that project's **Google Auth Platform → Clients** page. Choose its JSON in the sign-in tab, or point `GOOGLE_OAUTH_CLIENT_CREDENTIALS` at it before you start Runbooks.
-
-<Prerequisites id="tools" description="OpenTofu runs the code; the API check uses curl and jq.">
-```yaml
-tools:
-  - name: tofu
-    version: ">= 1.12.6"
-    install: "[Install OpenTofu](https://opentofu.org/docs/intro/install/)"
-  - curl
-  - jq
-```
-</Prerequisites>
 
 ## Sign in to Google
 
@@ -40,17 +30,6 @@ Sign in as the admin, and pick the project from above. The extra scopes let the 
     'https://www.googleapis.com/auth/userinfo.email',
     'openid',
   ]}
-/>
-
-<Check
-  id="google-apis"
-  title="Check the project's Google APIs"
-  description="Checks that the project you picked has the APIs this runbook calls turned on, and links to any that aren't."
-  path="checks/google-apis.sh"
-  googleAuthId="google-auth"
-  successMessage="The project has every API this runbook calls."
-  warnMessage="The group can be created, but some suggestions in the form won't load until you turn on their APIs."
-  failMessage="Turn on the APIs the check lists, then check again."
 />
 
 ## Create the group

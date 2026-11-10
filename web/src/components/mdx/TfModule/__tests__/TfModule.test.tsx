@@ -16,6 +16,7 @@ const spec: TfModuleSpec = {
   description: "A Google Workspace group.",
   providers: [{ name: "google" }],
   outputs: [{ name: "group_email", label: "Group email", description: "", sensitive: false }],
+  googleApis: [],
   warnings: [],
   variables: [
     {
@@ -73,6 +74,12 @@ const spec: TfModuleSpec = {
   ],
 }
 
+const ALL_ON = {
+  google: { kind: "checked", project: "acme-ops", enabled: { "admin.googleapis.com": true } },
+  tools: [],
+}
+let readiness: unknown = ALL_ON
+
 const invoke = vi.fn((channel: string) => {
   if (channel === "tf-module:lookup") {
     return Promise.resolve({
@@ -82,12 +89,15 @@ const invoke = vi.fn((channel: string) => {
       ],
     })
   }
+  if (channel === "tf-module:readiness") return Promise.resolve(readiness)
   return Promise.reject(new Error(`unexpected channel ${channel}`))
 })
 
 vi.mock("@/hooks/useIpc", () => ({ useIpc: () => ({ data: spec, isLoading: false, error: null }) }))
 
-vi.mock("@/contexts/ApiContext", () => ({ useApi: () => ({ invoke }) }))
+// One object, as the app's provider gives, so hooks that depend on it don't ask again each render.
+const api = { invoke }
+vi.mock("@/contexts/ApiContext", () => ({ useApi: () => api }))
 
 vi.mock("@/contexts/useLogs", () => ({ useLogs: () => ({ registerLogs: vi.fn() }) }))
 
@@ -113,6 +123,7 @@ const input = (name: string) => document.getElementById(`group-${name}`) as HTML
 
 describe("TfModule", () => {
   beforeEach(() => {
+    readiness = ALL_ON
     ctx = undefined
     invoke.mockClear()
   })
@@ -175,6 +186,22 @@ describe("TfModule", () => {
     fireEvent.change(input("group_name"), { target: { value: "platform" } })
     fireEvent.blur(input("group_name"))
     expect(screen.getByText("Choose Domain first.")).toBeInTheDocument()
+  })
+
+  it("lists an API that's off above the tabs, with a link that turns it on", async () => {
+    readiness = {
+      google: { kind: "checked", project: "acme-ops", enabled: { "admin.googleapis.com": false } },
+      tools: [],
+    }
+    renderBlock()
+    const link = await screen.findByRole("link", { name: /Turn it on/ })
+    expect(link).toHaveAttribute(
+      "href",
+      "https://console.cloud.google.com/apis/library/admin.googleapis.com?project=acme-ops",
+    )
+    expect(screen.getByRole("status", { name: "Before you plan" })).toHaveTextContent(
+      "The Admin SDK API is off in acme-ops",
+    )
   })
 
   it("opens suggestions on typing or Enter, not on focus", async () => {

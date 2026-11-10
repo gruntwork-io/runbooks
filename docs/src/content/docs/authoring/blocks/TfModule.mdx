@@ -117,6 +117,7 @@ outputs:
 |-----|-------------|
 | `version` | The format's version, `0` |
 | `source` | Where code in a repository finds the module, such as a Git URL pinned with `?ref=`. With a cloned repository, the unit points at it on the **Code** tab, in **Apply**, and in the pull request. Without a `source`, that code points at the module's folder on your computer, and the **Code** tab warns that it won't work anywhere else |
+| `requires.google.apis` | The Google APIs the module's resources call, by service name, such as `cloudidentity.googleapis.com`. See [Before you plan](#before-you-plan) |
 | `block.title`, `block.description` | The block's heading and the line under it |
 | `block.logo` | The block's logo, a file in the module or an `https:` URL |
 | `variables.<name>.label` | The input's label. Without it, the name with its first letter capitalized |
@@ -132,6 +133,25 @@ outputs:
 | `outputs.<name>.link` | Shows the output's value, an `https:` URL, as a link with this text. Any other `https:` value shows as a link to itself |
 | `pullRequest.title` | A template over the form's values that starts the pull request's title on the **PR** tab. Without it, the block's title |
 | `pullRequest.description` | A template over the form's values that starts the pull request's description. Without it, a table of the inputs that have a value, leaving out sensitive ones |
+
+## Before you plan
+
+The block checks what it needs outside its inputs, and shows the result under its heading, above the tabs:
+
+- **Google APIs** on in the project a `<GoogleAuth>` block above signed in to: the ones `requires.google.apis` lists, which the plan needs, and the ones the block's [lookups](#lookups) call, which only its suggestions need. `google.domains` calls the Admin SDK API, and `google.people` calls the People API.
+- **The commands the code runs with** on your `PATH`: OpenTofu or Terraform, and Terragrunt too for a [template](#the-template) that renders a Terragrunt unit.
+
+When everything's in place, a line says so, such as *Ready: 4 Google APIs on in acme-ops · OpenTofu 1.12.6*. Otherwise the block lists what's missing, each with its fix: a link to the Cloud console page that turns the API on, or the tool's install page. It checks again after a sign-in or a change of project, when the Runbooks window comes back into focus, and on **Check again**.
+
+The check asks Google's Service Usage API, so the signed-in account needs permission to see the project's services, which the Viewer role has.
+
+```yaml title="runbook_block.yml"
+requires:
+  google:
+    apis:
+      - cloudidentity.googleapis.com
+      - cloudresourcemanager.googleapis.com
+```
 
 ## The template
 
@@ -189,7 +209,7 @@ Either way, the saved plan and what the run downloads stay in that folder, out o
 
 **Stop** ends a plan or an apply that's running. A stopped plan changes nothing; a stopped or failed apply shows how far each resource got, and **Plan again** shows what's left.
 
-Terragrunt and OpenTofu, or OpenTofu or Terraform for a plain configuration, must be on your `PATH`. They run with the session's environment, so they use the credentials an auth block put there.
+Terragrunt and OpenTofu, or OpenTofu or Terraform for a plain configuration, must be on your `PATH`, which [Before you plan](#before-you-plan) checks. They run with the session's environment, so they use the credentials an auth block put there.
 
 ## Pull request
 
@@ -327,6 +347,17 @@ scenarios:
           inputs = {
             id = "{{ .id }}"
           }
+```
+
+A scenario's `googleApis` names the signed-in project and the APIs that are off in it, so [Before you plan](#before-you-plan) shows its problems. Without it, every API is on in `simulated-project`. Nothing runs in simulation mode, so the block doesn't look for its commands.
+
+```yaml title="simulation.yml"
+scenarios:
+  apis-off:
+    extends: happy-path
+    googleApis:
+      project: acme-ops
+      disabled: [cloudidentity.googleapis.com, admin.googleapis.com]
 ```
 
 A resource with `before`, its values now, exists already, so the plan updates it and keeps its `computed` values; `action: delete` removes it, and `action: replace` replaces it. That's how a scenario shows a plan that changes resources rather than creating them, and what **Only changed** narrows the properties to.

@@ -326,6 +326,8 @@ export interface ModuleMetadata {
   readonly variables: Readonly<Record<string, VariableMetadata>>
   readonly outputs: Readonly<Record<string, OutputMetadata>>
   readonly pullRequest?: TfModulePullRequest
+  /** The Google APIs the module's resources call. */
+  readonly googleApis: readonly string[]
   readonly warnings: readonly string[]
 }
 
@@ -351,7 +353,7 @@ export interface VariableMetadata {
 
 /** Reads runbook_block.yml. Fails on anything that would make the form wrong. */
 export function parseMetadata(content: string | undefined): ModuleMetadata {
-  if (content === undefined) return { variables: {}, outputs: {}, warnings: [] }
+  if (content === undefined) return { variables: {}, outputs: {}, googleApis: [], warnings: [] }
   let raw: unknown
   try {
     raw = YAML.parse(content)
@@ -361,7 +363,9 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
       cause,
     })
   }
-  if (raw === null || raw === undefined) return { variables: {}, outputs: {}, warnings: [] }
+  if (raw === null || raw === undefined) {
+    return { variables: {}, outputs: {}, googleApis: [], warnings: [] }
+  }
   if (!isRecord(raw)) throw new TfModuleError({ message: `${METADATA_FILE} must be a map.` })
 
   const problems = new Problems()
@@ -372,6 +376,7 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     "variables",
     "outputs",
     "pullRequest",
+    "requires",
   ])
   if (raw.version !== undefined && !METADATA_VERSIONS.has(raw.version as number)) {
     throw new TfModuleError({
@@ -475,6 +480,8 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     if (template) Object.assign(pullRequest, { [key]: template })
   }
 
+  const googleApis = readGoogleApis(raw.requires, problems)
+
   if (problems.errors.length > 0) {
     throw new TfModuleError({ message: `${METADATA_FILE}: ${problems.errors.join(" ")}` })
   }
@@ -486,8 +493,44 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     variables,
     outputs,
     ...(Object.keys(pullRequest).length > 0 ? { pullRequest } : {}),
+    googleApis,
     warnings: problems.warnings,
   }
+}
+
+/** A Google API's service name, such as cloudidentity.googleapis.com. */
+const GOOGLE_SERVICE = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)*\.googleapis\.com$/
+
+/** `requires.google.apis`: the Google APIs the module's resources call. */
+function readGoogleApis(rawRequires: unknown, problems: Problems): string[] {
+  if (rawRequires === undefined) return []
+  if (!isRecord(rawRequires)) {
+    problems.errors.push("requires must be a map, such as requires: { google: { apis: [...] } }.")
+    return []
+  }
+  problems.unknownKeys("requires", rawRequires, ["google"])
+  const google = rawRequires.google ?? {}
+  if (!isRecord(google)) {
+    problems.errors.push("requires.google must be a map with apis.")
+    return []
+  }
+  problems.unknownKeys("requires.google", google, ["apis"])
+  const apis = google.apis ?? []
+  if (!Array.isArray(apis)) {
+    problems.errors.push("requires.google.apis must be a list of service names.")
+    return []
+  }
+  const services: string[] = []
+  for (const api of apis) {
+    if (typeof api !== "string" || !GOOGLE_SERVICE.test(api)) {
+      problems.errors.push(
+        `requires.google.apis lists ${JSON.stringify(api)}, which isn't a Google API's service name, such as cloudidentity.googleapis.com.`,
+      )
+    } else if (!services.includes(api)) {
+      services.push(api)
+    }
+  }
+  return services
 }
 
 // ---------------------------------------------------------------------------
@@ -657,6 +700,7 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
     }),
     variables,
     ...(input.metadata.pullRequest ? { pullRequest: input.metadata.pullRequest } : {}),
+    googleApis: input.metadata.googleApis,
     warnings: input.metadata.warnings,
   }
 }
