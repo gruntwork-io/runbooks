@@ -22,6 +22,7 @@ import { PullRequestTab } from "./components/PullRequestTab"
 import { useTofuRun } from "./hooks/useTofuRun"
 import { usePullRequest, type PullRequestTarget } from "./hooks/usePullRequest"
 import { unitPath } from "./pullRequest"
+import { nextFrom, stageOf, type Tab } from "./flow"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import {
   formErrors,
@@ -140,8 +141,6 @@ function TofuModule({ id, source, path }: TofuModuleProps) {
   )
 }
 
-type Tab = "ui" | "code" | "apply" | "pr"
-
 const TABS: { tab: Tab; label: string }[] = [
   { tab: "ui", label: "UI" },
   { tab: "code", label: "Code" },
@@ -239,7 +238,6 @@ function TofuModuleForm({
   }
 
   const isValid = Object.keys(errors).length === 0
-  const done = hasSubmitted && isValid
   const errorCount = Object.keys(errors).length
   const published = publishedValues(spec, values)
   const run = useTofuRun(id, source, published)
@@ -255,6 +253,20 @@ function TofuModuleForm({
     : simulation.enabled
       ? SIMULATED_TARGET
       : undefined
+  const hasRepo = prTarget !== undefined
+  const stage = stageOf({
+    inputsValid: isValid,
+    hasRepo,
+    pr:
+      pr.state.phase === "merged"
+        ? "merged"
+        : pr.state.pr
+          ? pr.behind
+            ? "behind"
+            : "open"
+          : "none",
+    applied: run.applied,
+  })
   const blocked =
     errorCount > 0
       ? `${errorCount === 1 ? "1 input needs" : `${errorCount} inputs need`} a fix on the UI tab first.`
@@ -273,7 +285,7 @@ function TofuModuleForm({
 
   return (
     <div className="runbook-block relative mb-4 rounded-lg border border-border bg-muted p-6 shadow-sm">
-      <ProgressStep done={done} />
+      <ProgressStep done={stage === "done"} />
       <div className="absolute right-3 top-2">
         <BlockIdLabel id={id} size="large" />
       </div>
@@ -341,7 +353,7 @@ function TofuModuleForm({
             onSelect={setCodeFile}
           />
           <div className="mt-4 border-t border-border pt-4">
-            <NextButton onClick={() => setTab("pr")} />
+            <NextButton onClick={() => setTab(nextFrom("code", stage, hasRepo)!.tab)} />
           </div>
         </div>
       )}
@@ -361,14 +373,15 @@ function TofuModuleForm({
           target={prTarget}
           simulated={simulation.enabled}
           blocked={blocked}
-          applyPhase={run.state.phase}
+          applied={run.applied}
+          next={nextFrom("pr", stage, hasRepo)}
           pr={pr}
           visible={tab === "pr"}
           onOpenFile={(file) => {
             setCodeFile(file)
             setTab("code")
           }}
-          onGoToApply={() => setTab("apply")}
+          onNavigate={setTab}
         />
       </div>
 
@@ -385,6 +398,8 @@ function TofuModuleForm({
           simulated={simulation.enabled}
           blocked={blocked}
           outputs={spec.outputs}
+          next={nextFrom("apply", stage, hasRepo)}
+          onNavigate={setTab}
           onPlan={() => void run.plan()}
           onApply={() => void apply()}
           onCancel={run.cancel}

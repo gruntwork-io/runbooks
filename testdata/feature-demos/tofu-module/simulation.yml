@@ -70,7 +70,7 @@ scenarios:
           email: "{{ .id }}"
           resource_name: groups/03x5example
           customer_id: C03example
-          console_url: https://admin.google.com/ac/groups/03x5example
+          runbooks_console_url: https://admin.google.com/ac/groups/03x5example
 
   empty-directory:
     label: Nobody in the directory

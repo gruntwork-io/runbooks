@@ -69,9 +69,9 @@ describe("loadModule", () => {
       "email",
       "resource_name",
       "customer_id",
-      "console_url",
+      "runbooks_console_url",
     ])
-    expect(spec.outputs.find((o) => o.name === "console_url")).toMatchObject({
+    expect(spec.outputs.find((o) => o.name === "runbooks_console_url")).toMatchObject({
       label: "Admin console",
       link: "View the Google Group",
     })

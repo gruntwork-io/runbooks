@@ -102,7 +102,7 @@ variables:
 outputs:
   email:
     label: Group email
-  console_url:
+  runbooks_console_url:
     label: Admin console
     link: View the Google Group
 ```
@@ -134,7 +134,7 @@ The **Apply** tab runs that code in the session's `.runbooks/tofu-module/<id>/` 
 
 1. **Plan** runs `terragrunt plan` and lists each resource it would create, change, or delete. Each opens to show its properties, with the values OpenTofu can't know yet marked *known after apply*, and a changed resource's values before and after. A filter above the list searches the properties, and narrows them to the known ones or the changed ones.
 2. **Apply** applies that plan and shows each resource as OpenTofu works on it. If the inputs change after a plan, the block asks for a new one first.
-3. When it's done, the block lists the resources in the state and the module's outputs, and publishes the outputs as its own, for `{{ .outputs.<id>.<output> }}`. A sensitive output stays hidden until you show it.
+3. When it's done, the block lists the resources in the state and the module's outputs, and publishes the outputs as its own, for `{{ .outputs.<id>.<output> }}`. A sensitive output stays hidden until you show it. Outputs whose names start with `runbooks_` are there for the runbook rather than for the module's callers, such as a link to the new resource in a console. The block shows them apart, above the module's other outputs.
 
 Terragrunt and OpenTofu must be on your `PATH`. They run with the session's environment, so they use the credentials an auth block put there.
 
@@ -233,7 +233,7 @@ scenarios:
                 - { id: "{{ .each }}" }
         outputs:
           email: "{{ .id }}"
-          console_url: https://admin.google.com/ac/groups/03x5example
+          runbooks_console_url: https://admin.google.com/ac/groups/03x5example
 
   apply-fails:
     extends: happy-path

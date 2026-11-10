@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react"
 import {
+  ArrowRight,
   Check,
   ChevronDown,
   Copy,
@@ -24,6 +25,7 @@ import type {
   ResourceProgress,
 } from "../../../../../../src/domain/tofu-module/run"
 import type { RunState, RunStep } from "../hooks/useTofuRun"
+import type { NextStep, Tab } from "../flow"
 import {
   filterRows,
   isUnknown,
@@ -317,6 +319,48 @@ function CopyValue({ text }: { text: string }) {
 
 const isWebLink = (value: string) => /^https:\/\/\S+$/.test(value)
 
+/** An output the module has for the runbook rather than for its callers, such as a console link. */
+const isRunbookOutput = (name: string) => name.startsWith("runbooks_")
+
+/** The runbook's outputs: links as buttons, and anything else as a labeled value. */
+function RunbookOutputs({
+  outputs,
+  meta,
+}: {
+  outputs: readonly ModuleOutputValue[]
+  meta: readonly TofuModuleOutput[]
+}) {
+  if (outputs.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {outputs.map((output) => {
+        const info = meta.find((m) => m.name === output.name)
+        const label = info?.label ?? output.name
+        if (!output.sensitive && isWebLink(output.value)) {
+          return (
+            <Button key={output.name} asChild variant="outline" size="sm">
+              <a href={output.value} target="_blank" rel="noreferrer" title={label}>
+                {info?.link ?? label}
+                <ExternalLink className="ml-1 size-3.5" />
+              </a>
+            </Button>
+          )
+        }
+        return (
+          <span
+            key={output.name}
+            className="inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1 text-sm"
+          >
+            <span className="text-muted-foreground">{label}</span>
+            <span className="font-mono">{output.sensitive ? "••••••••" : output.value}</span>
+            {!output.sensitive && <CopyValue text={output.value} />}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 /** The module's outputs: each value, as a link where it's a web address. */
 function OutputList({
   outputs,
@@ -394,6 +438,9 @@ interface ApplyTabProps {
   /** Why the block can't plan yet, such as inputs that need a fix. */
   blocked?: string | undefined
   outputs: readonly TofuModuleOutput[]
+  /** The next step, when it's on another tab, such as merging the pull request. */
+  next: NextStep | undefined
+  onNavigate: (tab: Tab) => void
   onPlan: () => void
   onApply: () => void
   onCancel: () => void
@@ -410,6 +457,8 @@ export function ApplyTab({
   simulated,
   blocked,
   outputs,
+  next,
+  onNavigate,
   onPlan,
   onApply,
   onCancel,
@@ -543,7 +592,22 @@ export function ApplyTab({
               progress={() => ({ progress: "done" })}
             />
           </div>
-          <OutputList outputs={state.result?.outputs ?? []} meta={outputs} />
+          <RunbookOutputs
+            outputs={(state.result?.outputs ?? []).filter((o) => isRunbookOutput(o.name))}
+            meta={outputs}
+          />
+          <OutputList
+            outputs={(state.result?.outputs ?? []).filter((o) => !isRunbookOutput(o.name))}
+            meta={outputs}
+          />
+          {next && (
+            <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
+              <Button type="button" onClick={() => onNavigate(next.tab)}>
+                {next.label}
+                <ArrowRight className="ml-1 size-4" />
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

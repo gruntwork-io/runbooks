@@ -64,7 +64,7 @@ outputs:
     label: Group email
   customer_id:
     label: Customer ID
-  console_url:
+  runbooks_console_url:
     label: Admin console
     link: View the Google Group
 

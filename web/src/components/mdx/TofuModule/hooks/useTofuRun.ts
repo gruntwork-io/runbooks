@@ -139,5 +139,7 @@ export function useTofuRun(blockId: string, source: string, values: Record<strin
     state.phase === "planned" &&
     state.plannedWith !== JSON.stringify(values)
 
-  return { state, plan, apply, cancel, stale }
+  const applied = state.phase === "applied" && state.plannedWith === JSON.stringify(values)
+
+  return { state, plan, apply, cancel, stale, applied }
 }

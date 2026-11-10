@@ -23,7 +23,7 @@ import type { TofuModuleSpec } from "../../../../../../src/domain/tofu-module/ty
 import type { MergeMethod } from "../../../../../../src/services/GitHubClient"
 import { unitFolder } from "../../../../../../src/domain/tofu-module/unit"
 import type { PullRequestTarget, usePullRequest } from "../hooks/usePullRequest"
-import type { RunState } from "../hooks/useTofuRun"
+import type { NextStep, Tab } from "../flow"
 import { draftBody, draftBranch, draftTitle } from "../pullRequest"
 import { LogView } from "./LogView"
 
@@ -136,14 +136,16 @@ interface PullRequestTabProps {
   simulated: boolean
   /** Why the block can't open a pull request yet, such as inputs that need a fix. */
   blocked?: string | undefined
-  /** Where the Apply tab is, so the tab can say what's left. */
-  applyPhase: RunState["phase"]
+  /** Whether the inputs as they are now have been applied. */
+  applied: boolean
+  /** The next step, when it's on another tab. */
+  next: NextStep | undefined
   pr: ReturnType<typeof usePullRequest>
   visible: boolean
   /** Shows a file, by its path on the Code tab, on the Code tab. */
   onOpenFile: (codePath: string) => void
-  /** Shows the Apply tab. */
-  onGoToApply: () => void
+  /** Shows another of the block's tabs. */
+  onNavigate: (tab: Tab) => void
 }
 
 /**
@@ -161,11 +163,12 @@ export function PullRequestTab({
   target,
   simulated,
   blocked,
-  applyPhase,
+  applied,
+  next,
   pr,
   visible,
   onOpenFile,
-  onGoToApply,
+  onNavigate,
 }: PullRequestTabProps) {
   const files = useUnitFiles(blockId, source, values, path, visible)
   // A field the person edited keeps what they wrote; the rest follow the inputs.
@@ -186,7 +189,6 @@ export function PullRequestTab({
     state.phase === "updating" ||
     state.phase === "merging"
   const merged = state.phase === "merged"
-  const applied = applyPhase === "applied"
   // The open pull request's title and description while the person edits them.
   const [editing, setEditing] = useState<{ title: string; body: string } | null>(null)
   const formDisabled = busy || !target || Boolean(blocked)
@@ -485,9 +487,9 @@ export function PullRequestTab({
                         : "Merge now and apply after, or apply first and merge after. Either order works."}
                 </div>
               </div>
-              {merged && !applied && (
-                <Button size="sm" onClick={onGoToApply}>
-                  Apply
+              {merged && next && (
+                <Button size="sm" onClick={() => onNavigate(next.tab)}>
+                  {next.label}
                   <ArrowRight className="ml-1 size-4" />
                 </Button>
               )}
@@ -536,7 +538,12 @@ export function PullRequestTab({
                     {!applied && (
                       <>
                         <span className="text-xs text-muted-foreground">or</span>
-                        <Button size="sm" variant="outline" disabled={busy} onClick={onGoToApply}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => onNavigate("apply")}
+                        >
                           Apply first
                           <ArrowRight className="ml-1 size-4" />
                         </Button>
