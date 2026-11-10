@@ -85,7 +85,7 @@ export function SessionMenu({
         Session
         {hasSession && (
           <span
-            className="truncate max-w-40 font-mono text-xs text-foreground"
+            className="truncate max-w-40 rounded-full border border-border bg-muted px-2 py-0.5 font-mono text-xs text-foreground"
             title={sessionName}
             data-testid="session-name"
           >
