@@ -37,6 +37,7 @@ const INVOKE_CHANNELS = {
   "tofu-module:pr-open": true,
   "tofu-module:pr-push": true,
   "tofu-module:pr-merge": true,
+  "tofu-module:pr-update": true,
   "simulation:state": true,
   "simulation:set-scenario": true,
   "aws:validate": true,

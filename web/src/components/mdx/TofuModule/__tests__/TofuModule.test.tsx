@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { useEffect } from "react"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext, flattenInputs } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
@@ -119,12 +119,13 @@ describe("TofuModule", () => {
 
   it("shows the primary inputs and keeps the rest under Advanced options", () => {
     renderBlock()
-    expect(screen.getByText("Google group")).toBeInTheDocument()
-    expect(screen.getByLabelText(/Group name/)).toBeInTheDocument()
-    expect(screen.queryByText("Allow external members")).not.toBeInTheDocument()
+    expect(screen.getByText("Google group", { selector: "div" })).toBeInTheDocument()
+    const ui = within(screen.getByRole("tabpanel"))
+    expect(ui.getByLabelText(/Group name/)).toBeInTheDocument()
+    expect(ui.queryByText("Allow external members")).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: /Advanced options/ }))
-    expect(screen.getByText("Allow external members")).toBeInTheDocument()
+    fireEvent.click(ui.getByRole("button", { name: /Advanced options/ }))
+    expect(ui.getByText("Allow external members")).toBeInTheDocument()
   })
 
   it("flags required inputs and failed checks on Submit, and doesn't submit", () => {

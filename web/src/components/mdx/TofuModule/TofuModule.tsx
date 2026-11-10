@@ -146,8 +146,8 @@ type Tab = "ui" | "code" | "apply" | "pr"
 const TABS: { tab: Tab; label: string }[] = [
   { tab: "ui", label: "UI" },
   { tab: "code", label: "Code" },
-  { tab: "apply", label: "Apply" },
   { tab: "pr", label: "PR" },
+  { tab: "apply", label: "Apply" },
 ]
 
 interface TofuModuleFormProps {
@@ -175,6 +175,8 @@ function TofuModuleForm({
   const { state: simulation } = useSimulation()
   const { registerOutputs } = useRunbookContext()
   const [tab, setTab] = useState<Tab>("ui")
+  // The file the Code tab shows, kept here so the PR tab can open one there.
+  const [codeFile, setCodeFile] = useState<string | undefined>(undefined)
   const [values, setValues] = useState<FormValues>(() => {
     const saved = Object.fromEntries(
       spec.variables.map((v) => [v.name, formValue(v, initialData[v.name])]),
@@ -334,28 +336,16 @@ function TofuModuleForm({
 
       {tab === "code" && (
         <div role="tabpanel" id={`${id}-panel-code`} aria-labelledby={`${id}-tab-code`}>
-          <CodeTab blockId={id} source={source} values={published} errorCount={errorCount} />
+          <CodeTab
+            blockId={id}
+            source={source}
+            values={published}
+            errorCount={errorCount}
+            selected={codeFile}
+            onSelect={setCodeFile}
+          />
         </div>
       )}
-
-      {/* Kept mounted, so a plan or apply keeps going while another tab shows. */}
-      <div
-        role="tabpanel"
-        id={`${id}-panel-apply`}
-        aria-labelledby={`${id}-tab-apply`}
-        hidden={tab !== "apply"}
-      >
-        <ApplyTab
-          state={run.state}
-          stale={run.stale}
-          simulated={simulation.enabled}
-          blocked={blocked}
-          outputs={spec.outputs}
-          onPlan={() => void run.plan()}
-          onApply={() => void apply()}
-          onCancel={run.cancel}
-        />
-      </div>
 
       <div
         role="tabpanel"
@@ -375,6 +365,29 @@ function TofuModuleForm({
           applyPhase={run.state.phase}
           pr={pr}
           visible={tab === "pr"}
+          onOpenFile={(file) => {
+            setCodeFile(file)
+            setTab("code")
+          }}
+        />
+      </div>
+
+      {/* Kept mounted, so a plan or apply keeps going while another tab shows. */}
+      <div
+        role="tabpanel"
+        id={`${id}-panel-apply`}
+        aria-labelledby={`${id}-tab-apply`}
+        hidden={tab !== "apply"}
+      >
+        <ApplyTab
+          state={run.state}
+          stale={run.stale}
+          simulated={simulation.enabled}
+          blocked={blocked}
+          outputs={spec.outputs}
+          onPlan={() => void run.plan()}
+          onApply={() => void apply()}
+          onCancel={run.cancel}
         />
       </div>
 

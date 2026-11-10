@@ -17,8 +17,8 @@ The block has four tabs:
 
 - **UI** is the form. Its values are published like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`.
 - **Code** shows the Terragrunt code that applies the module with those values, as a small file tree. It changes as the values do.
-- **Apply** runs that code with Terragrunt: a plan whose resources open to show their properties, then an apply that shows each resource as it's made. Afterwards it lists what the apply made and the module's outputs, which become the block's outputs.
 - **PR** opens a GitHub pull request that adds that code to a cloned repository, pushes later changes to it, and merges it. See [Pull request](#pull-request).
+- **Apply** runs that code with Terragrunt: a plan whose resources open to show their properties, then an apply that shows each resource as it's made. Afterwards it lists what the apply made and the module's outputs, which become the block's outputs.
 
 ## Basic usage
 
@@ -142,10 +142,10 @@ Terragrunt and OpenTofu must be on your `PATH`. They run with the session's envi
 
 The **PR** tab opens a GitHub pull request that adds the block's Terragrunt code to a repository, so the change is reviewed and kept with the rest of your infrastructure code. It needs a `<GitHubAuth>` block to sign in and a `<GitClone>` block to clone the repository first, and it targets the branch the clone checked out.
 
-1. The tab shows the files it adds under `path`, the rendered unit without the `root.hcl` the Apply tab writes, since the repository has its own. The title, branch and description start from the module's `pullRequest` templates and follow the form until you edit them.
-2. **Push and open pull request** writes the files into the clone, commits every change in it to a new branch, pushes the branch, and opens the pull request.
-3. If the inputs change while it's open, **Push changes** commits the code as it is now to the same branch.
-4. **Merge pull request** merges it with the method you pick: squash, a merge commit, or rebase.
+1. The title and description start from the module's `pullRequest` templates and follow the form until you edit them. **Customize commit** holds the branch name and commit message. **What files will be committed?** lists the files it adds under `path`: the rendered unit without the `root.hcl` the Apply tab writes, since the repository has its own. Click one to see it on the **Code** tab.
+2. **Create Pull Request** writes the files into the clone, commits every change in it to a new branch, pushes the branch, and opens the pull request.
+3. While it's open, **Edit** changes its title and description, and if the inputs change, **Git Push** commits the code as it is now to the same branch.
+4. **Merge Pull Request** merges it with the method you pick: squash, a merge commit, or rebase.
 
 Apply from the **Apply** tab before or after the merge, whichever your team's process asks for. In simulation mode nothing is pushed: the tab answers as GitHub would, for a repository named `acme/infrastructure-live` when no `<GitClone>` block cloned one.
 

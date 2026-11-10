@@ -18,6 +18,7 @@ import {
   createMergeRequest,
   mergePullRequest,
   pushToPullRequest,
+  updatePullRequest,
 } from "./operations.ts"
 import type { CreatePullRequestParams } from "./operations.ts"
 import { makeTestLayer, makeTestGitHubClient } from "../../test-utils/TestLayer.ts"
@@ -64,6 +65,26 @@ describe("pushToPullRequest and mergePullRequest", () => {
     })
     await Effect.runPromise(pushToPullRequest("tok", params).pipe(Effect.provide(layer)))
     expect(steps).toEqual(["stageAll", "commit", "push"])
+  })
+
+  it("changes the title and description on the pull request's own host", async () => {
+    const calls: unknown[][] = []
+    const layer = makeTestLayer({
+      github: { updatePullRequest: (...args) => Effect.sync(() => void calls.push(args)) },
+    })
+    await Effect.runPromise(
+      updatePullRequest("tok", {
+        owner: "acme",
+        repo: "infra",
+        number: 42,
+        title: "New title",
+        body: "New body",
+        host: "ghe.example.com",
+      }).pipe(Effect.provide(layer)),
+    )
+    expect(calls).toEqual([
+      ["tok", "acme", "infra", 42, { title: "New title", body: "New body" }, "ghe.example.com"],
+    ])
   })
 
   it("merges on the pull request's own host, with the chosen method", async () => {

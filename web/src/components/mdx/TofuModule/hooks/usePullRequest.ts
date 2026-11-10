@@ -15,15 +15,17 @@ export interface PullRequestTarget {
 /** What the person wrote for the pull request. */
 export interface PullRequestDraft {
   readonly title: string
+  readonly commitMessage: string
   readonly branch: string
   readonly body: string
 }
 
 export interface PullRequestState {
-  readonly phase: "draft" | "opening" | "open" | "pushing" | "merging" | "merged"
+  readonly phase: "draft" | "opening" | "open" | "pushing" | "updating" | "merging" | "merged"
   readonly log: readonly LogLine[]
   readonly pr?: { readonly url: string; readonly number: number; readonly branch: string }
   readonly title?: string
+  readonly body?: string
   /** The inputs the branch has, as JSON, so a change shows it needs a push. */
   readonly pushedWith?: string
   readonly error?: string | undefined
@@ -77,9 +79,16 @@ export function usePullRequest(
         branch: draft.branch,
         title: draft.title,
         body: draft.body,
-        commitMessage: draft.title,
+        commitMessage: draft.commitMessage,
       })
-      setState((prev) => ({ ...prev, phase: "open", pr, title: draft.title, pushedWith }))
+      setState((prev) => ({
+        ...prev,
+        phase: "open",
+        pr,
+        title: draft.title,
+        body: draft.body,
+        pushedWith,
+      }))
     } catch (err) {
       setState((prev) => ({ ...prev, phase: "draft", error: message(err) }))
     }
@@ -106,6 +115,28 @@ export function usePullRequest(
     }
   }
 
+  const update = async (target: PullRequestTarget, changes: { title: string; body: string }) => {
+    const { pr } = state
+    if (!pr) return false
+    const runId = start()
+    setState((prev) => ({ ...prev, phase: "updating", error: undefined }))
+    try {
+      await api.invoke("tofu-module:pr-update", {
+        runId,
+        blockId,
+        target,
+        number: pr.number,
+        title: changes.title,
+        body: changes.body,
+      })
+      setState((prev) => ({ ...prev, phase: "open", ...changes }))
+      return true
+    } catch (err) {
+      setState((prev) => ({ ...prev, phase: "open", error: message(err) }))
+      return false
+    }
+  }
+
   const merge = async (target: PullRequestTarget, method: MergeMethod) => {
     const { pr } = state
     if (!pr) return
@@ -127,5 +158,5 @@ export function usePullRequest(
 
   const behind = state.pushedWith !== undefined && state.pushedWith !== JSON.stringify(values)
 
-  return { state, open, push, merge, behind }
+  return { state, open, push, update, merge, behind }
 }

@@ -21,6 +21,7 @@ import {
   createPullRequest,
   mergePullRequest,
   pushToPullRequest,
+  updatePullRequest,
 } from "../../../src/domain/git/operations.ts"
 import { unitFolder } from "../../../src/domain/tofu-module/unit.ts"
 import type { RunEvent } from "../../../src/domain/tofu-module/run.ts"
@@ -29,6 +30,7 @@ import type {
   TofuModulePrOpenRequest,
   TofuModulePrPushRequest,
   TofuModulePrTarget,
+  TofuModulePrUpdateRequest,
   TofuModulePullRequestResult,
 } from "../../shared/channels.ts"
 
@@ -172,6 +174,41 @@ export function registerTofuModulePrHandlers(): void {
             log,
           )
           log("Pushed.")
+          return { ok: true as const }
+        }).pipe(Effect.mapError(asTofuError)),
+      )
+    } finally {
+      run.finish()
+    }
+  })
+
+  ipcMain.handle("tofu-module:pr-update", async (event, request: TofuModulePrUpdateRequest) => {
+    const run = startRun(event.sender, request.runId)
+    const log = (line: string) => run.send({ kind: "log", line } satisfies RunEvent)
+    try {
+      return await runtime.runPromise(
+        Effect.gen(function* () {
+          log(`Updating the title and description of #${request.number}…`)
+          if (simulationEnabled()) {
+            yield* pause(SIMULATED_STEP_MS, run.signal)
+            log("Updated.")
+            return { ok: true as const }
+          }
+          const worktree = yield* checkout(request.target)
+          const { token, host } = yield* resolveGitHubTokenForRepo(
+            worktree,
+            "updating a pull request",
+            { callsApi: true },
+          )
+          yield* updatePullRequest(token, {
+            owner: request.target.owner,
+            repo: request.target.repo,
+            number: request.number,
+            title: request.title,
+            body: request.body,
+            host,
+          })
+          log("Updated.")
           return { ok: true as const }
         }).pipe(Effect.mapError(asTofuError)),
       )

@@ -219,6 +219,8 @@ export interface IpcChannelMap {
   "tofu-module:pr-open": { params: TofuModulePrOpenRequest; result: TofuModulePullRequestResult }
   /** Commits the unit as the inputs are now to the pull request's branch, and pushes it. */
   "tofu-module:pr-push": { params: TofuModulePrPushRequest; result: { ok: true } }
+  /** Changes the title and description of the block's pull request. */
+  "tofu-module:pr-update": { params: TofuModulePrUpdateRequest; result: { ok: true } }
   /** Merges the block's pull request. */
   "tofu-module:pr-merge": { params: TofuModulePrMergeRequest; result: { sha: string } }
   /** Whether the app answers from simulation.yml, and its scenarios. */
@@ -1146,6 +1148,15 @@ export interface TofuModulePrMergeRequest {
   target: TofuModulePrTarget
   number: number
   method: MergeMethod
+}
+
+export interface TofuModulePrUpdateRequest {
+  runId: string
+  blockId: string
+  target: TofuModulePrTarget
+  number: number
+  title: string
+  body: string
 }
 
 export interface TofuModulePullRequestResult {

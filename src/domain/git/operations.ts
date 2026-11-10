@@ -472,6 +472,29 @@ export const pushToPullRequest = (
     yield* runGitSteps(token, "github", params, author, onProgress)
   })
 
+/** Change a pull request's title and description with the GitHub API. */
+export const updatePullRequest = (
+  token: string,
+  params: {
+    readonly owner: string
+    readonly repo: string
+    readonly number: number
+    readonly title: string
+    readonly body: string
+    readonly host?: string
+  },
+) =>
+  Effect.flatMap(GitHubClient, (gh) =>
+    gh.updatePullRequest(
+      token,
+      params.owner,
+      params.repo,
+      params.number,
+      { title: params.title, body: params.body },
+      params.host,
+    ),
+  )
+
 /** Merge a pull request into its base branch with the GitHub API. */
 export const mergePullRequest = (
   token: string,

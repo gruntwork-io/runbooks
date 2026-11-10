@@ -431,6 +431,27 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
+  updatePullRequest: (
+    token: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    changes: { readonly title: string; readonly body: string },
+    host?: string,
+  ) =>
+    Effect.tryPromise({
+      try: async (): Promise<void> => {
+        const API_BASE = apiBaseFor(host)
+        await githubJson(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+          method: "PATCH",
+          token,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: changes.title, body: changes.body }),
+        })
+      },
+      catch: toGitHubApiError,
+    }),
+
   mergePullRequest: (
     token: string,
     owner: string,

@@ -16,6 +16,9 @@ interface CodeTabProps {
   values: Record<string, unknown>
   /** How many inputs need a fix, so the code may not be what applies. */
   errorCount: number
+  /** The file shown, by its path; the unit's terragrunt.hcl until one is picked. */
+  selected?: string | undefined
+  onSelect: (path: string) => void
 }
 
 /** A file's language for the highlighter, from its name. */
@@ -61,11 +64,10 @@ function treeOf(files: readonly UnitFile[]): FileTreeNode[] {
  * The Terragrunt code the block runs: the module's template rendered with
  * the inputs as they are now, in a small file tree.
  */
-export function CodeTab({ blockId, source, values, errorCount }: CodeTabProps) {
+export function CodeTab({ blockId, source, values, errorCount, selected, onSelect }: CodeTabProps) {
   const api = useApi()
   const [files, setFiles] = useState<UnitFile[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<string | null>(null)
   const key = JSON.stringify(values)
 
   useEffect(() => {
@@ -138,7 +140,7 @@ export function CodeTab({ blockId, source, values, errorCount }: CodeTabProps) {
             selectedId={shown.path}
             defaultExpandedIds={folders}
             onItemClick={(item) => {
-              if (item.type === "file") setSelected(item.id)
+              if (item.type === "file") onSelect(item.id)
             }}
           />
         </div>

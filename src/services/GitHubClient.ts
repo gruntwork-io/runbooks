@@ -147,6 +147,15 @@ export interface GitHubClientShape {
     labels: string[],
     host?: string,
   ) => Effect.Effect<void, GitHubApiError>
+  /** Changes a pull request's title and description. */
+  readonly updatePullRequest: (
+    token: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    changes: { readonly title: string; readonly body: string },
+    host?: string,
+  ) => Effect.Effect<void, GitHubApiError>
   /** Merges a pull request; resolves to the merge commit's sha. */
   readonly mergePullRequest: (
     token: string,

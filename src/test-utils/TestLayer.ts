@@ -103,6 +103,13 @@ const makeStubGitHubClient = (overrides: Partial<GitHubClientShape> = {}): GitHu
     Effect.fail(
       new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "addLabels") }),
     ),
+  updatePullRequest: () =>
+    Effect.fail(
+      new GitHubApiError({
+        status: 0,
+        message: notConfigured("GitHubClient", "updatePullRequest"),
+      }),
+    ),
   mergePullRequest: () =>
     Effect.fail(
       new GitHubApiError({
