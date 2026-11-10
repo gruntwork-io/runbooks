@@ -732,30 +732,35 @@ describe("directory lookups", () => {
     }
   })
 
-  it("searches the directory with a query, and lists it without one", async () => {
+  it("finds users by the start of a name or email, once each, and lists them without a query", async () => {
     const api = answering({
-      people: [
+      users: [
         {
-          names: [{ displayName: "Ana Lima" }],
-          emailAddresses: [
-            { value: "ana.alt@example.com" },
-            { value: "ana@example.com", metadata: { primary: true } },
-          ],
-          organizations: [{ title: "Engineer", department: "Platform" }],
+          primaryEmail: "ana@example.com",
+          name: { fullName: "Ana Lima" },
+          organizations: [{ title: "Engineer", department: "Platform", primary: true }],
         },
-        { names: [{ displayName: "No email" }] },
+        { name: { fullName: "No email" } },
       ],
     })
     try {
-      const people = await run((c) => c.searchPeople(TOKEN, "ana", 10))
+      const people = await run((c) => c.searchPeople(TOKEN, "ana", 10, "acme-ops"))
       expect(people).toEqual([
         { email: "ana@example.com", name: "Ana Lima", title: "Engineer, Platform" },
       ])
-      expect(api.calls[0]!.url).toContain("people:searchDirectoryPeople?")
-      expect(api.calls[0]!.url).toContain("query=ana")
+      const queries = api.calls.map((call) => new URL(call.url).searchParams.get("query"))
+      expect(queries).toEqual([
+        "givenName:ana* isSuspended=false",
+        "familyName:ana* isSuspended=false",
+        "email:ana* isSuspended=false",
+      ])
+      expect(api.calls[0]!.url).toStartWith(
+        "https://admin.googleapis.com/admin/directory/v1/users?customer=my_customer&",
+      )
+      expect(api.calls[0]!.headers).toEqual({ "x-goog-user-project": "acme-ops" })
+
       await run((c) => c.searchPeople(TOKEN, "", 10))
-      expect(api.calls[1]!.url).toContain("people:listDirectoryPeople?")
-      expect(api.calls[1]!.url).not.toContain("query=")
+      expect(new URL(api.calls[3]!.url).searchParams.get("query")).toBe("isSuspended=false")
     } finally {
       api.restore()
     }

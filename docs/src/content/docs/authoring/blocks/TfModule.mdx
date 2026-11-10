@@ -138,7 +138,7 @@ outputs:
 
 The block checks what it needs outside its inputs, and shows the result under its heading, above the tabs:
 
-- **Google APIs** on in the project a `<GoogleAuth>` block above signed in to: the ones `requires.google.apis` lists, which the plan needs, and the ones the block's [lookups](#lookups) call, which only its suggestions need. `google.domains` calls the Admin SDK API, and `google.people` calls the People API.
+- **Google APIs** on in the project a `<GoogleAuth>` block above signed in to: the ones `requires.google.apis` lists, which the plan needs, and the ones the block's [lookups](#lookups) call, which only its suggestions need. `google.domains` and `google.people` call the Admin SDK API.
 - **The commands the code runs with** on your `PATH`: OpenTofu or Terraform, and Terragrunt too for a [template](#the-template) that renders a Terragrunt unit.
 
 When everything's in place, a green check says *This block's preflight checks completed successfully.*, and hovering it shows what it found, such as *4 Google APIs on in acme-ops · OpenTofu 1.12.6*. Otherwise the block lists what's missing, each with its fix: a link to the Cloud console page that turns the API on, or the tool's install page. It checks again after a sign-in or a change of project, when the Runbooks window comes back into focus, and on **Check again**.
@@ -242,9 +242,9 @@ Runbooks has these lookups. Each reads Google with the account a `<GoogleAuth>` 
 |--------|------|-------|
 | `google.me` | The signed-in account: `email`, `name` | None |
 | `google.domains` | The organization's domains, primary first: `value` and `domainName` (the domain), `isPrimary` | `https://www.googleapis.com/auth/admin.directory.domain.readonly`, from an admin |
-| `google.people` | People in the directory matching what's typed: `value` (email), `label` (name), `description` (title and department) | `https://www.googleapis.com/auth/directory.readonly` |
+| `google.people` | Active users in the organization whose first name, last name or email starts with what's typed: `value` (email), `label` (name), `description` (title and department) | `https://www.googleapis.com/auth/admin.directory.user.readonly`, from an admin |
 
-When no `<GoogleAuth>` block has signed in, or Google refuses, the field says why, and the user can still type a value. In [simulation mode](#simulation-mode), lookups answer from `simulation.yml` instead. A `shortcut` reads the first row of its lookup when the form opens, and stays hidden while the lookup has none.
+When no `<GoogleAuth>` block has signed in, or Google refuses, the field says why, and the user can still type a value. In [simulation mode](#simulation-mode), lookups answer from `simulation.yml` instead. A `shortcut` reads the first row of its lookup when the form opens and again after each sign-in, and stays hidden while the lookup has none. Lookups that come from Google ask again after a sign-in too.
 
 ## Presets
 

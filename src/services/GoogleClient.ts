@@ -208,9 +208,10 @@ export interface GoogleClientShape {
   ) => Effect.Effect<GoogleDomain[], GoogleAuthError>
 
   /**
-   * People in the organization's directory whose name or email matches the
-   * query, or the first of them for an empty one, from the People API. Needs
-   * the directory.readonly scope.
+   * Active users in the organization whose first name, last name or email
+   * starts with the query, or the first of them for an empty one, from the
+   * Admin SDK Directory API. Needs the admin.directory.user.readonly scope and
+   * an admin who can read users.
    */
   readonly searchPeople: (
     creds: GoogleCredentialRef,

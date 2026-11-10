@@ -10,7 +10,7 @@ import type { LookupRow } from "./rowTemplate.ts"
 export const LOOKUPS = {
   "google.me": "the signed-in account: email, name",
   "google.domains": "the organization's domains: domainName, isPrimary",
-  "google.people": "people in the directory: value (email), label (name), description",
+  "google.people": "active users in the organization: value (email), label (name), description",
 } as const
 
 export type LookupName = keyof typeof LOOKUPS

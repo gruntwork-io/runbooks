@@ -53,12 +53,12 @@ import {
   resolveGcloudConfigPaths,
 } from "../domain/google/gcloud-config.ts"
 import { assertFederatedCredentialAllowed } from "../domain/google/credential-policy.ts"
+import { userSearchQueries } from "../domain/google/user-search.ts"
 
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 const CRM_BASE = "https://cloudresourcemanager.googleapis.com/v3"
 const MAX_PROJECTS = 500
 const DIRECTORY_BASE = "https://admin.googleapis.com/admin/directory/v1"
-const PEOPLE_BASE = "https://people.googleapis.com/v1"
 const SERVICE_USAGE_BASE = "https://serviceusage.googleapis.com/v1"
 const OAUTH_FLOW_TTL_MS = 5 * 60 * 1000
 
@@ -657,14 +657,16 @@ interface DirectoryDomainsResponse {
   readonly domains?: readonly { readonly domainName?: string; readonly isPrimary?: boolean }[]
 }
 
-interface DirectoryPeopleResponse {
-  readonly people?: readonly {
-    readonly names?: readonly { readonly displayName?: string }[]
-    readonly emailAddresses?: readonly {
-      readonly value?: string
-      readonly metadata?: { readonly primary?: boolean }
+/** The Directory API's answer to users.list, with the fields a person's row needs. */
+interface DirectoryUsersResponse {
+  readonly users?: readonly {
+    readonly primaryEmail?: string
+    readonly name?: { readonly fullName?: string }
+    readonly organizations?: readonly {
+      readonly title?: string
+      readonly department?: string
+      readonly primary?: boolean
     }[]
-    readonly organizations?: readonly { readonly title?: string; readonly department?: string }[]
   }[]
 }
 
@@ -1202,26 +1204,28 @@ const impl: GoogleClientShape = {
     Effect.tryPromise({
       try: async (): Promise<GooglePerson[]> => {
         const authClient = await authClientFor(creds)
-        const params = new URLSearchParams({
-          readMask: "names,emailAddresses,organizations",
-          sources: "DIRECTORY_SOURCE_TYPE_DOMAIN_PROFILE",
-          pageSize: String(limit),
-        })
-        // searchDirectoryPeople needs a query; an empty one lists the directory instead.
-        if (query) params.set("query", query)
-        const method = query ? "searchDirectoryPeople" : "listDirectoryPeople"
-        const resp = await authClient.request<DirectoryPeopleResponse>({
-          url: `${PEOPLE_BASE}/people:${method}?${params.toString()}`,
-          headers: quotaHeaders(quotaProjectId),
-        })
-        return (resp.data.people ?? []).flatMap((person) => {
-          const emails = person.emailAddresses ?? []
-          const email = (emails.find((e) => e.metadata?.primary) ?? emails[0])?.value
-          if (!email) return []
-          const org = person.organizations?.[0]
+        const answers = await Promise.all(
+          userSearchQueries(query).map((q) =>
+            authClient.request<DirectoryUsersResponse>({
+              url: `${DIRECTORY_BASE}/users?${new URLSearchParams({
+                customer: "my_customer",
+                query: q,
+                orderBy: "email",
+                maxResults: String(limit),
+              }).toString()}`,
+              headers: quotaHeaders(quotaProjectId),
+            }),
+          ),
+        )
+        const people = new Map<string, GooglePerson>()
+        for (const user of answers.flatMap((resp) => resp.data.users ?? [])) {
+          const email = user.primaryEmail
+          if (!email || people.has(email)) continue
+          const org = user.organizations?.find((o) => o.primary) ?? user.organizations?.[0]
           const title = [org?.title, org?.department].filter(Boolean).join(", ")
-          return [{ email, name: person.names?.[0]?.displayName, title: title || undefined }]
-        })
+          people.set(email, { email, name: user.name?.fullName, title: title || undefined })
+        }
+        return [...people.values()].slice(0, limit)
       },
       catch: (err) =>
         new GoogleAuthError({

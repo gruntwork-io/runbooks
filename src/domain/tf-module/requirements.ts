@@ -12,7 +12,7 @@ import type { TfModuleSpec } from "./types.ts"
 const LOOKUP_APIS: Readonly<Record<LookupName, string | undefined>> = {
   "google.me": undefined,
   "google.domains": "admin.googleapis.com",
-  "google.people": "people.googleapis.com",
+  "google.people": "admin.googleapis.com",
 }
 
 /** Names people know APIs by in the Cloud console. Others show their service name. */
