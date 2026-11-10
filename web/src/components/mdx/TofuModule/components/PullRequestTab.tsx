@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react"
 import {
   AlertTriangle,
-  CheckCircle,
+  ArrowLeft,
+  ArrowRight,
   CircleHelp,
   ExternalLink,
   FileCode,
   FlaskConical,
   GitMerge,
+  GitPullRequest,
   Loader2,
   Pencil,
   XCircle,
@@ -82,6 +84,33 @@ function useUnitFiles(
   return files
 }
 
+/** GitHub's colors for an open and a merged pull request, so the states read as they do there. */
+const GITHUB_OPEN = "bg-[#1f883d] dark:bg-[#238636]"
+const GITHUB_MERGED = "bg-[#8250df] dark:bg-[#8957e5]"
+
+/** The pull request's state, as the pill at the top of a GitHub pull request shows it. */
+function StatePill({ merged }: { merged: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium text-white ${
+        merged ? GITHUB_MERGED : GITHUB_OPEN
+      }`}
+    >
+      {merged ? <GitMerge className="size-3.5" /> : <GitPullRequest className="size-3.5" />}
+      {merged ? "Merged" : "Open"}
+    </span>
+  )
+}
+
+/** A branch name, styled like GitHub's branch labels. */
+function BranchName({ name }: { name: string }) {
+  return (
+    <code className="rounded-md bg-[#ddf4ff] px-1.5 py-0.5 font-mono text-xs text-[#0969da] dark:bg-[#388bfd26] dark:text-[#4493f8]">
+      {name}
+    </code>
+  )
+}
+
 function ErrorPanel({ title, message }: { title: string; message: string }) {
   return (
     <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive-muted p-3">
@@ -113,6 +142,8 @@ interface PullRequestTabProps {
   visible: boolean
   /** Shows a file, by its path on the Code tab, on the Code tab. */
   onOpenFile: (codePath: string) => void
+  /** Shows the Apply tab. */
+  onGoToApply: () => void
 }
 
 /**
@@ -134,6 +165,7 @@ export function PullRequestTab({
   pr,
   visible,
   onOpenFile,
+  onGoToApply,
 }: PullRequestTabProps) {
   const files = useUnitFiles(blockId, source, values, path, visible)
   // A field the person edited keeps what they wrote; the rest follow the inputs.
@@ -154,6 +186,7 @@ export function PullRequestTab({
     state.phase === "updating" ||
     state.phase === "merging"
   const merged = state.phase === "merged"
+  const applied = applyPhase === "applied"
   // The open pull request's title and description while the person edits them.
   const [editing, setEditing] = useState<{ title: string; body: string } | null>(null)
   const formDisabled = busy || !target || Boolean(blocked)
@@ -329,120 +362,137 @@ export function PullRequestTab({
 
       {state.pr && state.phase !== "draft" && state.phase !== "opening" && (
         <div className="space-y-3">
-          <div
-            className={`space-y-2 rounded-md border p-4 ${
-              merged ? "border-primary/30 bg-primary/10" : "border-success/30 bg-success-muted"
-            }`}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div
-                className={`flex items-center gap-2 font-medium ${
-                  merged ? "text-primary" : "text-success"
-                }`}
-              >
-                {merged ? <GitMerge className="size-5" /> : <CheckCircle className="size-5" />}
-                {merged
-                  ? `PR #${state.pr.number} merged into ${target?.baseBranch ?? "its base branch"}`
-                  : `PR #${state.pr.number} is open`}
+          {editing && target ? (
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-foreground">
+                  PR Title <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editing.title}
+                  onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                  disabled={busy}
+                  className={INPUT_CLASS}
+                />
               </div>
-              {!merged && !editing && target && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-foreground">
+                  PR Description
+                </label>
+                <MarkdownEditor
+                  value={editing.body}
+                  onChange={(text) => setEditing({ ...editing, body: text })}
+                  disabled={busy}
+                />
+              </div>
+              <p className="m-0 text-xs text-muted-foreground">
+                The branch stays <BranchName name={state.pr.branch} />. To change the code, edit the
+                inputs and use Git Push.
+              </p>
+              <div className="flex items-center gap-2">
                 <Button
                   size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => setEditing({ title: state.title ?? "", body: state.body ?? "" })}
+                  disabled={busy || !editing.title.trim()}
+                  onClick={() =>
+                    void pr
+                      .update(target, { title: editing.title.trim(), body: editing.body })
+                      .then((ok) => ok && setEditing(null))
+                  }
                 >
-                  <Pencil className="mr-1 size-3.5" /> Edit
+                  {state.phase === "updating" ? (
+                    <>
+                      <Loader2 className="mr-1 size-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save"
+                  )}
                 </Button>
-              )}
-            </div>
-            {editing && target ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-foreground">
-                    PR Title <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={editing.title}
-                    onChange={(e) => setEditing({ ...editing, title: e.target.value })}
-                    disabled={busy}
-                    className={INPUT_CLASS}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-foreground">
-                    PR Description
-                  </label>
-                  <MarkdownEditor
-                    value={editing.body}
-                    onChange={(text) => setEditing({ ...editing, body: text })}
-                    disabled={busy}
-                  />
-                </div>
-                <p className="m-0 text-xs text-muted-foreground">
-                  The branch stays{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 font-mono">{state.pr.branch}</code>.
-                  To change the code, edit the inputs and use Git Push.
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    disabled={busy || !editing.title.trim()}
-                    onClick={() =>
-                      void pr
-                        .update(target, { title: editing.title.trim(), body: editing.body })
-                        .then((ok) => ok && setEditing(null))
-                    }
-                  >
-                    {state.phase === "updating" ? (
-                      <>
-                        <Loader2 className="mr-1 size-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      "Save"
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => setEditing(null)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => setEditing(null)}
+                >
+                  Cancel
+                </Button>
               </div>
-            ) : (
-              <div className="space-y-1">
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-start justify-between gap-2">
                 <a
                   href={state.pr.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                  className="group inline-flex items-baseline gap-1.5 text-base font-semibold text-foreground"
                 >
-                  <span className="break-words">{state.title}</span>
-                  <ExternalLink className="size-3.5 shrink-0" />
+                  <span className="break-words group-hover:text-primary group-hover:underline">
+                    {state.title}
+                  </span>
+                  <span className="font-normal text-muted-foreground">#{state.pr.number}</span>
+                  <ExternalLink className="size-3.5 shrink-0 self-center text-muted-foreground" />
                 </a>
-                <div className={`text-xs ${merged ? "text-primary" : "text-success"}`}>
-                  Branch:{" "}
-                  <code className="rounded bg-background/60 px-1 py-0.5 font-mono">
-                    {state.pr.branch}
-                  </code>
-                </div>
+                {!merged && target && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => setEditing({ title: state.title ?? "", body: state.body ?? "" })}
+                  >
+                    <Pencil className="mr-1 size-3.5" /> Edit
+                  </Button>
+                )}
               </div>
-            )}
-          </div>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <StatePill merged={merged} />
+                <BranchName name={target?.baseBranch ?? "main"} />
+                <ArrowLeft className="size-3.5 text-muted-foreground" aria-label="from" />
+                <BranchName name={state.pr.branch} />
+              </div>
+            </div>
+          )}
 
           {state.error && <ErrorPanel title="That didn't work" message={state.error} />}
 
-          {!merged && target && !editing && (
-            <>
-              {pr.behind && (
-                <div className="flex flex-wrap items-center gap-3 text-sm text-warning-foreground">
-                  <AlertTriangle className="size-4 text-warning" />
-                  The inputs changed since the last push.
+          {!editing && target && (
+            <div className="flex flex-wrap items-center gap-3 rounded-md border border-border p-3">
+              <span
+                className={`flex size-8 shrink-0 items-center justify-center rounded-full text-white ${
+                  merged ? GITHUB_MERGED : GITHUB_OPEN
+                }`}
+              >
+                {merged ? <GitMerge className="size-4" /> : <GitPullRequest className="size-4" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-foreground">
+                  {merged
+                    ? "Merged"
+                    : pr.behind
+                      ? "The inputs changed since the last push"
+                      : "Ready to merge"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {merged
+                    ? applied
+                      ? `Merged into ${target.baseBranch}, and applied.`
+                      : `Merged into ${target.baseBranch}. Apply it next, unless your pipeline applies merged code.`
+                    : pr.behind
+                      ? "Push them to the branch before merging."
+                      : applied
+                        ? "Applied from the Apply tab. Merge it to finish."
+                        : "Merge now and apply after, or apply first and merge after. Either order works."}
+                </div>
+              </div>
+              {merged && !applied && (
+                <Button size="sm" onClick={onGoToApply}>
+                  Apply
+                  <ArrowRight className="ml-1 size-4" />
+                </Button>
+              )}
+              {!merged &&
+                (pr.behind ? (
                   <Button
                     size="sm"
                     variant="outline"
@@ -458,47 +508,44 @@ export function PullRequestTab({
                       "Git Push"
                     )}
                   </Button>
-                </div>
-              )}
-              <div className="flex flex-wrap items-center gap-2">
-                <select
-                  aria-label="Merge method"
-                  value={method}
-                  disabled={busy}
-                  onChange={(e) => setMethod(e.target.value as MergeMethod)}
-                  className="h-8 rounded-md border border-input bg-card px-2 text-sm"
-                >
-                  {MERGE_METHODS.map((m) => (
-                    <option key={m.method} value={m.method}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  size="sm"
-                  disabled={busy || pr.behind}
-                  onClick={() => void pr.merge(target, method)}
-                >
-                  {state.phase === "merging" ? (
-                    <>
-                      <Loader2 className="mr-1 size-4 animate-spin" />
-                      Merging...
-                    </>
-                  ) : (
-                    "Merge Pull Request"
-                  )}
-                </Button>
-              </div>
-            </>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      aria-label="Merge method"
+                      value={method}
+                      disabled={busy}
+                      onChange={(e) => setMethod(e.target.value as MergeMethod)}
+                      className="h-8 rounded-md border border-input bg-card px-2 text-sm"
+                    >
+                      {MERGE_METHODS.map((m) => (
+                        <option key={m.method} value={m.method}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                    <Button size="sm" disabled={busy} onClick={() => void pr.merge(target, method)}>
+                      {state.phase === "merging" ? (
+                        <>
+                          <Loader2 className="mr-1 size-4 animate-spin" />
+                          Merging...
+                        </>
+                      ) : (
+                        "Merge Pull Request"
+                      )}
+                    </Button>
+                    {!applied && (
+                      <>
+                        <span className="text-xs text-muted-foreground">or</span>
+                        <Button size="sm" variant="outline" disabled={busy} onClick={onGoToApply}>
+                          Apply first
+                          <ArrowRight className="ml-1 size-4" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ))}
+            </div>
           )}
-
-          <p className="m-0 text-xs text-muted-foreground">
-            {applyPhase === "applied"
-              ? "Applied from the Apply tab."
-              : state.phase === "merged"
-                ? "Apply it from the Apply tab, unless your pipeline applies merged code."
-                : "Apply from the Apply tab before or after you merge, as your team prefers."}
-          </p>
         </div>
       )}
 

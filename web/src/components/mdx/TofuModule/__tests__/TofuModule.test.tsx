@@ -128,15 +128,15 @@ describe("TofuModule", () => {
     expect(ui.getByText("Allow external members")).toBeInTheDocument()
   })
 
-  it("flags required inputs and failed checks on Submit, and doesn't submit", () => {
+  it("flags required inputs and failed checks on Next, and doesn't submit", () => {
     renderBlock()
     fireEvent.change(input("group_name"), { target: { value: "Not Valid" } })
-    fireEvent.click(screen.getByRole("button", { name: "Submit" }))
+    fireEvent.click(screen.getByRole("button", { name: "Next" }))
 
     expect(screen.getByText("Choose Domain first.")).toBeInTheDocument()
     expect(screen.getByText("Required.")).toBeInTheDocument()
     expect(screen.getByText("2 inputs above need a fix.")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Submit" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument()
   })
 
   it("fills other inputs from a lookup pick, and registers the values", async () => {
@@ -157,7 +157,7 @@ describe("TofuModule", () => {
 
     expect(screen.getByTestId("group-group_name-suffix")).toHaveTextContent("@example.com")
 
-    fireEvent.click(screen.getByRole("button", { name: "Submit" }))
+    fireEvent.click(screen.getByRole("button", { name: "Next" }))
     await waitFor(() =>
       expect(flattenInputs(ctx!.getInputs("group"))).toEqual({
         group_name: "platform@example.com",
@@ -166,7 +166,7 @@ describe("TofuModule", () => {
         allow_external: false,
       }),
     )
-    expect(screen.queryByRole("button", { name: "Submit" })).not.toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: "Code" })).toHaveAttribute("aria-selected", "true")
   })
 
   it("shows the email's domain once an organization is chosen, and asks for one first", () => {

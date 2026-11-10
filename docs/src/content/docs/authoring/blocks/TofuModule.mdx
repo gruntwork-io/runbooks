@@ -15,10 +15,10 @@ The `<TofuModule>` block renders a form for an OpenTofu module's inputs. The for
 
 The block has four tabs:
 
-- **UI** is the form. Its values are published like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`.
-- **Code** shows the Terragrunt code that applies the module with those values, as a small file tree. It changes as the values do.
+- **UI** is the form. Its values are published like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`. **Next** checks the values, publishes them, and moves on to **Code**.
+- **Code** shows the Terragrunt code that applies the module with those values, as a small file tree. It changes as the values do. **Next** moves on to **PR**.
 - **PR** opens a GitHub pull request that adds that code to a cloned repository, pushes later changes to it, and merges it. See [Pull request](#pull-request).
-- **Apply** runs that code with Terragrunt: a plan whose resources open to show their properties, then an apply that shows each resource as it's made. Afterwards it lists what the apply made and the module's outputs, which become the block's outputs.
+- **Apply** runs that code with Terragrunt: a plan whose resources open to show their properties as a table or as plan text, then an apply that shows each resource as it's made. Afterwards it lists what the apply made and the module's outputs, which become the block's outputs.
 
 ## Basic usage
 
@@ -147,7 +147,7 @@ The **PR** tab opens a GitHub pull request that adds the block's Terragrunt code
 3. While it's open, **Edit** changes its title and description, and if the inputs change, **Git Push** commits the code as it is now to the same branch.
 4. **Merge Pull Request** merges it with the method you pick: squash, a merge commit, or rebase.
 
-Apply from the **Apply** tab before or after the merge, whichever your team's process asks for. In simulation mode nothing is pushed: the tab answers as GitHub would, for a repository named `acme/infrastructure-live` when no `<GitClone>` block cloned one.
+You can merge and then apply, or apply and then merge, whichever your team's process asks for. While the pull request is open, **Apply first** next to the merge button takes you to the **Apply** tab, and after a merge, **Apply** does. In simulation mode nothing is pushed: the tab answers as GitHub would, for a repository named `acme/infrastructure-live` when no `<GitClone>` block cloned one.
 
 ## Lookups
 

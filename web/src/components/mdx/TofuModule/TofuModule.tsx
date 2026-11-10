@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type FormEvent } from "react"
-import { ChevronDown, ChevronRight, FlaskConical, TriangleAlert } from "lucide-react"
+import { ArrowRight, ChevronDown, ChevronRight, FlaskConical, TriangleAlert } from "lucide-react"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { sensitiveOutput } from "@/lib/outputValues"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,6 @@ import type { AppError } from "@/types/error"
 import { BlockIdLabel } from "../_shared/components/BlockIdLabel"
 import { DuplicateIdError } from "../_shared/components/DuplicateIdError"
 import { ErrorDisplay } from "../_shared/components/ErrorDisplay"
-import { FormStatus } from "../_shared/components/FormStatus"
 import { LoadingDisplay } from "../_shared/components/LoadingDisplay"
 import { ProgressStep } from "../_shared/components/ProgressStep"
 import { useInputRegistration } from "../_shared/hooks/useInputRegistration"
@@ -219,6 +218,7 @@ function TofuModuleForm({
       return
     }
     void onSubmit(publishedValues(spec, values))
+    setTab("code")
   }
 
   const field = (name: string) => {
@@ -272,11 +272,7 @@ function TofuModuleForm({
   }
 
   return (
-    <div
-      className={`runbook-block relative mb-4 rounded-lg border p-6 shadow-sm ${
-        done ? "border-success/30 bg-success-muted" : "border-border bg-muted"
-      }`}
-    >
+    <div className="runbook-block relative mb-4 rounded-lg border border-border bg-muted p-6 shadow-sm">
       <ProgressStep done={done} />
       <div className="absolute right-3 top-2">
         <BlockIdLabel id={id} size="large" />
@@ -344,6 +340,9 @@ function TofuModuleForm({
             selected={codeFile}
             onSelect={setCodeFile}
           />
+          <div className="mt-4 border-t border-border pt-4">
+            <NextButton onClick={() => setTab("pr")} />
+          </div>
         </div>
       )}
 
@@ -369,6 +368,7 @@ function TofuModuleForm({
             setCodeFile(file)
             setTab("code")
           }}
+          onGoToApply={() => setTab("apply")}
         />
       </div>
 
@@ -429,25 +429,33 @@ function TofuModuleForm({
         )}
 
         <div className="border-t border-border pt-4">
-          {hasSubmitted ? (
-            <FormStatus isValid={isValid} isUpdating={false} isInlineMode />
-          ) : (
-            <>
-              <Button type="submit" variant="default">
-                Submit
-              </Button>
-              {submitAttempted && errorCount > 0 && (
-                <p className="mt-3 text-sm text-destructive">
-                  {errorCount === 1
-                    ? "1 input above needs a fix."
-                    : `${errorCount} inputs above need a fix.`}
-                </p>
-              )}
-            </>
+          <NextButton type="submit" />
+          {submitAttempted && errorCount > 0 && (
+            <p className="mt-3 text-sm text-destructive">
+              {errorCount === 1
+                ? "1 input above needs a fix."
+                : `${errorCount} inputs above need a fix.`}
+            </p>
           )}
         </div>
       </form>
     </div>
+  )
+}
+
+/** Moves on to the block's next tab. */
+function NextButton({
+  type = "button",
+  onClick,
+}: {
+  type?: "button" | "submit"
+  onClick?: () => void
+}) {
+  return (
+    <Button type={type} variant="default" onClick={onClick}>
+      Next
+      <ArrowRight className="ml-1 size-4" />
+    </Button>
   )
 }
 

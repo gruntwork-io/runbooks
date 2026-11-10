@@ -7,11 +7,10 @@ import {
 import { childPath, isUnknown, keyText, type Leaf, type PropertyRow } from "../propertyRows"
 
 /** How a resource's properties are laid out. */
-export type PropertyLayout = "table" | "tiles" | "text"
+export type PropertyLayout = "table" | "text"
 
 export const LAYOUTS: { layout: PropertyLayout; label: string }[] = [
   { layout: "table", label: "Table" },
-  { layout: "tiles", label: "Tiles" },
   { layout: "text", label: "Plan text" },
 ]
 
@@ -46,7 +45,7 @@ const knownFirst = (rows: readonly PropertyRow[]) => [
   ...rows.filter((r) => isUnknown(r.after)),
 ]
 
-/** Option A: one row per value, its full path in one column and its value in the next. */
+/** One row per value, its full path in one column and its value in the next. */
 function PropertyTable({ rows, hasBefore }: { rows: readonly PropertyRow[]; hasBefore: boolean }) {
   const cell = "border-b border-border/60 px-2 py-1"
   return (
@@ -90,52 +89,6 @@ function PropertyTable({ rows, hasBefore }: { rows: readonly PropertyRow[]; hasB
           </div>
         )
       })}
-    </div>
-  )
-}
-
-/** Option B: a tile per known value, filling columns, and the unknown ones named at the end. */
-function PropertyTiles({ rows, hasBefore }: { rows: readonly PropertyRow[]; hasBefore: boolean }) {
-  const known = rows.filter((r) => !isUnknown(r.after))
-  const unknown = rows.filter((r) => isUnknown(r.after))
-  return (
-    <div className="space-y-2">
-      {known.length > 0 && (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-1.5">
-          {known.map((row) => (
-            <div
-              key={row.path}
-              className={`min-w-0 rounded border px-2.5 py-1.5 ${
-                hasBefore && row.changed
-                  ? "border-warning/40 bg-warning-muted/40"
-                  : "border-border/60 bg-muted/20"
-              }`}
-            >
-              <div className="font-mono text-[11px] leading-tight">
-                <PathText path={row.path} />
-              </div>
-              {hasBefore && row.changed && row.before !== undefined && (
-                <div className="mt-0.5 font-mono text-xs line-through decoration-muted-foreground/60">
-                  <LeafText value={row.before} />
-                </div>
-              )}
-              <div className="mt-0.5 font-mono text-sm">
-                {row.after === undefined ? (
-                  <span className="text-xs italic text-destructive">removed</span>
-                ) : (
-                  <LeafText value={row.after} />
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {unknown.length > 0 && (
-        <p className="text-xs text-muted-foreground">
-          <span className="italic">Known after apply:</span>{" "}
-          <span className="font-mono">{unknown.map((r) => r.path).join(" · ")}</span>
-        </p>
-      )}
     </div>
   )
 }
@@ -334,7 +287,7 @@ function planLines(
   return entries(after, before, "", 0)
 }
 
-/** Option C: the plan as OpenTofu prints it. */
+/** The plan as OpenTofu prints it. */
 function PropertyPlanText({
   after,
   before,
@@ -378,8 +331,6 @@ export function PropertyView({ layout, rows, after, before, action }: PropertyVi
   switch (layout) {
     case "table":
       return <PropertyTable rows={shown} hasBefore={hasBefore} />
-    case "tiles":
-      return <PropertyTiles rows={shown} hasBefore={hasBefore} />
     case "text":
       return <PropertyPlanText after={after} before={before} rows={rows} />
   }
