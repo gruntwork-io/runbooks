@@ -2,13 +2,14 @@ import { useEffect, useState } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { useSimulation } from "@/contexts/useSimulation"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
+import { useGoogleSignIns } from "./useGoogleSignIns"
 import type { LookupRow } from "../../../../../../src/domain/tf-module/rowTemplate"
 
 /** How long typing pauses before the lookup asks again. */
 const DEBOUNCE_MS = 200
 
 interface Answer {
-  /** The request it answers: the lookup, what was typed, and the simulation's revision. */
+  /** The request it answers: the lookup, what was typed, the simulation's revision, and who's signed in. */
   key: string
   rows: readonly LookupRow[]
   error?: string
@@ -23,14 +24,15 @@ interface LookupState {
 /**
  * The rows a named lookup has for what the user typed. Asks only while
  * `active` (the user is searching), and again when the simulation's answers
- * change. Until the newest request is answered, it keeps the last answer's
+ * change or someone signs in to Google. Until the newest request is answered, it keeps the last answer's
  * rows and reports loading.
  */
 export function useLookup(from: string | undefined, query: string, active: boolean): LookupState {
   const api = useApi()
   const { revision } = useSimulation()
   const [answer, setAnswer] = useState<Answer | undefined>(undefined)
-  const key = JSON.stringify([from, query, revision])
+  const signIns = useGoogleSignIns()
+  const key = JSON.stringify([from, query, revision, signIns])
 
   useEffect(() => {
     if (!from || !active) return

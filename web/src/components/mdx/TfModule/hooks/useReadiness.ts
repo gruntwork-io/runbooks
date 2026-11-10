@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react"
 import { useApi } from "@/contexts/ApiContext"
-import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSimulation } from "@/contexts/useSimulation"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
+import { useGoogleSignIns } from "./useGoogleSignIns"
 import type { TfModuleReadiness } from "../../../../../../electron/shared/channels"
 
 export interface ReadinessState {
@@ -23,22 +23,12 @@ export interface ReadinessState {
 export function useReadiness(services: readonly string[], template: string): ReadinessState {
   const api = useApi()
   const { revision } = useSimulation()
-  const { blockOutputs } = useRunbookContext()
+  const signIns = useGoogleSignIns()
   const [attempt, setAttempt] = useState(0)
   const [answer, setAnswer] = useState<
     { key: string; readiness?: TfModuleReadiness; error?: string } | undefined
   >(undefined)
 
-  // Who's signed in to Google, and to which project, as GoogleAuth blocks published it.
-  const signIns = Object.values(blockOutputs)
-    .filter((outputs) => outputs.values.GOOGLE_AUTH_TYPE !== undefined)
-    .map((outputs) =>
-      JSON.stringify([
-        outputs.values.CLOUDSDK_CORE_ACCOUNT,
-        outputs.values.GOOGLE_CLOUD_PROJECT,
-        outputs.timestamp,
-      ]),
-    )
   const serviceList = services.join(",")
   const key = JSON.stringify([serviceList, template, revision, signIns, attempt])
 

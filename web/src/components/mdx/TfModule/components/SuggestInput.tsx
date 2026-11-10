@@ -67,7 +67,10 @@ export function SuggestInput(props: SuggestInputProps) {
     ? suggestionsFor(lookup, rows, new Set(props.multiple ? props.value : []))
     : []
 
-  const open = searching && lookup !== undefined && (suggestions.length > 0 || Boolean(lookupError))
+  // An answer with nothing in it says so, so an empty list doesn't look like a broken one.
+  const nothing = !loading && !lookupError && suggestions.length === 0
+  const open =
+    searching && lookup !== undefined && (suggestions.length > 0 || Boolean(lookupError) || nothing)
 
   const addChip = (value: string) => {
     if (!props.multiple) return
@@ -179,9 +182,16 @@ export function SuggestInput(props: SuggestInputProps) {
           role="listbox"
           className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-popover py-1 shadow-lg"
         >
-          {lookupError ? (
+          {lookupError || nothing ? (
             <li className="px-3 py-2 text-sm">
-              <p className="m-0 text-destructive">{lookupError}</p>
+              <p className={`m-0 ${lookupError ? "text-destructive" : "text-muted-foreground"}`}>
+                {lookupError ??
+                  (rows.length > 0
+                    ? "Everything it found is chosen already."
+                    : query
+                      ? `Nothing matches "${query}".`
+                      : "Nothing to suggest.")}
+              </p>
               <p className="m-0 mt-1 text-xs text-muted-foreground">
                 You can still type the whole value and press Enter.
               </p>

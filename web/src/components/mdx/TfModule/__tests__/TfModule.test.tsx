@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { useEffect } from "react"
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext, flattenInputs } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
@@ -79,15 +79,15 @@ const ALL_ON = {
   tools: [],
 }
 let readiness: unknown = ALL_ON
+const DOMAINS = [
+  { domainName: "example.com", isPrimary: true },
+  { domainName: "example.org", isPrimary: false },
+]
+let domainRows: unknown[] = DOMAINS
 
 const invoke = vi.fn((channel: string) => {
   if (channel === "tf-module:lookup") {
-    return Promise.resolve({
-      rows: [
-        { domainName: "example.com", isPrimary: true },
-        { domainName: "example.org", isPrimary: false },
-      ],
-    })
+    return Promise.resolve({ rows: domainRows })
   }
   if (channel === "tf-module:readiness") return Promise.resolve(readiness)
   return Promise.reject(new Error(`unexpected channel ${channel}`))
@@ -124,6 +124,7 @@ const input = (name: string) => document.getElementById(`group-${name}`) as HTML
 describe("TfModule", () => {
   beforeEach(() => {
     readiness = ALL_ON
+    domainRows = DOMAINS
     ctx = undefined
     invoke.mockClear()
   })
@@ -221,5 +222,27 @@ describe("TfModule", () => {
     fireEvent.keyDown(domain, { key: "Enter" })
     expect(await screen.findByRole("option", { name: /example\.org/ })).toBeInTheDocument()
     expect(invoke).toHaveBeenCalledWith("tf-module:lookup", { from: "google.domains", query: "" })
+  })
+
+  it("says when a lookup finds nothing, rather than showing no list", async () => {
+    domainRows = []
+    renderBlock()
+    fireEvent.change(input("domain"), { target: { value: "nowhere" } })
+    expect(await screen.findByText('Nothing matches "nowhere".')).toBeInTheDocument()
+    expect(
+      screen.getByText("You can still type the whole value and press Enter."),
+    ).toBeInTheDocument()
+  })
+
+  it("asks a lookup again once someone signs in to Google", async () => {
+    renderBlock()
+    const domain = input("domain")
+    fireEvent.keyDown(domain, { key: "Enter" })
+    await screen.findByRole("option", { name: /example\.org/ })
+    const lookups = () => invoke.mock.calls.filter(([channel]) => channel === "tf-module:lookup")
+    expect(lookups()).toHaveLength(1)
+
+    act(() => ctx!.registerOutputs("google-auth", { GOOGLE_AUTH_TYPE: "oauth" }))
+    await waitFor(() => expect(lookups()).toHaveLength(2))
   })
 })
