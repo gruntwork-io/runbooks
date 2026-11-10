@@ -23,6 +23,7 @@ import { useTofuRun } from "./hooks/useTofuRun"
 import { usePullRequest, type PullRequestTarget } from "./hooks/usePullRequest"
 import { unitPath } from "./pullRequest"
 import { nextFrom, stageOf, type Tab } from "./flow"
+import { scrollToTop } from "./scrollToTop"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import {
   formErrors,
@@ -173,6 +174,12 @@ function TofuModuleForm({
   const { state: simulation } = useSimulation()
   const { registerOutputs } = useRunbookContext()
   const [tab, setTab] = useState<Tab>("ui")
+  const rootRef = useRef<HTMLDivElement>(null)
+  // A Next button moves on to another tab, and scrolls smoothly back to the block's top to start it.
+  const goTo = (next: Tab) => {
+    setTab(next)
+    requestAnimationFrame(() => rootRef.current && scrollToTop(rootRef.current))
+  }
   // The file the Code tab shows, kept here so the PR tab can open one there.
   const [codeFile, setCodeFile] = useState<string | undefined>(undefined)
   const [values, setValues] = useState<FormValues>(() => {
@@ -217,7 +224,7 @@ function TofuModuleForm({
       return
     }
     void onSubmit(publishedValues(spec, values))
-    setTab("code")
+    goTo("code")
   }
 
   const field = (name: string) => {
@@ -284,7 +291,10 @@ function TofuModuleForm({
   }
 
   return (
-    <div className="runbook-block relative mb-4 rounded-lg border border-border bg-muted p-6 shadow-sm">
+    <div
+      ref={rootRef}
+      className="runbook-block relative mb-4 scroll-mt-4 rounded-lg border border-border bg-muted p-6 shadow-sm"
+    >
       <ProgressStep done={stage === "done"} />
       <div className="absolute right-3 top-2">
         <BlockIdLabel id={id} size="large" />
@@ -353,7 +363,7 @@ function TofuModuleForm({
             onSelect={setCodeFile}
           />
           <div className="mt-4 border-t border-border pt-4">
-            <NextButton onClick={() => setTab(nextFrom("code", stage, hasRepo)!.tab)} />
+            <NextButton onClick={() => goTo(nextFrom("code", stage, hasRepo)!.tab)} />
           </div>
         </div>
       )}
@@ -381,7 +391,7 @@ function TofuModuleForm({
             setCodeFile(file)
             setTab("code")
           }}
-          onNavigate={setTab}
+          onNavigate={goTo}
         />
       </div>
 
@@ -399,7 +409,7 @@ function TofuModuleForm({
           blocked={blocked}
           outputs={spec.outputs}
           next={nextFrom("apply", stage, hasRepo)}
-          onNavigate={setTab}
+          onNavigate={goTo}
           onPlan={() => void run.plan()}
           onApply={() => void apply()}
           onCancel={run.cancel}
