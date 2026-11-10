@@ -174,7 +174,7 @@ const existingFiles = (
 
 /**
  * The block's code as it lands in the repository: in its folder there,
- * pointing at the module's `source` from runbooks.yml, among the files the
+ * pointing at the module's `source` from runbook_block.yml, among the files the
  * repository already holds around it.
  */
 export const renderInRepo = (

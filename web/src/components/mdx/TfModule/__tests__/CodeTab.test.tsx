@@ -74,7 +74,7 @@ describe("CodeTab in a repository", () => {
   it("warns when the module has no pinned source, and when the repository has no root.hcl", () => {
     renderTab(repoCode({ source: undefined, rootHcl: false }))
     expect(screen.getByText("google-group")).toBeInTheDocument()
-    expect(screen.getByLabelText(/Add a pinned source to runbooks\.yml/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Add a pinned source to runbook_block\.yml/)).toBeInTheDocument()
     expect(screen.getByLabelText(/has no root\.hcl above this folder/)).toBeInTheDocument()
   })
 })

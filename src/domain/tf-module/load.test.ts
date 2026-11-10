@@ -47,7 +47,7 @@ describe("configFileNames", () => {
 })
 
 describe("loadModule", () => {
-  it("reads the google-group module with its runbooks.yml", async () => {
+  it("reads the google-group module with its runbook_block.yml", async () => {
     const spec = await loaded(GOOGLE_GROUP)
     expect(spec.title).toBe("Create a Google Group")
     expect(spec.source).toBe(
@@ -56,7 +56,7 @@ describe("loadModule", () => {
     expect(spec.providers).toEqual([
       { name: "google", source: "hashicorp/google", version: ">= 8.10.0, < 9.0.0" },
     ])
-    // runbooks.yml's order, then declaration order, not the alphabetical order the parser returns.
+    // runbook_block.yml's order, then declaration order, not the alphabetical order the parser returns.
     expect(spec.variables.map((v) => v.name)).toEqual([
       "domain",
       "id",
@@ -157,7 +157,7 @@ describe("loadModule", () => {
     })
   })
 
-  it("shows required inputs first when runbooks.yml picks no primary inputs", async () => {
+  it("shows required inputs first when runbook_block.yml picks no primary inputs", async () => {
     const spec = await loaded(nodePath.join(FIXTURES, "s3-bucket"))
     expect(spec.variables.filter((v) => v.primary).map((v) => v.name)).toEqual(["bucket_name"])
     expect(byName(spec, "expiration_days")).toMatchObject({
@@ -189,33 +189,33 @@ describe("loadModule", () => {
     const write = (name: string, content: string) =>
       nodeFs.writeFileSync(nodePath.join(dir, name), content)
 
-    it("whose runbooks.yml describes an input variables.tf doesn't declare", async () => {
-      write("runbooks.yml", "variables:\n  nmae:\n    primary: true\n")
+    it("whose runbook_block.yml describes an input variables.tf doesn't declare", async () => {
+      write("runbook_block.yml", "variables:\n  nmae:\n    primary: true\n")
       expect(await failure(dir)).toContain(`describes "nmae", which variables.tf doesn't declare`)
     })
 
     it("whose suffix reads an input variables.tf doesn't declare", async () => {
-      write("runbooks.yml", 'variables:\n  name:\n    suffix: "@{{ .domain }}"\n')
+      write("runbook_block.yml", 'variables:\n  name:\n    suffix: "@{{ .domain }}"\n')
       expect(await failure(dir)).toContain(`suffix reads "domain"`)
     })
 
-    it("whose runbooks.yml describes an output the module doesn't declare", async () => {
-      write("runbooks.yml", "outputs:\n  url:\n    link: Open it\n")
+    it("whose runbook_block.yml describes an output the module doesn't declare", async () => {
+      write("runbook_block.yml", "outputs:\n  url:\n    link: Open it\n")
       expect(await failure(dir)).toContain(`the outputs "url", which the module doesn't declare`)
     })
 
     it("whose pull request title reads an input variables.tf doesn't declare", async () => {
-      write("runbooks.yml", 'pullRequest:\n  title: "Add {{ .nmae }}"\n')
+      write("runbook_block.yml", 'pullRequest:\n  title: "Add {{ .nmae }}"\n')
       expect(await failure(dir)).toContain(`pullRequest.title reads "nmae"`)
     })
 
     it("whose source isn't a URL", async () => {
-      write("runbooks.yml", "source: ../modules/group\n")
+      write("runbook_block.yml", "source: ../modules/group\n")
       expect(await failure(dir)).toContain("source must be a URL")
     })
 
-    it("whose runbooks.yml names a file outside the module", async () => {
-      write("runbooks.yml", "variables:\n  name:\n    presets: ../../etc/passwd\n")
+    it("whose runbook_block.yml names a file outside the module", async () => {
+      write("runbook_block.yml", "variables:\n  name:\n    presets: ../../etc/passwd\n")
       expect(await failure(dir)).toContain("outside the module")
     })
 
@@ -224,8 +224,8 @@ describe("loadModule", () => {
       expect(await failure(dir)).toContain("Couldn't parse main.tf")
     })
 
-    it("whose runbooks.yml is a newer version", async () => {
-      write("runbooks.yml", "version: 7\n")
+    it("whose runbook_block.yml is a newer version", async () => {
+      write("runbook_block.yml", "version: 7\n")
       expect(await failure(dir)).toContain("can't read")
     })
 
@@ -243,7 +243,7 @@ describe("loadModule", () => {
         'variable "name" {\n  type = string\n}\n',
       )
       nodeFs.writeFileSync(
-        nodePath.join(dir, "runbooks.yml"),
+        nodePath.join(dir, "runbook_block.yml"),
         "variables:\n  name:\n    lable: Name\n",
       )
       const spec = await loaded(dir)
@@ -261,7 +261,7 @@ describe("loadModule", () => {
         'variable "name" {\n  type = string\n}\n',
       )
       nodeFs.writeFileSync(
-        nodePath.join(dir, "runbooks.yml"),
+        nodePath.join(dir, "runbook_block.yml"),
         "source: git::https://github.com/acme/catalog.git//modules/group\n",
       )
       const spec = await loaded(dir)

@@ -1,6 +1,6 @@
 /**
  * What a <TfModule> block knows about an OpenTofu module: its inputs from
- * variables.tf, shaped for a form by the module's runbooks.yml.
+ * variables.tf, shaped for a form by the module's runbook_block.yml.
  *
  * Shared by the main process, which builds it, and the renderer, which draws
  * the form from it.
@@ -120,26 +120,26 @@ export interface TfModuleSpec {
   readonly description?: string
   readonly providers: readonly TfModuleProvider[]
   /**
-   * The logo the module's runbooks.yml sets, as a data: or https: URL. Without
+   * The logo the module's runbook_block.yml sets, as a data: or https: URL. Without
    * one, the form shows the mark of the module's first provider it knows.
    */
   readonly logo?: string
   /**
-   * Where code in a repository finds the module, from runbooks.yml, such as a
+   * Where code in a repository finds the module, from runbook_block.yml, such as a
    * Git URL at a tag. Without one, the code points at the module's folder.
    */
   readonly source?: string
   /** In the order the module declares them. */
   readonly outputs: readonly TfModuleOutput[]
-  /** In the order runbooks.yml lists them, then the rest in the order variables.tf declares them. */
+  /** In the order runbook_block.yml lists them, then the rest in the order variables.tf declares them. */
   readonly variables: readonly TfModuleVariable[]
   /** Templates over the form's values that start the pull request the block opens. */
   readonly pullRequest?: TfModulePullRequest
-  /** Problems in runbooks.yml that don't stop the form, such as a key Runbooks doesn't know. */
+  /** Problems in runbook_block.yml that don't stop the form, such as a key Runbooks doesn't know. */
   readonly warnings: readonly string[]
 }
 
-/** How the module's runbooks.yml starts a pull request, as templates over the form's values. */
+/** How the module's runbook_block.yml starts a pull request, as templates over the form's values. */
 export interface TfModulePullRequest {
   readonly title?: string
   readonly description?: string

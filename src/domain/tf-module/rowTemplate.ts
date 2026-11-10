@@ -1,5 +1,5 @@
 /**
- * Renders the small templates runbooks.yml uses to label a lookup's rows and
+ * Renders the small templates runbook_block.yml uses to label a lookup's rows and
  * fill other inputs from a pick, such as
  * `{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}`.
  *
@@ -66,7 +66,7 @@ export function renderRowTemplate(template: string, row: LookupRow): string {
   return out + template.slice(last)
 }
 
-/** Checks a template's syntax without a row, for reporting a bad runbooks.yml early. */
+/** Checks a template's syntax without a row, for reporting a bad runbook_block.yml early. */
 export function rowTemplateError(template: string): string | undefined {
   try {
     renderRowTemplate(template, {})

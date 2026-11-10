@@ -1,9 +1,9 @@
 /**
  * Builds a TfModuleSpec from a module's files: the inputs variables.tf
- * declares, presented the way the module's runbooks.yml says.
+ * declares, presented the way the module's runbook_block.yml says.
  *
  * variables.tf owns each input's name, type, default and validation, so a
- * runbooks.yml entry for an input variables.tf doesn't declare is an error:
+ * runbook_block.yml entry for an input variables.tf doesn't declare is an error:
  * the form would otherwise drift from the module without anyone noticing.
  */
 import { Effect } from "effect"
@@ -28,9 +28,9 @@ import { rowTemplateError, templateFields } from "./rowTemplate.ts"
 import { isRemoteSource } from "../../remote-source.ts"
 
 /** The name of the metadata file at a module's root. */
-export const METADATA_FILE = "runbooks.yml"
+export const METADATA_FILE = "runbook_block.yml"
 
-/** The runbooks.yml format versions this build reads. */
+/** The runbook_block.yml format versions this build reads. */
 const METADATA_VERSIONS = new Set([0])
 
 /** One HCL file of the module, by name. */
@@ -185,7 +185,7 @@ export function inputKind(tfType: string): TfModuleInputKind {
 }
 
 // ---------------------------------------------------------------------------
-// runbooks.yml
+// runbook_block.yml
 // ---------------------------------------------------------------------------
 
 /** Turns a name such as `display_name` into a label, `Display name`. */
@@ -194,7 +194,7 @@ export function labelFromName(name: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-/** Collects what's wrong with runbooks.yml as the entries are read. */
+/** Collects what's wrong with runbook_block.yml as the entries are read. */
 class Problems {
   readonly errors: string[] = []
   readonly warnings: string[] = []
@@ -215,7 +215,7 @@ const optionalString = (value: unknown, where: string, problems: Problems): stri
 }
 
 /**
- * Options as runbooks.yml writes them: a map from each value to its label and
+ * Options as runbook_block.yml writes them: a map from each value to its label and
  * description, or a list of values.
  */
 function readOptions(
@@ -315,7 +315,7 @@ export function parsePresets(content: string, where: string): TfModulePreset[] {
   return presets
 }
 
-/** What runbooks.yml says about the module, before it's checked against variables.tf. */
+/** What runbook_block.yml says about the module, before it's checked against variables.tf. */
 export interface ModuleMetadata {
   readonly title?: string
   readonly description?: string
@@ -349,7 +349,7 @@ export interface VariableMetadata {
   readonly suffix?: string
 }
 
-/** Reads runbooks.yml. Fails on anything that would make the form wrong. */
+/** Reads runbook_block.yml. Fails on anything that would make the form wrong. */
 export function parseMetadata(content: string | undefined): ModuleMetadata {
   if (content === undefined) return { variables: {}, outputs: {}, warnings: [] }
   let raw: unknown
@@ -530,21 +530,21 @@ export function tfOutputs(parsed: readonly HclJson[], files: readonly ModuleFile
 }
 
 export interface BuildSpecInput {
-  /** The module's folder name, the title when neither runbooks.yml nor the README gives one. */
+  /** The module's folder name, the title when neither runbook_block.yml nor the README gives one. */
   readonly moduleName: string
-  /** The title the module's README gives, the title when runbooks.yml gives none. */
+  /** The title the module's README gives, the title when runbook_block.yml gives none. */
   readonly readmeTitle?: string
   readonly outputs: readonly TfOutput[]
   readonly variables: readonly TfVariable[]
   readonly providers: readonly TfModuleProvider[]
   readonly metadata: ModuleMetadata
-  /** The presets each presets file in runbooks.yml holds, by its path. */
+  /** The presets each presets file in runbook_block.yml holds, by its path. */
   readonly presets: Readonly<Record<string, readonly TfModulePreset[]>>
-  /** The logo runbooks.yml names, already read into a URL. */
+  /** The logo runbook_block.yml names, already read into a URL. */
   readonly logo?: string
 }
 
-/** Joins variables.tf and runbooks.yml into the spec the form draws. */
+/** Joins variables.tf and runbook_block.yml into the spec the form draws. */
 export function buildSpec(input: BuildSpecInput): TfModuleSpec {
   const declared = new Set(input.variables.map((variable) => variable.name))
   const unknown = Object.keys(input.metadata.variables).filter((name) => !declared.has(name))
@@ -595,11 +595,11 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
     }
   }
 
-  // A module whose runbooks.yml picks no primary inputs shows the ones it
+  // A module whose runbook_block.yml picks no primary inputs shows the ones it
   // can't do without first.
   const anyPrimary = Object.values(input.metadata.variables).some((meta) => meta.primary)
 
-  // runbooks.yml orders the inputs it lists, since it says how to present
+  // runbook_block.yml orders the inputs it lists, since it says how to present
   // them; the rest follow in the order variables.tf declares them.
   const listed = Object.keys(input.metadata.variables)
   const rank = (name: string) => {

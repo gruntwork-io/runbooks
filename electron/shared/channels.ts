@@ -199,7 +199,7 @@ export interface IpcChannelMap {
   }
 
   // TfModule
-  /** The inputs of the module a <TfModule> block presents, shaped by its runbooks.yml. */
+  /** The inputs of the module a <TfModule> block presents, shaped by its runbook_block.yml. */
   "tf-module:read": { params: TfModuleReadRequest; result: TfModuleSpec }
   /** The rows a named lookup, such as google.people, has for what the user typed. */
   "tf-module:lookup": {
@@ -1147,7 +1147,7 @@ export type TfModuleCode =
       files: RepoFile[]
       /** Whether the repository has a root.hcl above a Terragrunt unit, so Apply runs it there. */
       rootHcl: boolean
-      /** The module's `source` from runbooks.yml, which the code points at; none when it gives none. */
+      /** The module's `source` from runbook_block.yml, which the code points at; none when it gives none. */
       source?: string | undefined
     }
 

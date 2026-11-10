@@ -42,7 +42,7 @@ import { valuesFromPick } from "./lookupRows"
  * TfModule block: a form for an OpenTofu module's inputs.
  *
  * The form comes from the module itself: variables.tf gives each input's
- * name, type, default and validation, and the module's runbooks.yml says how
+ * name, type, default and validation, and the module's runbook_block.yml says how
  * to present them (labels, which inputs come first, what each option means,
  * presets, and lookups that suggest values). The values are published like an
  * <Inputs> block's, so a <Template> or <Command> uses them through `inputsId`.
@@ -336,7 +336,7 @@ function TfModuleForm({
       {spec.warnings.length > 0 && (
         <div className="mb-5 rounded-md border border-warning/30 bg-warning-muted p-3 text-sm text-warning-foreground">
           <p className="flex items-center gap-1.5 font-medium">
-            <TriangleAlert className="size-4" /> runbooks.yml
+            <TriangleAlert className="size-4" /> runbook_block.yml
           </p>
           <ul className="mt-1 list-disc pl-5">
             {spec.warnings.map((warning) => (

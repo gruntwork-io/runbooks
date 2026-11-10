@@ -37,7 +37,7 @@ const googleLookup = (from: string, query: string) =>
   Effect.gen(function* () {
     if (!isLookupName(from)) {
       return yield* fail(
-        `runbooks.yml names a lookup Runbooks doesn't have: ${from}. It has ${Object.entries(
+        `runbook_block.yml names a lookup Runbooks doesn't have: ${from}. It has ${Object.entries(
           LOOKUPS,
         )
           .map(([name, gives]) => `${name} (${gives})`)

@@ -23,7 +23,7 @@ export function ShortcutButton({ shortcut, current, onAdd }: ShortcutButtonProps
   try {
     suggestion = suggestionFor(shortcut, row)
   } catch {
-    // runbooks.yml's templates were checked when the module loaded.
+    // runbook_block.yml's templates were checked when the module loaded.
     return null
   }
   if (!suggestion.value || current.includes(suggestion.value)) return null

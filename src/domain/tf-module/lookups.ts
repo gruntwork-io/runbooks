@@ -1,5 +1,5 @@
 /**
- * The lookups a <TfModule> block's runbooks.yml can name, and the rows each
+ * The lookups a <TfModule> block's runbook_block.yml can name, and the rows each
  * gives, in the shape the module's templates read. The main process answers
  * them from Google with the account a GoogleAuth block signed in, or from
  * simulation.yml in simulation mode, so both must give rows of these shapes.

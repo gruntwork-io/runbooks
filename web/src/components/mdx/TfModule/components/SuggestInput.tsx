@@ -22,7 +22,7 @@ function suggestionsFor(
       const suggestion = suggestionFor(lookup, row)
       if (suggestion.value && !taken.has(suggestion.value)) list.push(suggestion)
     } catch {
-      // runbooks.yml's templates were checked when the module loaded.
+      // runbook_block.yml's templates were checked when the module loaded.
     }
   }
   return list

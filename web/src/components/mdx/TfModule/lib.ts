@@ -52,7 +52,7 @@ export function formValue(variable: TfModuleVariable, value: unknown): unknown {
 }
 
 /**
- * The fixed end of an input's value, from its runbooks.yml suffix, such as
+ * The fixed end of an input's value, from its runbook_block.yml suffix, such as
  * `@example.com`: the form holds what the user types, and publishes it with this.
  */
 export interface Suffix {

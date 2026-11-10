@@ -21,7 +21,7 @@ The Google provider needs a credential that can create groups, such as a Groups
 Admin, and the Cloud Identity API enabled in its project. User credentials also
 need a quota project: set the provider's `billing_project` and `user_project_override`.
 
-[`runbooks.yml`](runbooks.yml) tells a Runbooks `<TfModule>` block how to show
+[`runbook_block.yml`](runbook_block.yml) tells a Runbooks `<TfModule>` block how to show
 the inputs. OpenTofu ignores it. How a runbook uses the module, such as a
 Terragrunt unit or a plain OpenTofu configuration, is up to the runbook.
 

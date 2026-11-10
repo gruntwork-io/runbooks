@@ -18,7 +18,7 @@ const spec = {
 const values = { id: "team@example.com", owners: ["a@example.com", "b@example.com"], token: "s" }
 
 describe("pull request drafts", () => {
-  it("titles it from runbooks.yml's template, or the block's title", () => {
+  it("titles it from runbook_block.yml's template, or the block's title", () => {
     expect(draftTitle(spec, values)).toBe("Create a Google Group")
     expect(draftTitle({ ...spec, pullRequest: { title: "Add the {{ .id }} group" } }, values)).toBe(
       "Add the team@example.com group",

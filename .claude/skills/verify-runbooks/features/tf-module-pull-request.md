@@ -4,7 +4,7 @@ The PR tab opens a GitHub pull request that adds the block's Terragrunt unit to 
 
 ## Sub-features
 
-- Draft: title and description drafted from the inputs (runbooks.yml `pullRequest.title`), branch and commit message under Customize commit, and the files it commits.
+- Draft: title and description drafted from the inputs (runbook_block.yml `pullRequest.title`), branch and commit message under Customize commit, and the files it commits.
 - Open: the pull request's title and number linked, Open pill, base and head branches; Edit title and description.
 - Behind: after an input change, "The inputs changed since the last push" with Git Push.
 - Merge: merge method, Merge Pull Request, and Apply first.

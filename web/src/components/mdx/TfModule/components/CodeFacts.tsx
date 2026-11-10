@@ -62,7 +62,7 @@ function Module({
       <span className="flex items-center gap-1.5">
         {folder.split("/").filter(Boolean).at(-1) ?? folder}
         {warn && (
-          <Warning text="A folder on this computer. Add a pinned source to runbooks.yml so the code works anywhere." />
+          <Warning text="A folder on this computer. Add a pinned source to runbook_block.yml so the code works anywhere." />
         )}
       </span>
     )

@@ -4,7 +4,7 @@ import type { TfModuleSpec } from "../../../../../../src/domain/tf-module/types"
 
 /**
  * Marks for the providers modules use most, by registry address. A module
- * shows its own logo instead when its runbooks.yml sets one.
+ * shows its own logo instead when its runbook_block.yml sets one.
  */
 type ProviderMark =
   | { image: string; label: string }

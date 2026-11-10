@@ -1,6 +1,6 @@
 # Filling a TfModule block's form
 
-A `<TfModule>` block's UI tab is a form drawn from an OpenTofu module: `variables.tf` gives each input's name, type, default and validation, and the module's `runbooks.yml` gives labels, order, option descriptions, lookups that suggest values, and shortcuts. In the demo runbook, the `group` block creates a Google group.
+A `<TfModule>` block's UI tab is a form drawn from an OpenTofu module: `variables.tf` gives each input's name, type, default and validation, and the module's `runbook_block.yml` gives labels, order, option descriptions, lookups that suggest values, and shortcuts. In the demo runbook, the `group` block creates a Google group.
 
 ## Sub-features
 
@@ -9,7 +9,7 @@ A `<TfModule>` block's UI tab is a form drawn from an OpenTofu module: `variable
 - A shortcut: `Add "Sam Rivera" as an owner` adds the signed-in person (`google.me`).
 - A suffix: Group email shows `@<domain>` after the field, and the published value includes it.
 - Validation: errors show once a field is left, or on Next; Next with errors stays on the UI tab, says how many inputs need a fix, and opens Advanced options when one of them is there.
-- Advanced options: inputs runbooks.yml doesn't mark `primary`, folded away.
+- Advanced options: inputs runbook_block.yml doesn't mark `primary`, folded away.
 - A lookup that fails (scenario `no-directory-access`) or finds nobody (`empty-directory`).
 
 ## How to get to it (user POV)
@@ -31,7 +31,7 @@ Open the runbook (`runbooks open --simulate testdata/feature-demos/tf-module`), 
 
 Proof: the published values reach other blocks. Scroll to "Use the values" and run the Command (`$C click button:Run --within show-group`); its output shows the group email, name, and domain you entered.
 
-Automated tests: `web/src/components/mdx/TfModule/__tests__/TfModule.test.tsx` (form, errors, publishing), `src/domain/tf-module/load.test.ts` (runbooks.yml), `src/domain/tf-module/simulation.test.ts` (lookup answers).
+Automated tests: `web/src/components/mdx/TfModule/__tests__/TfModule.test.tsx` (form, errors, publishing), `src/domain/tf-module/load.test.ts` (runbook_block.yml), `src/domain/tf-module/simulation.test.ts` (lookup answers).
 
 ## Gotchas
 

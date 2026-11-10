@@ -8,14 +8,14 @@ function valueText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value)
 }
 
-/** The pull request's title: runbooks.yml's template, or the block's title. */
+/** The pull request's title: runbook_block.yml's template, or the block's title. */
 export function draftTitle(spec: TfModuleSpec, values: Record<string, unknown>): string {
   const template = spec.pullRequest?.title
   return template ? renderRowTemplate(template, values).trim() : spec.title
 }
 
 /**
- * The pull request's description: runbooks.yml's template, or a table of the
+ * The pull request's description: runbook_block.yml's template, or a table of the
  * inputs that have a value, with sensitive ones left out.
  */
 export function draftBody(spec: TfModuleSpec, values: Record<string, unknown>): string {

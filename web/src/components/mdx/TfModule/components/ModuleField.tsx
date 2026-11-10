@@ -30,7 +30,7 @@ const asText = (value: unknown): string =>
 
 const asStrings = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : [])
 
-/** One input's control, chosen from its type and what runbooks.yml says about it. */
+/** One input's control, chosen from its type and what runbook_block.yml says about it. */
 function Control({
   blockId,
   variable,

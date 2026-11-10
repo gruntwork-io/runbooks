@@ -50,7 +50,7 @@ export function configFileNames(names: readonly string[]): string[] {
 
 /**
  * A file the module names, such as its presets or logo, which must stay
- * inside the module: a module is someone else's code, and its runbooks.yml
+ * inside the module: a module is someone else's code, and its runbook_block.yml
  * must not read files elsewhere on the user's computer.
  */
 const fileInModule = (moduleDir: string, relative: string, what: string) =>
@@ -84,7 +84,7 @@ const readOptional = (file: string) =>
     return yield* fs.readFile(file).pipe(Effect.orElseSucceed(() => undefined))
   })
 
-/** The logo runbooks.yml names, as a URL the form can show. */
+/** The logo runbook_block.yml names, as a URL the form can show. */
 const readLogo = (moduleDir: string, logo: string) =>
   Effect.gen(function* () {
     if (logo.startsWith("https://")) return logo
