@@ -3,9 +3,11 @@
  * code the module's template renders with the block's inputs, and a plan and
  * apply of it, streamed to the block as it runs.
  *
- * Each block gets a workspace in the session's `.runbooks/tofu-module/<id>/`:
- * a root.hcl that keeps state beside the unit, and the unit itself. In
- * simulation mode, simulation.yml answers instead of Terragrunt.
+ * Each block gets a workspace in the session's `.runbooks/tofu-module/<id>/`,
+ * which holds its saved plan and what Terragrunt downloads. Without a cloned
+ * repository, it also holds the unit, beside a root.hcl that keeps state with
+ * it; with one, the unit runs in the repository's checkout, under its own
+ * root.hcl. In simulation mode, simulation.yml answers instead of Terragrunt.
  */
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
@@ -21,6 +23,7 @@ import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.t
 import { TofuModuleError } from "../../../src/errors/index.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 import { isRemoteSource } from "../../../src/remote-source.ts"
+import { filesAtBase } from "../../../src/domain/tofu-module/repoFiles.ts"
 import { loadModule } from "../../../src/domain/tofu-module/load.ts"
 import {
   appliedResources,
@@ -36,16 +39,30 @@ import {
   simulatedApplied,
   simulatedOutputs,
   simulatedPlan,
+  simulatedRepository,
   simulatedResources,
   SIMULATION_FILE,
   type SimulatedModule,
 } from "../../../src/domain/tofu-module/simulation.ts"
-import { ROOT_HCL, unitFolder, type UnitFile } from "../../../src/domain/tofu-module/unit.ts"
-import type { TofuModuleRenderRequest, TofuModuleRunRequest } from "../../shared/channels.ts"
+import {
+  ancestorsOf,
+  hasRootHcl,
+  placeUnit,
+  repoFolder,
+  ROOT_HCL,
+  unitFolder,
+  type UnitFile,
+} from "../../../src/domain/tofu-module/unit.ts"
+import type {
+  TofuModuleCode,
+  TofuModuleRenderRequest,
+  TofuModuleRepo,
+  TofuModuleRunRequest,
+} from "../../shared/channels.ts"
 
 /** The folder holding a module's template for its Terragrunt code. */
 const TEMPLATE_DIR = ".boilerplate"
-/** Where a plan is saved between the Plan and Apply steps, in Terragrunt's working directory. */
+/** Where a plan is saved between the Plan and Apply steps, in the block's workspace. */
 const PLAN_FILE = "runbooks.tfplan"
 const TERRAGRUNT_INSTALL = "https://terragrunt.gruntwork.io/docs/getting-started/install/"
 
@@ -64,10 +81,9 @@ const moduleDir = (source: string) =>
     return yield* validateSessionPath(source)
   })
 
-/** The block's Terragrunt code: the module's template rendered with its inputs, and a root.hcl. */
-export const renderUnit = (source: string, blockId: string, values: Record<string, unknown>) =>
+/** The module's template rendered with the inputs, its files by path in the unit's folder. */
+const renderTemplate = (dir: string, values: Record<string, unknown>, sourceUrl: string) =>
   Effect.gen(function* () {
-    const dir = yield* moduleDir(source)
     const templateDir = path.join(dir, TEMPLATE_DIR)
     const hasTemplate = yield* Effect.promise(() =>
       fs.stat(templateDir).then(
@@ -81,21 +97,102 @@ export const renderUnit = (source: string, blockId: string, values: Record<strin
       )
     }
     const renderer = yield* BoilerplateRenderer
-    const files = yield* Effect.acquireUseRelease(
+    return yield* Effect.acquireUseRelease(
       Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "runbooks-tofu-module-"))),
       (tmp) =>
         Effect.gen(function* () {
-          yield* renderer.renderTemplate(templateDir, tmp, { ...values, SourceUrl: dir })
+          yield* renderer.renderTemplate(templateDir, tmp, { ...values, SourceUrl: sourceUrl })
           return yield* Effect.promise(() => readTree(tmp))
         }),
       (tmp) => Effect.promise(() => fs.rm(tmp, { recursive: true, force: true })),
     )
+  })
+
+/**
+ * The block's Terragrunt code for its workspace: the unit, pointing at the
+ * module's folder, beside a root.hcl.
+ */
+export const renderUnit = (source: string, blockId: string, values: Record<string, unknown>) =>
+  Effect.gen(function* () {
+    const dir = yield* moduleDir(source)
+    const files = yield* renderTemplate(dir, values, dir)
     const unit = unitFolder(blockId)
     return [
       { path: "root.hcl", content: ROOT_HCL },
       ...files.map((file) => ({ ...file, path: `${unit}/${file.path}` })),
     ] satisfies UnitFile[]
   })
+
+/**
+ * What the repository holds where the unit lands: the files the unit would
+ * write, and the files in each folder above it. Read from the base branch's
+ * commit, so the unit shows as added until it's merged even after a plan
+ * writes it to the checkout; from the simulated repository when there's no
+ * checkout.
+ */
+const existingFiles = (
+  repo: TofuModuleRepo,
+  folder: string,
+  rendered: readonly UnitFile[],
+  values: Record<string, unknown>,
+) =>
+  Effect.gen(function* () {
+    if (!repo.worktreePath) {
+      if (!simulationEnabled()) return new Map<string, string>()
+      return simulatedRepository(yield* activeSimulationScenario, values)
+    }
+    const worktree = yield* validateSessionPath(repo.worktreePath)
+    return yield* filesAtBase(
+      worktree,
+      repo.baseBranch,
+      ancestorsOf(folder),
+      rendered.map((file) => `${folder}/${file.path}`),
+    )
+  })
+
+/**
+ * The block's Terragrunt code as it lands in the repository: the unit in its
+ * folder there, pointing at the module's `source` from runbooks.yml, among
+ * the files the repository already holds around it.
+ */
+export const renderInRepo = (
+  source: string,
+  values: Record<string, unknown>,
+  repo: TofuModuleRepo,
+) =>
+  Effect.gen(function* () {
+    const dir = yield* moduleDir(source)
+    const spec = yield* loadModule(dir)
+    const folder = yield* Effect.try({
+      try: () => repoFolder(repo.path),
+      catch: (cause) => fail(errorMessage(cause)),
+    })
+    const rendered = yield* renderTemplate(dir, values, spec.source ?? dir)
+    const files = placeUnit(folder, rendered, yield* existingFiles(repo, folder, rendered, values))
+    return {
+      kind: "repo",
+      folder,
+      files,
+      rootHcl: hasRootHcl(files),
+      pinned: spec.source !== undefined,
+    } satisfies TofuModuleCode
+  })
+
+/** The block's code, in the repository when it has one, otherwise in its workspace. */
+const renderCode = (request: TofuModuleRenderRequest) =>
+  request.repo
+    ? renderInRepo(request.source, request.values, request.repo)
+    : Effect.map(
+        renderUnit(request.source, request.blockId, request.values),
+        (files): TofuModuleCode => ({ kind: "workspace", files }),
+      )
+
+/** The unit's own files in the repository's code, by path in the unit's folder. */
+export function unitFilesOf(code: Extract<TofuModuleCode, { kind: "repo" }>): UnitFile[] {
+  return code.files
+    .filter((file) => file.status !== "context")
+    .map((file) => ({ path: file.path.slice(code.folder.length + 1), content: file.content }))
+}
 
 /** Every file under `dir`, by its path relative to it, sorted. */
 async function readTree(dir: string, prefix = ""): Promise<UnitFile[]> {
@@ -108,24 +205,71 @@ async function readTree(dir: string, prefix = ""): Promise<UnitFile[]> {
   return files.sort((a, b) => a.path.localeCompare(b.path))
 }
 
-/** The block's workspace in the session, which holds its root.hcl and unit. */
+/**
+ * The block's workspace in the session: its saved plan, what Terragrunt
+ * downloads, and its code when there's no repository to run it in.
+ */
 const workspaceDir = (blockId: string) =>
   Effect.map(sessionManager.getSession(), (session) =>
     path.join(session.initialWorkDir, ".runbooks", "tofu-module", unitFolder(blockId)),
   )
 
-/** Writes the block's files to its workspace. Returns the unit's folder, where Terragrunt runs. */
-const writeWorkspace = (blockId: string, files: readonly UnitFile[]) =>
-  Effect.gen(function* () {
-    const workspace = yield* workspaceDir(blockId)
-    yield* Effect.promise(async () => {
+/** Writes files under `dir`, by their paths relative to it. */
+const writeFiles = (dir: string, files: readonly UnitFile[]) =>
+  Effect.tryPromise({
+    try: async () => {
       for (const file of files) {
-        const target = path.join(workspace, file.path)
+        const target = path.join(dir, file.path)
         await fs.mkdir(path.dirname(target), { recursive: true })
         await fs.writeFile(target, file.content)
       }
-    })
-    return path.join(workspace, unitFolder(blockId))
+    },
+    catch: (cause) => fail(`Couldn't write the code: ${errorMessage(cause)}`),
+  })
+
+/** Where Terragrunt runs a block's unit, and where it keeps what it downloads. */
+interface RunLocation {
+  readonly cwd: string
+  readonly downloadDir: string
+}
+
+/** Where each block's last plan ran, by block id, so its apply runs in the same place. */
+const planLocations = new Map<string, RunLocation>()
+
+/**
+ * Writes the block's code where Terragrunt runs it: in the repository's
+ * checkout, so the unit includes the repository's own root.hcl, or in the
+ * block's workspace beside one Runbooks writes, when there's no checkout or it
+ * has no root.hcl. What Terragrunt downloads stays in the workspace, out of
+ * the repository the pull request commits.
+ */
+const writeForRun = (request: TofuModuleRenderRequest) =>
+  Effect.gen(function* () {
+    const workspace = yield* workspaceDir(request.blockId)
+    // The plan is saved here, wherever the unit runs.
+    yield* Effect.promise(() => fs.mkdir(workspace, { recursive: true }))
+    const downloadDir = path.join(workspace, ".terragrunt-cache")
+    const unit = unitFolder(request.blockId)
+    const inWorkspace = (files: readonly UnitFile[]) =>
+      Effect.as(writeFiles(workspace, files), {
+        cwd: path.join(workspace, unit),
+        downloadDir,
+      } satisfies RunLocation)
+    if (!request.repo?.worktreePath) {
+      return yield* inWorkspace(yield* renderUnit(request.source, request.blockId, request.values))
+    }
+    const worktree = yield* validateSessionPath(request.repo.worktreePath)
+    const code = yield* renderInRepo(request.source, request.values, request.repo)
+    const files = unitFilesOf(code)
+    if (!code.rootHcl) {
+      return yield* inWorkspace([
+        { path: "root.hcl", content: ROOT_HCL },
+        ...files.map((file) => ({ ...file, path: `${unit}/${file.path}` })),
+      ])
+    }
+    const cwd = path.join(worktree, code.folder)
+    yield* writeFiles(cwd, files)
+    return { cwd, downloadDir } satisfies RunLocation
   })
 
 /** A Terragrunt log line without its time, and its level. */
@@ -143,6 +287,8 @@ function terragruntLog(line: string): RunEvent | undefined {
 
 interface TerragruntRun {
   readonly cwd: string
+  /** Where Terragrunt downloads the module and runs OpenTofu. */
+  readonly downloadDir?: string
   readonly env: Record<string, string>
   readonly signal: AbortSignal
   /** Called with each event from OpenTofu's `-json` output; without it, stdout is collected. */
@@ -154,7 +300,9 @@ interface TerragruntRun {
 /** Runs Terragrunt, failing with its last error lines when it exits nonzero. Returns stdout. */
 function terragrunt(args: readonly string[], run: TerragruntRun): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("terragrunt", [...args, "--non-interactive", "--no-color"], {
+    const flags = ["--non-interactive", "--no-color"]
+    if (run.downloadDir) flags.push("--download-dir", run.downloadDir)
+    const child = spawn("terragrunt", [...args, ...flags], {
       cwd: run.cwd,
       env: run.env,
       signal: run.signal,
@@ -326,9 +474,7 @@ export function startRun(sender: WebContents, runId: string) {
 
 export function registerTofuModuleRunHandlers(): void {
   ipcMain.handle("tofu-module:render", async (_event, params: TofuModuleRenderRequest) =>
-    runtime.runPromise(
-      Effect.map(renderUnit(params.source, params.blockId, params.values), (files) => ({ files })),
-    ),
+    runtime.runPromise(renderCode(params)),
   )
 
   ipcMain.handle("tofu-module:plan", async (event, params: TofuModuleRunRequest) => {
@@ -340,8 +486,9 @@ export function registerTofuModuleRunHandlers(): void {
             const answer = yield* simulatedModule(params.blockId)
             return yield* simulatePlan(answer, params.values, run.send, run.signal)
           }
-          const files = yield* renderUnit(params.source, params.blockId, params.values)
-          const unit = yield* writeWorkspace(params.blockId, files)
+          const location = yield* writeForRun(params)
+          const planFile = path.join(yield* workspaceDir(params.blockId), PLAN_FILE)
+          const where = { cwd: location.cwd, downloadDir: location.downloadDir }
           const { env } = yield* sessionManager.getExecContext()
           run.send({ kind: "step", step: "init" })
           let planning = false
@@ -354,8 +501,8 @@ export function registerTofuModuleRunHandlers(): void {
           }
           yield* Effect.tryPromise({
             try: () =>
-              terragrunt(["plan", `-out=${PLAN_FILE}`, "-json"], {
-                cwd: unit,
+              terragrunt(["plan", `-out=${planFile}`, "-json"], {
+                ...where,
                 env,
                 signal: run.signal,
                 onEvent,
@@ -366,10 +513,11 @@ export function registerTofuModuleRunHandlers(): void {
           })
           const shown = yield* Effect.tryPromise({
             try: () =>
-              terragrunt(["show", "-json", PLAN_FILE], { cwd: unit, env, signal: run.signal }),
+              terragrunt(["show", "-json", planFile], { ...where, env, signal: run.signal }),
             catch: (cause) =>
               cause instanceof TofuModuleError ? cause : fail(errorMessage(cause)),
           })
+          planLocations.set(params.blockId, location)
           return { resources: plannedResources(JSON.parse(shown)) } satisfies PlanResult
         }),
       )
@@ -390,10 +538,13 @@ export function registerTofuModuleRunHandlers(): void {
             const answer = yield* simulatedModule(params.blockId)
             return yield* simulateApply(answer, params.values, sensitive, run.send, run.signal)
           }
-          // The plan step wrote the workspace and saved the plan this applies.
-          const unit = path.join(yield* workspaceDir(params.blockId), unitFolder(params.blockId))
+          // The plan step wrote the code, and saved the plan this applies, in the workspace.
+          const workspace = yield* workspaceDir(params.blockId)
+          const location = planLocations.get(params.blockId)
+          if (!location) return yield* fail("Plan first, so there's a plan to apply.")
+          const planFile = path.join(workspace, PLAN_FILE)
           const { env } = yield* sessionManager.getExecContext()
-          const quiet = { cwd: unit, env, signal: run.signal }
+          const quiet = { ...location, env, signal: run.signal }
           const attempt = (args: string[], streamed: boolean) =>
             Effect.tryPromise({
               try: () =>
@@ -405,7 +556,7 @@ export function registerTofuModuleRunHandlers(): void {
                 cause instanceof TofuModuleError ? cause : fail(errorMessage(cause)),
             })
           run.send({ kind: "step", step: "apply" })
-          yield* attempt(["apply", "-json", PLAN_FILE], true)
+          yield* attempt(["apply", "-json", planFile], true)
           run.send({ kind: "step", step: "read" })
           const state = yield* attempt(["show", "-json"], false)
           const outputs = yield* attempt(["output", "-json"], false)

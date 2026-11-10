@@ -124,6 +124,11 @@ export interface TofuModuleSpec {
    * one, the form shows the mark of the module's first provider it knows.
    */
   readonly logo?: string
+  /**
+   * Where code in a repository finds the module, from runbooks.yml, such as a
+   * Git URL at a tag. Without one, the code points at the module's folder.
+   */
+  readonly source?: string
   /** In the order the module declares them. */
   readonly outputs: readonly TofuModuleOutput[]
   /** In the order runbooks.yml lists them, then the rest in the order variables.tf declares them. */

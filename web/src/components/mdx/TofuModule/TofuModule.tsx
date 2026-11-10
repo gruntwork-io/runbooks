@@ -20,6 +20,8 @@ import { CodeTab } from "./components/CodeTab"
 import { ApplyTab } from "./components/ApplyTab"
 import { PullRequestTab } from "./components/PullRequestTab"
 import { useTofuRun } from "./hooks/useTofuRun"
+import { useUnitCode } from "./hooks/useUnitCode"
+import type { TofuModuleRepo } from "../../../../../electron/shared/channels"
 import { usePullRequest, type PullRequestTarget } from "./hooks/usePullRequest"
 import { unitPath } from "./pullRequest"
 import { nextFrom, stageOf, type Tab } from "./flow"
@@ -247,9 +249,7 @@ function TofuModuleForm({
   const isValid = Object.keys(errors).length === 0
   const errorCount = Object.keys(errors).length
   const published = publishedValues(spec, values)
-  const run = useTofuRun(id, source, published)
   const repoPath = unitPath(path, id, published)
-  const pr = usePullRequest(id, source, published, repoPath)
   const prTarget: PullRequestTarget | undefined = activeWorkTree
     ? {
         worktreePath: activeWorkTree.localPath,
@@ -261,6 +261,14 @@ function TofuModuleForm({
       ? SIMULATED_TARGET
       : undefined
   const hasRepo = prTarget !== undefined
+  const repo: TofuModuleRepo | undefined = prTarget && {
+    worktreePath: prTarget.worktreePath,
+    path: repoPath,
+    baseBranch: prTarget.baseBranch,
+  }
+  const run = useTofuRun(id, source, published, repo)
+  const pr = usePullRequest(id, source, published, repoPath)
+  const unitCode = useUnitCode(id, source, published, repo, tab === "code" || tab === "pr")
   const stage = stageOf({
     inputsValid: isValid,
     hasRepo,
@@ -355,9 +363,14 @@ function TofuModuleForm({
       {tab === "code" && (
         <div role="tabpanel" id={`${id}-panel-code`} aria-labelledby={`${id}-tab-code`}>
           <CodeTab
-            blockId={id}
-            source={source}
-            values={published}
+            code={unitCode.code}
+            error={unitCode.error}
+            repository={
+              prTarget && {
+                name: `${prTarget.owner}/${prTarget.repo}`,
+                baseBranch: prTarget.baseBranch,
+              }
+            }
             errorCount={errorCount}
             selected={codeFile}
             onSelect={setCodeFile}
@@ -375,8 +388,7 @@ function TofuModuleForm({
         hidden={tab !== "pr"}
       >
         <PullRequestTab
-          blockId={id}
-          source={source}
+          code={unitCode.code}
           spec={spec}
           values={published}
           path={repoPath}
@@ -386,7 +398,6 @@ function TofuModuleForm({
           applied={run.applied}
           next={nextFrom("pr", stage, hasRepo)}
           pr={pr}
-          visible={tab === "pr"}
           onOpenFile={(file) => {
             setCodeFile(file)
             setTab("code")

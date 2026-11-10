@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,7 +13,6 @@ import {
   Pencil,
   XCircle,
 } from "lucide-react"
-import { useApi } from "@/contexts/ApiContext"
 import { Button } from "@/components/ui/button"
 import { GitHubLogo } from "@/components/mdx/GitAuth/components/GitHubLogo"
 import { MarkdownEditor } from "@/components/mdx/GitPullRequest/components/MarkdownEditor"
@@ -21,14 +20,11 @@ import { InfoTooltip } from "@/components/mdx/GitPullRequest/components/InfoTool
 import { CollapsibleToggle } from "@/components/mdx/GitPullRequest/components/CollapsibleToggle"
 import type { TofuModuleSpec } from "../../../../../../src/domain/tofu-module/types"
 import type { MergeMethod } from "../../../../../../src/services/GitHubClient"
-import { unitFolder } from "../../../../../../src/domain/tofu-module/unit"
+import type { TofuModuleCode } from "../../../../../../electron/shared/channels"
 import type { PullRequestTarget, usePullRequest } from "../hooks/usePullRequest"
 import type { NextStep, Tab } from "../flow"
 import { draftBody, draftBranch, draftTitle } from "../pullRequest"
 import { LogView } from "./LogView"
-
-/** How long the inputs must settle before the files list renders again. */
-const DEBOUNCE_MS = 300
 
 const MERGE_METHODS: { method: MergeMethod; label: string }[] = [
   { method: "squash", label: "Squash and merge" },
@@ -39,49 +35,29 @@ const MERGE_METHODS: { method: MergeMethod; label: string }[] = [
 const INPUT_CLASS =
   "w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
 
-/** A file the pull request adds: where it goes in the repo, and its path on the Code tab. */
+/** A file the pull request commits: where it goes in the repo, its path on the Code tab, and whether it's new. */
 interface UnitFileRef {
   readonly repoPath: string
   readonly codePath: string
+  readonly added: boolean
 }
 
-/** The files the pull request adds: the rendered unit, without root.hcl, under `path`. */
-function useUnitFiles(
-  blockId: string,
-  source: string,
-  values: Record<string, unknown>,
-  path: string,
-  visible: boolean,
-) {
-  const api = useApi()
-  const [files, setFiles] = useState<UnitFileRef[] | null>(null)
-  const key = JSON.stringify(values)
-  useEffect(() => {
-    if (!visible) return
-    let cancelled = false
-    const timer = setTimeout(() => {
-      api
-        .invoke("tofu-module:render", { source, blockId, values: JSON.parse(key) })
-        .then((result) => {
-          if (cancelled) return
-          const prefix = `${unitFolder(blockId)}/`
-          setFiles(
-            result.files
-              .filter((f) => f.path.startsWith(prefix))
-              .map((f) => ({
-                repoPath: `${path}/${f.path.slice(prefix.length)}`,
-                codePath: f.path,
-              })),
-          )
-        })
-        .catch(() => !cancelled && setFiles(null))
-    }, DEBOUNCE_MS)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [api, blockId, source, key, path, visible])
-  return files
+/** The files the pull request commits: the ones the code adds or changes in the repository. */
+function committedFiles(code: TofuModuleCode | null, path: string): UnitFileRef[] | null {
+  if (!code) return null
+  if (code.kind === "repo") {
+    return code.files
+      .filter((f) => f.status === "added" || f.status === "modified")
+      .map((f) => ({ repoPath: f.path, codePath: f.path, added: f.status === "added" }))
+  }
+  // Without a repository, the unit's files, which sit in a folder beside the workspace's root.hcl.
+  return code.files
+    .filter((f) => f.path.includes("/"))
+    .map((f) => ({
+      repoPath: `${path}/${f.path.slice(f.path.indexOf("/") + 1)}`,
+      codePath: f.path,
+      added: true,
+    }))
 }
 
 /** GitHub's colors for an open and a merged pull request, so the states read as they do there. */
@@ -124,8 +100,8 @@ function ErrorPanel({ title, message }: { title: string; message: string }) {
 }
 
 interface PullRequestTabProps {
-  blockId: string
-  source: string
+  /** The block's code as the Code tab shows it. */
+  code: TofuModuleCode | null
   spec: TofuModuleSpec
   /** The block's inputs as it publishes them. */
   values: Record<string, unknown>
@@ -141,7 +117,6 @@ interface PullRequestTabProps {
   /** The next step, when it's on another tab. */
   next: NextStep | undefined
   pr: ReturnType<typeof usePullRequest>
-  visible: boolean
   /** Shows a file, by its path on the Code tab, on the Code tab. */
   onOpenFile: (codePath: string) => void
   /** Shows another of the block's tabs. */
@@ -155,8 +130,7 @@ interface PullRequestTabProps {
  * request, which takes later changes to the inputs and merges.
  */
 export function PullRequestTab({
-  blockId,
-  source,
+  code,
   spec,
   values,
   path,
@@ -166,11 +140,10 @@ export function PullRequestTab({
   applied,
   next,
   pr,
-  visible,
   onOpenFile,
   onNavigate,
 }: PullRequestTabProps) {
-  const files = useUnitFiles(blockId, source, values, path, visible)
+  const files = committedFiles(code, path)
   // A field the person edited keeps what they wrote; the rest follow the inputs.
   const [edited, setEdited] = useState<
     Partial<Record<"title" | "branch" | "body" | "commitMessage", string>>
@@ -308,10 +281,16 @@ export function PullRequestTab({
                 <p className="m-0 flex items-center gap-1.5">
                   <Loader2 className="size-3 animate-spin" /> Rendering the code…
                 </p>
+              ) : files.length === 0 ? (
+                <p className="m-0">
+                  None: the code in{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 font-mono">{path}/</code> matches{" "}
+                  {target?.baseBranch ?? "the base branch"} already.
+                </p>
               ) : (
                 <>
                   <p className="m-0">
-                    The Terragrunt code from the Code tab, in{" "}
+                    The Terragrunt code from the Code tab that's new or changed in{" "}
                     <code className="rounded bg-muted px-1 py-0.5 font-mono">{path}/</code>. Click a
                     file to see it.
                   </p>
@@ -326,6 +305,7 @@ export function PullRequestTab({
                           <FileCode className="size-3.5" />
                           {file.repoPath}
                         </button>
+                        <span className="ml-1.5">{file.added ? "(new)" : "(changed)"}</span>
                       </li>
                     ))}
                   </ul>

@@ -5,7 +5,7 @@ title: <TofuModule>
 import { Aside } from '@astrojs/starlight/components';
 
 <Aside type="caution" title="Experimental">
-`<TofuModule>` is an experiment. Its props, the `runbooks.yml` format and simulation mode may change. It reads modules from a local folder so far; reading a module from its catalog URL at a pinned version, signing in for live lookups, and choosing the template for the generated code come next.
+`<TofuModule>` is an experiment. Its props, the `runbooks.yml` format and simulation mode may change. It reads modules from a local folder so far, though the code it writes can point at the module's catalog URL at a pinned version; reading the module itself from that URL, signing in for live lookups, and choosing the template for the generated code come next.
 </Aside>
 
 The `<TofuModule>` block renders a form for an OpenTofu module's inputs. The form comes from the module itself, so a runbook doesn't restate what the module already says:
@@ -16,7 +16,7 @@ The `<TofuModule>` block renders a form for an OpenTofu module's inputs. The for
 The block has four tabs:
 
 - **UI** is the form. Its values are published like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`. **Next** checks the values, publishes them, and moves on to **Code**.
-- **Code** shows the Terragrunt code that applies the module with those values, as a small file tree. It changes as the values do. **Next** moves on to **PR**.
+- **Code** shows the Terragrunt code that applies the module with those values, in the folder it goes to in the repository. It changes as the values do. **Next** moves on to **PR**.
 - **PR** opens a GitHub pull request that adds that code to a cloned repository, pushes later changes to it, and merges it. See [Pull request](#pull-request).
 - **Apply** runs that code with Terragrunt: a plan whose resources open to show their properties as a table or as plan text, then an apply that shows each resource as it's made. Afterwards it lists what the apply made and the module's outputs, which become the block's outputs.
 
@@ -61,6 +61,9 @@ OpenTofu and Terragrunt never read `runbooks.yml`, so it can sit in the module's
 
 ```yaml title="runbooks.yml"
 version: 0
+
+# Where code in an infrastructure repository finds the module, pinned to a release.
+source: git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=v0.14.0
 
 block:
   title: Create a Google Group
@@ -110,6 +113,7 @@ outputs:
 | Key | Description |
 |-----|-------------|
 | `version` | The format's version, `0` |
+| `source` | Where code in a repository finds the module, such as a Git URL pinned with `?ref=`. With a cloned repository, the unit points at it on the **Code** tab, in **Apply**, and in the pull request. Without a `source`, that code points at the module's folder on your computer, and the **Code** tab warns that it won't work anywhere else |
 | `block.title`, `block.description` | The block's heading and the line under it |
 | `block.logo` | The block's logo, a file in the module or an `https:` URL |
 | `variables.<name>.label` | The input's label. Without it, the name with its first letter capitalized |
@@ -128,9 +132,13 @@ outputs:
 
 ## Code and Apply
 
-The **Code** tab renders the module's `.boilerplate` folder, a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template, with the form's values and `SourceUrl`, the module's path. The template is usually a single `terragrunt.hcl` that includes the repository's `root.hcl`, and the block writes a `root.hcl` beside it that keeps state in a local file.
+The **Code** tab renders the module's `.boilerplate` folder, a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template, with the form's values and `SourceUrl`. The template is usually a single `terragrunt.hcl` that includes the repository's `root.hcl`.
 
-The **Apply** tab runs that code in the session's `.runbooks/tofu-module/<id>/` folder:
+When a `<GitClone>` block has cloned a repository, the tab shows the unit where it goes there, in the folder `path` names, and `SourceUrl` is the module's `source` from `runbooks.yml`. Beside the unit, it shows the `.hcl` files in the folders above it, such as the `root.hcl` it includes, dimmed, since the code doesn't change them. Each of the unit's files is marked against the branch the clone checked out: **A** for a file that isn't there yet, and **M** for one the code changes, which opens on its changes.
+
+Without a repository, the tab shows the unit beside a `root.hcl` the block writes, which keeps state in a local file, and `SourceUrl` is the module's folder.
+
+The **Apply** tab runs the code. With a cloned repository, it writes the unit into the clone and runs it there, so it uses the repository's own `root.hcl` and its state. If the repository has no `root.hcl` above the unit, or there's no repository, it runs the unit in the session's `.runbooks/tofu-module/<id>/` folder beside the block's `root.hcl`. Either way, the saved plan and what Terragrunt downloads stay in that folder, out of the clone the pull request commits.
 
 1. **Plan** runs `terragrunt plan` and lists each resource it would create, change, or delete. Each opens to show its properties, with the values OpenTofu can't know yet marked *known after apply*, and a changed resource's values before and after. A filter above the list searches the properties, and narrows them to the known ones or the changed ones.
 2. **Apply** applies that plan and shows each resource as OpenTofu works on it. If the inputs change after a plan, the block asks for a new one first.
@@ -142,7 +150,7 @@ Terragrunt and OpenTofu must be on your `PATH`. They run with the session's envi
 
 The **PR** tab opens a GitHub pull request that adds the block's Terragrunt code to a repository, so the change is reviewed and kept with the rest of your infrastructure code. It needs a `<GitHubAuth>` block to sign in and a `<GitClone>` block to clone the repository first, and it targets the branch the clone checked out.
 
-1. The title and description start from the module's `pullRequest` templates and follow the form until you edit them. **Customize commit** holds the branch name and commit message. **What files will be committed?** lists the files it adds under `path`: the rendered unit without the `root.hcl` the Apply tab writes, since the repository has its own. Click one to see it on the **Code** tab.
+1. The title and description start from the module's `pullRequest` templates and follow the form until you edit them. **Customize commit** holds the branch name and commit message. **What files will be committed?** lists the unit's files under `path` that are new or changed, as the **Code** tab marks them. Click one to see it there.
 2. **Create Pull Request** writes the files into the clone, commits every change in it to a new branch, pushes the branch, and opens the pull request.
 3. While it's open, **Edit** changes its title and description, and if the inputs change, **Git Push** commits the code as it is now to the same branch.
 4. **Merge Pull Request** merges it with the method you pick: squash, a merge commit, or rebase.
@@ -243,6 +251,29 @@ scenarios:
 ```
 
 Strings are templates over the block's inputs. `planError` fails the plan instead. A scenario that extends another replaces only the keys it gives for a block.
+
+A scenario's `repository` stands in for the repository a `<GitClone>` block would clone, so the **Code** tab shows the unit among its files. Its paths and contents are templates over the block's inputs too, so a scenario can hold the unit the block would change:
+
+```yaml title="simulation.yml"
+scenarios:
+  happy-path:
+    repository:
+      files:
+        root.hcl: |
+          remote_state {
+            backend = "gcs"
+            config  = { bucket = "acme-tofu-state", prefix = path_relative_to_include() }
+          }
+
+  group-exists:
+    extends: happy-path         # adds to the files of the scenario it extends
+    repository:
+      files:
+        "google-groups/{{ .id }}/terragrunt.hcl": |
+          inputs = {
+            id = "{{ .id }}"
+          }
+```
 
 A resource with `before`, its values now, exists already, so the plan updates it and keeps its `computed` values; `action: delete` removes it, and `action: replace` replaces it. That's how a scenario shows a plan that changes resources rather than creating them, and what **Only changed** narrows the properties to.
 

@@ -1,19 +1,22 @@
-import { useEffect, useMemo, useState } from "react"
-import { Loader2, TriangleAlert } from "lucide-react"
-import { useApi } from "@/contexts/ApiContext"
-import { cleanIpcErrorMessage } from "@/lib/ipcError"
+import { useMemo, useState } from "react"
+import { Info, Loader2, TriangleAlert } from "lucide-react"
 import { CodeFile } from "@/components/artifacts/code/CodeFile"
-import { FileTree, type FileTreeNode } from "@/components/artifacts/code/FileTree"
-import type { UnitFile } from "../../../../../../src/domain/tofu-module/unit"
-
-/** How long the inputs must settle before the code renders again. */
-const DEBOUNCE_MS = 300
+import { DiffTable } from "@/components/artifacts/code/DiffTable"
+import {
+  FileTree,
+  type ChangeLabels,
+  type FileTreeNode,
+} from "@/components/artifacts/code/FileTree"
+import { lineChanges, type FileChange } from "@/lib/fileReview"
+import { diffDiskContents } from "@/lib/unifiedDiff"
+import type { TofuModuleCode } from "../../../../../../electron/shared/channels"
+import type { RepoFile, UnitFile } from "../../../../../../src/domain/tofu-module/unit"
 
 interface CodeTabProps {
-  blockId: string
-  source: string
-  /** The block's inputs as it publishes them. */
-  values: Record<string, unknown>
+  code: TofuModuleCode | null
+  error: string | null
+  /** The repository the code goes to, as `owner/repo`, and the branch it's compared with. */
+  repository?: { name: string; baseBranch: string } | undefined
   /** How many inputs need a fix, so the code may not be what applies. */
   errorCount: number
   /** The file shown, by its path; the unit's terragrunt.hcl until one is picked. */
@@ -28,6 +31,9 @@ function languageOf(path: string): string {
   if (path.endsWith(".json")) return "json"
   return "text"
 }
+
+/** A file in the repository the code doesn't change, shown dimmed. */
+const isContext = (file: UnitFile) => "status" in file && (file as RepoFile).status === "context"
 
 /** The files as the tree shows them: folders from their paths, each holding its files. */
 function treeOf(files: readonly UnitFile[]): FileTreeNode[] {
@@ -48,6 +54,7 @@ function treeOf(files: readonly UnitFile[]): FileTreeNode[] {
       id: file.path,
       name: parts.at(-1)!,
       type: "file",
+      isIgnored: isContext(file),
       file: {
         name: parts.at(-1)!,
         path: file.path,
@@ -57,54 +64,61 @@ function treeOf(files: readonly UnitFile[]): FileTreeNode[] {
       },
     })
   }
+  // Folders first, as a file browser lists them.
+  const sort = (nodes: FileTreeNode[]) => {
+    nodes.sort((a, b) =>
+      a.type === b.type ? a.name.localeCompare(b.name) : a.type === "folder" ? -1 : 1,
+    )
+    for (const node of nodes) if (node.children) sort(node.children)
+  }
+  sort(root)
   return root
+}
+
+/** Every folder in the files' paths, so the tree opens all the way down to the unit. */
+function foldersOf(files: readonly UnitFile[]): string[] {
+  return [
+    ...new Set(
+      files.flatMap((f) => {
+        const parts = f.path.split("/").slice(0, -1)
+        return parts.map((_, i) => parts.slice(0, i + 1).join("/"))
+      }),
+    ),
+  ]
+}
+
+/** The marks the tree shows for the files the code adds or changes in the repository. */
+function repoChanges(files: readonly RepoFile[]): Map<string, FileChange> {
+  const changes = new Map<string, FileChange>()
+  for (const file of files) {
+    if (file.status === "added") {
+      changes.set(file.path, { ...lineChanges("", file.content), status: "added" })
+    } else if (file.status === "modified") {
+      changes.set(file.path, lineChanges(file.before ?? "", file.content))
+    }
+  }
+  return changes
 }
 
 /**
  * The Terragrunt code the block runs: the module's template rendered with
- * the inputs as they are now, in a small file tree.
+ * the inputs as they are now. With a repository, the unit sits in its folder
+ * there, among the files above it that it may include; without one, it sits
+ * in the block's workspace beside a root.hcl.
  */
-export function CodeTab({ blockId, source, values, errorCount, selected, onSelect }: CodeTabProps) {
-  const api = useApi()
-  const [files, setFiles] = useState<UnitFile[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const key = JSON.stringify(values)
-
-  useEffect(() => {
-    let cancelled = false
-    const timer = setTimeout(() => {
-      api
-        .invoke("tofu-module:render", { source, blockId, values: JSON.parse(key) })
-        .then((result) => {
-          if (cancelled) return
-          setFiles(result.files)
-          setError(null)
-        })
-        .catch((err: unknown) => {
-          if (!cancelled)
-            setError(cleanIpcErrorMessage(err instanceof Error ? err.message : String(err)))
-        })
-    }, DEBOUNCE_MS)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [api, source, blockId, key])
-
-  const tree = useMemo(() => (files ? treeOf(files) : []), [files])
-  const folders = useMemo(
-    () => [
-      ...new Set(
-        (files ?? []).flatMap((f) => (f.path.includes("/") ? [f.path.split("/")[0]!] : [])),
-      ),
-    ],
-    [files],
+export function CodeTab({ code, error, repository, errorCount, selected, onSelect }: CodeTabProps) {
+  const files: readonly UnitFile[] = useMemo(() => code?.files ?? [], [code])
+  const tree = useMemo(() => treeOf(files), [files])
+  const folders = useMemo(() => foldersOf(files), [files])
+  const changes = useMemo(
+    () => (code?.kind === "repo" ? repoChanges(code.files) : undefined),
+    [code],
   )
-  // The unit's own file, rather than the root.hcl beside it, unless the user picked one.
+  // The unit's own file, rather than a file beside or above it, unless the user picked one.
   const shown =
-    files?.find((f) => f.path === selected) ??
-    files?.find((f) => f.path.endsWith("/terragrunt.hcl")) ??
-    files?.[0]
+    files.find((f) => f.path === selected) ??
+    files.find((f) => f.path.endsWith("/terragrunt.hcl") && !isContext(f)) ??
+    files[0]
 
   if (error) {
     return (
@@ -113,7 +127,7 @@ export function CodeTab({ blockId, source, values, errorCount, selected, onSelec
       </div>
     )
   }
-  if (!files || !shown) {
+  if (!code || !shown) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="size-4 animate-spin" /> Rendering the module's template…
@@ -121,11 +135,35 @@ export function CodeTab({ blockId, source, values, errorCount, selected, onSelec
     )
   }
 
+  const base = repository?.baseBranch ?? "the base branch"
+  const labels: ChangeLabels = {
+    added: `New: not on ${base}`,
+    modified: `Changes the file on ${base}`,
+    folder: "Holds files this code adds or changes",
+  }
+
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        The Terragrunt code that applies this module with your inputs. It changes as you edit them.
-      </p>
+      {code.kind === "repo" ? (
+        <p className="text-sm text-muted-foreground">
+          The Terragrunt code that applies this module with your inputs, in{" "}
+          <code className="text-foreground">{code.folder}</code>
+          {repository && (
+            <>
+              {" "}
+              of <span className="font-medium text-foreground">{repository.name}</span>
+            </>
+          )}
+          . Files marked <span className="font-semibold text-success">A</span> are new and{" "}
+          <span className="font-semibold text-warning-foreground">M</span> change a file on {base};
+          dimmed files are already there, shown for context.
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          The Terragrunt code that applies this module with your inputs. It changes as you edit
+          them. Clone a repository with a GitClone block to see where it goes there.
+        </p>
+      )}
       {errorCount > 0 && (
         <p className="flex items-center gap-1.5 text-sm text-warning-foreground">
           <TriangleAlert className="size-4" />
@@ -133,21 +171,97 @@ export function CodeTab({ blockId, source, values, errorCount, selected, onSelec
           tab, so this code isn't ready to apply.
         </p>
       )}
+      {code.kind === "repo" && !code.pinned && (
+        <p className="flex items-start gap-1.5 text-sm text-warning-foreground">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+          <span>
+            The module's runbooks.yml gives no <code>source</code>, so this code points at the
+            module's folder on this computer, which won't work anywhere else. Add a{" "}
+            <code>source</code>, such as a Git URL pinned to a tag.
+          </span>
+        </p>
+      )}
+      {code.kind === "repo" && !code.rootHcl && (
+        <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
+          <Info className="mt-0.5 size-4 shrink-0" />
+          <span>
+            The repository has no root.hcl above <code>{code.folder}</code>, so Apply runs the unit
+            beside one Runbooks writes, which keeps state on this computer.
+          </span>
+        </p>
+      )}
       <div className="flex flex-col gap-3 md:flex-row">
-        <div className="shrink-0 rounded-md border border-border bg-card py-1 md:w-52">
+        <div className="shrink-0 overflow-x-auto rounded-md border border-border bg-card py-1 md:w-60">
           <FileTree
             items={tree}
             selectedId={shown.path}
             defaultExpandedIds={folders}
+            changes={changes}
+            changeLabels={labels}
             onItemClick={(item) => {
               if (item.type === "file") onSelect(item.id)
             }}
           />
         </div>
         <div className="min-w-0 flex-1" data-testid="tofu-module-code">
-          <CodeFile fileName={shown.path} code={shown.content} language={languageOf(shown.path)} />
+          <ShownFile file={shown} base={base} />
         </div>
       </div>
+    </div>
+  )
+}
+
+/** The picked file: a modified file as its changes or as a whole, and a note on files it leaves alone. */
+function ShownFile({ file, base }: { file: UnitFile; base: string }) {
+  const [whole, setWhole] = useState(false)
+  const status = "status" in file ? (file as RepoFile).status : undefined
+  const before = "before" in file ? (file as RepoFile).before : undefined
+  const diff = useMemo(
+    () => (before === undefined ? undefined : diffDiskContents(before, file.content)),
+    [before, file.content],
+  )
+  const note =
+    status === "context"
+      ? `Already on ${base}, shown for context. This code doesn't change it.`
+      : status === "unchanged"
+        ? `Already on ${base} as it is here.`
+        : undefined
+
+  return (
+    <div className="space-y-2">
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
+      {diff && (
+        <div className="flex items-center gap-1 text-xs" role="group" aria-label="Show">
+          {[
+            { label: "Changes", value: false },
+            { label: "Whole file", value: true },
+          ].map((option) => (
+            <button
+              key={option.label}
+              type="button"
+              aria-pressed={whole === option.value}
+              onClick={() => setWhole(option.value)}
+              className={`rounded px-2 py-1 font-medium ${
+                whole === option.value
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {diff && !whole ? (
+        <div className="overflow-x-auto rounded-md border border-border bg-card">
+          <div className="border-b border-border px-3 py-1.5 font-mono text-xs text-muted-foreground">
+            {file.path}
+          </div>
+          <DiffTable diffLines={diff} />
+        </div>
+      ) : (
+        <CodeFile fileName={file.path} code={file.content} language={languageOf(file.path)} />
+      )}
     </div>
   )
 }

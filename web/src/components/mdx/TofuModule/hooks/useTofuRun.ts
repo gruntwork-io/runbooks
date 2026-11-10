@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
+import type { TofuModuleRepo } from "../../../../../../electron/shared/channels"
 import type {
   ApplyResult,
   PlanResult,
@@ -43,7 +44,13 @@ let runSeq = 0
  * what the Apply tab shows: the step, the log, each resource's progress, the
  * plan, and what the apply made.
  */
-export function useTofuRun(blockId: string, source: string, values: Record<string, unknown>) {
+export function useTofuRun(
+  blockId: string,
+  source: string,
+  values: Record<string, unknown>,
+  /** The repository the code runs in, when there is one. */
+  repo?: TofuModuleRepo,
+) {
   const api = useApi()
   const [state, setState] = useState<RunState>(IDLE)
   const runId = useRef<string | null>(null)
@@ -100,7 +107,13 @@ export function useTofuRun(blockId: string, source: string, values: Record<strin
     const plannedWith = JSON.stringify(values)
     setState({ phase: "planning", log: [], progress: {}, plannedWith })
     try {
-      const result = await api.invoke("tofu-module:plan", { runId: id, blockId, source, values })
+      const result = await api.invoke("tofu-module:plan", {
+        runId: id,
+        blockId,
+        source,
+        values,
+        repo,
+      })
       if (runId.current !== id) return
       setState((prev) => ({ ...prev, phase: "planned", step: undefined, plan: result }))
     } catch (err) {
@@ -119,7 +132,13 @@ export function useTofuRun(blockId: string, source: string, values: Record<strin
       ),
     }))
     try {
-      const result = await api.invoke("tofu-module:apply", { runId: id, blockId, source, values })
+      const result = await api.invoke("tofu-module:apply", {
+        runId: id,
+        blockId,
+        source,
+        values,
+        repo,
+      })
       if (runId.current !== id) return undefined
       setState((prev) => ({ ...prev, phase: "applied", step: undefined, result }))
       return result

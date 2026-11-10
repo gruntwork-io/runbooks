@@ -15,7 +15,7 @@ import type { SavedBlockState, SessionEventKind } from "../../src/domain/session
 import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { TofuModuleSpec } from "../../src/domain/tofu-module/types.ts"
 import type { ApplyResult, PlanResult, RunEvent } from "../../src/domain/tofu-module/run.ts"
-import type { UnitFile } from "../../src/domain/tofu-module/unit.ts"
+import type { RepoFile, UnitFile } from "../../src/domain/tofu-module/unit.ts"
 import type { MergeMethod } from "../../src/services/GitHubClient.ts"
 
 /** What session:switch did. */
@@ -209,7 +209,7 @@ export interface IpcChannelMap {
 
   // Simulation mode
   /** The Terragrunt code a <TofuModule> block runs, rendered with its inputs. */
-  "tofu-module:render": { params: TofuModuleRenderRequest; result: { files: UnitFile[] } }
+  "tofu-module:render": { params: TofuModuleRenderRequest; result: TofuModuleCode }
   /** Plans the block's Terragrunt code, streaming `tofu-module:event` as it goes. */
   "tofu-module:plan": { params: TofuModuleRunRequest; result: PlanResult }
   /** Applies the plan the last `tofu-module:plan` saved, streaming `tofu-module:event`. */
@@ -1106,13 +1106,42 @@ export interface TofuModuleReadRequest {
   source: string
 }
 
+/** Where a <TofuModule> block's code goes in a repository. */
+export interface TofuModuleRepo {
+  /** The repository's checkout in the session; none in simulation, where simulation.yml stands in. */
+  worktreePath?: string | undefined
+  /** The unit's folder in the repository. */
+  path: string
+  /** The branch the code is compared with, which a pull request merges into. */
+  baseBranch?: string | undefined
+}
+
 export interface TofuModuleRenderRequest {
   /** The module's folder, relative to the runbook. */
   source: string
   blockId: string
   /** The block's inputs, as it publishes them. */
   values: Record<string, unknown>
+  /** The repository the code goes to, when there is one. */
+  repo?: TofuModuleRepo | undefined
 }
+
+/**
+ * A <TofuModule> block's Terragrunt code: in its workspace beside a root.hcl
+ * Runbooks writes, when there's no repository, or in the repository's tree.
+ */
+export type TofuModuleCode =
+  | { kind: "workspace"; files: UnitFile[] }
+  | {
+      kind: "repo"
+      /** The unit's folder in the repository. */
+      folder: string
+      files: RepoFile[]
+      /** Whether the repository has a root.hcl above the unit, so Apply runs it there. */
+      rootHcl: boolean
+      /** Whether runbooks.yml gives the module a `source`, which the code points at. */
+      pinned: boolean
+    }
 
 export interface TofuModuleRunRequest extends TofuModuleRenderRequest {
   /** Names the run, for its events and for `tofu-module:cancel`. */

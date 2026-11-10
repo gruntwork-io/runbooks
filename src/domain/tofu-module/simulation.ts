@@ -26,6 +26,10 @@
  * read it as `{{ .each }}`; `computed` holds what a plan shows as "known
  * after apply". A resource that exists already has `before`, its values now,
  * and the plan updates it; `action: delete` removes it.
+ *
+ * A scenario's `repository` stands in for the repository a <GitClone> block
+ * would clone: its files by path, paths and contents both templates over the
+ * block's inputs, so the Code tab can show the unit among them.
  */
 import YAML from "yaml"
 import { TofuModuleError } from "../../errors/index.ts"
@@ -80,6 +84,8 @@ export interface SimulationScenario {
   readonly lookups: Readonly<Record<string, SimulatedLookup>>
   /** Every block's plan and apply, by block id, with what the scenario extends merged in. */
   readonly modules: Readonly<Record<string, SimulatedModule>>
+  /** The simulated repository's files, by path, with what the scenario extends merged in. */
+  readonly repository: Readonly<Record<string, string>>
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -99,6 +105,30 @@ function readLookup(raw: unknown, where: string): SimulatedLookup {
   throw new TofuModuleError({
     message: `${where} must be a list of rows, or a map with "rows" or "error".`,
   })
+}
+
+function readRepository(raw: unknown, where: string): Record<string, string> {
+  if (raw === undefined) return {}
+  const files = isRecord(raw) ? raw.files : undefined
+  if (!isRecord(files) || !Object.values(files).every((content) => typeof content === "string")) {
+    throw new TofuModuleError({
+      message: `${where} needs "files", a map from each file's path to its content.`,
+    })
+  }
+  return files as Record<string, string>
+}
+
+/** The simulated repository's files for a block, with its inputs filled into paths and contents. */
+export function simulatedRepository(
+  scenario: SimulationScenario,
+  inputs: LookupRow,
+): Map<string, string> {
+  return new Map(
+    Object.entries(scenario.repository).map(([path, content]) => [
+      renderRowTemplate(path, inputs),
+      renderRowTemplate(content, inputs),
+    ]),
+  )
 }
 
 const ACTIONS: readonly ResourceAction[] = ["create", "update", "replace", "delete"]
@@ -182,12 +212,19 @@ export function parseSimulation(content: string): SimulationScenario[] {
         `${SIMULATION_FILE}: scenarios.${name}.modules.${block}`,
       )
     }
+    const baseRepository =
+      typeof entry.extends === "string" ? resolve(entry.extends, [...chain, name]).repository : {}
+    const ownRepository = readRepository(
+      entry.repository,
+      `${SIMULATION_FILE}: scenarios.${name}.repository`,
+    )
     const scenario: SimulationScenario = {
       name,
       label: typeof entry.label === "string" ? entry.label : name,
       ...(typeof entry.description === "string" ? { description: entry.description } : {}),
       lookups: { ...base, ...own },
       modules: { ...baseModules, ...ownModules },
+      repository: { ...baseRepository, ...ownRepository },
     }
     resolved.set(name, scenario)
     return scenario

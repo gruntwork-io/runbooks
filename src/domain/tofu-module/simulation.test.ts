@@ -5,6 +5,7 @@ import {
   simulatedOutputs,
   simulatedPlan,
   simulatedResources,
+  simulatedRepository,
   simulatedRows,
 } from "./simulation.ts"
 
@@ -46,6 +47,29 @@ describe("parseSimulation", () => {
 
   it("refuses a file without scenarios", () => {
     expect(() => parseSimulation("lookups: {}\n")).toThrow('needs "scenarios"')
+  })
+
+  it("merges a repository's files, and fills the inputs into their paths and contents", () => {
+    const [, existing] = parseSimulation(`
+scenarios:
+  base:
+    repository:
+      files:
+        root.hcl: "# root"
+  existing:
+    extends: base
+    repository:
+      files:
+        "groups/{{ .id }}/terragrunt.hcl": 'id = "{{ .id }}"'
+`)
+    expect([...simulatedRepository(existing!, { id: "eng" })]).toEqual([
+      ["root.hcl", "# root"],
+      ["groups/eng/terragrunt.hcl", 'id = "eng"'],
+    ])
+  })
+
+  it("refuses a repository without files", () => {
+    expect(() => parseSimulation("scenarios:\n  a:\n    repository: {}\n")).toThrow('needs "files"')
   })
 })
 

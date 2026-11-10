@@ -14,7 +14,7 @@ import { runtime } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { simulationEnabled } from "./simulation.ts"
 import { resolveGitHubTokenForRepo } from "./git.ts"
-import { fail, pause, renderUnit, startRun } from "./tofu-module-run.ts"
+import { fail, pause, renderInRepo, startRun, unitFilesOf } from "./tofu-module-run.ts"
 import { TofuModuleError } from "../../../src/errors/index.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 import {
@@ -23,7 +23,6 @@ import {
   pushToPullRequest,
   updatePullRequest,
 } from "../../../src/domain/git/operations.ts"
-import { unitFolder } from "../../../src/domain/tofu-module/unit.ts"
 import type { RunEvent } from "../../../src/domain/tofu-module/run.ts"
 import type {
   TofuModulePrMergeRequest,
@@ -42,37 +41,30 @@ const SIMULATED_NUMBER = 42
 const asTofuError = (cause: unknown) =>
   cause instanceof TofuModuleError ? cause : fail(errorMessage(cause))
 
-/** A path inside the repository: relative, with no part that climbs out of it. */
-function repoPath(given: string): string {
-  const normalized = path.posix.normalize(given.trim().replace(/\\/g, "/")).replace(/\/+$/, "")
-  if (!normalized || normalized === "." || path.posix.isAbsolute(normalized)) {
-    throw fail(`"${given}" isn't a folder inside the repository.`)
-  }
-  if (normalized.split("/").includes("..")) {
-    throw fail(`"${given}" leaves the repository. Use a folder inside it.`)
-  }
-  return normalized
-}
-
-/** Writes the block's unit, its rendered Terragrunt files without root.hcl, to `dir` in the repo. */
+/**
+ * Writes the block's unit to its folder in the repository: the code the Code
+ * tab shows there, pointing at the module's pinned source. Returns the paths
+ * it wrote.
+ */
 const writeUnit = (request: TofuModulePrPushRequest, worktree: string) =>
   Effect.gen(function* () {
-    const dir = yield* Effect.try({ try: () => repoPath(request.path), catch: asTofuError })
-    const prefix = `${unitFolder(request.blockId)}/`
-    const files = (yield* renderUnit(request.source, request.blockId, request.values)).filter(
-      (file) => file.path.startsWith(prefix),
-    )
+    const code = yield* renderInRepo(request.source, request.values, {
+      worktreePath: worktree,
+      path: request.path,
+      baseBranch: request.target.baseBranch,
+    })
+    const files = unitFilesOf(code)
     yield* Effect.tryPromise({
       try: async () => {
         for (const file of files) {
-          const target = path.join(worktree, dir, file.path.slice(prefix.length))
+          const target = path.join(worktree, code.folder, file.path)
           await fs.mkdir(path.dirname(target), { recursive: true })
           await fs.writeFile(target, file.content)
         }
       },
       catch: asTofuError,
     })
-    return files.map((file) => `${dir}/${file.path.slice(prefix.length)}`)
+    return files.map((file) => `${code.folder}/${file.path}`)
   })
 
 /** The repository's checkout, which must be one the session cloned or picked. */

@@ -25,6 +25,7 @@ import type {
 } from "./types.ts"
 import { interpretValidations, type TfValidation } from "./validations.ts"
 import { rowTemplateError, templateFields } from "./rowTemplate.ts"
+import { isRemoteSource } from "../../remote-source.ts"
 
 /** The name of the metadata file at a module's root. */
 export const METADATA_FILE = "runbooks.yml"
@@ -320,6 +321,8 @@ export interface ModuleMetadata {
   readonly description?: string
   /** The logo's path in the module, or an https: URL. */
   readonly logo?: string
+  /** Where code in a repository finds the module, such as a Git URL at a tag. */
+  readonly source?: string
   readonly variables: Readonly<Record<string, VariableMetadata>>
   readonly outputs: Readonly<Record<string, OutputMetadata>>
   readonly pullRequest?: TofuModulePullRequest
@@ -364,6 +367,7 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
   const problems = new Problems()
   problems.unknownKeys(METADATA_FILE, raw, [
     "version",
+    "source",
     "block",
     "variables",
     "outputs",
@@ -380,6 +384,17 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
   const title = optionalString(block.title, "block.title", problems)
   const description = optionalString(block.description, "block.description", problems)
   const logo = optionalString(block.logo, "block.logo", problems)
+
+  const source = optionalString(raw.source, "source", problems)
+  if (source !== undefined && !isRemoteSource(source)) {
+    problems.errors.push(
+      `source must be a URL a repository's code can fetch the module from, such as git::https://github.com/acme/catalog//modules/group?ref=v1.0.0, not "${source}".`,
+    )
+  } else if (source !== undefined && !/[?&]ref=/.test(source)) {
+    problems.warnings.push(
+      "source has no ?ref=, so code in a repository follows the module's default branch. Pin it to a tag.",
+    )
+  }
 
   const variables: Record<string, VariableMetadata> = {}
   const rawVariables = raw.variables ?? {}
@@ -467,6 +482,7 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     ...(title ? { title } : {}),
     ...(description ? { description } : {}),
     ...(logo ? { logo } : {}),
+    ...(source ? { source } : {}),
     variables,
     outputs,
     ...(Object.keys(pullRequest).length > 0 ? { pullRequest } : {}),
@@ -628,6 +644,7 @@ export function buildSpec(input: BuildSpecInput): TofuModuleSpec {
     ...(input.metadata.description ? { description: input.metadata.description } : {}),
     providers: input.providers,
     ...(input.logo ? { logo: input.logo } : {}),
+    ...(input.metadata.source ? { source: input.metadata.source } : {}),
     outputs: input.outputs.map((output): TofuModuleOutput => {
       const meta = input.metadata.outputs[output.name] ?? {}
       return {
