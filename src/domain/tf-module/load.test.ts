@@ -213,6 +213,11 @@ describe("loadModule", () => {
       expect(await failure(dir)).toContain(`pullRequest.title reads "nmae"`)
     })
 
+    it("whose pull request summary reads an input variables.tf doesn't declare", async () => {
+      write("runbook_block.yml", 'pullRequest:\n  summary: "Creates {{ .nmae }}."\n')
+      expect(await failure(dir)).toContain(`pullRequest.summary reads "nmae"`)
+    })
+
     it("whose source isn't a URL", async () => {
       write("runbook_block.yml", "source: ../modules/group\n")
       expect(await failure(dir)).toContain("source must be a URL")

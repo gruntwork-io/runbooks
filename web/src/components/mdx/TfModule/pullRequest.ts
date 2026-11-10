@@ -15,17 +15,21 @@ export function draftTitle(spec: TfModuleSpec, values: Record<string, unknown>):
 }
 
 /**
- * The pull request's description: runbook_block.yml's template, or a table of the
- * inputs that have a value, with sensitive ones left out.
+ * The pull request's description: runbook_block.yml's template, or its summary
+ * (a generic sentence without one) above a table of the inputs that have a
+ * value, with sensitive ones left out.
  */
 export function draftBody(spec: TfModuleSpec, values: Record<string, unknown>): string {
   const template = spec.pullRequest?.description
   if (template) return renderRowTemplate(template, values).trim()
+  const summary = spec.pullRequest?.summary
+    ? renderRowTemplate(spec.pullRequest.summary, values).trim()
+    : `Adds the code for **${spec.title}**, opened from a runbook.`
   const rows = spec.variables
     .filter((v) => !v.sensitive && valueText(values[v.name]) !== "")
     .map((v) => `| ${v.label} | \`${valueText(values[v.name]).replace(/\|/g, "\\|")}\` |`)
   return [
-    `Adds the code for **${spec.title}**, opened from a runbook.`,
+    summary,
     "",
     "| Input | Value |",
     "| --- | --- |",

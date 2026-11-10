@@ -471,9 +471,9 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
   }
 
   const rawPullRequest = isRecord(raw.pullRequest) ? raw.pullRequest : {}
-  problems.unknownKeys("pullRequest", rawPullRequest, ["title", "description"])
+  problems.unknownKeys("pullRequest", rawPullRequest, ["title", "summary", "description"])
   const pullRequest: TfModulePullRequest = {}
-  for (const key of ["title", "description"] as const) {
+  for (const key of ["title", "summary", "description"] as const) {
     const template = optionalString(rawPullRequest[key], `pullRequest.${key}`, problems)
     const templateError = template === undefined ? undefined : rowTemplateError(template)
     if (templateError) problems.errors.push(`pullRequest.${key}: ${templateError}`)

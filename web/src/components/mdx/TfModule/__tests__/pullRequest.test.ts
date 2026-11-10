@@ -33,6 +33,19 @@ describe("pull request drafts", () => {
     expect(body).not.toContain("Description |")
   })
 
+  it("opens the description with the module's summary, above the inputs", () => {
+    const body = draftBody(
+      { ...spec, pullRequest: { summary: "Creates the {{ .id }} Google group." } },
+      values,
+    )
+    expect(body.split("\n").slice(0, 3)).toEqual([
+      "Creates the team@example.com Google group.",
+      "",
+      "| Input | Value |",
+    ])
+    expect(body).toContain("| Group email | `team@example.com` |")
+  })
+
   it("names the branch from the title", () => {
     expect(draftBranch("Add the team@example.com group")).toBe(
       "runbooks/add-the-team-example-com-group",

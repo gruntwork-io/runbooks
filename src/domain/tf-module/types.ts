@@ -144,5 +144,7 @@ export interface TfModuleSpec {
 /** How the module's runbook_block.yml starts a pull request, as templates over the form's values. */
 export interface TfModulePullRequest {
   readonly title?: string
+  /** The sentence above the default description's table of inputs. */
+  readonly summary?: string
   readonly description?: string
 }

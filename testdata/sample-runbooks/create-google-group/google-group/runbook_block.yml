@@ -80,3 +80,4 @@ outputs:
 
 pullRequest:
   title: "Add the {{ .id }} Google group"
+  summary: Creates a Google group.
