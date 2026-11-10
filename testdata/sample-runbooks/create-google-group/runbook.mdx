@@ -4,11 +4,12 @@ title: Create a Google Group
 
 # Create a Google Group
 
-This runbook creates a real Google group in your Google Workspace or Cloud Identity organization, with OpenTofu. Nothing here is simulated: the **Apply** tab creates the group, and the last step deletes it again.
+This runbook creates a real Google group in your Google Workspace or Cloud Identity organization, as a Terragrunt unit in an infrastructure repository laid out like `infra-live`. Nothing here is simulated: the **Apply** tab creates the group, and the last step deletes it again.
 
 ## Before you start
 
-- **OpenTofu 1.12.6 or later** on your `PATH`.
+- **Terragrunt 1.1.4 or later and OpenTofu 1.12.6 or later** on your `PATH`, the versions the repository's `root.hcl` requires.
+- **AWS access to the account that keeps the repository's state.** Every unit keeps its state in S3, including units that manage another provider.
 - **An admin who can create groups**, such as a Groups Admin or Super Admin, to sign in as.
 - **A Google Cloud project** for this runbook. Google bills its API calls to that project, so you need permission to use its services, which an Owner or Editor has. Once you sign in, the block below checks which of its APIs to turn on.
 - **A GitHub account** that can push to the repository below.
@@ -33,9 +34,20 @@ Sign in as the admin, and pick the project from above. The extra scopes let the 
   ]}
 />
 
+## Sign in to AWS
+
+The repository's `root.hcl` keeps the unit's state in the production account's `us-west-2` bucket, so the plan and apply need AWS credentials for that account.
+
+<AwsAuth
+  id="aws-auth"
+  title="Sign in to AWS"
+  description="Sign in to the AWS account that keeps the repository's state."
+  defaultRegion="us-west-2"
+/>
+
 ## Clone the repository
 
-The group's code goes in a pull request to this repository. It's a sandbox copy of the live infrastructure repository, so pull requests here change nothing real.
+The group's code goes in a pull request to this repository. It's a sandbox copy of the live infrastructure repository, laid out the same way.
 
 <GitHubAuth
   id="github-auth"
@@ -53,13 +65,13 @@ The group's code goes in a pull request to this repository. It's a sandbox copy 
 
 ## Create the group
 
-Fill in the group, check the code on **Code**, open a pull request that adds it under `google-groups/` on **PR**, then plan and apply on **Apply**. The code runs in this session's folder, which also keeps OpenTofu's state, so no state file lands in the repository.
+Fill in the group, check the code on **Code**, open a pull request that adds it as `google/<domain>/groups/<email>/terragrunt.hcl` on **PR**, then plan and apply on **Apply**. The unit includes the repository's `root.hcl` for state and `config/google-provider.hcl` for the Google provider, as its GitHub and Cloudflare units do, and runs in the clone.
 
 <TfModule
   id="group"
   source="google-group"
-  template="templates/google-group"
-  path="google-groups/{{ .id }}"
+  template="templates/google-group-unit"
+  path="google/{{ if .domain }}{{ .domain }}{{ else }}{{ .customer_id }}{{ end }}/groups/{{ .id }}"
 />
 
 <Admonition type="note" title="If the plan can't find your organization">
@@ -75,7 +87,7 @@ The module finds the organization's customer ID from its domain through Cloud Re
   env={{
     GROUP_EMAIL: "{{ .outputs.group.email }}",
     GROUP_RESOURCE: "{{ .outputs.group.resource_name }}",
-    GROUP_CONSOLE: "{{ .outputs.group.runbooks_console_url }}",
+    GROUP_CONSOLE: "{{ .outputs.group.console_url }}",
   }}
   command={`echo "Group:         $GROUP_EMAIL"
 echo "Resource name: $GROUP_RESOURCE"
@@ -89,7 +101,11 @@ When you're done trying it out, delete the group with the same code and state. T
 <Command
   id="delete-group"
   title="Delete the group"
-  description="Runs tofu destroy on the code the Apply tab ran."
-  command={`(cd .runbooks/tf-module/group/group && tofu destroy -auto-approve -input=false -no-color)`}
+  description="Runs terragrunt destroy on the unit the Apply tab ran, in the clone."
+  inputsId="group"
+  env={{
+    UNIT_DIR: "{{ .outputs.clone_repo.clone_path }}/google/{{ if .inputs.domain }}{{ .inputs.domain }}{{ else }}{{ .inputs.customer_id }}{{ end }}/groups/{{ .inputs.id }}",
+  }}
+  command={`terragrunt --working-dir "$UNIT_DIR" --non-interactive destroy -auto-approve -input=false -no-color`}
   successMessage="The group is deleted."
 />

@@ -13,7 +13,7 @@ output "customer_id" {
   value       = local.customer_id
 }
 
-output "runbooks_console_url" {
+output "console_url" {
   description = "The group's page in the Google Admin console."
   value       = "https://admin.google.com/ac/groups/${trimprefix(google_cloud_identity_group.group.name, "groups/")}"
 }

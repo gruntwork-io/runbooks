@@ -1,0 +1,29 @@
+# This runbook's way to use the google-group module: a Terragrunt unit laid out as infra-live's units are.
+# It includes the repository's root.hcl for state and config/google-provider.hcl for the provider.
+# The <TfModule> block renders it with the form's inputs and ModuleSource. Blank lines between the inputs
+# keep the output as `terragrunt hcl fmt` would write it, whichever inputs are set.
+variables:
+  - name: ModuleSource
+    description: Where the code finds the module, such as git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=v0.14.0. A pinned source becomes the unit's catalog_ref.
+  - name: id
+    description: Email address of the group
+  - name: display_name
+    default: ""
+  - name: description
+    default: ""
+  - name: domain
+    default: ""
+  - name: customer_id
+    default: ""
+  - name: owners
+    type: list
+    default: []
+  - name: managers
+    type: list
+    default: []
+  - name: members
+    type: list
+    default: []
+  - name: types
+    type: list
+    default: [default]

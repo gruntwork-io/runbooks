@@ -4,7 +4,7 @@
 version: 0
 
 # Where code in an infrastructure repository finds this module. Pin it to a release.
-source: git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=v0.14.0
+source: git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=f4b2ecef8c0d1d390e8be98ac290ed9adf087e9e
 
 # The Google APIs the module's resources call. The block checks they're on in the signed-in project.
 requires:
@@ -74,7 +74,7 @@ outputs:
     label: Group email
   customer_id:
     label: Customer ID
-  runbooks_console_url:
+  console_url:
     label: Admin console
     link: View the Google Group
 
