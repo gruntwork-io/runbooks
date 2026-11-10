@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { ancestorsOf, hasRootHcl, placeUnit, repoFolder } from "./unit.ts"
+import { ancestorsOf, hasRootHcl, placeUnit, repoFolder, toolFor } from "./unit.ts"
 
 describe("repoFolder", () => {
   it("normalizes a folder inside the repository", () => {
@@ -55,5 +55,13 @@ describe("placeUnit", () => {
     expect(placeUnit("eng", rendered, new Map([["eng/terragrunt.hcl", "new\r\n"]]))).toEqual([
       { path: "eng/terragrunt.hcl", content: "new", status: "unchanged" },
     ])
+  })
+})
+
+describe("toolFor", () => {
+  it("runs a terragrunt.hcl at the code's top with Terragrunt, and anything else with OpenTofu", () => {
+    expect(toolFor([{ path: "terragrunt.hcl", content: "" }])).toBe("terragrunt")
+    expect(toolFor([{ path: "main.tf", content: "" }])).toBe("tofu")
+    expect(toolFor([{ path: "nested/terragrunt.hcl", content: "" }])).toBe("tofu")
   })
 })

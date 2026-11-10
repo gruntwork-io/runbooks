@@ -47,19 +47,24 @@ import { valuesFromPick } from "./lookupRows"
  * presets, and lookups that suggest values). The values are published like an
  * <Inputs> block's, so a <Template> or <Command> uses them through `inputsId`.
  *
- * Its Code tab shows the Terragrunt code the module's template renders with
- * those values, its Apply tab plans and applies it, and its PR tab opens a
- * GitHub pull request that adds the code to the repository a <GitClone> block
- * cloned. The module's outputs become the block's outputs once it applies.
+ * Its Code tab shows the code the runbook's template renders with those
+ * values to use the module, its Apply tab plans and applies it, and its PR
+ * tab opens a GitHub pull request that adds the code to the repository a
+ * <GitClone> block cloned. The module's outputs become the block's outputs
+ * once it applies. The runbook, not the module, decides how the module is
+ * used: a Terragrunt unit, or plain OpenTofu or Terraform code.
  *
  * @param props.id - Unique identifier for this block (required)
  * @param props.source - The module's folder, relative to the runbook
+ * @param props.template - The Boilerplate template for the code that uses the
+ *   module, a folder relative to the runbook
  * @param props.path - Where the code goes in the cloned repository, a template
  *   over the inputs such as `groups/{{ .id }}`; the block's id by default
  */
 interface TfModuleProps {
   id: string
   source: string
+  template: string
   path?: string
 }
 
@@ -71,7 +76,7 @@ const SIMULATED_TARGET: PullRequestTarget = {
 }
 
 /** What's wrong with the block's props, if anything. */
-function propsError(id: string, source: string): AppError | null {
+function propsError(id: string, source: string, template: string): AppError | null {
   if (!id) {
     return {
       message: "The <TfModule> block requires a non-empty 'id' prop.",
@@ -84,11 +89,18 @@ function propsError(id: string, source: string): AppError | null {
       details: "Set 'source' to the module's folder, relative to the runbook.",
     }
   }
+  if (!template) {
+    return {
+      message: "The <TfModule> block requires a 'template' prop.",
+      details:
+        "Set 'template' to a Boilerplate template folder, relative to the runbook, for the code that uses the module, such as a terragrunt.hcl or a main.tf.",
+    }
+  }
   return null
 }
 
-function TfModule({ id, source, path }: TfModuleProps) {
-  const validationError = propsError(id, source)
+function TfModule({ id, source, template, path }: TfModuleProps) {
+  const validationError = propsError(id, source, template)
 
   const {
     data: spec,
@@ -135,6 +147,7 @@ function TfModule({ id, source, path }: TfModuleProps) {
       <TfModuleForm
         id={id}
         source={source}
+        template={template}
         path={path}
         spec={spec}
         initialData={initialData}
@@ -156,6 +169,7 @@ const TABS: { tab: Tab; label: string }[] = [
 interface TfModuleFormProps {
   id: string
   source: string
+  template: string
   path?: string | undefined
   spec: TfModuleSpec
   initialData: FormValues
@@ -167,6 +181,7 @@ interface TfModuleFormProps {
 function TfModuleForm({
   id,
   source,
+  template,
   path,
   spec,
   initialData,
@@ -268,9 +283,10 @@ function TfModuleForm({
     path: repoPath,
     baseBranch: prTarget.baseBranch,
   }
-  const run = useTfRun(id, source, published, repo)
-  const pr = usePullRequest(id, source, published, repoPath)
-  const unitCode = useUnitCode(id, source, published, repo, tab === "code" || tab === "pr")
+  const codeRef = { source, template }
+  const run = useTfRun(id, codeRef, published, repo)
+  const pr = usePullRequest(id, codeRef, published, repoPath)
+  const unitCode = useUnitCode(id, codeRef, published, repo, tab === "code" || tab === "pr")
   const applied = run.status === "current"
   const stage = stageOf({ inputsValid: isValid, hasRepo, pr: pr.status, applied })
   const blocked =

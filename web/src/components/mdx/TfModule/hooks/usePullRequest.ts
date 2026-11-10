@@ -2,6 +2,7 @@ import { useEffect, useReducer, useRef } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import type { MergeMethod } from "../../../../../../src/services/GitHubClient"
+import type { TfModuleCodeRef } from "../../../../../../electron/shared/channels"
 import { inputsKey } from "../../../../../../src/domain/tf-module/run"
 import {
   INITIAL_PULL_REQUEST,
@@ -38,7 +39,7 @@ let runSeq = 0
  */
 export function usePullRequest(
   blockId: string,
-  source: string,
+  module: TfModuleCodeRef,
   values: Record<string, unknown>,
   path: string,
 ) {
@@ -60,7 +61,7 @@ export function usePullRequest(
     return id
   }
 
-  const unit = { blockId, source, values, path }
+  const unit = { ...module, blockId, values, path }
   const { phase } = state
   const pr = phase.kind === "open" ? phase.pr : undefined
 

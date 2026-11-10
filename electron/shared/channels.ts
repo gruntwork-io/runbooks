@@ -15,7 +15,7 @@ import type { SavedBlockState, SessionEventKind } from "../../src/domain/session
 import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { TfModuleSpec } from "../../src/domain/tf-module/types.ts"
 import type { ApplyResult, PlanResult, RunEvent } from "../../src/domain/tf-module/run.ts"
-import type { RepoFile, UnitFile } from "../../src/domain/tf-module/unit.ts"
+import type { CodeTool, RepoFile, UnitFile } from "../../src/domain/tf-module/unit.ts"
 import type { MergeMethod } from "../../src/services/GitHubClient.ts"
 
 /** What session:switch did. */
@@ -1116,9 +1116,15 @@ export interface TfModuleRepo {
   baseBranch?: string | undefined
 }
 
-export interface TfModuleRenderRequest {
+/** A <TfModule> block's module, and the runbook's template for the code that uses it. */
+export interface TfModuleCodeRef {
   /** The module's folder, relative to the runbook. */
   source: string
+  /** The runbook's Boilerplate template for the code that uses the module, relative to the runbook. */
+  template: string
+}
+
+export interface TfModuleRenderRequest extends TfModuleCodeRef {
   blockId: string
   /** The block's inputs, as it publishes them. */
   values: Record<string, unknown>
@@ -1127,17 +1133,19 @@ export interface TfModuleRenderRequest {
 }
 
 /**
- * A <TfModule> block's Terragrunt code: in its workspace beside a root.hcl
- * Runbooks writes, when there's no repository, or in the repository's tree.
+ * A <TfModule> block's code: in its workspace, beside a root.hcl Runbooks
+ * writes when the code is a Terragrunt unit, when there's no repository, or
+ * in the repository's tree.
  */
 export type TfModuleCode =
-  | { kind: "workspace"; files: UnitFile[] }
+  | { kind: "workspace"; files: UnitFile[]; tool: CodeTool }
   | {
       kind: "repo"
+      tool: CodeTool
       /** The unit's folder in the repository. */
       folder: string
       files: RepoFile[]
-      /** Whether the repository has a root.hcl above the unit, so Apply runs it there. */
+      /** Whether the repository has a root.hcl above a Terragrunt unit, so Apply runs it there. */
       rootHcl: boolean
       /** The module's `source` from runbooks.yml, which the code points at; none when it gives none. */
       source?: string | undefined

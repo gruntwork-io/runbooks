@@ -1,8 +1,8 @@
-# The default way to consume this module: a terragrunt.hcl that includes the repository's root.hcl.
-# Runbooks and `boilerplate` render it; a runbook can supply its own template instead.
+# This runbook's way to use the google-group module: a Terragrunt unit that includes the repository's root.hcl.
+# The <TfModule> block renders it with the form's inputs and ModuleSource.
 variables:
-  - name: SourceUrl
-    description: The module's source, pinned with ?ref=, such as git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=v0.14.0
+  - name: ModuleSource
+    description: Where the code finds the module, such as git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=v0.14.0
   - name: id
     description: Email address of the group
   - name: display_name

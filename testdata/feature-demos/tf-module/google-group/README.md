@@ -22,8 +22,8 @@ Admin, and the Cloud Identity API enabled in its project. User credentials also
 need a quota project: set the provider's `billing_project` and `user_project_override`.
 
 [`runbooks.yml`](runbooks.yml) tells a Runbooks `<TfModule>` block how to show
-the inputs, and [`.boilerplate/`](.boilerplate) is the default template for the
-`terragrunt.hcl` that uses this module. OpenTofu ignores both.
+the inputs. OpenTofu ignores it. How a runbook uses the module, such as a
+Terragrunt unit or a plain OpenTofu configuration, is up to the runbook.
 
 Adapted from
 [terraform-google-modules/terraform-google-group](https://github.com/terraform-google-modules/terraform-google-group)

@@ -104,10 +104,10 @@ function repoChanges(files: readonly RepoFile[]): Map<string, FileChange> {
 }
 
 /**
- * The Terragrunt code the block runs: the module's template rendered with
- * the inputs as they are now. With a repository, the unit sits in its folder
- * there, among the files above it that it may include; without one, it sits
- * in the block's workspace beside a root.hcl.
+ * The code the block runs: the runbook's template rendered with the inputs as
+ * they are now. With a repository, the code sits in its folder there, among
+ * the files above it that it may include; without one, it sits in the block's
+ * workspace, beside a root.hcl when it's a Terragrunt unit.
  */
 export function CodeTab({
   code,
@@ -122,10 +122,13 @@ export function CodeTab({
   const tree = treeOf(files)
   const folders = foldersOf(files)
   const changes = code?.kind === "repo" ? repoChanges(code.files) : undefined
-  // The unit's own file, rather than a file beside or above it, unless the user picked one.
+  // The code's main file, rather than a file beside or above it, unless the user picked one.
+  const own = files.filter((f) => !isContext(f) && f.path !== "root.hcl")
   const shown =
     files.find((f) => f.path === selected) ??
-    files.find((f) => f.path.endsWith("/terragrunt.hcl") && !isContext(f)) ??
+    own.find((f) => f.path.endsWith("/terragrunt.hcl")) ??
+    own.find((f) => f.path.endsWith("/main.tf")) ??
+    own[0] ??
     files[0]
 
   if (error) {

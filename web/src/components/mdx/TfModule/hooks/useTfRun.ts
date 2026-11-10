@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
-import type { TfModuleRepo } from "../../../../../../electron/shared/channels"
+import type { TfModuleCodeRef, TfModuleRepo } from "../../../../../../electron/shared/channels"
 import { inputsKey, type ApplyResult } from "../../../../../../src/domain/tf-module/run"
 import { INITIAL_RUN, runReducer, runStatus } from "../runMachine"
 
@@ -11,13 +11,13 @@ const message = (err: unknown) =>
 let runSeq = 0
 
 /**
- * Plans and applies a block's Terragrunt code in the main process, keeping
+ * Plans and applies a block's code in the main process, keeping
  * the run's state (see runMachine) and what it means for the inputs as they
  * are now.
  */
 export function useTfRun(
   blockId: string,
-  source: string,
+  module: TfModuleCodeRef,
   values: Record<string, unknown>,
   /** The repository the code runs in, when there is one. */
   repo?: TfModuleRepo,
@@ -54,7 +54,7 @@ export function useTfRun(
     }
   }
 
-  const request = (runId: string) => ({ runId, blockId, source, values, repo })
+  const request = (runId: string) => ({ ...module, runId, blockId, values, repo })
 
   const plan = async () => {
     dispatch({ type: "plan-started", inputs: inputsKey(values) })

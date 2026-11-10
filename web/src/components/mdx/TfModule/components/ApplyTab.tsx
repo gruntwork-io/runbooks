@@ -80,7 +80,7 @@ function StepRail({ phase }: { phase: RunPhase }) {
   const running = phase.kind === "planning" || phase.kind === "applying"
   const ended = phase.kind === "failed" || phase.kind === "stopped"
   return (
-    <ol className="flex flex-wrap items-center gap-1.5 text-xs" aria-label="Terragrunt steps">
+    <ol className="flex flex-wrap items-center gap-1.5 text-xs" aria-label="Steps">
       {STEPS.map(({ step, label }, i) => {
         const done = i < reached
         const current = i === reached && running
@@ -586,7 +586,7 @@ export function ApplyTab({
       {phase.kind === "idle" && (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Terragrunt plans the code on the Code tab first, so you can see every resource it would
+            Apply plans the code on the Code tab first, so you can see every resource it would
             create before anything changes.
           </p>
           {planButton("Plan", "default")}
@@ -597,7 +597,7 @@ export function ApplyTab({
         <div className="flex items-center gap-3">
           <p className="flex items-center gap-2 text-sm text-foreground">
             <Loader2 className="size-4 animate-spin" />
-            {phase.step === "plan" ? "Planning…" : "Initializing Terragrunt and OpenTofu…"}
+            {phase.step === "plan" ? "Planning…" : "Initializing…"}
           </p>
           {stopButton}
         </div>
@@ -708,7 +708,7 @@ export function ApplyTab({
         </div>
       )}
 
-      <LogView title="Terragrunt log" log={state.log} running={running} />
+      <LogView title="Log" log={state.log} running={running} />
     </div>
   )
 }

@@ -3,7 +3,7 @@ include "root" {
 }
 
 terraform {
-  source = {{ .SourceUrl | toJson }}
+  source = {{ .ModuleSource | toJson }}
 }
 
 inputs = {

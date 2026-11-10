@@ -1,9 +1,10 @@
 /**
- * The Terragrunt code a <TfModule> block runs: the unit its module's
- * template renders, in a folder named for the block, beside a root.hcl.
+ * The code a <TfModule> block runs: what the runbook's template renders, in a
+ * folder named for the block. A Terragrunt unit sits beside a root.hcl; plain
+ * OpenTofu or Terraform code runs on its own.
  */
 
-/** A file of the block's Terragrunt code, by its path in the workspace. */
+/** A file of the block's code, by its path in the workspace. */
 export interface UnitFile {
   readonly path: string
   readonly content: string
@@ -110,4 +111,12 @@ export function hasRootHcl(files: readonly RepoFile[]): boolean {
     (file) =>
       file.status === "context" && (file.path === "root.hcl" || file.path.endsWith("/root.hcl")),
   )
+}
+
+/** What runs a block's code: Terragrunt for a unit, otherwise OpenTofu or Terraform directly. */
+export type CodeTool = "terragrunt" | "tofu"
+
+/** Terragrunt when the template rendered a terragrunt.hcl at the code's top, otherwise OpenTofu. */
+export function toolFor(rendered: readonly UnitFile[]): CodeTool {
+  return rendered.some((file) => file.path === "terragrunt.hcl") ? "terragrunt" : "tofu"
 }

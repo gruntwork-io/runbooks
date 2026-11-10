@@ -48,7 +48,7 @@ const asTfModuleError = (cause: unknown) =>
  */
 const writeUnit = (request: TfModulePrPushRequest, worktree: string) =>
   Effect.gen(function* () {
-    const code = yield* renderInRepo(request.source, request.values, {
+    const code = yield* renderInRepo(request, request.values, {
       worktreePath: worktree,
       path: request.path,
       baseBranch: request.target.baseBranch,

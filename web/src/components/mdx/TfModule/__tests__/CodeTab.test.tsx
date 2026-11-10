@@ -5,6 +5,7 @@ import type { TfModuleCode } from "../../../../../../electron/shared/channels"
 
 const repoCode = (over: Partial<Extract<TfModuleCode, { kind: "repo" }>> = {}): TfModuleCode => ({
   kind: "repo",
+  tool: "terragrunt",
   folder: "google-groups/eng",
   files: [
     { path: "root.hcl", content: "remote_state {}\n", status: "context" },

@@ -104,7 +104,7 @@ function renderBlock() {
   return render(
     <TestWrapper>
       <Capture />
-      <TfModule id="group" source="google-group" />
+      <TfModule id="group" source="google-group" template="templates/google-group-unit" />
     </TestWrapper>,
   )
 }

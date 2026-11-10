@@ -22,10 +22,10 @@ describe("useUnitCode", () => {
       </ApiProvider>
     )
     const values = { id: "platform@example.com" }
-    const { rerender } = renderHook(
-      () => useUnitCode("group", "google-group", values, undefined, true),
-      { wrapper },
-    )
+    const ref = { source: "google-group", template: "templates/google-group-unit" }
+    const { rerender } = renderHook(() => useUnitCode("group", ref, values, undefined, true), {
+      wrapper,
+    })
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
 
     context = contexts[1]!

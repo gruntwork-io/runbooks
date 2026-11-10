@@ -14,9 +14,14 @@ runbooks open --simulate testdata/feature-demos/tf-module
 
 ## Describe the group
 
-<TfModule id="group" source="google-group" path="google-groups/{{ .id }}" />
+<TfModule
+  id="group"
+  source="google-group"
+  template="templates/google-group-unit"
+  path="google-groups/{{ .id }}"
+/>
 
-The **Code** tab shows the Terragrunt code that applies the module with these values, in its folder in the repository, which simulation.yml stands in for here; the **PR** tab opens a GitHub pull request that adds the code under `google-groups/` in the repository a `<GitClone>` block cloned, and the **Apply** tab plans and applies it. Merge and apply in either order. Once it applies, the module's outputs are the block's outputs, such as `{{ .outputs.group.runbooks_console_url }}`.
+The runbook decides how to use the module: [its template](./templates/google-group-unit) renders a Terragrunt unit. The **Code** tab shows that unit with these values, in its folder in the repository, which simulation.yml stands in for here; the **PR** tab opens a GitHub pull request that adds the code under `google-groups/` in the repository a `<GitClone>` block cloned, and the **Apply** tab plans and applies it. Merge and apply in either order. Once it applies, the module's outputs are the block's outputs, such as `{{ .outputs.group.runbooks_console_url }}`.
 
 ## Use the values
 

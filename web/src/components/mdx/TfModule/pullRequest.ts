@@ -25,7 +25,7 @@ export function draftBody(spec: TfModuleSpec, values: Record<string, unknown>): 
     .filter((v) => !v.sensitive && valueText(values[v.name]) !== "")
     .map((v) => `| ${v.label} | \`${valueText(values[v.name]).replace(/\|/g, "\\|")}\` |`)
   return [
-    `Adds the Terragrunt unit for **${spec.title}**, opened from a runbook.`,
+    `Adds the code for **${spec.title}**, opened from a runbook.`,
     "",
     "| Input | Value |",
     "| --- | --- |",

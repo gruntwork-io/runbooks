@@ -35,7 +35,7 @@ export function CodeFacts({ code, moduleFolder, repository }: CodeFactsProps) {
       <Fact label="Module" icon={<Package className="size-3.5" />}>
         <Module source={repo ? code.source : undefined} folder={moduleFolder} warn={repo} />
       </Fact>
-      {repo && !code.rootHcl && (
+      {repo && code.tool === "terragrunt" && !code.rootHcl && (
         <Fact label="State" icon={<Database className="size-3.5" />}>
           <span className="flex items-center gap-1.5">
             local, beside the unit

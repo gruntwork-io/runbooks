@@ -1,6 +1,6 @@
 # The TfModule Code tab
 
-The Code tab shows the Terragrunt code the module's `.boilerplate` template renders with the inputs as they are now. With a repository (a `<GitClone>` block, or the simulated one in simulation mode) it shows the unit in its folder there, among the files above it, compared with the base branch.
+The Code tab shows the code the runbook's template (the block's `template` prop) renders with the inputs as they are now: a Terragrunt unit in the demo. With a repository (a `<GitClone>` block, or the simulated one in simulation mode) it shows the unit in its folder there, among the files above it, compared with the base branch.
 
 ## Sub-features
 
@@ -9,6 +9,8 @@ The Code tab shows the Terragrunt code the module's `.boilerplate` template rend
 - A changed file opens as its diff, with a Changes / Whole file toggle; unchanged and context files say so under the code.
 - A count of inputs that need a fix, when there are any.
 - Without a repository: the unit beside a root.hcl Runbooks writes, and "none: add a GitClone block".
+- A plain OpenTofu template (one with no terragrunt.hcl): the code shows without a root.hcl, opens on its main.tf, and Apply runs `tofu init`, `plan` and `apply`.
+- A missing or wrong `template` prop: the block, or the Code tab, says what to set.
 
 ## How to get to it (user POV)
 
@@ -22,6 +24,8 @@ Fill the form and press Next, or click the Code tab.
 4. `$C click treeitem:root.hcl --within group`. Check: the note says it's already on main and shown for context.
 5. Changed file: `$C setup scenario group-exists`, back to Code. Check: terragrunt.hcl marked M and shown as a diff (old ref, Platform, bo@ removed); `$C click button:"Whole file" --within group` shows it whole.
 6. Inputs change follows: `$C click tab:UI --within group`, `$C fill Security --label Name --exact --within group`, back to Code. Check: the diff shows the new name.
+
+7. Plain OpenTofu: copy the demo runbook to a scratch folder, add a `templates/google-group-tofu/` with a `main.tf` that calls the module with `{{ .ModuleSource | toJson }}` and a `boilerplate.yml`, point `template` at it, and `$C up` that copy. Check: the Code tab shows `main.tf` and no root.hcl, and the State warning doesn't show.
 
 Proof: the PR tab's "What files will be committed?" lists exactly the files the tree marks A or M.
 

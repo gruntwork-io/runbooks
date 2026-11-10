@@ -322,7 +322,7 @@ export function PullRequestTab({
               ) : (
                 <>
                   <p className="m-0">
-                    The Terragrunt code from the Code tab that's new or changed in{" "}
+                    The code from the Code tab that's new or changed in{" "}
                     <code className="rounded bg-muted px-1 py-0.5 font-mono">{path}/</code>. Click a
                     file to see it.
                   </p>
