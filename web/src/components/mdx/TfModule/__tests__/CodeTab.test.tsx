@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { CodeTab } from "../components/CodeTab"
 import type { TfModuleCode } from "../../../../../../electron/shared/channels"
 
@@ -36,6 +36,20 @@ const renderTab = (code: TfModuleCode, selected?: string) =>
   )
 
 describe("CodeTab in a repository", () => {
+  it("shows the tree and the file full screen, and back", () => {
+    renderTab(repoCode())
+    fireEvent.click(screen.getByRole("button", { name: "Show the code full screen" }))
+    const dialog = screen.getByRole("dialog")
+    expect(
+      within(dialog).getByText("acme/infrastructure-live: google-groups/eng"),
+    ).toBeInTheDocument()
+    expect(within(dialog).getByRole("treeitem", { name: /terragrunt\.hcl/ })).toBeInTheDocument()
+    expect(within(dialog).queryByRole("button", { name: "Show the code full screen" })).toBeNull()
+    fireEvent.keyDown(dialog, { key: "Escape" })
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(screen.getByRole("button", { name: "Show the code full screen" })).toBeInTheDocument()
+  })
+
   it("lists the repository, the branch, and the module, linked to GitHub", () => {
     renderTab(repoCode())
     expect(screen.getByText("acme/infrastructure-live")).toBeInTheDocument()

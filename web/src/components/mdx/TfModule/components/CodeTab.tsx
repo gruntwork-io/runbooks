@@ -1,6 +1,11 @@
 import { useState } from "react"
-import { Loader2, TriangleAlert } from "lucide-react"
-import { CodeFile } from "@/components/artifacts/code/CodeFile"
+import { Check, Copy, Loader2, Maximize2, TriangleAlert } from "lucide-react"
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
+import { coy } from "react-syntax-highlighter/dist/esm/styles/prism"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
+import { PRISM_LINE_NUMBER_STYLE } from "@/lib/prismStyles"
+import { cn } from "@/lib/utils"
 import { DiffTable } from "@/components/artifacts/code/DiffTable"
 import {
   FileTree,
@@ -118,6 +123,9 @@ export function CodeTab({
   selected,
   onSelect,
 }: CodeTabProps) {
+  const [maximized, setMaximized] = useState(false)
+  // Whether a changed file shows whole rather than as its changes, the same full screen or not.
+  const [whole, setWhole] = useState(false)
   const files: readonly UnitFile[] = code?.files ?? []
   const tree = treeOf(files)
   const folders = foldersOf(files)
@@ -153,53 +161,97 @@ export function CodeTab({
     folder: "Holds files this code adds or changes",
   }
 
+  const browser = (inDialog: boolean) => (
+    <div
+      className={cn(
+        "flex flex-col gap-3 md:flex-row",
+        inDialog ? "min-h-0 flex-1" : "md:h-[26rem]",
+      )}
+    >
+      <div className="flex shrink-0 flex-col overflow-hidden rounded-md border border-border bg-card md:w-64">
+        <div className="min-h-0 flex-1 overflow-auto py-1 pr-2">
+          <FileTree
+            items={tree}
+            selectedId={shown.path}
+            defaultExpandedIds={folders}
+            changes={changes}
+            changeLabels={labels}
+            onItemClick={(item) => {
+              if (item.type === "file") onSelect(item.id)
+            }}
+          />
+        </div>
+        {code.kind === "repo" && (
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+            <span>
+              <span className="font-semibold text-success">A</span> new
+            </span>
+            <span>
+              <span className="font-semibold text-warning-foreground">M</span> changed
+            </span>
+            <span className="opacity-60">dimmed: context</span>
+          </div>
+        )}
+      </div>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-1.5" data-testid="tf-module-code">
+        <ShownFile
+          file={shown}
+          base={base}
+          whole={whole}
+          onWholeChange={setWhole}
+          onMaximize={inDialog ? undefined : () => setMaximized(true)}
+        />
+      </div>
+    </div>
+  )
+
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <CodeFacts code={code} moduleFolder={moduleFolder} repository={repository} />
       {errorCount > 0 && (
-        <p className="flex items-center gap-1.5 text-sm text-warning-foreground">
+        <p className="m-0 flex items-center gap-1.5 text-sm text-warning-foreground">
           <TriangleAlert className="size-4" />
           {errorCount === 1 ? "1 input needs a fix" : `${errorCount} inputs need a fix`} on the UI
           tab, so this code isn't ready to apply.
         </p>
       )}
-      <div className="flex flex-col gap-3 md:flex-row">
-        <div className="flex shrink-0 flex-col rounded-md border border-border bg-card md:w-60">
-          <div className="flex-1 overflow-x-auto py-1">
-            <FileTree
-              items={tree}
-              selectedId={shown.path}
-              defaultExpandedIds={folders}
-              changes={changes}
-              changeLabels={labels}
-              onItemClick={(item) => {
-                if (item.type === "file") onSelect(item.id)
-              }}
-            />
-          </div>
-          {code.kind === "repo" && (
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5 border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
-              <span>
-                <span className="font-semibold text-success">A</span> new
-              </span>
-              <span>
-                <span className="font-semibold text-warning-foreground">M</span> changed
-              </span>
-              <span className="opacity-60">dimmed: context</span>
-            </div>
-          )}
-        </div>
-        <div className="min-w-0 flex-1" data-testid="tf-module-code">
-          <ShownFile file={shown} base={base} />
-        </div>
-      </div>
+      {!maximized && browser(false)}
+      <Dialog open={maximized} onOpenChange={setMaximized}>
+        <DialogContent className="flex h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-none flex-col gap-3 p-4 sm:max-w-none">
+          <DialogTitle className="pr-8 text-base">
+            Code
+            <span className="ml-2 font-mono text-sm font-normal text-muted-foreground">
+              {code.kind === "repo"
+                ? `${repository?.name ?? "repository"}: ${code.folder}`
+                : "workspace"}
+            </span>
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            The code this block runs, full screen.
+          </DialogDescription>
+          {browser(true)}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
-/** The picked file: a modified file as its changes or as a whole, and a note on files it leaves alone. */
-function ShownFile({ file, base }: { file: UnitFile; base: string }) {
-  const [whole, setWhole] = useState(false)
+/** The picked file, as its changes or as a whole, with a note on files the code leaves alone. */
+function ShownFile({
+  file,
+  base,
+  whole,
+  onWholeChange: setWhole,
+  onMaximize,
+}: {
+  file: UnitFile
+  base: string
+  whole: boolean
+  onWholeChange: (whole: boolean) => void
+  /** Shows the code full screen; none when it already is. */
+  onMaximize?: (() => void) | undefined
+}) {
+  const { didCopy, copy } = useCopyToClipboard(2000)
   const status = "status" in file ? (file as RepoFile).status : undefined
   const before = "before" in file ? (file as RepoFile).before : undefined
   const diff = before === undefined ? undefined : diffDiskContents(before, file.content)
@@ -210,45 +262,91 @@ function ShownFile({ file, base }: { file: UnitFile; base: string }) {
         ? `Already on ${base} as it is here.`
         : undefined
 
-  const toggle = diff && (
-    <div className="flex shrink-0 items-center gap-1 text-xs" role="group" aria-label="Show">
-      {[
-        { label: "Changes", value: false },
-        { label: "Whole file", value: true },
-      ].map((option) => (
-        <button
-          key={option.label}
-          type="button"
-          aria-pressed={whole === option.value}
-          onClick={() => setWhole(option.value)}
-          className={`whitespace-nowrap rounded px-2 py-0.5 font-medium ${
-            whole === option.value
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  )
+  const iconButton = "rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
 
-  // The tree and the file start at the same height; what's said about the file goes under it.
+  // The tree and the file share a top and a bottom; what's said about the file goes under it.
   return (
-    <div className="space-y-1.5">
-      {diff && !whole ? (
-        <div className="overflow-x-auto rounded-md border border-border bg-card">
-          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
-            <span className="truncate font-mono text-xs text-muted-foreground">{file.path}</span>
-            {toggle}
-          </div>
-          <DiffTable diffLines={diff} />
+    <>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-card">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5">
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+            {file.path}
+          </span>
+          {diff && (
+            <div
+              className="flex shrink-0 items-center gap-1 text-xs"
+              role="group"
+              aria-label="Show"
+            >
+              {[
+                { label: "Changes", value: false },
+                { label: "Whole file", value: true },
+              ].map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  aria-pressed={whole === option.value}
+                  onClick={() => setWhole(option.value)}
+                  className={`whitespace-nowrap rounded px-2 py-0.5 font-medium ${
+                    whole === option.value
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            className={iconButton}
+            aria-label={didCopy ? "Copied" : "Copy the file"}
+            title={didCopy ? "Copied" : "Copy the file"}
+            onClick={() => void copy(file.content)}
+          >
+            {didCopy ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+          </button>
+          {onMaximize && (
+            <button
+              type="button"
+              className={iconButton}
+              aria-label="Show the code full screen"
+              title="Show the code full screen"
+              onClick={onMaximize}
+            >
+              <Maximize2 className="size-3.5" />
+            </button>
+          )}
         </div>
-      ) : (
-        <CodeFile fileName={file.path} code={file.content} language={languageOf(file.path)} />
-      )}
-      {diff && whole && <div className="flex justify-end">{toggle}</div>}
-      {note && <p className="m-0 text-xs text-muted-foreground">{note}</p>}
-    </div>
+        <div className="min-h-0 flex-1 overflow-auto">
+          {diff && !whole ? (
+            <DiffTable diffLines={diff} />
+          ) : (
+            <SyntaxHighlighter
+              language={languageOf(file.path)}
+              style={coy}
+              showLineNumbers
+              customStyle={{
+                margin: 0,
+                padding: "10px 0",
+                fontSize: "12px",
+                background: "transparent",
+                border: "none",
+                overflow: "visible",
+              }}
+              // The pane scrolls, so the code inside it doesn't scroll on its own.
+              codeTagProps={{
+                style: { overflow: "visible", display: "block", background: "transparent" },
+              }}
+              lineNumberStyle={PRISM_LINE_NUMBER_STYLE}
+            >
+              {file.content}
+            </SyntaxHighlighter>
+          )}
+        </div>
+      </div>
+      {note && <p className="m-0 shrink-0 text-xs text-muted-foreground">{note}</p>}
+    </>
   )
 }
