@@ -21,6 +21,7 @@ import type {
   TofuModuleShortcut,
   TofuModuleSpec,
   TofuModuleVariable,
+  TofuModulePullRequest,
 } from "./types.ts"
 import { interpretValidations, type TfValidation } from "./validations.ts"
 import { rowTemplateError, templateFields } from "./rowTemplate.ts"
@@ -321,6 +322,7 @@ export interface ModuleMetadata {
   readonly logo?: string
   readonly variables: Readonly<Record<string, VariableMetadata>>
   readonly outputs: Readonly<Record<string, OutputMetadata>>
+  readonly pullRequest?: TofuModulePullRequest
   readonly warnings: readonly string[]
 }
 
@@ -360,7 +362,13 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
   if (!isRecord(raw)) throw new TofuModuleError({ message: `${METADATA_FILE} must be a map.` })
 
   const problems = new Problems()
-  problems.unknownKeys(METADATA_FILE, raw, ["version", "block", "variables", "outputs"])
+  problems.unknownKeys(METADATA_FILE, raw, [
+    "version",
+    "block",
+    "variables",
+    "outputs",
+    "pullRequest",
+  ])
   if (raw.version !== undefined && !METADATA_VERSIONS.has(raw.version as number)) {
     throw new TofuModuleError({
       message: `${METADATA_FILE} is version ${JSON.stringify(raw.version)}, which this version of Runbooks can't read. Update Runbooks.`,
@@ -442,6 +450,16 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     }
   }
 
+  const rawPullRequest = isRecord(raw.pullRequest) ? raw.pullRequest : {}
+  problems.unknownKeys("pullRequest", rawPullRequest, ["title", "description"])
+  const pullRequest: TofuModulePullRequest = {}
+  for (const key of ["title", "description"] as const) {
+    const template = optionalString(rawPullRequest[key], `pullRequest.${key}`, problems)
+    const templateError = template === undefined ? undefined : rowTemplateError(template)
+    if (templateError) problems.errors.push(`pullRequest.${key}: ${templateError}`)
+    if (template) Object.assign(pullRequest, { [key]: template })
+  }
+
   if (problems.errors.length > 0) {
     throw new TofuModuleError({ message: `${METADATA_FILE}: ${problems.errors.join(" ")}` })
   }
@@ -451,6 +469,7 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     ...(logo ? { logo } : {}),
     variables,
     outputs,
+    ...(Object.keys(pullRequest).length > 0 ? { pullRequest } : {}),
     warnings: problems.warnings,
   }
 }
@@ -551,6 +570,15 @@ export function buildSpec(input: BuildSpecInput): TofuModuleSpec {
     }
   }
 
+  for (const [key, template] of Object.entries(input.metadata.pullRequest ?? {})) {
+    const missing = templateFields(template).filter((field) => !declared.has(field))
+    if (missing.length > 0) {
+      throw new TofuModuleError({
+        message: `${METADATA_FILE}: pullRequest.${key} reads ${missing.map((field) => `"${field}"`).join(", ")}, which variables.tf doesn't declare.`,
+      })
+    }
+  }
+
   // A module whose runbooks.yml picks no primary inputs shows the ones it
   // can't do without first.
   const anyPrimary = Object.values(input.metadata.variables).some((meta) => meta.primary)
@@ -611,6 +639,7 @@ export function buildSpec(input: BuildSpecInput): TofuModuleSpec {
       }
     }),
     variables,
+    ...(input.metadata.pullRequest ? { pullRequest: input.metadata.pullRequest } : {}),
     warnings: input.metadata.warnings,
   }
 }

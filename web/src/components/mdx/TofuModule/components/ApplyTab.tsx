@@ -23,7 +23,7 @@ import type {
   ResourceAction,
   ResourceProgress,
 } from "../../../../../../src/domain/tofu-module/run"
-import type { LogLine, RunState, RunStep } from "../hooks/useTofuRun"
+import type { RunState, RunStep } from "../hooks/useTofuRun"
 import {
   filterRows,
   isUnknown,
@@ -33,9 +33,7 @@ import {
   type PropertyRow,
 } from "../propertyRows"
 import { LAYOUTS, PropertyView, type PropertyLayout } from "./PropertyViews"
-
-/** The lines of the log shown while it's folded. */
-const LOG_TAIL = 6
+import { LogView } from "./LogView"
 
 const ACTIONS: Record<ResourceAction, { label: string; className: string }> = {
   create: { label: "create", className: "bg-success/15 text-success" },
@@ -303,46 +301,6 @@ function ResourceList({
   )
 }
 
-/** Terragrunt's log, folded to its last lines until opened. */
-function LogView({ log, running }: { log: readonly LogLine[]; running: boolean }) {
-  const [open, setOpen] = useState(false)
-  if (log.length === 0) return null
-  const shown = open ? log : log.slice(-LOG_TAIL)
-  return (
-    <div className="rounded-md border border-border bg-card">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground"
-      >
-        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-        {open ? "Terragrunt log" : `Terragrunt log (${log.length} lines)`}
-        {running && <Loader2 className="size-3 animate-spin" />}
-      </button>
-      <pre
-        data-testid="tofu-module-log"
-        className="max-h-72 overflow-auto border-t border-border px-3 py-2 font-mono text-xs leading-relaxed"
-      >
-        {shown.map((entry, i) => (
-          <div
-            key={i}
-            className={
-              entry.level === "error"
-                ? "text-destructive"
-                : entry.level === "warn"
-                  ? "text-warning-foreground"
-                  : "text-foreground/80"
-            }
-          >
-            {entry.line}
-          </div>
-        ))}
-      </pre>
-    </div>
-  )
-}
-
 function CopyValue({ text }: { text: string }) {
   const { didCopy, copy } = useCopyToClipboard()
   return (
@@ -603,7 +561,7 @@ export function ApplyTab({
         </div>
       )}
 
-      <LogView log={state.log} running={running} />
+      <LogView title="Terragrunt log" log={state.log} running={running} />
     </div>
   )
 }

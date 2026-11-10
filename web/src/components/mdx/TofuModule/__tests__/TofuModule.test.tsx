@@ -7,6 +7,10 @@ import type { RunbookContextType } from "@/contexts/RunbookContext"
 import type { TofuModuleSpec } from "../../../../../../src/domain/tofu-module/types"
 import TofuModule from "../TofuModule"
 
+vi.mock("@/contexts/useGitWorkTree", () => ({
+  useGitWorkTree: () => ({ activeWorkTree: null, workTrees: [] }),
+}))
+
 const spec: TofuModuleSpec = {
   title: "Google group",
   description: "A Google Workspace group.",

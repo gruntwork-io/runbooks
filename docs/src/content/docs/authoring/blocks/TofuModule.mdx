@@ -13,11 +13,12 @@ The `<TofuModule>` block renders a form for an OpenTofu module's inputs. The for
 - The module's `variables.tf` gives each input's name, type, default, and validation.
 - An optional `runbooks.yml` beside it says how to present them: labels, which inputs come first, what each option means, presets, and lookups that suggest values.
 
-The block has three tabs:
+The block has four tabs:
 
 - **UI** is the form. Its values are published like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`.
 - **Code** shows the Terragrunt code that applies the module with those values, as a small file tree. It changes as the values do.
 - **Apply** runs that code with Terragrunt: a plan whose resources open to show their properties, then an apply that shows each resource as it's made. Afterwards it lists what the apply made and the module's outputs, which become the block's outputs.
+- **PR** opens a GitHub pull request that adds that code to a cloned repository, pushes later changes to it, and merges it. See [Pull request](#pull-request).
 
 ## Basic usage
 
@@ -38,6 +39,7 @@ The block has three tabs:
 |------|------|---------|-------------|
 | `id` | `string` | required | Unique identifier for this block. Other blocks name it in `inputsId` |
 | `source` | `string` | required | The module's folder, relative to the runbook. It must be inside the runbook's folder |
+| `path` | `string` | the block's `id` | Where the **PR** tab puts the Terragrunt code in the cloned repository: a folder, as a template over the form's values, such as `google-groups/{{ .id }}` |
 
 ## How the form is built
 
@@ -121,6 +123,8 @@ outputs:
 | `outputs.<name>.label` | The output's label on the **Apply** tab. Without it, the name with its first letter capitalized |
 | `outputs.<name>.description` | Replaces the output's description from the module |
 | `outputs.<name>.link` | Shows the output's value, an `https:` URL, as a link with this text. Any other `https:` value shows as a link to itself |
+| `pullRequest.title` | A template over the form's values that starts the pull request's title on the **PR** tab. Without it, the block's title |
+| `pullRequest.description` | A template over the form's values that starts the pull request's description. Without it, a table of the inputs that have a value, leaving out sensitive ones |
 
 ## Code and Apply
 
@@ -133,6 +137,17 @@ The **Apply** tab runs that code in the session's `.runbooks/tofu-module/<id>/` 
 3. When it's done, the block lists the resources in the state and the module's outputs, and publishes the outputs as its own, for `{{ .outputs.<id>.<output> }}`. A sensitive output stays hidden until you show it.
 
 Terragrunt and OpenTofu must be on your `PATH`. They run with the session's environment, so they use the credentials an auth block put there.
+
+## Pull request
+
+The **PR** tab opens a GitHub pull request that adds the block's Terragrunt code to a repository, so the change is reviewed and kept with the rest of your infrastructure code. It needs a `<GitHubAuth>` block to sign in and a `<GitClone>` block to clone the repository first, and it targets the branch the clone checked out.
+
+1. The tab shows the files it adds under `path`, the rendered unit without the `root.hcl` the Apply tab writes, since the repository has its own. The title, branch and description start from the module's `pullRequest` templates and follow the form until you edit them.
+2. **Push and open pull request** writes the files into the clone, commits every change in it to a new branch, pushes the branch, and opens the pull request.
+3. If the inputs change while it's open, **Push changes** commits the code as it is now to the same branch.
+4. **Merge pull request** merges it with the method you pick: squash, a merge commit, or rebase.
+
+Apply from the **Apply** tab before or after the merge, whichever your team's process asks for. In simulation mode nothing is pushed: the tab answers as GitHub would, for a repository named `acme/infrastructure-live` when no `<GitClone>` block cloned one.
 
 ## Lookups
 

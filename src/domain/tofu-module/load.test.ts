@@ -201,6 +201,11 @@ describe("loadModule", () => {
       expect(await failure(dir)).toContain(`the outputs "url", which the module doesn't declare`)
     })
 
+    it("whose pull request title reads an input variables.tf doesn't declare", async () => {
+      write("runbooks.yml", 'pullRequest:\n  title: "Add {{ .nmae }}"\n')
+      expect(await failure(dir)).toContain(`pullRequest.title reads "nmae"`)
+    })
+
     it("whose runbooks.yml names a file outside the module", async () => {
       write("runbooks.yml", "variables:\n  name:\n    presets: ../../etc/passwd\n")
       expect(await failure(dir)).toContain("outside the module")

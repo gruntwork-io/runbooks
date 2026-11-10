@@ -52,7 +52,7 @@ const TERRAGRUNT_INSTALL = "https://terragrunt.gruntwork.io/docs/getting-started
 /** Runs that can be cancelled, by run id. */
 const activeRuns = new Map<string, AbortController>()
 
-const fail = (message: string) => new TofuModuleError({ message })
+export const fail = (message: string) => new TofuModuleError({ message })
 
 const moduleDir = (source: string) =>
   Effect.gen(function* () {
@@ -65,7 +65,7 @@ const moduleDir = (source: string) =>
   })
 
 /** The block's Terragrunt code: the module's template rendered with its inputs, and a root.hcl. */
-const renderUnit = (source: string, blockId: string, values: Record<string, unknown>) =>
+export const renderUnit = (source: string, blockId: string, values: Record<string, unknown>) =>
   Effect.gen(function* () {
     const dir = yield* moduleDir(source)
     const templateDir = path.join(dir, TEMPLATE_DIR)
@@ -212,7 +212,7 @@ const simulatedModule = (blockId: string) =>
     return answer
   })
 
-const pause = (ms: number, signal: AbortSignal) =>
+export const pause = (ms: number, signal: AbortSignal) =>
   Effect.promise(
     () =>
       new Promise<void>((resolve) => {
@@ -309,7 +309,7 @@ function simulateApply(
 }
 
 /** Starts a cancellable run that streams its events to the block. */
-function startRun(sender: WebContents, runId: string) {
+export function startRun(sender: WebContents, runId: string) {
   activeRuns.get(runId)?.abort()
   const controller = new AbortController()
   activeRuns.set(runId, controller)

@@ -19,7 +19,11 @@ import { ModuleField } from "./components/ModuleField"
 import { ModuleLogo } from "./components/ModuleLogo"
 import { CodeTab } from "./components/CodeTab"
 import { ApplyTab } from "./components/ApplyTab"
+import { PullRequestTab } from "./components/PullRequestTab"
 import { useTofuRun } from "./hooks/useTofuRun"
+import { usePullRequest, type PullRequestTarget } from "./hooks/usePullRequest"
+import { unitPath } from "./pullRequest"
+import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import {
   formErrors,
   formValue,
@@ -41,18 +45,29 @@ import { valuesFromPick } from "./lookupRows"
  * <Inputs> block's, so a <Template> or <Command> uses them through `inputsId`.
  *
  * Its Code tab shows the Terragrunt code the module's template renders with
- * those values, and its Apply tab plans and applies it. The module's outputs
- * become the block's outputs once it applies.
+ * those values, its Apply tab plans and applies it, and its PR tab opens a
+ * GitHub pull request that adds the code to the repository a <GitClone> block
+ * cloned. The module's outputs become the block's outputs once it applies.
  *
  * @param props.id - Unique identifier for this block (required)
  * @param props.source - The module's folder, relative to the runbook
+ * @param props.path - Where the code goes in the cloned repository, a template
+ *   over the inputs such as `groups/{{ .id }}`; the block's id by default
  */
 interface TofuModuleProps {
   id: string
   source: string
+  path?: string
 }
 
-function TofuModule({ id, source }: TofuModuleProps) {
+/** The repository a simulated pull request goes to, when no <GitClone> block cloned one. */
+const SIMULATED_TARGET: PullRequestTarget = {
+  owner: "acme",
+  repo: "infrastructure-live",
+  baseBranch: "main",
+}
+
+function TofuModule({ id, source, path }: TofuModuleProps) {
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
@@ -115,6 +130,7 @@ function TofuModule({ id, source }: TofuModuleProps) {
       <TofuModuleForm
         id={id}
         source={source}
+        path={path}
         spec={spec}
         initialData={initialData}
         hasSubmitted={hasSubmitted}
@@ -125,17 +141,19 @@ function TofuModule({ id, source }: TofuModuleProps) {
   )
 }
 
-type Tab = "ui" | "code" | "apply"
+type Tab = "ui" | "code" | "apply" | "pr"
 
 const TABS: { tab: Tab; label: string }[] = [
   { tab: "ui", label: "UI" },
   { tab: "code", label: "Code" },
   { tab: "apply", label: "Apply" },
+  { tab: "pr", label: "PR" },
 ]
 
 interface TofuModuleFormProps {
   id: string
   source: string
+  path?: string | undefined
   spec: TofuModuleSpec
   initialData: FormValues
   hasSubmitted: boolean
@@ -146,12 +164,14 @@ interface TofuModuleFormProps {
 function TofuModuleForm({
   id,
   source,
+  path,
   spec,
   initialData,
   hasSubmitted,
   onAutoUpdate,
   onSubmit,
 }: TofuModuleFormProps) {
+  const { activeWorkTree } = useGitWorkTree()
   const { state: simulation } = useSimulation()
   const { registerOutputs } = useRunbookContext()
   const [tab, setTab] = useState<Tab>("ui")
@@ -221,6 +241,22 @@ function TofuModuleForm({
   const errorCount = Object.keys(errors).length
   const published = publishedValues(spec, values)
   const run = useTofuRun(id, source, published)
+  const repoPath = unitPath(path, id, published)
+  const pr = usePullRequest(id, source, published, repoPath)
+  const prTarget: PullRequestTarget | undefined = activeWorkTree
+    ? {
+        worktreePath: activeWorkTree.localPath,
+        owner: activeWorkTree.gitInfo.repoOwner,
+        repo: activeWorkTree.gitInfo.repoName,
+        baseBranch: activeWorkTree.gitInfo.ref,
+      }
+    : simulation.enabled
+      ? SIMULATED_TARGET
+      : undefined
+  const blocked =
+    errorCount > 0
+      ? `${errorCount === 1 ? "1 input needs" : `${errorCount} inputs need`} a fix on the UI tab first.`
+      : undefined
 
   const apply = async () => {
     const result = await run.apply()
@@ -313,15 +349,32 @@ function TofuModuleForm({
           state={run.state}
           stale={run.stale}
           simulated={simulation.enabled}
-          blocked={
-            errorCount > 0
-              ? `${errorCount === 1 ? "1 input needs" : `${errorCount} inputs need`} a fix on the UI tab first.`
-              : undefined
-          }
+          blocked={blocked}
           outputs={spec.outputs}
           onPlan={() => void run.plan()}
           onApply={() => void apply()}
           onCancel={run.cancel}
+        />
+      </div>
+
+      <div
+        role="tabpanel"
+        id={`${id}-panel-pr`}
+        aria-labelledby={`${id}-tab-pr`}
+        hidden={tab !== "pr"}
+      >
+        <PullRequestTab
+          blockId={id}
+          source={source}
+          spec={spec}
+          values={published}
+          path={repoPath}
+          target={prTarget}
+          simulated={simulation.enabled}
+          blocked={blocked}
+          applyPhase={run.state.phase}
+          pr={pr}
+          visible={tab === "pr"}
         />
       </div>
 

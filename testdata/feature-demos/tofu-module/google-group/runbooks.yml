@@ -67,3 +67,6 @@ outputs:
   console_url:
     label: Admin console
     link: View the Google Group
+
+pullRequest:
+  title: "Add the {{ .id }} Google group"

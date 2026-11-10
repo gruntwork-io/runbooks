@@ -13,7 +13,12 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect, Layer } from "effect"
-import { createPullRequest, createMergeRequest } from "./operations.ts"
+import {
+  createPullRequest,
+  createMergeRequest,
+  mergePullRequest,
+  pushToPullRequest,
+} from "./operations.ts"
 import type { CreatePullRequestParams } from "./operations.ts"
 import { makeTestLayer, makeTestGitHubClient } from "../../test-utils/TestLayer.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
@@ -43,6 +48,45 @@ const openedPr = (p: CreatePRParams) =>
 // ---------------------------------------------------------------------------
 // runGitSteps: guard and resume
 // ---------------------------------------------------------------------------
+
+describe("pushToPullRequest and mergePullRequest", () => {
+  it("commits to the open pull request's branch and pushes, without opening another", async () => {
+    const steps: string[] = []
+    const layer = makeTestLayer({
+      git: {
+        getCurrentBranch: () => Effect.succeed("runbook/123"),
+        status: () => Effect.succeed([{ path: "unit/terragrunt.hcl", status: "M" }]),
+        stageAll: () => Effect.sync(() => void steps.push("stageAll")),
+        commit: () => Effect.sync(() => void steps.push("commit")),
+        push: () => Effect.sync(() => void steps.push("push")),
+      },
+      github: { createPullRequest: () => Effect.die("must not open a pull request") },
+    })
+    await Effect.runPromise(pushToPullRequest("tok", params).pipe(Effect.provide(layer)))
+    expect(steps).toEqual(["stageAll", "commit", "push"])
+  })
+
+  it("merges on the pull request's own host, with the chosen method", async () => {
+    const calls: unknown[][] = []
+    const layer = makeTestLayer({
+      github: {
+        mergePullRequest: (...args) =>
+          Effect.sync(() => void calls.push(args)).pipe(Effect.as({ sha: "abc1234" })),
+      },
+    })
+    const merged = await Effect.runPromise(
+      mergePullRequest("tok", {
+        owner: "acme",
+        repo: "infra",
+        number: 42,
+        method: "squash",
+        host: "ghe.example.com",
+      }).pipe(Effect.provide(layer)),
+    )
+    expect(merged).toEqual({ sha: "abc1234" })
+    expect(calls).toEqual([["tok", "acme", "infra", 42, "squash", "ghe.example.com"]])
+  })
+})
 
 describe("runGitSteps", () => {
   it("resumes on the head branch when HEAD is already on it: no checkout -b, commits what is staged, pushes", async () => {

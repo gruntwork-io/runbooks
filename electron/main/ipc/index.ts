@@ -34,6 +34,7 @@ import { registerWatchHandlers } from "./watch.ts"
 import { registerThemeHandlers } from "./theme.ts"
 import { registerTofuModuleHandlers } from "./tofu-module.ts"
 import { registerTofuModuleRunHandlers } from "./tofu-module-run.ts"
+import { registerTofuModulePrHandlers } from "./tofu-module-pr.ts"
 import { registerSimulationHandlers } from "./simulation.ts"
 import { withVcs } from "./vcs-tristate.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
@@ -92,6 +93,7 @@ export function registerAllIpcHandlers(): void {
   registerThemeHandlers()
   registerTofuModuleHandlers()
   registerTofuModuleRunHandlers()
+  registerTofuModulePrHandlers()
   registerSimulationHandlers()
   registerVcsStatusHandler()
 }

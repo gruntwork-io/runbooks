@@ -16,6 +16,7 @@ import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { TofuModuleSpec } from "../../src/domain/tofu-module/types.ts"
 import type { ApplyResult, PlanResult, RunEvent } from "../../src/domain/tofu-module/run.ts"
 import type { UnitFile } from "../../src/domain/tofu-module/unit.ts"
+import type { MergeMethod } from "../../src/services/GitHubClient.ts"
 
 /** What session:switch did. */
 export type SessionSwitchResult =
@@ -214,6 +215,12 @@ export interface IpcChannelMap {
   /** Applies the plan the last `tofu-module:plan` saved, streaming `tofu-module:event`. */
   "tofu-module:apply": { params: TofuModuleRunRequest; result: ApplyResult }
   "tofu-module:cancel": { params: { runId: string }; result: { ok: true } }
+  /** Commits the block's unit to a new branch of the cloned repo, pushes it, and opens a pull request. */
+  "tofu-module:pr-open": { params: TofuModulePrOpenRequest; result: TofuModulePullRequestResult }
+  /** Commits the unit as the inputs are now to the pull request's branch, and pushes it. */
+  "tofu-module:pr-push": { params: TofuModulePrPushRequest; result: { ok: true } }
+  /** Merges the block's pull request. */
+  "tofu-module:pr-merge": { params: TofuModulePrMergeRequest; result: { sha: string } }
   /** Whether the app answers from simulation.yml, and its scenarios. */
   "simulation:state": { params: void; result: SimulationState }
   /** Picks the scenario lookups answer from. */
@@ -1108,6 +1115,43 @@ export interface TofuModuleRenderRequest {
 export interface TofuModuleRunRequest extends TofuModuleRenderRequest {
   /** Names the run, for its events and for `tofu-module:cancel`. */
   runId: string
+}
+
+/** The repository a <TofuModule> block's pull request goes to. */
+export interface TofuModulePrTarget {
+  /** The repository's checkout in the session; none in simulation. */
+  worktreePath?: string | undefined
+  owner: string
+  repo: string
+  /** The branch the pull request merges into. */
+  baseBranch: string
+}
+
+export interface TofuModulePrPushRequest extends TofuModuleRunRequest {
+  target: TofuModulePrTarget
+  /** Where the unit's files go in the repository. */
+  path: string
+  branch: string
+  title: string
+  commitMessage: string
+}
+
+export interface TofuModulePrOpenRequest extends TofuModulePrPushRequest {
+  body: string
+}
+
+export interface TofuModulePrMergeRequest {
+  runId: string
+  blockId: string
+  target: TofuModulePrTarget
+  number: number
+  method: MergeMethod
+}
+
+export interface TofuModulePullRequestResult {
+  url: string
+  number: number
+  branch: string
 }
 
 export interface TofuModuleLookupRequest {

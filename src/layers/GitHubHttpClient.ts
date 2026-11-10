@@ -13,6 +13,7 @@ import type {
   GitHubRef,
   CreatePRParams,
   PullRequestResult,
+  MergeMethod,
 } from "../services/GitHubClient.ts"
 import { GitHubApiError } from "../errors/index.ts"
 import { errorMessage } from "../errors/message.ts"
@@ -426,6 +427,31 @@ const impl: GitHubClientShape = {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ labels }),
         })
+      },
+      catch: toGitHubApiError,
+    }),
+
+  mergePullRequest: (
+    token: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    method: MergeMethod,
+    host?: string,
+  ) =>
+    Effect.tryPromise({
+      try: async () => {
+        const API_BASE = apiBaseFor(host)
+        const data = await githubJson<{ sha: string }>(
+          `${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}/merge`,
+          {
+            method: "PUT",
+            token,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ merge_method: method }),
+          },
+        )
+        return { sha: data.sha }
       },
       catch: toGitHubApiError,
     }),

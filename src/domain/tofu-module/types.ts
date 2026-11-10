@@ -128,6 +128,14 @@ export interface TofuModuleSpec {
   readonly outputs: readonly TofuModuleOutput[]
   /** In the order runbooks.yml lists them, then the rest in the order variables.tf declares them. */
   readonly variables: readonly TofuModuleVariable[]
+  /** Templates over the form's values that start the pull request the block opens. */
+  readonly pullRequest?: TofuModulePullRequest
   /** Problems in runbooks.yml that don't stop the form, such as a key Runbooks doesn't know. */
   readonly warnings: readonly string[]
+}
+
+/** How the module's runbooks.yml starts a pull request, as templates over the form's values. */
+export interface TofuModulePullRequest {
+  readonly title?: string
+  readonly description?: string
 }

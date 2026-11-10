@@ -76,6 +76,9 @@ export interface PullRequestResult {
   readonly branch: string
 }
 
+/** How GitHub merges a pull request's commits into its base branch. */
+export type MergeMethod = "merge" | "squash" | "rebase"
+
 export type GitHubTokenType =
   | "classic_pat"
   | "fine_grained_pat"
@@ -144,6 +147,15 @@ export interface GitHubClientShape {
     labels: string[],
     host?: string,
   ) => Effect.Effect<void, GitHubApiError>
+  /** Merges a pull request; resolves to the merge commit's sha. */
+  readonly mergePullRequest: (
+    token: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    method: MergeMethod,
+    host?: string,
+  ) => Effect.Effect<{ readonly sha: string }, GitHubApiError>
 }
 
 export class GitHubClient extends Context.Service<GitHubClient, GitHubClientShape>()(

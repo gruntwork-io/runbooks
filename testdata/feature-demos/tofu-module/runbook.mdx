@@ -14,9 +14,9 @@ runbooks open --simulate testdata/feature-demos/tofu-module
 
 ## Describe the group
 
-<TofuModule id="group" source="google-group" />
+<TofuModule id="group" source="google-group" path="google-groups/{{ .id }}" />
 
-The **Code** tab shows the Terragrunt code that applies the module with these values, and the **Apply** tab plans and applies it. Once it applies, the module's outputs are the block's outputs, such as `{{ .outputs.group.console_url }}`.
+The **Code** tab shows the Terragrunt code that applies the module with these values, the **Apply** tab plans and applies it, and the **PR** tab opens a GitHub pull request that adds the code under `google-groups/` in the repository a `<GitClone>` block cloned. Once it applies, the module's outputs are the block's outputs, such as `{{ .outputs.group.console_url }}`.
 
 ## Use the values
 
