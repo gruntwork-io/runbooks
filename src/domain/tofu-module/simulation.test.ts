@@ -1,5 +1,12 @@
 import { describe, it, expect } from "bun:test"
-import { parseSimulation, simulatedRows } from "./simulation.ts"
+import {
+  parseSimulation,
+  simulatedApplied,
+  simulatedOutputs,
+  simulatedPlan,
+  simulatedResources,
+  simulatedRows,
+} from "./simulation.ts"
 
 const FILE = `
 scenarios:
@@ -60,5 +67,65 @@ describe("simulatedRows", () => {
     expect(() => simulatedRows(happy!, "github.repos", "")).toThrow(
       "no answer for the lookup github.repos",
     )
+  })
+})
+
+describe("simulated plan and apply", () => {
+  const scenarios = parseSimulation(`
+scenarios:
+  happy:
+    modules:
+      group:
+        delayMs: 10
+        resources:
+          - address: google_cloud_identity_group.group
+            values: { group_key: [{ id: "{{ .id }}" }] }
+            computed: { name: groups/123 }
+          - address: google_cloud_identity_group_membership.owners["{{ .each }}"]
+            forEach: owners
+            values: { member: "{{ .each }}" }
+        outputs:
+          email: "{{ .id }}"
+  fails:
+    extends: happy
+    modules:
+      group:
+        applyError: No permission.
+`)
+  const inputs = { id: "team@example.com", owners: ["a@example.com", "b@example.com"] }
+
+  it("plans one resource per forEach item, with computed values known after apply", () => {
+    const plan = simulatedPlan(scenarios[0]!.modules.group!, inputs)
+    expect(plan.resources.map((r) => r.address)).toEqual([
+      "google_cloud_identity_group.group",
+      'google_cloud_identity_group_membership.owners["a@example.com"]',
+      'google_cloud_identity_group_membership.owners["b@example.com"]',
+    ])
+    expect(plan.resources[0]).toMatchObject({
+      type: "google_cloud_identity_group",
+      name: "group",
+      properties: {
+        group_key: [{ id: "team@example.com" }],
+        name: { hidden: "known after apply" },
+      },
+    })
+  })
+
+  it("applies with the computed values, and renders the outputs", () => {
+    const module = scenarios[0]!.modules.group!
+    const [first] = simulatedResources(module, inputs)
+    expect(simulatedApplied(first!.address, first!.row, first!.resource).properties).toEqual({
+      group_key: [{ id: "team@example.com" }],
+      name: "groups/123",
+    })
+    expect(simulatedOutputs(module, inputs, new Set())).toEqual([
+      { name: "email", value: "team@example.com", sensitive: false },
+    ])
+  })
+
+  it("keeps what a scenario extends, replacing only the keys it gives", () => {
+    const module = scenarios[1]!.modules.group!
+    expect(module.applyError).toBe("No permission.")
+    expect(module.resources).toHaveLength(2)
   })
 })

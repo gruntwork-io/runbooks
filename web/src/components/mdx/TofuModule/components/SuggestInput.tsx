@@ -30,17 +30,20 @@ type SuggestInputProps = CommonProps &
  * A text input, or a list of chips, that suggests values from a lookup as the
  * user types. Typed text is kept as it is: a suggestion helps, it doesn't
  * limit what the module can take.
+ *
+ * Focusing the input doesn't open the list, so moving through the form stays
+ * quiet: typing opens it, and so do Enter and the down arrow in an empty input.
  */
 export function SuggestInput(props: SuggestInputProps) {
   const { id, lookup, error, placeholder, onBlur, onPick } = props
   const listId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
-  const [focused, setFocused] = useState(false)
+  const [searching, setSearching] = useState(false)
   const [draft, setDraft] = useState("")
   const [highlight, setHighlight] = useState(0)
 
   const query = props.multiple ? draft : props.value
-  const { rows, error: lookupError, loading } = useLookup(lookup?.from, query, focused)
+  const { rows, error: lookupError, loading } = useLookup(lookup?.from, query, searching)
 
   const suggestions = useMemo(() => {
     if (!lookup) return []
@@ -57,7 +60,7 @@ export function SuggestInput(props: SuggestInputProps) {
     return list
   }, [lookup, rows, props.multiple, props.value])
 
-  const open = focused && lookup !== undefined && (suggestions.length > 0 || Boolean(lookupError))
+  const open = searching && lookup !== undefined && (suggestions.length > 0 || Boolean(lookupError))
 
   const addChip = (value: string) => {
     if (!props.multiple) return
@@ -71,11 +74,14 @@ export function SuggestInput(props: SuggestInputProps) {
     else props.onChange(suggestion.value)
     onPick?.(suggestion.row)
     setHighlight(0)
-    if (!props.multiple) setFocused(false)
+    setSearching(false)
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "ArrowDown" && suggestions.length > 0) {
+    if (!open && query === "" && (e.key === "Enter" || e.key === "ArrowDown")) {
+      e.preventDefault()
+      setSearching(true)
+    } else if (e.key === "ArrowDown" && suggestions.length > 0) {
       e.preventDefault()
       setHighlight((h) => (h + 1) % suggestions.length)
     } else if (e.key === "ArrowUp" && suggestions.length > 0) {
@@ -92,7 +98,7 @@ export function SuggestInput(props: SuggestInputProps) {
     } else if (e.key === "Backspace" && props.multiple && draft === "" && props.value.length > 0) {
       props.onChange(props.value.slice(0, -1))
     } else if (e.key === "Escape") {
-      setFocused(false)
+      setSearching(false)
     }
   }
 
@@ -110,12 +116,12 @@ export function SuggestInput(props: SuggestInputProps) {
       value={props.multiple ? draft : props.value}
       onChange={(e) => {
         setHighlight(0)
+        setSearching(true)
         if (props.multiple) setDraft(e.target.value)
         else props.onChange(e.target.value)
       }}
-      onFocus={() => setFocused(true)}
       onBlur={() => {
-        setFocused(false)
+        setSearching(false)
         if (props.multiple && draft.trim()) addChip(draft)
         onBlur?.()
       }}
@@ -157,7 +163,7 @@ export function SuggestInput(props: SuggestInputProps) {
       ) : (
         input
       )}
-      {loading && focused && lookup && (
+      {loading && searching && lookup && (
         <Loader2 className="absolute right-2.5 top-3 size-4 animate-spin text-muted-foreground" />
       )}
       {open && (

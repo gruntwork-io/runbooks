@@ -6,7 +6,7 @@ title: TofuModule Demo
 
 A `<TofuModule>` block draws its form from an OpenTofu module. The module's `variables.tf` gives each input's name, type, default and validation; its `runbooks.yml` says how to present them.
 
-This runbook uses a copy of the `google-group` module from the catalog. Open it with `--simulate` so the domain dropdown and the people suggestions answer from [simulation.yml](./simulation.yml) instead of your Google Workspace:
+This runbook uses a copy of the `google-group` module from the catalog. Open it with `--simulate` so the organization dropdown, the people suggestions, and the plan and apply on the **Apply** tab answer from [simulation.yml](./simulation.yml) instead of your Google Workspace:
 
 ```bash
 runbooks open --simulate testdata/feature-demos/tofu-module
@@ -15,6 +15,8 @@ runbooks open --simulate testdata/feature-demos/tofu-module
 ## Describe the group
 
 <TofuModule id="group" source="google-group" />
+
+The **Code** tab shows the Terragrunt code that applies the module with these values, and the **Apply** tab plans and applies it. Once it applies, the module's outputs are the block's outputs, such as `{{ .outputs.group.console_url }}`.
 
 ## Use the values
 

@@ -22,7 +22,7 @@ interface LookupState {
 
 /**
  * The rows a named lookup has for what the user typed. Asks only while
- * `active` (the field has focus), and again when the simulation's answers
+ * `active` (the user is searching), and again when the simulation's answers
  * change. Until the newest request is answered, it keeps the last answer's
  * rows and reports loading.
  */

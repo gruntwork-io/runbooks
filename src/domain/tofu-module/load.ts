@@ -10,7 +10,7 @@ import { FileSystem } from "../../services/FileSystem.ts"
 import {
   METADATA_FILE,
   buildSpec,
-  outputNames,
+  tfOutputs,
   parseHcl,
   parseMetadata,
   parsePresets,
@@ -191,7 +191,7 @@ export const loadModule = (moduleDir: string) =>
         buildSpec({
           moduleName: path.basename(moduleDir),
           ...(title ? { readmeTitle: title } : {}),
-          outputs: outputNames(parsed),
+          outputs: tfOutputs(parsed, files),
           variables: tfVariables(parsed, files),
           providers: requiredProviders(parsed),
           metadata,

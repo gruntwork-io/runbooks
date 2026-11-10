@@ -12,3 +12,8 @@ output "customer_id" {
   description = "Customer ID of the organization that holds the group."
   value       = local.customer_id
 }
+
+output "console_url" {
+  description = "The group's page in the Google Admin console."
+  value       = "https://admin.google.com/ac/groups/${trimprefix(google_cloud_identity_group.group.name, "groups/")}"
+}

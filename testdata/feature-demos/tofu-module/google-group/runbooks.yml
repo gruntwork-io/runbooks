@@ -8,30 +8,38 @@ block:
   description: Creates a Google group and adds its owners, managers, and members.
 
 variables:
+  # The organization comes first: the group's email ends with its domain.
+  domain:
+    label: Organization
+    description: The Google Workspace or Cloud Identity organization to create the group in, by its primary domain.
+    primary: true
+    lookup:
+      from: google.domains
+      label: "{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}"
   id:
     label: Group email
+    description: "The group's address. It's also the group's ID: changing it later replaces the group."
     primary: true
+    suffix: "@{{ .domain }}"
   display_name:
     label: Name
     primary: true
   description:
     primary: true
-  domain:
-    label: Organization
-    primary: true
-    lookup:
-      from: google.domains
-      label: "{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}"
-  customer_id:
-    label: Customer ID
   owners:
     primary: true
     lookup:
       from: google.people
+    shortcut:
+      from: google.me
+      label: 'Add "{{ .name }}" as an owner'
+      value: email
   members:
     primary: true
     lookup:
       from: google.people
+  customer_id:
+    label: Customer ID
   managers:
     lookup:
       from: google.people
@@ -50,10 +58,12 @@ variables:
       external:
         label: External group
         description: Its members come from an identity provider outside your directory.
-  initial_group_config:
-    label: Make the identity that applies this an owner
-    options:
-      WITH_INITIAL_OWNER:
-        label: "Yes"
-      EMPTY:
-        label: "No"
+
+outputs:
+  email:
+    label: Group email
+  customer_id:
+    label: Customer ID
+  console_url:
+    label: Admin console
+    link: View the Google Group

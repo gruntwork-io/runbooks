@@ -11,20 +11,9 @@ const spec: TofuModuleSpec = {
   title: "Google group",
   description: "A Google Workspace group.",
   providers: [{ name: "google" }],
-  outputs: ["group_email"],
+  outputs: [{ name: "group_email", label: "Group email", description: "", sensitive: false }],
   warnings: [],
   variables: [
-    {
-      name: "group_name",
-      label: "Group name",
-      description: "The group's local part.",
-      tfType: "string",
-      kind: "string",
-      hasDefault: false,
-      sensitive: false,
-      primary: true,
-      checks: [{ kind: "regex", pattern: "^[a-z0-9-]+$", message: "Use lowercase letters." }],
-    },
     {
       name: "domain",
       label: "Domain",
@@ -40,6 +29,20 @@ const spec: TofuModuleSpec = {
         value: "domainName",
         sets: { display_name: "Team at {{ .domainName }}" },
       },
+    },
+    {
+      name: "group_name",
+      label: "Group name",
+      description: "The group's local part.",
+      tfType: "string",
+      kind: "string",
+      hasDefault: false,
+      sensitive: false,
+      primary: true,
+      suffix: "@{{ .domain }}",
+      checks: [
+        { kind: "regex", pattern: "^[a-z0-9-]+@[a-z.]+$", message: "Use lowercase letters." },
+      ],
     },
     {
       name: "display_name",
@@ -78,17 +81,11 @@ const invoke = vi.fn((channel: string) => {
   return Promise.reject(new Error(`unexpected channel ${channel}`))
 })
 
-vi.mock("@/hooks/useIpc", () => ({
-  useIpc: () => ({ data: spec, isLoading: false, error: null }),
-}))
+vi.mock("@/hooks/useIpc", () => ({ useIpc: () => ({ data: spec, isLoading: false, error: null }) }))
 
-vi.mock("@/contexts/ApiContext", () => ({
-  useApi: () => ({ invoke }),
-}))
+vi.mock("@/contexts/ApiContext", () => ({ useApi: () => ({ invoke }) }))
 
-vi.mock("@/contexts/useLogs", () => ({
-  useLogs: () => ({ registerLogs: vi.fn() }),
-}))
+vi.mock("@/contexts/useLogs", () => ({ useLogs: () => ({ registerLogs: vi.fn() }) }))
 
 let ctx: RunbookContextType | undefined
 function Capture() {
@@ -131,7 +128,7 @@ describe("TofuModule", () => {
     fireEvent.change(input("group_name"), { target: { value: "Not Valid" } })
     fireEvent.click(screen.getByRole("button", { name: "Submit" }))
 
-    expect(screen.getByText("Use lowercase letters.")).toBeInTheDocument()
+    expect(screen.getByText("Choose Domain first.")).toBeInTheDocument()
     expect(screen.getByText("Required.")).toBeInTheDocument()
     expect(screen.getByText("2 inputs above need a fix.")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Submit" })).toBeInTheDocument()
@@ -142,7 +139,6 @@ describe("TofuModule", () => {
     fireEvent.change(input("group_name"), { target: { value: "platform" } })
 
     const domain = input("domain")
-    fireEvent.focus(domain)
     fireEvent.change(domain, { target: { value: "example" } })
     const option = await screen.findByRole("option", { name: /example\.com \(primary\)/ })
     fireEvent.mouseDown(option)
@@ -154,15 +150,37 @@ describe("TofuModule", () => {
       query: "example",
     })
 
+    expect(screen.getByTestId("group-group_name-suffix")).toHaveTextContent("@example.com")
+
     fireEvent.click(screen.getByRole("button", { name: "Submit" }))
     await waitFor(() =>
       expect(flattenInputs(ctx!.getInputs("group"))).toEqual({
-        group_name: "platform",
+        group_name: "platform@example.com",
         domain: "example.com",
         display_name: "Team at example.com",
         allow_external: false,
       }),
     )
     expect(screen.queryByRole("button", { name: "Submit" })).not.toBeInTheDocument()
+  })
+
+  it("shows the email's domain once an organization is chosen, and asks for one first", () => {
+    renderBlock()
+    expect(screen.getByTestId("group-group_name-suffix")).toHaveTextContent("@‹Domain›")
+    fireEvent.change(input("group_name"), { target: { value: "platform" } })
+    fireEvent.blur(input("group_name"))
+    expect(screen.getByText("Choose Domain first.")).toBeInTheDocument()
+  })
+
+  it("opens suggestions on typing or Enter, not on focus", async () => {
+    renderBlock()
+    const domain = input("domain")
+    fireEvent.focus(domain)
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument()
+    expect(invoke).not.toHaveBeenCalledWith("tofu-module:lookup", expect.anything())
+
+    fireEvent.keyDown(domain, { key: "Enter" })
+    expect(await screen.findByRole("option", { name: /example\.org/ })).toBeInTheDocument()
+    expect(invoke).toHaveBeenCalledWith("tofu-module:lookup", { from: "google.domains", query: "" })
   })
 })

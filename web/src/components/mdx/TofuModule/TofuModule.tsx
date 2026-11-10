@@ -1,5 +1,7 @@
 import { useMemo, useRef, useState, type FormEvent } from "react"
 import { ChevronDown, ChevronRight, FlaskConical, TriangleAlert } from "lucide-react"
+import { useRunbookContext } from "@/contexts/useRunbook"
+import { sensitiveOutput } from "@/lib/outputValues"
 import { Button } from "@/components/ui/button"
 import { useIpc } from "@/hooks/useIpc"
 import { useSimulation } from "@/contexts/useSimulation"
@@ -15,7 +17,18 @@ import type { TofuModuleSpec } from "../../../../../src/domain/tofu-module/types
 import type { LookupRow } from "../../../../../src/domain/tofu-module/rowTemplate"
 import { ModuleField } from "./components/ModuleField"
 import { ModuleLogo } from "./components/ModuleLogo"
-import { formErrors, formValue, publishedValues, registryConfig, type FormValues } from "./lib"
+import { CodeTab } from "./components/CodeTab"
+import { ApplyTab } from "./components/ApplyTab"
+import { useTofuRun } from "./hooks/useTofuRun"
+import {
+  formErrors,
+  formValue,
+  publishedValues,
+  registryConfig,
+  suffixFor,
+  withoutSuffix,
+  type FormValues,
+} from "./lib"
 import { valuesFromPick } from "./lookupRows"
 
 /**
@@ -26,6 +39,10 @@ import { valuesFromPick } from "./lookupRows"
  * to present them (labels, which inputs come first, what each option means,
  * presets, and lookups that suggest values). The values are published like an
  * <Inputs> block's, so a <Template> or <Command> uses them through `inputsId`.
+ *
+ * Its Code tab shows the Terragrunt code the module's template renders with
+ * those values, and its Apply tab plans and applies it. The module's outputs
+ * become the block's outputs once it applies.
  *
  * @param props.id - Unique identifier for this block (required)
  * @param props.source - The module's folder, relative to the runbook
@@ -108,6 +125,14 @@ function TofuModule({ id, source }: TofuModuleProps) {
   )
 }
 
+type Tab = "ui" | "code" | "apply"
+
+const TABS: { tab: Tab; label: string }[] = [
+  { tab: "ui", label: "UI" },
+  { tab: "code", label: "Code" },
+  { tab: "apply", label: "Apply" },
+]
+
 interface TofuModuleFormProps {
   id: string
   source: string
@@ -128,9 +153,16 @@ function TofuModuleForm({
   onSubmit,
 }: TofuModuleFormProps) {
   const { state: simulation } = useSimulation()
-  const [values, setValues] = useState<FormValues>(() =>
-    Object.fromEntries(spec.variables.map((v) => [v.name, formValue(v, initialData[v.name])])),
-  )
+  const { registerOutputs } = useRunbookContext()
+  const [tab, setTab] = useState<Tab>("ui")
+  const [values, setValues] = useState<FormValues>(() => {
+    const saved = Object.fromEntries(
+      spec.variables.map((v) => [v.name, formValue(v, initialData[v.name])]),
+    )
+    return Object.fromEntries(
+      spec.variables.map((v) => [v.name, withoutSuffix(saved[v.name], suffixFor(spec, v, saved))]),
+    )
+  })
   const [touched, setTouched] = useState<Set<string>>(() => new Set())
   const [submitAttempted, setSubmitAttempted] = useState(false)
   const advanced = spec.variables.filter((v) => !v.primary)
@@ -175,6 +207,7 @@ function TofuModuleForm({
         blockId={id}
         variable={variable}
         value={values[name]}
+        suffix={suffixFor(spec, variable, values)}
         error={shownError(name)}
         onChange={(value) => update({ [name]: value })}
         onBlur={() => setTouched((t) => new Set(t).add(name))}
@@ -186,6 +219,19 @@ function TofuModuleForm({
   const isValid = Object.keys(errors).length === 0
   const done = hasSubmitted && isValid
   const errorCount = Object.keys(errors).length
+  const published = publishedValues(spec, values)
+  const run = useTofuRun(id, source, published)
+
+  const apply = async () => {
+    const result = await run.apply()
+    if (!result) return
+    registerOutputs(
+      id,
+      Object.fromEntries(
+        result.outputs.map((o) => [o.name, o.sensitive ? sensitiveOutput(o.value) : o.value]),
+      ),
+    )
+  }
 
   return (
     <div
@@ -209,7 +255,7 @@ function TofuModuleForm({
             <span className="font-mono">{source}</span>
             {simulation.enabled && (
               <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning-muted px-2 py-0.5 text-warning-foreground">
-                <FlaskConical className="size-3" /> Simulated lookups
+                <FlaskConical className="size-3" /> Simulation
               </span>
             )}
           </div>
@@ -229,7 +275,65 @@ function TofuModuleForm({
         </div>
       )}
 
-      <form onSubmit={submit} className="space-y-6" noValidate>
+      <div role="tablist" aria-label="Module" className="mb-5 flex gap-1 border-b border-border">
+        {TABS.map(({ tab: name, label }) => (
+          <button
+            key={name}
+            type="button"
+            role="tab"
+            id={`${id}-tab-${name}`}
+            aria-selected={tab === name}
+            aria-controls={`${id}-panel-${name}`}
+            onClick={() => setTab(name)}
+            className={`-mb-px border-b-2 px-3 py-1.5 text-sm font-medium ${
+              tab === name
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "code" && (
+        <div role="tabpanel" id={`${id}-panel-code`} aria-labelledby={`${id}-tab-code`}>
+          <CodeTab blockId={id} source={source} values={published} errorCount={errorCount} />
+        </div>
+      )}
+
+      {/* Kept mounted, so a plan or apply keeps going while another tab shows. */}
+      <div
+        role="tabpanel"
+        id={`${id}-panel-apply`}
+        aria-labelledby={`${id}-tab-apply`}
+        hidden={tab !== "apply"}
+      >
+        <ApplyTab
+          state={run.state}
+          stale={run.stale}
+          simulated={simulation.enabled}
+          blocked={
+            errorCount > 0
+              ? `${errorCount === 1 ? "1 input needs" : `${errorCount} inputs need`} a fix on the UI tab first.`
+              : undefined
+          }
+          outputs={spec.outputs}
+          onPlan={() => void run.plan()}
+          onApply={() => void apply()}
+          onCancel={run.cancel}
+        />
+      </div>
+
+      <form
+        onSubmit={submit}
+        className="space-y-6"
+        noValidate
+        role="tabpanel"
+        id={`${id}-panel-ui`}
+        aria-labelledby={`${id}-tab-ui`}
+        hidden={tab !== "ui"}
+      >
         <div className="space-y-5">
           {spec.variables.filter((v) => v.primary).map((v) => field(v.name))}
         </div>

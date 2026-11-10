@@ -1,10 +1,13 @@
 # Answers this runbook's blocks get in simulation mode (runbooks open --simulate).
-# Each scenario names the rows a lookup returns, or the error it fails with.
+# Each scenario names the rows a lookup returns, or the error it fails with, and what a block's
+# plan and apply make, as templates over the block's inputs.
 scenarios:
   happy-path:
     label: Happy path
     description: Two domains and a small directory.
     lookups:
+      google.me:
+        - { email: sam@example.com, name: Sam Rivera }
       google.domains:
         rows:
           - { value: example.com, domainName: example.com, isPrimary: true }
@@ -17,6 +20,57 @@ scenarios:
           - { value: cy@example.com, label: Cy Okafor, description: Finance }
           - { value: dee@example.com, label: Dee Park, description: Platform team }
           - { value: aws-admins@example.com, label: AWS admins, description: Group }
+    modules:
+      group:
+        delayMs: 700
+        resources:
+          - address: google_cloud_identity_group.group
+            values:
+              display_name: "{{ .display_name }}"
+              description: "{{ .description }}"
+              parent: customers/C03example
+              group_key:
+                - { id: "{{ .id }}", namespace: "" }
+              labels:
+                cloudidentity.googleapis.com/groups.discussion_forum: ""
+            computed:
+              id: groups/03x5example
+              name: groups/03x5example
+              create_time: "2026-11-10T12:00:00Z"
+          - address: google_cloud_identity_group_membership.owners["{{ .each }}"]
+            forEach: owners
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+              roles:
+                - { name: OWNER }
+                - { name: MEMBER }
+            computed:
+              group: groups/03x5example
+          - address: google_cloud_identity_group_membership.managers["{{ .each }}"]
+            forEach: managers
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+              roles:
+                - { name: MEMBER }
+                - { name: MANAGER }
+            computed:
+              group: groups/03x5example
+          - address: google_cloud_identity_group_membership.members["{{ .each }}"]
+            forEach: members
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+              roles:
+                - { name: MEMBER }
+            computed:
+              group: groups/03x5example
+        outputs:
+          email: "{{ .id }}"
+          resource_name: groups/03x5example
+          customer_id: C03example
+          console_url: https://admin.google.com/ac/groups/03x5example
 
   empty-directory:
     label: Nobody in the directory
@@ -32,3 +86,11 @@ scenarios:
     lookups:
       google.people:
         error: "The signed-in account can't read your directory. Sign in with an account that has the directory.readonly scope."
+
+  apply-fails:
+    label: Apply fails
+    description: Google refuses to create the group, so the apply stops with an error.
+    extends: happy-path
+    modules:
+      group:
+        applyError: "Error creating Group: googleapi: Error 403: The caller does not have permission."

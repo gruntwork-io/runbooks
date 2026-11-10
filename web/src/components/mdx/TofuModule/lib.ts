@@ -5,6 +5,10 @@
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
 import { failedCheck } from "../../../../../src/domain/tofu-module/validations"
+import {
+  renderRowTemplate,
+  templateFields,
+} from "../../../../../src/domain/tofu-module/rowTemplate"
 import type {
   TofuModuleInputKind,
   TofuModuleSpec,
@@ -50,6 +54,43 @@ export function formValue(variable: TofuModuleVariable, value: unknown): unknown
   return value === undefined || value === null ? "" : JSON.stringify(value, null, 2)
 }
 
+/**
+ * The fixed end of an input's value, from its runbooks.yml suffix, such as
+ * `@example.com`: the form holds what the user types, and publishes it with this.
+ */
+export interface Suffix {
+  /** The suffix with the values it reads. */
+  readonly value: string
+  /** The suffix as the form shows it, naming the inputs it still needs. */
+  readonly shown: string
+  /** The labels of the inputs it reads that have no value yet. */
+  readonly waitingFor: readonly string[]
+}
+
+export function suffixFor(
+  spec: TofuModuleSpec,
+  variable: TofuModuleVariable,
+  values: FormValues,
+): Suffix | undefined {
+  if (!variable.suffix) return undefined
+  const fields = templateFields(variable.suffix)
+  const label = (name: string) => spec.variables.find((v) => v.name === name)?.label ?? name
+  const missing = fields.filter((name) => !isGiven(values[name]))
+  const given = Object.fromEntries(fields.map((name) => [name, values[name] ?? ""]))
+  const placeholders = Object.fromEntries(missing.map((name) => [name, `‹${label(name)}›`]))
+  return {
+    value: renderRowTemplate(variable.suffix, given),
+    shown: renderRowTemplate(variable.suffix, { ...given, ...placeholders }),
+    waitingFor: missing.map(label),
+  }
+}
+
+/** A saved value as the form holds it: without its suffix, which the form shows on its own. */
+export function withoutSuffix(value: unknown, suffix: Suffix | undefined): unknown {
+  if (!suffix || suffix.waitingFor.length > 0 || typeof value !== "string") return value
+  return value.endsWith(suffix.value) ? value.slice(0, -suffix.value.length) : value
+}
+
 /** Whether a value counts as given, for an input variables.tf requires. */
 function isGiven(value: unknown): boolean {
   if (value === undefined || value === null || value === "") return false
@@ -58,8 +99,18 @@ function isGiven(value: unknown): boolean {
 }
 
 /** What's wrong with an input's value, or undefined when nothing is. */
-export function fieldError(variable: TofuModuleVariable, value: unknown): string | undefined {
+export function fieldError(
+  variable: TofuModuleVariable,
+  value: unknown,
+  suffix?: Suffix,
+): string | undefined {
   if (!variable.hasDefault && !isGiven(value)) return "Required."
+  if (suffix && isGiven(value)) {
+    if (suffix.waitingFor.length > 0) return `Choose ${suffix.waitingFor.join(" and ")} first.`
+    return variable.checks
+      ? failedCheck(`${String(value)}${suffix.value}`, variable.checks)
+      : undefined
+  }
   if (variable.kind === "json" && typeof value === "string" && value.trim() !== "") {
     try {
       JSON.parse(value)
@@ -86,14 +137,22 @@ export function fieldError(variable: TofuModuleVariable, value: unknown): string
 export function formErrors(spec: TofuModuleSpec, values: FormValues): Record<string, string> {
   const errors: Record<string, string> = {}
   for (const variable of spec.variables) {
-    const error = fieldError(variable, values[variable.name])
+    const error = fieldError(variable, values[variable.name], suffixFor(spec, variable, values))
     if (error) errors[variable.name] = error
   }
   return errors
 }
 
-/** The value the block publishes for an input: JSON text parsed, numbers as numbers. */
-export function publishedValue(variable: TofuModuleVariable, value: unknown): unknown {
+/**
+ * The value the block publishes for an input: JSON text parsed, numbers as
+ * numbers, and text with its suffix.
+ */
+export function publishedValue(
+  variable: TofuModuleVariable,
+  value: unknown,
+  suffix?: Suffix,
+): unknown {
+  if (suffix && typeof value === "string" && value !== "") return `${value}${suffix.value}`
   if (variable.kind === "json") {
     if (typeof value !== "string" || value.trim() === "") return null
     try {
@@ -107,7 +166,12 @@ export function publishedValue(variable: TofuModuleVariable, value: unknown): un
 }
 
 export function publishedValues(spec: TofuModuleSpec, values: FormValues): FormValues {
-  return Object.fromEntries(spec.variables.map((v) => [v.name, publishedValue(v, values[v.name])]))
+  return Object.fromEntries(
+    spec.variables.map((v) => [
+      v.name,
+      publishedValue(v, values[v.name], suffixFor(spec, v, values)),
+    ]),
+  )
 }
 
 const BOILERPLATE_TYPES: Record<TofuModuleInputKind, BoilerplateVariableType> = {

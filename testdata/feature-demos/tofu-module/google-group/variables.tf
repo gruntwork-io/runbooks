@@ -63,17 +63,6 @@ variable "members" {
   default     = []
 }
 
-variable "initial_group_config" {
-  description = "WITH_INITIAL_OWNER makes the identity that applies this module an owner when the group is created; EMPTY doesn't. It applies only at creation."
-  type        = string
-  nullable    = false
-  default     = "EMPTY"
-  validation {
-    condition     = contains(["WITH_INITIAL_OWNER", "EMPTY"], var.initial_group_config)
-    error_message = "Use WITH_INITIAL_OWNER or EMPTY."
-  }
-}
-
 variable "types" {
   description = "Kinds of group, as Google labels them: default (an email group), security (usable in access policies, and permanent once set), dynamic (members come from a query), or external (members from outside the directory)."
   type        = list(string)

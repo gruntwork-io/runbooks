@@ -15,13 +15,15 @@ import type {
   TofuModuleInputKind,
   TofuModuleLookup,
   TofuModuleOption,
+  TofuModuleOutput,
   TofuModulePreset,
   TofuModuleProvider,
+  TofuModuleShortcut,
   TofuModuleSpec,
   TofuModuleVariable,
 } from "./types.ts"
 import { interpretValidations, type TfValidation } from "./validations.ts"
-import { rowTemplateError } from "./rowTemplate.ts"
+import { rowTemplateError, templateFields } from "./rowTemplate.ts"
 
 /** The name of the metadata file at a module's root. */
 export const METADATA_FILE = "runbooks.yml"
@@ -318,7 +320,15 @@ export interface ModuleMetadata {
   /** The logo's path in the module, or an https: URL. */
   readonly logo?: string
   readonly variables: Readonly<Record<string, VariableMetadata>>
+  readonly outputs: Readonly<Record<string, OutputMetadata>>
   readonly warnings: readonly string[]
+}
+
+export interface OutputMetadata {
+  readonly label?: string
+  readonly description?: string
+  /** The text of a link to the output's value, which must be an https: URL. */
+  readonly link?: string
 }
 
 export interface VariableMetadata {
@@ -327,13 +337,16 @@ export interface VariableMetadata {
   readonly primary?: boolean
   readonly options?: readonly TofuModuleOption[]
   readonly lookup?: TofuModuleLookup
+  readonly shortcut?: TofuModuleShortcut
   /** The presets file's path in the module. */
   readonly presets?: string
+  /** A template over the form's values that ends the input's value, such as `@{{ .domain }}`. */
+  readonly suffix?: string
 }
 
 /** Reads runbooks.yml. Fails on anything that would make the form wrong. */
 export function parseMetadata(content: string | undefined): ModuleMetadata {
-  if (content === undefined) return { variables: {}, warnings: [] }
+  if (content === undefined) return { variables: {}, outputs: {}, warnings: [] }
   let raw: unknown
   try {
     raw = YAML.parse(content)
@@ -343,11 +356,11 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
       cause,
     })
   }
-  if (raw === null || raw === undefined) return { variables: {}, warnings: [] }
+  if (raw === null || raw === undefined) return { variables: {}, outputs: {}, warnings: [] }
   if (!isRecord(raw)) throw new TofuModuleError({ message: `${METADATA_FILE} must be a map.` })
 
   const problems = new Problems()
-  problems.unknownKeys(METADATA_FILE, raw, ["version", "block", "variables"])
+  problems.unknownKeys(METADATA_FILE, raw, ["version", "block", "variables", "outputs"])
   if (raw.version !== undefined && !METADATA_VERSIONS.has(raw.version as number)) {
     throw new TofuModuleError({
       message: `${METADATA_FILE} is version ${JSON.stringify(raw.version)}, which this version of Runbooks can't read. Update Runbooks.`,
@@ -375,6 +388,8 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
         "options",
         "lookup",
         "presets",
+        "suffix",
+        "shortcut",
       ])
       if (fields.primary !== undefined && typeof fields.primary !== "boolean") {
         problems.errors.push(`${where}.primary must be true or false.`)
@@ -383,14 +398,46 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
       const varDescription = optionalString(fields.description, `${where}.description`, problems)
       const options = readOptions(fields.options, `${where}.options`, problems)
       const lookup = readLookup(fields.lookup, `${where}.lookup`, problems)
+      const shortcutLookup = readLookup(fields.shortcut, `${where}.shortcut`, problems)
+      if (shortcutLookup?.sets) problems.errors.push(`${where}.shortcut can't have "sets".`)
+      const shortcut = shortcutLookup && {
+        from: shortcutLookup.from,
+        ...(shortcutLookup.label ? { label: shortcutLookup.label } : {}),
+        ...(shortcutLookup.value ? { value: shortcutLookup.value } : {}),
+      }
       const presets = optionalString(fields.presets, `${where}.presets`, problems)
+      const suffix = optionalString(fields.suffix, `${where}.suffix`, problems)
+      const suffixError = suffix === undefined ? undefined : rowTemplateError(suffix)
+      if (suffixError) problems.errors.push(`${where}.suffix: ${suffixError}`)
       variables[name] = {
         ...(label ? { label } : {}),
         ...(varDescription ? { description: varDescription } : {}),
         ...(fields.primary === true ? { primary: true } : {}),
         ...(options ? { options } : {}),
         ...(lookup ? { lookup } : {}),
+        ...(shortcut ? { shortcut } : {}),
         ...(presets ? { presets } : {}),
+        ...(suffix ? { suffix } : {}),
+      }
+    }
+  }
+
+  const outputs: Record<string, OutputMetadata> = {}
+  const rawOutputs = raw.outputs ?? {}
+  if (!isRecord(rawOutputs)) {
+    problems.errors.push("outputs must be a map from each output's name to how to present it.")
+  } else {
+    for (const [name, entry] of Object.entries(rawOutputs)) {
+      const where = `outputs.${name}`
+      const fields = isRecord(entry) ? entry : {}
+      problems.unknownKeys(where, fields, ["label", "description", "link"])
+      const label = optionalString(fields.label, `${where}.label`, problems)
+      const outDescription = optionalString(fields.description, `${where}.description`, problems)
+      const link = optionalString(fields.link, `${where}.link`, problems)
+      outputs[name] = {
+        ...(label ? { label } : {}),
+        ...(outDescription ? { description: outDescription } : {}),
+        ...(link ? { link } : {}),
       }
     }
   }
@@ -403,6 +450,7 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     ...(description ? { description } : {}),
     ...(logo ? { logo } : {}),
     variables,
+    outputs,
     warnings: problems.warnings,
   }
 }
@@ -417,9 +465,33 @@ export function readmeTitle(readme: string | undefined): string | undefined {
   return match ? match[1] : undefined
 }
 
-/** The names of the outputs the parsed files declare, sorted. */
-export function outputNames(parsed: readonly HclJson[]): string[] {
-  return parsed.flatMap((json) => (isRecord(json.output) ? Object.keys(json.output) : [])).sort()
+/** An output as outputs.tf declares it. */
+export interface TfOutput {
+  readonly name: string
+  readonly description: string
+  readonly sensitive: boolean
+}
+
+/** The outputs the parsed files declare, in declaration order. */
+export function tfOutputs(parsed: readonly HclJson[], files: readonly ModuleFile[]): TfOutput[] {
+  const order = new Map<string, number>()
+  for (const file of files) {
+    for (const match of file.content.matchAll(/^\s*output\s+"([^"]+)"/gm)) {
+      if (!order.has(match[1]!)) order.set(match[1]!, order.size)
+    }
+  }
+  const position = (name: string) => order.get(name) ?? Number.MAX_SAFE_INTEGER
+  return parsed
+    .flatMap((json) => (isRecord(json.output) ? Object.entries(json.output) : []))
+    .map(([name, value]) => {
+      const body = blockBody(value) ?? {}
+      return {
+        name,
+        description: typeof body.description === "string" ? body.description : "",
+        sensitive: body.sensitive === true,
+      }
+    })
+    .sort((a, b) => position(a.name) - position(b.name))
 }
 
 export interface BuildSpecInput {
@@ -427,7 +499,7 @@ export interface BuildSpecInput {
   readonly moduleName: string
   /** The title the module's README gives, the title when runbooks.yml gives none. */
   readonly readmeTitle?: string
-  readonly outputs: readonly string[]
+  readonly outputs: readonly TfOutput[]
   readonly variables: readonly TfVariable[]
   readonly providers: readonly TofuModuleProvider[]
   readonly metadata: ModuleMetadata
@@ -456,11 +528,43 @@ export function buildSpec(input: BuildSpecInput): TofuModuleSpec {
     }
   }
 
+  const outputs = new Set(input.outputs.map((output) => output.name))
+  const unknownOutputs = Object.keys(input.metadata.outputs).filter((name) => !outputs.has(name))
+  if (unknownOutputs.length > 0) {
+    throw new TofuModuleError({
+      message: `${METADATA_FILE} describes the outputs ${unknownOutputs.map((name) => `"${name}"`).join(", ")}, which the module doesn't declare.`,
+    })
+  }
+
+  for (const [name, meta] of Object.entries(input.metadata.variables)) {
+    if (!meta.suffix) continue
+    const missing = templateFields(meta.suffix).filter((field) => !declared.has(field))
+    if (missing.length > 0) {
+      throw new TofuModuleError({
+        message: `${METADATA_FILE}: variables.${name}.suffix reads ${missing.map((field) => `"${field}"`).join(", ")}, which variables.tf doesn't declare.`,
+      })
+    }
+    if (inputKind(input.variables.find((v) => v.name === name)!.tfType) !== "string") {
+      throw new TofuModuleError({
+        message: `${METADATA_FILE}: variables.${name}.suffix needs a string input.`,
+      })
+    }
+  }
+
   // A module whose runbooks.yml picks no primary inputs shows the ones it
   // can't do without first.
   const anyPrimary = Object.values(input.metadata.variables).some((meta) => meta.primary)
 
-  const variables = input.variables.map((variable): TofuModuleVariable => {
+  // runbooks.yml orders the inputs it lists, since it says how to present
+  // them; the rest follow in the order variables.tf declares them.
+  const listed = Object.keys(input.metadata.variables)
+  const rank = (name: string) => {
+    const index = listed.indexOf(name)
+    return index === -1 ? listed.length : index
+  }
+  const ordered = [...input.variables].sort((a, b) => rank(a.name) - rank(b.name))
+
+  const variables = ordered.map((variable): TofuModuleVariable => {
     const meta = input.metadata.variables[variable.name] ?? {}
     const { allowedValues, checks, constraints } = interpretValidations(
       variable.name,
@@ -483,7 +587,9 @@ export function buildSpec(input: BuildSpecInput): TofuModuleSpec {
       // A validation that limits the values means nothing else would apply.
       ...(options && allowedValues ? { optionsOnly: true } : {}),
       ...(meta.lookup ? { lookup: meta.lookup } : {}),
+      ...(meta.shortcut ? { shortcut: meta.shortcut } : {}),
       ...(presets ? { presets } : {}),
+      ...(meta.suffix ? { suffix: meta.suffix } : {}),
       ...(checks.length > 0 ? { checks } : {}),
       ...(constraints.length > 0 ? { constraints } : {}),
     }
@@ -494,7 +600,16 @@ export function buildSpec(input: BuildSpecInput): TofuModuleSpec {
     ...(input.metadata.description ? { description: input.metadata.description } : {}),
     providers: input.providers,
     ...(input.logo ? { logo: input.logo } : {}),
-    outputs: input.outputs,
+    outputs: input.outputs.map((output): TofuModuleOutput => {
+      const meta = input.metadata.outputs[output.name] ?? {}
+      return {
+        name: output.name,
+        label: meta.label ?? labelFromName(output.name),
+        description: meta.description ?? output.description,
+        sensitive: output.sensitive,
+        ...(meta.link ? { link: meta.link } : {}),
+      }
+    }),
     variables,
     warnings: input.metadata.warnings,
   }

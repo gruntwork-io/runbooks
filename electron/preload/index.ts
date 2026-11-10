@@ -30,6 +30,10 @@ const INVOKE_CHANNELS = {
   "boilerplate:resolve-inputs": true,
   "tofu-module:read": true,
   "tofu-module:lookup": true,
+  "tofu-module:render": true,
+  "tofu-module:plan": true,
+  "tofu-module:apply": true,
+  "tofu-module:cancel": true,
   "simulation:state": true,
   "simulation:set-scenario": true,
   "aws:validate": true,
@@ -110,6 +114,7 @@ const INVOKE_CHANNELS = {
 
 const EVENT_CHANNELS = {
   "exec:log": true,
+  "tofu-module:event": true,
   "exec:log-file": true,
   "exec:files-captured": true,
   "watch:file-change": true,

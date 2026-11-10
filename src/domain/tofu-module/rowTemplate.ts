@@ -75,3 +75,14 @@ export function rowTemplateError(template: string): string | undefined {
     return err instanceof Error ? err.message : String(err)
   }
 }
+
+/** The fields a template reads, in the order it first reads them. */
+export function templateFields(template: string): string[] {
+  const fields: string[] = []
+  for (const match of template.matchAll(TOKEN)) {
+    const action = match[1]!
+    const name = FIELD.exec(action)?.[1] ?? IF.exec(action)?.[1]?.slice(1)
+    if (name && !fields.includes(name)) fields.push(name)
+  }
+  return fields
+}

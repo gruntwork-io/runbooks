@@ -28,9 +28,6 @@ inputs = {
 {{- if .members }}
   members = {{ .members | toJson }}
 {{- end }}
-{{- if ne .initial_group_config "EMPTY" }}
-  initial_group_config = {{ .initial_group_config | toJson }}
-{{- end }}
 {{- if ne (.types | toJson) "[\"default\"]" }}
   types = {{ .types | toJson }}
 {{- end }}

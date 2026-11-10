@@ -14,6 +14,8 @@ import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
 import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { TofuModuleSpec } from "../../src/domain/tofu-module/types.ts"
+import type { ApplyResult, PlanResult, RunEvent } from "../../src/domain/tofu-module/run.ts"
+import type { UnitFile } from "../../src/domain/tofu-module/unit.ts"
 
 /** What session:switch did. */
 export type SessionSwitchResult =
@@ -205,6 +207,13 @@ export interface IpcChannelMap {
   }
 
   // Simulation mode
+  /** The Terragrunt code a <TofuModule> block runs, rendered with its inputs. */
+  "tofu-module:render": { params: TofuModuleRenderRequest; result: { files: UnitFile[] } }
+  /** Plans the block's Terragrunt code, streaming `tofu-module:event` as it goes. */
+  "tofu-module:plan": { params: TofuModuleRunRequest; result: PlanResult }
+  /** Applies the plan the last `tofu-module:plan` saved, streaming `tofu-module:event`. */
+  "tofu-module:apply": { params: TofuModuleRunRequest; result: ApplyResult }
+  "tofu-module:cancel": { params: { runId: string }; result: { ok: true } }
   /** Whether the app answers from simulation.yml, and its scenarios. */
   "simulation:state": { params: void; result: SimulationState }
   /** Picks the scenario lookups answer from. */
@@ -1022,6 +1031,8 @@ export interface IpcEventMap {
   // first block's credential — its AuthSuccess card renders a stale-session
   // warning off this event instead of implying its credential is still active.
   "vcs:session-changed": { provider: "github" | "gitlab"; host: string; source?: string }
+  /** Progress of a <TofuModule> plan or apply; `runId` echoes the request's. */
+  "tofu-module:event": { runId: string; event: RunEvent }
 }
 
 // ---------------------------------------------------------------------------
@@ -1084,6 +1095,19 @@ export interface ResolveInputsRequest {
 export interface TofuModuleReadRequest {
   /** The module's folder, relative to the runbook. */
   source: string
+}
+
+export interface TofuModuleRenderRequest {
+  /** The module's folder, relative to the runbook. */
+  source: string
+  blockId: string
+  /** The block's inputs, as it publishes them. */
+  values: Record<string, unknown>
+}
+
+export interface TofuModuleRunRequest extends TofuModuleRenderRequest {
+  /** Names the run, for its events and for `tofu-module:cancel`. */
+  runId: string
 }
 
 export interface TofuModuleLookupRequest {

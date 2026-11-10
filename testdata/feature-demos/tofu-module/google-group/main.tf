@@ -17,10 +17,9 @@ locals {
 }
 
 resource "google_cloud_identity_group" "group" {
-  display_name         = var.display_name
-  description          = var.description
-  parent               = "customers/${local.customer_id}"
-  initial_group_config = var.initial_group_config
+  display_name = var.display_name
+  description  = var.description
+  parent       = "customers/${local.customer_id}"
 
   group_key {
     id = var.id

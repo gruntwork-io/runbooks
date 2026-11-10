@@ -18,11 +18,25 @@
  *       lookups:
  *         google.people:
  *           error: The account can't read the directory.
+ *
+ * A scenario can also answer for a block's plan and apply, under `modules`
+ * by the block's id: the resources the module makes and its outputs, as
+ * templates over the block's inputs, such as `{{ .id }}`. A resource with
+ * `forEach: owners` is one resource for each of the owners, whose templates
+ * read it as `{{ .each }}`; `computed` holds what a plan shows as "known
+ * after apply".
  */
 import YAML from "yaml"
 import { TofuModuleError } from "../../errors/index.ts"
 import { errorMessage } from "../../errors/message.ts"
-import type { LookupRow } from "./rowTemplate.ts"
+import { renderRowTemplate, type LookupRow } from "./rowTemplate.ts"
+import type {
+  AppliedResource,
+  ModuleOutputValue,
+  PlanResult,
+  PlannedResource,
+  PropertyValue,
+} from "./run.ts"
 
 /** The name of the answers file beside a runbook. */
 export const SIMULATION_FILE = "simulation.yml"
@@ -32,12 +46,34 @@ export type SimulatedLookup =
   | { readonly rows: readonly LookupRow[]; readonly delayMs?: number }
   | { readonly error: string; readonly delayMs?: number }
 
+/** A resource a simulated module makes, as templates over the block's inputs. */
+export interface SimulatedResource {
+  readonly address: string
+  /** An input holding a list: the resource is one resource for each item, read as `.each`. */
+  readonly forEach?: string
+  readonly values: Readonly<Record<string, unknown>>
+  /** Values a plan shows as known only after apply. */
+  readonly computed: Readonly<Record<string, unknown>>
+}
+
+/** A block's canned plan and apply. */
+export interface SimulatedModule {
+  readonly resources: readonly SimulatedResource[]
+  readonly outputs: Readonly<Record<string, unknown>>
+  /** How long each resource takes to apply. */
+  readonly delayMs: number
+  readonly planError?: string
+  readonly applyError?: string
+}
+
 export interface SimulationScenario {
   readonly name: string
   readonly label: string
   readonly description?: string
   /** Every lookup's answer, with what the scenario extends already merged in. */
   readonly lookups: Readonly<Record<string, SimulatedLookup>>
+  /** Every block's plan and apply, by block id, with what the scenario extends merged in. */
+  readonly modules: Readonly<Record<string, SimulatedModule>>
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -57,6 +93,28 @@ function readLookup(raw: unknown, where: string): SimulatedLookup {
   throw new TofuModuleError({
     message: `${where} must be a list of rows, or a map with "rows" or "error".`,
   })
+}
+
+function readModule(raw: unknown, where: string): SimulatedModule {
+  if (!isRecord(raw)) throw new TofuModuleError({ message: `${where} must be a map.` })
+  const resources = (Array.isArray(raw.resources) ? raw.resources : []).map((entry, i) => {
+    if (!isRecord(entry) || typeof entry.address !== "string") {
+      throw new TofuModuleError({ message: `${where}.resources[${i}] needs an "address".` })
+    }
+    return {
+      address: entry.address,
+      ...(typeof entry.forEach === "string" ? { forEach: entry.forEach } : {}),
+      values: isRecord(entry.values) ? entry.values : {},
+      computed: isRecord(entry.computed) ? entry.computed : {},
+    }
+  })
+  return {
+    resources,
+    outputs: isRecord(raw.outputs) ? raw.outputs : {},
+    delayMs: typeof raw.delayMs === "number" ? raw.delayMs : 600,
+    ...(typeof raw.planError === "string" ? { planError: raw.planError } : {}),
+    ...(typeof raw.applyError === "string" ? { applyError: raw.applyError } : {}),
+  }
 }
 
 /** Reads simulation.yml into its scenarios, in file order. */
@@ -96,11 +154,24 @@ export function parseSimulation(content: string): SimulationScenario[] {
     for (const [lookup, answer] of Object.entries(isRecord(entry.lookups) ? entry.lookups : {})) {
       own[lookup] = readLookup(answer, `${SIMULATION_FILE}: scenarios.${name}.lookups.${lookup}`)
     }
+    const baseModules =
+      typeof entry.extends === "string" ? resolve(entry.extends, [...chain, name]).modules : {}
+    const ownModules: Record<string, SimulatedModule> = {}
+    for (const [block, answer] of Object.entries(isRecord(entry.modules) ? entry.modules : {})) {
+      const inherited = baseModules[block]
+      // A read module keeps simulation.yml's keys, so the scenario can replace some of them.
+      const merged = isRecord(answer) && inherited ? { ...inherited, ...answer } : answer
+      ownModules[block] = readModule(
+        merged,
+        `${SIMULATION_FILE}: scenarios.${name}.modules.${block}`,
+      )
+    }
     const scenario: SimulationScenario = {
       name,
       label: typeof entry.label === "string" ? entry.label : name,
       ...(typeof entry.description === "string" ? { description: entry.description } : {}),
       lookups: { ...base, ...own },
+      modules: { ...baseModules, ...ownModules },
     }
     resolved.set(name, scenario)
     return scenario
@@ -133,4 +204,88 @@ export function simulatedRows(
   }
   if ("error" in answer) throw new TofuModuleError({ message: answer.error })
   return answer.rows.filter((row) => matches(row, query))
+}
+
+/** One simulated resource for each item of its `forEach` input, or one. */
+function expand(
+  resource: SimulatedResource,
+  inputs: LookupRow,
+): { address: string; row: LookupRow; resource: SimulatedResource }[] {
+  if (!resource.forEach) return [{ address: resource.address, row: inputs, resource }]
+  const items = inputs[resource.forEach]
+  return (Array.isArray(items) ? items : []).map((each) => {
+    const row = { ...inputs, each }
+    return { address: renderRowTemplate(resource.address, row), row, resource }
+  })
+}
+
+/** A value with every string in it rendered as a template over `row`. */
+function rendered(value: unknown, row: LookupRow): PropertyValue {
+  if (typeof value === "string") return renderRowTemplate(value, row)
+  if (Array.isArray(value)) return value.map((item) => rendered(item, row))
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, rendered(v, row)]))
+  }
+  return (value ?? null) as PropertyValue
+}
+
+/** A resource address's type and name: `type.name[key]`. */
+function typeAndName(address: string): { type: string; name: string } {
+  const [type = address, rest = ""] = address.split(".", 2)
+  return { type, name: rest.replace(/\[.*$/, "") }
+}
+
+/** The simulated module's resources for these inputs, in the order they apply. */
+export function simulatedResources(module: SimulatedModule, inputs: LookupRow) {
+  return module.resources.flatMap((resource) => expand(resource, inputs))
+}
+
+export function simulatedPlan(module: SimulatedModule, inputs: LookupRow): PlanResult {
+  if (module.planError) throw new TofuModuleError({ message: module.planError })
+  return {
+    resources: simulatedResources(module, inputs).map(
+      ({ address, row, resource }): PlannedResource => ({
+        address,
+        ...typeAndName(address),
+        action: "create",
+        properties: {
+          ...(rendered(resource.values, row) as Record<string, PropertyValue>),
+          ...Object.fromEntries(
+            Object.keys(resource.computed).map((key) => [key, { hidden: "known after apply" }]),
+          ),
+        },
+      }),
+    ),
+  }
+}
+
+/** One applied resource: its values with the computed ones known. */
+export function simulatedApplied(
+  address: string,
+  row: LookupRow,
+  resource: SimulatedResource,
+): AppliedResource {
+  return {
+    address,
+    ...typeAndName(address),
+    properties: {
+      ...(rendered(resource.values, row) as Record<string, PropertyValue>),
+      ...(rendered(resource.computed, row) as Record<string, PropertyValue>),
+    },
+  }
+}
+
+export function simulatedOutputs(
+  module: SimulatedModule,
+  inputs: LookupRow,
+  sensitive: ReadonlySet<string>,
+): ModuleOutputValue[] {
+  return Object.entries(module.outputs).map(([name, value]) => {
+    const out = rendered(value, inputs)
+    return {
+      name,
+      value: typeof out === "string" ? out : JSON.stringify(out),
+      sensitive: sensitive.has(name),
+    }
+  })
 }

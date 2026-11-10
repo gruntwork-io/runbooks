@@ -22,8 +22,6 @@ variables:
   - name: members
     type: list
     default: []
-  - name: initial_group_config
-    default: EMPTY
   - name: types
     type: list
     default: [default]

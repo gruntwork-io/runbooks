@@ -41,6 +41,12 @@ export interface TofuModuleLookup {
 }
 
 /**
+ * A button under an input that fills it from the first row of a lookup, such
+ * as "Add Ana Lima as an owner" from `google.me`, the signed-in person.
+ */
+export type TofuModuleShortcut = Omit<TofuModuleLookup, "sets">
+
+/**
  * A check the form can run before OpenTofu does, from a validation block in
  * variables.tf whose condition it recognizes.
  */
@@ -74,7 +80,13 @@ export interface TofuModuleVariable {
   /** Whether `options` lists every value the module accepts, so nothing else can be typed. */
   readonly optionsOnly?: boolean
   readonly lookup?: TofuModuleLookup
+  readonly shortcut?: TofuModuleShortcut
   readonly presets?: readonly TofuModulePreset[]
+  /**
+   * A template over the form's values that ends the input's value, such as
+   * `@{{ .domain }}`: the user types the rest, and the form shows this part fixed.
+   */
+  readonly suffix?: string
   /** Validations the form checks as the user types. */
   readonly checks?: readonly TofuModuleCheck[]
   /**
@@ -93,6 +105,16 @@ export interface TofuModuleProvider {
   readonly version?: string
 }
 
+/** An output of the module, which the block publishes as its own output after an apply. */
+export interface TofuModuleOutput {
+  readonly name: string
+  readonly label: string
+  readonly description: string
+  readonly sensitive: boolean
+  /** Show the value, an https: URL, as a link with this text. */
+  readonly link?: string
+}
+
 export interface TofuModuleSpec {
   readonly title: string
   readonly description?: string
@@ -102,9 +124,9 @@ export interface TofuModuleSpec {
    * one, the form shows the mark of the module's first provider it knows.
    */
   readonly logo?: string
-  /** The names of the module's outputs. */
-  readonly outputs: readonly string[]
-  /** In the order variables.tf declares them. */
+  /** In the order the module declares them. */
+  readonly outputs: readonly TofuModuleOutput[]
+  /** In the order runbooks.yml lists them, then the rest in the order variables.tf declares them. */
   readonly variables: readonly TofuModuleVariable[]
   /** Problems in runbooks.yml that don't stop the form, such as a key Runbooks doesn't know. */
   readonly warnings: readonly string[]

@@ -5,7 +5,7 @@ title: <TofuModule>
 import { Aside } from '@astrojs/starlight/components';
 
 <Aside type="caution" title="Experimental">
-`<TofuModule>` is an experiment. Its props, the `runbooks.yml` format and simulation mode may change. It reads modules from a local folder so far; reading a module from its catalog URL at a pinned version, live lookups, and generating the code that uses the module come next.
+`<TofuModule>` is an experiment. Its props, the `runbooks.yml` format and simulation mode may change. It reads modules from a local folder so far; reading a module from its catalog URL at a pinned version, signing in for live lookups, and choosing the template for the generated code come next.
 </Aside>
 
 The `<TofuModule>` block renders a form for an OpenTofu module's inputs. The form comes from the module itself, so a runbook doesn't restate what the module already says:
@@ -13,7 +13,11 @@ The `<TofuModule>` block renders a form for an OpenTofu module's inputs. The for
 - The module's `variables.tf` gives each input's name, type, default, and validation.
 - An optional `runbooks.yml` beside it says how to present them: labels, which inputs come first, what each option means, presets, and lookups that suggest values.
 
-The values are published like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`.
+The block has three tabs:
+
+- **UI** is the form. Its values are published like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`.
+- **Code** shows the Terragrunt code that applies the module with those values, as a small file tree. It changes as the values do.
+- **Apply** runs that code with Terragrunt: a plan whose resources open to show their properties, then an apply that shows each resource as it's made. Afterwards it lists what the apply made and the module's outputs, which become the block's outputs.
 
 ## Basic usage
 
@@ -37,7 +41,7 @@ The values are published like an [`<Inputs>`](/authoring/blocks/inputs/) block's
 
 ## How the form is built
 
-Every input `variables.tf` declares appears, in the order it declares them.
+Every input `variables.tf` declares appears: those `runbooks.yml` lists first, in its order, then the rest in the order `variables.tf` declares them.
 
 - **Required inputs.** An input without a default is required, and is marked with `*`.
 - **Primary and advanced inputs.** Inputs `runbooks.yml` marks `primary` show first; the rest sit under **Advanced options**. Without any `primary` marks, the required inputs show first.
@@ -62,19 +66,24 @@ block:
   logo: logo.svg              # optional: an SVG, PNG, JPEG, or WebP in the module, or an https: URL
 
 variables:
-  id:
-    label: Group email
-    primary: true
   domain:
     label: Organization
     primary: true
     lookup:
       from: google.domains
       label: "{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}"
+  id:
+    label: Group email
+    primary: true
+    suffix: "@{{ .domain }}"     # the user types the part before the @
   owners:
     primary: true
     lookup:
       from: google.people
+    shortcut:
+      from: google.me
+      label: 'Add "{{ .name }}" as an owner'
+      value: email
   types:
     label: Group type
     options:
@@ -87,6 +96,13 @@ variables:
   access:
     primary: true
     presets: presets.yaml
+
+outputs:
+  email:
+    label: Group email
+  console_url:
+    label: Admin console
+    link: View the Google Group
 ```
 
 | Key | Description |
@@ -100,6 +116,23 @@ variables:
 | `variables.<name>.options` | A map from each value to its `label` and `description`, or a list of values |
 | `variables.<name>.lookup` | Where the input's suggestions come from. See [Lookups](#lookups) |
 | `variables.<name>.presets` | A file in the module of named settings for an object or map input. See [Presets](#presets) |
+| `variables.<name>.suffix` | A template over the form's values that ends a string input's value, such as `@{{ .domain }}`. The form shows it fixed after the field, so the user types only the rest |
+| `variables.<name>.shortcut` | A button under the input that adds the first row of a lookup, such as the signed-in person. It takes `from`, `label` and `value`, like a [lookup](#lookups) |
+| `outputs.<name>.label` | The output's label on the **Apply** tab. Without it, the name with its first letter capitalized |
+| `outputs.<name>.description` | Replaces the output's description from the module |
+| `outputs.<name>.link` | Shows the output's value, an `https:` URL, as a link with this text. Any other `https:` value shows as a link to itself |
+
+## Code and Apply
+
+The **Code** tab renders the module's `.boilerplate` folder, a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template, with the form's values and `SourceUrl`, the module's path. The template is usually a single `terragrunt.hcl` that includes the repository's `root.hcl`, and the block writes a `root.hcl` beside it that keeps state in a local file.
+
+The **Apply** tab runs that code in the session's `.runbooks/tofu-module/<id>/` folder:
+
+1. **Plan** runs `terragrunt plan` and lists each resource it would create, change, or delete. Each opens to show its properties, with the values OpenTofu can't know yet marked *known after apply*.
+2. **Apply** applies that plan and shows each resource as OpenTofu works on it. If the inputs change after a plan, the block asks for a new one first.
+3. When it's done, the block lists the resources in the state and the module's outputs, and publishes the outputs as its own, for `{{ .outputs.<id>.<output> }}`. A sensitive output stays hidden until you show it.
+
+Terragrunt and OpenTofu must be on your `PATH`. They run with the session's environment, so they use the credentials an auth block put there.
 
 ## Lookups
 
@@ -114,7 +147,7 @@ A lookup suggests values as the user types, such as the people in a directory. I
 
 A template uses `{{ .field }}` and `{{ if .field }}...{{ else }}...{{ end }}`. A suggestion helps the user; it doesn't limit what they can type.
 
-So far, lookups answer only in [simulation mode](#simulation-mode).
+So far, lookups answer only in [simulation mode](#simulation-mode). A `shortcut` reads the first row of its lookup when the form opens, and stays hidden while the lookup has none.
 
 ## Presets
 
@@ -163,6 +196,39 @@ scenarios:
 
 A lookup's answer is a list of rows, a map with `rows`, or a map with `error`, which the field shows as the lookup's failure. A row matches what the user typed when any of its text fields contains it. The file is read on each lookup, so an edit shows the next time a field asks.
 
+A scenario also answers a block's plan and apply, under `modules` by the block's id, so the **Apply** tab runs without Terragrunt:
+
+```yaml title="simulation.yml"
+scenarios:
+  happy-path:
+    modules:
+      group:
+        delayMs: 700            # optional: how long each resource takes to apply
+        resources:
+          - address: google_cloud_identity_group.group
+            values:
+              group_key:
+                - { id: "{{ .id }}" }
+            computed:           # what the plan shows as known after apply
+              name: groups/03x5example
+          - address: google_cloud_identity_group_membership.owners["{{ .each }}"]
+            forEach: owners     # one resource for each owner, read as {{ .each }}
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+        outputs:
+          email: "{{ .id }}"
+          console_url: https://admin.google.com/ac/groups/03x5example
+
+  apply-fails:
+    extends: happy-path
+    modules:
+      group:
+        applyError: "Error 403: The caller does not have permission."
+```
+
+Strings are templates over the block's inputs. `planError` fails the plan instead. A scenario that extends another replaces only the keys it gives for a block.
+
 ## Testing
 
-`runbooks test` treats a `<TofuModule>` block as it treats an `<Inputs>` block: it checks the block and moves on. It doesn't read the module yet, so a test sets the inputs the runbook uses under `inputs`, named `<id>.<input>`, such as `group.id`.
+`runbooks test` treats a `<TofuModule>` block as it treats an `<Inputs>` block: it checks the block and moves on. It doesn't read the module yet, so a test sets the inputs the runbook uses under `inputs`, named `<id>.<input>`, such as `group.id`. It doesn't plan or apply the module either, so the block publishes no outputs in a test.

@@ -53,17 +53,33 @@ describe("loadModule", () => {
     expect(spec.providers).toEqual([
       { name: "google", source: "hashicorp/google", version: ">= 8.10.0, < 9.0.0" },
     ])
-    // Declaration order, not the alphabetical order the parser returns.
-    expect(spec.variables.map((v) => v.name).slice(0, 3)).toEqual([
+    // runbooks.yml's order, then declaration order, not the alphabetical order the parser returns.
+    expect(spec.variables.map((v) => v.name)).toEqual([
+      "domain",
       "id",
       "display_name",
       "description",
+      "owners",
+      "members",
+      "customer_id",
+      "managers",
+      "types",
     ])
-    expect(spec.outputs).toEqual(["customer_id", "email", "resource_name"])
+    expect(spec.outputs.map((o) => o.name)).toEqual([
+      "email",
+      "resource_name",
+      "customer_id",
+      "console_url",
+    ])
+    expect(spec.outputs.find((o) => o.name === "console_url")).toMatchObject({
+      label: "Admin console",
+      link: "View the Google Group",
+    })
 
     const id = byName(spec, "id")
     expect(id).toMatchObject({
       label: "Group email",
+      suffix: "@{{ .domain }}",
       primary: true,
       hasDefault: false,
       kind: "string",
@@ -81,15 +97,9 @@ describe("loadModule", () => {
       primary: true,
       default: [],
       lookup: { from: "google.people" },
+      shortcut: { from: "google.me", value: "email" },
     })
     expect(byName(spec, "managers").primary).toBe(false)
-
-    const config = byName(spec, "initial_group_config")
-    expect(config.optionsOnly).toBe(true)
-    expect(config.options).toEqual([
-      { value: "WITH_INITIAL_OWNER", label: "Yes" },
-      { value: "EMPTY", label: "No" },
-    ])
 
     const types = byName(spec, "types")
     expect(types.kind).toBe("list")
@@ -179,6 +189,16 @@ describe("loadModule", () => {
     it("whose runbooks.yml describes an input variables.tf doesn't declare", async () => {
       write("runbooks.yml", "variables:\n  nmae:\n    primary: true\n")
       expect(await failure(dir)).toContain(`describes "nmae", which variables.tf doesn't declare`)
+    })
+
+    it("whose suffix reads an input variables.tf doesn't declare", async () => {
+      write("runbooks.yml", 'variables:\n  name:\n    suffix: "@{{ .domain }}"\n')
+      expect(await failure(dir)).toContain(`suffix reads "domain"`)
+    })
+
+    it("whose runbooks.yml describes an output the module doesn't declare", async () => {
+      write("runbooks.yml", "outputs:\n  url:\n    link: Open it\n")
+      expect(await failure(dir)).toContain(`the outputs "url", which the module doesn't declare`)
     })
 
     it("whose runbooks.yml names a file outside the module", async () => {

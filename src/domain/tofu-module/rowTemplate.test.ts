@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { renderRowTemplate, rowTemplateError } from "./rowTemplate.ts"
+import { renderRowTemplate, rowTemplateError, templateFields } from "./rowTemplate.ts"
 
 describe("renderRowTemplate", () => {
   const label = "{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}"
@@ -30,5 +30,11 @@ describe("renderRowTemplate", () => {
     expect(rowTemplateError("{{ if .a }}{{ if .b }}{{ end }}{{ end }}")).toContain("Nested")
     expect(rowTemplateError("{{ if .a }}")).toContain("without")
     expect(rowTemplateError(label)).toBeUndefined()
+  })
+})
+
+describe("templateFields", () => {
+  it("lists the fields a template reads, once each", () => {
+    expect(templateFields("{{ .a }}@{{ if .b }}{{ .a }}{{ end }}")).toEqual(["a", "b"])
   })
 })

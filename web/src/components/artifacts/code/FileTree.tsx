@@ -245,6 +245,8 @@ export interface FileTreeProps {
   selectedId?: string | null | undefined
   /** Files that changed since the user reviewed them, by ID. They and the folders holding them are marked. */
   changes?: ReadonlyMap<string, FileChange> | undefined
+  /** The folders to show open at first, by ID. */
+  defaultExpandedIds?: readonly string[] | undefined
 }
 
 /** The mark of a changed file, as the tree shows it after its name. */
@@ -284,9 +286,10 @@ export const FileTree = ({
   indent = FILE_TREE_INDENT, // Indent per level (8 base + 11 = 19px for level 1)
   selectedId,
   changes,
+  defaultExpandedIds,
 }: FileTreeProps) => {
   /** Set of expanded folder IDs */
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(() => new Set(defaultExpandedIds))
   /** Currently selected item ID */
   const [selectedItem, setSelectedItem] = useState<string | null>(null)
   const selected = selectedId !== undefined ? selectedId : selectedItem

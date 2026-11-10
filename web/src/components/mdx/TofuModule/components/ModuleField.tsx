@@ -2,8 +2,10 @@ import { FormControl } from "../../_shared/components/FormControls"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
 import type { TofuModuleVariable } from "../../../../../../src/domain/tofu-module/types"
 import type { LookupRow } from "../../../../../../src/domain/tofu-module/rowTemplate"
+import type { Suffix } from "../lib"
 import { OptionCards } from "./OptionCards"
 import { PresetPicker } from "./PresetPicker"
+import { ShortcutButton } from "./ShortcutButton"
 import { SuggestInput } from "./SuggestInput"
 
 /** Option cards suit a few choices; more than this get a dropdown. */
@@ -13,6 +15,8 @@ interface ModuleFieldProps {
   blockId: string
   variable: TofuModuleVariable
   value: unknown
+  /** The fixed end of the value, shown after what the user types. */
+  suffix?: Suffix | undefined
   error?: string | undefined
   onChange: (value: unknown) => void
   onBlur: () => void
@@ -27,8 +31,46 @@ const asText = (value: unknown): string =>
 const asStrings = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : [])
 
 /** One input's control, chosen from its type and what runbooks.yml says about it. */
-function Control({ blockId, variable, value, error, onChange, onBlur, onPick }: ModuleFieldProps) {
+function Control({
+  blockId,
+  variable,
+  value,
+  suffix,
+  error,
+  onChange,
+  onBlur,
+  onPick,
+}: ModuleFieldProps) {
   const fieldId = `${blockId}-${variable.name}`
+
+  if (suffix) {
+    const waiting = suffix.waitingFor.length > 0
+    return (
+      <div
+        className={`flex max-w-xl overflow-hidden rounded-md border bg-card focus-within:ring-2 focus-within:ring-ring ${
+          error ? "border-destructive" : "border-input"
+        }`}
+      >
+        <input
+          id={fieldId}
+          type="text"
+          value={asText(value)}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
+          spellCheck={false}
+          className="min-w-0 flex-1 bg-transparent px-3 py-2 focus:outline-none"
+        />
+        <span
+          data-testid={`${fieldId}-suffix`}
+          className={`flex items-center border-l border-input bg-muted px-3 text-sm ${
+            waiting ? "italic text-muted-foreground" : "font-medium text-foreground"
+          }`}
+        >
+          {suffix.shown}
+        </span>
+      </div>
+    )
+  }
 
   if (variable.presets && variable.presets.length > 0) {
     return (
@@ -157,6 +199,15 @@ export function ModuleField(props: ModuleFieldProps) {
         <p className="text-sm text-muted-foreground">{variable.description}</p>
       )}
       <Control {...props} />
+      {variable.shortcut && (variable.kind === "list" || variable.kind === "string") && (
+        <ShortcutButton
+          shortcut={variable.shortcut}
+          current={variable.kind === "list" ? asStrings(props.value) : [asText(props.value)]}
+          onAdd={(value) =>
+            props.onChange(variable.kind === "list" ? [...asStrings(props.value), value] : value)
+          }
+        />
+      )}
       {variable.constraints?.map((rule) => (
         <p key={rule} className="text-xs text-muted-foreground">
           Rule: {rule}
