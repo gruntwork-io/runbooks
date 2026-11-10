@@ -36,12 +36,13 @@ Sign in as the admin, and pick the project from above. The extra scopes let the 
 
 ## Sign in to AWS
 
-The repository's `root.hcl` keeps the unit's state in the production account's `us-west-2` bucket, so the plan and apply need AWS credentials for that account.
+The repository's `root.hcl` keeps the unit's state in the production account's `us-west-2` bucket, so the plan and apply need AWS credentials for that account. Sign in with your organization's AWS access portal, then pick that account and a role that can read and write the state. A profile set up with `aws configure sso` fills in the portal's start URL and region.
 
 <AwsAuth
   id="aws-auth"
   title="Sign in to AWS"
   description="Sign in to the AWS account that keeps the repository's state."
+  defaultTab="sso"
   defaultRegion="us-west-2"
 />
 
