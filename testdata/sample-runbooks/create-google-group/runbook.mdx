@@ -11,6 +11,7 @@ This runbook creates a real Google group in your Google Workspace or Cloud Ident
 - **OpenTofu 1.12.6 or later** on your `PATH`.
 - **An admin who can create groups**, such as a Groups Admin or Super Admin, to sign in as.
 - **A Google Cloud project** for this runbook. Google bills its API calls to that project, so you need permission to use its services, which an Owner or Editor has. Once you sign in, the block below checks which of its APIs to turn on.
+- **A GitHub account** that can push to the repository below.
 - **A Desktop app OAuth client** for Google Sign-In, from that project's **Google Auth Platform → Clients** page. Choose its JSON in the sign-in tab, or point `GOOGLE_OAUTH_CLIENT_CREDENTIALS` at it before you start Runbooks.
 
 ## Sign in to Google
@@ -32,9 +33,27 @@ Sign in as the admin, and pick the project from above. The extra scopes let the 
   ]}
 />
 
+## Clone the repository
+
+The group's code goes in a pull request to this repository. It's a fork of the live infrastructure repository, so pull requests here change nothing real.
+
+<GitHubAuth
+  id="github-auth"
+  title="Sign in to GitHub"
+  description="Sign in to GitHub to clone the repository and open the pull request."
+/>
+
+<GitClone
+  id="clone-repo"
+  githubAuthId="github-auth"
+  title="Clone the repository"
+  description="Clone the repository the group's code goes in."
+  prefilledUrl="https://github.com/josh-padnick/infra-live"
+/>
+
 ## Create the group
 
-Fill in the group, check the code on **Code**, then plan and apply on **Apply**. There's no repository here, so there's no pull request: the code runs in this session's folder, which also keeps OpenTofu's state.
+Fill in the group, check the code on **Code**, open a pull request that adds it under `google-groups/` on **PR**, then plan and apply on **Apply**. The code runs in this session's folder, which also keeps OpenTofu's state, so no state file lands in the repository.
 
 <TfModule
   id="group"
