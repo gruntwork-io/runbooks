@@ -11,12 +11,12 @@ import { Effect, Result } from "effect"
 import { ipcMain } from "electron"
 import { runtime, runbookConfig } from "./runtime.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
-import { TofuModuleError } from "../../../src/errors/index.ts"
+import { TfModuleError } from "../../../src/errors/index.ts"
 import {
   SIMULATION_FILE,
   parseSimulation,
   type SimulationScenario,
-} from "../../../src/domain/tofu-module/simulation.ts"
+} from "../../../src/domain/tf-module/simulation.ts"
 import type { SimulationState } from "../../shared/channels.ts"
 
 let enabled = false
@@ -36,12 +36,12 @@ export function simulationEnabled(): boolean {
 const readScenarios = Effect.gen(function* () {
   const runbook = runbookConfig.localPath
   if (!runbook) {
-    return yield* new TofuModuleError({ message: "Simulation: no runbook is open." })
+    return yield* new TfModuleError({ message: "Simulation: no runbook is open." })
   }
   const file = path.join(path.dirname(runbook), SIMULATION_FILE)
   const fs = yield* FileSystem
   if (!(yield* fs.exists(file))) {
-    return yield* new TofuModuleError({
+    return yield* new TfModuleError({
       message: `Simulation: add a ${SIMULATION_FILE} beside the runbook with the answers blocks should get.`,
     })
   }
@@ -49,22 +49,20 @@ const readScenarios = Effect.gen(function* () {
     .readFile(file)
     .pipe(
       Effect.mapError(
-        () => new TofuModuleError({ message: `Simulation: couldn't read ${SIMULATION_FILE}.` }),
+        () => new TfModuleError({ message: `Simulation: couldn't read ${SIMULATION_FILE}.` }),
       ),
     )
   return yield* Effect.try({
     try: () => parseSimulation(content),
     catch: (cause) =>
-      cause instanceof TofuModuleError
-        ? cause
-        : new TofuModuleError({ message: String(cause), cause }),
+      cause instanceof TfModuleError ? cause : new TfModuleError({ message: String(cause), cause }),
   })
 })
 
 /** The scenario lookups answer from now. */
 export const activeSimulationScenario: Effect.Effect<
   SimulationScenario,
-  TofuModuleError,
+  TfModuleError,
   FileSystem
 > = Effect.gen(function* () {
   const scenarios = yield* readScenarios

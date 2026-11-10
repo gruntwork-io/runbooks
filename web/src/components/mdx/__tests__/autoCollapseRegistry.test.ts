@@ -59,7 +59,7 @@ const INSTRUCTION_SOURCE: Record<(typeof COLLAPSIBLE_BLOCKS)[number], string> = 
 
 // Entries that never fold:
 // - Finish shows the author's next steps once the runbook is finished.
-// - Inputs, TofuModule and Template have no title to fold down to, and their
+// - Inputs, TfModule and Template have no title to fold down to, and their
 //   values are worth reviewing.
 // - DirPicker is done from its first pick, before the user has picked every
 //   level.
@@ -67,7 +67,7 @@ const INSTRUCTION_SOURCE: Record<(typeof COLLAPSIBLE_BLOCKS)[number], string> = 
 const NOT_COLLAPSIBLE = [
   "Finish",
   "Inputs",
-  "TofuModule",
+  "TfModule",
   "Template",
   "DirPicker",
   "TemplateInline",

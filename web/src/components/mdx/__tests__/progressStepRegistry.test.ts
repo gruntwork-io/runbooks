@@ -25,7 +25,7 @@ const STEP_BLOCKS = [
   "GitHubAuth",
   "GitLabAuth",
   "Inputs",
-  "TofuModule",
+  "TfModule",
   "Template",
   "GitClone",
   "GitPullRequest",

@@ -32,9 +32,9 @@ import { registerWorkspaceHandlers } from "./workspace.ts"
 import { registerFileHandlers } from "./files.ts"
 import { registerWatchHandlers } from "./watch.ts"
 import { registerThemeHandlers } from "./theme.ts"
-import { registerTofuModuleHandlers } from "./tofu-module.ts"
-import { registerTofuModuleRunHandlers } from "./tofu-module-run.ts"
-import { registerTofuModulePrHandlers } from "./tofu-module-pr.ts"
+import { registerTfModuleHandlers } from "./tf-module.ts"
+import { registerTfModuleRunHandlers } from "./tf-module-run.ts"
+import { registerTfModulePrHandlers } from "./tf-module-pr.ts"
 import { registerSimulationHandlers } from "./simulation.ts"
 import { withVcs } from "./vcs-tristate.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
@@ -91,9 +91,9 @@ export function registerAllIpcHandlers(): void {
   registerFileHandlers()
   registerWatchHandlers()
   registerThemeHandlers()
-  registerTofuModuleHandlers()
-  registerTofuModuleRunHandlers()
-  registerTofuModulePrHandlers()
+  registerTfModuleHandlers()
+  registerTfModuleRunHandlers()
+  registerTfModulePrHandlers()
   registerSimulationHandlers()
   registerVcsStatusHandler()
 }

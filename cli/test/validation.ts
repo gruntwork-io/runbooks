@@ -117,7 +117,7 @@ export class InputValidator {
     }
     // Its inputs come from the module, which this runner doesn't read yet, so
     // a test sets the ones the runbook uses.
-    components.push(...findComponents(elements, "TofuModule"))
+    components.push(...findComponents(elements, "TfModule"))
     // Only an Iframe with an id can set outputs, so only those are steps.
     components.push(...findComponents(elements, "Iframe").filter((comp) => comp.hasExplicitId))
 
