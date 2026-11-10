@@ -50,10 +50,6 @@ export function formValue(variable: TofuModuleVariable, value: unknown): unknown
   return value === undefined || value === null ? "" : JSON.stringify(value, null, 2)
 }
 
-export function startingValues(spec: TofuModuleSpec): FormValues {
-  return Object.fromEntries(spec.variables.map((v) => [v.name, startingValue(v)]))
-}
-
 /** Whether a value counts as given, for an input variables.tf requires. */
 function isGiven(value: unknown): boolean {
   if (value === undefined || value === null || value === "") return false
