@@ -6,11 +6,11 @@
  * runbooks.yml entry for an input variables.tf doesn't declare is an error:
  * the form would otherwise drift from the module without anyone noticing.
  */
-import { parse as parseHclToJson } from "@cdktf/hcl2json"
 import { Effect } from "effect"
 import YAML from "yaml"
 import { TofuModuleError } from "../../errors/index.ts"
 import { errorMessage } from "../../errors/message.ts"
+import { loadGoWasm } from "../../layers/goWasmGlobal.ts"
 import type {
   TofuModuleInputKind,
   TofuModuleLookup,
@@ -38,10 +38,30 @@ export interface ModuleFile {
 /** HCL as HashiCorp's own parser converts it to JSON. */
 type HclJson = Record<string, unknown>
 
+type Hcl2Json = typeof import("@cdktf/hcl2json")
+let hcl2json: Promise<Hcl2Json> | undefined
+
+/**
+ * HashiCorp's HCL library, loaded on first use. The package starts its Go
+ * runtime as soon as it's imported, so the import waits its turn with the
+ * process's other Go runtimes, and a first parse waits for that runtime to start.
+ */
+function hclParser(): Promise<Hcl2Json> {
+  hcl2json ??= loadGoWasm(async () => {
+    const parser = await import("@cdktf/hcl2json")
+    await parser.parse("runbooks-probe.tf", "")
+    return parser
+  }).catch((err: unknown) => {
+    hcl2json = undefined
+    throw err
+  })
+  return hcl2json
+}
+
 /** Parses one HCL file with HashiCorp's HCL library, compiled to WebAssembly. */
 export const parseHcl = (file: ModuleFile) =>
   Effect.tryPromise({
-    try: () => parseHclToJson(file.name, file.content) as Promise<HclJson>,
+    try: async () => (await hclParser()).parse(file.name, file.content) as Promise<HclJson>,
     catch: (cause) =>
       new TofuModuleError({
         message: `Couldn't parse ${file.name}: ${errorMessage(cause)}`,
