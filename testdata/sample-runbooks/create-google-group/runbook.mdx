@@ -1,0 +1,76 @@
+---
+title: Create a Google Group
+---
+
+# Create a Google Group
+
+This runbook creates a real Google group in your Google Workspace or Cloud Identity organization, with OpenTofu. Nothing here is simulated: the **Apply** tab creates the group, and the last step deletes it again.
+
+## Before you start
+
+- **OpenTofu 1.12.6 or later** on your `PATH`. Runbooks runs `tofu init`, `plan` and `apply` for you.
+- **An admin who can create groups**, such as a Groups Admin or Super Admin, to sign in as.
+- **A Google Cloud project with the Cloud Identity API and the Cloud Resource Manager API enabled.** Google bills your API calls to it, so you need permission to use its services, which an Owner or Editor has.
+- **A Desktop app OAuth client** for Google Sign-In, from that project's **APIs & Services → Credentials** page. Choose its JSON in the sign-in tab, or point `GOOGLE_OAUTH_CLIENT_CREDENTIALS` at it before you start Runbooks.
+
+## Sign in to Google
+
+Sign in as the admin, and pick the project from above. The extra scopes let the form suggest your organization's domains and people.
+
+<GoogleAuth
+  id="google-auth"
+  title="Sign in to Google"
+  description="Sign in as an admin who can create groups, and pick the project that has the Cloud Identity API enabled."
+  defaultTab="oauth"
+  scopes={[
+    'https://www.googleapis.com/auth/cloud-platform',
+    'https://www.googleapis.com/auth/cloud-identity.groups',
+    'https://www.googleapis.com/auth/admin.directory.domain.readonly',
+    'https://www.googleapis.com/auth/directory.readonly',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'openid',
+  ]}
+/>
+
+## Create the group
+
+Fill in the group, check the code on **Code**, then plan and apply on **Apply**. There's no repository here, so there's no pull request: the code runs in this session's folder, which also keeps OpenTofu's state.
+
+<TfModule
+  id="group"
+  source="google-group"
+  template="templates/google-group"
+  path="google-groups/{{ .id }}"
+/>
+
+<Admonition type="note" title="If the plan can't find your organization">
+The module finds the organization's customer ID from its domain through Cloud Resource Manager, which works only when the domain has a Google Cloud organization. If it doesn't, clear **Organization**, and give the **Customer ID** under **Advanced options** instead. It's on the **Account settings** page of the Google Admin console.
+</Admonition>
+
+## Check the group
+
+<Command
+  id="show-group"
+  title="Show the new group"
+  description="Prints the group's outputs from the apply."
+  env={{
+    GROUP_EMAIL: "{{ .outputs.group.email }}",
+    GROUP_RESOURCE: "{{ .outputs.group.resource_name }}",
+    GROUP_CONSOLE: "{{ .outputs.group.runbooks_console_url }}",
+  }}
+  command={`echo "Group:         $GROUP_EMAIL"
+echo "Resource name: $GROUP_RESOURCE"
+echo "Admin console: $GROUP_CONSOLE"`}
+/>
+
+## Clean up
+
+When you're done trying it out, delete the group with the same code and state. This can't be undone: the group's email archive goes with it.
+
+<Command
+  id="delete-group"
+  title="Delete the group"
+  description="Runs tofu destroy on the code the Apply tab ran."
+  command={`(cd .runbooks/tf-module/group/group && tofu destroy -auto-approve -input=false -no-color)`}
+  successMessage="The group is deleted."
+/>
