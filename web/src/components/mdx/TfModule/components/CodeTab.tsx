@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { Loader2, TriangleAlert } from "lucide-react"
 import { CodeFile } from "@/components/artifacts/code/CodeFile"
 import { DiffTable } from "@/components/artifacts/code/DiffTable"
@@ -118,13 +118,10 @@ export function CodeTab({
   selected,
   onSelect,
 }: CodeTabProps) {
-  const files: readonly UnitFile[] = useMemo(() => code?.files ?? [], [code])
-  const tree = useMemo(() => treeOf(files), [files])
-  const folders = useMemo(() => foldersOf(files), [files])
-  const changes = useMemo(
-    () => (code?.kind === "repo" ? repoChanges(code.files) : undefined),
-    [code],
-  )
+  const files: readonly UnitFile[] = code?.files ?? []
+  const tree = treeOf(files)
+  const folders = foldersOf(files)
+  const changes = code?.kind === "repo" ? repoChanges(code.files) : undefined
   // The unit's own file, rather than a file beside or above it, unless the user picked one.
   const shown =
     files.find((f) => f.path === selected) ??
@@ -202,10 +199,7 @@ function ShownFile({ file, base }: { file: UnitFile; base: string }) {
   const [whole, setWhole] = useState(false)
   const status = "status" in file ? (file as RepoFile).status : undefined
   const before = "before" in file ? (file as RepoFile).before : undefined
-  const diff = useMemo(
-    () => (before === undefined ? undefined : diffDiskContents(before, file.content)),
-    [before, file.content],
-  )
+  const diff = before === undefined ? undefined : diffDiskContents(before, file.content)
   const note =
     status === "context"
       ? `Already on ${base}, shown for context. This code doesn't change it.`

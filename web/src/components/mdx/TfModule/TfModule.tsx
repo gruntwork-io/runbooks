@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent } from "react"
+import { useRef, useState, type FormEvent } from "react"
 import { ArrowRight, ChevronDown, ChevronRight, FlaskConical, TriangleAlert } from "lucide-react"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { sensitiveOutput } from "@/lib/outputValues"
@@ -70,30 +70,32 @@ const SIMULATED_TARGET: PullRequestTarget = {
   baseBranch: "main",
 }
 
-function TfModule({ id, source, path }: TfModuleProps) {
-  const validationError = useMemo((): AppError | null => {
-    if (!id) {
-      return {
-        message: "The <TfModule> block requires a non-empty 'id' prop.",
-        details: "Please provide a unique 'id' for this block.",
-      }
+/** What's wrong with the block's props, if anything. */
+function propsError(id: string, source: string): AppError | null {
+  if (!id) {
+    return {
+      message: "The <TfModule> block requires a non-empty 'id' prop.",
+      details: "Please provide a unique 'id' for this block.",
     }
-    if (!source) {
-      return {
-        message: "The <TfModule> block requires a 'source' prop.",
-        details: "Set 'source' to the module's folder, relative to the runbook.",
-      }
+  }
+  if (!source) {
+    return {
+      message: "The <TfModule> block requires a 'source' prop.",
+      details: "Set 'source' to the module's folder, relative to the runbook.",
     }
-    return null
-  }, [id, source])
+  }
+  return null
+}
 
-  const params = useMemo(() => ({ source }), [source])
+function TfModule({ id, source, path }: TfModuleProps) {
+  const validationError = propsError(id, source)
+
   const {
     data: spec,
     isLoading,
     error: apiError,
-  } = useIpc<TfModuleSpec>(validationError ? "" : "tf-module:read", params)
-  const config = useMemo(() => (spec ? registryConfig(spec) : null), [spec])
+  } = useIpc<TfModuleSpec>(validationError ? "" : "tf-module:read", { source })
+  const config = spec ? registryConfig(spec) : null
 
   const blockRef = useRef<HTMLDivElement>(null)
   const {
@@ -269,19 +271,8 @@ function TfModuleForm({
   const run = useTfRun(id, source, published, repo)
   const pr = usePullRequest(id, source, published, repoPath)
   const unitCode = useUnitCode(id, source, published, repo, tab === "code" || tab === "pr")
-  const stage = stageOf({
-    inputsValid: isValid,
-    hasRepo,
-    pr:
-      pr.state.phase === "merged"
-        ? "merged"
-        : pr.state.pr
-          ? pr.behind
-            ? "behind"
-            : "open"
-          : "none",
-    applied: run.applied,
-  })
+  const applied = run.status === "current"
+  const stage = stageOf({ inputsValid: isValid, hasRepo, pr: pr.status, applied })
   const blocked =
     errorCount > 0
       ? `${errorCount === 1 ? "1 input needs" : `${errorCount} inputs need`} a fix on the UI tab first.`
@@ -396,7 +387,7 @@ function TfModuleForm({
           target={prTarget}
           simulated={simulation.enabled}
           blocked={blocked}
-          applied={run.applied}
+          applied={applied}
           next={nextFrom("pr", stage, hasRepo)}
           pr={pr}
           onOpenFile={(file) => {
@@ -416,7 +407,7 @@ function TfModuleForm({
       >
         <ApplyTab
           state={run.state}
-          stale={run.stale}
+          status={run.status}
           simulated={simulation.enabled}
           blocked={blocked}
           outputs={spec.outputs}

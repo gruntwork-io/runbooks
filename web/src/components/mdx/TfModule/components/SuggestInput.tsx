@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { useId, useRef, useState, type KeyboardEvent } from "react"
 import { Loader2, X } from "lucide-react"
 import type { TfModuleLookup } from "../../../../../../src/domain/tf-module/types"
 import type { LookupRow } from "../../../../../../src/domain/tf-module/rowTemplate"
@@ -9,6 +9,24 @@ const inputClasses = (error?: string) =>
   `px-3 py-2 border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring ${
     error ? "border-destructive" : "border-input"
   }`
+
+/** The rows as suggestions, leaving out values already chosen. */
+function suggestionsFor(
+  lookup: TfModuleLookup,
+  rows: readonly LookupRow[],
+  taken: ReadonlySet<string>,
+): Suggestion[] {
+  const list: Suggestion[] = []
+  for (const row of rows) {
+    try {
+      const suggestion = suggestionFor(lookup, row)
+      if (suggestion.value && !taken.has(suggestion.value)) list.push(suggestion)
+    } catch {
+      // runbooks.yml's templates were checked when the module loaded.
+    }
+  }
+  return list
+}
 
 interface CommonProps {
   id: string
@@ -45,20 +63,9 @@ export function SuggestInput(props: SuggestInputProps) {
   const query = props.multiple ? draft : props.value
   const { rows, error: lookupError, loading } = useLookup(lookup?.from, query, searching)
 
-  const suggestions = useMemo(() => {
-    if (!lookup) return []
-    const taken = new Set(props.multiple ? props.value : [])
-    const list: Suggestion[] = []
-    for (const row of rows) {
-      try {
-        const suggestion = suggestionFor(lookup, row)
-        if (suggestion.value && !taken.has(suggestion.value)) list.push(suggestion)
-      } catch {
-        // runbooks.yml's templates were checked when the module loaded.
-      }
-    }
-    return list
-  }, [lookup, rows, props.multiple, props.value])
+  const suggestions = lookup
+    ? suggestionsFor(lookup, rows, new Set(props.multiple ? props.value : []))
+    : []
 
   const open = searching && lookup !== undefined && (suggestions.length > 0 || Boolean(lookupError))
 
@@ -173,7 +180,12 @@ export function SuggestInput(props: SuggestInputProps) {
           className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-popover py-1 shadow-lg"
         >
           {lookupError ? (
-            <li className="px-3 py-2 text-sm text-destructive">{lookupError}</li>
+            <li className="px-3 py-2 text-sm">
+              <p className="m-0 text-destructive">{lookupError}</p>
+              <p className="m-0 mt-1 text-xs text-muted-foreground">
+                You can still type the whole value and press Enter.
+              </p>
+            </li>
           ) : (
             suggestions.map((suggestion, index) => (
               <li

@@ -1,38 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useReducer, useRef } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import type { TfModuleRepo } from "../../../../../../electron/shared/channels"
-import type {
-  ApplyResult,
-  PlanResult,
-  ResourceProgress,
-  RunEvent,
-} from "../../../../../../src/domain/tf-module/run"
-
-export type RunStep = Extract<RunEvent, { kind: "step" }>["step"]
-
-export interface LogLine {
-  readonly line: string
-  readonly level?: "error" | "warn" | undefined
-}
-
-export interface RunState {
-  readonly phase: "idle" | "planning" | "planned" | "applying" | "applied" | "failed"
-  /** What Terragrunt is doing now. */
-  readonly step?: RunStep | undefined
-  readonly log: readonly LogLine[]
-  /** Each resource's progress in an apply, by address. */
-  readonly progress: Readonly<Record<string, { progress: ResourceProgress; elapsed?: number }>>
-  readonly plan?: PlanResult | undefined
-  readonly result?: ApplyResult | undefined
-  readonly error?: string | undefined
-  /** Which step failed. */
-  readonly failed?: "plan" | "apply" | undefined
-  /** The inputs the plan was made with, as JSON, so a change shows it's stale. */
-  readonly plannedWith?: string | undefined
-}
-
-const IDLE: RunState = { phase: "idle", log: [], progress: {} }
+import { inputsKey, type ApplyResult } from "../../../../../../src/domain/tf-module/run"
+import { INITIAL_RUN, runReducer, runStatus } from "../runMachine"
 
 const message = (err: unknown) =>
   cleanIpcErrorMessage(err instanceof Error ? err.message : String(err))
@@ -40,9 +11,9 @@ const message = (err: unknown) =>
 let runSeq = 0
 
 /**
- * Plans and applies a block's Terragrunt code in the main process, and keeps
- * what the Apply tab shows: the step, the log, each resource's progress, the
- * plan, and what the apply made.
+ * Plans and applies a block's Terragrunt code in the main process, keeping
+ * the run's state (see runMachine) and what it means for the inputs as they
+ * are now.
  */
 export function useTfRun(
   blockId: string,
@@ -52,113 +23,58 @@ export function useTfRun(
   repo?: TfModuleRepo,
 ) {
   const api = useApi()
-  const [state, setState] = useState<RunState>(IDLE)
-  const runId = useRef<string | null>(null)
+  const [state, dispatch] = useReducer(runReducer, INITIAL_RUN)
+  const current = useRef<{ id: string; stopping: boolean } | null>(null)
   const unsubscribe = useRef<(() => void) | null>(null)
-
-  const listen = useCallback(
-    (id: string) => {
-      unsubscribe.current?.()
-      unsubscribe.current = api.on("tf-module:event", ({ runId: from, event }) => {
-        if (from !== id) return
-        setState((prev) => {
-          switch (event.kind) {
-            case "step":
-              return { ...prev, step: event.step }
-            case "log":
-              return { ...prev, log: [...prev.log, { line: event.line, level: event.level }] }
-            case "resource":
-              return {
-                ...prev,
-                progress: {
-                  ...prev.progress,
-                  [event.address]: {
-                    progress: event.progress,
-                    ...(event.elapsedSeconds !== undefined
-                      ? { elapsed: event.elapsedSeconds }
-                      : {}),
-                  },
-                },
-              }
-          }
-        })
-      })
-    },
-    [api],
-  )
 
   useEffect(
     () => () => {
       unsubscribe.current?.()
-      if (runId.current) void api.invoke("tf-module:cancel", { runId: runId.current })
+      if (current.current) void api.invoke("tf-module:cancel", { runId: current.current.id })
     },
     [api],
   )
 
-  const start = () => {
-    const id = `${blockId}-${++runSeq}`
-    runId.current = id
-    listen(id)
-    return id
-  }
-
-  const plan = async () => {
-    const id = start()
-    const plannedWith = JSON.stringify(values)
-    setState({ phase: "planning", log: [], progress: {}, plannedWith })
+  /** Runs one step in the main process, streaming its events into the state. */
+  const start = async <T>(call: (runId: string) => Promise<T>): Promise<T | undefined> => {
+    const run = { id: `${blockId}-${++runSeq}`, stopping: false }
+    current.current = run
+    unsubscribe.current?.()
+    unsubscribe.current = api.on("tf-module:event", ({ runId, event }) => {
+      if (runId === run.id) dispatch({ type: "event", event })
+    })
     try {
-      const result = await api.invoke("tf-module:plan", {
-        runId: id,
-        blockId,
-        source,
-        values,
-        repo,
-      })
-      if (runId.current !== id) return
-      setState((prev) => ({ ...prev, phase: "planned", step: undefined, plan: result }))
+      const result = await call(run.id)
+      return current.current === run ? result : undefined
     } catch (err) {
-      if (runId.current !== id) return
-      setState((prev) => ({ ...prev, phase: "failed", failed: "plan", error: message(err) }))
-    }
-  }
-
-  const apply = async (): Promise<ApplyResult | undefined> => {
-    const id = start()
-    setState((prev) => ({
-      ...prev,
-      phase: "applying",
-      progress: Object.fromEntries(
-        (prev.plan?.resources ?? []).map((r) => [r.address, { progress: "waiting" as const }]),
-      ),
-    }))
-    try {
-      const result = await api.invoke("tf-module:apply", {
-        runId: id,
-        blockId,
-        source,
-        values,
-        repo,
-      })
-      if (runId.current !== id) return undefined
-      setState((prev) => ({ ...prev, phase: "applied", step: undefined, result }))
-      return result
-    } catch (err) {
-      if (runId.current !== id) return undefined
-      setState((prev) => ({ ...prev, phase: "failed", failed: "apply", error: message(err) }))
+      if (current.current === run) {
+        dispatch(run.stopping ? { type: "stopped" } : { type: "failed", error: message(err) })
+      }
       return undefined
     }
   }
 
-  const cancel = () => {
-    if (runId.current) void api.invoke("tf-module:cancel", { runId: runId.current })
+  const request = (runId: string) => ({ runId, blockId, source, values, repo })
+
+  const plan = async () => {
+    dispatch({ type: "plan-started", inputs: inputsKey(values) })
+    const result = await start((runId) => api.invoke("tf-module:plan", request(runId)))
+    if (result) dispatch({ type: "planned", plan: result })
   }
 
-  const stale =
-    state.plannedWith !== undefined &&
-    state.phase === "planned" &&
-    state.plannedWith !== JSON.stringify(values)
+  const apply = async (): Promise<ApplyResult | undefined> => {
+    dispatch({ type: "apply-started" })
+    const result = await start((runId) => api.invoke("tf-module:apply", request(runId)))
+    if (result) dispatch({ type: "applied", result })
+    return result
+  }
 
-  const applied = state.phase === "applied" && state.plannedWith === JSON.stringify(values)
+  const cancel = () => {
+    const run = current.current
+    if (!run) return
+    run.stopping = true
+    void api.invoke("tf-module:cancel", { runId: run.id })
+  }
 
-  return { state, plan, apply, cancel, stale, applied }
+  return { state, status: runStatus(state.phase, inputsKey(values)), plan, apply, cancel }
 }

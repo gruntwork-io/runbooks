@@ -4,6 +4,8 @@
  * next and when the block is done.
  */
 
+import type { PullRequestStatus } from "./prMachine"
+
 export type Tab = "ui" | "code" | "pr" | "apply"
 
 /** What the block knows about each part of its work. */
@@ -12,9 +14,9 @@ export interface FlowFacts {
   readonly inputsValid: boolean
   /** Whether there's a repository to open a pull request in. */
   readonly hasRepo: boolean
-  /** The pull request: none yet, open, open with input changes not pushed, or merged. */
-  readonly pr: "none" | "open" | "behind" | "merged"
-  /** Whether the inputs as they are now have been applied. */
+  /** The pull request, for the inputs as they are now. */
+  readonly pr: PullRequestStatus
+  /** Whether the infrastructure matches the inputs as they are now. */
   readonly applied: boolean
 }
 
@@ -37,7 +39,8 @@ export type Stage =
 export function stageOf(facts: FlowFacts): Stage {
   if (!facts.inputsValid) return "fill"
   if (facts.hasRepo) {
-    if (facts.pr === "none") return "open-pr"
+    // A merged pull request with other inputs needs a new one, as if there were none.
+    if (facts.pr === "none" || facts.pr === "superseded") return "open-pr"
     if (facts.pr === "behind") return "push"
     if (facts.pr === "open") return facts.applied ? "merge" : "merge-or-apply"
   }

@@ -27,6 +27,7 @@ import { filesAtBase } from "../../../src/domain/tf-module/repoFiles.ts"
 import { loadModule } from "../../../src/domain/tf-module/load.ts"
 import {
   appliedResources,
+  inputsKey,
   moduleOutputs,
   plannedResources,
   uiEvents,
@@ -229,8 +230,28 @@ interface RunLocation {
   readonly downloadDir: string
 }
 
-/** Where each block's last plan ran, by block id, so its apply runs in the same place. */
-const planLocations = new Map<string, RunLocation>()
+/**
+ * Each block's saved plan, by block id: where it ran, so the apply runs in
+ * the same place, and the inputs it was made for, so an apply never applies
+ * a plan for other inputs. A new plan replaces it, and an apply uses it up.
+ */
+interface SavedPlan {
+  /** None for a simulated plan, which runs nowhere. */
+  readonly location?: RunLocation | undefined
+  readonly inputs: string
+}
+const savedPlans = new Map<string, SavedPlan>()
+
+/** The block's saved plan for these inputs, or an error saying what to do instead. */
+const planToApply = (blockId: string, values: Record<string, unknown>) => {
+  const saved = savedPlans.get(blockId)
+  if (!saved) return Effect.fail(fail("Plan first, so there's a plan to apply."))
+  if (saved.inputs !== inputsKey(values)) {
+    return Effect.fail(fail("The inputs changed since the plan. Plan again to apply them."))
+  }
+  savedPlans.delete(blockId)
+  return Effect.succeed(saved)
+}
 
 /**
  * Writes the block's code where Terragrunt runs it: in the repository's
@@ -475,12 +496,17 @@ export function registerTfModuleRunHandlers(): void {
 
   ipcMain.handle("tf-module:plan", async (event, params: TfModuleRunRequest) => {
     const run = startRun(event.sender, params.runId)
+    // Until this plan finishes, there's no plan to apply.
+    savedPlans.delete(params.blockId)
+    const inputs = inputsKey(params.values)
     try {
       return await runtime.runPromise(
         Effect.gen(function* () {
           if (simulationEnabled()) {
             const answer = yield* simulatedModule(params.blockId)
-            return yield* simulatePlan(answer, params.values, run.send, run.signal)
+            const plan = yield* simulatePlan(answer, params.values, run.send, run.signal)
+            savedPlans.set(params.blockId, { inputs })
+            return plan
           }
           const location = yield* writeForRun(params)
           const planFile = path.join(yield* workspaceDir(params.blockId), PLAN_FILE)
@@ -511,7 +537,7 @@ export function registerTfModuleRunHandlers(): void {
               terragrunt(["show", "-json", planFile], { ...where, env, signal: run.signal }),
             catch: (cause) => (cause instanceof TfModuleError ? cause : fail(errorMessage(cause))),
           })
-          planLocations.set(params.blockId, location)
+          savedPlans.set(params.blockId, { location, inputs })
           return { resources: plannedResources(JSON.parse(shown)) } satisfies PlanResult
         }),
       )
@@ -528,14 +554,14 @@ export function registerTfModuleRunHandlers(): void {
           const spec = yield* Effect.flatMap(moduleDir(params.source), loadModule)
           const order = spec.outputs.map((output) => output.name)
           const sensitive = new Set(spec.outputs.filter((o) => o.sensitive).map((o) => o.name))
+          const { location } = yield* planToApply(params.blockId, params.values)
           if (simulationEnabled()) {
             const answer = yield* simulatedModule(params.blockId)
             return yield* simulateApply(answer, params.values, sensitive, run.send, run.signal)
           }
+          if (!location) return yield* fail("Plan first, so there's a plan to apply.")
           // The plan step wrote the code, and saved the plan this applies, in the workspace.
           const workspace = yield* workspaceDir(params.blockId)
-          const location = planLocations.get(params.blockId)
-          if (!location) return yield* fail("Plan first, so there's a plan to apply.")
           const planFile = path.join(workspace, PLAN_FILE)
           const { env } = yield* sessionManager.getExecContext()
           const quiet = { ...location, env, signal: run.signal }

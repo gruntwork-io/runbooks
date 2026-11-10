@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useReducer, useRef } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import type { MergeMethod } from "../../../../../../src/services/GitHubClient"
-import type { LogLine } from "./useTfRun"
+import { inputsKey } from "../../../../../../src/domain/tf-module/run"
+import {
+  INITIAL_PULL_REQUEST,
+  pullRequestReducer,
+  pullRequestStatus,
+  type PullRequestTask,
+} from "../prMachine"
 
 export interface PullRequestTarget {
   /** The repository's checkout in the session; none in simulation. */
@@ -20,17 +26,6 @@ export interface PullRequestDraft {
   readonly body: string
 }
 
-export interface PullRequestState {
-  readonly phase: "draft" | "opening" | "open" | "pushing" | "updating" | "merging" | "merged"
-  readonly log: readonly LogLine[]
-  readonly pr?: { readonly url: string; readonly number: number; readonly branch: string }
-  readonly title?: string
-  readonly body?: string
-  /** The inputs the branch has, as JSON, so a change shows it needs a push. */
-  readonly pushedWith?: string
-  readonly error?: string | undefined
-}
-
 const message = (err: unknown) =>
   cleanIpcErrorMessage(err instanceof Error ? err.message : String(err))
 
@@ -38,7 +33,8 @@ let runSeq = 0
 
 /**
  * Opens, updates, and merges the pull request that adds a block's Terragrunt
- * unit to the cloned repository, and keeps what the PR tab shows.
+ * unit to the cloned repository, keeping its state (see prMachine) and what
+ * it means for the inputs as they are now.
  */
 export function usePullRequest(
   blockId: string,
@@ -47,116 +43,100 @@ export function usePullRequest(
   path: string,
 ) {
   const api = useApi()
-  const [state, setState] = useState<PullRequestState>({ phase: "draft", log: [] })
+  const [state, dispatch] = useReducer(pullRequestReducer, INITIAL_PULL_REQUEST)
   const unsubscribe = useRef<(() => void) | null>(null)
-
-  const start = useCallback(() => {
-    const id = `${blockId}-pr-${++runSeq}`
-    unsubscribe.current?.()
-    unsubscribe.current = api.on("tf-module:event", ({ runId, event }) => {
-      if (runId !== id || event.kind !== "log") return
-      setState((prev) => ({
-        ...prev,
-        log: [...prev.log, { line: event.line, level: event.level }],
-      }))
-    })
-    return id
-  }, [api, blockId])
 
   useEffect(() => () => unsubscribe.current?.(), [])
 
+  /** A run id whose git log lines go to the PR tab's log. */
+  const logged = () => {
+    const id = `${blockId}-pr-${++runSeq}`
+    unsubscribe.current?.()
+    unsubscribe.current = api.on("tf-module:event", ({ runId, event }) => {
+      if (runId === id && event.kind === "log") {
+        dispatch({ type: "log", line: { line: event.line, level: event.level } })
+      }
+    })
+    return id
+  }
+
   const unit = { blockId, source, values, path }
+  const { phase } = state
+  const pr = phase.kind === "open" ? phase.pr : undefined
 
   const open = async (target: PullRequestTarget, draft: PullRequestDraft) => {
-    const runId = start()
-    const pushedWith = JSON.stringify(values)
-    setState({ phase: "opening", log: [] })
+    dispatch({ type: "open-started" })
+    const inputs = inputsKey(values)
     try {
-      const pr = await api.invoke("tf-module:pr-open", {
+      const opened = await api.invoke("tf-module:pr-open", {
         ...unit,
-        runId,
+        runId: logged(),
         target,
         branch: draft.branch,
         title: draft.title,
         body: draft.body,
         commitMessage: draft.commitMessage,
       })
-      setState((prev) => ({
-        ...prev,
-        phase: "open",
-        pr,
-        title: draft.title,
-        body: draft.body,
-        pushedWith,
-      }))
+      dispatch({ type: "opened", pr: { ...opened, title: draft.title, body: draft.body }, inputs })
     } catch (err) {
-      setState((prev) => ({ ...prev, phase: "draft", error: message(err) }))
+      dispatch({ type: "failed", error: message(err) })
     }
   }
 
-  const push = async (target: PullRequestTarget) => {
-    const { pr, title } = state
-    if (!pr || !title) return
-    const runId = start()
-    const pushedWith = JSON.stringify(values)
-    setState((prev) => ({ ...prev, phase: "pushing", error: undefined }))
+  /** Runs a task on the open pull request; true when it worked. */
+  const task = async (name: PullRequestTask, call: (runId: string) => Promise<unknown>) => {
+    dispatch({ type: "task-started", task: name })
     try {
-      await api.invoke("tf-module:pr-push", {
-        ...unit,
-        runId,
-        target,
-        branch: pr.branch,
-        title,
-        commitMessage: `Update ${title}`,
-      })
-      setState((prev) => ({ ...prev, phase: "open", pushedWith }))
-    } catch (err) {
-      setState((prev) => ({ ...prev, phase: "open", error: message(err) }))
-    }
-  }
-
-  const update = async (target: PullRequestTarget, changes: { title: string; body: string }) => {
-    const { pr } = state
-    if (!pr) return false
-    const runId = start()
-    setState((prev) => ({ ...prev, phase: "updating", error: undefined }))
-    try {
-      await api.invoke("tf-module:pr-update", {
-        runId,
-        blockId,
-        target,
-        number: pr.number,
-        title: changes.title,
-        body: changes.body,
-      })
-      setState((prev) => ({ ...prev, phase: "open", ...changes }))
+      await call(logged())
       return true
     } catch (err) {
-      setState((prev) => ({ ...prev, phase: "open", error: message(err) }))
+      dispatch({ type: "failed", error: message(err) })
       return false
     }
   }
 
-  const merge = async (target: PullRequestTarget, method: MergeMethod) => {
-    const { pr } = state
+  const push = async (target: PullRequestTarget) => {
     if (!pr) return
-    const runId = start()
-    setState((prev) => ({ ...prev, phase: "merging", error: undefined }))
-    try {
-      await api.invoke("tf-module:pr-merge", {
+    const inputs = inputsKey(values)
+    const ok = await task("pushing", (runId) =>
+      api.invoke("tf-module:pr-push", {
+        ...unit,
         runId,
-        blockId,
         target,
-        number: pr.number,
-        method,
-      })
-      setState((prev) => ({ ...prev, phase: "merged" }))
-    } catch (err) {
-      setState((prev) => ({ ...prev, phase: "open", error: message(err) }))
-    }
+        branch: pr.branch,
+        title: pr.title,
+        commitMessage: `Update ${pr.title}`,
+      }),
+    )
+    if (ok) dispatch({ type: "pushed", inputs })
   }
 
-  const behind = state.pushedWith !== undefined && state.pushedWith !== JSON.stringify(values)
+  const update = async (target: PullRequestTarget, changes: { title: string; body: string }) => {
+    if (!pr) return false
+    const ok = await task("updating", (runId) =>
+      api.invoke("tf-module:pr-update", { runId, blockId, target, number: pr.number, ...changes }),
+    )
+    if (ok) dispatch({ type: "updated", ...changes })
+    return ok
+  }
 
-  return { state, open, push, update, merge, behind }
+  const merge = async (target: PullRequestTarget, method: MergeMethod) => {
+    if (!pr) return
+    const ok = await task("merging", (runId) =>
+      api.invoke("tf-module:pr-merge", { runId, blockId, target, number: pr.number, method }),
+    )
+    if (ok) dispatch({ type: "merged" })
+  }
+
+  const startNew = () => dispatch({ type: "start-new" })
+
+  return {
+    state,
+    status: pullRequestStatus(phase, inputsKey(values)),
+    open,
+    push,
+    update,
+    merge,
+    startNew,
+  }
 }

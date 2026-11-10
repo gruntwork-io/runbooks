@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react"
-import type { LogLine } from "../hooks/useTfRun"
+import type { LogLine } from "../runMachine"
 
 /** A run's log, folded until opened. While folded and running, its header shows the latest line. */
 export function LogView({

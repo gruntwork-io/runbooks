@@ -24,7 +24,7 @@ import type {
   ResourceAction,
   ResourceProgress,
 } from "../../../../../../src/domain/tf-module/run"
-import type { RunState, RunStep } from "../hooks/useTfRun"
+import type { RunPhase, RunState, RunStatus, RunStep } from "../runMachine"
 import type { NextStep, Tab } from "../flow"
 import {
   filterRows,
@@ -51,30 +51,49 @@ const STEPS: { step: RunStep; label: string }[] = [
   { step: "read", label: "Outputs" },
 ]
 
+/** How many of Init, Plan, Apply, and reading the outputs the run has finished. */
+function stepsDone(phase: RunPhase): number {
+  const at = (step: RunStep | undefined, fallback: number) => {
+    const index = STEPS.findIndex((s) => s.step === step)
+    return index === -1 ? fallback : index
+  }
+  switch (phase.kind) {
+    case "idle":
+      return 0
+    case "planning":
+      return at(phase.step, 0)
+    case "planned":
+      return 2
+    case "applying":
+      return at(phase.step, 2)
+    case "applied":
+      return STEPS.length
+    case "stopped":
+    case "failed":
+      return phase.during === "apply" ? at(phase.step, 2) : at(phase.step, 0)
+  }
+}
+
 /** Where the run is along Init, Plan, Apply, and reading the outputs. */
-function StepRail({ state }: { state: RunState }) {
-  const reached = (() => {
-    if (state.phase === "applied") return STEPS.length
-    if (state.phase === "planned") return 2
-    if (state.phase === "failed")
-      return state.failed === "apply" ? 2 : state.step === "plan" ? 1 : 0
-    const index = STEPS.findIndex((s) => s.step === state.step)
-    return index === -1 ? (state.phase === "applying" ? 2 : 0) : index
-  })()
-  const running = state.phase === "planning" || state.phase === "applying"
+function StepRail({ phase }: { phase: RunPhase }) {
+  const reached = stepsDone(phase)
+  const running = phase.kind === "planning" || phase.kind === "applying"
+  const ended = phase.kind === "failed" || phase.kind === "stopped"
   return (
     <ol className="flex flex-wrap items-center gap-1.5 text-xs" aria-label="Terragrunt steps">
       {STEPS.map(({ step, label }, i) => {
         const done = i < reached
         const current = i === reached && running
-        const failed = state.phase === "failed" && i === reached
+        const failed = ended && i === reached
         return (
           <li key={step} className="flex items-center gap-1.5">
             {i > 0 && <span className="h-px w-4 bg-border" />}
             <span
               className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${
                 failed
-                  ? "border-destructive/40 text-destructive"
+                  ? phase.kind === "failed"
+                    ? "border-destructive/40 text-destructive"
+                    : "border-warning/40 text-warning-foreground"
                   : done
                     ? "border-success/40 text-success"
                     : current
@@ -83,7 +102,11 @@ function StepRail({ state }: { state: RunState }) {
               }`}
             >
               {failed ? (
-                <X className="size-3" />
+                phase.kind === "failed" ? (
+                  <X className="size-3" />
+                ) : (
+                  <Square className="size-3" />
+                )
               ) : done ? (
                 <Check className="size-3" />
               ) : current ? (
@@ -442,7 +465,8 @@ function OutputList({
 
 interface ApplyTabProps {
   state: RunState
-  stale: boolean
+  /** What the run means for the inputs as they are now. */
+  status: RunStatus
   simulated: boolean
   /** Why the block can't plan yet, such as inputs that need a fix. */
   blocked?: string | undefined
@@ -455,14 +479,31 @@ interface ApplyTabProps {
   onCancel: () => void
 }
 
+/** A note above the run's results, in the tone of what it says. */
+function Notice({
+  tone,
+  children,
+}: {
+  tone: "success" | "warning" | "error"
+  children: ReactNode
+}) {
+  const styles = {
+    success: "border-success/30 bg-success-muted text-success",
+    warning: "border-warning/30 bg-warning-muted text-warning-foreground",
+    error: "border-destructive/30 bg-destructive/5 text-destructive",
+  }
+  return <div className={`rounded-md border px-3 py-2 text-sm ${styles[tone]}`}>{children}</div>
+}
+
 /**
  * Terragrunt, run for the block: a plan whose resources open to show their
  * properties, then an apply that shows each resource as it's made, and what
- * it made with the module's outputs.
+ * it made with the module's outputs. What it offers next follows the run's
+ * state and whether it's still for the inputs as they are now.
  */
 export function ApplyTab({
   state,
-  stale,
+  status,
   simulated,
   blocked,
   outputs,
@@ -474,12 +515,14 @@ export function ApplyTab({
 }: ApplyTabProps) {
   const [filter, setFilter] = useState<PropertyFilter>(NO_FILTER)
   const [layout, setLayout] = useState<PropertyLayout>("table")
-  const running = state.phase === "planning" || state.phase === "applying"
-  const planned = state.plan?.resources ?? []
+  const { phase } = state
+  const running = phase.kind === "planning" || phase.kind === "applying"
+  const plan = "plan" in phase ? phase.plan : undefined
+  const planned = plan?.resources ?? []
+  const progress = "progress" in phase ? phase.progress : undefined
   const hasUnknown = planned.some((r) =>
     propertyRows(r.properties).some((row) => isUnknown(row.after)),
   )
-  const applied = state.result?.resources ?? []
   const counts = planned.reduce<Record<string, number>>(
     (acc, r) => ({ ...acc, [r.action]: (acc[r.action] ?? 0) + 1 }),
     {},
@@ -489,10 +532,50 @@ export function ApplyTab({
       .map(([action, n]) => `${n} to ${action}`)
       .join(", ") || "No changes"
 
+  const planButton = (label: string, variant: "default" | "outline") =>
+    blocked ? (
+      <p className="m-0 text-sm text-warning-foreground">{blocked}</p>
+    ) : (
+      <Button type="button" variant={variant} onClick={onPlan}>
+        {variant === "default" ? <Play className="size-4" /> : <RotateCcw className="size-4" />}{" "}
+        {label}
+      </Button>
+    )
+  const stopButton = (
+    <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+      <Square className="size-3.5" /> Stop
+    </Button>
+  )
+  const nextButton = next && status === "current" && (
+    <Button type="button" onClick={() => onNavigate(next.tab)}>
+      {next.label}
+      <ArrowRight className="ml-1 size-4" />
+    </Button>
+  )
+  const resourceList = (heading: string) => (
+    <div className="space-y-2">
+      <h4 className="text-sm font-semibold text-foreground">{heading}</h4>
+      <PropertyToolbar
+        filter={filter}
+        onFilter={setFilter}
+        layout={layout}
+        onLayout={setLayout}
+        canHideUnknown={hasUnknown}
+        canShowChanged={planned.some((r) => r.before !== undefined)}
+      />
+      <ResourceList
+        resources={planned}
+        filter={filter}
+        layout={layout}
+        progress={(address) => progress?.[address]}
+      />
+    </div>
+  )
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <StepRail state={state} />
+        <StepRail phase={phase} />
         {simulated && (
           <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning-muted px-2 py-0.5 text-xs text-warning-foreground">
             <FlaskConical className="size-3" /> Simulated: nothing real changes
@@ -500,90 +583,80 @@ export function ApplyTab({
         )}
       </div>
 
-      {state.phase === "idle" && (
+      {phase.kind === "idle" && (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
             Terragrunt plans the code on the Code tab first, so you can see every resource it would
             create before anything changes.
           </p>
-          {blocked ? (
-            <p className="text-sm text-warning-foreground">{blocked}</p>
-          ) : (
-            <Button type="button" onClick={onPlan}>
-              <Play className="size-4" /> Plan
-            </Button>
-          )}
+          {planButton("Plan", "default")}
         </div>
       )}
 
-      {state.phase === "planning" && (
+      {phase.kind === "planning" && (
         <div className="flex items-center gap-3">
           <p className="flex items-center gap-2 text-sm text-foreground">
             <Loader2 className="size-4 animate-spin" />
-            {state.step === "plan" ? "Planning…" : "Initializing Terragrunt and OpenTofu…"}
+            {phase.step === "plan" ? "Planning…" : "Initializing Terragrunt and OpenTofu…"}
           </p>
-          <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-            <Square className="size-3.5" /> Stop
-          </Button>
+          {stopButton}
         </div>
       )}
 
-      {(state.phase === "planned" ||
-        state.phase === "applying" ||
-        (state.phase === "failed" && state.failed === "apply")) && (
-        <div className="space-y-2">
-          <h4 className="text-sm font-semibold text-foreground">
-            {state.phase === "planned" ? `Plan: ${summary}` : "Applying the plan"}
-          </h4>
-          <PropertyToolbar
-            filter={filter}
-            onFilter={setFilter}
-            layout={layout}
-            onLayout={setLayout}
-            canHideUnknown={hasUnknown}
-            canShowChanged={planned.some((r) => r.before !== undefined)}
-          />
-          <ResourceList
-            resources={planned}
-            filter={filter}
-            layout={layout}
-            progress={(address) =>
-              state.phase === "planned" ? undefined : state.progress[address]
-            }
-          />
-          {state.phase === "planned" && (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              {stale ? (
-                <p className="text-sm text-warning-foreground">
-                  The inputs changed since this plan. Plan again to apply them.
-                </p>
-              ) : (
-                planned.length > 0 && (
-                  <Button type="button" onClick={onApply}>
-                    <Play className="size-4" /> Apply
-                  </Button>
-                )
-              )}
-              <Button type="button" variant="outline" onClick={onPlan}>
-                <RotateCcw className="size-4" /> Plan again
+      {phase.kind === "planned" && (
+        <div className="space-y-3">
+          {resourceList(`Plan: ${summary}`)}
+          {status === "stale" && (
+            <Notice tone="warning">
+              The inputs changed since this plan. Plan again to apply them.
+            </Notice>
+          )}
+          {status === "current" && (
+            <Notice tone="success">
+              Nothing to change: the infrastructure already matches these inputs.
+            </Notice>
+          )}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {status === "ready" && (
+              <Button type="button" onClick={onApply}>
+                <Play className="size-4" /> Apply
               </Button>
-            </div>
-          )}
-          {state.phase === "applying" && (
-            <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-              <Square className="size-3.5" /> Stop
-            </Button>
-          )}
+            )}
+            {planButton("Plan again", status === "stale" ? "default" : "outline")}
+            {nextButton}
+          </div>
         </div>
       )}
 
-      {state.phase === "applied" && (
+      {phase.kind === "applying" && (
+        <div className="space-y-3">
+          {resourceList("Applying the plan")}
+          {stopButton}
+        </div>
+      )}
+
+      {phase.kind === "applied" && (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success-muted px-3 py-2 text-sm text-success">
-            <Check className="size-4" />
-            Applied. {applied.length === 1 ? "1 resource" : `${applied.length} resources`} in the
-            state.
-          </div>
+          {status === "stale" ? (
+            <div className="space-y-2">
+              <Notice tone="warning">
+                The inputs changed since this apply, so what's below is for the old ones. Plan again
+                to apply the new ones.
+              </Notice>
+              {planButton("Plan", "default")}
+            </div>
+          ) : (
+            <Notice tone="success">
+              <span className="flex items-center gap-2">
+                <Check className="size-4" />
+                Applied.{" "}
+                {phase.result.resources.length === 1
+                  ? "1 resource"
+                  : `${phase.result.resources.length} resources`}{" "}
+                in the state.
+              </span>
+            </Notice>
+          )}
           <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground">Resources</h4>
             <PropertyToolbar
@@ -595,35 +668,43 @@ export function ApplyTab({
               canShowChanged={false}
             />
             <ResourceList
-              resources={applied}
+              resources={phase.result.resources}
               filter={{ ...filter, hideUnknown: false, onlyChanged: false }}
               layout={layout}
               progress={() => ({ progress: "done" })}
             />
           </div>
-          <OutputList outputs={state.result?.outputs ?? []} meta={outputs} />
-          {next && (
+          <OutputList outputs={phase.result.outputs} meta={outputs} />
+          {nextButton && (
             <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
-              <Button type="button" onClick={() => onNavigate(next.tab)}>
-                {next.label}
-                <ArrowRight className="ml-1 size-4" />
-              </Button>
+              {nextButton}
             </div>
           )}
         </div>
       )}
 
-      {state.phase === "failed" && (
+      {phase.kind === "stopped" && (
         <div className="space-y-3">
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-            <p className="font-medium">
-              {state.failed === "apply" ? "The apply failed." : "The plan failed."}
+          {phase.during === "apply" && resourceList("What the apply did before it stopped")}
+          <Notice tone="warning">
+            {phase.during === "apply"
+              ? "You stopped the apply. Resources it finished stay; plan again to see what's left to do."
+              : "You stopped the plan. Nothing changed."}
+          </Notice>
+          {planButton("Plan again", "outline")}
+        </div>
+      )}
+
+      {phase.kind === "failed" && (
+        <div className="space-y-3">
+          {phase.during === "apply" && resourceList("What the apply did before it failed")}
+          <Notice tone="error">
+            <p className="m-0 font-medium">
+              {phase.during === "apply" ? "The apply failed." : "The plan failed."}
             </p>
-            <p className="mt-1">{state.error}</p>
-          </div>
-          <Button type="button" variant="outline" onClick={onPlan}>
-            <RotateCcw className="size-4" /> Plan again
-          </Button>
+            <p className="m-0 mt-1">{phase.error}</p>
+          </Notice>
+          {planButton("Plan again", "outline")}
         </div>
       )}
 

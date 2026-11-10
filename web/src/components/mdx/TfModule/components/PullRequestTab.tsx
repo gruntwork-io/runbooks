@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useId, useState } from "react"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -24,6 +24,7 @@ import type { TfModuleCode } from "../../../../../../electron/shared/channels"
 import type { PullRequestTarget, usePullRequest } from "../hooks/usePullRequest"
 import type { NextStep, Tab } from "../flow"
 import { draftBody, draftBranch, draftTitle } from "../pullRequest"
+import { unusedBranch } from "../prMachine"
 import { LogView } from "./LogView"
 
 const MERGE_METHODS: { method: MergeMethod; label: string }[] = [
@@ -144,6 +145,7 @@ export function PullRequestTab({
   onNavigate,
 }: PullRequestTabProps) {
   const files = committedFiles(code, path)
+  const fieldId = useId()
   // A field the person edited keeps what they wrote; the rest follow the inputs.
   const [edited, setEdited] = useState<
     Partial<Record<"title" | "branch" | "body" | "commitMessage", string>>
@@ -151,17 +153,16 @@ export function PullRequestTab({
   const [commitExpanded, setCommitExpanded] = useState(false)
   const [filesExpanded, setFilesExpanded] = useState(true)
   const [method, setMethod] = useState<MergeMethod>("squash")
+  const { phase } = pr.state
   const title = edited.title ?? draftTitle(spec, values)
-  const branch = edited.branch ?? draftBranch(title)
+  // A follow-up pull request after a merge gets a branch of its own.
+  const branch = edited.branch ?? unusedBranch(draftBranch(title), pr.state.merged)
   const body = edited.body ?? draftBody(spec, values)
   const commitMessage = edited.commitMessage ?? title
-  const { state } = pr
-  const busy =
-    state.phase === "opening" ||
-    state.phase === "pushing" ||
-    state.phase === "updating" ||
-    state.phase === "merging"
-  const merged = state.phase === "merged"
+  const busy = phase.kind === "opening" || (phase.kind === "open" && phase.task !== undefined)
+  const task = phase.kind === "open" ? phase.task : undefined
+  const merged = phase.kind === "merged"
+  const opened = phase.kind === "open" || phase.kind === "merged" ? phase.pr : undefined
   // The open pull request's title and description while the person edits them.
   const [editing, setEditing] = useState<{ title: string; body: string } | null>(null)
   const formDisabled = busy || !target || Boolean(blocked)
@@ -202,15 +203,38 @@ export function PullRequestTab({
         </div>
       )}
 
-      {(state.phase === "draft" || state.phase === "opening") && (
+      {(phase.kind === "draft" || phase.kind === "opening") && (
         <div className="space-y-3">
           <div className="border-b border-border" />
+          {pr.state.merged.length > 0 && (
+            <p className="m-0 text-xs text-muted-foreground">
+              A new pull request for the changes since{" "}
+              {pr.state.merged.map((earlier, i) => (
+                <span key={earlier.number}>
+                  {i > 0 && ", "}
+                  <a
+                    href={earlier.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    #{earlier.number}
+                  </a>
+                </span>
+              ))}{" "}
+              merged.
+            </p>
+          )}
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-foreground">
+            <label
+              htmlFor={`${fieldId}-title`}
+              className="mb-1 block text-sm font-medium text-foreground"
+            >
               PR Title <span className="text-destructive">*</span>
             </label>
             <input
+              id={`${fieldId}-title`}
               type="text"
               value={title}
               onChange={(e) => edit("title")(e.target.value)}
@@ -238,7 +262,10 @@ export function PullRequestTab({
           >
             <div className="mt-1.5 ml-2 space-y-3 border-l-2 border-border pl-3">
               <div>
-                <label className="mb-1 flex items-center gap-1.5 text-sm font-medium text-foreground">
+                <label
+                  htmlFor={`${fieldId}-branch`}
+                  className="mb-1 flex items-center gap-1.5 text-sm font-medium text-foreground"
+                >
                   Branch name
                   <InfoTooltip>
                     The new branch the code is committed to and pushed, before the pull request
@@ -246,6 +273,7 @@ export function PullRequestTab({
                   </InfoTooltip>
                 </label>
                 <input
+                  id={`${fieldId}-branch`}
                   type="text"
                   value={branch}
                   onChange={(e) => edit("branch")(e.target.value)}
@@ -255,11 +283,15 @@ export function PullRequestTab({
                 />
               </div>
               <div>
-                <label className="mb-1 flex items-center gap-1.5 text-sm font-medium text-foreground">
+                <label
+                  htmlFor={`${fieldId}-commit`}
+                  className="mb-1 flex items-center gap-1.5 text-sm font-medium text-foreground"
+                >
                   Commit message
                   <InfoTooltip>The message of the commit that adds the code.</InfoTooltip>
                 </label>
                 <input
+                  id={`${fieldId}-commit`}
                   type="text"
                   value={commitMessage}
                   onChange={(e) => edit("commitMessage")(e.target.value)}
@@ -314,7 +346,9 @@ export function PullRequestTab({
             </div>
           </CollapsibleToggle>
 
-          {state.error && <ErrorPanel title="Pull Request creation failed" message={state.error} />}
+          {phase.kind === "draft" && phase.error && (
+            <ErrorPanel title="Pull Request creation failed" message={phase.error} />
+          )}
           {blocked && target && <p className="text-sm text-warning-foreground">{blocked}</p>}
 
           <Button
@@ -330,7 +364,7 @@ export function PullRequestTab({
               })
             }
           >
-            {state.phase === "opening" ? (
+            {phase.kind === "opening" ? (
               <>
                 <Loader2 className="mr-1 size-4 animate-spin" />
                 Creating Pull Request...
@@ -342,15 +376,19 @@ export function PullRequestTab({
         </div>
       )}
 
-      {state.pr && state.phase !== "draft" && state.phase !== "opening" && (
+      {opened && (
         <div className="space-y-3">
           {editing && target ? (
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-sm font-medium text-foreground">
+                <label
+                  htmlFor={`${fieldId}-edit-title`}
+                  className="mb-1 block text-sm font-medium text-foreground"
+                >
                   PR Title <span className="text-destructive">*</span>
                 </label>
                 <input
+                  id={`${fieldId}-edit-title`}
                   type="text"
                   value={editing.title}
                   onChange={(e) => setEditing({ ...editing, title: e.target.value })}
@@ -369,7 +407,7 @@ export function PullRequestTab({
                 />
               </div>
               <p className="m-0 text-xs text-muted-foreground">
-                The branch stays <BranchName name={state.pr.branch} />. To change the code, edit the
+                The branch stays <BranchName name={opened.branch} />. To change the code, edit the
                 inputs and use Git Push.
               </p>
               <div className="flex items-center gap-2">
@@ -382,7 +420,7 @@ export function PullRequestTab({
                       .then((ok) => ok && setEditing(null))
                   }
                 >
-                  {state.phase === "updating" ? (
+                  {task === "updating" ? (
                     <>
                       <Loader2 className="mr-1 size-4 animate-spin" />
                       Saving...
@@ -405,15 +443,15 @@ export function PullRequestTab({
             <div className="space-y-2">
               <div className="flex items-start justify-between gap-2">
                 <a
-                  href={state.pr.url}
+                  href={opened.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="group inline-flex items-baseline gap-1.5 text-base font-semibold text-foreground"
                 >
                   <span className="break-words group-hover:text-primary group-hover:underline">
-                    {state.title}
+                    {opened.title}
                   </span>
-                  <span className="font-normal text-muted-foreground">#{state.pr.number}</span>
+                  <span className="font-normal text-muted-foreground">#{opened.number}</span>
                   <ExternalLink className="size-3.5 shrink-0 self-center text-muted-foreground" />
                 </a>
                 {!merged && target && (
@@ -421,7 +459,7 @@ export function PullRequestTab({
                     size="sm"
                     variant="ghost"
                     disabled={busy}
-                    onClick={() => setEditing({ title: state.title ?? "", body: state.body ?? "" })}
+                    onClick={() => setEditing({ title: opened.title, body: opened.body })}
                   >
                     <Pencil className="mr-1 size-3.5" /> Edit
                   </Button>
@@ -431,12 +469,14 @@ export function PullRequestTab({
                 <StatePill merged={merged} />
                 <BranchName name={target?.baseBranch ?? "main"} />
                 <ArrowLeft className="size-3.5 text-muted-foreground" aria-label="from" />
-                <BranchName name={state.pr.branch} />
+                <BranchName name={opened.branch} />
               </div>
             </div>
           )}
 
-          {state.error && <ErrorPanel title="That didn't work" message={state.error} />}
+          {phase.kind === "open" && phase.error && (
+            <ErrorPanel title="That didn't work" message={phase.error} />
+          )}
 
           {!editing && target && (
             <div className="flex flex-wrap items-center gap-3 rounded-md border border-border p-3">
@@ -449,39 +489,56 @@ export function PullRequestTab({
               </span>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold text-foreground">
-                  {merged
-                    ? "Merged"
-                    : pr.behind
-                      ? "The inputs changed since the last push"
-                      : "Ready to merge"}
+                  {pr.status === "superseded"
+                    ? "Merged, before the latest changes"
+                    : merged
+                      ? "Merged"
+                      : pr.status === "behind"
+                        ? "The inputs changed since the last push"
+                        : "Ready to merge"}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {merged
-                    ? applied
-                      ? `Merged into ${target.baseBranch}, and applied.`
-                      : `Merged into ${target.baseBranch}. Apply it next, unless your pipeline applies merged code.`
-                    : pr.behind
-                      ? "Push them to the branch before merging."
-                      : applied
-                        ? "Applied from the Apply tab. Merge it to finish."
-                        : "Merge now and apply after, or apply first and merge after. Either order works."}
+                  {pr.status === "superseded"
+                    ? `The inputs changed since it merged into ${target.baseBranch}. Open a new pull request for the change.`
+                    : merged
+                      ? applied
+                        ? `Merged into ${target.baseBranch}, and applied.`
+                        : `Merged into ${target.baseBranch}. Apply it next, unless your pipeline applies merged code.`
+                      : pr.status === "behind"
+                        ? "Push them to the branch before merging."
+                        : applied
+                          ? "Applied from the Apply tab. Merge it to finish."
+                          : "Merge now and apply after, or apply first and merge after. Either order works."}
                 </div>
               </div>
-              {merged && next && (
+              {pr.status === "superseded" && (
+                <Button
+                  size="sm"
+                  disabled={Boolean(blocked)}
+                  onClick={() => {
+                    setEdited({})
+                    pr.startNew()
+                  }}
+                >
+                  <GitPullRequest className="mr-1 size-4" />
+                  New pull request
+                </Button>
+              )}
+              {pr.status === "merged" && next && (
                 <Button size="sm" onClick={() => onNavigate(next.tab)}>
                   {next.label}
                   <ArrowRight className="ml-1 size-4" />
                 </Button>
               )}
               {!merged &&
-                (pr.behind ? (
+                (pr.status === "behind" ? (
                   <Button
                     size="sm"
                     variant="outline"
                     disabled={busy || Boolean(blocked)}
                     onClick={() => void pr.push(target)}
                   >
-                    {state.phase === "pushing" ? (
+                    {task === "pushing" ? (
                       <>
                         <Loader2 className="mr-1 size-4 animate-spin" />
                         Pushing...
@@ -506,7 +563,7 @@ export function PullRequestTab({
                       ))}
                     </select>
                     <Button size="sm" disabled={busy} onClick={() => void pr.merge(target, method)}>
-                      {state.phase === "merging" ? (
+                      {task === "merging" ? (
                         <>
                           <Loader2 className="mr-1 size-4 animate-spin" />
                           Merging...
@@ -536,7 +593,7 @@ export function PullRequestTab({
         </div>
       )}
 
-      <LogView title="Git log" log={state.log} running={busy} />
+      <LogView title="Git log" log={pr.state.log} running={busy} />
     </div>
   )
 }

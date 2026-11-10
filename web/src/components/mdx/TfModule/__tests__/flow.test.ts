@@ -23,6 +23,10 @@ describe("stageOf", () => {
     expect(stageOf(facts({ pr: "merged", applied: true }))).toBe("done")
   })
 
+  it("asks for a new pull request when the inputs changed after a merge", () => {
+    expect(stageOf(facts({ pr: "superseded", applied: true }))).toBe("open-pr")
+  })
+
   it("asks for a pull request even after an apply", () => {
     expect(stageOf(facts({ applied: true }))).toBe("open-pr")
   })
