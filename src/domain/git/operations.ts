@@ -472,6 +472,35 @@ export const pushToPullRequest = (
     yield* runGitSteps(token, "github", params, author, onProgress)
   })
 
+/** The open pull request from `headBranch` in the same GitHub repository, if there is one. */
+export const findOpenPullRequest = (
+  token: string,
+  params: {
+    readonly owner: string
+    readonly repo: string
+    readonly headBranch: string
+    readonly host?: string
+  },
+) =>
+  Effect.flatMap(GitHubClient, (gh) =>
+    gh.findOpenPullRequest(token, params.owner, params.repo, params.headBranch, params.host),
+  )
+
+/**
+ * Puts HEAD on `branch` as origin has it, so later commits go on top of the
+ * branch's own and a push fast-forwards it. A local branch of that name moves
+ * there; a commit only it has (such as one a rejected push left) is dropped.
+ */
+export const checkOutRemoteBranch = (token: string, repoPath: string, branch: string) =>
+  Effect.gen(function* () {
+    const gitClient = yield* GitClient
+    yield* gitClient.fetchBranch(repoPath, "origin", branch, {
+      token,
+      username: gitCredentialUsername("github"),
+    })
+    yield* gitClient.checkoutBranchAt(repoPath, branch, `refs/remotes/origin/${branch}`)
+  })
+
 /** Change a pull request's title and description with the GitHub API. */
 export const updatePullRequest = (
   token: string,

@@ -18,7 +18,9 @@ import { fail, pause, renderInRepo, startRun, unitFilesOf } from "./tf-module-ru
 import { TfModuleError } from "../../../src/errors/index.ts"
 import { describeFailure } from "./ipc-error.ts"
 import {
+  checkOutRemoteBranch,
   createPullRequest,
+  findOpenPullRequest,
   mergePullRequest,
   pushToPullRequest,
   updatePullRequest,
@@ -101,13 +103,47 @@ export function registerTfModulePrHandlers(): void {
             } satisfies TfModulePullRequestResult
           }
           const worktree = yield* checkout(request.target)
-          const written = yield* writeUnit(request, worktree)
-          log(`Wrote ${written.join(", ")}`)
           const { token, host } = yield* resolveGitHubTokenForRepo(
             worktree,
             "opening a pull request",
             { callsApi: true },
           )
+          const repo = { owner: request.target.owner, repo: request.target.repo, host }
+          // A pull request this branch already has, such as one opened before
+          // the app restarted, gets the code as a new commit rather than a
+          // second pull request, which a push from the base branch can't make.
+          const existing = yield* findOpenPullRequest(token, {
+            ...repo,
+            headBranch: request.branch,
+          })
+          if (existing) {
+            log(`#${existing.number} is already open for ${request.branch}; updating it.`)
+            yield* checkOutRemoteBranch(token, worktree, request.branch)
+            const written = yield* writeUnit(request, worktree)
+            log(`Wrote ${written.join(", ")}`)
+            yield* pushToPullRequest(
+              token,
+              {
+                ...repo,
+                title: request.title,
+                baseBranch: request.target.baseBranch,
+                headBranch: request.branch,
+                commitMessage: request.commitMessage,
+                repoPath: worktree,
+              },
+              log,
+            )
+            yield* updatePullRequest(token, {
+              ...repo,
+              number: existing.number,
+              title: request.title,
+              body: request.body,
+            })
+            log(`Updated ${existing.url}`)
+            return { url: existing.url, number: existing.number, branch: existing.branch }
+          }
+          const written = yield* writeUnit(request, worktree)
+          log(`Wrote ${written.join(", ")}`)
           const pr = yield* createPullRequest(
             token,
             {

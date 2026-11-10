@@ -431,6 +431,26 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
+  findOpenPullRequest: (
+    token: string,
+    owner: string,
+    repo: string,
+    headBranch: string,
+    host?: string,
+  ) =>
+    Effect.tryPromise({
+      try: async (): Promise<PullRequestResult | undefined> => {
+        const API_BASE = apiBaseFor(host)
+        const query = new URLSearchParams({ state: "open", head: `${owner}:${headBranch}` })
+        const data = await githubJson<
+          { html_url: string; number: number; head: { ref: string } }[]
+        >(`${API_BASE}/repos/${owner}/${repo}/pulls?${query}`, { token })
+        const pr = data[0]
+        return pr && { url: pr.html_url, number: pr.number, branch: pr.head.ref }
+      },
+      catch: toGitHubApiError,
+    }),
+
   updatePullRequest: (
     token: string,
     owner: string,

@@ -14,6 +14,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { Effect, Layer } from "effect"
 import {
+  checkOutRemoteBranch,
   createPullRequest,
   createMergeRequest,
   mergePullRequest,
@@ -678,6 +679,47 @@ describe("createPullRequest retry (real git)", () => {
     expect(git(remote, "show", "--name-only", "--format=", "runbook/124").trim()).toBe(
       "generated.tf",
     )
+  })
+
+  it("adds to a pull request's branch on origin, which a rejected push left a local copy of", async () => {
+    git(work, "remote", "add", "origin", remote)
+    git(work, "push", "-u", "origin", "main")
+    // The pull request's branch, as an earlier run pushed it.
+    git(work, "checkout", "-b", "runbook/123")
+    fs.writeFileSync(path.join(work, "generated.tf"), "first\n")
+    git(work, "add", "generated.tf")
+    git(work, "commit", "-m", "First")
+    git(work, "push", "origin", "runbook/123")
+    const pushed = git(work, "rev-parse", "HEAD").trim()
+    // A later run started from main, committed again on the same name, and
+    // its push was rejected: the local branch has diverged from origin's.
+    git(work, "checkout", "main")
+    git(work, "branch", "-D", "runbook/123")
+    git(work, "checkout", "-b", "runbook/123")
+    fs.writeFileSync(path.join(work, "generated.tf"), "rejected\n")
+    git(work, "add", "generated.tf")
+    git(work, "commit", "-m", "Rejected")
+    git(work, "checkout", "main")
+
+    await Effect.runPromise(
+      checkOutRemoteBranch("tok", work, "runbook/123").pipe(Effect.provide(layer)),
+    )
+    expect(git(work, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("runbook/123")
+    expect(git(work, "rev-parse", "HEAD").trim()).toBe(pushed)
+
+    fs.writeFileSync(path.join(work, "generated.tf"), "second\n")
+    await Effect.runPromise(
+      pushToPullRequest("tok", { ...params, commitMessage: "Second", repoPath: work }).pipe(
+        Effect.provide(layer),
+      ),
+    )
+    // The push fast-forwarded the branch: its first commit, then the new one.
+    expect(git(remote, "log", "--format=%s", "runbook/123").trim().split("\n")).toEqual([
+      "Second",
+      "First",
+      "initial",
+    ])
+    expect(git(remote, "show", "runbook/123:generated.tf")).toBe("second\n")
   })
 
   it("after a PR was opened, refuses a new branch name with nothing new instead of repeating its commits", async () => {

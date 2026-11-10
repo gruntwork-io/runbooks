@@ -103,6 +103,13 @@ const makeStubGitHubClient = (overrides: Partial<GitHubClientShape> = {}): GitHu
     Effect.fail(
       new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "addLabels") }),
     ),
+  findOpenPullRequest: () =>
+    Effect.fail(
+      new GitHubApiError({
+        status: 0,
+        message: notConfigured("GitHubClient", "findOpenPullRequest"),
+      }),
+    ),
   updatePullRequest: () =>
     Effect.fail(
       new GitHubApiError({
@@ -151,6 +158,22 @@ const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientSh
   push: (_repoPath, _remote, _branch, _options) =>
     Effect.fail(
       new GitError({ command: "push", stderr: notConfigured("GitClient", "push"), exitCode: 1 }),
+    ),
+  fetchBranch: () =>
+    Effect.fail(
+      new GitError({
+        command: "fetch",
+        stderr: notConfigured("GitClient", "fetchBranch"),
+        exitCode: 1,
+      }),
+    ),
+  checkoutBranchAt: () =>
+    Effect.fail(
+      new GitError({
+        command: "checkout -B",
+        stderr: notConfigured("GitClient", "checkoutBranchAt"),
+        exitCode: 1,
+      }),
     ),
   deleteBranch: (_repoPath, _branch) =>
     Effect.fail(

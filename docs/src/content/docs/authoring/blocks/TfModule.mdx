@@ -217,7 +217,7 @@ Terragrunt and OpenTofu, or OpenTofu or Terraform for a plain configuration, mus
 The **PR** tab opens a GitHub pull request that adds the block's code to a repository, so the change is reviewed and kept with the rest of your infrastructure code. It needs a `<GitHubAuth>` block to sign in and a `<GitClone>` block to clone the repository first, and it targets the branch the clone checked out.
 
 1. The title and description start from the module's `pullRequest` templates and follow the form until you edit them. **Customize commit** holds the branch name and commit message. **What files will be committed?** lists the code's files under `path` that are new or changed, as the **Code** tab marks them. Click one to see it there.
-2. **Create Pull Request** writes the files into the clone, commits every change in it to a new branch, pushes the branch, and opens the pull request.
+2. **Create Pull Request** writes the files into the clone, commits every change in it to a new branch, pushes the branch, and opens the pull request. When the branch already has an open pull request, such as one opened before the app restarted, it adds a commit to that branch and updates the pull request's title and description instead.
 3. While it's open, **Edit** changes its title and description, and if the inputs change, **Git Push** commits the code as it is now to the same branch.
 4. **Merge Pull Request** merges it with the method you pick: squash, a merge commit, or rebase.
 5. If the inputs change after a merge, **New pull request** starts another one for the change, on a branch of its own.

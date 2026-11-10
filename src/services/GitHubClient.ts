@@ -147,6 +147,14 @@ export interface GitHubClientShape {
     labels: string[],
     host?: string,
   ) => Effect.Effect<void, GitHubApiError>
+  /** The open pull request from `headBranch` in the same repository, if there is one. */
+  readonly findOpenPullRequest: (
+    token: string,
+    owner: string,
+    repo: string,
+    headBranch: string,
+    host?: string,
+  ) => Effect.Effect<PullRequestResult | undefined, GitHubApiError>
   /** Changes a pull request's title and description. */
   readonly updatePullRequest: (
     token: string,
