@@ -4,7 +4,7 @@
 version: 0
 
 block:
-  title: Google group
+  title: Create a Google Group
   description: Creates a Google group and adds its owners, managers, and members.
 
 variables:

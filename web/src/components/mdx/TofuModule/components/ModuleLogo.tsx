@@ -1,17 +1,21 @@
 import { Boxes } from "lucide-react"
+import googleLogo from "@/assets/google-g-logo.svg"
 import type { TofuModuleSpec } from "../../../../../../src/domain/tofu-module/types"
 
 /**
  * Marks for the providers modules use most, by registry address. A module
  * shows its own logo instead when its runbooks.yml sets one.
  */
-const PROVIDER_MARKS: Record<string, { text: string; className: string; label: string }> = {
-  "hashicorp/google": { text: "G", className: "bg-[#4285F4] text-white", label: "Google Cloud" },
-  "hashicorp/google-beta": {
-    text: "G",
-    className: "bg-[#4285F4] text-white",
-    label: "Google Cloud",
-  },
+type ProviderMark =
+  | { image: string; label: string }
+  | { text: string; className: string; label: string }
+
+const GOOGLE: ProviderMark = { image: googleLogo, label: "Google" }
+
+const PROVIDER_MARKS: Record<string, ProviderMark> = {
+  "hashicorp/google": GOOGLE,
+  "hashicorp/google-beta": GOOGLE,
+  "hashicorp/googleworkspace": GOOGLE,
   "hashicorp/aws": { text: "aws", className: "bg-[#232F3E] text-[#FF9900]", label: "AWS" },
   "integrations/github": { text: "GH", className: "bg-[#24292F] text-white", label: "GitHub" },
   "cloudflare/cloudflare": {
@@ -34,6 +38,13 @@ export function ModuleLogo({ spec }: { spec: TofuModuleSpec }) {
   }
   for (const provider of spec.providers) {
     const mark = PROVIDER_MARKS[address(provider.source, provider.name)]
+    if (mark && "image" in mark) {
+      return (
+        <div className={`${box} border border-border bg-card p-1.5`} title={mark.label}>
+          <img src={mark.image} alt={mark.label} className="size-full object-contain" />
+        </div>
+      )
+    }
     if (mark) {
       return (
         <div

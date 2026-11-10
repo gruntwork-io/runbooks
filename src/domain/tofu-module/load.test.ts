@@ -49,7 +49,7 @@ describe("configFileNames", () => {
 describe("loadModule", () => {
   it("reads the google-group module with its runbooks.yml", async () => {
     const spec = await loaded(GOOGLE_GROUP)
-    expect(spec.title).toBe("Google group")
+    expect(spec.title).toBe("Create a Google Group")
     expect(spec.providers).toEqual([
       { name: "google", source: "hashicorp/google", version: ">= 8.10.0, < 9.0.0" },
     ])
