@@ -1044,8 +1044,8 @@ export interface IpcEventMap {
   // first block's credential — its AuthSuccess card renders a stale-session
   // warning off this event instead of implying its credential is still active.
   "vcs:session-changed": { provider: "github" | "gitlab"; host: string; source?: string }
-  /** Progress of a <TfModule> plan or apply; `runId` echoes the request's. */
-  "tf-module:event": { runId: string; event: RunEvent }
+  /** Progress of a <TfModule> plan or apply; `runId` echoes the request's, `at` is when it happened. */
+  "tf-module:event": { runId: string; event: RunEvent; at: string }
 }
 
 // ---------------------------------------------------------------------------

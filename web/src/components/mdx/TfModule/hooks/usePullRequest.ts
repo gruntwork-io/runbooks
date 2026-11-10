@@ -53,9 +53,9 @@ export function usePullRequest(
   const logged = () => {
     const id = `${blockId}-pr-${++runSeq}`
     unsubscribe.current?.()
-    unsubscribe.current = api.on("tf-module:event", ({ runId, event }) => {
+    unsubscribe.current = api.on("tf-module:event", ({ runId, event, at }) => {
       if (runId === id && event.kind === "log") {
-        dispatch({ type: "log", line: { line: event.line, level: event.level } })
+        dispatch({ type: "log", line: { line: event.line, level: event.level, at } })
       }
     })
     return id

@@ -25,7 +25,7 @@ import type { PullRequestTarget, usePullRequest } from "../hooks/usePullRequest"
 import type { NextStep, Tab } from "../flow"
 import { draftBody, draftBranch, draftTitle } from "../pullRequest"
 import { unusedBranch } from "../prMachine"
-import { LogView } from "./LogView"
+import { RunLog } from "./RunLog"
 
 const MERGE_METHODS: { method: MergeMethod; label: string }[] = [
   { method: "squash", label: "Squash and merge" },
@@ -101,6 +101,8 @@ function ErrorPanel({ title, message }: { title: string; message: string }) {
 }
 
 interface PullRequestTabProps {
+  /** The block's id, which names its downloaded logs. */
+  blockId: string
   /** The block's code as the Code tab shows it. */
   code: TfModuleCode | null
   spec: TfModuleSpec
@@ -131,6 +133,7 @@ interface PullRequestTabProps {
  * request, which takes later changes to the inputs and merges.
  */
 export function PullRequestTab({
+  blockId,
   code,
   spec,
   values,
@@ -161,6 +164,7 @@ export function PullRequestTab({
   const commitMessage = edited.commitMessage ?? title
   const busy = phase.kind === "opening" || (phase.kind === "open" && phase.task !== undefined)
   const task = phase.kind === "open" ? phase.task : undefined
+  const failed = (phase.kind === "draft" || phase.kind === "open") && Boolean(phase.error)
   const merged = phase.kind === "merged"
   const opened = phase.kind === "open" || phase.kind === "merged" ? phase.pr : undefined
   // The open pull request's title and description while the person edits them.
@@ -593,7 +597,11 @@ export function PullRequestTab({
         </div>
       )}
 
-      <LogView title="Git log" log={pr.state.log} running={busy} />
+      <RunLog
+        blockId={`${blockId}-git`}
+        log={pr.state.log}
+        status={busy ? "running" : failed ? "fail" : "success"}
+      />
     </div>
   )
 }

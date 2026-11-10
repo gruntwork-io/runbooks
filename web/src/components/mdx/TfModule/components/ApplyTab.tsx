@@ -35,7 +35,7 @@ import {
   type PropertyRow,
 } from "../propertyRows"
 import { LAYOUTS, PropertyView, type PropertyLayout } from "./PropertyViews"
-import { LogView } from "./LogView"
+import { RunLog } from "./RunLog"
 
 const ACTIONS: Record<ResourceAction, { label: string; className: string }> = {
   create: { label: "create", className: "bg-success/15 text-success" },
@@ -464,6 +464,8 @@ function OutputList({
 }
 
 interface ApplyTabProps {
+  /** The block's id, which names its downloaded logs. */
+  blockId: string
   state: RunState
   /** What the run means for the inputs as they are now. */
   status: RunStatus
@@ -502,6 +504,7 @@ function Notice({
  * state and whether it's still for the inputs as they are now.
  */
 export function ApplyTab({
+  blockId,
   state,
   status,
   simulated,
@@ -708,7 +711,19 @@ export function ApplyTab({
         </div>
       )}
 
-      <LogView title="Log" log={state.log} running={running} />
+      <RunLog
+        blockId={blockId}
+        log={state.log}
+        status={
+          running
+            ? "running"
+            : phase.kind === "failed"
+              ? "fail"
+              : phase.kind === "stopped"
+                ? "warn"
+                : "success"
+        }
+      />
     </div>
   )
 }

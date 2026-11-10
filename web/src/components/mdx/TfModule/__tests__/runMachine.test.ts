@@ -16,6 +16,7 @@ const NO_CHANGES: PlanResult = { resources: [] }
 const RESULT: ApplyResult = { resources: [], outputs: [] }
 const A = inputsKey({ id: "platform" })
 const B = inputsKey({ id: "security" })
+const AT = "2026-11-10T12:00:00.000Z"
 
 const run = (...actions: RunAction[]): RunState => actions.reduce(runReducer, INITIAL_RUN)
 
@@ -38,6 +39,7 @@ describe("runReducer", () => {
       {
         type: "event",
         event: { kind: "resource", address: "a.b", progress: "done", elapsedSeconds: 2 },
+        at: AT,
       },
     )
     expect(state.phase).toMatchObject({
@@ -49,7 +51,7 @@ describe("runReducer", () => {
   it("records a stop apart from a failure, with where it got to", () => {
     const planning = run(
       { type: "plan-started", inputs: A },
-      { type: "event", event: { kind: "step", step: "plan" } },
+      { type: "event", event: { kind: "step", step: "plan" }, at: AT },
     )
     expect(runReducer(planning, { type: "stopped" }).phase).toEqual({
       kind: "stopped",
@@ -80,10 +82,10 @@ describe("runReducer", () => {
   it("starts a new plan with an empty log", () => {
     const logged = run(
       { type: "plan-started", inputs: A },
-      { type: "event", event: { kind: "log", line: "init" } },
+      { type: "event", event: { kind: "log", line: "init" }, at: AT },
       { type: "planned", plan: PLAN },
     )
-    expect(logged.log).toHaveLength(1)
+    expect(logged.log).toEqual([{ line: "init", level: undefined, at: AT }])
     expect(runReducer(logged, { type: "plan-started", inputs: A }).log).toEqual([])
   })
 })

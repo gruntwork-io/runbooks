@@ -413,6 +413,7 @@ function TfModuleForm({
         hidden={tab !== "pr"}
       >
         <PullRequestTab
+          blockId={id}
           code={unitCode.code}
           spec={spec}
           values={published}
@@ -439,6 +440,7 @@ function TfModuleForm({
         hidden={tab !== "apply"}
       >
         <ApplyTab
+          blockId={id}
           state={run.state}
           status={run.status}
           simulated={simulation.enabled}

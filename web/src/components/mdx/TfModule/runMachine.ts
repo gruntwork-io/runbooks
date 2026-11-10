@@ -15,6 +15,8 @@ export type RunStep = Extract<RunEvent, { kind: "step" }>["step"]
 export interface LogLine {
   readonly line: string
   readonly level?: "error" | "warn" | undefined
+  /** When the line was written, as an ISO timestamp. */
+  readonly at: string
 }
 
 export type Progress = Readonly<Record<string, { progress: ResourceProgress; elapsed?: number }>>
@@ -71,7 +73,7 @@ export type RunAction =
   | { readonly type: "applied"; readonly result: ApplyResult }
   | { readonly type: "failed"; readonly error: string }
   | { readonly type: "stopped" }
-  | { readonly type: "event"; readonly event: RunEvent }
+  | { readonly type: "event"; readonly event: RunEvent; readonly at: string }
 
 export const INITIAL_RUN: RunState = { phase: { kind: "idle" }, log: [] }
 
@@ -128,7 +130,10 @@ export function runReducer(state: RunState, action: RunAction): RunState {
     case "event": {
       const { event } = action
       if (event.kind === "log") {
-        return { ...state, log: [...state.log, { line: event.line, level: event.level }] }
+        return {
+          ...state,
+          log: [...state.log, { line: event.line, level: event.level, at: action.at }],
+        }
       }
       if (!running(phase)) return state
       if (event.kind === "step") return { ...state, phase: { ...phase, step: event.step } }

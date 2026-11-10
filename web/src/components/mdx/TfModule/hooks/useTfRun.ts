@@ -40,8 +40,8 @@ export function useTfRun(
     const run = { id: `${blockId}-${++runSeq}`, stopping: false }
     current.current = run
     unsubscribe.current?.()
-    unsubscribe.current = api.on("tf-module:event", ({ runId, event }) => {
-      if (runId === run.id) dispatch({ type: "event", event })
+    unsubscribe.current = api.on("tf-module:event", ({ runId, event, at }) => {
+      if (runId === run.id) dispatch({ type: "event", event, at })
     })
     try {
       const result = await call(run.id)

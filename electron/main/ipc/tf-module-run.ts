@@ -561,7 +561,7 @@ export function startRun(sender: WebContents, runId: string) {
   activeRuns.set(runId, controller)
   const send = (event: RunEvent) => {
     if (!controller.signal.aborted && !sender.isDestroyed()) {
-      sender.send("tf-module:event", { runId, event })
+      sender.send("tf-module:event", { runId, event, at: new Date().toISOString() })
     }
   }
   const finish = () => {
