@@ -1,5 +1,5 @@
 import { CheckCircle, XCircle, Loader2, KeyRound, User } from "lucide-react"
-import type { AuthMethod, AuthStatus, AwsDetectionSource } from "./types"
+import type { AuthMethod, AuthStatus, AwsDetectionSource, ProfileInfo } from "./types"
 import { makeStatusStyles } from "../_shared/lib/statusStyles"
 
 // Status-based styling for the container, icon, and icon color. Maps are
@@ -61,4 +61,24 @@ export function resolveDefaultAuthMethod(defaultTab: string | undefined): AuthMe
   return AUTH_METHODS.includes(defaultTab as AuthMethod)
     ? (defaultTab as AuthMethod)
     : FALLBACK_AUTH_METHOD
+}
+
+/** An AWS access portal: its start URL and the region of its IAM Identity Center. */
+export interface SsoPortal {
+  startUrl: string
+  region: string
+}
+
+/**
+ * The distinct access portals the local AWS config names, in the order its SSO
+ * profiles list them. A profile without both a start URL and a region names none.
+ */
+export function ssoPortals(profiles: ProfileInfo[]): SsoPortal[] {
+  const portals = new Map<string, SsoPortal>()
+  for (const p of profiles) {
+    if (p.authType !== "sso" || !p.ssoStartUrl || !p.ssoRegion) continue
+    const key = `${p.ssoStartUrl} ${p.ssoRegion}`
+    if (!portals.has(key)) portals.set(key, { startUrl: p.ssoStartUrl, region: p.ssoRegion })
+  }
+  return [...portals.values()]
 }
