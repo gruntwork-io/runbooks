@@ -27,6 +27,7 @@ import { TfModuleError } from "../../../src/errors/index.ts"
 import { describeFailure } from "./ipc-error.ts"
 import { isRemoteSource } from "../../../src/remote-source.ts"
 import { filesAtBase } from "../../../src/domain/tf-module/repoFiles.ts"
+import { alignAttributes, isHclFile } from "../../../src/domain/tf-module/hclFormat.ts"
 import { loadModule } from "../../../src/domain/tf-module/load.ts"
 import {
   appliedResources,
@@ -120,7 +121,10 @@ const renderTemplate = (template: string, values: Record<string, unknown>, modul
             ...values,
             ModuleSource: moduleSource,
           })
-          return yield* Effect.promise(() => readTree(tmp))
+          const files = yield* Effect.promise(() => readTree(tmp))
+          return files.map((file) =>
+            isHclFile(file.path) ? { ...file, content: alignAttributes(file.content) } : file,
+          )
         }),
       (tmp) => Effect.promise(() => fs.rm(tmp, { recursive: true, force: true })),
     )
