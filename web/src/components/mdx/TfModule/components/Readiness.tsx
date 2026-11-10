@@ -11,7 +11,8 @@ interface ReadinessProps {
 
 /**
  * What the block needs outside its inputs: the problems with their fixes, or
- * one quiet line of what's in place. Nothing until the first check answers.
+ * one quiet line that the checks passed, naming what's in place on hover.
+ * Nothing until the first check answers.
  */
 export function Readiness({ report, error, checking, onRecheck }: ReadinessProps) {
   if (error) {
@@ -37,9 +38,10 @@ export function Readiness({ report, error, checking, onRecheck }: ReadinessProps
     <p
       className="m-0 mb-4 flex items-center gap-1.5 text-xs text-muted-foreground"
       aria-label="Ready"
+      title={report.ready.join(" · ")}
     >
       <CircleCheck className="size-3.5 shrink-0 text-success" />
-      <span>Ready: {report.ready.join(" · ")}</span>
+      <span>This block's preflight checks completed successfully.</span>
     </p>
   )
 }

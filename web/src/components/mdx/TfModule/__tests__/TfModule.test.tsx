@@ -204,6 +204,13 @@ describe("TfModule", () => {
     )
   })
 
+  it("says the preflight checks passed, with what they found on hover", async () => {
+    renderBlock()
+    const ready = await screen.findByLabelText("Ready")
+    expect(ready).toHaveTextContent("This block's preflight checks completed successfully.")
+    expect(ready).toHaveAttribute("title", "1 Google API on in acme-ops")
+  })
+
   it("opens suggestions on typing or Enter, not on focus", async () => {
     renderBlock()
     const domain = input("domain")
