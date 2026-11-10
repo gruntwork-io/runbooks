@@ -1,13 +1,26 @@
-import { Loader2, ExternalLink, AlertTriangle, XCircle, Check } from "lucide-react"
+import { Loader2, ExternalLink, XCircle, Check } from "lucide-react"
 import { SearchInput } from "@/components/mdx/_shared/components/SearchInput"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { DefaultRegionPicker } from "./DefaultRegionPicker"
 import type { AuthStatus, SSOAccount, SSORole } from "../types"
+import type { SsoPortal } from "../utils"
 
 interface SsoFormProps {
   authStatus: AuthStatus
-  ssoStartUrl?: string | undefined
+  /** The start URL the sign-in uses: the runbook's, or the one typed below. */
+  ssoStartUrl: string
+  /**
+   * The portal the user fills in when the runbook sets no `ssoStartUrl`, and
+   * the portals the local AWS config names. Absent when the runbook sets one.
+   */
+  portalInput?:
+    | {
+        portal: SsoPortal
+        setPortal: (portal: SsoPortal) => void
+        configured: SsoPortal[]
+      }
+    | undefined
   selectedDefaultRegion: string
   setSelectedDefaultRegion: (value: string) => void
   onSsoAuth: () => void
@@ -17,28 +30,25 @@ interface SsoFormProps {
 export function SsoForm({
   authStatus,
   ssoStartUrl,
+  portalInput,
   selectedDefaultRegion,
   setSelectedDefaultRegion,
   onSsoAuth,
   onCancelSsoAuth,
 }: SsoFormProps) {
   const isAuthenticating = authStatus === "authenticating"
-
-  if (!ssoStartUrl) {
-    return (
-      <div className="text-warning text-sm flex items-start gap-2">
-        <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-        <div>
-          SSO Start URL is not configured. Add{" "}
-          <code className="bg-warning-muted px-1 rounded">ssoStartUrl</code> prop to enable SSO
-          authentication.
-        </div>
-      </div>
-    )
-  }
+  const startUrlValid = /^https:\/\/\S+$/.test(ssoStartUrl)
 
   return (
     <div className="space-y-4">
+      {portalInput && (
+        <PortalFields
+          {...portalInput}
+          disabled={isAuthenticating}
+          invalid={ssoStartUrl !== "" && !startUrlValid}
+        />
+      )}
+
       <div className="bg-warning-muted/50 rounded p-3 text-sm text-foreground">
         {isAuthenticating ? (
           <p>
@@ -51,11 +61,13 @@ export function SsoForm({
           </p>
         ) : (
           <>
-            <p className="mb-2">
+            <p className={portalInput ? "m-0" : "mb-2"}>
               Click the button below to open AWS IAM Identity Center (formerly AWS SSO) in your
               browser. After authenticating, you'll be redirected back here.
             </p>
-            <div className="font-mono text-xs text-muted-foreground truncate">{ssoStartUrl}</div>
+            {!portalInput && (
+              <div className="font-mono text-xs text-muted-foreground truncate">{ssoStartUrl}</div>
+            )}
           </>
         )}
       </div>
@@ -69,7 +81,7 @@ export function SsoForm({
       <div className="flex gap-2">
         <Button
           onClick={onSsoAuth}
-          disabled={isAuthenticating}
+          disabled={isAuthenticating || !startUrlValid}
           className="bg-warning hover:bg-warning/90 text-white"
         >
           {isAuthenticating ? (
@@ -97,6 +109,76 @@ export function SsoForm({
         )}
       </div>
     </div>
+  )
+}
+
+/** The start URL and region of the access portal, typed or picked from the AWS config. */
+function PortalFields({
+  portal,
+  setPortal,
+  configured,
+  disabled,
+  invalid,
+}: {
+  portal: SsoPortal
+  setPortal: (portal: SsoPortal) => void
+  configured: SsoPortal[]
+  disabled: boolean
+  invalid: boolean
+}) {
+  const others = configured.filter(
+    (c) => c.startUrl !== portal.startUrl.trim() || c.region !== portal.region,
+  )
+  return (
+    <>
+      <div>
+        <label
+          htmlFor="aws-sso-start-url"
+          className="block text-sm font-medium text-foreground mb-1"
+        >
+          SSO start URL <span className="text-destructive">*</span>
+        </label>
+        <input
+          id="aws-sso-start-url"
+          type="url"
+          value={portal.startUrl}
+          onChange={(e) => setPortal({ ...portal, startUrl: e.target.value })}
+          placeholder="https://my-org.awsapps.com/start"
+          aria-invalid={invalid}
+          className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm placeholder-muted-foreground"
+          disabled={disabled}
+        />
+        {invalid && (
+          <p className="text-xs text-destructive mt-1">
+            The start URL begins with https://, such as https://my-org.awsapps.com/start.
+          </p>
+        )}
+        {others.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            <span>From your AWS config:</span>
+            {others.map((c) => (
+              <button
+                key={`${c.startUrl} ${c.region}`}
+                type="button"
+                onClick={() => setPortal(c)}
+                disabled={disabled}
+                className="font-mono rounded border border-input px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+              >
+                {c.startUrl} ({c.region})
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <DefaultRegionPicker
+        label="SSO Region"
+        hint="The region your organization's IAM Identity Center is in. The AWS access portal's settings page shows it."
+        selectedRegion={portal.region}
+        setSelectedRegion={(region) => setPortal({ ...portal, region })}
+        disabled={disabled}
+      />
+    </>
   )
 }
 
