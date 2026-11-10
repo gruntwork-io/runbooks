@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { ChevronDown, Download, FileText, Link, SquareTerminal, X } from "lucide-react"
+import { ChevronDown, Copy, Download, SquareTerminal, X } from "lucide-react"
 import logoDarkAlpha from "@/assets/runbooks-logo-dark-alpha.svg"
 import logoLightAlpha from "@/assets/runbooks-logo-light-alpha.svg"
 import {
@@ -124,7 +124,7 @@ export function Header({
               {runbookLocation !== undefined && (
                 <CopyIconButton
                   value={runbookLocation}
-                  icon={remoteSource !== undefined ? Link : FileText}
+                  icon={Copy}
                   label={remoteSource !== undefined ? "Copy runbook URL" : "Copy runbook path"}
                   copiedLabel={
                     remoteSource !== undefined ? "Runbook URL copied" : "Runbook path copied"
@@ -134,7 +134,7 @@ export function Header({
               {/* The name alone, as the title: the button before it copies
                   where the runbook is. */}
               <span
-                className="truncate text-sm text-foreground"
+                className="truncate text-base text-foreground"
                 // Out of the drag region, which gets no hover: a cut-off name
                 // shows in full in its tooltip.
                 style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
