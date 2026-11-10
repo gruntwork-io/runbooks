@@ -32,6 +32,8 @@ import { registerWorkspaceHandlers } from "./workspace.ts"
 import { registerFileHandlers } from "./files.ts"
 import { registerWatchHandlers } from "./watch.ts"
 import { registerThemeHandlers } from "./theme.ts"
+import { registerTofuModuleHandlers } from "./tofu-module.ts"
+import { registerSimulationHandlers } from "./simulation.ts"
 import { withVcs } from "./vcs-tristate.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 
@@ -87,5 +89,7 @@ export function registerAllIpcHandlers(): void {
   registerFileHandlers()
   registerWatchHandlers()
   registerThemeHandlers()
+  registerTofuModuleHandlers()
+  registerSimulationHandlers()
   registerVcsStatusHandler()
 }

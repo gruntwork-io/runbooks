@@ -57,7 +57,8 @@
     "webkitallowfullscreen",
     "worktree",
     "WORKTREE",
-    "yourcompany"
+    "yourcompany",
+    "yamldecode"
   ],
   "ignorePaths": [
     "node_modules",

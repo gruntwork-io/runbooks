@@ -1,0 +1,34 @@
+# Answers this runbook's blocks get in simulation mode (runbooks open --simulate).
+# Each scenario names the rows a lookup returns, or the error it fails with.
+scenarios:
+  happy-path:
+    label: Happy path
+    description: Two domains and a small directory.
+    lookups:
+      google.domains:
+        rows:
+          - { value: example.com, domainName: example.com, isPrimary: true }
+          - { value: example.org, domainName: example.org, isPrimary: false }
+      google.people:
+        delayMs: 300
+        rows:
+          - { value: ana@example.com, label: Ana Lima, description: Platform team }
+          - { value: bo@example.com, label: Bo Chen, description: Security }
+          - { value: cy@example.com, label: Cy Okafor, description: Finance }
+          - { value: dee@example.com, label: Dee Park, description: Platform team }
+          - { value: aws-admins@example.com, label: AWS admins, description: Group }
+
+  empty-directory:
+    label: Nobody in the directory
+    description: The people lookup finds no one, so owners and members take typed addresses only.
+    extends: happy-path
+    lookups:
+      google.people: []
+
+  no-directory-access:
+    label: Can't read the directory
+    description: The signed-in account lacks the directory scope.
+    extends: happy-path
+    lookups:
+      google.people:
+        error: "The signed-in account can't read your directory. Sign in with an account that has the directory.readonly scope."

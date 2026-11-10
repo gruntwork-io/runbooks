@@ -1,0 +1,59 @@
+# How a Runbooks <TofuModule> block presents this module. OpenTofu and Terragrunt never read this file.
+# variables.tf owns each input's name, type, default, and validation; this file only adds presentation,
+# and every key under `variables` must name an input there.
+version: 0
+
+block:
+  title: Google group
+  description: Creates a Google group and adds its owners, managers, and members.
+
+variables:
+  id:
+    label: Group email
+    primary: true
+  display_name:
+    label: Name
+    primary: true
+  description:
+    primary: true
+  domain:
+    label: Organization
+    primary: true
+    lookup:
+      from: google.domains
+      label: "{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}"
+  customer_id:
+    label: Customer ID
+  owners:
+    primary: true
+    lookup:
+      from: google.people
+  members:
+    primary: true
+    lookup:
+      from: google.people
+  managers:
+    lookup:
+      from: google.people
+  types:
+    label: Group type
+    options:
+      default:
+        label: Email group
+        description: People email the group, and members read its conversations.
+      security:
+        label: Security group
+        description: Can grant access in IAM and other access policies. Once set, it can't be removed.
+      dynamic:
+        label: Dynamic group
+        description: Google keeps the membership in sync with a query on user attributes. Needs a premium edition.
+      external:
+        label: External group
+        description: Its members come from an identity provider outside your directory.
+  initial_group_config:
+    label: Make the identity that applies this an owner
+    options:
+      WITH_INITIAL_OWNER:
+        label: "Yes"
+      EMPTY:
+        label: "No"

@@ -17,6 +17,7 @@ import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
+import { enableSimulation } from "./ipc/simulation.ts"
 import { launchDirContext, requestLaunchLock, secondInstanceLaunchDirectory } from "./launch-dir.ts"
 import { planSecondLaunch, planStartupLaunch } from "./launch-session.ts"
 import { openSessionStorage, type SessionStorage } from "./session-storage.ts"
@@ -233,6 +234,7 @@ function openRemoteRunbook(win: BrowserWindow, url: string): void {
 // ---------------------------------------------------------------------------
 
 const cliConfig = parseCliArgs(process.argv, launchDir, app.getAppPath())
+if (cliConfig.simulate || process.env.RUNBOOKS_SIMULATE === "1") enableSimulation()
 
 /**
  * The local runbook the app's first page opens, which it asks for with

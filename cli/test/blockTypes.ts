@@ -14,6 +14,7 @@ export const BLOCK_TYPES = [
   "Finish",
   "Prerequisites",
   "Inputs",
+  "TofuModule",
   "Template",
   "TemplateInline",
   "AwsAuth",

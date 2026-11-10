@@ -1,0 +1,481 @@
+/**
+ * Builds a TofuModuleSpec from a module's files: the inputs variables.tf
+ * declares, presented the way the module's runbooks.yml says.
+ *
+ * variables.tf owns each input's name, type, default and validation, so a
+ * runbooks.yml entry for an input variables.tf doesn't declare is an error:
+ * the form would otherwise drift from the module without anyone noticing.
+ */
+import { parse as parseHclToJson } from "@cdktf/hcl2json"
+import { Effect } from "effect"
+import YAML from "yaml"
+import { TofuModuleError } from "../../errors/index.ts"
+import { errorMessage } from "../../errors/message.ts"
+import type {
+  TofuModuleInputKind,
+  TofuModuleLookup,
+  TofuModuleOption,
+  TofuModulePreset,
+  TofuModuleProvider,
+  TofuModuleSpec,
+  TofuModuleVariable,
+} from "./types.ts"
+import { interpretValidations, type TfValidation } from "./validations.ts"
+import { rowTemplateError } from "./rowTemplate.ts"
+
+/** The name of the metadata file at a module's root. */
+export const METADATA_FILE = "runbooks.yml"
+
+/** The runbooks.yml format versions this build reads. */
+const METADATA_VERSIONS = new Set([0])
+
+/** One HCL file of the module, by name. */
+export interface ModuleFile {
+  readonly name: string
+  readonly content: string
+}
+
+/** HCL as HashiCorp's own parser converts it to JSON. */
+type HclJson = Record<string, unknown>
+
+/** Parses one HCL file with HashiCorp's HCL library, compiled to WebAssembly. */
+export const parseHcl = (file: ModuleFile) =>
+  Effect.tryPromise({
+    try: () => parseHclToJson(file.name, file.content) as Promise<HclJson>,
+    catch: (cause) =>
+      new TofuModuleError({
+        message: `Couldn't parse ${file.name}: ${errorMessage(cause)}`,
+        cause,
+      }),
+  })
+
+// ---------------------------------------------------------------------------
+// variables.tf
+// ---------------------------------------------------------------------------
+
+/** An input as variables.tf declares it. */
+export interface TfVariable {
+  readonly name: string
+  readonly tfType: string
+  readonly description: string
+  readonly hasDefault: boolean
+  readonly default?: unknown
+  readonly sensitive: boolean
+  readonly validations: readonly TfValidation[]
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+/** The single body of an HCL block, which the JSON form wraps in a one-element array. */
+const blockBody = (value: unknown): Record<string, unknown> | undefined => {
+  const first = Array.isArray(value) ? value[0] : value
+  return isRecord(first) ? first : undefined
+}
+
+/** An HCL expression's source text: the JSON form writes it as `${...}`. */
+const expressionText = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined
+  const match = /^\$\{([\s\S]*)\}$/.exec(value)
+  return match ? match[1]!.trim() : value
+}
+
+/**
+ * The order the files declare their variables in. The JSON form keys
+ * variables by name, which loses it, and a form should follow the module.
+ */
+function declarationOrder(files: readonly ModuleFile[]): Map<string, number> {
+  const order = new Map<string, number>()
+  for (const file of files) {
+    for (const match of file.content.matchAll(/^\s*variable\s+"([^"]+)"/gm)) {
+      if (!order.has(match[1]!)) order.set(match[1]!, order.size)
+    }
+  }
+  return order
+}
+
+/** The inputs the parsed files declare, in declaration order. */
+export function tfVariables(
+  parsed: readonly HclJson[],
+  files: readonly ModuleFile[],
+): TfVariable[] {
+  const variables: TfVariable[] = []
+  for (const json of parsed) {
+    if (!isRecord(json.variable)) continue
+    for (const [name, value] of Object.entries(json.variable)) {
+      const body = blockBody(value) ?? {}
+      const hasDefault = Object.hasOwn(body, "default")
+      const validations = (Array.isArray(body.validation) ? body.validation : [])
+        .filter(isRecord)
+        .map((validation) => ({
+          condition: expressionText(validation.condition) ?? "",
+          errorMessage:
+            typeof validation.error_message === "string" ? validation.error_message : "",
+        }))
+      variables.push({
+        name,
+        tfType: expressionText(body.type) ?? "any",
+        description: typeof body.description === "string" ? body.description : "",
+        hasDefault,
+        ...(hasDefault ? { default: body.default } : {}),
+        sensitive: body.sensitive === true,
+        validations,
+      })
+    }
+  }
+  const order = declarationOrder(files)
+  const position = (name: string) => order.get(name) ?? Number.MAX_SAFE_INTEGER
+  return variables.sort((a, b) => position(a.name) - position(b.name))
+}
+
+/** The providers the files' `terraform { required_providers { ... } }` blocks name. */
+export function requiredProviders(parsed: readonly HclJson[]): TofuModuleProvider[] {
+  const providers: TofuModuleProvider[] = []
+  for (const json of parsed) {
+    const terraform = Array.isArray(json.terraform) ? json.terraform : []
+    for (const block of terraform) {
+      if (!isRecord(block)) continue
+      const required = blockBody(block.required_providers)
+      for (const [name, value] of Object.entries(required ?? {})) {
+        const entry = isRecord(value) ? value : {}
+        providers.push({
+          name,
+          ...(typeof entry.source === "string" ? { source: entry.source } : {}),
+          ...(typeof entry.version === "string" ? { version: entry.version } : {}),
+        })
+      }
+    }
+  }
+  return providers
+}
+
+/** The form control a variables.tf type needs. */
+export function inputKind(tfType: string): TofuModuleInputKind {
+  const type = tfType.replace(/\s+/g, "")
+  if (type === "string") return "string"
+  if (type === "number") return "number"
+  if (type === "bool") return "bool"
+  if (/^(list|set)\((string|number)\)$/.test(type)) return "list"
+  if (/^map\((string|number|bool)\)$/.test(type)) return "map"
+  return "json"
+}
+
+// ---------------------------------------------------------------------------
+// runbooks.yml
+// ---------------------------------------------------------------------------
+
+/** Turns a name such as `display_name` into a label, `Display name`. */
+export function labelFromName(name: string): string {
+  const words = name.replace(/[_-]+/g, " ").trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** Collects what's wrong with runbooks.yml as the entries are read. */
+class Problems {
+  readonly errors: string[] = []
+  readonly warnings: string[] = []
+  unknownKeys(where: string, value: Record<string, unknown>, known: readonly string[]): void {
+    for (const key of Object.keys(value)) {
+      if (!known.includes(key))
+        this.warnings.push(`${where}: Runbooks doesn't know the key "${key}".`)
+    }
+  }
+}
+
+const optionalString = (value: unknown, where: string, problems: Problems): string | undefined => {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  problems.errors.push(`${where} must be text.`)
+  return undefined
+}
+
+/**
+ * Options as runbooks.yml writes them: a map from each value to its label and
+ * description, or a list of values.
+ */
+function readOptions(
+  raw: unknown,
+  where: string,
+  problems: Problems,
+): TofuModuleOption[] | undefined {
+  if (raw === undefined) return undefined
+  if (Array.isArray(raw)) {
+    return raw.map((value) => ({ value: String(value), label: String(value) }))
+  }
+  if (!isRecord(raw)) {
+    problems.errors.push(`${where} must be a map from each value to its label and description.`)
+    return undefined
+  }
+  return Object.entries(raw).map(([value, entry]) => {
+    if (typeof entry === "string") return { value, label: entry }
+    const fields = isRecord(entry) ? entry : {}
+    problems.unknownKeys(`${where}.${value}`, fields, ["label", "description"])
+    const label = optionalString(fields.label, `${where}.${value}.label`, problems)
+    const description = optionalString(
+      fields.description,
+      `${where}.${value}.description`,
+      problems,
+    )
+    return { value, label: label ?? value, ...(description ? { description } : {}) }
+  })
+}
+
+function readLookup(raw: unknown, where: string, problems: Problems): TofuModuleLookup | undefined {
+  if (raw === undefined) return undefined
+  if (!isRecord(raw) || typeof raw.from !== "string" || raw.from === "") {
+    problems.errors.push(`${where} needs "from", the name of a lookup such as google.people.`)
+    return undefined
+  }
+  problems.unknownKeys(where, raw, ["from", "label", "value", "sets"])
+  const label = optionalString(raw.label, `${where}.label`, problems)
+  const value = optionalString(raw.value, `${where}.value`, problems)
+  let sets: Record<string, string> | undefined
+  if (raw.sets !== undefined) {
+    if (isRecord(raw.sets) && Object.values(raw.sets).every((v) => typeof v === "string")) {
+      sets = raw.sets as Record<string, string>
+    } else {
+      problems.errors.push(`${where}.sets must map input names to templates.`)
+    }
+  }
+  for (const [key, template] of [["label", label], ...Object.entries(sets ?? {})]) {
+    const error = template === undefined ? undefined : rowTemplateError(template)
+    if (error) problems.errors.push(`${where} ${key}: ${error}`)
+  }
+  return {
+    from: raw.from,
+    ...(label ? { label } : {}),
+    ...(value ? { value } : {}),
+    ...(sets ? { sets } : {}),
+  }
+}
+
+/** A presets file: a map from each preset's name to its label, description and settings. */
+export function parsePresets(content: string, where: string): TofuModulePreset[] {
+  const problems = new Problems()
+  let raw: unknown
+  try {
+    raw = YAML.parse(content)
+  } catch (cause) {
+    throw new TofuModuleError({
+      message: `${where} isn't valid YAML: ${errorMessage(cause)}`,
+      cause,
+    })
+  }
+  if (!isRecord(raw)) {
+    throw new TofuModuleError({
+      message: `${where} must be a map from each preset's name to its settings.`,
+    })
+  }
+  const presets = Object.entries(raw).map(([name, entry]) => {
+    const fields = isRecord(entry) ? entry : {}
+    if (!isRecord(fields.settings)) {
+      problems.errors.push(
+        `${where}: preset "${name}" needs settings, a map of the values it sets.`,
+      )
+    }
+    const label = optionalString(fields.label, `${where}: ${name}.label`, problems)
+    const description = optionalString(
+      fields.description,
+      `${where}: ${name}.description`,
+      problems,
+    )
+    return {
+      name,
+      label: label ?? labelFromName(name),
+      ...(description ? { description } : {}),
+      settings: isRecord(fields.settings) ? fields.settings : {},
+    }
+  })
+  if (problems.errors.length > 0) throw new TofuModuleError({ message: problems.errors.join(" ") })
+  return presets
+}
+
+/** What runbooks.yml says about the module, before it's checked against variables.tf. */
+export interface ModuleMetadata {
+  readonly title?: string
+  readonly description?: string
+  /** The logo's path in the module, or an https: URL. */
+  readonly logo?: string
+  readonly variables: Readonly<Record<string, VariableMetadata>>
+  readonly warnings: readonly string[]
+}
+
+export interface VariableMetadata {
+  readonly label?: string
+  readonly description?: string
+  readonly primary?: boolean
+  readonly options?: readonly TofuModuleOption[]
+  readonly lookup?: TofuModuleLookup
+  /** The presets file's path in the module. */
+  readonly presets?: string
+}
+
+/** Reads runbooks.yml. Fails on anything that would make the form wrong. */
+export function parseMetadata(content: string | undefined): ModuleMetadata {
+  if (content === undefined) return { variables: {}, warnings: [] }
+  let raw: unknown
+  try {
+    raw = YAML.parse(content)
+  } catch (cause) {
+    throw new TofuModuleError({
+      message: `${METADATA_FILE} isn't valid YAML: ${errorMessage(cause)}`,
+      cause,
+    })
+  }
+  if (raw === null || raw === undefined) return { variables: {}, warnings: [] }
+  if (!isRecord(raw)) throw new TofuModuleError({ message: `${METADATA_FILE} must be a map.` })
+
+  const problems = new Problems()
+  problems.unknownKeys(METADATA_FILE, raw, ["version", "block", "variables"])
+  if (raw.version !== undefined && !METADATA_VERSIONS.has(raw.version as number)) {
+    throw new TofuModuleError({
+      message: `${METADATA_FILE} is version ${JSON.stringify(raw.version)}, which this version of Runbooks can't read. Update Runbooks.`,
+    })
+  }
+
+  const block = isRecord(raw.block) ? raw.block : {}
+  problems.unknownKeys("block", block, ["title", "description", "logo"])
+  const title = optionalString(block.title, "block.title", problems)
+  const description = optionalString(block.description, "block.description", problems)
+  const logo = optionalString(block.logo, "block.logo", problems)
+
+  const variables: Record<string, VariableMetadata> = {}
+  const rawVariables = raw.variables ?? {}
+  if (!isRecord(rawVariables)) {
+    problems.errors.push("variables must be a map from each input's name to how to present it.")
+  } else {
+    for (const [name, entry] of Object.entries(rawVariables)) {
+      const where = `variables.${name}`
+      const fields = isRecord(entry) ? entry : {}
+      problems.unknownKeys(where, fields, [
+        "label",
+        "description",
+        "primary",
+        "options",
+        "lookup",
+        "presets",
+      ])
+      if (fields.primary !== undefined && typeof fields.primary !== "boolean") {
+        problems.errors.push(`${where}.primary must be true or false.`)
+      }
+      const label = optionalString(fields.label, `${where}.label`, problems)
+      const varDescription = optionalString(fields.description, `${where}.description`, problems)
+      const options = readOptions(fields.options, `${where}.options`, problems)
+      const lookup = readLookup(fields.lookup, `${where}.lookup`, problems)
+      const presets = optionalString(fields.presets, `${where}.presets`, problems)
+      variables[name] = {
+        ...(label ? { label } : {}),
+        ...(varDescription ? { description: varDescription } : {}),
+        ...(fields.primary === true ? { primary: true } : {}),
+        ...(options ? { options } : {}),
+        ...(lookup ? { lookup } : {}),
+        ...(presets ? { presets } : {}),
+      }
+    }
+  }
+
+  if (problems.errors.length > 0) {
+    throw new TofuModuleError({ message: `${METADATA_FILE}: ${problems.errors.join(" ")}` })
+  }
+  return {
+    ...(title ? { title } : {}),
+    ...(description ? { description } : {}),
+    ...(logo ? { logo } : {}),
+    variables,
+    warnings: problems.warnings,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The spec
+// ---------------------------------------------------------------------------
+
+/** The text of a README's first level-one heading, the module's own name for itself. */
+export function readmeTitle(readme: string | undefined): string | undefined {
+  const match = readme ? /^#[ \t]+(.+?)[ \t#]*$/m.exec(readme) : null
+  return match ? match[1] : undefined
+}
+
+/** The names of the outputs the parsed files declare, sorted. */
+export function outputNames(parsed: readonly HclJson[]): string[] {
+  return parsed.flatMap((json) => (isRecord(json.output) ? Object.keys(json.output) : [])).sort()
+}
+
+export interface BuildSpecInput {
+  /** The module's folder name, the title when neither runbooks.yml nor the README gives one. */
+  readonly moduleName: string
+  /** The title the module's README gives, the title when runbooks.yml gives none. */
+  readonly readmeTitle?: string
+  readonly outputs: readonly string[]
+  readonly variables: readonly TfVariable[]
+  readonly providers: readonly TofuModuleProvider[]
+  readonly metadata: ModuleMetadata
+  /** The presets each presets file in runbooks.yml holds, by its path. */
+  readonly presets: Readonly<Record<string, readonly TofuModulePreset[]>>
+  /** The logo runbooks.yml names, already read into a URL. */
+  readonly logo?: string
+}
+
+/** Joins variables.tf and runbooks.yml into the spec the form draws. */
+export function buildSpec(input: BuildSpecInput): TofuModuleSpec {
+  const declared = new Set(input.variables.map((variable) => variable.name))
+  const unknown = Object.keys(input.metadata.variables).filter((name) => !declared.has(name))
+  if (unknown.length > 0) {
+    throw new TofuModuleError({
+      message: `${METADATA_FILE} describes ${unknown.map((name) => `"${name}"`).join(", ")}, which variables.tf doesn't declare.`,
+    })
+  }
+
+  for (const [name, meta] of Object.entries(input.metadata.variables)) {
+    const missing = Object.keys(meta.lookup?.sets ?? {}).filter((target) => !declared.has(target))
+    if (missing.length > 0) {
+      throw new TofuModuleError({
+        message: `${METADATA_FILE}: variables.${name}.lookup.sets fills ${missing.map((target) => `"${target}"`).join(", ")}, which variables.tf doesn't declare.`,
+      })
+    }
+  }
+
+  // A module whose runbooks.yml picks no primary inputs shows the ones it
+  // can't do without first.
+  const anyPrimary = Object.values(input.metadata.variables).some((meta) => meta.primary)
+
+  const variables = input.variables.map((variable): TofuModuleVariable => {
+    const meta = input.metadata.variables[variable.name] ?? {}
+    const { allowedValues, checks, constraints } = interpretValidations(
+      variable.name,
+      variable.validations,
+    )
+    const derived = allowedValues?.map((value) => ({ value, label: value }))
+    const options = meta.options ?? derived
+    const presets = meta.presets ? input.presets[meta.presets] : undefined
+    return {
+      name: variable.name,
+      label: meta.label ?? labelFromName(variable.name),
+      description: meta.description ?? variable.description,
+      tfType: variable.tfType,
+      kind: inputKind(variable.tfType),
+      hasDefault: variable.hasDefault,
+      ...(variable.hasDefault ? { default: variable.default } : {}),
+      sensitive: variable.sensitive,
+      primary: anyPrimary ? meta.primary === true : !variable.hasDefault,
+      ...(options ? { options } : {}),
+      // A validation that limits the values means nothing else would apply.
+      ...(options && allowedValues ? { optionsOnly: true } : {}),
+      ...(meta.lookup ? { lookup: meta.lookup } : {}),
+      ...(presets ? { presets } : {}),
+      ...(checks.length > 0 ? { checks } : {}),
+      ...(constraints.length > 0 ? { constraints } : {}),
+    }
+  })
+
+  return {
+    title: input.metadata.title ?? input.readmeTitle ?? labelFromName(input.moduleName),
+    ...(input.metadata.description ? { description: input.metadata.description } : {}),
+    providers: input.providers,
+    ...(input.logo ? { logo: input.logo } : {}),
+    outputs: input.outputs,
+    variables,
+    warnings: input.metadata.warnings,
+  }
+}

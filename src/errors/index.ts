@@ -147,6 +147,13 @@ export class WasmError extends Data.TaggedError("WasmError")<{
   readonly cause?: unknown
 }> {}
 
+// TofuModule
+/** A module a <TofuModule> block reads is missing, or its files are wrong. The message is fit to show the user. */
+export class TofuModuleError extends Data.TaggedError("TofuModuleError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
 // Session
 export class SessionError extends Data.TaggedError("SessionError")<{
   readonly message: string

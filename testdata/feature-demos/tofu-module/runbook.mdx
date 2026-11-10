@@ -1,0 +1,36 @@
+---
+title: TofuModule Demo
+---
+
+# TofuModule
+
+A `<TofuModule>` block draws its form from an OpenTofu module. The module's `variables.tf` gives each input's name, type, default and validation; its `runbooks.yml` says how to present them.
+
+This runbook uses a copy of the `google-group` module from the catalog. Open it with `--simulate` so the domain dropdown and the people suggestions answer from [simulation.yml](./simulation.yml) instead of your Google Workspace:
+
+```bash
+runbooks open --simulate testdata/feature-demos/tofu-module
+```
+
+## Describe the group
+
+<TofuModule id="group" source="google-group" />
+
+## Use the values
+
+Other blocks read the module's inputs through `inputsId`, as they read an `<Inputs>` block's.
+
+<Command
+  id="show-group"
+  title="Show the group's inputs"
+  inputsId="group"
+  env={{
+    GROUP_EMAIL: "{{ .inputs.id }}",
+    GROUP_NAME: "{{ .inputs.display_name }}",
+    GROUP_DOMAIN: "{{ .inputs.domain }}",
+  }}
+  command={`echo "Group:  $GROUP_EMAIL"
+echo "Name:   $GROUP_NAME"
+echo "Domain: $GROUP_DOMAIN"
+echo "group_email=$GROUP_EMAIL" >> "$RUNBOOK_OUTPUT"`}
+/>

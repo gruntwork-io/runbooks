@@ -13,6 +13,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 ### Collect input and generate files
 
 - [`<Inputs>`](/authoring/blocks/inputs) renders a form whose values other blocks use in their scripts, templates and props.
+- [`<TofuModule>`](/authoring/blocks/tofumodule) renders a form for an OpenTofu module's inputs, built from the module's own `variables.tf`. Experimental.
 - [`<Template>`](/authoring/blocks/template) generates files from a Boilerplate template directory, with a form for the template's variables.
 - [`<TemplateInline>`](/authoring/blocks/templateinline) renders a Boilerplate template written in the runbook itself and shows the result inline.
 - [`<DirPicker>`](/authoring/blocks/dirpicker) selects a directory path with a cascading set of dropdowns.

@@ -1,0 +1,168 @@
+---
+title: <TofuModule>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="Experimental">
+`<TofuModule>` is an experiment. Its props, the `runbooks.yml` format and simulation mode may change. It reads modules from a local folder so far; reading a module from its catalog URL at a pinned version, live lookups, and generating the code that uses the module come next.
+</Aside>
+
+The `<TofuModule>` block renders a form for an OpenTofu module's inputs. The form comes from the module itself, so a runbook doesn't restate what the module already says:
+
+- The module's `variables.tf` gives each input's name, type, default, and validation.
+- An optional `runbooks.yml` beside it says how to present them: labels, which inputs come first, what each option means, presets, and lookups that suggest values.
+
+The values are published like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`.
+
+## Basic usage
+
+```mdx
+<TofuModule id="group" source="modules/google-group" />
+
+<Command
+  id="show-group"
+  inputsId="group"
+  env={{ GROUP_EMAIL: "{{ .inputs.id }}" }}
+  command={`echo "Creating $GROUP_EMAIL"`}
+/>
+```
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `id` | `string` | required | Unique identifier for this block. Other blocks name it in `inputsId` |
+| `source` | `string` | required | The module's folder, relative to the runbook. It must be inside the runbook's folder |
+
+## How the form is built
+
+Every input `variables.tf` declares appears, in the order it declares them.
+
+- **Required inputs.** An input without a default is required, and is marked with `*`.
+- **Primary and advanced inputs.** Inputs `runbooks.yml` marks `primary` show first; the rest sit under **Advanced options**. Without any `primary` marks, the required inputs show first.
+- **Controls.** A `string` is a text field, a `number` a number field, a `bool` a checkbox, a `list(string)` or `set(string)` a list of chips, and a `map(string)` a key and value list. Any other type, such as an `object`, is a JSON field.
+- **Choices.** An input with options shows each as a card with its description. A `list` input with options lets the user pick several.
+- **Validation.** The form checks the validation idioms modules use most as the user types: `contains([...], var.x)` becomes a choice, `can(regex("...", var.x))` a pattern, `length(var.x) >= N && length(var.x) <= M` a length range, and `var.x != ""` a required value. The form shows the error message of any other condition under the input as a rule, and leaves checking it to OpenTofu.
+- **Title.** The block's title is `runbooks.yml`'s `block.title`, else the README's first heading, else the module's folder name.
+- **Logo.** The block shows the mark of the module's provider, from `required_providers`, unless `runbooks.yml` sets `block.logo`.
+
+OpenTofu reads a `.tofu` file in place of a `.tf` file with the same name, and so does the block.
+
+## runbooks.yml
+
+OpenTofu and Terragrunt never read `runbooks.yml`, so it can sit in the module's folder without changing what the module does. Every key under `variables` must name an input `variables.tf` declares; the block refuses a module whose `runbooks.yml` names one it doesn't.
+
+```yaml title="runbooks.yml"
+version: 0
+
+block:
+  title: Google group
+  description: Creates a Google group and adds its owners, managers, and members.
+  logo: logo.svg              # optional: an SVG, PNG, JPEG, or WebP in the module, or an https: URL
+
+variables:
+  id:
+    label: Group email
+    primary: true
+  domain:
+    label: Organization
+    primary: true
+    lookup:
+      from: google.domains
+      label: "{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}"
+  owners:
+    primary: true
+    lookup:
+      from: google.people
+  types:
+    label: Group type
+    options:
+      default:
+        label: Email group
+        description: People email the group, and members read its conversations.
+      security:
+        label: Security group
+        description: Can grant access in IAM and other access policies.
+  access:
+    primary: true
+    presets: presets.yaml
+```
+
+| Key | Description |
+|-----|-------------|
+| `version` | The format's version, `0` |
+| `block.title`, `block.description` | The block's heading and the line under it |
+| `block.logo` | The block's logo, a file in the module or an `https:` URL |
+| `variables.<name>.label` | The input's label. Without it, the name with its first letter capitalized |
+| `variables.<name>.description` | Replaces the input's description from `variables.tf` |
+| `variables.<name>.primary` | `true` to show the input before **Advanced options** |
+| `variables.<name>.options` | A map from each value to its `label` and `description`, or a list of values |
+| `variables.<name>.lookup` | Where the input's suggestions come from. See [Lookups](#lookups) |
+| `variables.<name>.presets` | A file in the module of named settings for an object or map input. See [Presets](#presets) |
+
+## Lookups
+
+A lookup suggests values as the user types, such as the people in a directory. It's named by `from`, and returns rows of fields:
+
+| Key | Description |
+|-----|-------------|
+| `from` | The lookup's name, such as `google.people` |
+| `value` | The row field that becomes the input's value. Default: `value` |
+| `label` | A template over the row's fields for what the suggestion shows. Default: the row's `label` field |
+| `sets` | Other inputs a pick fills in: a map from an input's name to a template over the row's fields |
+
+A template uses `{{ .field }}` and `{{ if .field }}...{{ else }}...{{ end }}`. A suggestion helps the user; it doesn't limit what they can type.
+
+So far, lookups answer only in [simulation mode](#simulation-mode).
+
+## Presets
+
+A preset is a named set of settings for an object or map input, such as "Public group". The user picks a preset instead of filling in each setting, and the info icon beside it lists every setting it makes.
+
+```yaml title="presets.yaml"
+public:
+  label: Public
+  description: Anyone, including people outside your organization, can email the group.
+  settings:
+    who_can_post_message: ANYONE_CAN_POST
+    who_can_view_group: ALL_MEMBERS_CAN_VIEW
+```
+
+The module can read the same file with `yamldecode(file("${path.module}/presets.yaml"))`, so what the info icon shows is what OpenTofu applies.
+
+## Simulation mode
+
+Simulation mode lets you shape a block's form without signing in to anything or changing anything real. Open the runbook with `--simulate`:
+
+```bash
+runbooks open --simulate path/to/runbook
+```
+
+A **Simulation** bar marks the runbook, and lookups answer from a `simulation.yml` beside the runbook. It holds named scenarios, and the bar switches between them, so you can see each state of each block:
+
+```yaml title="simulation.yml"
+scenarios:
+  happy-path:
+    label: Happy path
+    lookups:
+      google.domains:
+        - { value: example.com, domainName: example.com, isPrimary: true }
+      google.people:
+        delayMs: 300            # optional: answer after a pause, to see the loading state
+        rows:
+          - { value: ana@example.com, label: Ana Lima, description: Platform team }
+
+  no-directory-access:
+    label: Can't read the directory
+    extends: happy-path         # start from another scenario's answers
+    lookups:
+      google.people:
+        error: The signed-in account can't read your directory.
+```
+
+A lookup's answer is a list of rows, a map with `rows`, or a map with `error`, which the field shows as the lookup's failure. A row matches what the user typed when any of its text fields contains it. The file is read on each lookup, so an edit shows the next time a field asks.
+
+## Testing
+
+`runbooks test` treats a `<TofuModule>` block as it treats an `<Inputs>` block: it checks the block and moves on. It doesn't read the module yet, so a test sets the inputs the runbook uses under `inputs`, named `<id>.<input>`, such as `group.id`.

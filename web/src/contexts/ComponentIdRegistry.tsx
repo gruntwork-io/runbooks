@@ -18,6 +18,7 @@ export type BlockComponentType =
   | "Finish"
   | "Prerequisites"
   | "Inputs"
+  | "TofuModule"
   | "Template"
   | "TemplateInline"
   | "AwsAuth"

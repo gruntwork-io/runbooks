@@ -13,6 +13,7 @@ export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
 import type { ListedSession } from "../../src/domain/session/store.ts"
+import type { TofuModuleSpec } from "../../src/domain/tofu-module/types.ts"
 
 /** What session:switch did. */
 export type SessionSwitchResult =
@@ -193,6 +194,21 @@ export interface IpcChannelMap {
     params: ResolveInputsRequest
     result: { inputs: Record<string, unknown> }
   }
+
+  // TofuModule
+  /** The inputs of the module a <TofuModule> block presents, shaped by its runbooks.yml. */
+  "tofu-module:read": { params: TofuModuleReadRequest; result: TofuModuleSpec }
+  /** The rows a named lookup, such as google.people, has for what the user typed. */
+  "tofu-module:lookup": {
+    params: TofuModuleLookupRequest
+    result: { rows: Record<string, unknown>[] }
+  }
+
+  // Simulation mode
+  /** Whether the app answers from simulation.yml, and its scenarios. */
+  "simulation:state": { params: void; result: SimulationState }
+  /** Picks the scenario lookups answer from. */
+  "simulation:set-scenario": { params: { name: string }; result: { ok: true } }
 
   // AWS Authentication
   "aws:validate": {
@@ -1064,6 +1080,29 @@ export interface ResolveInputsRequest {
   /** Block outputs for `{{ .outputs.<block>.<name> }}`, as plain strings. */
   outputs?: Record<string, Record<string, string>>
 }
+
+export interface TofuModuleReadRequest {
+  /** The module's folder, relative to the runbook. */
+  source: string
+}
+
+export interface TofuModuleLookupRequest {
+  /** The lookup's name, such as `google.people`. */
+  from: string
+  /** What the user typed so far. */
+  query?: string
+}
+
+export type SimulationState =
+  | { enabled: false }
+  | {
+      enabled: true
+      scenarios: { name: string; label: string; description?: string }[]
+      /** The scenario lookups answer from. Absent while simulation.yml has a problem. */
+      active?: string
+      /** What's wrong with simulation.yml, fit to show the author. */
+      error?: string
+    }
 
 export interface ProfileInfo {
   name: string
