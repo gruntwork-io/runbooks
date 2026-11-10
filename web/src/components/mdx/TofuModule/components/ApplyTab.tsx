@@ -361,72 +361,81 @@ function RunbookOutputs({
   )
 }
 
-/** The module's outputs: each value, as a link where it's a web address. */
+/**
+ * The module's outputs: the runbook's own first, then a table of the rest, each
+ * value a link where it's a web address.
+ */
 function OutputList({
-  outputs,
+  outputs: all,
   meta,
 }: {
   outputs: readonly ModuleOutputValue[]
   meta: readonly TofuModuleOutput[]
 }) {
   const [revealed, setRevealed] = useState<Set<string>>(() => new Set())
-  if (outputs.length === 0) return null
+  if (all.length === 0) return null
+  const outputs = all.filter((o) => !isRunbookOutput(o.name))
   return (
     <div className="space-y-2">
       <h4 className="text-sm font-semibold text-foreground">Outputs</h4>
-      <dl className="divide-y divide-border rounded-md border border-border bg-card">
-        {outputs.map((output) => {
-          const info = meta.find((m) => m.name === output.name)
-          const hidden = output.sensitive && !revealed.has(output.name)
-          let value: ReactNode = <span className="break-all font-mono text-sm">{output.value}</span>
-          if (hidden)
-            value = <span className="font-mono text-sm text-muted-foreground">••••••••</span>
-          else if (isWebLink(output.value)) {
-            value = (
-              <a
-                href={output.value}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-              >
-                {info?.link ?? output.value}
-                <ExternalLink className="size-3.5" />
-              </a>
+      <RunbookOutputs outputs={all.filter((o) => isRunbookOutput(o.name))} meta={meta} />
+      {outputs.length > 0 && (
+        <dl className="divide-y divide-border rounded-md border border-border bg-card">
+          {outputs.map((output) => {
+            const info = meta.find((m) => m.name === output.name)
+            const hidden = output.sensitive && !revealed.has(output.name)
+            let value: ReactNode = (
+              <span className="break-all font-mono text-sm">{output.value}</span>
             )
-          }
-          return (
-            <div
-              key={output.name}
-              className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2"
-            >
-              <dt className="w-40 shrink-0">
-                <div className="text-sm text-foreground">{info?.label ?? output.name}</div>
-                <div className="font-mono text-xs text-muted-foreground">{output.name}</div>
-              </dt>
-              <dd className="flex min-w-0 flex-1 items-center gap-2">
-                {value}
-                {output.sensitive && (
-                  <button
-                    type="button"
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() =>
-                      setRevealed((r) => {
-                        const next = new Set(r)
-                        if (next.has(output.name)) next.delete(output.name)
-                        else next.add(output.name)
-                        return next
-                      })
-                    }
-                  >
-                    {hidden ? "Show" : "Hide"}
-                  </button>
-                )}
-                {!hidden && <CopyValue text={output.value} />}
-              </dd>
-            </div>
-          )
-        })}
-      </dl>
+            if (hidden)
+              value = <span className="font-mono text-sm text-muted-foreground">••••••••</span>
+            else if (isWebLink(output.value)) {
+              value = (
+                <a
+                  href={output.value}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                >
+                  {info?.link ?? output.value}
+                  <ExternalLink className="size-3.5" />
+                </a>
+              )
+            }
+            return (
+              <div
+                key={output.name}
+                className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2"
+              >
+                <dt className="w-40 shrink-0">
+                  <div className="text-sm text-foreground">{info?.label ?? output.name}</div>
+                  <div className="font-mono text-xs text-muted-foreground">{output.name}</div>
+                </dt>
+                <dd className="flex min-w-0 flex-1 items-center gap-2">
+                  {value}
+                  {output.sensitive && (
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        setRevealed((r) => {
+                          const next = new Set(r)
+                          if (next.has(output.name)) next.delete(output.name)
+                          else next.add(output.name)
+                          return next
+                        })
+                      }
+                    >
+                      {hidden ? "Show" : "Hide"}
+                    </button>
+                  )}
+                  {!hidden && <CopyValue text={output.value} />}
+                </dd>
+              </div>
+            )
+          })}
+        </dl>
+      )}
     </div>
   )
 }
@@ -592,14 +601,7 @@ export function ApplyTab({
               progress={() => ({ progress: "done" })}
             />
           </div>
-          <RunbookOutputs
-            outputs={(state.result?.outputs ?? []).filter((o) => isRunbookOutput(o.name))}
-            meta={outputs}
-          />
-          <OutputList
-            outputs={(state.result?.outputs ?? []).filter((o) => !isRunbookOutput(o.name))}
-            meta={outputs}
-          />
+          <OutputList outputs={state.result?.outputs ?? []} meta={outputs} />
           {next && (
             <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
               <Button type="button" onClick={() => onNavigate(next.tab)}>
