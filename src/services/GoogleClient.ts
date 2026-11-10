@@ -68,6 +68,20 @@ export interface GoogleProject {
   readonly state?: string | undefined
 }
 
+/** A domain of the Google Workspace or Cloud Identity organization the credential belongs to. */
+export interface GoogleDomain {
+  readonly domainName: string
+  readonly isPrimary: boolean
+}
+
+/** A person in the organization's directory. */
+export interface GooglePerson {
+  readonly email: string
+  readonly name?: string | undefined
+  /** Their job title and department, as the directory has them. */
+  readonly title?: string | undefined
+}
+
 /** Metadata about an on-disk credentials JSON. NEVER carries secret fields. */
 export interface AdcInfo {
   readonly path: string
@@ -183,6 +197,27 @@ export interface GoogleClientShape {
     query?: string,
     pageSize?: number,
   ) => Effect.Effect<GoogleProject[], GoogleAuthError>
+
+  /**
+   * The organization's domains, from the Admin SDK Directory API. Needs an
+   * admin's credential with the admin.directory.domain.readonly scope.
+   */
+  readonly listDomains: (
+    creds: GoogleCredentialRef,
+    quotaProjectId?: string,
+  ) => Effect.Effect<GoogleDomain[], GoogleAuthError>
+
+  /**
+   * People in the organization's directory whose name or email matches the
+   * query, or the first of them for an empty one, from the People API. Needs
+   * the directory.readonly scope.
+   */
+  readonly searchPeople: (
+    creds: GoogleCredentialRef,
+    query: string,
+    limit: number,
+    quotaProjectId?: string,
+  ) => Effect.Effect<GooglePerson[], GoogleAuthError>
 
   /**
    * <- AwsClient.checkRegion. Confirms the project exists AND is readable.

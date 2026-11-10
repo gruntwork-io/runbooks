@@ -31,6 +31,7 @@
  * would clone: its files by path, paths and contents both templates over the
  * block's inputs, so the Code tab can show the unit among them.
  */
+import { matchesQuery } from "./lookups.ts"
 import YAML from "yaml"
 import { TfModuleError } from "../../errors/index.ts"
 import { errorMessage } from "../../errors/message.ts"
@@ -232,17 +233,6 @@ export function parseSimulation(content: string): SimulationScenario[] {
   return Object.keys(scenarios).map((name) => resolve(name, []))
 }
 
-/** Whether a row matches what the user typed: any of its text fields contains it. */
-function matches(row: LookupRow, query: string): boolean {
-  if (query === "") return true
-  const needle = query.toLowerCase()
-  return Object.values(row).some(
-    (value) =>
-      (typeof value === "string" || typeof value === "number") &&
-      String(value).toLowerCase().includes(needle),
-  )
-}
-
 /** A lookup's rows in a scenario, narrowed to what the user typed. Throws the scenario's error. */
 export function simulatedRows(
   scenario: SimulationScenario,
@@ -256,7 +246,7 @@ export function simulatedRows(
     })
   }
   if ("error" in answer) throw new TfModuleError({ message: answer.error })
-  return answer.rows.filter((row) => matches(row, query))
+  return answer.rows.filter((row) => matchesQuery(row, query))
 }
 
 /** One simulated resource for each item of its `forEach` input, or one. */

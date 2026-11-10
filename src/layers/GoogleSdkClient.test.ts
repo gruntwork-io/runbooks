@@ -696,3 +696,85 @@ describe("validateAccessToken", () => {
     }
   })
 })
+
+describe("directory lookups", () => {
+  const TOKEN: GoogleCredentialRef = { kind: "access_token", accessToken: "ya29.test" }
+
+  /** Answers the client's requests with `data`, recording each URL and its headers. */
+  const answering = (data: unknown) => {
+    const calls: { url: string; headers: Record<string, string> }[] = []
+    const request = spyOn(OAuth2Client.prototype, "request").mockImplementation(((opts: {
+      url: string
+      headers?: Record<string, string>
+    }) => {
+      calls.push({ url: opts.url, headers: opts.headers ?? {} })
+      return Promise.resolve({ data })
+    }) as never)
+    return { calls, restore: () => request.mockRestore() }
+  }
+
+  it("lists the organization's domains, billed to the quota project", async () => {
+    const api = answering({
+      domains: [{ domainName: "example.org" }, { domainName: "example.com", isPrimary: true }, {}],
+    })
+    try {
+      const domains = await run((c) => c.listDomains(TOKEN, "acme-ops"))
+      expect(domains).toEqual([
+        { domainName: "example.org", isPrimary: false },
+        { domainName: "example.com", isPrimary: true },
+      ])
+      expect(api.calls[0]!.url).toBe(
+        "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/domains",
+      )
+      expect(api.calls[0]!.headers).toEqual({ "x-goog-user-project": "acme-ops" })
+    } finally {
+      api.restore()
+    }
+  })
+
+  it("searches the directory with a query, and lists it without one", async () => {
+    const api = answering({
+      people: [
+        {
+          names: [{ displayName: "Ana Lima" }],
+          emailAddresses: [
+            { value: "ana.alt@example.com" },
+            { value: "ana@example.com", metadata: { primary: true } },
+          ],
+          organizations: [{ title: "Engineer", department: "Platform" }],
+        },
+        { names: [{ displayName: "No email" }] },
+      ],
+    })
+    try {
+      const people = await run((c) => c.searchPeople(TOKEN, "ana", 10))
+      expect(people).toEqual([
+        { email: "ana@example.com", name: "Ana Lima", title: "Engineer, Platform" },
+      ])
+      expect(api.calls[0]!.url).toContain("people:searchDirectoryPeople?")
+      expect(api.calls[0]!.url).toContain("query=ana")
+      await run((c) => c.searchPeople(TOKEN, "", 10))
+      expect(api.calls[1]!.url).toContain("people:listDirectoryPeople?")
+      expect(api.calls[1]!.url).not.toContain("query=")
+    } finally {
+      api.restore()
+    }
+  })
+
+  it("fails with Google's own explanation", async () => {
+    const request = spyOn(OAuth2Client.prototype, "request").mockRejectedValue({
+      response: {
+        status: 403,
+        data: { error: { message: "Request had insufficient authentication scopes." } },
+      },
+    })
+    try {
+      const result = await runResult((c) => c.listDomains(TOKEN))
+      expect(Result.isFailure(result) && result.failure.message).toBe(
+        "Couldn't list your organization's domains: Request had insufficient authentication scopes.",
+      )
+    } finally {
+      request.mockRestore()
+    }
+  })
+})

@@ -33,6 +33,8 @@ import type {
   GoogleCredentialRef,
   GoogleCredentialType,
   GoogleIdentity,
+  GoogleDomain,
+  GooglePerson,
   GoogleProject,
   GoogleProjectAccess,
   OAuthFlowResult,
@@ -55,6 +57,8 @@ import { assertFederatedCredentialAllowed } from "../domain/google/credential-po
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 const CRM_BASE = "https://cloudresourcemanager.googleapis.com/v3"
 const MAX_PROJECTS = 500
+const DIRECTORY_BASE = "https://admin.googleapis.com/admin/directory/v1"
+const PEOPLE_BASE = "https://people.googleapis.com/v1"
 const OAUTH_FLOW_TTL_MS = 5 * 60 * 1000
 
 /**
@@ -648,6 +652,36 @@ async function searchProjects(
   return projects
 }
 
+interface DirectoryDomainsResponse {
+  readonly domains?: readonly { readonly domainName?: string; readonly isPrimary?: boolean }[]
+}
+
+interface DirectoryPeopleResponse {
+  readonly people?: readonly {
+    readonly names?: readonly { readonly displayName?: string }[]
+    readonly emailAddresses?: readonly {
+      readonly value?: string
+      readonly metadata?: { readonly primary?: boolean }
+    }[]
+    readonly organizations?: readonly { readonly title?: string; readonly department?: string }[]
+  }[]
+}
+
+/**
+ * Bills a user credential's calls to a project. Google needs one for APIs
+ * like the Admin SDK and People API when the credential is gcloud's own
+ * OAuth client, which has no project of its own.
+ */
+function quotaHeaders(quotaProjectId: string | undefined): Record<string, string> {
+  return quotaProjectId ? { "x-goog-user-project": quotaProjectId } : {}
+}
+
+/** Google's own explanation of a failed call, which names the missing scope or permission. */
+function apiErrorMessage(err: unknown): string {
+  const body = (err as GoogleApiError | undefined)?.response?.data?.error
+  return typeof body?.message === "string" && body.message ? body.message : errorMessage(err)
+}
+
 /**
  * google.rpc.Code names, read from a failed call's `error.status`, that mean
  * "the API could not answer", NOT "you cannot see this project".
@@ -1126,6 +1160,62 @@ const impl: GoogleClientShape = {
       catch: (err) =>
         new GoogleAuthError({
           message: `Failed to list projects: ${errorMessage(err)}`,
+          cause: err,
+        }),
+    }),
+
+  listDomains: (creds: GoogleCredentialRef, quotaProjectId?: string) =>
+    Effect.tryPromise({
+      try: async (): Promise<GoogleDomain[]> => {
+        const authClient = await authClientFor(creds)
+        const resp = await authClient.request<DirectoryDomainsResponse>({
+          url: `${DIRECTORY_BASE}/customer/my_customer/domains`,
+          headers: quotaHeaders(quotaProjectId),
+        })
+        return (resp.data.domains ?? [])
+          .filter((d): d is { domainName: string; isPrimary?: boolean } => Boolean(d.domainName))
+          .map((d) => ({ domainName: d.domainName, isPrimary: d.isPrimary === true }))
+      },
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Couldn't list your organization's domains: ${apiErrorMessage(err)}`,
+          cause: err,
+        }),
+    }),
+
+  searchPeople: (
+    creds: GoogleCredentialRef,
+    query: string,
+    limit: number,
+    quotaProjectId?: string,
+  ) =>
+    Effect.tryPromise({
+      try: async (): Promise<GooglePerson[]> => {
+        const authClient = await authClientFor(creds)
+        const params = new URLSearchParams({
+          readMask: "names,emailAddresses,organizations",
+          sources: "DIRECTORY_SOURCE_TYPE_DOMAIN_PROFILE",
+          pageSize: String(limit),
+        })
+        // searchDirectoryPeople needs a query; an empty one lists the directory instead.
+        if (query) params.set("query", query)
+        const method = query ? "searchDirectoryPeople" : "listDirectoryPeople"
+        const resp = await authClient.request<DirectoryPeopleResponse>({
+          url: `${PEOPLE_BASE}/people:${method}?${params.toString()}`,
+          headers: quotaHeaders(quotaProjectId),
+        })
+        return (resp.data.people ?? []).flatMap((person) => {
+          const emails = person.emailAddresses ?? []
+          const email = (emails.find((e) => e.metadata?.primary) ?? emails[0])?.value
+          if (!email) return []
+          const org = person.organizations?.[0]
+          const title = [org?.title, org?.department].filter(Boolean).join(", ")
+          return [{ email, name: person.names?.[0]?.displayName, title: title || undefined }]
+        })
+      },
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Couldn't search your directory: ${apiErrorMessage(err)}`,
           cause: err,
         }),
     }),
