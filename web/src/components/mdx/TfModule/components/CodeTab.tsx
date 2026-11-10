@@ -208,7 +208,7 @@ function ShownFile({ file, base }: { file: UnitFile; base: string }) {
         : undefined
 
   const toggle = diff && (
-    <div className="flex items-center gap-1 text-xs" role="group" aria-label="Show">
+    <div className="flex shrink-0 items-center gap-1 text-xs" role="group" aria-label="Show">
       {[
         { label: "Changes", value: false },
         { label: "Whole file", value: true },
@@ -218,7 +218,7 @@ function ShownFile({ file, base }: { file: UnitFile; base: string }) {
           type="button"
           aria-pressed={whole === option.value}
           onClick={() => setWhole(option.value)}
-          className={`rounded px-2 py-0.5 font-medium ${
+          className={`whitespace-nowrap rounded px-2 py-0.5 font-medium ${
             whole === option.value
               ? "bg-accent text-foreground"
               : "text-muted-foreground hover:text-foreground"
