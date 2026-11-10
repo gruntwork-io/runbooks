@@ -13,7 +13,7 @@ import {
   isSelectableProject,
 } from "./GoogleSdkClient.ts"
 import { GoogleClient } from "../services/GoogleClient.ts"
-import type { GoogleClientShape } from "../services/GoogleClient.ts"
+import type { GoogleClientShape, GoogleCredentialRef } from "../services/GoogleClient.ts"
 
 /**
  * Found against a real GCP org: `projects:search` returned a DELETE_REQUESTED
@@ -767,7 +767,7 @@ describe("directory lookups", () => {
         status: 403,
         data: { error: { message: "Request had insufficient authentication scopes." } },
       },
-    })
+    } as never)
     try {
       const result = await runResult((c) => c.listDomains(TOKEN))
       expect(Result.isFailure(result) && result.failure.message).toBe(
