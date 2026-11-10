@@ -29,6 +29,7 @@ import {
   uiEvents,
   type ApplyResult,
   type PlanResult,
+  type ResourceAction,
   type RunEvent,
 } from "../../../src/domain/tofu-module/run.ts"
 import {
@@ -223,6 +224,24 @@ const pause = (ms: number, signal: AbortSignal) =>
       }),
   ).pipe(Effect.flatMap(() => (signal.aborted ? Effect.fail(fail("Stopped.")) : Effect.void)))
 
+/** OpenTofu's counts of a plan's actions: a replace adds one and destroys one. */
+function countActions(actions: readonly ResourceAction[]) {
+  const count = (...of: ResourceAction[]) => actions.filter((a) => of.includes(a)).length
+  return {
+    add: count("create", "replace"),
+    change: count("update"),
+    destroy: count("delete", "replace"),
+  }
+}
+
+/** What OpenTofu logs as it starts and finishes each action. */
+const APPLY_WORDS: Record<ResourceAction, { start: string; done: string }> = {
+  create: { start: "Creating...", done: "Creation complete" },
+  update: { start: "Modifying...", done: "Modifications complete" },
+  replace: { start: "Replacing...", done: "Creation complete" },
+  delete: { start: "Destroying...", done: "Destruction complete" },
+}
+
 function simulatePlan(
   answer: SimulatedModule,
   values: Record<string, unknown>,
@@ -240,10 +259,14 @@ function simulatePlan(
       catch: (cause) => (cause instanceof TofuModuleError ? cause : fail(errorMessage(cause))),
     })
     for (const resource of plan.resources) {
-      send({ kind: "log", line: `${resource.address}: Plan to create` })
+      send({ kind: "log", line: `${resource.address}: Plan to ${resource.action}` })
     }
     yield* pause(answer.delayMs, signal)
-    send({ kind: "log", line: `Plan: ${plan.resources.length} to add, 0 to change, 0 to destroy.` })
+    const n = countActions(plan.resources.map((r) => r.action))
+    send({
+      kind: "log",
+      line: `Plan: ${n.add} to add, ${n.change} to change, ${n.destroy} to destroy.`,
+    })
     return plan
   })
 }
@@ -258,9 +281,10 @@ function simulateApply(
   return Effect.gen(function* () {
     send({ kind: "step", step: "apply" })
     const resources = simulatedResources(answer, values)
-    for (const [index, { address }] of resources.entries()) {
+    for (const [index, { address, resource }] of resources.entries()) {
+      const words = APPLY_WORDS[resource.action]
       send({ kind: "resource", address, progress: "working" })
-      send({ kind: "log", line: `${address}: Creating...` })
+      send({ kind: "log", line: `${address}: ${words.start}` })
       yield* pause(answer.delayMs, signal)
       if (answer.applyError && index === resources.length - 1) {
         send({ kind: "resource", address, progress: "failed", message: answer.applyError })
@@ -268,16 +292,17 @@ function simulateApply(
         return yield* fail(answer.applyError)
       }
       send({ kind: "resource", address, progress: "done", elapsedSeconds: answer.delayMs / 1000 })
-      send({ kind: "log", line: `${address}: Creation complete` })
+      send({ kind: "log", line: `${address}: ${words.done}` })
     }
+    const n = countActions(resources.map((r) => r.resource.action))
     send({
       kind: "log",
-      line: `Apply complete! Resources: ${resources.length} added, 0 changed, 0 destroyed.`,
+      line: `Apply complete! Resources: ${n.add} added, ${n.change} changed, ${n.destroy} destroyed.`,
     })
     return {
-      resources: resources.map(({ address, row, resource }) =>
-        simulatedApplied(address, row, resource),
-      ),
+      resources: resources
+        .filter(({ resource }) => resource.action !== "delete")
+        .map(({ address, row, resource }) => simulatedApplied(address, row, resource)),
       outputs: simulatedOutputs(answer, values, sensitive),
     } satisfies ApplyResult
   })

@@ -24,7 +24,8 @@
  * templates over the block's inputs, such as `{{ .id }}`. A resource with
  * `forEach: owners` is one resource for each of the owners, whose templates
  * read it as `{{ .each }}`; `computed` holds what a plan shows as "known
- * after apply".
+ * after apply". A resource that exists already has `before`, its values now,
+ * and the plan updates it; `action: delete` removes it.
  */
 import YAML from "yaml"
 import { TofuModuleError } from "../../errors/index.ts"
@@ -36,6 +37,7 @@ import type {
   PlanResult,
   PlannedResource,
   PropertyValue,
+  ResourceAction,
 } from "./run.ts"
 
 /** The name of the answers file beside a runbook. */
@@ -54,6 +56,10 @@ export interface SimulatedResource {
   readonly values: Readonly<Record<string, unknown>>
   /** Values a plan shows as known only after apply. */
   readonly computed: Readonly<Record<string, unknown>>
+  /** The values of a resource that exists already. */
+  readonly before?: Readonly<Record<string, unknown>>
+  /** What the plan does to it: create, or update one with `before`, unless named. */
+  readonly action: ResourceAction
 }
 
 /** A block's canned plan and apply. */
@@ -95,17 +101,27 @@ function readLookup(raw: unknown, where: string): SimulatedLookup {
   })
 }
 
+const ACTIONS: readonly ResourceAction[] = ["create", "update", "replace", "delete"]
+
 function readModule(raw: unknown, where: string): SimulatedModule {
   if (!isRecord(raw)) throw new TofuModuleError({ message: `${where} must be a map.` })
   const resources = (Array.isArray(raw.resources) ? raw.resources : []).map((entry, i) => {
     if (!isRecord(entry) || typeof entry.address !== "string") {
       throw new TofuModuleError({ message: `${where}.resources[${i}] needs an "address".` })
     }
+    const action = entry.action ?? (isRecord(entry.before) ? "update" : "create")
+    if (!ACTIONS.includes(action as ResourceAction)) {
+      throw new TofuModuleError({
+        message: `${where}.resources[${i}].action must be one of ${ACTIONS.join(", ")}.`,
+      })
+    }
     return {
       address: entry.address,
       ...(typeof entry.forEach === "string" ? { forEach: entry.forEach } : {}),
       values: isRecord(entry.values) ? entry.values : {},
       computed: isRecord(entry.computed) ? entry.computed : {},
+      ...(isRecord(entry.before) ? { before: entry.before } : {}),
+      action: action as ResourceAction,
     }
   })
   return {
@@ -244,17 +260,36 @@ export function simulatedPlan(module: SimulatedModule, inputs: LookupRow): PlanR
   if (module.planError) throw new TofuModuleError({ message: module.planError })
   return {
     resources: simulatedResources(module, inputs).map(
-      ({ address, row, resource }): PlannedResource => ({
-        address,
-        ...typeAndName(address),
-        action: "create",
-        properties: {
-          ...(rendered(resource.values, row) as Record<string, PropertyValue>),
-          ...Object.fromEntries(
-            Object.keys(resource.computed).map((key) => [key, { hidden: "known after apply" }]),
-          ),
-        },
-      }),
+      ({ address, row, resource }): PlannedResource => {
+        const before = resource.before
+          ? {
+              before: {
+                ...(rendered(resource.before, row) as Record<string, PropertyValue>),
+                ...(rendered(resource.computed, row) as Record<string, PropertyValue>),
+              },
+            }
+          : {}
+        if (resource.action === "delete") {
+          return { address, ...typeAndName(address), action: "delete", properties: {}, ...before }
+        }
+        // An existing resource keeps its computed values unless it's replaced.
+        const computed =
+          resource.before && resource.action === "update"
+            ? (rendered(resource.computed, row) as Record<string, PropertyValue>)
+            : Object.fromEntries(
+                Object.keys(resource.computed).map((key) => [key, { hidden: "known after apply" }]),
+              )
+        return {
+          address,
+          ...typeAndName(address),
+          action: resource.action,
+          properties: {
+            ...(rendered(resource.values, row) as Record<string, PropertyValue>),
+            ...computed,
+          },
+          ...before,
+        }
+      },
     ),
   }
 }

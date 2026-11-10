@@ -43,6 +43,8 @@ export interface PlannedResource {
   readonly action: ResourceAction
   /** Its properties after the change; a deleted resource has none. */
   readonly properties: { readonly [key: string]: PropertyValue }
+  /** Its properties before the change, for a resource that exists already. */
+  readonly before?: { readonly [key: string]: PropertyValue }
 }
 
 export interface AppliedResource {
@@ -157,6 +159,9 @@ export function plannedResources(plan: unknown): PlannedResource[] {
               entry.change.after_unknown,
               entry.change.after_sensitive,
             ),
+      ...(action === "create"
+        ? {}
+        : { before: properties(entry.change.before, undefined, entry.change.before_sensitive) }),
     })
   }
   return resources

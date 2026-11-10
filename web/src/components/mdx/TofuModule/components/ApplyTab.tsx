@@ -10,6 +10,7 @@ import {
   Loader2,
   Play,
   RotateCcw,
+  Search,
   Square,
   X,
 } from "lucide-react"
@@ -23,7 +24,15 @@ import type {
   ResourceProgress,
 } from "../../../../../../src/domain/tofu-module/run"
 import type { LogLine, RunState, RunStep } from "../hooks/useTofuRun"
-import { PropertyTree } from "./PropertyTree"
+import {
+  filterRows,
+  isUnknown,
+  NO_FILTER,
+  propertyRows,
+  type PropertyFilter,
+  type PropertyRow,
+} from "../propertyRows"
+import { LAYOUTS, PropertyView, type PropertyLayout } from "./PropertyViews"
 
 /** The lines of the log shown while it's folded. */
 const LOG_TAIL = 6
@@ -104,16 +113,36 @@ function ProgressIcon({ progress }: { progress: ResourceProgress | undefined }) 
   }
 }
 
-interface ResourceRowProps {
+interface Resource {
   address: string
   action?: ResourceAction | undefined
-  progress?: { progress: ResourceProgress; elapsed?: number } | undefined
   properties: Readonly<Record<string, PropertyValue>>
+  before?: Readonly<Record<string, PropertyValue>> | undefined
+}
+
+interface ResourceRowProps extends Resource {
+  progress?: { progress: ResourceProgress; elapsed?: number } | undefined
+  /** The rows the filter keeps. */
+  rows: readonly PropertyRow[]
+  layout: PropertyLayout
+  /** Opened by a search that matched it. */
+  found: boolean
 }
 
 /** A resource, which opens to show its properties. */
-function ResourceRow({ address, action, progress, properties }: ResourceRowProps) {
-  const [open, setOpen] = useState(false)
+function ResourceRow({
+  address,
+  action,
+  progress,
+  properties,
+  before,
+  rows,
+  layout,
+  found,
+}: ResourceRowProps) {
+  const [toggled, setToggled] = useState<boolean | undefined>(undefined)
+  const open = toggled ?? found
+  const setOpen = (f: (o: boolean) => boolean) => setToggled(f(open))
   return (
     <li className="rounded-md border border-border bg-card">
       <button
@@ -142,10 +171,135 @@ function ResourceRow({ address, action, progress, properties }: ResourceRowProps
       </button>
       {open && (
         <div className="border-t border-border px-4 py-3">
-          <PropertyTree properties={properties} />
+          <PropertyView
+            layout={layout}
+            rows={rows}
+            after={properties}
+            before={before}
+            action={action}
+          />
         </div>
       )}
     </li>
+  )
+}
+
+/** Narrows the resources' properties, and picks how they're laid out. */
+function PropertyToolbar({
+  filter,
+  onFilter,
+  layout,
+  onLayout,
+  canHideUnknown,
+  canShowChanged,
+}: {
+  filter: PropertyFilter
+  onFilter: (filter: PropertyFilter) => void
+  layout: PropertyLayout
+  onLayout: (layout: PropertyLayout) => void
+  canHideUnknown: boolean
+  canShowChanged: boolean
+}) {
+  const chip = (pressed: boolean) =>
+    `rounded-full border px-2 py-0.5 text-xs ${
+      pressed
+        ? "border-primary/50 bg-primary/10 text-foreground"
+        : "border-border text-muted-foreground hover:text-foreground"
+    }`
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <label className="relative">
+        <span className="sr-only">Filter properties</span>
+        <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          value={filter.query}
+          onChange={(e) => onFilter({ ...filter, query: e.target.value })}
+          placeholder="Filter properties"
+          className="h-7 w-52 rounded-md border border-border bg-background pl-7 pr-2 text-xs outline-none focus:border-primary"
+        />
+      </label>
+      {canHideUnknown && (
+        <button
+          type="button"
+          aria-pressed={filter.hideUnknown}
+          className={chip(filter.hideUnknown)}
+          onClick={() => onFilter({ ...filter, hideUnknown: !filter.hideUnknown })}
+        >
+          Only known
+        </button>
+      )}
+      {canShowChanged && (
+        <button
+          type="button"
+          aria-pressed={filter.onlyChanged}
+          className={chip(filter.onlyChanged)}
+          onClick={() => onFilter({ ...filter, onlyChanged: !filter.onlyChanged })}
+        >
+          Only changed
+        </button>
+      )}
+      <div
+        role="radiogroup"
+        aria-label="Layout"
+        className="ml-auto inline-flex rounded-md border border-border p-0.5 text-xs"
+      >
+        {LAYOUTS.map((option) => (
+          <button
+            key={option.layout}
+            type="button"
+            role="radio"
+            aria-checked={layout === option.layout}
+            onClick={() => onLayout(option.layout)}
+            className={`rounded px-2 py-0.5 ${
+              layout === option.layout
+                ? "bg-muted font-medium text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The resources, each with the rows the filter keeps. A search shows only the
+ * resources it matches, opened.
+ */
+function ResourceList({
+  resources,
+  filter,
+  layout,
+  progress,
+}: {
+  resources: readonly Resource[]
+  filter: PropertyFilter
+  layout: PropertyLayout
+  progress: (address: string) => ResourceRowProps["progress"]
+}) {
+  const searching = filter.query.trim() !== ""
+  const shown = resources
+    .map((r) => ({ r, rows: filterRows(propertyRows(r.properties, r.before), filter, r.address) }))
+    .filter(({ rows }) => !searching || rows.length > 0)
+  if (shown.length === 0) {
+    return <p className="text-sm text-muted-foreground">No resources match.</p>
+  }
+  return (
+    <ul className="space-y-1.5">
+      {shown.map(({ r, rows }) => (
+        <ResourceRow
+          key={r.address}
+          {...r}
+          progress={progress(r.address)}
+          rows={rows}
+          layout={layout}
+          found={searching}
+        />
+      ))}
+    </ul>
   )
 }
 
@@ -302,8 +456,13 @@ export function ApplyTab({
   onApply,
   onCancel,
 }: ApplyTabProps) {
+  const [filter, setFilter] = useState<PropertyFilter>(NO_FILTER)
+  const [layout, setLayout] = useState<PropertyLayout>("table")
   const running = state.phase === "planning" || state.phase === "applying"
   const planned = state.plan?.resources ?? []
+  const hasUnknown = planned.some((r) =>
+    propertyRows(r.properties).some((row) => isUnknown(row.after)),
+  )
   const applied = state.result?.resources ?? []
   const counts = planned.reduce<Record<string, number>>(
     (acc, r) => ({ ...acc, [r.action]: (acc[r.action] ?? 0) + 1 }),
@@ -360,17 +519,22 @@ export function ApplyTab({
           <h4 className="text-sm font-semibold text-foreground">
             {state.phase === "planned" ? `Plan: ${summary}` : "Applying the plan"}
           </h4>
-          <ul className="space-y-1.5">
-            {planned.map((r) => (
-              <ResourceRow
-                key={r.address}
-                address={r.address}
-                action={r.action}
-                progress={state.phase === "planned" ? undefined : state.progress[r.address]}
-                properties={r.properties}
-              />
-            ))}
-          </ul>
+          <PropertyToolbar
+            filter={filter}
+            onFilter={setFilter}
+            layout={layout}
+            onLayout={setLayout}
+            canHideUnknown={hasUnknown}
+            canShowChanged={planned.some((r) => r.before !== undefined)}
+          />
+          <ResourceList
+            resources={planned}
+            filter={filter}
+            layout={layout}
+            progress={(address) =>
+              state.phase === "planned" ? undefined : state.progress[address]
+            }
+          />
           {state.phase === "planned" && (
             <div className="flex flex-wrap items-center gap-2 pt-1">
               {stale ? (
@@ -406,16 +570,20 @@ export function ApplyTab({
           </div>
           <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground">Resources</h4>
-            <ul className="space-y-1.5">
-              {applied.map((r) => (
-                <ResourceRow
-                  key={r.address}
-                  address={r.address}
-                  progress={{ progress: "done" }}
-                  properties={r.properties}
-                />
-              ))}
-            </ul>
+            <PropertyToolbar
+              filter={filter}
+              onFilter={setFilter}
+              layout={layout}
+              onLayout={setLayout}
+              canHideUnknown={false}
+              canShowChanged={false}
+            />
+            <ResourceList
+              resources={applied}
+              filter={{ ...filter, hideUnknown: false, onlyChanged: false }}
+              layout={layout}
+              progress={() => ({ progress: "done" })}
+            />
           </div>
           <OutputList outputs={state.result?.outputs ?? []} meta={outputs} />
         </div>

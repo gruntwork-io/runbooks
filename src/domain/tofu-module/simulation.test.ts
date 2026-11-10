@@ -128,4 +128,53 @@ scenarios:
     expect(module.applyError).toBe("No permission.")
     expect(module.resources).toHaveLength(2)
   })
+
+  it("updates a resource that exists, keeping its computed values, and deletes one", () => {
+    const [scenario] = parseSimulation(`
+scenarios:
+  exists:
+    modules:
+      group:
+        resources:
+          - address: google_cloud_identity_group.group
+            before: { display_name: Old }
+            values: { display_name: "{{ .name }}" }
+            computed: { name: groups/123 }
+          - address: google_cloud_identity_group_membership.old
+            action: delete
+            before: { id: old@example.com }
+`)
+    const plan = simulatedPlan(scenario!.modules.group!, { name: "New" })
+    expect(plan.resources).toEqual([
+      {
+        address: "google_cloud_identity_group.group",
+        type: "google_cloud_identity_group",
+        name: "group",
+        action: "update",
+        properties: { display_name: "New", name: "groups/123" },
+        before: { display_name: "Old", name: "groups/123" },
+      },
+      {
+        address: "google_cloud_identity_group_membership.old",
+        type: "google_cloud_identity_group_membership",
+        name: "old",
+        action: "delete",
+        properties: {},
+        before: { id: "old@example.com" },
+      },
+    ])
+  })
+
+  it("rejects an action OpenTofu doesn't have", () => {
+    expect(() =>
+      parseSimulation(`
+scenarios:
+  bad:
+    modules:
+      group:
+        resources:
+          - { address: a.b, action: move }
+`),
+    ).toThrow("action must be one of create, update, replace, delete")
+  })
 })

@@ -128,7 +128,7 @@ The **Code** tab renders the module's `.boilerplate` folder, a [Boilerplate](htt
 
 The **Apply** tab runs that code in the session's `.runbooks/tofu-module/<id>/` folder:
 
-1. **Plan** runs `terragrunt plan` and lists each resource it would create, change, or delete. Each opens to show its properties, with the values OpenTofu can't know yet marked *known after apply*.
+1. **Plan** runs `terragrunt plan` and lists each resource it would create, change, or delete. Each opens to show its properties, with the values OpenTofu can't know yet marked *known after apply*, and a changed resource's values before and after. A filter above the list searches the properties, and narrows them to the known ones or the changed ones.
 2. **Apply** applies that plan and shows each resource as OpenTofu works on it. If the inputs change after a plan, the block asks for a new one first.
 3. When it's done, the block lists the resources in the state and the module's outputs, and publishes the outputs as its own, for `{{ .outputs.<id>.<output> }}`. A sensitive output stays hidden until you show it.
 
@@ -228,6 +228,8 @@ scenarios:
 ```
 
 Strings are templates over the block's inputs. `planError` fails the plan instead. A scenario that extends another replaces only the keys it gives for a block.
+
+A resource with `before`, its values now, exists already, so the plan updates it and keeps its `computed` values; `action: delete` removes it, and `action: replace` replaces it. That's how a scenario shows a plan that changes resources rather than creating them, and what **Only changed** narrows the properties to.
 
 ## Testing
 

@@ -94,3 +94,51 @@ scenarios:
     modules:
       group:
         applyError: "Error creating Group: googleapi: Error 403: The caller does not have permission."
+
+  group-exists:
+    label: Group exists already
+    description: The group is in the state already, so the plan renames it, adds the owners, and removes a member who's no longer listed.
+    extends: happy-path
+    modules:
+      group:
+        resources:
+          - address: google_cloud_identity_group.group
+            before:
+              display_name: Platform
+              description: ""
+              parent: customers/C03example
+              group_key:
+                - { id: "{{ .id }}", namespace: "" }
+              labels:
+                cloudidentity.googleapis.com/groups.discussion_forum: ""
+            values:
+              display_name: "{{ .display_name }}"
+              description: "{{ .description }}"
+              parent: customers/C03example
+              group_key:
+                - { id: "{{ .id }}", namespace: "" }
+              labels:
+                cloudidentity.googleapis.com/groups.discussion_forum: ""
+            computed:
+              id: groups/03x5example
+              name: groups/03x5example
+              create_time: "2026-10-01T09:30:00Z"
+          - address: google_cloud_identity_group_membership.owners["{{ .each }}"]
+            forEach: owners
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+              roles:
+                - { name: OWNER }
+                - { name: MEMBER }
+            computed:
+              group: groups/03x5example
+          - address: google_cloud_identity_group_membership.members["bo@example.com"]
+            action: delete
+            before:
+              preferred_member_key:
+                - { id: bo@example.com }
+              roles:
+                - { name: MEMBER }
+            computed:
+              group: groups/03x5example

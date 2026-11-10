@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test"
 import { appliedResources, moduleOutputs, plannedResources, uiEvents } from "./run.ts"
 
 describe("plannedResources", () => {
-  it("keeps managed changes, and hides what's unknown or sensitive", () => {
+  it("keeps managed changes and what an existing resource was, hiding what's unknown or sensitive", () => {
     const plan = {
       resource_changes: [
         {
@@ -29,7 +29,12 @@ describe("plannedResources", () => {
           mode: "managed",
           type: "terraform_data",
           name: "old",
-          change: { actions: ["delete", "create"], after: {} },
+          change: {
+            actions: ["delete", "create"],
+            before: { input: "a", token: "t" },
+            before_sensitive: { token: true },
+            after: { input: "b" },
+          },
         },
         {
           address: "terraform_data.same",
@@ -58,7 +63,8 @@ describe("plannedResources", () => {
         type: "terraform_data",
         name: "old",
         action: "replace",
-        properties: {},
+        properties: { input: "b" },
+        before: { input: "a", token: { hidden: "sensitive" } },
       },
     ])
   })
