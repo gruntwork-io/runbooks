@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { CodeTab } from "../components/CodeTab"
+import { templateParts } from "../components/CodeFacts"
 import type { TofuModuleCode } from "../../../../../../electron/shared/channels"
 
 const repoCode = (
@@ -19,7 +20,7 @@ const repoCode = (
     { path: "google-groups/eng/extra.hcl", content: "x = 1\n", status: "added" },
   ],
   rootHcl: true,
-  pinned: true,
+  source: "git::https://github.com/acme/catalog.git//modules/group?ref=v1.0.0",
   ...over,
 })
 
@@ -27,6 +28,11 @@ const renderTab = (code: TofuModuleCode, selected?: string) =>
   render(
     <CodeTab
       code={code}
+      blockId="group"
+      values={{ id: "eng" }}
+      pathTemplate="google-groups/{{ .id }}"
+      moduleFolder="google-group"
+      simulated={false}
       error={null}
       repository={{ name: "acme/infrastructure-live", baseBranch: "main" }}
       errorCount={0}
@@ -36,10 +42,18 @@ const renderTab = (code: TofuModuleCode, selected?: string) =>
   )
 
 describe("CodeTab in a repository", () => {
+  it("lists where the code goes, and where each value came from", () => {
+    renderTab(repoCode())
+    expect(screen.getByText("acme/infrastructure-live")).toBeInTheDocument()
+    expect(screen.getByText("<GitClone>")).toBeInTheDocument()
+    // The folder marks the part the path template filled in from an input.
+    expect(screen.getByTitle(".id")).toHaveTextContent("eng")
+    expect(screen.getByText('path="google-groups/{{ .id }}"')).toBeInTheDocument()
+    expect(screen.getByText("runbooks.yml › source")).toBeInTheDocument()
+  })
+
   it("shows the unit in its folder, marked against the base branch, beside the files above it", () => {
     renderTab(repoCode())
-    expect(screen.getByText("google-groups/eng")).toBeInTheDocument()
-    expect(screen.getByText("acme/infrastructure-live")).toBeInTheDocument()
     expect(screen.getByRole("treeitem", { name: /terragrunt\.hcl/ })).toHaveAccessibleDescription(
       "Changes the file on main",
     )
@@ -63,8 +77,23 @@ describe("CodeTab in a repository", () => {
   })
 
   it("warns when the module has no pinned source, and when the repository has no root.hcl", () => {
-    renderTab(repoCode({ pinned: false, rootHcl: false }))
-    expect(screen.getByText(/gives no/)).toBeInTheDocument()
-    expect(screen.getByText(/has no root\.hcl above/)).toBeInTheDocument()
+    renderTab(repoCode({ source: undefined, rootHcl: false }))
+    expect(screen.getByText('source="google-group"')).toBeInTheDocument()
+    expect(screen.getByLabelText(/Add a pinned source to runbooks\.yml/)).toBeInTheDocument()
+    expect(screen.getByText("no root.hcl above the folder")).toBeInTheDocument()
+  })
+})
+
+describe("templateParts", () => {
+  it("splits a template into its text and the values it read", () => {
+    expect(templateParts("groups/{{ .id }}/x", { id: "eng" })).toEqual([
+      { text: "groups/" },
+      { text: "eng", field: "id" },
+      { text: "/x" },
+    ])
+  })
+
+  it("renders a template with conditions as one part", () => {
+    expect(templateParts("{{ if .a }}yes{{ end }}", { a: true })).toEqual([{ text: "yes" }])
   })
 })

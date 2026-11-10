@@ -174,7 +174,7 @@ export const renderInRepo = (
       folder,
       files,
       rootHcl: hasRootHcl(files),
-      pinned: spec.source !== undefined,
+      source: spec.source,
     } satisfies TofuModuleCode
   })
 

@@ -1139,8 +1139,8 @@ export type TofuModuleCode =
       files: RepoFile[]
       /** Whether the repository has a root.hcl above the unit, so Apply runs it there. */
       rootHcl: boolean
-      /** Whether runbooks.yml gives the module a `source`, which the code points at. */
-      pinned: boolean
+      /** The module's `source` from runbooks.yml, which the code points at; none when it gives none. */
+      source?: string | undefined
     }
 
 export interface TofuModuleRunRequest extends TofuModuleRenderRequest {
