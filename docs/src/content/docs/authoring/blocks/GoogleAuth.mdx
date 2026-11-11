@@ -566,14 +566,13 @@ No detection runs, no browser opens, and no credentials are read or written.
 
 ### Requests sent for other blocks
 
-Other blocks can ask GoogleAuth to send a request to Google as you, for example to suggest people from your directory in a form. GoogleAuth sends such a request only when it reads, from a Google API host on its list:
+Other blocks can ask GoogleAuth to send a request to Google as you, for example to suggest people from your directory in a form. The runbook's author writes that request, and is trusted as they are for a [Command](/authoring/blocks/command/), so GoogleAuth doesn't limit which APIs it reaches. It checks only that the request goes to Google and reads, so a form can't change anything by mistake:
 
+- The host must be a Google API host, one label under `googleapis.com`, such as `admin.googleapis.com`.
 - The request must be a `GET`.
-- The host must be `admin.googleapis.com`, `cloudidentity.googleapis.com`, `cloudresourcemanager.googleapis.com`, `groupssettings.googleapis.com` or `serviceusage.googleapis.com`. Cloud Storage is never on the list, since anyone can own a bucket and see the requests made to it.
-- GoogleAuth also refuses reads it knows return a secret, such as a user's backup verification codes. This part is best effort: no list can name every read that returns a secret.
-- GoogleAuth adds the access token and bills the request to the block's project, so a request can't set its own `Authorization` header, and it never follows a redirect.
+- GoogleAuth adds the access token and bills the request to the block's project, so a request can set only its `Accept` header, and GoogleAuth never follows a redirect.
 
-Anything that changes Google stays in a [Command](/authoring/blocks/command/), which gets the credentials in its environment.
+Anything that changes Google stays in a [Command](/authoring/blocks/command/) or a plan you review.
 
 ### Confirmation, and what it does not do
 

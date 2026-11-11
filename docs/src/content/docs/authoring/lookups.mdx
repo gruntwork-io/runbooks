@@ -5,7 +5,7 @@ description: Declare the API requests that suggest or fill form fields, and the 
 
 A **lookup** fetches rows from an API to suggest or fill a form field, such as your Identity Center groups or the people in your Google Workspace directory. A **check** is a read request plus a condition, such as "the Admin SDK API is on in this project".
 
-Both are declared in YAML, beside the form they serve: a module's `runbook_block.yml`. Runbooks knows no API. The declaration says what to request and where the results are in the answer, and the auth block the runbook binds the lookup to signs the request and sends it, only if it's a read to a host that auth block allows. See [what AwsAuth sends](/authoring/blocks/awsauth/#requests-sent-for-other-blocks) and [what GoogleAuth sends](/authoring/blocks/googleauth/#requests-sent-for-other-blocks).
+Both are declared in YAML, beside the form they serve: a module's `runbook_block.yml`. Runbooks knows no API. The declaration says what to request and where the results are in the answer, and the auth block the runbook binds the lookup to signs the request and sends it, only if it reads from that provider's API. The author is trusted as for a `Command`, so no list limits which APIs a lookup reaches. See [what AwsAuth sends](/authoring/blocks/awsauth/#requests-sent-for-other-blocks) and [what GoogleAuth sends](/authoring/blocks/googleauth/#requests-sent-for-other-blocks).
 
 ## A lookup
 
