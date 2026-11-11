@@ -137,7 +137,7 @@ outputs:
 The block checks what it needs outside its inputs, and shows the result under its heading, above the form:
 
 - **Google APIs** on in the project a `<GoogleAuth>` block above signed in to: the ones `requires.google.apis` lists, which the plan needs, and the ones the block's [lookups](#lookups) call, which only its suggestions need. `google.domains` and `google.people` call the Admin SDK API.
-- **The commands the code runs with** on your `PATH`, which a `<TerragruntApplyWithGitHubPullRequest>` block needs: OpenTofu or Terraform, and Terragrunt too for a [template](#the-template) that renders a Terragrunt unit.
+- **The commands the code runs with** on your `PATH`, which applying the code needs: OpenTofu or Terraform, and Terragrunt too for a [template](#the-template) that renders a Terragrunt unit.
 
 When everything's in place, a green check says *This block's preflight checks completed successfully.*, and hovering it shows what it found, such as *4 Google APIs on in acme-ops · OpenTofu 1.12.6*. Otherwise the block lists what's missing, each with its fix: a link to the Cloud console page that turns the API on, or the tool's install page. It checks again after a sign-in or a change of project, when the Runbooks window comes back into focus, and on **Check again**.
 
@@ -172,7 +172,7 @@ inputs = {
 }
 ```
 
-Any other template makes a plain OpenTofu or Terraform configuration, such as a `main.tf` that calls the module:
+Any other template makes a plain OpenTofu or Terraform configuration, such as a `main.tf` that calls the module. A `<TerragruntApplyWithGitHubPullRequest>` block applies Terragrunt units only, so a runbook applies a plain configuration some other way, such as a `<Command>` block:
 
 ```hcl title="templates/google-group-tofu/main.tf"
 module "group" {

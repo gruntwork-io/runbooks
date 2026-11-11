@@ -14,7 +14,7 @@ The block has three tabs:
 
 - **Code** shows the code, in the folder it goes to in the repository. It changes as the `<TfModule>` block's values do. **Next** moves on to **PR**.
 - **PR** opens a GitHub pull request that adds the code to the cloned repository, pushes later changes to it, and merges it. See [Pull request](#pull-request).
-- **Apply** runs the code, with Terragrunt for a Terragrunt unit and with OpenTofu or Terraform otherwise: a plan whose resources open to show their properties as a table or as plan text, then an apply that shows each resource as it's made. Afterwards it lists what the apply made and the module's outputs, which become the block's outputs.
+- **Apply** runs the code with Terragrunt: a plan whose resources open to show their properties as a table or as plan text, then an apply that shows each resource as it's made. Afterwards it lists what the apply made and the module's outputs, which become the block's outputs.
 
 Until the `<TfModule>` block has generated its code, the block waits, with a link to it.
 
@@ -50,12 +50,9 @@ The **Code** tab shows the code the `<TfModule>` block generated. When a `<GitCl
 
 Without a repository, the tab shows the code in the `<TfModule>` block's folder, and a Terragrunt unit beside a `root.hcl` the block writes, which keeps state in a local file.
 
-The **Apply** tab runs the code:
+The block applies Terragrunt units only: the `<TfModule>` block's [template](/authoring/blocks/tfmodule/#the-template) must render a `terragrunt.hcl`. For a template that makes a plain OpenTofu or Terraform configuration, the block says so in place of its tabs.
 
-- **A Terragrunt unit** runs with Terragrunt. With a cloned repository, it runs in the clone, where the `<TfModule>` block wrote it, so it uses the repository's own `root.hcl` and its state. If the repository has no `root.hcl` above the unit, or there's no repository, it runs the unit in the session's `.runbooks/tf-module/<tfModuleId>/` folder beside the block's `root.hcl`.
-- **A plain configuration** runs with OpenTofu, or with Terraform when only Terraform is installed, after an `init`. It runs in the session's `.runbooks/tf-module/<tfModuleId>/` folder, so a configuration without a backend keeps its state there rather than in the clone.
-
-Either way, the saved plan and what the run downloads stay in that folder, out of the clone the pull request commits.
+The **Apply** tab runs the unit with Terragrunt. With a cloned repository, it runs in the clone, where the `<TfModule>` block wrote it, so it uses the repository's own `root.hcl` and its state. If the repository has no `root.hcl` above the unit, or there's no repository, it runs the unit in the session's `.runbooks/tf-module/<tfModuleId>/` folder beside the block's `root.hcl`. The saved plan and what the run downloads stay in that folder, out of the clone the pull request commits.
 
 1. **Plan** lists each resource it would create, change, or delete. Each opens to show its properties, with the values OpenTofu can't know yet marked *known after apply*, and a changed resource's values before and after. A filter above the list searches the properties, and narrows them to the known ones or the changed ones.
 2. **Apply** applies that plan and shows each resource as OpenTofu works on it. If the inputs change after a plan or an apply, the block asks for a new plan first, and Runbooks applies a saved plan only with the inputs it was made for. A plan with nothing to change counts as applied.
@@ -63,7 +60,7 @@ Either way, the saved plan and what the run downloads stay in that folder, out o
 
 **Stop** ends a plan or an apply that's running. A stopped plan changes nothing; a stopped or failed apply shows how far each resource got, and **Plan again** shows what's left.
 
-Terragrunt and OpenTofu, or OpenTofu or Terraform for a plain configuration, must be on your `PATH`, which the `<TfModule>` block's [Before you plan](/authoring/blocks/tfmodule/#before-you-plan) checks. They run with the session's environment, so they use the credentials an auth block put there.
+Terragrunt and OpenTofu must be on your `PATH`, which the `<TfModule>` block's [Before you plan](/authoring/blocks/tfmodule/#before-you-plan) checks. They run with the session's environment, so they use the credentials an auth block put there.
 
 ## Pull request
 

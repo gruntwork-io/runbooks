@@ -29,13 +29,20 @@ vi.mock("@/hooks/useIpc", () => ({
   useIpc: (channel: string, params: unknown) => useIpc(channel, params),
 }))
 
+const TERRAGRUNT_CODE = {
+  kind: "workspace",
+  tool: "terragrunt",
+  files: [{ path: "group/terragrunt.hcl", content: 'inputs = { id = "platform" }' }],
+}
+const TOFU_CODE = {
+  kind: "workspace",
+  tool: "tofu",
+  files: [{ path: "group/main.tf", content: 'module "group" {}' }],
+}
+let rendered: unknown = TERRAGRUNT_CODE
 const invoke = vi.fn((channel: string) =>
   channel === "tf-module:render"
-    ? Promise.resolve({
-        kind: "workspace",
-        tool: "terragrunt",
-        files: [{ path: "group/terragrunt.hcl", content: 'inputs = { id = "platform" }' }],
-      })
+    ? Promise.resolve(rendered)
     : Promise.reject(new Error(`unexpected channel ${channel}`)),
 )
 const api = { invoke, on: () => () => {} }
@@ -62,6 +69,7 @@ function renderBlock() {
 describe("TerragruntApplyWithGitHubPullRequest", () => {
   beforeEach(() => {
     ctx = undefined
+    rendered = TERRAGRUNT_CODE
     invoke.mockClear()
     useIpc.mockClear()
   })
@@ -77,8 +85,7 @@ describe("TerragruntApplyWithGitHubPullRequest", () => {
     expect(screen.getByRole("img", { name: "Terragrunt" })).toBeInTheDocument()
   })
 
-  it("shows the generated code, rendered with the module block's inputs", async () => {
-    renderBlock()
+  async function generate() {
     await waitFor(() => expect(ctx).toBeDefined())
     act(() => {
       ctx!.registerInputs("group", { id: "platform" }, { variables: [] } as never)
@@ -88,6 +95,11 @@ describe("TerragruntApplyWithGitHubPullRequest", () => {
         CODE_PATH: "groups/platform",
       })
     })
+  }
+
+  it("shows the generated code, rendered with the module block's inputs", async () => {
+    renderBlock()
+    await generate()
 
     expect(await screen.findByRole("tab", { name: "Code" })).toHaveAttribute(
       "aria-selected",
@@ -104,5 +116,16 @@ describe("TerragruntApplyWithGitHubPullRequest", () => {
     )
     expect(screen.getByRole("tab", { name: "PR" })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: "Apply" })).toBeInTheDocument()
+  })
+
+  it("refuses code that isn't a Terragrunt unit", async () => {
+    rendered = TOFU_CODE
+    renderBlock()
+    await generate()
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This block applies Terragrunt units only",
+    )
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument()
   })
 })

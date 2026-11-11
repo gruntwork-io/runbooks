@@ -271,6 +271,16 @@ function ApplyTabs({ id, moduleId, header, codeRef, path, spec, values }: ApplyT
     )
   }
 
+  if (unitCode.code && unitCode.code.tool !== "terragrunt") {
+    return (
+      <div ref={rootRef} className={BLOCK_CLASS}>
+        <ProgressStep done={false} />
+        {header}
+        <NotTerragrunt moduleId={moduleId} template={codeRef.template} />
+      </div>
+    )
+  }
+
   return (
     <div ref={rootRef} className={BLOCK_CLASS}>
       <ProgressStep done={stage === "done"} />
@@ -366,6 +376,22 @@ function ApplyTabs({ id, moduleId, header, codeRef, path, spec, values }: ApplyT
           onCancel={run.cancel}
         />
       </div>
+    </div>
+  )
+}
+
+/** Shown when the <TfModule> block's template makes plain OpenTofu or Terraform code. */
+function NotTerragrunt({ moduleId, template }: { moduleId: string; template: string }) {
+  return (
+    <div
+      role="alert"
+      className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm"
+    >
+      <p className="m-0 font-medium text-destructive">This block applies Terragrunt units only</p>
+      <p className="m-0 mt-1 text-foreground">
+        The <BlockLink blockId={moduleId} /> block's template, <code>{template}</code>, makes no{" "}
+        <code>terragrunt.hcl</code>. Give it a template that renders a Terragrunt unit.
+      </p>
     </div>
   )
 }
