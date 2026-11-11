@@ -38,8 +38,8 @@ import {
  * TfModule block: a form for an OpenTofu module's inputs, which generates the
  * code that uses the module.
  *
- * The form comes from the module itself: variables.tf gives each input's
- * name, type, default and validation, and the module's runbook_block.yml says how
+ * The form comes from the module itself: its `variable` blocks, in any of its
+ * .tf and .tofu files, give each input's name, type, default and validation, and the module's runbook_block.yml says how
  * to present them (labels, which inputs come first, what each option means,
  * presets, and lookups that suggest values). The values are published like an
  * <Inputs> block's, so a <Template> or <Command> uses them through `inputsId`.
