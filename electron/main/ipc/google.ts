@@ -76,6 +76,8 @@ import {
 } from "./google-session-env.ts"
 import { redactSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 import { makeLogger } from "../logger.ts"
+import { sendAsGoogle } from "../../../src/domain/send-as-me/send.ts"
+import type { HttpRequest } from "../../../src/services/HttpRequest.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 
 const log = makeLogger("ipc:google")
@@ -1263,6 +1265,19 @@ export function registerGoogleHandlers(): void {
     async (_event, params: { blockId?: string; credentialsPath?: string }) => {
       commitCredential(params.blockId, params.credentialsPath)
       return { ok: true as const }
+    },
+  )
+
+  ipcMain.handle(
+    "google:send",
+    async (_event, params: { blockId: string; request: HttpRequest }) => {
+      const credential = activeCredentialFor(params.blockId)
+      if (!params.blockId || !credential) {
+        throw new Error(
+          `The GoogleAuth block "${params.blockId}" isn't signed in. Sign in with it first.`,
+        )
+      }
+      return runtime.runPromise(sendAsGoogle(credential.ref, params.request, credential.projectId))
     },
   )
 }

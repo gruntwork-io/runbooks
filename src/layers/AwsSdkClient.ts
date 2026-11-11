@@ -18,6 +18,8 @@ import {
 } from "@aws-sdk/client-sso-oidc"
 import { AccountClient, GetRegionOptStatusCommand } from "@aws-sdk/client-account"
 import { parseKnownFiles } from "@smithy/core/config"
+import { Hash } from "@smithy/core/serde"
+import { SignatureV4 } from "@smithy/signature-v4"
 import { AwsClient } from "../services/AwsClient.ts"
 import type {
   AwsClientShape,
@@ -34,6 +36,7 @@ import type {
 import { AwsAuthError, AwsConfigError, AwsSsoError } from "../errors/index.ts"
 import { errorMessage } from "../errors/message.ts"
 import { partitionHomeRegion } from "./AwsPartition.ts"
+import { sendHttp } from "./sendHttp.ts"
 
 /**
  * The CreateToken failures a user causes get a message that says what to do;
@@ -326,6 +329,57 @@ const impl: AwsClientShape = {
       // "region is not enabled" warning on the success card.
       Effect.orElseSucceed(() => true),
     ),
+
+  sendSigned: (creds, signing, request) =>
+    Effect.tryPromise({
+      try: async () => {
+        const url = new URL(request.url)
+        const signer = new SignatureV4({
+          service: signing.service,
+          region: signing.region,
+          credentials: {
+            accessKeyId: creds.accessKeyId,
+            secretAccessKey: creds.secretAccessKey,
+            ...(creds.sessionToken ? { sessionToken: creds.sessionToken } : {}),
+          },
+          sha256: Sha256,
+        })
+        const signed = await signer.sign({
+          method: request.method,
+          protocol: url.protocol,
+          hostname: url.hostname,
+          path: url.pathname,
+          query: queryOf(url),
+          headers: { ...request.headers, host: url.hostname },
+          body: request.body,
+        })
+        // fetch sets Host itself, to the same value, and refuses one passed in.
+        const { host: _host, ...headers } = signed.headers
+        return sendHttp(request, headers)
+      },
+      catch: (err) =>
+        new AwsAuthError({
+          message: `Couldn't send the request to ${new URL(request.url).hostname}: ${errorMessage(err)}`,
+          cause: err,
+        }),
+    }),
+}
+
+/** SHA-256 for SigV4, from the SDK's own Node hash. */
+class Sha256 extends Hash {
+  constructor(secret?: ConstructorParameters<typeof Hash>[1]) {
+    super("sha256", secret)
+  }
+}
+
+/** A URL's query string as SigV4 reads it: each name with its value, or its values when repeated. */
+function queryOf(url: URL): Record<string, string | string[]> {
+  const query: Record<string, string | string[]> = {}
+  for (const name of new Set(url.searchParams.keys())) {
+    const values = url.searchParams.getAll(name)
+    query[name] = values.length === 1 ? (values[0] ?? "") : values
+  }
+  return query
 }
 
 function classifyProfile(name: string, block: Record<string, string | undefined>): ProfileInfo {
