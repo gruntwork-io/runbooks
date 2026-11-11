@@ -157,7 +157,7 @@ outputs:
 
 The block checks what it needs outside its inputs, and shows the result under its heading, above the form:
 
-- **Google APIs** on in the project a `<GoogleAuth>` block above signed in to: the ones `requires.google.apis` lists, which the plan needs, and the ones the block's [lookups](#lookups) call, which only its suggestions need. `google.domains` and `google.people` call the Admin SDK API.
+- **Google APIs** on in the project a `<GoogleAuth>` block above signed in to: the ones `requires.google.apis` lists, which the plan needs, and the ones the block's [lookups](#lookups) call, which only its suggestions need. `google.customer`, `google.domains` and `google.people` call the Admin SDK API.
 - **The commands the code runs with** on your `PATH`, which applying the code needs: OpenTofu or Terraform, and Terragrunt too for a [template](#the-template) that renders a Terragrunt unit.
 
 When everything's in place, a green check says *This block's preflight checks completed successfully.*, and hovering it shows what it found, such as *4 Google APIs on in acme-ops · OpenTofu 1.12.6*. Otherwise the block lists what's missing, each with its fix: a link to the Cloud console page that turns the API on, or the tool's install page. It checks again after a sign-in or a change of project, when the Runbooks window comes back into focus, and on **Check again**.
@@ -214,7 +214,7 @@ A plain configuration's outputs are its own, so declare an output for each modul
 **Generate** renders the template with the form's values and writes the code:
 
 - **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. The pull request does that. As the values change, it writes them again, and removes the files it wrote before that the new values no longer make, such as the old folder when the group's email changes.
-- **Without one**, or in [simulation mode](#simulation-mode), it writes nothing, and lists the files the code would have.
+- **Without one**, or in [simulation mode](/authoring/simulation-mode/), it writes nothing, and lists the files the code would have.
 
 While an input needs a fix, the block keeps the code, and the values it publishes, as they were for the last valid inputs. Once it has written the code, the block counts as done, and publishes these outputs, which a [`<TerragruntApplyWithGitHubPullRequest>`](/authoring/blocks/terragruntapplywithgithubpullrequest/) block reads through its `tfModuleId`:
 
@@ -246,7 +246,7 @@ Runbooks has these lookups. Each reads Google with the account a `<GoogleAuth>` 
 | `google.domains` | The organization's domains, primary first: `value` and `domainName` (the domain), `isPrimary` | `https://www.googleapis.com/auth/admin.directory.domain.readonly`, from an admin |
 | `google.people` | Active users in the organization whose first name, last name or email starts with what's typed: `value` (email), `label` (name), `description` (title and department) | `https://www.googleapis.com/auth/admin.directory.user.readonly`, from an admin |
 
-When no `<GoogleAuth>` block has signed in, or Google refuses, the field says why, and the user can still type a value. In [simulation mode](#simulation-mode), lookups answer from `simulation.yml` instead. A `shortcut` reads the first row of its lookup when the form opens and again after each sign-in, and stays hidden while the lookup has none. A `prefill` reads it the same way, and fills its input with the row's value while the input is empty. It fills each value once, so an input the user clears stays clear until a sign-in gives another value. Lookups that come from Google ask again after a sign-in too.
+When no `<GoogleAuth>` block has signed in, or Google refuses, the field says why, and the user can still type a value. In [simulation mode](/authoring/simulation-mode/#lookups), lookups answer from `simulation.yml` instead. A `shortcut` reads the first row of its lookup when the form opens and again after each sign-in, and stays hidden while the lookup has none. A `prefill` reads it the same way, and fills its input with the row's value while the input is empty. It fills each value once, so an input the user clears stays clear until a sign-in gives another value. Lookups that come from Google ask again after a sign-in too.
 
 ## Presets
 
@@ -265,104 +265,7 @@ The module can read the same file with `yamldecode(file("${path.module}/presets.
 
 ## Simulation mode
 
-Simulation mode lets you shape a block's form without signing in to anything or changing anything real. Open the runbook with `--simulate`:
-
-```bash
-runbooks open --simulate path/to/runbook
-```
-
-A **Simulation** bar marks the runbook, and lookups answer from a `simulation.yml` beside the runbook. It holds named scenarios, and the bar switches between them, so you can see each state of each block:
-
-```yaml title="simulation.yml"
-scenarios:
-  happy-path:
-    label: Happy path
-    lookups:
-      google.domains:
-        - { value: example.com, domainName: example.com, isPrimary: true }
-      google.people:
-        delayMs: 300            # optional: answer after a pause, to see the loading state
-        rows:
-          - { value: ana@example.com, label: Ana Lima, description: Platform team }
-
-  no-directory-access:
-    label: Can't read the directory
-    extends: happy-path         # start from another scenario's answers
-    lookups:
-      google.people:
-        error: The signed-in account can't read your directory.
-```
-
-A lookup's answer is a list of rows, a map with `rows`, or a map with `error`, which the field shows as the lookup's failure. A row matches what the user typed when any of its text fields contains it. The file is read on each lookup, so an edit shows the next time a field asks.
-
-A scenario also answers the plan and apply of the code a block generates, under `modules` by the `<TfModule>` block's id, so a `<TerragruntApplyWithGitHubPullRequest>` block's **Apply** tab runs without Terragrunt or OpenTofu:
-
-```yaml title="simulation.yml"
-scenarios:
-  happy-path:
-    modules:
-      group:
-        delayMs: 700            # optional: how long each resource takes to apply
-        resources:
-          - address: google_cloud_identity_group.group
-            values:
-              group_key:
-                - { id: "{{ .id }}" }
-            computed:           # what the plan shows as known after apply
-              name: groups/03x5example
-          - address: google_cloud_identity_group_membership.owners["{{ .each }}"]
-            forEach: owners     # one resource for each owner, read as {{ .each }}
-            values:
-              preferred_member_key:
-                - { id: "{{ .each }}" }
-        outputs:
-          email: "{{ .id }}"
-          runbooks_console_url: https://admin.google.com/ac/groups/03x5example
-
-  apply-fails:
-    extends: happy-path
-    modules:
-      group:
-        applyError: "Error 403: The caller does not have permission."
-```
-
-Strings are templates over the block's inputs. `planError` fails the plan instead. A scenario that extends another replaces only the keys it gives for a block.
-
-A scenario's `repository` stands in for the repository a `<GitClone>` block would clone, so a `<TerragruntApplyWithGitHubPullRequest>` block's **Code** tab shows the unit among its files. Its paths and contents are templates over the block's inputs too, so a scenario can hold the unit the block would change:
-
-```yaml title="simulation.yml"
-scenarios:
-  happy-path:
-    repository:
-      files:
-        root.hcl: |
-          remote_state {
-            backend = "gcs"
-            config  = { bucket = "acme-tofu-state", prefix = path_relative_to_include() }
-          }
-
-  group-exists:
-    extends: happy-path         # adds to the files of the scenario it extends
-    repository:
-      files:
-        "google-groups/{{ .id }}/terragrunt.hcl": |
-          inputs = {
-            id = "{{ .id }}"
-          }
-```
-
-A scenario's `googleApis` names the signed-in project and the APIs that are off in it, so [Before you plan](#before-you-plan) shows its problems. Without it, every API is on in `simulated-project`. Nothing runs in simulation mode, so the block doesn't look for its commands.
-
-```yaml title="simulation.yml"
-scenarios:
-  apis-off:
-    extends: happy-path
-    googleApis:
-      project: acme-ops
-      disabled: [cloudidentity.googleapis.com, admin.googleapis.com]
-```
-
-A resource with `before`, its values now, exists already, so the plan updates it and keeps its `computed` values; `action: delete` removes it, and `action: replace` replaces it. That's how a scenario shows a plan that changes resources rather than creating them, and what **Only changed** narrows the properties to.
+In [simulation mode](/authoring/simulation-mode/), lookups, Before you plan, and the code's plan and apply answer from the runbook's `simulation.yml`, so you can see each state of the block without signing in to anything or changing anything real.
 
 ## Testing
 
