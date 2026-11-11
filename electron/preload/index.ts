@@ -87,6 +87,8 @@ const INVOKE_CHANNELS = {
   "git:pull-request": true,
   "git:merge-request": true,
   "git:delete-branch": true,
+  "git:pr-merge-state": true,
+  "git:pr-merge": true,
   "workspace:tree": true,
   "workspace:dirs": true,
   "workspace:file": true,

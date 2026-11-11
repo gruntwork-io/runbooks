@@ -44,6 +44,9 @@ const changeTypeConfig: Record<string, { icon: LucideIcon; color: string }> = {
 const defaultChangeConfig = { icon: FileDiff, color: "text-muted-foreground" }
 
 /** File icon for a change type (FilePlus/FileDiff/FileMinus), in its color. */
+/** Git's letter for a change type: A, M or D. */
+const CHANGE_LETTERS: Record<ChangeType, string> = { added: "A", modified: "M", deleted: "D" }
+
 const ChangeTypeIcon = ({ changeType }: { changeType: ChangeType }) => {
   const { icon: Icon, color } = changeTypeConfig[changeType] ?? defaultChangeConfig
   return <Icon className={cn("w-4 h-4 flex-shrink-0", color)} />
@@ -60,6 +63,8 @@ interface ChangedFilesViewProps {
   isLoading?: boolean
   /** Callback to load the full diff for a truncated file */
   onLoadDiff?: (filePath: string) => Promise<void>
+  /** Mark each file in the tree with git's letter for its change: A, M or D. */
+  letters?: boolean
   /** Additional CSS classes */
   className?: string
 }
@@ -70,6 +75,7 @@ export const ChangedFilesView = ({
   totalChanges,
   isLoading = false,
   onLoadDiff,
+  letters = false,
   className = "",
 }: ChangedFilesViewProps) => {
   const [focusedPath, setFocusedPath] = useState<string | null>(null)
@@ -160,6 +166,7 @@ export const ChangedFilesView = ({
             tree={fileTree}
             focusedPath={focusedPath}
             onFileSelect={handleFileSelect}
+            letters={letters}
           />
         </div>
 
@@ -255,12 +262,13 @@ interface ChangedFileTreeProps {
   tree: TreeNode[]
   focusedPath: string | null
   onFileSelect: (filePath: string) => void
+  letters: boolean
 }
 
 /** Max tree nodes to render before collapsing all folders by default */
 const MAX_TREE_NODES_EXPANDED = 200
 
-const ChangedFileTree = ({ tree, focusedPath, onFileSelect }: ChangedFileTreeProps) => {
+const ChangedFileTree = ({ tree, focusedPath, onFileSelect, letters }: ChangedFileTreeProps) => {
   // For large trees, start with all folders collapsed to avoid rendering
   // thousands of nodes which can lock up the browser.
   const totalFileCount = useMemo(() => countTreeFiles(tree), [tree])
@@ -338,6 +346,17 @@ const ChangedFileTree = ({ tree, focusedPath, onFileSelect }: ChangedFileTreePro
         <span className="w-4 flex-shrink-0" />
         <ChangeTypeIcon changeType={change.changeType} />
         <span className="truncate flex-1 ml-1">{node.name}</span>
+        {letters && (
+          <span
+            className={cn(
+              "w-4 flex-shrink-0 pr-1 text-center font-mono text-xs font-semibold",
+              (changeTypeConfig[change.changeType] ?? defaultChangeConfig).color,
+            )}
+            title={change.changeType}
+          >
+            {CHANGE_LETTERS[change.changeType]}
+          </span>
+        )}
       </button>
     )
   }

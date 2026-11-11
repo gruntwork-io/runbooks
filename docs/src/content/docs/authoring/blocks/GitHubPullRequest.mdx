@@ -77,6 +77,8 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). |
 | `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access. |
 | `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) or [`<GitHubAuth>`](/authoring/blocks/githubauth) block. Works like `githubAuthId`. If the linked block signed in to GitLab, the block shows a blocking error. |
+| `gitCloneId` | `string` | No | The [`<GitClone>`](/authoring/blocks/gitclone) block whose clone holds the changes. Needed only when the runbook has more than one. See [Prerequisites](#prerequisites). |
+| `allowMerge` | `boolean` | No | Shows a **Merge** button once GitHub says the pull request can merge. GitHub only. Defaults to `false`. See [Merging](#merging). |
 | `prefilledPullRequestTitle` | `string` | No | Pre-fills the PR title field. Supports template expressions. |
 | `prefilledPullRequestDescription` | `string` | No | Pre-fills the PR description field. Supports template expressions, markdown, and `\n` for newlines. |
 | `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
@@ -106,6 +108,26 @@ Pass an output to a later block's script with its [`env`](/authoring/blocks/comm
 <Aside type="note">
   Block IDs with hyphens are converted to underscores in template variables. For example, `create-pr` becomes `create_pr`.
 </Aside>
+
+### Changed files
+
+Under the form, the block lists every file that changed in the clone, as a tree with each file marked **A** (added), **M** (modified) or **D** (deleted), beside the count of files and lines. Select a file to see its diff. Before the pull request is opened, that's everything the create will commit. Afterwards, it lists what changed since, which isn't on the branch yet; see [Git Push](#git-push) for getting it there.
+
+### Merging
+
+With `allowMerge`, the block shows a **Merge** button under the pull request once it's open. The block asks GitHub whether the pull request can merge when it opens and every 15 seconds after, and **Check again** asks right away. The button merges with the first method the repository allows, in GitHub's order: a merge commit, then squash, then rebase. It reads **Merge**, **Squash and merge** or **Rebase and merge** to match.
+
+GitHub's rules decide, branch protection included. While a required review or check is missing, the base branch has moved on and must be merged in first, the pull request conflicts with its base, or it's a draft, the button stays disabled and the block says why. Once merged, it shows the merge commit, and **Git Push** is disabled.
+
+Without `allowMerge`, the block links to the pull request, and it's merged on GitHub.
+
+```mdx
+<GitHubPullRequest
+  id="open-pr"
+  gitAuthId="git-auth"
+  allowMerge
+/>
+```
 
 ### Git Push
 
@@ -137,7 +159,7 @@ The block needs a `<GitClone>` block that has cloned or selected a repository, w
 
 For authentication, the block waits for the `__AUTHENTICATED` output that the block referenced by `githubAuthId` or `gitAuthId` sets once it signs in, whichever way the user signed in. Until then, the block displays "Waiting for GitHub authentication" and links to the block to complete. Without `githubAuthId` or `gitAuthId`, the block doesn't wait for an auth block. It creates the PR with the session's GitHub token, and fails if the session has none.
 
-For the repository, the block uses the workspace's active repository: the one selected in the workspace's repository dropdown, which is the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until the user selects another. No prop picks a `<GitClone>` block. Until a `<GitClone>` block has added a repository to the workspace, the block displays "No repository available". A `<GitClone>` block with `showFileTree={false}` doesn't add its repository.
+For the repository, the block uses the clone of the runbook's `<GitClone>` block, or of the one `gitCloneId` names when the runbook has more than one. Which repository is selected in the workspace's dropdown doesn't matter. A runbook with no `<GitClone>` block, several and no `gitCloneId`, or a `gitCloneId` that names another kind of block shows an error in place of the block. Until the clone is done, the block displays "Waiting for the clone" and links to the `<GitClone>` block. A `<GitClone>` block with `showFileTree={false}` keeps its clone out of the workspace, so the block can't use it.
 
 ### Labels
 

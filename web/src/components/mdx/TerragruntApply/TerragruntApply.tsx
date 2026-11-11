@@ -6,7 +6,6 @@ import {
   usePageBlocks,
   type BlockComponentType,
 } from "@/contexts/ComponentIdRegistry"
-import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useTheme } from "@/contexts/useTheme"
 import { normalizeBlockId } from "@/lib/utils"
 import { sensitiveOutput } from "@/lib/outputValues"
@@ -27,6 +26,7 @@ import { InlineMarkdown } from "../_shared/components/InlineMarkdown"
 import { ProgressStep } from "../_shared/components/ProgressStep"
 import { UnmetDependenciesWarning } from "../_shared/components/UnmetDependenciesWarning"
 import { useTemplateDependencies } from "../_shared/hooks/useTemplateDependencies"
+import { useClone } from "../_shared/hooks/useClone"
 import { buildAuthEnvVars, buildGoogleAuthEnvVars } from "../_shared/hooks/useScriptExecution"
 import { authFacts, signedIn } from "../_shared/lib/authFacts"
 import { GITHUB_AUTH_ENV_VARS, GIT_AUTH_ENV_VARS } from "../../../../../src/domain/exec/authEnv"
@@ -135,41 +135,6 @@ function useAuthBlocks(auth: readonly string[]): { blocks: BoundBlock[]; error: 
   return { blocks, error: null }
 }
 
-/** The <GitClone> block whose clone holds the unit, or what's wrong with the runbook's clones. */
-function useCloneId(gitCloneId: string | undefined): { cloneId?: string; error: AppError | null } {
-  const { blockOf, blocksOf, registered } = usePageBlocks()
-  if (!registered) return { error: null }
-  if (gitCloneId) {
-    if (blockOf(gitCloneId)?.kind !== "GitClone") {
-      return {
-        error: configError(
-          `The <TerragruntApply> block's gitCloneId names "${gitCloneId}", which isn't a <GitClone> block in this runbook.`,
-          "Set gitCloneId to the id of the <GitClone> block whose clone holds the unit.",
-        ),
-      }
-    }
-    return { cloneId: gitCloneId, error: null }
-  }
-  const clones = blocksOf("GitClone")
-  if (clones.length === 0) {
-    return {
-      error: configError(
-        "The <TerragruntApply> block needs a <GitClone> block in the runbook.",
-        "It applies a unit in the repository a <GitClone> block clones. Add one above it.",
-      ),
-    }
-  }
-  if (clones.length > 1) {
-    return {
-      error: configError(
-        `The runbook has ${clones.length} <GitClone> blocks, so the <TerragruntApply> block needs a gitCloneId.`,
-        `Set gitCloneId to the one whose clone holds the unit: ${clones.map((clone) => `"${clone.id}"`).join(", ")}.`,
-      ),
-    }
-  }
-  return { cloneId: clones[0]!.id, error: null }
-}
-
 function TerragruntApply({
   id,
   path,
@@ -187,11 +152,8 @@ function TerragruntApply({
   )
   const authList = Array.isArray(auth) ? auth : NO_AUTH
   const authBlocks = useAuthBlocks(authList)
-  const clone = useCloneId(gitCloneId)
-  const { workTrees } = useGitWorkTree()
-  const workTree = clone.cloneId
-    ? workTrees.find((tree) => normalizeBlockId(tree.id) === normalizeBlockId(clone.cloneId!))
-    : undefined
+  const clone = useClone(gitCloneId, "<TerragruntApply>", "the unit")
+  const { workTree } = clone
 
   // The path waits on every output it reads, such as the <TfModule> block's CODE_PATH.
   const deps = useMemo(() => requireAllOutputs(extractTemplateDependenciesFromString(path)), [path])

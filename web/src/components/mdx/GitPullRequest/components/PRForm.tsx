@@ -15,6 +15,8 @@ import { MarkdownEditor } from "./MarkdownEditor"
 import { LabelSelector } from "./LabelSelector"
 import { InfoTooltip } from "./InfoTooltip"
 import { CollapsibleToggle } from "./CollapsibleToggle"
+import { ChangedFiles } from "./ChangedFiles"
+import type { GitFileChangesContextType } from "@/contexts/WorkspaceGitDataContext.types"
 import type { PRProviderConfig } from "../providers"
 import type { GitLabel, PRBlockStatus, ChangeSummary } from "../types"
 
@@ -40,6 +42,8 @@ interface PRFormProps {
   availableLabels: GitLabel[]
   labelsLoading: boolean
   changeSummary: ChangeSummary | null
+  /** The clone's changes, which the pull request commits. */
+  changes: GitFileChangesContextType
   status: PRBlockStatus
   disabled: boolean
   onSubmit: () => void
@@ -63,6 +67,7 @@ export function PRForm({
   availableLabels,
   labelsLoading,
   changeSummary,
+  changes,
   status,
   disabled,
   onSubmit,
@@ -194,35 +199,36 @@ export function PRForm({
         icon={<CircleHelp className="size-3.5" />}
       >
         <div className="mt-1.5 ml-5 text-xs text-muted-foreground leading-relaxed">
-          {changeSummary && changeSummary.fileCount > 0 ? (
-            <p className="m-0">
-              This {noun.lower} will commit{" "}
-              <span className="font-medium">{changeSummary.fileCount}</span>{" "}
-              {changeSummary.fileCount === 1 ? "file" : "files"}
-              {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
-                <>
-                  {" "}
-                  (
-                  {changeSummary.additions > 0 && (
-                    <span className="text-success font-medium">+{changeSummary.additions}</span>
-                  )}
-                  {changeSummary.additions > 0 && changeSummary.deletions > 0 && ", "}
-                  {changeSummary.deletions > 0 && (
-                    <span className="text-destructive font-medium">
-                      &minus;{changeSummary.deletions}
-                    </span>
-                  )}
-                  )
-                </>
-              )}{" "}
-              from the <span className="font-semibold">Changed files</span> tab in the workspace
-              panel. Review your changes there before creating the {noun.lower}.
-            </p>
+          {hasChanges ? (
+            <>
+              <p className="m-0">
+                This {noun.lower} will commit{" "}
+                <span className="font-medium">{changeSummary.fileCount}</span>{" "}
+                {changeSummary.fileCount === 1 ? "file" : "files"}
+                {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
+                  <>
+                    {" "}
+                    (
+                    {changeSummary.additions > 0 && (
+                      <span className="text-success font-medium">+{changeSummary.additions}</span>
+                    )}
+                    {changeSummary.additions > 0 && changeSummary.deletions > 0 && ", "}
+                    {changeSummary.deletions > 0 && (
+                      <span className="text-destructive font-medium">
+                        &minus;{changeSummary.deletions}
+                      </span>
+                    )}
+                    )
+                  </>
+                )}
+                . Review them before creating the {noun.lower}:
+              </p>
+              <ChangedFiles changes={changes} />
+            </>
           ) : (
             <p className="m-0">
               No file changes detected yet. Run a command that modifies files in the cloned
-              repository, then check the <span className="font-semibold">Changed files</span> tab in
-              the workspace panel.
+              repository, and they show here.
             </p>
           )}
         </div>

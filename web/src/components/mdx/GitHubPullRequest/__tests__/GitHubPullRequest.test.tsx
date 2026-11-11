@@ -35,7 +35,13 @@ vi.mock("@/contexts/useGitWorkTree", () => ({
   }),
 }))
 
+// The runbook's one clone, not cloned yet.
+vi.mock("@/components/mdx/_shared/hooks/useClone", () => ({
+  useClone: () => ({ cloneId: "repo", error: null }),
+}))
+
 vi.mock("@/hooks/useGitFileChanges", () => ({
+  useCloneChanges: () => ({ changes: [], isLoading: false, error: null, refetch: vi.fn() }),
   useGitFileChanges: () => ({
     changes: [],
     isLoading: false,
@@ -82,7 +88,7 @@ describe("GitHubPullRequest (back-compat wrapper)", () => {
     renderPR({ githubAuthId: "auth" })
     // authMet is mocked true, so render the no-repo warning; the auth label is
     // still GitHub-flavored across the block.
-    expect(screen.getByText(/No repository available/)).toBeInTheDocument()
+    expect(screen.getByText(/Waiting for the clone/)).toBeInTheDocument()
   })
 
   it("shows error for missing id", () => {

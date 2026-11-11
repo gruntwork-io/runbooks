@@ -128,7 +128,7 @@ When `showFileTree` is `true` (the default), the GitClone block registers the cl
 - The **Changed files** tab shows a diff view, in the style of a GitHub pull request, of any files modified after cloning, for example by Command or Template blocks.
 - If multiple `<GitClone>` blocks are used in a single runbook, a dropdown in the workspace header lets the user switch between repositories.
 
-Set `showFileTree={false}` to keep the cloned repository out of the workspace panel, for example for a helper repository the user doesn't need to browse. A `<GitPullRequest>` block can't open a pull request from a repository kept out of the workspace. It shows "No repository available" until another `<GitClone>` block adds one.
+Set `showFileTree={false}` to keep the cloned repository out of the workspace panel, for example for a helper repository the user doesn't need to browse. A `<GitPullRequest>` or `<TerragruntApply>` block can't use a clone kept out of the workspace.
 
 A local checkout registers with the workspace the same way. The **Changed files** tab then also shows any uncommitted changes the checkout already had.
 

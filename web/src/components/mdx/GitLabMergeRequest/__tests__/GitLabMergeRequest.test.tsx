@@ -5,9 +5,10 @@ import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
 
-vi.mock("@/contexts/useGitWorkTree", () => ({
-  useGitWorkTree: () => ({
-    activeWorkTree: {
+vi.mock("@/components/mdx/_shared/hooks/useClone", () => ({
+  useClone: () => ({
+    cloneId: "wt-1",
+    workTree: {
       id: "wt-1",
       localPath: "/tmp/repo",
       gitInfo: {
@@ -17,13 +18,12 @@ vi.mock("@/contexts/useGitWorkTree", () => ({
         ref: "main",
       },
     },
-    workTrees: [],
-    registerWorkTree: vi.fn(),
-    unregisterWorkTree: vi.fn(),
+    error: null,
   }),
 }))
 
 vi.mock("@/hooks/useGitFileChanges", () => ({
+  useCloneChanges: () => ({ changes: [], isLoading: false, error: null, refetch: vi.fn() }),
   useGitFileChanges: () => ({ changes: [], isLoading: false, error: null, refetch: vi.fn() }),
 }))
 
