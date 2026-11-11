@@ -17,6 +17,10 @@ import { TfModuleError } from "../../../src/errors/index.ts"
 import { describeFailure } from "./ipc-error.ts"
 import { isRemoteSource } from "../../../src/remote-source.ts"
 import { filesAtBase } from "../../../src/domain/tf-module/repoFiles.ts"
+import {
+  localModuleSource,
+  remoteModuleSource,
+} from "../../../src/domain/tf-module/pinnedSource.ts"
 import { alignAttributes, isHclFile } from "../../../src/domain/tf-module/hclFormat.ts"
 import {
   ancestorsOf,
@@ -125,8 +129,8 @@ const existingFiles = (repo: TfModuleRepo, folder: string, rendered: readonly Un
 
 /**
  * The block's code as it lands in the repository: in its folder there,
- * pointing at the module's `source` from runbook_block.yml, among the files the
- * repository already holds around it.
+ * pointing at a release of the module, among the files the repository
+ * already holds around it.
  */
 export const renderInRepo = (
   ref: TfModuleCodeRef,
@@ -135,13 +139,15 @@ export const renderInRepo = (
 ) =>
   Effect.gen(function* () {
     const dir = yield* moduleDir(ref.source)
-    // Code in a repository fetches a remote module itself; a local one only exists here.
-    const source = isRemoteSource(ref.source) ? ref.source : undefined
+    // Code in a repository fetches the module itself, so it needs a release of it.
+    const source = isRemoteSource(ref.source)
+      ? yield* remoteModuleSource(ref.source, dir)
+      : yield* localModuleSource(dir)
     const folder = yield* Effect.try({
       try: () => repoFolder(repo.path),
       catch: (cause) => fail(describeFailure(cause)),
     })
-    const rendered = yield* renderTemplate(ref.template, values, source ?? dir)
+    const rendered = yield* renderTemplate(ref.template, values, source)
     const tool = toolFor(rendered)
     const placed = placeUnit(folder, rendered, yield* existingFiles(repo, folder, rendered))
     // The .hcl files above are context only for a Terragrunt unit, which may include them.

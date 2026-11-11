@@ -1141,8 +1141,8 @@ export type TfModuleCode =
       files: RepoFile[]
       /** Whether the repository has a root.hcl above a Terragrunt unit, for the unit to include. */
       rootHcl: boolean
-      /** The module's `source` from runbook_block.yml, which the code points at; none when it gives none. */
-      source?: string | undefined
+      /** The release of the module the code points at, as a Git source pinned to a tag. */
+      source: string
     }
 
 export interface TfModuleGenerateRequest extends TfModuleRenderRequest {

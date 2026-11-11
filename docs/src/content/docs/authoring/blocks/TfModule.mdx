@@ -57,11 +57,18 @@ github.com/acme/infra-catalog//modules/google-group?ref=v1.4.0
 git@github.com:acme/infra-catalog.git//modules/google-group?ref=v1.4.0
 ```
 
-The block clones the repository once while Runbooks runs, and reads the module from the clone. A private repository needs a sign-in: a [`<GitHubAuth>`](/authoring/blocks/githubauth/) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth/) block above, a token in the environment such as `GITHUB_TOKEN`, the `gh` or `glab` CLI's sign-in, or your own Git credentials, as when Runbooks opens a remote runbook. See [Authentication for private repos](/commands/open/#authentication-for-private-repos). If the clone fails for want of one, the block says so, and reads the module again after a sign-in. Pin the source with `?ref=`: without one, the block reads the default branch, and the code it writes follows that branch as it changes, which the block warns about.
+The block clones the repository once while Runbooks runs, and reads the module from the clone. A private repository needs a sign-in: a [`<GitHubAuth>`](/authoring/blocks/githubauth/) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth/) block above, a token in the environment such as `GITHUB_TOKEN`, the `gh` or `glab` CLI's sign-in, or your own Git credentials, as when Runbooks opens a remote runbook. See [Authentication for private repos](/commands/open/#authentication-for-private-repos). If the clone fails for want of one, the block says so, and reads the module again after a sign-in. Pin the source to a tag with `?ref=`: without one, the block reads the default branch and warns.
 
-The code the block writes points at the same source, so the module a repository runs is the module the form was built from.
+`source` can instead be a folder relative to the runbook, for a module in the runbook's own repository, such as `../../modules/google-group`.
 
-While working on a module, `source` can instead be its folder, relative to the runbook and inside the runbook's folder. The code then points at that folder on your computer, which works only there.
+### Versions
+
+A runbook and the modules it uses should come from the same release, so the form, the template and the module always match. So the code the block writes into a repository always points at a tag:
+
+- **A remote `source`** is written as given, and its `?ref=` must be a tag.
+- **A folder `source`** is written as the runbook's repository at the tag the runbook was opened at, such as `git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0`. Open a remote runbook with `?ref=` set to a tag, or a local checkout that's exactly at one, with no uncommitted changes to the module.
+
+Otherwise you can fill in the form, but **Generate** refuses to write the code, and says which ref it found. A runbook on a branch therefore can't write code that points at a module by accident: you open the runbook at the release you mean to use.
 
 ## How the form is built
 
@@ -153,7 +160,7 @@ lookups:
 
 ## The template
 
-The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder beside the runbook. The block renders it with the form's values, plus `ModuleSource`, where the code finds the module: the block's [`source`](#module-source) when it's remote and a `<GitClone>` block has cloned a repository, and the module's folder on your computer otherwise. Declare each variable the template uses in its `boilerplate.yml`.
+The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder beside the runbook. The block renders it with the form's values, plus `ModuleSource`, where the code finds the module: the release [Versions](#versions) describes when a `<GitClone>` block has cloned a repository, and the module's folder on your computer otherwise. Declare each variable the template uses in its `boilerplate.yml`.
 
 What the template renders decides how the code runs. A template that renders a `terragrunt.hcl` makes a Terragrunt unit:
 
