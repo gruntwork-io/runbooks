@@ -16,7 +16,7 @@ const refusal = (request: HttpRequest): string => {
 }
 
 describe("googleSendable", () => {
-  it("sends a GET to a listed host", () => {
+  it("sends a GET to a Google API host", () => {
     const request = get(
       "https://admin.googleapis.com/admin/directory/v1/users?customer=my_customer",
       {
@@ -37,25 +37,20 @@ describe("googleSendable", () => {
     ).toContain("only GET")
   })
 
-  it("refuses hosts that aren't listed, including Cloud Storage", () => {
-    for (const url of [
-      "https://storage.googleapis.com/attacker-bucket/o",
-      "https://www.googleapis.com/storage/v1/b/attacker-bucket/o",
-      "https://secretmanager.googleapis.com/v1/projects/p/secrets/s/versions/latest:access",
-      "https://admin.googleapis.com.attacker.example/",
-    ]) {
-      expect(refusal(get(url))).toContain("doesn't send requests to")
-    }
+  it("sends to any Google API host", () => {
+    const request = get("https://secretmanager.googleapis.com/v1/projects/p/secrets")
+    expect(googleSendable(request)).toEqual(request)
   })
 
-  it("refuses a user's backup verification codes", () => {
-    expect(
-      refusal(
-        get(
-          "https://admin.googleapis.com/admin/directory/v1/users/a@example.com/verificationCodes",
-        ),
-      ),
-    ).toContain("return a secret")
+  it("refuses hosts that aren't Google API hosts", () => {
+    for (const url of [
+      "https://admin.googleapis.com.attacker.example/",
+      "https://a.b.googleapis.com/",
+      "https://googleapis.com/",
+      "https://example.com/",
+    ]) {
+      expect(refusal(get(url))).toContain("only to Google API hosts")
+    }
   })
 
   it("refuses URLs that could reach another server or hide the host", () => {

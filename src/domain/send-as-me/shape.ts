@@ -1,9 +1,8 @@
 /**
  * The rules every auth block applies before it sends a request as the
  * signed-in user, whatever the service: an HTTPS URL to a bare host, and only
- * the headers the block allows. Each block then checks the host and the
- * operation against its own list, so a request can only read, and only from
- * a host the provider runs.
+ * the headers the block allows. Each block then checks that the host is its
+ * provider's API and that the request reads.
  */
 import type { HttpRequest } from "../../services/HttpRequest.ts"
 

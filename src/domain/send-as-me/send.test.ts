@@ -88,9 +88,10 @@ describe("sendAsGoogle", () => {
       sendAsGoogle(
         { kind: "access_token", accessToken: "token" },
         {
-          method: "GET",
-          url: "https://storage.googleapis.com/bucket/o",
+          method: "POST",
+          url: "https://admin.googleapis.com/admin/directory/v1/groups",
           headers: {},
+          body: "{}",
         },
       ).pipe(Effect.provide(layer)),
     )
