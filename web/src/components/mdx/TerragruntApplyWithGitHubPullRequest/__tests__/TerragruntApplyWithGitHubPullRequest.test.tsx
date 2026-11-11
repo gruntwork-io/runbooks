@@ -72,6 +72,11 @@ describe("TerragruntApplyWithGitHubPullRequest", () => {
     expect(screen.queryByRole("tab")).not.toBeInTheDocument()
   })
 
+  it("shows Terragrunt's logo, whatever the module's provider", () => {
+    renderBlock()
+    expect(screen.getByRole("img", { name: "Terragrunt" })).toBeInTheDocument()
+  })
+
   it("shows the generated code, rendered with the module block's inputs", async () => {
     renderBlock()
     await waitFor(() => expect(ctx).toBeDefined())

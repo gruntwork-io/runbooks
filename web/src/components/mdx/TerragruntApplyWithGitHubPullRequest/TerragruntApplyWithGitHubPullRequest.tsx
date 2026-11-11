@@ -15,7 +15,9 @@ import { ErrorDisplay } from "../_shared/components/ErrorDisplay"
 import { InlineMarkdown } from "../_shared/components/InlineMarkdown"
 import { LoadingDisplay } from "../_shared/components/LoadingDisplay"
 import { ProgressStep } from "../_shared/components/ProgressStep"
-import { ModuleLogo } from "../TfModule/components/ModuleLogo"
+import terragruntLogo from "@/assets/terragrunt-logo.svg"
+import terragruntLogoLight from "@/assets/terragrunt-logo-light.svg"
+import { useTheme } from "@/contexts/useTheme"
 import type { TfModuleSpec } from "../../../../../src/domain/tf-module/types"
 import type { TfModuleCodeRef, TfModuleRepo } from "../../../../../electron/shared/channels"
 import { CodeTab } from "./components/CodeTab"
@@ -34,8 +36,7 @@ import { scrollToTop } from "./scrollToTop"
  *
  * Its Code tab shows the code in its folder in the repository, its PR tab
  * opens, updates and merges the pull request, and its Apply tab plans and
- * applies the code with Terragrunt, or with OpenTofu or Terraform for plain
- * code. Merge and apply in either order. The module's outputs become the
+ * applies it with Terragrunt, so the code must be a Terragrunt unit. Merge and apply in either order. The module's outputs become the
  * block's outputs once it applies.
  *
  * @param props.id - Unique identifier for this block (required)
@@ -122,9 +123,7 @@ function TerragruntApplyWithGitHubPullRequest({
   if (validationError) return <ErrorDisplay error={validationError} />
   if (apiError) return <ErrorDisplay error={apiError} />
 
-  const header = (
-    <BlockHeader id={id} title={title} description={description} spec={spec ?? undefined} />
-  )
+  const header = <BlockHeader id={id} title={title} description={description} />
 
   if (!source || !template || path === undefined) {
     return (
@@ -163,26 +162,34 @@ function TerragruntApplyWithGitHubPullRequest({
 const BLOCK_CLASS =
   "runbook-block relative mb-4 scroll-mt-4 rounded-lg border border-border bg-muted p-6 shadow-sm"
 
-/** The block's title, with the module's logo once it's read. */
+/** The block's title, with Terragrunt's logo. */
 function BlockHeader({
   id,
   title,
   description,
-  spec,
 }: {
   id: string
   title: string
   description: string | undefined
-  spec: TfModuleSpec | undefined
 }) {
   const { state: simulation } = useSimulation()
+  const { resolvedTheme } = useTheme()
   return (
     <>
       <div className="absolute right-3 top-2">
         <BlockIdLabel id={id} size="large" />
       </div>
       <div className="mb-5 flex items-start gap-3 pr-24">
-        {spec && <ModuleLogo spec={spec} />}
+        <div
+          className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card p-1.5"
+          title="Terragrunt"
+        >
+          <img
+            src={resolvedTheme === "dark" ? terragruntLogoLight : terragruntLogo}
+            alt="Terragrunt"
+            className="size-full object-contain"
+          />
+        </div>
         <div className="min-w-0">
           <div className="text-lg font-semibold text-foreground">
             <InlineMarkdown>{title}</InlineMarkdown>
