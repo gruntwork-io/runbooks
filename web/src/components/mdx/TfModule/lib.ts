@@ -197,3 +197,12 @@ export function registryConfig(spec: TfModuleSpec): BoilerplateConfig {
     })),
   }
 }
+
+/** Where the code goes in the repository: the block's `path`, a template over its inputs, or its id. */
+export function unitPath(
+  template: string | undefined,
+  blockId: string,
+  values: Record<string, unknown>,
+): string {
+  return template ? renderRowTemplate(template, values).trim() : blockId
+}

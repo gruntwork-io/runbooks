@@ -1,17 +1,15 @@
 /**
- * Where a <TfModule> block stands: one stage, worked out from its inputs,
- * its pull request, and its Terragrunt run, so every tab agrees on what comes
- * next and when the block is done.
+ * Where a <TfApplyWithGitHubPullRequest> block stands: one stage, worked out
+ * from its pull request and its Terragrunt run, so every tab agrees on what
+ * comes next and when the block is done.
  */
 
 import type { PullRequestStatus } from "./prMachine"
 
-export type Tab = "ui" | "code" | "pr" | "apply"
+export type Tab = "code" | "pr" | "apply"
 
 /** What the block knows about each part of its work. */
 export interface FlowFacts {
-  /** Whether every input has a valid value. */
-  readonly inputsValid: boolean
   /** Whether there's a repository to open a pull request in. */
   readonly hasRepo: boolean
   /** The pull request, for the inputs as they are now. */
@@ -21,8 +19,6 @@ export interface FlowFacts {
 }
 
 export type Stage =
-  /** Some inputs need a value or a fix. */
-  | "fill"
   /** The inputs are ready and nobody has opened a pull request. */
   | "open-pr"
   /** The pull request is open, but the inputs changed since its last push. */
@@ -37,7 +33,6 @@ export type Stage =
   | "done"
 
 export function stageOf(facts: FlowFacts): Stage {
-  if (!facts.inputsValid) return "fill"
   if (facts.hasRepo) {
     // A merged pull request with other inputs needs a new one, as if there were none.
     if (facts.pr === "none" || facts.pr === "superseded") return "open-pr"
@@ -50,8 +45,6 @@ export function stageOf(facts: FlowFacts): Stage {
 /** The tab where the stage's next step happens. */
 export function tabFor(stage: Stage): Tab {
   switch (stage) {
-    case "fill":
-      return "ui"
     case "open-pr":
     case "push":
     case "merge-or-apply":
@@ -64,7 +57,6 @@ export function tabFor(stage: Stage): Tab {
 }
 
 const LABELS: Record<Stage, string> = {
-  fill: "Fix the inputs",
   "open-pr": "Open the pull request",
   push: "Push the changes",
   "merge-or-apply": "Merge or apply",
@@ -81,11 +73,10 @@ export interface NextStep {
 
 /**
  * Where a tab's Next button leads, and what it says, or nothing when the next
- * step is on that tab. UI and Code lead on in tab order, skipping PR when
- * there's no repository; PR and Apply lead to the tab where the next step is.
+ * step is on that tab. Code leads on to PR, or to Apply when there's no
+ * repository; PR and Apply lead to the tab where the next step is.
  */
 export function nextFrom(tab: Tab, stage: Stage, hasRepo: boolean): NextStep | undefined {
-  if (tab === "ui") return { tab: "code", label: "Next" }
   if (tab === "code") return { tab: hasRepo ? "pr" : "apply", label: "Next" }
   // Either order works here, so both tabs have a step of their own.
   if (stage === "merge-or-apply" || stage === "done") return undefined

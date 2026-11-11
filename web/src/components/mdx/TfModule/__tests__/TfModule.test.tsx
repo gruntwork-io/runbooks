@@ -84,12 +84,23 @@ const DOMAINS = [
   { domainName: "example.org", isPrimary: false },
 ]
 let domainRows: unknown[] = DOMAINS
+const GENERATED = {
+  code: {
+    kind: "repo",
+    tool: "terragrunt",
+    folder: "groups/platform",
+    files: [{ path: "groups/platform/terragrunt.hcl", content: "", status: "added" }],
+    rootHcl: true,
+  },
+  written: ["groups/platform/terragrunt.hcl"],
+}
 
 const invoke = vi.fn((channel: string) => {
   if (channel === "tf-module:lookup") {
     return Promise.resolve({ rows: domainRows })
   }
   if (channel === "tf-module:readiness") return Promise.resolve(readiness)
+  if (channel === "tf-module:generate") return Promise.resolve(GENERATED)
   return Promise.reject(new Error(`unexpected channel ${channel}`))
 })
 
@@ -132,7 +143,7 @@ describe("TfModule", () => {
   it("shows the primary inputs and keeps the rest under Advanced options", () => {
     renderBlock()
     expect(screen.getByText("Google group", { selector: "div" })).toBeInTheDocument()
-    const ui = within(screen.getByRole("tabpanel"))
+    const ui = within(screen.getByTestId("group"))
     expect(ui.getByLabelText(/Group name/)).toBeInTheDocument()
     expect(ui.queryByText("Allow external members")).not.toBeInTheDocument()
 
@@ -140,18 +151,18 @@ describe("TfModule", () => {
     expect(ui.getByText("Allow external members")).toBeInTheDocument()
   })
 
-  it("flags required inputs and failed checks on Next, and doesn't submit", () => {
+  it("flags required inputs and failed checks on Generate, and doesn't generate", () => {
     renderBlock()
     fireEvent.change(input("group_name"), { target: { value: "Not Valid" } })
-    fireEvent.click(screen.getByRole("button", { name: "Next" }))
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
 
     expect(screen.getByText("Choose Domain first.")).toBeInTheDocument()
     expect(screen.getByText("Required.")).toBeInTheDocument()
     expect(screen.getByText("2 inputs above need a fix.")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument()
+    expect(invoke).not.toHaveBeenCalledWith("tf-module:generate", expect.anything())
   })
 
-  it("fills other inputs from a lookup pick, and registers the values", async () => {
+  it("fills other inputs from a lookup pick, then generates the code and says where it went", async () => {
     renderBlock()
     fireEvent.change(input("group_name"), { target: { value: "platform" } })
 
@@ -169,16 +180,73 @@ describe("TfModule", () => {
 
     expect(screen.getByTestId("group-group_name-suffix")).toHaveTextContent("@example.com")
 
-    fireEvent.click(screen.getByRole("button", { name: "Next" }))
-    await waitFor(() =>
-      expect(flattenInputs(ctx!.getInputs("group"))).toEqual({
-        group_name: "platform@example.com",
-        domain: "example.com",
-        display_name: "Team at example.com",
-        allow_external: false,
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    const values = {
+      group_name: "platform@example.com",
+      domain: "example.com",
+      display_name: "Team at example.com",
+      allow_external: false,
+    }
+    await waitFor(() => expect(flattenInputs(ctx!.getInputs("group"))).toEqual(values))
+    expect(await screen.findByText("groups/platform/terragrunt.hcl")).toBeInTheDocument()
+    expect(invoke).toHaveBeenCalledWith(
+      "tf-module:generate",
+      expect.objectContaining({
+        blockId: "group",
+        template: "templates/google-group-unit",
+        values,
       }),
     )
-    expect(screen.getByRole("tab", { name: "Code" })).toHaveAttribute("aria-selected", "true")
+    await waitFor(() =>
+      expect(ctx!.getOutputs("group")).toEqual(
+        expect.arrayContaining([
+          { name: "MODULE_SOURCE", value: "google-group" },
+          { name: "TEMPLATE", value: "templates/google-group-unit" },
+          { name: "CODE_PATH", value: "groups/platform" },
+        ]),
+      ),
+    )
+    expect(screen.queryByRole("button", { name: "Generate" })).not.toBeInTheDocument()
+  })
+
+  it("writes the code again as the inputs change, in place of what it wrote", async () => {
+    renderBlock()
+    fireEvent.change(input("domain"), { target: { value: "example.com" } })
+    fireEvent.change(input("group_name"), { target: { value: "platform" } })
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    await screen.findByText("groups/platform/terragrunt.hcl")
+
+    fireEvent.change(input("display_name"), { target: { value: "Platform" } })
+    await waitFor(
+      () =>
+        expect(invoke).toHaveBeenCalledWith(
+          "tf-module:generate",
+          expect.objectContaining({
+            values: expect.objectContaining({ display_name: "Platform" }),
+            replaces: ["groups/platform/terragrunt.hcl"],
+          }),
+        ),
+      { timeout: 2000 },
+    )
+  })
+
+  it("keeps the last valid inputs published while one needs a fix", async () => {
+    renderBlock()
+    fireEvent.change(input("domain"), { target: { value: "example.com" } })
+    fireEvent.change(input("group_name"), { target: { value: "platform" } })
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    await screen.findByText("groups/platform/terragrunt.hcl")
+
+    fireEvent.change(input("group_name"), { target: { value: "Not Valid" } })
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 700)
+      })
+    })
+    expect(flattenInputs(ctx!.getInputs("group")).group_name).toBe("platform@example.com")
+    expect(invoke.mock.calls.filter(([channel]) => channel === "tf-module:generate")).toHaveLength(
+      1,
+    )
   })
 
   it("shows the email's domain once an organization is chosen, and asks for one first", () => {
@@ -189,7 +257,7 @@ describe("TfModule", () => {
     expect(screen.getByText("Choose Domain first.")).toBeInTheDocument()
   })
 
-  it("lists an API that's off above the tabs, with a link that turns it on", async () => {
+  it("lists an API that's off above the form, with a link that turns it on", async () => {
     readiness = {
       google: { kind: "checked", project: "acme-ops", enabled: { "admin.googleapis.com": false } },
       tools: [],

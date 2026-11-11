@@ -1,6 +1,6 @@
-# The TfModule Apply tab
+# The Apply tab
 
-The Apply tab runs Terragrunt for the block: a plan whose resources open to show their properties, then an apply that shows each resource as it's made, and the module's outputs. In simulation mode `simulation.yml` answers instead of Terragrunt.
+A `<TfApplyWithGitHubPullRequest>` block's Apply tab runs Terragrunt for the code a `<TfModule>` block generated: a plan whose resources open to show their properties, then an apply that shows each resource as it's made, and the module's outputs. In simulation mode `simulation.yml` answers instead of Terragrunt.
 
 ## Sub-features
 
@@ -18,14 +18,14 @@ Click the Apply tab, or follow the Next and next-step buttons from the Code and 
 
 ## Driving it with control-runbooks
 
-1. `$C setup group-form`, `$C click tab:Apply --within group`. Check: an explanation and Plan.
-2. `$C click button:Plan --exact --within group`, `$C wait button:Apply --exact --within group`. Check: "Plan: 2 to create", the group and the owner's membership.
-3. `$C click button:Apply --exact --within group`, `$C wait --text "Applied." --within group`. Check: both resources done, outputs with "View the Google Group" and the group email.
-4. Change Name on the UI tab, back to Apply. Check: a warning that the inputs changed since this apply, and Plan; the old outputs are marked as the old ones.
-5. Stop: `$C click button:Plan --exact --within group --settle 150`, then `$C click button:Stop --within group`. Check: "You stopped the plan. Nothing changed." in warning colors, not as a failure.
+1. `$C setup group-code`, `$C click tab:Apply --within apply-group`. Check: an explanation and Plan.
+2. `$C click button:Plan --exact --within apply-group`, `$C wait button:Apply --exact --within apply-group`. Check: "Plan: 2 to create", the group and the owner's membership.
+3. `$C click button:Apply --exact --within apply-group`, `$C wait --text "Applied." --within apply-group`. Check: both resources done, outputs with "View the Google Group" and the group email.
+4. Change Name in the `group` block, back to Apply. Check: a warning that the inputs changed since this apply, and Plan; the old outputs are marked as the old ones.
+5. Stop: `$C click button:Plan --exact --within apply-group --settle 150`, then `$C click button:Stop --within apply-group`. Check: "You stopped the plan. Nothing changed." in warning colors, not as a failure.
 6. Failure: `$C setup scenario apply-fails`, plan, apply. Check: "What the apply did before it failed", the group done and the membership failed, the 403 error, and Plan again.
 
-Proof: the outputs reach other blocks (`{{ .outputs.group.runbooks_console_url }}` in the runbook text renders the link), and the block's progress check turns done once it's applied and merged.
+Proof: the outputs reach other blocks (`{{ .outputs.apply_group.runbooks_console_url }}` in the runbook text renders the link), and the block's progress check turns done once it's applied and merged.
 
 Automated tests: `__tests__/runMachine.test.ts` (phases, stale, stopped, no-change plans), `src/domain/tf-module/run.test.ts` (reading OpenTofu's JSON), `src/domain/tf-module/simulation.test.ts`.
 

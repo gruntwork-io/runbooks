@@ -6,7 +6,7 @@ import type { TfModuleCode } from "../../../../../../electron/shared/channels"
 
 interface CodeFactsProps {
   code: TfModuleCode
-  /** The block's `source` prop, the module's folder. */
+  /** The <TfModule> block's `source` prop, the module's folder. */
   moduleFolder: string
   /** The repository the code goes to, as `owner/repo`, and the branch it's compared with. */
   repository: { name: string; baseBranch: string } | undefined

@@ -1,6 +1,6 @@
 ---
 name: verify-runbooks
-description: Drive the Runbooks desktop app (Electron) the way a user does, one action at a time, and capture evidence that a change works. Use to prove a block's UI, a runbook's flow, or a fix in the real app rather than only in tests, especially the TfModule block and simulation mode.
+description: Drive the Runbooks desktop app (Electron) the way a user does, one action at a time, and capture evidence that a change works. Use to prove a block's UI, a runbook's flow, or a fix in the real app rather than only in tests, especially the TfModule and TfApplyWithGitHubPullRequest blocks and simulation mode.
 ---
 
 # Verify Runbooks
@@ -42,6 +42,7 @@ Read-only. Checks the build is current, the process is alive, the console record
 | `$C setup trust` | No trust prompt: blocks can run. |
 | `$C setup scenario <name-or-label>` | The simulation bar's Scenario picker shows that scenario. For the TfModule demo: `happy-path`, `empty-directory`, `no-directory-access`, `apply-fails`, `group-exists`. |
 | `$C setup group-form [block-id]` | The TfModule demo's Google Group block (`group`) has Organization example.com, Group email platform, Name Platform team, and Sam Rivera as an owner, with nothing needing a fix. Trusts the runbook first. |
+| `$C setup group-code [block-id]` | `group-form`, then Generate: the block lists its code, and the `apply-group` block shows its Code, PR and Apply tabs. |
 
 A sequence stops at the first step whose end state doesn't appear and reports that step and a screenshot. Setup is for preconditions only: when the behavior under test is filling the form, fill it yourself.
 

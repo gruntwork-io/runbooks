@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import type { TfModuleSpec } from "../../../../../../src/domain/tf-module/types"
-import { draftBody, draftBranch, draftTitle, unitPath } from "../pullRequest"
+import { draftBody, draftBranch, draftTitle } from "../pullRequest"
 
 const spec = {
   title: "Create a Google Group",
@@ -51,10 +51,5 @@ describe("pull request drafts", () => {
       "runbooks/add-the-team-example-com-group",
     )
     expect(draftBranch("!!!")).toBe("runbooks/change")
-  })
-
-  it("puts the unit at the block's path, or under its id", () => {
-    expect(unitPath("groups/{{ .id }}", "group", values)).toBe("groups/team@example.com")
-    expect(unitPath(undefined, "group", values)).toBe("group")
   })
 })

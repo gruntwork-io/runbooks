@@ -66,13 +66,24 @@ The group's code goes in a pull request to this repository. It's a sandbox copy 
 
 ## Create the group
 
-Fill in the group, check the code on **Code**, open a pull request that adds it as `google/<domain>/groups/<email>/terragrunt.hcl` on **PR**, then plan and apply on **Apply**. The unit includes the repository's `root.hcl` for state and `config/google-provider.hcl` for the Google provider, as its GitHub and Cloudflare units do, and runs in the clone.
+Fill in the group, and **Generate** writes it into the clone as `google/<domain>/groups/<email>/terragrunt.hcl`. The unit includes the repository's `root.hcl` for state and `config/google-provider.hcl` for the Google provider, as its GitHub and Cloudflare units do.
 
 <TfModule
   id="group"
   source="google-group"
   template="templates/google-group-unit"
   path="google/{{ if .domain }}{{ .domain }}{{ else }}{{ .customer_id }}{{ end }}/groups/{{ .id }}"
+/>
+
+## Apply the group
+
+Check the code on **Code**, open a pull request that adds it on **PR**, then plan and apply on **Apply**. The unit runs in the clone.
+
+<TfApplyWithGitHubPullRequest
+  id="apply-group"
+  tfModuleId="group"
+  title="Create the group"
+  description="Opens a pull request with the group's unit, and applies it."
 />
 
 <Admonition type="note" title="If the plan can't find your organization">
@@ -86,9 +97,9 @@ The module finds the organization's customer ID from its domain through Cloud Re
   title="Show the new group"
   description="Prints the group's outputs from the apply."
   env={{
-    GROUP_EMAIL: "{{ .outputs.group.email }}",
-    GROUP_RESOURCE: "{{ .outputs.group.resource_name }}",
-    GROUP_CONSOLE: "{{ .outputs.group.console_url }}",
+    GROUP_EMAIL: "{{ .outputs.apply_group.email }}",
+    GROUP_RESOURCE: "{{ .outputs.apply_group.resource_name }}",
+    GROUP_CONSOLE: "{{ .outputs.apply_group.console_url }}",
   }}
   command={`echo "Group:         $GROUP_EMAIL"
 echo "Resource name: $GROUP_RESOURCE"
@@ -102,10 +113,9 @@ When you're done trying it out, delete the group with the same code and state. T
 <Command
   id="delete-group"
   title="Delete the group"
-  description="Runs terragrunt destroy on the unit the Apply tab ran, in the clone."
-  inputsId="group"
+  description="Runs terragrunt destroy on the unit the apply ran, in the clone."
   env={{
-    UNIT_DIR: "{{ .outputs.clone_repo.clone_path }}/google/{{ if .inputs.domain }}{{ .inputs.domain }}{{ else }}{{ .inputs.customer_id }}{{ end }}/groups/{{ .inputs.id }}",
+    UNIT_DIR: "{{ .outputs.clone_repo.clone_path }}/{{ .outputs.group.CODE_PATH }}",
   }}
   command={`terragrunt --working-dir "$UNIT_DIR" --non-interactive destroy -auto-approve -input=false -no-color`}
   successMessage="The group is deleted."

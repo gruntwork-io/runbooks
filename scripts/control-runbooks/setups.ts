@@ -85,7 +85,7 @@ export const SEQUENCES: readonly Sequence[] = [
     name: "group-form",
     usage: "setup group-form [block-id]",
     endState:
-      "The Google Group block's UI tab has example.com, platform, Platform team, and Sam Rivera as an owner, with no input needing a fix.",
+      "The Google Group block's form has example.com, platform, Platform team, and Sam Rivera as an owner, with no input needing a fix.",
     steps: ([blockId = "group"]) => {
       const block = (page: Page) => page.getByTestId(blockId)
       return [
@@ -126,6 +126,25 @@ export const SEQUENCES: readonly Sequence[] = [
               .getByRole("button", { name: /as an owner/ })
               .click(),
           check: async (page) => (await block(page).getByText("sam@example.com").count()) > 0,
+        },
+      ]
+    },
+  },
+  {
+    name: "group-code",
+    usage: "setup group-code [block-id]",
+    endState:
+      "The group-form setup, then Generate: the Google Group block lists the code it generated, and the block that applies it shows its tabs.",
+    steps: ([blockId = "group"]) => {
+      const block = (page: Page) => page.getByTestId(blockId)
+      const form = sequence("group-form").steps([blockId])
+      return [
+        ...form,
+        {
+          does: "Click Generate",
+          leaves: "The block lists the code's files",
+          act: (page) => block(page).getByRole("button", { name: "Generate" }).click(),
+          check: async (page) => (await block(page).getByTestId("tf-module-generated").count()) > 0,
         },
       ]
     },

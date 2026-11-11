@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import { nextFrom, stageOf, type FlowFacts } from "../flow"
 
 const facts = (over: Partial<FlowFacts> = {}): FlowFacts => ({
-  inputsValid: true,
   hasRepo: true,
   pr: "none",
   applied: false,
@@ -10,10 +9,6 @@ const facts = (over: Partial<FlowFacts> = {}): FlowFacts => ({
 })
 
 describe("stageOf", () => {
-  it("asks for the inputs first", () => {
-    expect(stageOf(facts({ inputsValid: false, pr: "merged", applied: true }))).toBe("fill")
-  })
-
   it("follows a pull request from opening to merged and applied", () => {
     expect(stageOf(facts())).toBe("open-pr")
     expect(stageOf(facts({ pr: "open" }))).toBe("merge-or-apply")
@@ -38,8 +33,7 @@ describe("stageOf", () => {
 })
 
 describe("nextFrom", () => {
-  it("leads UI to Code, and Code to PR or, without a repository, to Apply", () => {
-    expect(nextFrom("ui", "fill", true)).toEqual({ tab: "code", label: "Next" })
+  it("leads Code to PR or, without a repository, to Apply", () => {
     expect(nextFrom("code", "open-pr", true)).toEqual({ tab: "pr", label: "Next" })
     expect(nextFrom("code", "apply", false)).toEqual({ tab: "apply", label: "Next" })
   })

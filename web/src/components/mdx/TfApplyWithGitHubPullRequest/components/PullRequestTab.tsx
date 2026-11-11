@@ -113,8 +113,6 @@ interface PullRequestTabProps {
   /** The cloned repository; none until a <GitClone> block clones one. */
   target: PullRequestTarget | undefined
   simulated: boolean
-  /** Why the block can't open a pull request yet, such as inputs that need a fix. */
-  blocked?: string | undefined
   /** Whether the inputs as they are now have been applied. */
   applied: boolean
   /** The next step, when it's on another tab. */
@@ -140,7 +138,6 @@ export function PullRequestTab({
   path,
   target,
   simulated,
-  blocked,
   applied,
   next,
   pr,
@@ -169,7 +166,7 @@ export function PullRequestTab({
   const opened = phase.kind === "open" || phase.kind === "merged" ? phase.pr : undefined
   // The open pull request's title and description while the person edits them.
   const [editing, setEditing] = useState<{ title: string; body: string } | null>(null)
-  const formDisabled = busy || !target || Boolean(blocked)
+  const formDisabled = busy || !target
   const edit = (field: keyof typeof edited) => (value: string) =>
     setEdited((x) => ({ ...x, [field]: value }))
 
@@ -353,7 +350,6 @@ export function PullRequestTab({
           {phase.kind === "draft" && phase.error && (
             <ErrorPanel title="Pull Request creation failed" message={phase.error} />
           )}
-          {blocked && target && <p className="text-sm text-warning-foreground">{blocked}</p>}
 
           <Button
             size="sm"
@@ -518,7 +514,6 @@ export function PullRequestTab({
               {pr.status === "superseded" && (
                 <Button
                   size="sm"
-                  disabled={Boolean(blocked)}
                   onClick={() => {
                     setEdited({})
                     pr.startNew()
@@ -539,7 +534,7 @@ export function PullRequestTab({
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={busy || Boolean(blocked)}
+                    disabled={busy}
                     onClick={() => void pr.push(target)}
                   >
                     {task === "pushing" ? (

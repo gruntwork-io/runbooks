@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Check, Copy, Loader2, Maximize2, TriangleAlert } from "lucide-react"
+import { Check, Copy, Loader2, Maximize2 } from "lucide-react"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { coy } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
@@ -20,13 +20,11 @@ import type { RepoFile, UnitFile } from "../../../../../../src/domain/tf-module/
 
 interface CodeTabProps {
   code: TfModuleCode | null
-  /** The block's `source` prop, the module's folder. */
+  /** The <TfModule> block's `source` prop, the module's folder. */
   moduleFolder: string
   error: string | null
   /** The repository the code goes to, as `owner/repo`, and the branch it's compared with. */
   repository?: { name: string; baseBranch: string } | undefined
-  /** How many inputs need a fix, so the code may not be what applies. */
-  errorCount: number
   /** The file shown, by its path; the unit's terragrunt.hcl until one is picked. */
   selected?: string | undefined
   onSelect: (path: string) => void
@@ -119,7 +117,6 @@ export function CodeTab({
   moduleFolder,
   error,
   repository,
-  errorCount,
   selected,
   onSelect,
 }: CodeTabProps) {
@@ -208,13 +205,6 @@ export function CodeTab({
   return (
     <div className="flex flex-col gap-3">
       <CodeFacts code={code} moduleFolder={moduleFolder} repository={repository} />
-      {errorCount > 0 && (
-        <p className="m-0 flex items-center gap-1.5 text-sm text-warning-foreground">
-          <TriangleAlert className="size-4" />
-          {errorCount === 1 ? "1 input needs a fix" : `${errorCount} inputs need a fix`} on the UI
-          tab, so this code isn't ready to apply.
-        </p>
-      )}
       {!maximized && browser(false)}
       <Dialog open={maximized} onOpenChange={setMaximized}>
         <DialogContent className="flex h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-none flex-col gap-3 p-4 sm:max-w-none">

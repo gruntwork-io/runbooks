@@ -1,7 +1,15 @@
-import { useRef, useState, type FormEvent } from "react"
-import { ArrowRight, ChevronDown, ChevronRight, FlaskConical, TriangleAlert } from "lucide-react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
+import {
+  ChevronDown,
+  ChevronRight,
+  FileCode,
+  FlaskConical,
+  Loader2,
+  TriangleAlert,
+} from "lucide-react"
 import { useRunbookContext } from "@/contexts/useRunbook"
-import { sensitiveOutput } from "@/lib/outputValues"
+import { useApi } from "@/contexts/ApiContext"
+import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import { Button } from "@/components/ui/button"
 import { useIpc } from "@/hooks/useIpc"
 import { useSimulation } from "@/contexts/useSimulation"
@@ -16,20 +24,12 @@ import type { TfModuleSpec } from "../../../../../src/domain/tf-module/types"
 import type { LookupRow } from "../../../../../src/domain/tf-module/rowTemplate"
 import { ModuleField } from "./components/ModuleField"
 import { ModuleLogo } from "./components/ModuleLogo"
-import { CodeTab } from "./components/CodeTab"
-import { ApplyTab } from "./components/ApplyTab"
-import { PullRequestTab } from "./components/PullRequestTab"
-import { useTfRun } from "./hooks/useTfRun"
-import { useUnitCode } from "./hooks/useUnitCode"
 import { useReadiness } from "./hooks/useReadiness"
 import { Readiness } from "./components/Readiness"
 import { readinessReport } from "./readiness"
 import { requiredApis } from "../../../../../src/domain/tf-module/requirements"
-import type { TfModuleRepo } from "../../../../../electron/shared/channels"
-import { usePullRequest, type PullRequestTarget } from "./hooks/usePullRequest"
-import { unitPath } from "./pullRequest"
-import { nextFrom, stageOf, type Tab } from "./flow"
-import { scrollToTop } from "./scrollToTop"
+import type { TfModuleGenerated, TfModuleRepo } from "../../../../../electron/shared/channels"
+import { inputsKey } from "../../../../../src/domain/tf-module/run"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import {
   formErrors,
@@ -37,13 +37,15 @@ import {
   publishedValues,
   registryConfig,
   suffixFor,
+  unitPath,
   withoutSuffix,
   type FormValues,
 } from "./lib"
 import { valuesFromPick } from "./lookupRows"
 
 /**
- * TfModule block: a form for an OpenTofu module's inputs.
+ * TfModule block: a form for an OpenTofu module's inputs, which generates the
+ * code that uses the module.
  *
  * The form comes from the module itself: variables.tf gives each input's
  * name, type, default and validation, and the module's runbook_block.yml says how
@@ -51,12 +53,11 @@ import { valuesFromPick } from "./lookupRows"
  * presets, and lookups that suggest values). The values are published like an
  * <Inputs> block's, so a <Template> or <Command> uses them through `inputsId`.
  *
- * Its Code tab shows the code the runbook's template renders with those
- * values to use the module, its Apply tab plans and applies it, and its PR
- * tab opens a GitHub pull request that adds the code to the repository a
- * <GitClone> block cloned. The module's outputs become the block's outputs
- * once it applies. The runbook, not the module, decides how the module is
- * used: a Terragrunt unit, or plain OpenTofu or Terraform code.
+ * Generate renders the runbook's template with those values and writes the
+ * code to its folder in the repository a <GitClone> block cloned, and writes
+ * it again as the inputs change. The runbook, not the module, decides how the
+ * module is used: a Terragrunt unit, or plain OpenTofu or Terraform code. A
+ * <TfApplyWithGitHubPullRequest> block takes the code from there.
  *
  * @param props.id - Unique identifier for this block (required)
  * @param props.source - The module's folder, relative to the runbook
@@ -72,12 +73,8 @@ interface TfModuleProps {
   path?: string
 }
 
-/** The repository a simulated pull request goes to, when no <GitClone> block cloned one. */
-const SIMULATED_TARGET: PullRequestTarget = {
-  owner: "acme",
-  repo: "infrastructure-live",
-  baseBranch: "main",
-}
+/** How long the inputs must settle before generated code is written again. */
+const REGENERATE_MS = 500
 
 /** What's wrong with the block's props, if anything. */
 function propsError(id: string, source: string, template: string): AppError | null {
@@ -163,13 +160,6 @@ function TfModule({ id, source, template, path }: TfModuleProps) {
   )
 }
 
-const TABS: { tab: Tab; label: string }[] = [
-  { tab: "ui", label: "UI" },
-  { tab: "code", label: "Code" },
-  { tab: "pr", label: "PR" },
-  { tab: "apply", label: "Apply" },
-]
-
 interface TfModuleFormProps {
   id: string
   source: string
@@ -193,18 +183,10 @@ function TfModuleForm({
   onAutoUpdate,
   onSubmit,
 }: TfModuleFormProps) {
+  const api = useApi()
   const { activeWorkTree } = useGitWorkTree()
   const { state: simulation } = useSimulation()
   const { registerOutputs } = useRunbookContext()
-  const [tab, setTab] = useState<Tab>("ui")
-  const rootRef = useRef<HTMLDivElement>(null)
-  // A Next button moves on to another tab, and scrolls smoothly back to the block's top to start it.
-  const goTo = (next: Tab) => {
-    setTab(next)
-    requestAnimationFrame(() => rootRef.current && scrollToTop(rootRef.current))
-  }
-  // The file the Code tab shows, kept here so the PR tab can open one there.
-  const [codeFile, setCodeFile] = useState<string | undefined>(undefined)
   const [values, setValues] = useState<FormValues>(() => {
     const saved = Object.fromEntries(
       spec.variables.map((v) => [v.name, formValue(v, initialData[v.name])]),
@@ -220,6 +202,7 @@ function TfModuleForm({
   const [showAdvanced, setShowAdvanced] = useState(
     () => advanced.some((v) => Object.hasOwn(errors, v.name)) && hasSubmitted,
   )
+  const generator = useGenerator(api)
 
   // A pick changes its own input and then the ones its lookup sets, in one
   // event, so each change builds on the last instead of on this render's values.
@@ -228,7 +211,8 @@ function TfModuleForm({
     const next = { ...latest.current, ...changes }
     latest.current = next
     setValues(next)
-    onAutoUpdate(publishedValues(spec, next))
+    // Blocks that use the inputs, and the code, keep the last valid ones while an input needs a fix.
+    if (Object.keys(formErrors(spec, next)).length === 0) onAutoUpdate(publishedValues(spec, next))
   }
 
   const pickFrom = (name: string) => (row: LookupRow) => {
@@ -239,6 +223,46 @@ function TfModuleForm({
   const shownError = (name: string) =>
     submitAttempted || hasSubmitted || touched.has(name) ? errors[name] : undefined
 
+  const isValid = Object.keys(errors).length === 0
+  const errorCount = Object.keys(errors).length
+  const published = publishedValues(spec, values)
+  const repoPath = unitPath(path, id, published)
+  const repo: TfModuleRepo | undefined = activeWorkTree
+    ? {
+        worktreePath: activeWorkTree.localPath,
+        path: repoPath,
+        baseBranch: activeWorkTree.gitInfo.ref,
+      }
+    : simulation.enabled
+      ? { path: repoPath }
+      : undefined
+  const request = { blockId: id, source, template, values: published, repo }
+  const requestKey = JSON.stringify(request)
+
+  const generate = async (req: typeof request) => {
+    const generated = await generator.run(req)
+    if (!generated) return
+    const { code } = generated
+    registerOutputs(id, {
+      MODULE_SOURCE: source,
+      TEMPLATE: template,
+      CODE_PATH: code.kind === "repo" ? code.folder : unitPath(path, id, req.values),
+    })
+  }
+
+  // Once generated, the code follows the inputs, as a <Template> block's does.
+  const [following, setFollowing] = useState(false)
+  useEffect(() => {
+    if (!following || !isValid || requestKey === generator.lastKey) return
+    const timer = setTimeout(
+      () => void generate(JSON.parse(requestKey) as typeof request),
+      REGENERATE_MS,
+    )
+    return () => clearTimeout(timer)
+    // Writes when the request changes, not when what writes it does.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestKey, following, isValid])
+
   const submit = (e: FormEvent) => {
     e.preventDefault()
     setSubmitAttempted(true)
@@ -246,8 +270,8 @@ function TfModuleForm({
       if (advanced.some((v) => Object.hasOwn(errors, v.name))) setShowAdvanced(true)
       return
     }
-    void onSubmit(publishedValues(spec, values))
-    goTo("code")
+    setFollowing(true)
+    void onSubmit(published).then(() => generate(request))
   }
 
   const field = (name: string) => {
@@ -267,65 +291,19 @@ function TfModuleForm({
     )
   }
 
-  const isValid = Object.keys(errors).length === 0
-  const errorCount = Object.keys(errors).length
-  const published = publishedValues(spec, values)
-  const repoPath = unitPath(path, id, published)
-  const prTarget: PullRequestTarget | undefined = activeWorkTree
-    ? {
-        worktreePath: activeWorkTree.localPath,
-        owner: activeWorkTree.gitInfo.repoOwner,
-        repo: activeWorkTree.gitInfo.repoName,
-        baseBranch: activeWorkTree.gitInfo.ref,
-      }
-    : simulation.enabled
-      ? SIMULATED_TARGET
-      : undefined
-  const hasRepo = prTarget !== undefined
-  const repo: TfModuleRepo | undefined = prTarget && {
-    worktreePath: prTarget.worktreePath,
-    path: repoPath,
-    baseBranch: prTarget.baseBranch,
-  }
-  const codeRef = { source, template }
-  const run = useTfRun(id, codeRef, published, repo)
-  const pr = usePullRequest(id, codeRef, published, repoPath)
-  const unitCode = useUnitCode(id, codeRef, published, repo, tab === "code" || tab === "pr")
   const apis = requiredApis(spec)
   const ready = useReadiness(
-    apis.map((api) => api.service),
+    apis.map((required) => required.service),
     template,
   )
-  const readinessProps = {
-    report: ready.readiness && readinessReport(apis, ready.readiness),
-    error: ready.error,
-    checking: ready.checking,
-    onRecheck: ready.recheck,
-  }
-  const applied = run.status === "current"
-  const stage = stageOf({ inputsValid: isValid, hasRepo, pr: pr.status, applied })
-  const blocked =
-    errorCount > 0
-      ? `${errorCount === 1 ? "1 input needs" : `${errorCount} inputs need`} a fix on the UI tab first.`
-      : undefined
-
-  const apply = async () => {
-    const result = await run.apply()
-    if (!result) return
-    registerOutputs(
-      id,
-      Object.fromEntries(
-        result.outputs.map((o) => [o.name, o.sensitive ? sensitiveOutput(o.value) : o.value]),
-      ),
-    )
-  }
+  const { state: generation } = generator
+  const started = generation.kind !== "idle"
+  const current =
+    generation.kind === "generated" && generation.inputs === inputsKey(published) && isValid
 
   return (
-    <div
-      ref={rootRef}
-      className="runbook-block relative mb-4 scroll-mt-4 rounded-lg border border-border bg-muted p-6 shadow-sm"
-    >
-      <ProgressStep done={stage === "done"} />
+    <div className="runbook-block relative mb-4 rounded-lg border border-border bg-muted p-6 shadow-sm">
+      <ProgressStep done={current} />
       <div className="absolute right-3 top-2">
         <BlockIdLabel id={id} size="large" />
       </div>
@@ -361,108 +339,14 @@ function TfModuleForm({
         </div>
       )}
 
-      <Readiness {...readinessProps} />
+      <Readiness
+        report={ready.readiness && readinessReport(apis, ready.readiness)}
+        error={ready.error}
+        checking={ready.checking}
+        onRecheck={ready.recheck}
+      />
 
-      <div role="tablist" aria-label="Module" className="mb-5 flex gap-1 border-b border-border">
-        {TABS.map(({ tab: name, label }) => (
-          <button
-            key={name}
-            type="button"
-            role="tab"
-            id={`${id}-tab-${name}`}
-            aria-selected={tab === name}
-            aria-controls={`${id}-panel-${name}`}
-            onClick={() => setTab(name)}
-            className={`-mb-px border-b-2 px-3 py-1.5 text-sm font-medium ${
-              tab === name
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "code" && (
-        <div role="tabpanel" id={`${id}-panel-code`} aria-labelledby={`${id}-tab-code`}>
-          <CodeTab
-            code={unitCode.code}
-            moduleFolder={source}
-            error={unitCode.error}
-            repository={
-              prTarget && {
-                name: `${prTarget.owner}/${prTarget.repo}`,
-                baseBranch: prTarget.baseBranch,
-              }
-            }
-            errorCount={errorCount}
-            selected={codeFile}
-            onSelect={setCodeFile}
-          />
-          <div className="mt-4 border-t border-border pt-4">
-            <NextButton onClick={() => goTo(nextFrom("code", stage, hasRepo)!.tab)} />
-          </div>
-        </div>
-      )}
-
-      <div
-        role="tabpanel"
-        id={`${id}-panel-pr`}
-        aria-labelledby={`${id}-tab-pr`}
-        hidden={tab !== "pr"}
-      >
-        <PullRequestTab
-          blockId={id}
-          code={unitCode.code}
-          spec={spec}
-          values={published}
-          path={repoPath}
-          target={prTarget}
-          simulated={simulation.enabled}
-          blocked={blocked}
-          applied={applied}
-          next={nextFrom("pr", stage, hasRepo)}
-          pr={pr}
-          onOpenFile={(file) => {
-            setCodeFile(file)
-            setTab("code")
-          }}
-          onNavigate={goTo}
-        />
-      </div>
-
-      {/* Kept mounted, so a plan or apply keeps going while another tab shows. */}
-      <div
-        role="tabpanel"
-        id={`${id}-panel-apply`}
-        aria-labelledby={`${id}-tab-apply`}
-        hidden={tab !== "apply"}
-      >
-        <ApplyTab
-          blockId={id}
-          state={run.state}
-          status={run.status}
-          simulated={simulation.enabled}
-          blocked={blocked}
-          outputs={spec.outputs}
-          next={nextFrom("apply", stage, hasRepo)}
-          onNavigate={goTo}
-          onPlan={() => void run.plan()}
-          onApply={() => void apply()}
-          onCancel={run.cancel}
-        />
-      </div>
-
-      <form
-        onSubmit={submit}
-        className="space-y-6"
-        noValidate
-        role="tabpanel"
-        id={`${id}-panel-ui`}
-        aria-labelledby={`${id}-tab-ui`}
-        hidden={tab !== "ui"}
-      >
+      <form onSubmit={submit} className="space-y-6" noValidate>
         <div className="space-y-5">
           {spec.variables.filter((v) => v.primary).map((v) => field(v.name))}
         </div>
@@ -491,34 +375,138 @@ function TfModuleForm({
           </div>
         )}
 
-        <div className="border-t border-border pt-4">
-          <NextButton type="submit" />
+        <div className="space-y-3 border-t border-border pt-4">
+          {!started && (
+            <Button type="submit" variant="default">
+              <FileCode className="size-4" /> Generate
+            </Button>
+          )}
           {submitAttempted && errorCount > 0 && (
-            <p className="mt-3 text-sm text-destructive">
+            <p className="text-sm text-destructive">
               {errorCount === 1
                 ? "1 input above needs a fix."
                 : `${errorCount} inputs above need a fix.`}
             </p>
           )}
+          <Generation
+            state={generation}
+            repository={activeWorkTree?.gitInfo.repoName}
+            stale={started && !current}
+          />
         </div>
       </form>
     </div>
   )
 }
 
-/** Moves on to the block's next tab. */
-function NextButton({
-  type = "button",
-  onClick,
+type GenerationState =
+  | { readonly kind: "idle" }
+  | { readonly kind: "generating"; readonly last?: TfModuleGenerated | undefined }
+  | { readonly kind: "generated"; readonly result: TfModuleGenerated; readonly inputs: string }
+  | {
+      readonly kind: "failed"
+      readonly error: string
+      readonly last?: TfModuleGenerated | undefined
+    }
+
+/**
+ * Writes the block's code, one generate at a time: each one replaces the
+ * files the last one wrote, and a generate that finishes after a newer one
+ * started is dropped.
+ */
+function useGenerator(api: ReturnType<typeof useApi>) {
+  const [state, setState] = useState<GenerationState>({ kind: "idle" })
+  const written = useRef<string[]>([])
+  const seq = useRef(0)
+  // The request the last generate was for, so the same one isn't written twice.
+  const [lastKey, setLastKey] = useState<string | undefined>(undefined)
+  const lastResult = (s: GenerationState) =>
+    s.kind === "generated" ? s.result : s.kind === "idle" ? undefined : s.last
+
+  const run = async (request: {
+    blockId: string
+    source: string
+    template: string
+    values: Record<string, unknown>
+    repo?: TfModuleRepo | undefined
+  }): Promise<TfModuleGenerated | undefined> => {
+    const mine = ++seq.current
+    setLastKey(JSON.stringify(request))
+    setState((s) => ({ kind: "generating", last: lastResult(s) }))
+    try {
+      const result = await api.invoke("tf-module:generate", {
+        ...request,
+        replaces: written.current,
+      })
+      if (result.written.length > 0) written.current = result.written
+      if (mine !== seq.current) return undefined
+      setState({ kind: "generated", result, inputs: inputsKey(request.values) })
+      return result
+    } catch (err) {
+      if (mine !== seq.current) return undefined
+      const error = cleanIpcErrorMessage(err instanceof Error ? err.message : String(err))
+      setState((s) => ({ kind: "failed", error, last: lastResult(s) }))
+      return undefined
+    }
+  }
+
+  return { state, run, lastKey }
+}
+
+/** What the last generate wrote, or why it failed. */
+function Generation({
+  state,
+  repository,
+  stale,
 }: {
-  type?: "button" | "submit"
-  onClick?: () => void
+  state: GenerationState
+  repository: string | undefined
+  stale: boolean
 }) {
+  if (state.kind === "idle") return null
+  if (state.kind === "failed") {
+    return (
+      <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+        <p className="m-0 font-medium text-destructive">The code couldn't be generated.</p>
+        <p className="m-0 mt-1 whitespace-pre-wrap text-foreground">{state.error}</p>
+      </div>
+    )
+  }
+  const result = state.kind === "generated" ? state.result : state.last
+  if (!result) {
+    return (
+      <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <Loader2 className="size-3.5 animate-spin" /> Generating the code…
+      </p>
+    )
+  }
+  const { code } = result
+  const paths =
+    result.written.length > 0
+      ? result.written
+      : code.kind === "repo"
+        ? code.files.filter((f) => f.status !== "context").map((f) => f.path)
+        : code.files.map((f) => f.path)
+  const where =
+    result.written.length > 0
+      ? `Wrote to ${repository ?? "the repository"}:`
+      : code.kind === "repo"
+        ? "Generated (simulated, so nothing was written):"
+        : "Generated, to run in the block's workspace, since no repository is cloned:"
   return (
-    <Button type={type} variant="default" onClick={onClick}>
-      Next
-      <ArrowRight className="ml-1 size-4" />
-    </Button>
+    <div className="text-sm" data-testid="tf-module-generated">
+      <p className="m-0 flex items-center gap-1.5 text-muted-foreground">
+        {state.kind === "generating" || stale ? (
+          <Loader2 className="size-3.5 animate-spin" />
+        ) : null}
+        {where}
+      </p>
+      <ul className="m-0 mt-1 list-none pl-0 font-mono text-xs text-foreground">
+        {paths.map((p) => (
+          <li key={p}>{p}</li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

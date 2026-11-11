@@ -29,7 +29,6 @@ const renderTab = (code: TfModuleCode, selected?: string) =>
       moduleFolder="google-group"
       error={null}
       repository={{ name: "acme/infrastructure-live", baseBranch: "main" }}
-      errorCount={0}
       selected={selected}
       onSelect={vi.fn()}
     />,

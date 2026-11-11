@@ -28,13 +28,7 @@ export function draftBody(spec: TfModuleSpec, values: Record<string, unknown>): 
   const rows = spec.variables
     .filter((v) => !v.sensitive && valueText(values[v.name]) !== "")
     .map((v) => `| ${v.label} | \`${valueText(values[v.name]).replace(/\|/g, "\\|")}\` |`)
-  return [
-    summary,
-    "",
-    "| Input | Value |",
-    "| --- | --- |",
-    ...rows,
-  ].join("\n")
+  return [summary, "", "| Input | Value |", "| --- | --- |", ...rows].join("\n")
 }
 
 /** A branch name from a title: lowercase words joined by dashes, under `runbooks/`. */
@@ -46,13 +40,4 @@ export function draftBranch(title: string): string {
     .slice(0, 48)
     .replace(/-+$/, "")
   return `runbooks/${slug || "change"}`
-}
-
-/** Where the unit goes in the repository: the block's `path`, a template over its inputs, or its id. */
-export function unitPath(
-  template: string | undefined,
-  blockId: string,
-  values: Record<string, unknown>,
-): string {
-  return template ? renderRowTemplate(template, values).trim() : blockId
 }

@@ -470,8 +470,6 @@ interface ApplyTabProps {
   /** What the run means for the inputs as they are now. */
   status: RunStatus
   simulated: boolean
-  /** Why the block can't plan yet, such as inputs that need a fix. */
-  blocked?: string | undefined
   outputs: readonly TfModuleOutput[]
   /** The next step, when it's on another tab, such as merging the pull request. */
   next: NextStep | undefined
@@ -508,7 +506,6 @@ export function ApplyTab({
   state,
   status,
   simulated,
-  blocked,
   outputs,
   next,
   onNavigate,
@@ -535,15 +532,12 @@ export function ApplyTab({
       .map(([action, n]) => `${n} to ${action}`)
       .join(", ") || "No changes"
 
-  const planButton = (label: string, variant: "default" | "outline") =>
-    blocked ? (
-      <p className="m-0 text-sm text-warning-foreground">{blocked}</p>
-    ) : (
-      <Button type="button" variant={variant} onClick={onPlan}>
-        {variant === "default" ? <Play className="size-4" /> : <RotateCcw className="size-4" />}{" "}
-        {label}
-      </Button>
-    )
+  const planButton = (label: string, variant: "default" | "outline") => (
+    <Button type="button" variant={variant} onClick={onPlan}>
+      {variant === "default" ? <Play className="size-4" /> : <RotateCcw className="size-4" />}{" "}
+      {label}
+    </Button>
+  )
   const stopButton = (
     <Button type="button" variant="outline" size="sm" onClick={onCancel}>
       <Square className="size-3.5" /> Stop
