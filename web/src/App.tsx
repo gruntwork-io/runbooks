@@ -410,7 +410,7 @@ function App() {
   return (
     <DisplayPathProvider sessionDir={getRunbookResult.data?.sessionDir}>
       <ClearLogsOnRunbookChange sessionKey={loadedSessionKey} />
-      {/* The runbook scrolls inside its own box, so a wheel gesture over the
+      {/* The runbook scrolls inside its own pane, so a wheel gesture over the
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
       <div className="flex flex-col" onWheel={handleWheel}>
         <Header
@@ -515,7 +515,7 @@ function App() {
                 <div
                   ref={runbookPaneRef}
                   style={runbookPaneStyle}
-                  className={cn("relative w-full px-4 lg:px-0 lg:block", {
+                  className={cn("relative w-full lg:block", {
                     "lg:flex-1 lg:max-w-3xl lg:min-w-xl": showArtifacts && !isRunbookDragged,
                     "lg:flex-none lg:w-(--pane-width) lg:max-w-[calc(100%-27rem)]":
                       showArtifacts && isRunbookDragged,
@@ -534,36 +534,55 @@ function App() {
                     blockStates={getRunbookResult.data?.blockStates}
                   >
                     <GeneratedFilesHistory resumedFiles={resumedFiles} />
-                    <MDXContainer
+                    {/* The pane scrolls, not the runbook's box, so the
+                        scrollbar sits at the pane's right edge, beside the
+                        handle, outside the box and its padding. Keyed with
+                        the runbook, so another runbook starts at the top.
+                        Its padding beside and below the box leaves room for
+                        the box's shadow, which reaches 5px to the sides and
+                        9px down and would be clipped at the pane's edge.
+                        None above, where the shadow barely reaches, so the
+                        chapter bar sticks at the pane's top edge. It takes
+                        the dark theme's color scheme, which markdown-body
+                        sets only inside the box, so the scrollbar is drawn
+                        dark in the dark theme. In the narrow layout it ends
+                        at the window's foot: it starts 9.75rem down, below
+                        its wrapper's translate-y-19 and pt-20. */}
+                    <div
                       ref={runbookScrollRef}
-                      content={content}
-                      runbookPath={runbookPath}
-                      runbookFilePath={getRunbookResult.data?.path}
-                      remoteSource={getRunbookResult.data?.remoteSource}
-                      assetHost={getRunbookResult.data?.assetHost}
-                      banner={
-                        shownResumeNotice ? (
-                          <SessionResumedNotice
-                            sessionName={shownResumeNotice.sessionName}
-                            resumedFrom={shownResumeNotice.resumedFrom}
-                            finishedAt={shownResumeNotice.finishedAt}
-                            onStartNew={handleStartNewSession}
-                            onDismiss={() => setResumeNotice(null)}
-                          />
-                        ) : (
-                          shownFinishedNotice && (
-                            <FinishedSessionNotice
-                              sessionName={shownFinishedNotice.sessionName}
-                              finishedSession={shownFinishedNotice.finishedSession}
-                              onSwitchSession={() => setIsSessionsOpen(true)}
-                              onDismiss={() => setFinishedNotice(null)}
+                      data-testid="runbook-scroller"
+                      className="px-4 pb-3 lg:px-2 h-full max-h-[calc(100vh-9.75rem)] lg:max-h-full overflow-y-auto dark:scheme-dark"
+                    >
+                      <MDXContainer
+                        content={content}
+                        runbookPath={runbookPath}
+                        runbookFilePath={getRunbookResult.data?.path}
+                        remoteSource={getRunbookResult.data?.remoteSource}
+                        assetHost={getRunbookResult.data?.assetHost}
+                        banner={
+                          shownResumeNotice ? (
+                            <SessionResumedNotice
+                              sessionName={shownResumeNotice.sessionName}
+                              resumedFrom={shownResumeNotice.resumedFrom}
+                              finishedAt={shownResumeNotice.finishedAt}
+                              onStartNew={handleStartNewSession}
+                              onDismiss={() => setResumeNotice(null)}
                             />
+                          ) : (
+                            shownFinishedNotice && (
+                              <FinishedSessionNotice
+                                sessionName={shownFinishedNotice.sessionName}
+                                finishedSession={shownFinishedNotice.finishedSession}
+                                onSwitchSession={() => setIsSessionsOpen(true)}
+                                onDismiss={() => setFinishedNotice(null)}
+                              />
+                            )
                           )
-                        )
-                      }
-                      // --runbook-padding lets a chapter's bar stick to the box's top edge.
-                      className="[--runbook-padding:--spacing(6)] lg:[--runbook-padding:--spacing(8)] p-(--runbook-padding) w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
-                    />
+                        }
+                        // At least as tall as the pane, so a short runbook's box still reaches its foot.
+                        className="p-6 lg:p-8 w-full min-h-full"
+                      />
+                    </div>
                   </IpcSessionHistoryProvider>
 
                   {/* Show code icon button - desktop only, when artifacts panel is hidden */}

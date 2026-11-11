@@ -123,7 +123,7 @@ test.describe("Command palette", () => {
   })
 
   test("Jump to section scrolls the runbook to the chosen heading", async () => {
-    const runbook = page.getByTestId("runbook-content")
+    const runbook = page.getByTestId("runbook-scroller")
     const verify = page.getByRole("heading", { name: "Verify" })
     expect(await runbook.evaluate((el) => el.scrollTop)).toBe(0)
 

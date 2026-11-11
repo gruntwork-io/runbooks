@@ -29,9 +29,9 @@ const findIgnore = { [FIND_IGNORE_ATTRIBUTE]: "" }
 /**
  * The bar at the top of the chapter on screen, which stays in view as the
  * chapter scrolls: the table of contents, which chapter this is, and buttons
- * to the previous and next chapters. A sticky element sticks inside its
- * scroller's padding, so it sticks --runbook-padding higher, at the top edge,
- * where no text can scroll by above it.
+ * to the previous and next chapters. The runbook's pane scrolls, and has no
+ * top padding, so the bar sticks at its top edge, where no text can scroll
+ * by above it.
  */
 export function ChapterBar() {
   const { chapters, current } = useRunbookChapters()
@@ -43,7 +43,7 @@ export function ChapterBar() {
     <nav
       aria-label="Chapters"
       {...findIgnore}
-      className="sticky top-[calc(var(--runbook-padding,0px)*-1)] z-10 mb-6 flex items-center gap-1 rounded-lg border border-border bg-bg-default/95 p-1 shadow-sm backdrop-blur-sm"
+      className="sticky top-0 z-10 mb-6 flex items-center gap-1 rounded-lg border border-border bg-bg-default/95 p-1 shadow-sm backdrop-blur-sm"
     >
       <ChapterContents />
       <div
