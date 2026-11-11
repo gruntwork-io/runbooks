@@ -3,6 +3,7 @@ import { render, screen, waitFor, act } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { InstructionModeProvider } from "@/contexts/InstructionModeContext"
+import { RunbookLayoutProvider } from "@/contexts/RunbookLayoutContext"
 import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
 import { GeneratedFilesProvider } from "@/contexts/GeneratedFilesContext"
 import { IpcGitWorkTreeProvider } from "@/contexts/IpcGitWorkTreeContext"
@@ -134,7 +135,9 @@ async function openRunbook(blockStates: unknown[], bChecked?: Promise<void>) {
             <GeneratedFilesProvider>
               <IpcGitWorkTreeProvider>
                 <LogsProvider>
-                  <App />
+                  <RunbookLayoutProvider>
+                    <App />
+                  </RunbookLayoutProvider>
                 </LogsProvider>
               </IpcGitWorkTreeProvider>
             </GeneratedFilesProvider>

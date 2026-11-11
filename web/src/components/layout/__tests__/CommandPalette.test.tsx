@@ -4,12 +4,14 @@ import { render, screen, fireEvent, within, act } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { InstructionModeProvider } from "@/contexts/InstructionModeContext"
+import { RunbookLayoutProvider } from "@/contexts/RunbookLayoutContext"
 import { LogsProvider } from "@/contexts/LogsContext"
 import { RunbookChaptersProvider } from "@/contexts/RunbookChaptersContext"
 import { useChaptersControl, useRunbookChapters } from "@/contexts/useRunbookChapters"
 import { useLogs } from "@/contexts/useLogs"
 import { useTheme } from "@/contexts/useTheme"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
+import { useRunbookLayout } from "@/contexts/useRunbookLayout"
 import { formatShortcut } from "@/lib/platform"
 import { CommandPalette, type CommandPaletteContext } from "../CommandPalette"
 import { FindBar, type FindBarHandle } from "../FindBar"
@@ -33,13 +35,14 @@ function Chapters({ titles }: { titles: readonly string[] }) {
   return <output data-testid="current-chapter">{current}</output>
 }
 
-/** Shows the theme and mode the palette's commands set. */
+/** Shows the theme, mode and runbook width the palette's commands set. */
 function Settings() {
   const { theme } = useTheme()
   const { enabled } = useInstructionMode()
+  const { layout } = useRunbookLayout()
   return (
     <output data-testid="settings">
-      {theme} {enabled ? "instruction" : "interactive"}
+      {theme} {enabled ? "instruction" : "interactive"} {layout}
     </output>
   )
 }
@@ -91,9 +94,11 @@ function Providers({
     <ApiProvider api={api}>
       <ThemeProvider>
         <InstructionModeProvider>
-          <LogsProvider>
-            <RunbookChaptersProvider>{children}</RunbookChaptersProvider>
-          </LogsProvider>
+          <RunbookLayoutProvider>
+            <LogsProvider>
+              <RunbookChaptersProvider>{children}</RunbookChaptersProvider>
+            </LogsProvider>
+          </RunbookLayoutProvider>
         </InstructionModeProvider>
       </ThemeProvider>
     </ApiProvider>
@@ -185,6 +190,8 @@ describe("CommandPalette", () => {
       "Theme: Light",
       "Theme: Dark",
       "Theme: Systemcurrent",
+      "Runbook width: Fixedcurrent",
+      "Runbook width: Fill window",
       "Turn on Instruction mode",
       "Install 'runbooks' command in PATH",
       "Uninstall 'runbooks' command from PATH",
@@ -270,6 +277,15 @@ describe("CommandPalette", () => {
     await renderPalette()
     await select("Turn on Instruction mode")
     expect(screen.getByTestId("settings")).toHaveTextContent("system instruction")
+  })
+
+  it("marks the current runbook width and switches it", async () => {
+    await renderPalette()
+    expect(option(/^Runbook width: Fixed/)).toHaveTextContent("current")
+    expect(option("Runbook width: Fill window")).not.toHaveTextContent("current")
+
+    await select("Runbook width: Fill window")
+    expect(screen.getByTestId("settings")).toHaveTextContent("system interactive fill")
   })
 
   it("opens the docs and the issue tracker in the browser", async () => {

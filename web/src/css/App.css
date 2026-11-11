@@ -218,6 +218,20 @@
     font-weight: inherit;
   }
 
+  /* Runbook width Fill window, desktop layout only: caps text outside blocks
+     at 52rem (832px), a Fixed runbook's 56rem less its 2rem padding on each
+     side, about the 815-830px a line measures there (less where a scrollbar
+     takes room). Images, code, tables and blocks stay full width. */
+  [data-runbook-layout="fill"]
+    .markdown-body
+    :is(p, ul, ol, li, dl, dt, dd, blockquote):not(.runbook-block *):not(
+      :has(img, picture, video, iframe, pre, table, .runbook-block)
+    ) {
+    @variant lg {
+      max-width: 52rem;
+    }
+  }
+
   /* Set default styles for Runbook blocks */
   .runbook-block input {
     background-color: var(--card);

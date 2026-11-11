@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { InstructionModeProvider } from "@/contexts/InstructionModeContext"
+import { RunbookLayoutProvider } from "@/contexts/RunbookLayoutContext"
 import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
 import { GeneratedFilesProvider } from "@/contexts/GeneratedFilesContext"
 import { IpcGitWorkTreeProvider } from "@/contexts/IpcGitWorkTreeContext"
@@ -220,7 +221,9 @@ function renderApp(options?: ApiOptions) {
               <IpcGitWorkTreeProvider>
                 <LogsProvider>
                   <LogSeeder />
-                  <App />
+                  <RunbookLayoutProvider>
+                    <App />
+                  </RunbookLayoutProvider>
                 </LogsProvider>
               </IpcGitWorkTreeProvider>
             </GeneratedFilesProvider>

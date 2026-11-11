@@ -1,5 +1,4 @@
-import { test, expect, expectNoConsoleErrors, type Page } from "./fixtures"
-import type { Locator } from "@playwright/test"
+import { test, expect, expectNoConsoleErrors, drag, showFiles } from "./fixtures"
 
 /**
  * End-to-end test for the handle between the runbook and the files workspace.
@@ -55,24 +54,3 @@ test.describe("runbook resize handle", () => {
     expectNoConsoleErrors(consoleMessages)
   })
 })
-
-/** Shows the files workspace beside the runbook, once it has finished sliding in. */
-async function showFiles(page: Page) {
-  await expect(page.getByTestId("runbook-content")).toBeVisible({ timeout: 15_000 })
-  await page.getByTitle("Show generated files").click()
-  // A string, as the e2e specs build without the DOM types.
-  await page.waitForFunction("document.getAnimations().length === 0")
-}
-
-/** Drags `handle` `dx` pixels to the right, or to the left when negative. */
-async function drag(page: Page, handle: Locator, dx: number) {
-  const box = await handle.boundingBox()
-  if (!box) throw new Error("The resize handle isn't on screen")
-  const x = box.x + box.width / 2
-  const y = box.y + box.height / 2
-  await page.mouse.move(x, y)
-  await page.mouse.down()
-  await page.mouse.move(x + dx / 2, y)
-  await page.mouse.move(x + dx, y)
-  await page.mouse.up()
-}

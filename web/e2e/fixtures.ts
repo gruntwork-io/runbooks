@@ -4,6 +4,7 @@ import {
   _electron as electron,
   type ConsoleMessage,
   type ElectronApplication,
+  type Locator,
   type Page,
 } from "@playwright/test"
 import fs from "fs"
@@ -11,6 +12,7 @@ import os from "os"
 import path from "path"
 import { fileURLToPath } from "url"
 import { MOCK_KEYCHAIN } from "../../electron/e2e/launch.ts"
+import { resizeMainWindow } from "../../electron/e2e/main-process.ts"
 
 /** Repo root: two directories above web/e2e/ */
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
@@ -32,10 +34,21 @@ type RunbookAppFixture = {
    * temp dir, we get isolation for free without passing --working-dir.
    */
   launchRunbook: (runbookPath: string) => Promise<Page>
+  /**
+   * Resize the window launchRunbook() opened, and wait until the page's
+   * viewport has the new size. Fails, naming the width it got, if the
+   * screen is too small for the window.
+   */
+  resizeWindow: (width: number, height: number) => Promise<void>
   /** Console messages collected from the page during the test. */
   consoleMessages: ConsoleMessage[]
   /** Temporary directory that holds the copied runbook and per-test user-data. */
   workDir: string
+}
+
+/** The app and window launchRunbook() opened, for the fixtures that act on them. */
+type LaunchedAppFixture = {
+  launched: { current: { app: ElectronApplication; page: Page } | null }
 }
 
 /**
@@ -44,7 +57,14 @@ type RunbookAppFixture = {
  *
  * Each test gets its own temp `workDir` so generated files are isolated.
  */
-export const test = base.extend<RunbookAppFixture>({
+export const test = base.extend<RunbookAppFixture & LaunchedAppFixture>({
+  launched: [
+    async ({}, use) => {
+      await use({ current: null })
+    },
+    { box: true },
+  ],
+
   consoleMessages: async ({}, use) => {
     const messages: ConsoleMessage[] = []
     await use(messages)
@@ -59,7 +79,7 @@ export const test = base.extend<RunbookAppFixture>({
     { scope: "test" },
   ],
 
-  launchRunbook: async ({ consoleMessages, workDir }, use, testInfo) => {
+  launchRunbook: async ({ consoleMessages, workDir, launched }, use, testInfo) => {
     let app: ElectronApplication | null = null
     const mainLog: string[] = []
 
@@ -110,6 +130,7 @@ export const test = base.extend<RunbookAppFixture>({
       const page = await app.firstWindow()
       page.on("console", (msg) => consoleMessages.push(msg))
       await page.waitForLoadState("domcontentloaded")
+      launched.current = { app, page }
       return page
     }
 
@@ -136,6 +157,21 @@ export const test = base.extend<RunbookAppFixture>({
     // TypeScript 5.8 CFA loses track of the assignment inside the `launch`
     // closure and narrows `app` to `never`; cast to restore the declared type.
     await (app as ElectronApplication | null)?.close()
+  },
+
+  resizeWindow: async ({ launched }, use) => {
+    await use(async (width, height) => {
+      const current = launched.current
+      if (!current) throw new Error("Call launchRunbook() before resizeWindow()")
+      await resizeMainWindow(current.app, width, height)
+      // macOS keeps a window on its screen, so a window asked to be wider
+      // than the screen comes back narrower than `width`.
+      await expect
+        .poll(async () => Number(await current.page.evaluate("window.innerWidth")), {
+          message: `window.innerWidth after resizing the window to ${width}x${height}`,
+        })
+        .toBe(width)
+    })
   },
 })
 
@@ -198,6 +234,39 @@ export function getFilesPanel(page: Page, panel: FilesPanelType) {
     /** Locator for a rendered code file by its path (matches `data-testid="code-file-<path>"`). */
     getCodeFile: (filePath: string) => root.getByTestId(`code-file-${filePath}`),
   }
+}
+
+// ---- Runbook and files workspace layout helpers --------------------------
+
+/** Shows the files workspace beside the runbook, once it has finished sliding in. */
+export async function showFiles(page: Page) {
+  await expect(page.getByTestId("runbook-content")).toBeVisible({ timeout: 15_000 })
+  await page.getByTitle("Show generated files").click()
+  await waitForAnimations(page)
+}
+
+/** Hides the files workspace, once it has finished sliding out. */
+export async function hideFiles(page: Page) {
+  await page.getByTitle("Hide files workspace").locator("visible=true").click()
+  await waitForAnimations(page)
+}
+
+async function waitForAnimations(page: Page) {
+  // A string, as the e2e specs build without the DOM types.
+  await page.waitForFunction("document.getAnimations().length === 0")
+}
+
+/** Drags `handle` `dx` pixels to the right, or to the left when negative. */
+export async function drag(page: Page, handle: Locator, dx: number) {
+  const box = await handle.boundingBox()
+  if (!box) throw new Error("The resize handle isn't on screen")
+  const x = box.x + box.width / 2
+  const y = box.y + box.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + dx / 2, y)
+  await page.mouse.move(x + dx, y)
+  await page.mouse.up()
 }
 
 /**

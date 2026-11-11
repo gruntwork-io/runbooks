@@ -7,6 +7,7 @@ import {
   Check,
   Code,
   Download,
+  FoldHorizontal,
   FolderOpen,
   Hash,
   Info,
@@ -18,6 +19,7 @@ import {
   SquareTerminal,
   Sun,
   Trash2,
+  UnfoldHorizontal,
   X,
   type LucideProps,
 } from "lucide-react"
@@ -35,6 +37,12 @@ import { useChaptersControl, useRunbookChapters } from "@/contexts/useRunbookCha
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useTheme } from "@/contexts/useTheme"
 import { INSTRUCTION_MODE_NAME } from "@/contexts/InstructionModeContext.types"
+import { useRunbookLayout } from "@/contexts/useRunbookLayout"
+import {
+  RUNBOOK_LAYOUT_LABELS,
+  RUNBOOK_LAYOUT_NAME,
+  type RunbookLayout,
+} from "@/contexts/RunbookLayoutContext.types"
 import type { Theme } from "@/contexts/ThemeContext.types"
 import { useAppVersion } from "@/hooks/useAppVersion"
 import { useDownloadLogs } from "@/hooks/useDownloadLogs"
@@ -141,6 +149,15 @@ const THEMES: {
   { value: "system", label: "Theme: System", icon: Monitor, keywords: ["appearance", "auto"] },
 ]
 
+const RUNBOOK_LAYOUTS: {
+  value: RunbookLayout
+  icon: ComponentType<LucideProps>
+  keywords: string[]
+}[] = [
+  { value: "fixed", icon: FoldHorizontal, keywords: ["layout", "narrow"] },
+  { value: "fill", icon: UnfoldHorizontal, keywords: ["layout", "wide", "full width"] },
+]
+
 /**
  * The runbook's own section headings, top to bottom. Headings that blocks
  * render for themselves (form groups, warnings, a pull request description's
@@ -208,6 +225,7 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
   const [headings] = useState(collectHeadings)
   const { theme, setTheme } = useTheme()
   const { enabled: instructionMode, setEnabled: setInstructionMode } = useInstructionMode()
+  const { layout, setLayout } = useRunbookLayout()
   const { hasLogs, downloadRaw, downloadJson } = useDownloadLogs()
   const version = useAppVersion()
   const { chapters: runbookChapters, current: currentChapter } = useRunbookChapters()
@@ -358,6 +376,20 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
               </>
             ) : null,
           run: () => setTheme(value),
+        })),
+        ...RUNBOOK_LAYOUTS.map(({ value, icon, keywords }): Command => ({
+          id: `runbook-layout-${value}`,
+          label: `${RUNBOOK_LAYOUT_NAME}: ${RUNBOOK_LAYOUT_LABELS[value]}`,
+          icon,
+          keywords,
+          trailing:
+            layout === value ? (
+              <>
+                <Check className="ml-auto" />
+                <span className="sr-only">current</span>
+              </>
+            ) : null,
+          run: () => setLayout(value),
         })),
         {
           id: "instruction-mode",
