@@ -1,4 +1,4 @@
-/** How Generate cleans up the files an earlier generate wrote and this one doesn't. */
+/** What a template renders with, and how Generate cleans up the files an earlier generate wrote and this one doesn't. */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { createHash } from "node:crypto"
 import * as fs from "node:fs"
@@ -7,9 +7,21 @@ import * as path from "node:path"
 import { mockElectron } from "../test-utils/mock-electron.ts"
 
 mockElectron({ ipcMain: { handle: () => {} } })
-const { removeStaleFiles } = await import("./tf-module-code.ts")
+const { removeStaleFiles, templateVariables } = await import("./tf-module-code.ts")
 
 const sha256 = (content: string) => createHash("sha256").update(content).digest("hex")
+
+describe("templateVariables", () => {
+  it("gives each input by name, all of them in Inputs, and ModuleSource", () => {
+    const values = { name: "dev", grants: [{ group: "admins" }] }
+    expect(templateVariables(values, "git::https://example.com/m.git//x?ref=v1")).toEqual({
+      name: "dev",
+      grants: [{ group: "admins" }],
+      Inputs: values,
+      ModuleSource: "git::https://example.com/m.git//x?ref=v1",
+    })
+  })
+})
 
 describe("removeStaleFiles", () => {
   let root: string
