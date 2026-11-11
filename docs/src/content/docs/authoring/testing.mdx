@@ -723,6 +723,25 @@ tests:
 
 A step whose `set_outputs` names an output the block's `outputs` prop doesn't list fails, just as the app refuses that output from the page. Without `set_outputs`, the step succeeds and sets nothing, so blocks that read the block's outputs stay blocked. A test with no `steps` runs each `<Iframe>` with an `id` that way.
 
+## Testing Admonition blocks
+
+Tests can't click a button, so a step for an [`<Admonition>`](/authoring/blocks/admonition/#waiting-on-a-confirmation) with an `id` stands in for the user confirming it: the step succeeds and sets the block's `CONFIRMED` output to `true`. A test with no `steps` confirms each one that way. To test the blocks that wait on a confirmation that never comes, skip the admonition:
+
+```yaml
+# runbook_test.yml
+tests:
+  - name: mail-not-confirmed
+    steps:
+      - block: mail-arrived
+        expect: skip
+      - block: announce
+        expect: blocked
+        missing_outputs:
+          - outputs.mail_arrived.CONFIRMED
+```
+
+An admonition with an `id` that the app would refuse, such as one without `confirmationText`, is a `config_error`. An admonition without an `id` is never a step.
+
 ## Testing DirPicker blocks
 
 The runner doesn't run [`<DirPicker>`](/authoring/blocks/dirpicker/) blocks. A step that names one fails the test with `references unknown block`, and a test with no `steps` leaves the block out. Its `PATH` output never exists under test, so a block that reads it can only be tested with `expect: blocked` or `expect: skip`.

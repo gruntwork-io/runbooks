@@ -93,6 +93,7 @@ import {
   type AuthDependency,
 } from "./validation.ts"
 import { AUTH_BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
+import { CONFIRMED_OUTPUT } from "../../src/domain/admonition/gate.ts"
 import { unknownBlocksError } from "../../src/runbooks-version.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 import { errorMessage } from "../../src/errors/message.ts"
@@ -874,6 +875,9 @@ export class TestExecutor {
 
       case "Iframe":
         return this.runIframe(block, step, start)
+
+      case "Admonition":
+        return this.runAdmonition(block, step, start)
 
       // `expect: skip` returned above, so any expectation that gets here would
       // need the block to push a branch and open a real pull request.
@@ -1783,6 +1787,20 @@ export class TestExecutor {
     if (Object.keys(values).length > 0) {
       this.blockOutputs.set(block.id, new Map(Object.entries(values)))
     }
+    result.actualStatus = "success"
+    result.passed = this.matchesExpectedStatus(step.expect, "success")
+    result.duration = Date.now() - start
+    return result
+  }
+
+  /**
+   * Stand in for the user clicking a gated Admonition's confirmation button:
+   * the block sets its CONFIRMED output, so the blocks that wait on it can run.
+   */
+  private runAdmonition(block: ParsedComponent, step: TestStep, start: number): StepResult {
+    const result = makeStepResult(`admonition:${block.id}`, step.expect)
+    result.outputs = { [CONFIRMED_OUTPUT]: "true" }
+    this.blockOutputs.set(block.id, new Map(Object.entries(result.outputs)))
     result.actualStatus = "success"
     result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start

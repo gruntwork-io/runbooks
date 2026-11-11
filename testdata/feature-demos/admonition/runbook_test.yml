@@ -8,4 +8,23 @@ settings:
 tests:
   - name: happy-path
     description: |
-      The runbook has no blocks that run, so the test checks that it parses.
+      Confirming the admonition with an id lets the command that waits on it run.
+    steps:
+      - block: mail-arrived
+        assertions:
+          - type: output_equals
+            block: mail-arrived
+            output: CONFIRMED
+            value: "true"
+      - block: after-mail
+
+  - name: not-confirmed
+    description: |
+      Without the confirmation, the command stays blocked.
+    steps:
+      - block: mail-arrived
+        expect: skip
+      - block: after-mail
+        expect: blocked
+        missing_outputs:
+          - outputs.mail_arrived.CONFIRMED

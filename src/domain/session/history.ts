@@ -23,6 +23,7 @@ import { SessionEventError } from "../../errors/index.ts"
  *    in place of the chips of its linked values.
  *  - `review`: the generated files that changed since the user last reviewed
  *    them in the Files workspace, which records it as if it were a block.
+ *  - `confirmation`: an Admonition's confirmation button clicked.
  */
 export const SESSION_EVENT_KINDS = [
   "inputs",
@@ -33,6 +34,7 @@ export const SESSION_EVENT_KINDS = [
   "auth",
   "overrides",
   "review",
+  "confirmation",
 ] as const
 
 export type SessionEventKind = (typeof SESSION_EVENT_KINDS)[number]
