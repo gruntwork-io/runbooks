@@ -5,7 +5,7 @@ import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import type { TfModuleSpec } from "../../../../../../src/domain/tf-module/types"
-import TfApplyWithGitHubPullRequest from "../TfApplyWithGitHubPullRequest"
+import TerragruntApplyWithGitHubPullRequest from "../TerragruntApplyWithGitHubPullRequest"
 
 vi.mock("@/contexts/useGitWorkTree", () => ({
   useGitWorkTree: () => ({ activeWorkTree: null, workTrees: [] }),
@@ -54,12 +54,12 @@ function renderBlock() {
   return render(
     <TestWrapper>
       <Capture />
-      <TfApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
+      <TerragruntApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
     </TestWrapper>,
   )
 }
 
-describe("TfApplyWithGitHubPullRequest", () => {
+describe("TerragruntApplyWithGitHubPullRequest", () => {
   beforeEach(() => {
     ctx = undefined
     invoke.mockClear()

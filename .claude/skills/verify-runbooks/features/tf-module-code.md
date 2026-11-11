@@ -1,6 +1,6 @@
 # The Code tab
 
-A `<TfApplyWithGitHubPullRequest>` block's Code tab shows the code the runbook's template (the `<TfModule>` block's `template` prop) renders with the inputs as they are now: a Terragrunt unit in the demo. With a repository (a `<GitClone>` block, or the simulated one in simulation mode) it shows the unit in its folder there, among the files above it, compared with the base branch.
+A `<TerragruntApplyWithGitHubPullRequest>` block's Code tab shows the code the runbook's template (the `<TfModule>` block's `template` prop) renders with the inputs as they are now: a Terragrunt unit in the demo. With a repository (a `<GitClone>` block, or the simulated one in simulation mode) it shows the unit in its folder there, among the files above it, compared with the base branch.
 
 ## Sub-features
 

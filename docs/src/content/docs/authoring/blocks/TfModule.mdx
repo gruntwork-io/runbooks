@@ -15,14 +15,14 @@ The `<TfModule>` block renders a form for an OpenTofu module's inputs. The form 
 
 How the module is used is the runbook's choice, not the module's: one runbook may write a Terragrunt unit for an infrastructure repository, another a plain OpenTofu or Terraform configuration. So the runbook gives the block a [template](#the-template) for that code.
 
-The block's job ends when the code is written. **Generate** checks the values, publishes them like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`, and writes the code. See [Generate](#generate). A [`<TfApplyWithGitHubPullRequest>`](/authoring/blocks/tfapplywithgithubpullrequest/) block then shows the code, opens a pull request for it, and applies it.
+The block's job ends when the code is written. **Generate** checks the values, publishes them like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`, and writes the code. See [Generate](#generate). A [`<TerragruntApplyWithGitHubPullRequest>`](/authoring/blocks/terragruntapplywithgithubpullrequest/) block then shows the code, opens a pull request for it, and applies it.
 
 ## Basic usage
 
 ```mdx
 <TfModule id="group" source="modules/google-group" template="templates/google-group" />
 
-<TfApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
+<TerragruntApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
 
 <Command
   id="show-group"
@@ -113,7 +113,7 @@ outputs:
 | Key | Description |
 |-----|-------------|
 | `version` | The format's version, `0` |
-| `source` | Where code in a repository finds the module, such as a Git URL pinned with `?ref=`. With a cloned repository, the code the block writes points at it. Without a `source`, that code points at the module's folder on your computer, and a `<TfApplyWithGitHubPullRequest>` block's **Code** tab warns that it won't work anywhere else |
+| `source` | Where code in a repository finds the module, such as a Git URL pinned with `?ref=`. With a cloned repository, the code the block writes points at it. Without a `source`, that code points at the module's folder on your computer, and a `<TerragruntApplyWithGitHubPullRequest>` block's **Code** tab warns that it won't work anywhere else |
 | `requires.google.apis` | The Google APIs the module's resources call, by service name, such as `cloudidentity.googleapis.com`. See [Before you plan](#before-you-plan) |
 | `block.title`, `block.description` | The block's heading and the line under it |
 | `block.logo` | The block's logo, a file in the module or an `https:` URL |
@@ -125,10 +125,10 @@ outputs:
 | `variables.<name>.presets` | A file in the module of named settings for an object or map input. See [Presets](#presets) |
 | `variables.<name>.suffix` | A template over the form's values that ends a string input's value, such as `@{{ .domain }}`. The form shows it fixed after the field, so the user types only the rest |
 | `variables.<name>.shortcut` | A button under the input that adds the first row of a lookup, such as the signed-in person. It takes `from`, `label` and `value`, like a [lookup](#lookups) |
-| `outputs.<name>.label` | The output's label on a `<TfApplyWithGitHubPullRequest>` block's **Apply** tab. Without it, the name with its first letter capitalized |
+| `outputs.<name>.label` | The output's label on a `<TerragruntApplyWithGitHubPullRequest>` block's **Apply** tab. Without it, the name with its first letter capitalized |
 | `outputs.<name>.description` | Replaces the output's description from the module |
 | `outputs.<name>.link` | Shows the output's value, an `https:` URL, as a link with this text. Any other `https:` value shows as a link to itself |
-| `pullRequest.title` | A template over the form's values that starts the pull request's title on a `<TfApplyWithGitHubPullRequest>` block's **PR** tab. Without it, the block's title |
+| `pullRequest.title` | A template over the form's values that starts the pull request's title on a `<TerragruntApplyWithGitHubPullRequest>` block's **PR** tab. Without it, the block's title |
 | `pullRequest.summary` | A template over the form's values for the sentence above the default description's table of inputs, such as `Creates a Google group.` |
 | `pullRequest.description` | A template over the form's values that starts the pull request's description. Without it, `pullRequest.summary` (or a generic sentence) above a table of the inputs that have a value, leaving out sensitive ones |
 
@@ -137,7 +137,7 @@ outputs:
 The block checks what it needs outside its inputs, and shows the result under its heading, above the form:
 
 - **Google APIs** on in the project a `<GoogleAuth>` block above signed in to: the ones `requires.google.apis` lists, which the plan needs, and the ones the block's [lookups](#lookups) call, which only its suggestions need. `google.domains` and `google.people` call the Admin SDK API.
-- **The commands the code runs with** on your `PATH`, which a `<TfApplyWithGitHubPullRequest>` block needs: OpenTofu or Terraform, and Terragrunt too for a [template](#the-template) that renders a Terragrunt unit.
+- **The commands the code runs with** on your `PATH`, which a `<TerragruntApplyWithGitHubPullRequest>` block needs: OpenTofu or Terraform, and Terragrunt too for a [template](#the-template) that renders a Terragrunt unit.
 
 When everything's in place, a green check says *This block's preflight checks completed successfully.*, and hovering it shows what it found, such as *4 Google APIs on in acme-ops · OpenTofu 1.12.6*. Otherwise the block lists what's missing, each with its fix: a link to the Cloud console page that turns the API on, or the tool's install page. It checks again after a sign-in or a change of project, when the Runbooks window comes back into focus, and on **Check again**.
 
@@ -195,7 +195,7 @@ A plain configuration's outputs are its own, so declare an output for each modul
 - **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. The pull request does that. As the values change, it writes them again, and removes the files it wrote before that the new values no longer make, such as the old folder when the group's email changes.
 - **Without one**, or in [simulation mode](#simulation-mode), it writes nothing, and lists the files the code would have.
 
-While an input needs a fix, the block keeps the code, and the values it publishes, as they were for the last valid inputs. Once it has written the code, the block counts as done, and publishes these outputs, which a [`<TfApplyWithGitHubPullRequest>`](/authoring/blocks/tfapplywithgithubpullrequest/) block reads through its `tfModuleId`:
+While an input needs a fix, the block keeps the code, and the values it publishes, as they were for the last valid inputs. Once it has written the code, the block counts as done, and publishes these outputs, which a [`<TerragruntApplyWithGitHubPullRequest>`](/authoring/blocks/terragruntapplywithgithubpullrequest/) block reads through its `tfModuleId`:
 
 | Output | Description |
 |--------|-------------|
@@ -273,7 +273,7 @@ scenarios:
 
 A lookup's answer is a list of rows, a map with `rows`, or a map with `error`, which the field shows as the lookup's failure. A row matches what the user typed when any of its text fields contains it. The file is read on each lookup, so an edit shows the next time a field asks.
 
-A scenario also answers the plan and apply of the code a block generates, under `modules` by the `<TfModule>` block's id, so a `<TfApplyWithGitHubPullRequest>` block's **Apply** tab runs without Terragrunt or OpenTofu:
+A scenario also answers the plan and apply of the code a block generates, under `modules` by the `<TfModule>` block's id, so a `<TerragruntApplyWithGitHubPullRequest>` block's **Apply** tab runs without Terragrunt or OpenTofu:
 
 ```yaml title="simulation.yml"
 scenarios:
@@ -306,7 +306,7 @@ scenarios:
 
 Strings are templates over the block's inputs. `planError` fails the plan instead. A scenario that extends another replaces only the keys it gives for a block.
 
-A scenario's `repository` stands in for the repository a `<GitClone>` block would clone, so a `<TfApplyWithGitHubPullRequest>` block's **Code** tab shows the unit among its files. Its paths and contents are templates over the block's inputs too, so a scenario can hold the unit the block would change:
+A scenario's `repository` stands in for the repository a `<GitClone>` block would clone, so a `<TerragruntApplyWithGitHubPullRequest>` block's **Code** tab shows the unit among its files. Its paths and contents are templates over the block's inputs too, so a scenario can hold the unit the block would change:
 
 ```yaml title="simulation.yml"
 scenarios:

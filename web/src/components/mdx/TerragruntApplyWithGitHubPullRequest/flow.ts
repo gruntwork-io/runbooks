@@ -1,5 +1,5 @@
 /**
- * Where a <TfApplyWithGitHubPullRequest> block stands: one stage, worked out
+ * Where a <TerragruntApplyWithGitHubPullRequest> block stands: one stage, worked out
  * from its pull request and its Terragrunt run, so every tab agrees on what
  * comes next and when the block is done.
  */

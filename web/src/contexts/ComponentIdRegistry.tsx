@@ -19,7 +19,7 @@ export type BlockComponentType =
   | "Prerequisites"
   | "Inputs"
   | "TfModule"
-  | "TfApplyWithGitHubPullRequest"
+  | "TerragruntApplyWithGitHubPullRequest"
   | "Template"
   | "TemplateInline"
   | "AwsAuth"

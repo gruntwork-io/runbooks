@@ -2,7 +2,7 @@
  * IPC handlers for a <TfModule> block's code: the code the runbook's
  * template renders with the block's inputs to use the module, written to the
  * repository's checkout when the block generates it, and a plan and apply of
- * it for a <TfApplyWithGitHubPullRequest> block's tabs, streamed as it runs.
+ * it for a <TerragruntApplyWithGitHubPullRequest> block's tabs, streamed as it runs.
  *
  * The code is a Terragrunt unit when the template renders a terragrunt.hcl,
  * and plain OpenTofu or Terraform code otherwise. Each block gets a workspace

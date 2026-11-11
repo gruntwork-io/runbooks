@@ -28,7 +28,7 @@ import { nextFrom, stageOf, type Tab } from "./flow"
 import { scrollToTop } from "./scrollToTop"
 
 /**
- * TfApplyWithGitHubPullRequest block: takes the code a <TfModule> block
+ * TerragruntApplyWithGitHubPullRequest block: takes the code a <TfModule> block
  * generated, shows it, opens a GitHub pull request that adds it to the
  * repository a <GitClone> block cloned, and plans and applies it.
  *
@@ -43,7 +43,7 @@ import { scrollToTop } from "./scrollToTop"
  * @param props.title - The block's title; "Apply with a GitHub pull request" by default
  * @param props.description - Text under the title
  */
-interface TfApplyWithGitHubPullRequestProps {
+interface TerragruntApplyWithGitHubPullRequestProps {
   id: string
   tfModuleId: string
   title?: string
@@ -67,13 +67,13 @@ const TABS: { tab: Tab; label: string }[] = [
 function propsError(id: string, tfModuleId: string): AppError | null {
   if (!id) {
     return {
-      message: "The <TfApplyWithGitHubPullRequest> block requires a non-empty 'id' prop.",
+      message: "The <TerragruntApplyWithGitHubPullRequest> block requires a non-empty 'id' prop.",
       details: "Please provide a unique 'id' for this block.",
     }
   }
   if (!tfModuleId) {
     return {
-      message: "The <TfApplyWithGitHubPullRequest> block requires a 'tfModuleId' prop.",
+      message: "The <TerragruntApplyWithGitHubPullRequest> block requires a 'tfModuleId' prop.",
       details: "Set 'tfModuleId' to the id of the <TfModule> block whose code it applies.",
     }
   }
@@ -86,17 +86,17 @@ function outputOf(outputs: ReturnType<typeof useOutputs>, name: string): string 
   return output ? revealOutput(output.value) : undefined
 }
 
-function TfApplyWithGitHubPullRequest({
+function TerragruntApplyWithGitHubPullRequest({
   id,
   tfModuleId,
   title = "Apply with a GitHub pull request",
   description,
-}: TfApplyWithGitHubPullRequestProps) {
+}: TerragruntApplyWithGitHubPullRequestProps) {
   const validationError = propsError(id, tfModuleId)
   const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
     id,
-    "TfApplyWithGitHubPullRequest",
+    "TerragruntApplyWithGitHubPullRequest",
     blockRef,
   )
   const outputs = useOutputs(tfModuleId)
@@ -363,6 +363,6 @@ function ApplyTabs({ id, moduleId, header, codeRef, path, spec, values }: ApplyT
   )
 }
 
-TfApplyWithGitHubPullRequest.displayName = "TfApplyWithGitHubPullRequest"
+TerragruntApplyWithGitHubPullRequest.displayName = "TerragruntApplyWithGitHubPullRequest"
 
-export default TfApplyWithGitHubPullRequest
+export default TerragruntApplyWithGitHubPullRequest

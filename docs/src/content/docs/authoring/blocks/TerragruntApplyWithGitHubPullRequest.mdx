@@ -1,14 +1,14 @@
 ---
-title: <TfApplyWithGitHubPullRequest>
+title: <TerragruntApplyWithGitHubPullRequest>
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
 <Aside type="caution" title="Experimental">
-`<TfApplyWithGitHubPullRequest>` is an experiment, like [`<TfModule>`](/authoring/blocks/tfmodule/). Its name and props may change, and it opens GitHub pull requests only so far.
+`<TerragruntApplyWithGitHubPullRequest>` is an experiment, like [`<TfModule>`](/authoring/blocks/tfmodule/). Its name and props may change, and it opens GitHub pull requests only so far.
 </Aside>
 
-The `<TfApplyWithGitHubPullRequest>` block takes the code a [`<TfModule>`](/authoring/blocks/tfmodule/) block generated and gets it into your infrastructure: it shows the code, opens a GitHub pull request that adds it to a cloned repository, and plans and applies it.
+The `<TerragruntApplyWithGitHubPullRequest>` block takes the code a [`<TfModule>`](/authoring/blocks/tfmodule/) block generated and gets it into your infrastructure: it shows the code, opens a GitHub pull request that adds it to a cloned repository, and plans and applies it.
 
 The block has three tabs:
 
@@ -32,7 +32,7 @@ Until the `<TfModule>` block has generated its code, the block waits, with a lin
   path="google-groups/{{ .id }}"
 />
 
-<TfApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
+<TerragruntApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
 ```
 
 ## Props

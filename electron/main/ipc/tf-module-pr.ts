@@ -1,5 +1,5 @@
 /**
- * The pull request a <TfApplyWithGitHubPullRequest> block opens for a
+ * The pull request a <TerragruntApplyWithGitHubPullRequest> block opens for a
  * <TfModule> block's code: its Terragrunt unit, committed
  * to a new branch of the repository a <GitClone> block cloned, pushed, opened
  * as a GitHub pull request, and merged when the user says.

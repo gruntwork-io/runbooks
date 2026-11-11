@@ -1,6 +1,6 @@
 # The Apply tab
 
-A `<TfApplyWithGitHubPullRequest>` block's Apply tab runs Terragrunt for the code a `<TfModule>` block generated: a plan whose resources open to show their properties, then an apply that shows each resource as it's made, and the module's outputs. In simulation mode `simulation.yml` answers instead of Terragrunt.
+A `<TerragruntApplyWithGitHubPullRequest>` block's Apply tab runs Terragrunt for the code a `<TfModule>` block generated: a plan whose resources open to show their properties, then an apply that shows each resource as it's made, and the module's outputs. In simulation mode `simulation.yml` answers instead of Terragrunt.
 
 ## Sub-features
 

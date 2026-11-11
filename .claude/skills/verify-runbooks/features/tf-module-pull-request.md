@@ -1,6 +1,6 @@
 # The PR tab
 
-A `<TfApplyWithGitHubPullRequest>` block's PR tab opens a GitHub pull request that adds the `<TfModule>` block's Terragrunt unit to the cloned repository, then pushes later input changes to its branch, edits its title and description, and merges it. In simulation mode nothing is pushed and the pull request is simulated.
+A `<TerragruntApplyWithGitHubPullRequest>` block's PR tab opens a GitHub pull request that adds the `<TfModule>` block's Terragrunt unit to the cloned repository, then pushes later input changes to its branch, edits its title and description, and merges it. In simulation mode nothing is pushed and the pull request is simulated.
 
 ## Sub-features
 

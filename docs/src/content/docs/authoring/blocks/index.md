@@ -39,7 +39,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 - [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) commits the changes in a cloned repository and opens a GitHub pull request or a GitLab merge request.
 - [`<GitHubPullRequest>`](/authoring/blocks/githubpullrequest) is `<GitPullRequest>` locked to GitHub.
 - [`<GitLabMergeRequest>`](/authoring/blocks/gitlabmergerequest) is `<GitPullRequest>` locked to GitLab.
-- [`<TfApplyWithGitHubPullRequest>`](/authoring/blocks/tfapplywithgithubpullrequest) shows the code a `<TfModule>` block generated, opens a GitHub pull request for it, and plans and applies it. Experimental.
+- [`<TerragruntApplyWithGitHubPullRequest>`](/authoring/blocks/terragruntapplywithgithubpullrequest) shows the code a `<TfModule>` block generated, opens a GitHub pull request for it, and plans and applies it. Experimental.
 
 ### Show content
 
@@ -55,7 +55,7 @@ Interactive blocks take an `id` prop, a unique identifier for the block. When on
 - `awsAuthId`, `googleAuthId`, `gitAuthId` and `githubAuthId` choose which auth block's credentials a block uses.
 - `dependsOn` names the `<Command>` or `<Check>` blocks that must succeed before a `<Command>`, `<Check>` or `<Finish>` can run. A `<Check>` that ends with a warning counts too. See [Run order](/authoring/blocks/command/#run-order).
 - `gitCloneId` roots a `<DirPicker>` in the repository a `<GitClone>` block cloned.
-- `tfModuleId` names the `<TfModule>` block whose code a `<TfApplyWithGitHubPullRequest>` block applies.
+- `tfModuleId` names the `<TfModule>` block whose code a `<TerragruntApplyWithGitHubPullRequest>` block applies.
 - `{{ .outputs.<block_id>.<output_name> }}` reads the outputs of a block that has already run. In template syntax, write any hyphens in the ID as underscores. See [Block outputs](/authoring/inputs-and-outputs/#block-outputs).
 
 Each ID must be unique within a runbook. IDs that differ only in hyphens versus underscores (such as `create-account` and `create_account`) count as the same ID.
@@ -82,7 +82,7 @@ Each block the user acts on is a step. It is done once the block shows it's done
 | `<AwsAuth>`, `<GoogleAuth>`, `<GitAuth>`, `<GitHubAuth>` and `<GitLabAuth>` | It is signed in, and green: credentials that expire within five minutes turn it red. |
 | `<GitClone>` | It cloned or found its repository, which is still on the session's branch. |
 | `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>` | It opened its pull or merge request. |
-| `<TfApplyWithGitHubPullRequest>` | Its pull request is merged and the code is applied, for the inputs as they are now; applied, without a cloned repository. |
+| `<TerragruntApplyWithGitHubPullRequest>` | Its pull request is merged and the code is applied, for the inputs as they are now; applied, without a cloned repository. |
 | `<DirPicker>` | It has a path. |
 
 `<TemplateInline>`, `<Admonition>`, `<Chapter>` and `<Iframe>` aren't steps, as there is nothing in them for the user to do. The blocks inside a `<Chapter>` are steps as they would be anywhere else, and its table of contents counts them per chapter. Neither is an `<Inputs>` nested in a `<Command>` or `<Check>`, which is part of that block, nor a block that shows a configuration error, such as a duplicate ID, in its place.

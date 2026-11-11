@@ -15,7 +15,7 @@ export const BLOCK_TYPES = [
   "Prerequisites",
   "Inputs",
   "TfModule",
-  "TfApplyWithGitHubPullRequest",
+  "TerragruntApplyWithGitHubPullRequest",
   "Template",
   "TemplateInline",
   "AwsAuth",

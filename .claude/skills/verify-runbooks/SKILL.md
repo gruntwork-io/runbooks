@@ -1,6 +1,6 @@
 ---
 name: verify-runbooks
-description: Drive the Runbooks desktop app (Electron) the way a user does, one action at a time, and capture evidence that a change works. Use to prove a block's UI, a runbook's flow, or a fix in the real app rather than only in tests, especially the TfModule and TfApplyWithGitHubPullRequest blocks and simulation mode.
+description: Drive the Runbooks desktop app (Electron) the way a user does, one action at a time, and capture evidence that a change works. Use to prove a block's UI, a runbook's flow, or a fix in the real app rather than only in tests, especially the TfModule and TerragruntApplyWithGitHubPullRequest blocks and simulation mode.
 ---
 
 # Verify Runbooks

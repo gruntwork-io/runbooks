@@ -63,7 +63,7 @@ const INSTRUCTION_SOURCE: Record<(typeof COLLAPSIBLE_BLOCKS)[number], string> = 
 //   values are worth reviewing.
 // - DirPicker is done from its first pick, before the user has picked every
 //   level.
-// - TfApplyWithGitHubPullRequest keeps its pull request and run on tabs that
+// - TerragruntApplyWithGitHubPullRequest keeps its pull request and run on tabs that
 //   stay worth opening once it's done.
 // - The rest aren't steps: nothing in them becomes done.
 const NOT_COLLAPSIBLE = [
@@ -72,7 +72,7 @@ const NOT_COLLAPSIBLE = [
   "TfModule",
   "Template",
   "DirPicker",
-  "TfApplyWithGitHubPullRequest",
+  "TerragruntApplyWithGitHubPullRequest",
   "TemplateInline",
   "Admonition",
   "Chapter",
