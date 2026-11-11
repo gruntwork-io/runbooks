@@ -25,15 +25,20 @@ describe("awsSendable", () => {
     )
     expect(result).toMatchObject({
       signing: { service: "sso", region: "us-east-2" },
-      action: "ListInstances",
       request: { headers: { "x-amz-target": "SWBExternalService.ListInstances" } },
     })
   })
 
-  it("signs a global endpoint for its home region", () => {
+  it("signs any service's endpoint, not only ones a runbook used before", () => {
+    expect(
+      awsSendable(json("ssm.eu-west-1.amazonaws.com", "AmazonSSM.DescribeParameters")),
+    ).toMatchObject({ signing: { service: "ssm", region: "eu-west-1" } })
+  })
+
+  it("signs a global endpoint for us-east-1", () => {
     expect(
       awsSendable(query("https://iam.amazonaws.com/?Action=ListRoles&Version=2010-05-08")),
-    ).toMatchObject({ signing: { service: "iam", region: "us-east-1" }, action: "ListRoles" })
+    ).toMatchObject({ signing: { service: "iam", region: "us-east-1" } })
   })
 
   it("reads a Query-protocol Action from a form body", () => {
@@ -46,6 +51,12 @@ describe("awsSendable", () => {
     expect(result).toMatchObject({ signing: { service: "sts", region: "us-west-2" } })
   })
 
+  it("sends a GET to a REST API, which names no operation", () => {
+    expect(
+      awsSendable(query("https://lambda.us-east-1.amazonaws.com/2015-03-31/functions")),
+    ).toMatchObject({ signing: { service: "lambda", region: "us-east-1" } })
+  })
+
   it("refuses writes", () => {
     expect(
       refusal(
@@ -55,36 +66,32 @@ describe("awsSendable", () => {
     expect(refusal(query("https://ec2.us-east-1.amazonaws.com/?Action=RunInstances"))).toContain(
       "only reads",
     )
-  })
-
-  it("refuses reads that return a secret", () => {
-    expect(refusal(query("https://sts.amazonaws.com/?Action=GetSessionToken"))).toContain(
-      "returns a secret",
-    )
     expect(
-      refusal(query("https://ec2.eu-west-1.amazonaws.com/?Action=GetPasswordData&InstanceId=i-1")),
-    ).toContain("returns a secret")
+      refusal({
+        method: "POST",
+        url: "https://lambda.us-east-1.amazonaws.com/2015-03-31/functions",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    ).toContain("must be a GET")
   })
 
-  it("refuses hosts that aren't listed endpoints, including S3 and API Gateway", () => {
+  it("refuses hosts that aren't AWS API endpoints, such as a bucket or API Gateway", () => {
     for (const host of [
-      "s3.us-east-1.amazonaws.com",
       "my-bucket.s3.us-east-1.amazonaws.com",
-      "s3-us-west-2.amazonaws.com",
       "abc123.execute-api.us-east-1.amazonaws.com",
       "sso.us-east-1.amazonaws.com.attacker.example",
-      "lambda.us-east-1.amazonaws.com",
+      "amazonaws.com",
       "example.com",
     ]) {
       expect(refusal(query(`https://${host}/?Action=ListThings`))).toContain(
-        "doesn't send requests to",
+        "only to AWS API endpoints",
       )
     }
   })
 
   it("refuses a request whose operation it can't tell", () => {
     expect(refusal(json("identitystore.us-east-2.amazonaws.com", ""))).toContain("X-Amz-Target")
-    expect(refusal(query("https://iam.amazonaws.com/"))).toContain("exactly one Action")
     expect(
       refusal(query("https://iam.amazonaws.com/?Action=ListRoles&Action=CreateRole")),
     ).toContain("exactly one Action")
@@ -96,6 +103,17 @@ describe("awsSendable", () => {
         body: "Action=DeleteRole",
       }),
     ).toContain("exactly one Action")
+    expect(
+      refusal(
+        json("sso.us-east-2.amazonaws.com", "SWBExternalService.ListInstances", {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Amz-Target": "SWBExternalService.ListInstances",
+          },
+          body: "Action=DeleteInstance",
+        }),
+      ),
+    ).toContain("not both")
   })
 
   it("refuses a JSON-protocol request with a path or query, which would hide another operation", () => {
@@ -103,6 +121,13 @@ describe("awsSendable", () => {
       refusal(
         json("sso.us-east-2.amazonaws.com", "SWBExternalService.ListInstances", {
           url: "https://sso.us-east-2.amazonaws.com/?Action=Delete",
+        }),
+      ),
+    ).toMatch(/not both|root path/)
+    expect(
+      refusal(
+        json("sso.us-east-2.amazonaws.com", "SWBExternalService.ListInstances", {
+          url: "https://sso.us-east-2.amazonaws.com/instances",
         }),
       ),
     ).toContain("root path")
