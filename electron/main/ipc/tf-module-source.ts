@@ -10,7 +10,7 @@ import * as path from "node:path"
 import { Effect, Exit } from "effect"
 import { runtime } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
-import { describeCause } from "./ipc-error.ts"
+import { describeCause, describeFailure } from "./ipc-error.ts"
 import { cloneRemoteSource } from "../remote.ts"
 import { isRemoteSource } from "../../../src/remote-source.ts"
 import { isContainedInReal } from "../../../src/path-validation.ts"
@@ -23,7 +23,7 @@ const clones = new Map<string, Promise<Exit.Exit<string, TfModuleError>>>()
 const cloneModule = (source: string) =>
   Effect.gen(function* () {
     const cloned = yield* cloneRemoteSource(source).pipe(
-      Effect.mapError((cause) => new TfModuleError({ message: describeCause(cause), cause })),
+      Effect.mapError((cause) => new TfModuleError({ message: describeFailure(cause), cause })),
     )
     const where = cloned.path ? `"${cloned.path}" in ${cloned.repoLabel}` : cloned.repoLabel
     const dir = cloned.path ? path.join(cloned.dest, cloned.path) : cloned.dest

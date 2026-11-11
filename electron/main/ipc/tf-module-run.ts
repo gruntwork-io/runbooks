@@ -4,14 +4,13 @@
  * repository's checkout when the block generates it, and a plan and apply of
  * it for a <TerragruntApplyWithGitHubPullRequest> block's tabs, streamed as it runs.
  *
- * The code is a Terragrunt unit when the template renders a terragrunt.hcl,
- * and plain OpenTofu or Terraform code otherwise. Each block gets a workspace
- * in the session's `.runbooks/tf-module/<id>/`, which holds its saved plan and
- * what the run downloads. A Terragrunt unit runs in the repository's checkout,
- * under its own root.hcl, when there is one, and otherwise in the workspace
- * beside a root.hcl that keeps state with it. Plain code always runs in the
- * workspace, so a local state file never lands in the repository. In
- * simulation mode, simulation.yml answers instead.
+ * Only a Terragrunt unit, code whose template renders a terragrunt.hcl,
+ * plans and applies. Each block gets a workspace in the session's
+ * `.runbooks/tf-module/<id>/`, which holds its saved plan and what the run
+ * downloads. The unit runs in the repository's checkout, under its own
+ * root.hcl, when there is one, and otherwise in the workspace beside a
+ * root.hcl that keeps state with it. In simulation mode, simulation.yml
+ * answers instead.
  */
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
@@ -316,9 +315,8 @@ const writeFiles = (dir: string, files: readonly UnitFile[]) =>
     catch: (cause) => fail(`Couldn't write the code: ${describeFailure(cause)}`),
   })
 
-/** What runs a block's code, where, and where Terragrunt keeps what it downloads. */
+/** Where a block's unit runs, and where Terragrunt keeps what it downloads. */
 interface RunLocation {
-  readonly tool: CodeTool
   readonly cwd: string
   readonly downloadDir: string
 }
@@ -347,37 +345,43 @@ const planToApply = (blockId: string, values: Record<string, unknown>) => {
 }
 
 /**
- * Writes the block's code where it runs. A Terragrunt unit runs in the
- * repository's checkout, so it includes the repository's own root.hcl, or in
- * the block's workspace beside one Runbooks writes, when there's no checkout
- * or it has no root.hcl. Plain OpenTofu or Terraform code runs in the
- * workspace. What the run downloads stays in the workspace, out of the
- * repository the pull request commits.
+ * Writes the block's unit where it runs: in the repository's checkout, so it
+ * includes the repository's own root.hcl, or in the block's workspace beside
+ * one Runbooks writes, when there's no checkout or it has no root.hcl. What
+ * the run downloads stays in the workspace, out of the repository the pull
+ * request commits.
  */
+const notAUnit = Effect.fail(
+  fail(
+    "This code isn't a Terragrunt unit: the template renders no terragrunt.hcl. Runbooks plans and applies Terragrunt units only.",
+  ),
+)
+
 const writeForRun = (request: TfModuleRenderRequest) =>
   Effect.gen(function* () {
     const workspace = yield* workspaceDir(request.blockId)
     // The plan is saved here, wherever the code runs.
     yield* Effect.promise(() => fs.mkdir(workspace, { recursive: true }))
     const downloadDir = path.join(workspace, ".terragrunt-cache")
-    const inWorkspace = (files: readonly UnitFile[], tool: CodeTool) =>
-      Effect.as(writeFiles(workspace, inWorkspaceTree(request.blockId, files, tool)), {
-        tool,
+    const inWorkspace = (files: readonly UnitFile[]) =>
+      Effect.as(writeFiles(workspace, inWorkspaceTree(request.blockId, files, "terragrunt")), {
         cwd: path.join(workspace, unitFolder(request.blockId)),
         downloadDir,
       } satisfies RunLocation)
     if (!request.repo?.worktreePath) {
       const dir = yield* moduleDir(request.source)
       const files = yield* renderTemplate(request.template, request.values, dir)
-      return yield* inWorkspace(files, toolFor(files))
+      if (toolFor(files) !== "terragrunt") return yield* notAUnit
+      return yield* inWorkspace(files)
     }
     const worktree = yield* validateSessionPath(request.repo.worktreePath)
     const code = yield* renderInRepo(request, request.values, request.repo)
+    if (code.tool !== "terragrunt") return yield* notAUnit
     const files = unitFilesOf(code)
-    if (code.tool === "tofu" || !code.rootHcl) return yield* inWorkspace(files, code.tool)
+    if (!code.rootHcl) return yield* inWorkspace(files)
     const cwd = path.join(worktree, code.folder)
     yield* writeFiles(cwd, files)
-    return { tool: code.tool, cwd, downloadDir } satisfies RunLocation
+    return { cwd, downloadDir } satisfies RunLocation
   })
 
 /** A Terragrunt or OpenTofu log line without its time, and its level. */
@@ -419,39 +423,14 @@ export async function onPath(name: string, env: Record<string, string>): Promise
   return false
 }
 
-/** The command for plain code: OpenTofu, or Terraform when only it is installed. */
-async function tofuCommand(env: Record<string, string>): Promise<string> {
-  if (await onPath("tofu", env)) return "tofu"
-  if (await onPath("terraform", env)) return "terraform"
-  throw fail(
-    `Runbooks runs this code with OpenTofu or Terraform, and neither is on your PATH. Install OpenTofu: ${TOFU_INSTALL}`,
-  )
-}
-
-/** OpenTofu subcommands that would otherwise stop to ask for input. */
-const ASKS_FOR_INPUT = new Set(["init", "plan", "apply"])
-
 /**
- * Runs the tool for a block's code, failing with its last error lines when it
- * exits nonzero. Returns stdout. Terragrunt initializes as it goes; OpenTofu
- * needs an `init` first.
+ * Runs Terragrunt for a block's unit, failing with its last error lines when
+ * it exits nonzero. Returns stdout. Terragrunt initializes as it goes.
  */
-async function runTool(tool: CodeTool, args: readonly string[], run: ToolRun): Promise<string> {
-  if (tool === "terragrunt") {
-    const flags = ["--non-interactive", "--no-color"]
-    if (run.downloadDir) flags.push("--download-dir", run.downloadDir)
-    return spawnTool("terragrunt", [...args, ...flags], run)
-  }
-  const command = await tofuCommand(run.env)
-  const [sub, ...rest] = args
-  const flags = ["-no-color", ...(ASKS_FOR_INPUT.has(sub!) ? ["-input=false"] : [])]
-  return spawnTool(command, [sub!, ...flags, ...rest], run)
-}
-
-/** Runs one command for a block's code. Returns stdout. */
-function spawnTool(command: string, args: readonly string[], run: ToolRun): Promise<string> {
-  const name =
-    command === "terragrunt" ? "Terragrunt" : command === "tofu" ? "OpenTofu" : "Terraform"
+function runTerragrunt(subcommand: readonly string[], run: ToolRun): Promise<string> {
+  const command = "terragrunt"
+  const args = [...subcommand, "--non-interactive", "--no-color"]
+  if (run.downloadDir) args.push("--download-dir", run.downloadDir)
   // The command first, so a run that prints nothing for a while still shows
   // what it's waiting on, in a form that can be run again in a terminal.
   run.onLog?.({ kind: "log", line: commandLine(run.cwd, command, args) })
@@ -483,21 +462,19 @@ function spawnTool(command: string, args: readonly string[], run: ToolRun): Prom
       if (err.code === "ENOENT") {
         reject(
           fail(
-            command === "terragrunt"
-              ? `Runbooks runs this Terragrunt unit with Terragrunt, which isn't on your PATH. Install it: ${TERRAGRUNT_INSTALL}`
-              : `${name} isn't on your PATH. Install OpenTofu: ${TOFU_INSTALL}`,
+            `Runbooks runs this Terragrunt unit with Terragrunt, which isn't on your PATH. Install it: ${TERRAGRUNT_INSTALL}`,
           ),
         )
       } else if (err.name === "AbortError") {
         reject(fail("Stopped."))
       } else {
-        reject(fail(`Couldn't run ${name}: ${describeFailure(err)}`))
+        reject(fail(`Couldn't run Terragrunt: ${describeFailure(err)}`))
       }
     })
     child.on("close", (code) => {
       if (code === 0) resolve(stdout)
       else if (code !== null) {
-        reject(fail(errors.slice(-3).join(" ") || `${name} exited with code ${code}.`))
+        reject(fail(errors.slice(-3).join(" ") || `Terragrunt exited with code ${code}.`))
       }
     })
   })
@@ -656,20 +633,6 @@ export function registerTfModuleRunHandlers(): void {
           const where = { cwd: location.cwd, downloadDir: location.downloadDir }
           const { env } = yield* sessionManager.getExecContext()
           run.send({ kind: "step", step: "init" })
-          if (location.tool === "tofu") {
-            yield* Effect.tryPromise({
-              try: () =>
-                runTool("tofu", ["init"], {
-                  ...where,
-                  env,
-                  signal: run.signal,
-                  onEvent: run.send,
-                  onLog: run.send,
-                }),
-              catch: (cause) =>
-                cause instanceof TfModuleError ? cause : fail(describeFailure(cause)),
-            })
-          }
           let planning = false
           const onEvent = (e: RunEvent) => {
             if (!planning) {
@@ -680,7 +643,7 @@ export function registerTfModuleRunHandlers(): void {
           }
           yield* Effect.tryPromise({
             try: () =>
-              runTool(location.tool, ["plan", `-out=${planFile}`, "-json"], {
+              runTerragrunt(["plan", `-out=${planFile}`, "-json"], {
                 ...where,
                 env,
                 signal: run.signal,
@@ -692,7 +655,7 @@ export function registerTfModuleRunHandlers(): void {
           })
           const shown = yield* Effect.tryPromise({
             try: () =>
-              runTool(location.tool, ["show", "-json", planFile], {
+              runTerragrunt(["show", "-json", planFile], {
                 ...where,
                 env,
                 signal: run.signal,
@@ -736,8 +699,7 @@ export function registerTfModuleRunHandlers(): void {
           const attempt = (args: string[], streamed: boolean) =>
             Effect.tryPromise({
               try: () =>
-                runTool(
-                  location.tool,
+                runTerragrunt(
                   args,
                   streamed ? { ...quiet, onEvent: run.send, onLog: run.send } : quiet,
                 ),
