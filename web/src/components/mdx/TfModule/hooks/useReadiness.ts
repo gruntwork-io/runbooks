@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { useApi } from "@/contexts/ApiContext"
+import { useSimulation } from "@/contexts/useSimulation"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import { useGoogleSignIns } from "./useGoogleSignIns"
 import type { TfModuleReadiness } from "../../../../../../electron/shared/channels"
@@ -15,12 +16,13 @@ export interface ReadinessState {
 /**
  * Whether the block has what it needs outside its inputs: its Google APIs on
  * in the signed-in project, and the commands its code runs with. Checks again
- * when a GoogleAuth block signs in or changes project, when the window comes
- * back into focus, since that's when
+ * when a GoogleAuth block signs in or changes project, when the simulation's
+ * answers change, when the window comes back into focus, since that's when
  * someone has turned an API on or installed a tool, and on `recheck`.
  */
 export function useReadiness(services: readonly string[], template: string): ReadinessState {
   const api = useApi()
+  const { revision } = useSimulation()
   const signIns = useGoogleSignIns()
   const [attempt, setAttempt] = useState(0)
   const [answer, setAnswer] = useState<
@@ -28,7 +30,7 @@ export function useReadiness(services: readonly string[], template: string): Rea
   >(undefined)
 
   const serviceList = services.join(",")
-  const key = JSON.stringify([serviceList, template, signIns, attempt])
+  const key = JSON.stringify([serviceList, template, revision, signIns, attempt])
 
   useEffect(() => {
     let cancelled = false

@@ -72,7 +72,11 @@ The **PR** tab opens a GitHub pull request that adds the code to a repository, s
 4. **Merge Pull Request** merges it with the method you pick: squash, a merge commit, or rebase.
 5. If the inputs change after a merge, **New pull request** starts another one for the change, on a branch of its own.
 
-You can merge and then apply, or apply and then merge, whichever your team's process asks for. While the pull request is open, **Apply first** next to the merge button takes you to the **Apply** tab, and after a merge, **Apply** does.
+You can merge and then apply, or apply and then merge, whichever your team's process asks for. While the pull request is open, **Apply first** next to the merge button takes you to the **Apply** tab, and after a merge, **Apply** does. In simulation mode nothing is pushed: the tab answers as GitHub would, for a repository named `acme/infrastructure-live` when no `<GitClone>` block cloned one.
+
+## Simulation mode
+
+In [simulation mode](/authoring/simulation-mode/), the [plan and apply](/authoring/simulation-mode/#plan-and-apply) answer from `simulation.yml`, under `modules` by the `<TfModule>` block's id, and the **Code** tab shows the code among the files of the scenario's [`repository`](/authoring/simulation-mode/#repository).
 
 ## Testing
 

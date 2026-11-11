@@ -1,12 +1,15 @@
 /**
  * IPC handlers for the <TfModule> block: reading the module it presents,
- * and the lookups that fill its dropdowns and suggestions from Google.
+ * and the lookups that fill its dropdowns and suggestions, from Google or, in
+ * simulation mode, from simulation.yml.
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
 import { runtime } from "./runtime.ts"
 import { moduleDir } from "./tf-module-source.ts"
+import { activeSimulationScenario, simulationEnabled } from "./simulation.ts"
 import { loadModule } from "../../../src/domain/tf-module/load.ts"
+import { simulatedRows } from "../../../src/domain/tf-module/simulation.ts"
 import {
   customerRows,
   domainRows,
@@ -93,7 +96,20 @@ export function registerTfModuleHandlers(): void {
   ipcMain.handle("tf-module:lookup", async (_event, params: TfModuleLookupRequest) =>
     runtime.runPromise(
       Effect.gen(function* () {
-        const rows = yield* googleLookup(params.from, params.query ?? "")
+        if (!simulationEnabled()) {
+          const rows = yield* googleLookup(params.from, params.query ?? "")
+          return { rows: rows.slice(0, MAX_LOOKUP_ROWS) }
+        }
+        const scenario = yield* activeSimulationScenario
+        const answer = scenario.lookups[params.from]
+        if (answer?.delayMs) yield* Effect.sleep(answer.delayMs)
+        const rows = yield* Effect.try({
+          try: () => simulatedRows(scenario, params.from, params.query ?? ""),
+          catch: (cause) =>
+            cause instanceof TfModuleError
+              ? cause
+              : new TfModuleError({ message: String(cause), cause }),
+        })
         return { rows: rows.slice(0, MAX_LOOKUP_ROWS) }
       }),
     ),

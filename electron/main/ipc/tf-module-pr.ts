@@ -3,14 +3,18 @@
  * <TfModule> block's code: its Terragrunt unit, committed
  * to a new branch of the repository a <GitClone> block cloned, pushed, opened
  * as a GitHub pull request, and merged when the user says.
+ *
+ * In simulation mode nothing touches git or GitHub; each step pauses and
+ * answers as GitHub would.
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
 import { runtime } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
+import { simulationEnabled } from "./simulation.ts"
 import { resolveGitHubTokenForRepo } from "./git.ts"
 import { fail, writeUnit } from "./tf-module-code.ts"
-import { startRun } from "./tf-module-run.ts"
+import { pause, startRun } from "./tf-module-run.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
 import { describeFailure } from "./ipc-error.ts"
 import {
@@ -28,7 +32,13 @@ import type {
   TfModulePrPushRequest,
   TfModulePrTarget,
   TfModulePrUpdateRequest,
+  TfModulePullRequestResult,
 } from "../../shared/channels.ts"
+
+/** How long each simulated step takes. */
+const SIMULATED_STEP_MS = 500
+/** The number a simulated pull request gets. */
+const SIMULATED_NUMBER = 42
 
 const asTfModuleError = (cause: unknown) =>
   cause instanceof TfModuleError ? cause : fail(describeFailure(cause))
@@ -51,6 +61,9 @@ const checkout = (target: TfModulePrTarget) =>
     ? validateSessionPath(target.worktreePath)
     : Effect.fail(fail("Clone the repository with a <GitClone> block first."))
 
+const simulatedUrl = (target: TfModulePrTarget, number: number) =>
+  `https://github.com/${target.owner}/${target.repo}/pull/${number}`
+
 export function registerTfModulePrHandlers(): void {
   ipcMain.handle("tf-module:pr-open", async (event, request: TfModulePrOpenRequest) => {
     const run = startRun(event.sender, request.runId)
@@ -58,6 +71,23 @@ export function registerTfModulePrHandlers(): void {
     try {
       return await runtime.runPromise(
         Effect.gen(function* () {
+          if (simulationEnabled()) {
+            log("Simulated: nothing is pushed, and GitHub isn't called.")
+            for (const step of [
+              `Creating branch ${request.branch}…`,
+              "Committing changes…",
+              `Pushing ${request.branch} to origin…`,
+              "Opening pull request…",
+            ]) {
+              log(step)
+              yield* pause(SIMULATED_STEP_MS, run.signal)
+            }
+            return {
+              url: simulatedUrl(request.target, SIMULATED_NUMBER),
+              number: SIMULATED_NUMBER,
+              branch: request.branch,
+            } satisfies TfModulePullRequestResult
+          }
           const worktree = yield* checkout(request.target)
           const { token, host } = yield* resolveGitHubTokenForRepo(
             worktree,
@@ -130,6 +160,13 @@ export function registerTfModulePrHandlers(): void {
     try {
       return await runtime.runPromise(
         Effect.gen(function* () {
+          if (simulationEnabled()) {
+            for (const step of ["Committing changes…", `Pushing ${request.branch} to origin…`]) {
+              log(step)
+              yield* pause(SIMULATED_STEP_MS, run.signal)
+            }
+            return { ok: true as const }
+          }
           const worktree = yield* checkout(request.target)
           const written = yield* writeUnitFor(request, worktree)
           log(`Wrote ${written.join(", ")}`)
@@ -166,6 +203,11 @@ export function registerTfModulePrHandlers(): void {
       return await runtime.runPromise(
         Effect.gen(function* () {
           log(`Updating the title and description of #${request.number}…`)
+          if (simulationEnabled()) {
+            yield* pause(SIMULATED_STEP_MS, run.signal)
+            log("Updated.")
+            return { ok: true as const }
+          }
           const worktree = yield* checkout(request.target)
           const { token, host } = yield* resolveGitHubTokenForRepo(
             worktree,
@@ -196,6 +238,11 @@ export function registerTfModulePrHandlers(): void {
       return await runtime.runPromise(
         Effect.gen(function* () {
           log(`Merging #${request.number} into ${request.target.baseBranch}…`)
+          if (simulationEnabled()) {
+            yield* pause(SIMULATED_STEP_MS * 2, run.signal)
+            log("Merged.")
+            return { sha: "0000000" }
+          }
           const worktree = yield* checkout(request.target)
           const { token, host } = yield* resolveGitHubTokenForRepo(
             worktree,

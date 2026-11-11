@@ -1,7 +1,9 @@
 /**
  * IPC handler for a <TfModule> block's code: the code the runbook's template
  * renders with the block's inputs to use the module, written to the
- * repository's checkout when the block generates it.
+ * repository's checkout when the block generates it. In simulation mode,
+ * simulation.yml's repository stands in for the checkout, and nothing is
+ * written.
  */
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
@@ -11,11 +13,13 @@ import { ipcMain } from "electron"
 import { runtime } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { moduleDir } from "./tf-module-source.ts"
+import { activeSimulationScenario, simulationEnabled } from "./simulation.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
 import { describeFailure } from "./ipc-error.ts"
 import { isRemoteSource } from "../../../src/remote-source.ts"
 import { filesAtBase } from "../../../src/domain/tf-module/repoFiles.ts"
+import { simulatedRepository } from "../../../src/domain/tf-module/simulation.ts"
 import { alignAttributes, isHclFile } from "../../../src/domain/tf-module/hclFormat.ts"
 import {
   ancestorsOf,
@@ -108,11 +112,20 @@ export const renderUnit = (
  * What the repository holds where the unit lands: the files the unit would
  * write, and the files in each folder above it. Read from the base branch's
  * commit, so the unit shows as added until it's merged even after a plan
- * writes it to the checkout. Without a checkout, there are none.
+ * writes it to the checkout; from the simulated repository when there's no
+ * checkout.
  */
-const existingFiles = (repo: TfModuleRepo, folder: string, rendered: readonly UnitFile[]) =>
+const existingFiles = (
+  repo: TfModuleRepo,
+  folder: string,
+  rendered: readonly UnitFile[],
+  values: Record<string, unknown>,
+) =>
   Effect.gen(function* () {
-    if (!repo.worktreePath) return new Map<string, string>()
+    if (!repo.worktreePath) {
+      if (!simulationEnabled()) return new Map<string, string>()
+      return simulatedRepository(yield* activeSimulationScenario, values)
+    }
     const worktree = yield* validateSessionPath(repo.worktreePath)
     return yield* filesAtBase(
       worktree,
@@ -142,7 +155,7 @@ export const renderInRepo = (
     })
     const rendered = yield* renderTemplate(ref.template, values, source ?? dir)
     const tool = toolFor(rendered)
-    const placed = placeUnit(folder, rendered, yield* existingFiles(repo, folder, rendered))
+    const placed = placeUnit(folder, rendered, yield* existingFiles(repo, folder, rendered, values))
     // The .hcl files above are context only for a Terragrunt unit, which may include them.
     const files = tool === "terragrunt" ? placed : placed.filter((f) => f.status !== "context")
     return {
@@ -210,11 +223,11 @@ async function removeFiles(root: string, files: readonly string[]): Promise<void
 
 /**
  * The block's code, written to its folder in the repository's checkout when
- * there is one. Without a checkout, nothing is written.
+ * there is one. In simulation, or without a checkout, nothing is written.
  */
 const generateCode = (request: TfModuleGenerateRequest) =>
   Effect.gen(function* () {
-    if (!request.repo?.worktreePath) {
+    if (simulationEnabled() || !request.repo?.worktreePath) {
       return { code: yield* renderCode(request), written: [] } satisfies TfModuleGenerated
     }
     const worktree = yield* validateSessionPath(request.repo.worktreePath)

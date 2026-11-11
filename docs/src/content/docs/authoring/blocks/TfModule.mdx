@@ -5,7 +5,7 @@ title: <TfModule>
 import { Aside } from '@astrojs/starlight/components';
 
 <Aside type="caution" title="Experimental">
-`<TfModule>` is an experiment. Its props and the `runbook_block.yml` format may change.
+`<TfModule>` is an experiment. Its props, the `runbook_block.yml` format and simulation mode may change.
 </Aside>
 
 The `<TfModule>` block renders a form for an OpenTofu module's inputs. The form comes from the module itself, so a runbook doesn't restate what the module already says:
@@ -214,7 +214,7 @@ A plain configuration's outputs are its own, so declare an output for each modul
 **Generate** renders the template with the form's values and writes the code:
 
 - **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. The pull request does that. As the values change, it writes them again, and removes the files it wrote before that the new values no longer make, such as the old folder when the group's email changes.
-- **Without one**, it writes nothing, and lists the files the code would have.
+- **Without one**, or in [simulation mode](/authoring/simulation-mode/), it writes nothing, and lists the files the code would have.
 
 While an input needs a fix, the block keeps the code, and the values it publishes, as they were for the last valid inputs. Once it has written the code, the block counts as done, and publishes these outputs, which a [`<TerragruntApplyWithGitHubPullRequest>`](/authoring/blocks/terragruntapplywithgithubpullrequest/) block reads through its `tfModuleId`:
 
@@ -246,7 +246,7 @@ Runbooks has these lookups. Each reads Google with the account a `<GoogleAuth>` 
 | `google.domains` | The organization's domains, primary first: `value` and `domainName` (the domain), `isPrimary` | `https://www.googleapis.com/auth/admin.directory.domain.readonly`, from an admin |
 | `google.people` | Active users in the organization whose first name, last name or email starts with what's typed: `value` (email), `label` (name), `description` (title and department) | `https://www.googleapis.com/auth/admin.directory.user.readonly`, from an admin |
 
-When no `<GoogleAuth>` block has signed in, or Google refuses, the field says why, and the user can still type a value. A `shortcut` reads the first row of its lookup when the form opens and again after each sign-in, and stays hidden while the lookup has none. A `prefill` reads it the same way, and fills its input with the row's value while the input is empty. It fills each value once, so an input the user clears stays clear until a sign-in gives another value. Lookups that come from Google ask again after a sign-in too.
+When no `<GoogleAuth>` block has signed in, or Google refuses, the field says why, and the user can still type a value. In [simulation mode](/authoring/simulation-mode/#lookups), lookups answer from `simulation.yml` instead. A `shortcut` reads the first row of its lookup when the form opens and again after each sign-in, and stays hidden while the lookup has none. A `prefill` reads it the same way, and fills its input with the row's value while the input is empty. It fills each value once, so an input the user clears stays clear until a sign-in gives another value. Lookups that come from Google ask again after a sign-in too.
 
 ## Presets
 
@@ -262,6 +262,10 @@ public:
 ```
 
 The module can read the same file with `yamldecode(file("${path.module}/presets.yaml"))`, so what the info icon shows is what OpenTofu applies.
+
+## Simulation mode
+
+In [simulation mode](/authoring/simulation-mode/), lookups, Before you plan, and the code's plan and apply answer from the runbook's `simulation.yml`, so you can see each state of the block without signing in to anything or changing anything real.
 
 ## Testing
 

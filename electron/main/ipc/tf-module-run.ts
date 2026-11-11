@@ -7,7 +7,8 @@
  * `.runbooks/tf-module/<id>/`, which holds its saved plan and what the run
  * downloads. The unit runs in the repository's checkout, under its own
  * root.hcl, when there is one, and otherwise in the workspace beside a
- * root.hcl that keeps state with it.
+ * root.hcl that keeps state with it. In simulation mode, simulation.yml
+ * answers instead.
  */
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
@@ -18,6 +19,7 @@ import { ipcMain, type WebContents } from "electron"
 import { runtime, sessionManager } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { moduleDir } from "./tf-module-source.ts"
+import { activeSimulationScenario, simulationEnabled } from "./simulation.ts"
 import {
   fail,
   inWorkspaceTree,
@@ -38,8 +40,17 @@ import {
   uiEvents,
   type ApplyResult,
   type PlanResult,
+  type ResourceAction,
   type RunEvent,
 } from "../../../src/domain/tf-module/run.ts"
+import {
+  simulatedApplied,
+  simulatedOutputs,
+  simulatedPlan,
+  simulatedResources,
+  SIMULATION_FILE,
+  type SimulatedModule,
+} from "../../../src/domain/tf-module/simulation.ts"
 import { inputsKey } from "../../../src/domain/tf-module/inputsKey.ts"
 import { toolFor, unitFolder, type UnitFile } from "../../../src/domain/tf-module/unit.ts"
 import type { TfModuleRenderRequest, TfModuleRunRequest } from "../../shared/channels.ts"
@@ -71,7 +82,8 @@ interface RunLocation {
  * a plan for other inputs. A new plan replaces it, and an apply uses it up.
  */
 interface SavedPlan {
-  readonly location: RunLocation
+  /** None for a simulated plan, which runs nowhere. */
+  readonly location?: RunLocation | undefined
   readonly inputs: string
 }
 const savedPlans = new Map<string, SavedPlan>()
@@ -210,6 +222,115 @@ function runTerragrunt(subcommand: readonly string[], run: ToolRun): Promise<str
   })
 }
 
+/** The answers the active simulation scenario gives for a block, or an error saying what to add. */
+const simulatedModule = (blockId: string) =>
+  Effect.gen(function* () {
+    const scenario = yield* activeSimulationScenario
+    const answer = scenario.modules[blockId]
+    if (!answer) {
+      return yield* fail(
+        `Simulation: scenario "${scenario.name}" in ${SIMULATION_FILE} has no answer for this block's plan and apply. Add one under modules.${blockId}.`,
+      )
+    }
+    return answer
+  })
+
+export const pause = (ms: number, signal: AbortSignal) =>
+  Effect.promise(
+    () =>
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, ms)
+        signal.addEventListener("abort", () => {
+          clearTimeout(timer)
+          resolve()
+        })
+      }),
+  ).pipe(Effect.flatMap(() => (signal.aborted ? Effect.fail(fail("Stopped.")) : Effect.void)))
+
+/** OpenTofu's counts of a plan's actions: a replace adds one and destroys one. */
+function countActions(actions: readonly ResourceAction[]) {
+  const count = (...of: ResourceAction[]) => actions.filter((a) => of.includes(a)).length
+  return {
+    add: count("create", "replace"),
+    change: count("update"),
+    destroy: count("delete", "replace"),
+  }
+}
+
+/** What OpenTofu logs as it starts and finishes each action. */
+const APPLY_WORDS: Record<ResourceAction, { start: string; done: string }> = {
+  create: { start: "Creating...", done: "Creation complete" },
+  update: { start: "Modifying...", done: "Modifications complete" },
+  replace: { start: "Replacing...", done: "Creation complete" },
+  delete: { start: "Destroying...", done: "Destruction complete" },
+}
+
+function simulatePlan(
+  answer: SimulatedModule,
+  values: Record<string, unknown>,
+  send: (event: RunEvent) => void,
+  signal: AbortSignal,
+) {
+  return Effect.gen(function* () {
+    send({ kind: "step", step: "init" })
+    send({ kind: "log", line: "Simulated: nothing runs, and nothing real changes." })
+    send({ kind: "log", line: "tofu: Initializing provider plugins..." })
+    yield* pause(answer.delayMs, signal)
+    send({ kind: "step", step: "plan" })
+    const plan = yield* Effect.try({
+      try: () => simulatedPlan(answer, values),
+      catch: (cause) => (cause instanceof TfModuleError ? cause : fail(describeFailure(cause))),
+    })
+    for (const resource of plan.resources) {
+      send({ kind: "log", line: `${resource.address}: Plan to ${resource.action}` })
+    }
+    yield* pause(answer.delayMs, signal)
+    const n = countActions(plan.resources.map((r) => r.action))
+    send({
+      kind: "log",
+      line: `Plan: ${n.add} to add, ${n.change} to change, ${n.destroy} to destroy.`,
+    })
+    return plan
+  })
+}
+
+function simulateApply(
+  answer: SimulatedModule,
+  values: Record<string, unknown>,
+  sensitive: ReadonlySet<string>,
+  send: (event: RunEvent) => void,
+  signal: AbortSignal,
+) {
+  return Effect.gen(function* () {
+    send({ kind: "step", step: "apply" })
+    const resources = simulatedResources(answer, values)
+    for (const [index, { address, resource }] of resources.entries()) {
+      const words = APPLY_WORDS[resource.action]
+      send({ kind: "resource", address, progress: "working" })
+      send({ kind: "log", line: `${address}: ${words.start}` })
+      yield* pause(answer.delayMs, signal)
+      if (answer.applyError && index === resources.length - 1) {
+        send({ kind: "resource", address, progress: "failed", message: answer.applyError })
+        send({ kind: "log", line: answer.applyError, level: "error" })
+        return yield* fail(answer.applyError)
+      }
+      send({ kind: "resource", address, progress: "done", elapsedSeconds: answer.delayMs / 1000 })
+      send({ kind: "log", line: `${address}: ${words.done}` })
+    }
+    const n = countActions(resources.map((r) => r.resource.action))
+    send({
+      kind: "log",
+      line: `Apply complete! Resources: ${n.add} added, ${n.change} changed, ${n.destroy} destroyed.`,
+    })
+    return {
+      resources: resources
+        .filter(({ resource }) => resource.action !== "delete")
+        .map(({ address, row, resource }) => simulatedApplied(address, row, resource)),
+      outputs: simulatedOutputs(answer, values, sensitive),
+    } satisfies ApplyResult
+  })
+}
+
 /** Starts a cancellable run that streams its events to the block. */
 export function startRun(sender: WebContents, runId: string) {
   activeRuns.get(runId)?.abort()
@@ -235,6 +356,12 @@ export function registerTfModuleRunHandlers(): void {
     try {
       return await runtime.runPromise(
         Effect.gen(function* () {
+          if (simulationEnabled()) {
+            const answer = yield* simulatedModule(params.blockId)
+            const plan = yield* simulatePlan(answer, params.values, run.send, run.signal)
+            savedPlans.set(params.blockId, { inputs })
+            return plan
+          }
           const location = yield* writeForRun(params)
           const planFile = path.join(yield* workspaceDir(params.blockId), PLAN_FILE)
           const where = { cwd: location.cwd, downloadDir: location.downloadDir }
@@ -286,7 +413,13 @@ export function registerTfModuleRunHandlers(): void {
         Effect.gen(function* () {
           const spec = yield* Effect.flatMap(moduleDir(params.source), loadModule)
           const order = spec.outputs.map((output) => output.name)
+          const sensitive = new Set(spec.outputs.filter((o) => o.sensitive).map((o) => o.name))
           const { location } = yield* planToApply(params.blockId, params.values)
+          if (simulationEnabled()) {
+            const answer = yield* simulatedModule(params.blockId)
+            return yield* simulateApply(answer, params.values, sensitive, run.send, run.signal)
+          }
+          if (!location) return yield* fail("Plan first, so there's a plan to apply.")
           // The plan step wrote the code, and saved the plan this applies, in the workspace.
           const workspace = yield* workspaceDir(params.blockId)
           const planFile = path.join(workspace, PLAN_FILE)

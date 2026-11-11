@@ -12,7 +12,7 @@ import {
 } from "../prMachine"
 
 export interface PullRequestTarget {
-  /** The repository's checkout in the session. */
+  /** The repository's checkout in the session; none in simulation. */
   readonly worktreePath?: string | undefined
   readonly owner: string
   readonly repo: string

@@ -1,0 +1,192 @@
+# Answers this runbook's blocks get in simulation mode (runbooks open --simulate).
+# Each scenario names the rows a lookup returns, or the error it fails with, what a block's
+# plan and apply make, as templates over the block's inputs, and the files of the repository
+# a <GitClone> block would clone.
+scenarios:
+  happy-path:
+    label: Happy path
+    description: Two domains and a small directory.
+    repository:
+      files:
+        root.hcl: |
+          # Every unit includes this file: it keeps each unit's state in GCS.
+          remote_state {
+            backend  = "gcs"
+            generate = { path = "backend.tf", if_exists = "overwrite_terragrunt" }
+            config = {
+              bucket = "acme-tofu-state"
+              prefix = path_relative_to_include()
+            }
+          }
+        google-groups/org.hcl: |
+          # The Google Workspace organization the groups in this folder belong to.
+          locals {
+            domain      = "example.com"
+            customer_id = "C03example"
+          }
+        README.md: |
+          # Acme infrastructure
+    lookups:
+      google.customer:
+        - { value: C03example, id: C03example, primaryDomain: example.com }
+      google.me:
+        - { email: sam@example.com, name: Sam Rivera }
+      google.domains:
+        rows:
+          - { value: example.com, domainName: example.com, isPrimary: true }
+          - { value: example.org, domainName: example.org, isPrimary: false }
+      google.people:
+        delayMs: 300
+        rows:
+          - { value: ana@example.com, label: Ana Lima, description: Platform team }
+          - { value: bo@example.com, label: Bo Chen, description: Security }
+          - { value: cy@example.com, label: Cy Okafor, description: Finance }
+          - { value: dee@example.com, label: Dee Park, description: Platform team }
+          - { value: aws-admins@example.com, label: AWS admins, description: Group }
+    modules:
+      group:
+        delayMs: 700
+        resources:
+          - address: google_cloud_identity_group.group
+            values:
+              display_name: "{{ .display_name }}"
+              description: "{{ .description }}"
+              parent: customers/C03example
+              group_key:
+                - { id: "{{ .id }}", namespace: "" }
+              labels:
+                cloudidentity.googleapis.com/groups.discussion_forum: ""
+            computed:
+              id: groups/03x5example
+              name: groups/03x5example
+              create_time: "2026-11-10T12:00:00Z"
+          - address: google_cloud_identity_group_membership.owners["{{ .each }}"]
+            forEach: owners
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+              roles:
+                - { name: OWNER }
+                - { name: MEMBER }
+            computed:
+              group: groups/03x5example
+          - address: google_cloud_identity_group_membership.managers["{{ .each }}"]
+            forEach: managers
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+              roles:
+                - { name: MEMBER }
+                - { name: MANAGER }
+            computed:
+              group: groups/03x5example
+          - address: google_cloud_identity_group_membership.members["{{ .each }}"]
+            forEach: members
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+              roles:
+                - { name: MEMBER }
+            computed:
+              group: groups/03x5example
+        outputs:
+          email: "{{ .id }}"
+          resource_name: groups/03x5example
+          customer_id: C03example
+          runbooks_console_url: https://admin.google.com/ac/groups/03x5example
+
+  empty-directory:
+    label: Nobody in the directory
+    description: The people lookup finds no one, so owners and members take typed addresses only.
+    extends: happy-path
+    lookups:
+      google.people: []
+
+  no-directory-access:
+    label: Can't read the directory
+    description: The signed-in account lacks the directory scope.
+    extends: happy-path
+    lookups:
+      google.people:
+        error: "The signed-in account can't read your directory. Sign in with an account that has the directory.readonly scope."
+
+  apis-off:
+    label: APIs off
+    description: The signed-in project has the Cloud Identity and Admin SDK APIs off, so the block lists them before you plan.
+    extends: happy-path
+    googleApis:
+      project: acme-ops
+      disabled: [cloudidentity.googleapis.com, admin.googleapis.com]
+
+  apply-fails:
+    label: Apply fails
+    description: Google refuses to create the group, so the apply stops with an error.
+    extends: happy-path
+    modules:
+      group:
+        applyError: "Error creating Group: googleapi: Error 403: The caller does not have permission."
+
+  group-exists:
+    label: Group exists already
+    description: The group is in the repository and the state already, so the code changes its unit, and the plan renames it, adds the owners, and removes a member who's no longer listed.
+    extends: happy-path
+    repository:
+      files:
+        "google-groups/{{ .id }}/terragrunt.hcl": |
+          include "root" {
+            path = find_in_parent_folders("root.hcl")
+          }
+
+          terraform {
+            source = "git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=v0.13.0"
+          }
+
+          inputs = {
+            id = "{{ .id }}"
+            display_name = "Platform"
+            domain = "example.com"
+            members = ["bo@example.com"]
+          }
+    modules:
+      group:
+        resources:
+          - address: google_cloud_identity_group.group
+            before:
+              display_name: Platform
+              description: ""
+              parent: customers/C03example
+              group_key:
+                - { id: "{{ .id }}", namespace: "" }
+              labels:
+                cloudidentity.googleapis.com/groups.discussion_forum: ""
+            values:
+              display_name: "{{ .display_name }}"
+              description: "{{ .description }}"
+              parent: customers/C03example
+              group_key:
+                - { id: "{{ .id }}", namespace: "" }
+              labels:
+                cloudidentity.googleapis.com/groups.discussion_forum: ""
+            computed:
+              id: groups/03x5example
+              name: groups/03x5example
+              create_time: "2026-10-01T09:30:00Z"
+          - address: google_cloud_identity_group_membership.owners["{{ .each }}"]
+            forEach: owners
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+              roles:
+                - { name: OWNER }
+                - { name: MEMBER }
+            computed:
+              group: groups/03x5example
+          - address: google_cloud_identity_group_membership.members["bo@example.com"]
+            action: delete
+            before:
+              preferred_member_key:
+                - { id: bo@example.com }
+              roles:
+                - { name: MEMBER }
+            computed:
+              group: groups/03x5example

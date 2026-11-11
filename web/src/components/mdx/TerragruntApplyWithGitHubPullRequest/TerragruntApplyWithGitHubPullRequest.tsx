@@ -1,8 +1,9 @@
 import { useRef, useState } from "react"
-import { AlertTriangle, ArrowRight } from "lucide-react"
+import { AlertTriangle, ArrowRight, FlaskConical } from "lucide-react"
 import { useInputs, useOutputs, useRunbookContext, flattenInputs } from "@/contexts/useRunbook"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
+import { useSimulation } from "@/contexts/useSimulation"
 import { useIpc } from "@/hooks/useIpc"
 import { revealOutput, sensitiveOutput } from "@/lib/outputValues"
 import { Button } from "@/components/ui/button"
@@ -48,6 +49,13 @@ interface TerragruntApplyWithGitHubPullRequestProps {
   tfModuleId: string
   title?: string
   description?: string
+}
+
+/** The repository a simulated pull request goes to, when no <GitClone> block cloned one. */
+const SIMULATED_TARGET: PullRequestTarget = {
+  owner: "acme",
+  repo: "infrastructure-live",
+  baseBranch: "main",
 }
 
 const TABS: { tab: Tab; label: string }[] = [
@@ -164,6 +172,7 @@ function BlockHeader({
   title: string
   description: string | undefined
 }) {
+  const { state: simulation } = useSimulation()
   const { resolvedTheme } = useTheme()
   return (
     <>
@@ -190,6 +199,11 @@ function BlockHeader({
               <InlineMarkdown>{description}</InlineMarkdown>
             </div>
           )}
+          {simulation.enabled && (
+            <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning-muted px-2 py-0.5 text-xs text-warning-foreground">
+              <FlaskConical className="size-3" /> Simulation
+            </span>
+          )}
         </div>
       </div>
     </>
@@ -211,6 +225,7 @@ interface ApplyTabsProps {
 
 function ApplyTabs({ id, moduleId, header, codeRef, path, spec, values }: ApplyTabsProps) {
   const { activeWorkTree } = useGitWorkTree()
+  const { state: simulation } = useSimulation()
   const { registerOutputs } = useRunbookContext()
   const [tab, setTab] = useState<Tab>("code")
   const rootRef = useRef<HTMLDivElement>(null)
@@ -229,14 +244,16 @@ function ApplyTabs({ id, moduleId, header, codeRef, path, spec, values }: ApplyT
         repo: activeWorkTree.gitInfo.repoName,
         baseBranch: activeWorkTree.gitInfo.ref,
       }
-    : undefined
+    : simulation.enabled
+      ? SIMULATED_TARGET
+      : undefined
   const hasRepo = prTarget !== undefined
   const repo: TfModuleRepo | undefined = prTarget && {
     worktreePath: prTarget.worktreePath,
     path,
     baseBranch: prTarget.baseBranch,
   }
-  // Requests name the <TfModule> block, whose code and workspace they are.
+  // Requests name the <TfModule> block, whose code, workspace and simulated answers they are.
   const run = useTfRun(moduleId, codeRef, values, repo)
   const pr = usePullRequest(moduleId, codeRef, values, path)
   const unitCode = useUnitCode(moduleId, codeRef, values, repo, tab === "code" || tab === "pr")
@@ -327,6 +344,7 @@ function ApplyTabs({ id, moduleId, header, codeRef, path, spec, values }: ApplyT
           values={values}
           path={path}
           target={prTarget}
+          simulated={simulation.enabled}
           applied={applied}
           next={nextFrom("pr", stage, hasRepo)}
           pr={pr}
@@ -349,6 +367,7 @@ function ApplyTabs({ id, moduleId, header, codeRef, path, spec, values }: ApplyT
           blockId={id}
           state={run.state}
           status={run.status}
+          simulated={simulation.enabled}
           outputs={spec.outputs}
           next={nextFrom("apply", stage, hasRepo)}
           onNavigate={goTo}

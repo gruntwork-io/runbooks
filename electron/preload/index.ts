@@ -40,6 +40,8 @@ const INVOKE_CHANNELS = {
   "tf-module:pr-push": true,
   "tf-module:pr-merge": true,
   "tf-module:pr-update": true,
+  "simulation:state": true,
+  "simulation:set-scenario": true,
   "aws:validate": true,
   "aws:profiles": true,
   "aws:sso-start": true,

@@ -56,6 +56,8 @@ function makeApi(blockStates: unknown[], bChecked: Promise<void> = Promise.resol
   let current = RUNBOOKS["/work/a"]
   const invoke = vi.fn(async (channel: string, params?: { path?: string }) => {
     switch (channel) {
+      case "simulation:state":
+        return { enabled: false }
       case "native:get-cli-config":
         return {}
       case "runbook:get": {

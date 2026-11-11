@@ -211,6 +211,7 @@ export interface IpcChannelMap {
     result: TfModuleReadiness
   }
 
+  // Simulation mode
   /** The Terragrunt code a <TfModule> block runs, rendered with its inputs. */
   "tf-module:render": { params: TfModuleRenderRequest; result: TfModuleCode }
   /** Writes the block's code to its folder in the repository's checkout. */
@@ -228,6 +229,10 @@ export interface IpcChannelMap {
   "tf-module:pr-update": { params: TfModulePrUpdateRequest; result: { ok: true } }
   /** Merges the block's pull request. */
   "tf-module:pr-merge": { params: TfModulePrMergeRequest; result: { sha: string } }
+  /** Whether the app answers from simulation.yml, and its scenarios. */
+  "simulation:state": { params: void; result: SimulationState }
+  /** Picks the scenario lookups answer from. */
+  "simulation:set-scenario": { params: { name: string }; result: { ok: true } }
 
   // AWS Authentication
   "aws:validate": {
@@ -1109,7 +1114,7 @@ export interface TfModuleReadRequest {
 
 /** Where a <TfModule> block's code goes in a repository. */
 export interface TfModuleRepo {
-  /** The repository's checkout in the session, when a <GitClone> block cloned it. */
+  /** The repository's checkout in the session; none in simulation, where simulation.yml stands in. */
   worktreePath?: string | undefined
   /** The unit's folder in the repository. */
   path: string
@@ -1126,7 +1131,7 @@ export interface TfModuleCodeRef {
 }
 
 export interface TfModuleRenderRequest extends TfModuleCodeRef {
-  /** The <TfModule> block whose code it is, which names its workspace. */
+  /** The <TfModule> block whose code it is, which names its workspace and its simulated answers. */
   blockId: string
   /** The block's inputs, as it publishes them. */
   values: Record<string, unknown>
@@ -1160,7 +1165,7 @@ export interface TfModuleGenerateRequest extends TfModuleRenderRequest {
 
 export interface TfModuleGenerated {
   code: TfModuleCode
-  /** Paths, relative to the checkout, that it wrote; none without a checkout. */
+  /** Paths, relative to the checkout, that it wrote; none in simulation or without a checkout. */
   written: string[]
 }
 
@@ -1171,7 +1176,7 @@ export interface TfModuleRunRequest extends TfModuleRenderRequest {
 
 /** The repository the pull request for a <TfModule> block's code goes to. */
 export interface TfModulePrTarget {
-  /** The repository's checkout in the session. */
+  /** The repository's checkout in the session; none in simulation. */
   worktreePath?: string | undefined
   owner: string
   repo: string
@@ -1237,9 +1242,20 @@ export interface TfModuleReadiness {
     | { kind: "no-project" }
     | { kind: "checked"; project: string; enabled: Record<string, boolean> }
     | { kind: "error"; project: string; message: string }
-  /** The commands the code runs with, each found on PATH or not. */
+  /** The commands the code runs with, each found on PATH or not; none in simulation. */
   tools: { command: string; found: boolean; version?: string; install: string }[]
 }
+
+export type SimulationState =
+  | { enabled: false }
+  | {
+      enabled: true
+      scenarios: { name: string; label: string; description?: string }[]
+      /** The scenario lookups answer from. Absent while simulation.yml has a problem. */
+      active?: string
+      /** What's wrong with simulation.yml, fit to show the author. */
+      error?: string
+    }
 
 export interface ProfileInfo {
   name: string

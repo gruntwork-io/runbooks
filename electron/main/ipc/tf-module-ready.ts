@@ -3,7 +3,8 @@
  * own inputs: the Google APIs it calls turned on in the signed-in project,
  * and the commands its code runs with on PATH. The block checks before the
  * user plans, so a missing one shows up with its fix rather than as a
- * failed lookup or plan.
+ * failed lookup or plan. In simulation mode, simulation.yml answers for
+ * Google, and nothing runs, so no command is needed.
  */
 import { execFile } from "child_process"
 import fs from "fs/promises"
@@ -11,6 +12,7 @@ import path from "path"
 import { Effect } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager } from "./runtime.ts"
+import { activeSimulationScenario, simulationEnabled } from "./simulation.ts"
 import { activeCredentialFor } from "./google-credential-registry.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { GoogleClient } from "../../../src/services/GoogleClient.ts"
@@ -77,6 +79,13 @@ const templateTool = (template: string) =>
 const googleReadiness = (services: readonly string[]) =>
   Effect.gen(function* () {
     if (services.length === 0) return { kind: "none" } satisfies Readiness["google"]
+    if (simulationEnabled()) {
+      const { googleApis } = yield* activeSimulationScenario
+      const enabled = Object.fromEntries(
+        services.map((service) => [service, !googleApis.disabled.includes(service)]),
+      )
+      return { kind: "checked", project: googleApis.project, enabled } satisfies Readiness["google"]
+    }
     const credential = activeCredentialFor(undefined)
     if (!credential) return { kind: "signed-out" } satisfies Readiness["google"]
     const project = credential.projectId
@@ -95,6 +104,7 @@ export function registerTfModuleReadyHandlers(): void {
     runtime.runPromise(
       Effect.gen(function* () {
         const google = yield* googleReadiness(params?.services ?? [])
+        if (simulationEnabled()) return { google, tools: [] } satisfies Readiness
         const { env } = yield* sessionManager.getExecContext()
         const tool = yield* templateTool(params?.template ?? "")
         const tools = yield* Effect.promise(() => toolsFor(tool, env))

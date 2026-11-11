@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleDashed,
   ExternalLink,
+  FlaskConical,
   Loader2,
   Play,
   RotateCcw,
@@ -468,6 +469,7 @@ interface ApplyTabProps {
   state: RunState
   /** What the run means for the inputs as they are now. */
   status: RunStatus
+  simulated: boolean
   outputs: readonly TfModuleOutput[]
   /** The next step, when it's on another tab, such as merging the pull request. */
   next: NextStep | undefined
@@ -503,6 +505,7 @@ export function ApplyTab({
   blockId,
   state,
   status,
+  simulated,
   outputs,
   next,
   onNavigate,
@@ -570,6 +573,11 @@ export function ApplyTab({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <StepRail phase={phase} />
+        {simulated && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning-muted px-2 py-0.5 text-xs text-warning-foreground">
+            <FlaskConical className="size-3" /> Simulated: nothing real changes
+          </span>
+        )}
       </div>
 
       {phase.kind === "idle" && (

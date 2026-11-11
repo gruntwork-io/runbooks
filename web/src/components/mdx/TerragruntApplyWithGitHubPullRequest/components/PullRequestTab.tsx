@@ -6,6 +6,7 @@ import {
   CircleHelp,
   ExternalLink,
   FileCode,
+  FlaskConical,
   GitMerge,
   GitPullRequest,
   Loader2,
@@ -111,6 +112,7 @@ interface PullRequestTabProps {
   path: string
   /** The cloned repository; none until a <GitClone> block clones one. */
   target: PullRequestTarget | undefined
+  simulated: boolean
   /** Whether the inputs as they are now have been applied. */
   applied: boolean
   /** The next step, when it's on another tab. */
@@ -135,6 +137,7 @@ export function PullRequestTab({
   values,
   path,
   target,
+  simulated,
   applied,
   next,
   pr,
@@ -180,6 +183,11 @@ export function PullRequestTab({
             <span className="text-muted-foreground">No repository yet</span>
           )}
         </p>
+        {simulated && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning-muted px-2 py-0.5 text-xs text-warning-foreground">
+            <FlaskConical className="size-3" /> Simulated: nothing is pushed
+          </span>
+        )}
       </div>
 
       {!target && (

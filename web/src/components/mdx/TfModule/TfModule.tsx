@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
-import { ChevronDown, ChevronRight, FileCode, Loader2, TriangleAlert } from "lucide-react"
+import {
+  ChevronDown,
+  ChevronRight,
+  FileCode,
+  FlaskConical,
+  Loader2,
+  TriangleAlert,
+} from "lucide-react"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useApi } from "@/contexts/ApiContext"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import { Button } from "@/components/ui/button"
 import { useIpc } from "@/hooks/useIpc"
+import { useSimulation } from "@/contexts/useSimulation"
 import type { AppError } from "@/types/error"
 import { BlockIdLabel } from "../_shared/components/BlockIdLabel"
 import { DuplicateIdError } from "../_shared/components/DuplicateIdError"
@@ -190,6 +198,7 @@ function TfModuleForm({
 }: TfModuleFormProps) {
   const api = useApi()
   const { activeWorkTree } = useGitWorkTree()
+  const { state: simulation } = useSimulation()
   const { registerOutputs } = useRunbookContext()
   const [values, setValues] = useState<FormValues>(() => {
     const saved = Object.fromEntries(
@@ -237,7 +246,9 @@ function TfModuleForm({
         path: repoPath,
         baseBranch: activeWorkTree.gitInfo.ref,
       }
-    : undefined
+    : simulation.enabled
+      ? { path: repoPath }
+      : undefined
   const request = { blockId: id, source, template, values: published, repo }
   const requestKey = JSON.stringify(request)
 
@@ -319,6 +330,11 @@ function TfModuleForm({
           )}
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="font-mono">{source}</span>
+            {simulation.enabled && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning-muted px-2 py-0.5 text-warning-foreground">
+                <FlaskConical className="size-3" /> Simulation
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -498,7 +514,9 @@ function Generation({
   const where =
     result.written.length > 0
       ? `Saved in your local clone of ${repository ?? "the repository"}. Nothing is committed or pushed yet:`
-      : "Generated, to run in the block's workspace, since no repository is cloned:"
+      : code.kind === "repo"
+        ? "Generated (simulated, so nothing was written):"
+        : "Generated, to run in the block's workspace, since no repository is cloned:"
   return (
     <div className="text-sm" data-testid="tf-module-generated">
       <p className="m-0 flex items-center gap-1.5 text-muted-foreground">
