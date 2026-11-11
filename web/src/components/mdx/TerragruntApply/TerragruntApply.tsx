@@ -541,8 +541,9 @@ function Preflight({ state, onPlanAnyway }: { state: PreflightState; onPlanAnywa
         <p className="m-0 flex items-center gap-2 text-sm text-success" title={tools.join(" · ")}>
           <Check className="size-4" />
           Preflight passed
-          {passed > 0 ? `: ${passed === 1 ? "1 check" : `${passed} checks`}` : ""}, with{" "}
-          {tools.join(" and ")}.
+          {passed > 0 ? `: ${passed === 1 ? "1 check" : `${passed} checks`}` : ""}
+          {/* A simulated preflight looks for no tools. */}
+          {tools.length > 0 ? `, with ${tools.join(" and ")}` : ""}.
         </p>
       )
     }

@@ -255,6 +255,7 @@ describe("TerragruntApply", () => {
 
     await waitFor(() => expect(calls("terragrunt-apply:plan")).toHaveLength(1))
     expect(calls("simulation:respond")[0]![1]).toEqual({ id: "aws.enabled", with: {} })
+    expect(await screen.findByText("Preflight passed: 1 check.")).toBeInTheDocument()
     expect(calls("aws:send")).toHaveLength(0)
     expect(calls("terragrunt-apply:preflight")[0]![1]).toMatchObject({
       worktreePath: "",
