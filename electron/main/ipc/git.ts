@@ -112,7 +112,7 @@ const refusePlainHttpOrigin = (
  *
  * An http(s) origin whose host can't be matched is refused either way.
  */
-const resolveGitHubTokenForRepo = (
+export const resolveGitHubTokenForRepo = (
   repoPath: string,
   purpose: string,
   { callsApi }: { readonly callsApi: boolean },

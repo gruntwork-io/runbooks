@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useState } from "react"
-import { SessionName } from "../SessionName"
+import { SessionMenu } from "../SessionMenu"
 
 // The IPC boundary is the only thing mocked: the main process owns the
 // session and knows the other sessions' names.
@@ -13,61 +13,89 @@ vi.mock("@/contexts/ApiContext", async (importOriginal) => {
   return { ...actual, useApi: () => ({ invoke, on: vi.fn(() => () => {}) }) }
 })
 
-/** The name as the header holds it: renaming is the header's state, the name the app's. */
-function Harness({ onRenamed }: { onRenamed: (name: string) => void }) {
+/** The menu as the header holds it: the name is the app's state. */
+function Harness({
+  onRenamed,
+  onOpenSessions = vi.fn(),
+}: {
+  onRenamed: (name: string) => void
+  onOpenSessions?: () => void
+}) {
   const [name, setName] = useState("elegant-elephant")
-  const [isRenaming, setIsRenaming] = useState(false)
   return (
     <>
-      <SessionName
-        name={name}
-        isRenaming={isRenaming}
-        onRenamingChange={setIsRenaming}
-        onRenamed={(renamed) => {
+      <SessionMenu
+        sessionName={name}
+        sessionDir="/sessions/0190-elegant"
+        onSessionRenamed={(renamed) => {
           setName(renamed)
           onRenamed(renamed)
         }}
+        onOpenSessions={onOpenSessions}
       />
       <button>Elsewhere</button>
     </>
   )
 }
 
-/** Render the name and click it; returns the field and the onRenamed spy. */
+/** The session's name on the menu's button. */
+const shownName = () => screen.getByTestId("session-name")
+
+/** Render the menu and pick Rename Session; returns the field and the onRenamed spy. */
 async function startRenaming() {
   const onRenamed = vi.fn()
   render(<Harness onRenamed={onRenamed} />)
-  fireEvent.click(screen.getByRole("button", { name: "Rename session elegant-elephant" }))
-  return { field: screen.getByRole("textbox", { name: "Session name" }), onRenamed }
+  await userEvent.click(screen.getByRole("button", { name: /^Session/ }))
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename Session" }))
+  const field = await screen.findByRole("textbox", { name: "Session name" })
+  await waitFor(() => expect(field).toHaveFocus())
+  return { field, onRenamed }
 }
 
-describe("SessionName", () => {
+describe("SessionMenu", () => {
   beforeEach(() => {
     invoke.mockReset()
   })
 
-  it("copies the name from the button before it, and stays a name", async () => {
+  it("names the session on its button, with no button to copy the name", () => {
+    render(<Harness onRenamed={vi.fn()} />)
+
+    expect(shownName()).toHaveTextContent("elegant-elephant")
+    expect(screen.queryByRole("button", { name: "Copy session name" })).not.toBeInTheDocument()
+  })
+
+  it("copies the session's directory from the menu, and says so", async () => {
     const user = userEvent.setup()
     render(<Harness onRenamed={vi.fn()} />)
 
-    await user.click(screen.getByRole("button", { name: "Copy session name" }))
+    await user.click(screen.getByRole("button", { name: /^Session/ }))
+    await user.click(await screen.findByRole("menuitem", { name: "Copy session directory" }))
 
-    expect(await navigator.clipboard.readText()).toBe("elegant-elephant")
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Session name copied")
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    expect(await navigator.clipboard.readText()).toBe("/sessions/0190-elegant")
+    expect(
+      await screen.findByRole("menuitem", { name: "Session directory copied" }),
+    ).toBeInTheDocument()
     expect(invoke).not.toHaveBeenCalled()
   })
 
-  it("hints at what each control does when hovered", async () => {
-    const user = userEvent.setup()
+  it("opens the Sessions dialog once the menu has closed", async () => {
+    const onOpenSessions = vi.fn()
+    render(<Harness onRenamed={vi.fn()} onOpenSessions={onOpenSessions} />)
+
+    await userEvent.click(screen.getByRole("button", { name: /^Session/ }))
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Switch Session…" }))
+
+    await waitFor(() => expect(onOpenSessions).toHaveBeenCalledTimes(1))
+  })
+
+  it("resets the session from the menu", async () => {
+    invoke.mockResolvedValue(undefined)
     render(<Harness onRenamed={vi.fn()} />)
 
-    await user.hover(screen.getByRole("button", { name: "Copy session name" }))
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy session name")
-    await user.unhover(screen.getByRole("button", { name: "Copy session name" }))
+    await userEvent.click(screen.getByRole("button", { name: /^Session/ }))
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Reset Session" }))
 
-    await user.hover(screen.getByRole("button", { name: "Rename session elegant-elephant" }))
-    await waitFor(() => expect(screen.getByRole("tooltip")).toHaveTextContent("Rename session"))
+    expect(invoke).toHaveBeenCalledWith("native:reset-session")
   })
 
   it("turns into a field with the name selected when clicked", async () => {
@@ -87,9 +115,7 @@ describe("SessionName", () => {
     await userEvent.keyboard("prod-deploy{Enter}")
 
     expect(invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
-    expect(
-      await screen.findByRole("button", { name: "Rename session prod-deploy" }),
-    ).toBeInTheDocument()
+    await waitFor(() => expect(shownName()).toHaveTextContent("prod-deploy"))
     expect(onRenamed).toHaveBeenCalledWith("prod-deploy")
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
   })
@@ -141,9 +167,7 @@ describe("SessionName", () => {
 
     await userEvent.keyboard("prod-deploy{Escape}")
 
-    expect(
-      screen.getByRole("button", { name: "Rename session elegant-elephant" }),
-    ).toBeInTheDocument()
+    await waitFor(() => expect(shownName()).toHaveTextContent("elegant-elephant"))
     expect(invoke).not.toHaveBeenCalled()
     expect(onRenamed).not.toHaveBeenCalled()
   })
@@ -154,9 +178,7 @@ describe("SessionName", () => {
     await userEvent.keyboard("prod-deploy")
     await userEvent.click(screen.getByRole("button", { name: "Elsewhere" }))
 
-    expect(
-      screen.getByRole("button", { name: "Rename session elegant-elephant" }),
-    ).toBeInTheDocument()
+    await waitFor(() => expect(shownName()).toHaveTextContent("elegant-elephant"))
     expect(invoke).not.toHaveBeenCalled()
   })
 
@@ -176,9 +198,7 @@ describe("SessionName", () => {
     await userEvent.clear(field)
     await userEvent.keyboard(" elegant-elephant {Enter}")
 
-    expect(
-      screen.getByRole("button", { name: "Rename session elegant-elephant" }),
-    ).toBeInTheDocument()
+    await waitFor(() => expect(shownName()).toHaveTextContent("elegant-elephant"))
     expect(invoke).not.toHaveBeenCalled()
   })
 
@@ -198,9 +218,7 @@ describe("SessionName", () => {
     expect(screen.getByRole("textbox", { name: "Session name" })).toBe(field)
 
     finish({ name: "prod-deploy" })
-    expect(
-      await screen.findByRole("button", { name: "Rename session prod-deploy" }),
-    ).toBeInTheDocument()
+    await waitFor(() => expect(shownName()).toHaveTextContent("prod-deploy"))
     expect(onRenamed).toHaveBeenCalledWith("prod-deploy")
   })
 
@@ -222,9 +240,7 @@ describe("SessionName", () => {
 
     await userEvent.keyboard("{Enter}")
 
-    expect(
-      screen.getByRole("button", { name: "Rename session elegant-elephant" }),
-    ).toBeInTheDocument()
+    await waitFor(() => expect(shownName()).toHaveTextContent("elegant-elephant"))
     expect(invoke).not.toHaveBeenCalled()
   })
 })

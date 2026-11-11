@@ -103,6 +103,81 @@ describe("AwsAuth — rendering", () => {
     expect(screen.queryByPlaceholderText("AKIAIOSFODNN7EXAMPLE")).toBeNull()
   })
 
+  it("asks for the portal when the runbook sets no start URL, filling it from the AWS config", async () => {
+    installApi((channel) => {
+      if (channel === "aws:profiles") {
+        return {
+          profiles: [
+            { name: "keys", authType: "static" },
+            {
+              name: "prod",
+              authType: "sso",
+              ssoStartUrl: "https://acme.awsapps.com/start",
+              ssoRegion: "us-east-2",
+            },
+            {
+              name: "other",
+              authType: "sso",
+              ssoStartUrl: "https://other.awsapps.com/start",
+              ssoRegion: "eu-west-1",
+            },
+          ],
+        }
+      }
+      if (channel === "aws:sso-start") return { verificationUri: "", error: "stop here" }
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    vi.spyOn(window, "open").mockImplementation(() => null)
+    renderBlock(<AwsAuth id="test-aws" detectCredentials={false} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "AWS SSO" }))
+
+    const startUrl = await screen.findByDisplayValue("https://acme.awsapps.com/start")
+    expect(startUrl).toHaveAccessibleName(/SSO start URL/)
+    expect(screen.getByText("us-east-2")).toBeInTheDocument()
+
+    // The config's other portal is one click away.
+    fireEvent.click(
+      screen.getByRole("button", { name: "https://other.awsapps.com/start (eu-west-1)" }),
+    )
+    expect(startUrl).toHaveValue("https://other.awsapps.com/start")
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with SSO" }))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("aws:sso-start", {
+        startUrl: "https://other.awsapps.com/start",
+        region: "eu-west-1",
+      }),
+    )
+  })
+
+  it("signs in to a typed portal only once its start URL is a URL", async () => {
+    installApi((channel) => {
+      if (channel === "aws:profiles") return { profiles: [] }
+      if (channel === "aws:sso-start") return { verificationUri: "", error: "stop here" }
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    renderBlock(<AwsAuth id="test-aws" detectCredentials={false} ssoRegion="us-west-2" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "AWS SSO" }))
+    const startUrl = screen.getByLabelText(/SSO start URL/)
+    const signIn = screen.getByRole("button", { name: "Sign in with SSO" })
+    expect(signIn).toBeDisabled()
+
+    fireEvent.change(startUrl, { target: { value: "acme.awsapps.com/start" } })
+    expect(signIn).toBeDisabled()
+    expect(screen.getByText(/The start URL begins with https:\/\//)).toBeInTheDocument()
+
+    fireEvent.change(startUrl, { target: { value: " https://acme.awsapps.com/start " } })
+    fireEvent.click(signIn)
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("aws:sso-start", {
+        startUrl: "https://acme.awsapps.com/start",
+        region: "us-west-2",
+      }),
+    )
+  })
+
   it("renders custom title", () => {
     renderBlock(<AwsAuth id="test-aws" detectCredentials={false} title="Connect to AWS" />)
     expect(screen.getByText("Connect to AWS")).toBeInTheDocument()

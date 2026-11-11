@@ -80,6 +80,13 @@ describe("parseCliArgs", () => {
     expect(config.disableLiveFileReload).toBe(true)
   })
 
+  it("parses --simulate without taking the runbook path as its value", () => {
+    expect(parseCliArgs(["electron"]).simulate).toBe(false)
+    const config = parseCliArgs(["electron", "open", "--simulate", "./runbook.mdx"])
+    expect(config.simulate).toBe(true)
+    expect(config.runbookPath).toContain("runbook.mdx")
+  })
+
   it("parses --disable-live-file-reload with --watch", () => {
     const config = parseCliArgs([
       "electron",

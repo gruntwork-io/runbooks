@@ -14,6 +14,8 @@ import {
 
 // Support MDX components
 import { Inputs } from "@/components/mdx/Inputs"
+import { TfModule } from "@/components/mdx/TfModule"
+import { TerragruntApplyWithGitHubPullRequest } from "@/components/mdx/TerragruntApplyWithGitHubPullRequest"
 import { Template } from "@/components/mdx/Template"
 import { TemplateInline } from "@/components/mdx/TemplateInline"
 import { ComponentIdRegistryProvider } from "@/contexts/ComponentIdRegistry"
@@ -42,6 +44,7 @@ import { SmartLink } from "@/components/mdx/_shared/components/SmartLink"
 import { CodeBlock } from "@/components/mdx/_shared/components/CodeBlock"
 import { InstructionModeBanner } from "@/components/mdx/_shared/components/InstructionModeBanner"
 import { TaskListCheckbox } from "@/components/mdx/_shared/components/TaskListCheckbox"
+import { SimulationBar } from "@/components/layout/SimulationBar"
 
 /**
  * This component renders a markdown/MDX document.
@@ -156,6 +159,7 @@ function MDXContainer({
           assetHost={assetHost}
         >
           <CustomMDXComponentErrorBoundary onError={setError}>
+            <SimulationBar />
             {banner && <div className="mb-4">{banner}</div>}
             {/* Security banner displayed at the top of every runbook */}
             <div className="mb-4">
@@ -354,6 +358,8 @@ function rehypeTaskListIds() {
 export const MDX_COMPONENTS = {
   // Form and template components
   Inputs,
+  TfModule,
+  TerragruntApplyWithGitHubPullRequest,
   Template,
   TemplateInline,
   DirPicker,

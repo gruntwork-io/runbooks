@@ -25,6 +25,7 @@ import { WasmRuntime } from "../services/WasmRuntime.ts"
 import type { WasmRuntimeShape, WasmRenderFilesResult } from "../services/WasmRuntime.ts"
 import { WasmError } from "../errors/index.ts"
 import { errorMessage } from "../errors/message.ts"
+import { loadGoWasm } from "./goWasmGlobal.ts"
 
 const decompress = promisify(brotliDecompress)
 
@@ -133,7 +134,7 @@ async function loadWasm(): Promise<BoilerplateExports> {
  */
 function ensureLoading(): Promise<BoilerplateExports> {
   if (!loadPromise) {
-    loadPromise = loadWasm().catch((err) => {
+    loadPromise = loadGoWasm(loadWasm).catch((err) => {
       // Reset on failure so a subsequent call can retry (e.g., a transient
       // read error on the vendored blob). Without the reset, every future
       // call would receive the cached rejection.

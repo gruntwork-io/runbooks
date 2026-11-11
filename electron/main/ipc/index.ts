@@ -32,6 +32,11 @@ import { registerWorkspaceHandlers } from "./workspace.ts"
 import { registerFileHandlers } from "./files.ts"
 import { registerWatchHandlers } from "./watch.ts"
 import { registerThemeHandlers } from "./theme.ts"
+import { registerTfModuleHandlers } from "./tf-module.ts"
+import { registerTfModuleRunHandlers } from "./tf-module-run.ts"
+import { registerTfModulePrHandlers } from "./tf-module-pr.ts"
+import { registerTfModuleReadyHandlers } from "./tf-module-ready.ts"
+import { registerSimulationHandlers } from "./simulation.ts"
 import { withVcs } from "./vcs-tristate.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 
@@ -87,5 +92,10 @@ export function registerAllIpcHandlers(): void {
   registerFileHandlers()
   registerWatchHandlers()
   registerThemeHandlers()
+  registerTfModuleHandlers()
+  registerTfModuleRunHandlers()
+  registerTfModulePrHandlers()
+  registerTfModuleReadyHandlers()
+  registerSimulationHandlers()
   registerVcsStatusHandler()
 }

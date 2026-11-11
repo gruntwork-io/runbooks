@@ -10,6 +10,7 @@ import { FindBar, type FindBarHandle } from "./components/layout/FindBar"
 import { ErrorSummaryBanner } from "./components/layout/ErrorSummaryBanner"
 import { RunbookOpenError } from "./components/layout/RunbookOpenError"
 import { SessionResumedNotice } from "./components/layout/SessionResumedNotice"
+import { SimulationProvider } from "./contexts/SimulationContext"
 import { FinishedSessionNotice } from "./components/layout/FinishedSessionNotice"
 import { SessionsDialog } from "./components/layout/SessionsDialog"
 import MDXContainer from "./components/MDXContainer"
@@ -528,43 +529,45 @@ function App() {
                       from fresh block inputs/outputs and trust banner, while
                       same-path reloads keep them. The blocks start from
                       what the session's history says they were left as. */}
-                  <IpcSessionHistoryProvider
-                    key={loadedSessionKey}
-                    sessionId={getRunbookResult.data?.sessionId}
-                    blockStates={getRunbookResult.data?.blockStates}
-                  >
-                    <GeneratedFilesHistory resumedFiles={resumedFiles} />
-                    <MDXContainer
-                      ref={runbookScrollRef}
-                      content={content}
-                      runbookPath={runbookPath}
-                      runbookFilePath={getRunbookResult.data?.path}
-                      remoteSource={getRunbookResult.data?.remoteSource}
-                      assetHost={getRunbookResult.data?.assetHost}
-                      banner={
-                        shownResumeNotice ? (
-                          <SessionResumedNotice
-                            sessionName={shownResumeNotice.sessionName}
-                            resumedFrom={shownResumeNotice.resumedFrom}
-                            finishedAt={shownResumeNotice.finishedAt}
-                            onStartNew={handleStartNewSession}
-                            onDismiss={() => setResumeNotice(null)}
-                          />
-                        ) : (
-                          shownFinishedNotice && (
-                            <FinishedSessionNotice
-                              sessionName={shownFinishedNotice.sessionName}
-                              finishedSession={shownFinishedNotice.finishedSession}
-                              onSwitchSession={() => setIsSessionsOpen(true)}
-                              onDismiss={() => setFinishedNotice(null)}
+                  <SimulationProvider runbookKey={getRunbookResult.data?.path}>
+                    <IpcSessionHistoryProvider
+                      key={loadedSessionKey}
+                      sessionId={getRunbookResult.data?.sessionId}
+                      blockStates={getRunbookResult.data?.blockStates}
+                    >
+                      <GeneratedFilesHistory resumedFiles={resumedFiles} />
+                      <MDXContainer
+                        ref={runbookScrollRef}
+                        content={content}
+                        runbookPath={runbookPath}
+                        runbookFilePath={getRunbookResult.data?.path}
+                        remoteSource={getRunbookResult.data?.remoteSource}
+                        assetHost={getRunbookResult.data?.assetHost}
+                        banner={
+                          shownResumeNotice ? (
+                            <SessionResumedNotice
+                              sessionName={shownResumeNotice.sessionName}
+                              resumedFrom={shownResumeNotice.resumedFrom}
+                              finishedAt={shownResumeNotice.finishedAt}
+                              onStartNew={handleStartNewSession}
+                              onDismiss={() => setResumeNotice(null)}
                             />
+                          ) : (
+                            shownFinishedNotice && (
+                              <FinishedSessionNotice
+                                sessionName={shownFinishedNotice.sessionName}
+                                finishedSession={shownFinishedNotice.finishedSession}
+                                onSwitchSession={() => setIsSessionsOpen(true)}
+                                onDismiss={() => setFinishedNotice(null)}
+                              />
+                            )
                           )
-                        )
-                      }
-                      // --runbook-padding lets a chapter's bar stick to the box's top edge.
-                      className="[--runbook-padding:--spacing(6)] lg:[--runbook-padding:--spacing(8)] p-(--runbook-padding) w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
-                    />
-                  </IpcSessionHistoryProvider>
+                        }
+                        // --runbook-padding lets a chapter's bar stick to the box's top edge.
+                        className="[--runbook-padding:--spacing(6)] lg:[--runbook-padding:--spacing(8)] p-(--runbook-padding) w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
+                      />
+                    </IpcSessionHistoryProvider>
+                  </SimulationProvider>
 
                   {/* Show code icon button - desktop only, when artifacts panel is hidden */}
                   {showCodeButton && (

@@ -7,7 +7,7 @@ import { GitClient } from "../../services/GitClient.ts"
 import type { GitIdentity } from "../../services/GitClient.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { GitHubClient } from "../../services/GitHubClient.ts"
-import type { CreatePRParams } from "../../services/GitHubClient.ts"
+import type { CreatePRParams, MergeMethod } from "../../services/GitHubClient.ts"
 import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { CreateMRParams } from "../../services/GitLabClient.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
@@ -457,6 +457,94 @@ export const createPullRequest = (
 
     return pr
   })
+
+/**
+ * Commit the worktree's changes to an open pull request's branch, which HEAD
+ * is still on, and push them, so the pull request shows them.
+ */
+export const pushToPullRequest = (
+  token: string,
+  params: CreatePullRequestParams,
+  onProgress?: (line: string) => void,
+) =>
+  Effect.gen(function* () {
+    const author = yield* resolveGitHubAuthor(token, params.host)
+    yield* runGitSteps(token, "github", params, author, onProgress)
+  })
+
+/** The open pull request from `headBranch` in the same GitHub repository, if there is one. */
+export const findOpenPullRequest = (
+  token: string,
+  params: {
+    readonly owner: string
+    readonly repo: string
+    readonly headBranch: string
+    readonly host?: string
+  },
+) =>
+  Effect.flatMap(GitHubClient, (gh) =>
+    gh.findOpenPullRequest(token, params.owner, params.repo, params.headBranch, params.host),
+  )
+
+/**
+ * Puts HEAD on `branch` as origin has it, so later commits go on top of the
+ * branch's own and a push fast-forwards it. A local branch of that name moves
+ * there; a commit only it has (such as one a rejected push left) is dropped.
+ */
+export const checkOutRemoteBranch = (token: string, repoPath: string, branch: string) =>
+  Effect.gen(function* () {
+    const gitClient = yield* GitClient
+    yield* gitClient.fetchBranch(repoPath, "origin", branch, {
+      token,
+      username: gitCredentialUsername("github"),
+    })
+    yield* gitClient.checkoutBranchAt(repoPath, branch, `refs/remotes/origin/${branch}`)
+  })
+
+/** Change a pull request's title and description with the GitHub API. */
+export const updatePullRequest = (
+  token: string,
+  params: {
+    readonly owner: string
+    readonly repo: string
+    readonly number: number
+    readonly title: string
+    readonly body: string
+    readonly host?: string
+  },
+) =>
+  Effect.flatMap(GitHubClient, (gh) =>
+    gh.updatePullRequest(
+      token,
+      params.owner,
+      params.repo,
+      params.number,
+      { title: params.title, body: params.body },
+      params.host,
+    ),
+  )
+
+/** Merge a pull request into its base branch with the GitHub API. */
+export const mergePullRequest = (
+  token: string,
+  params: {
+    readonly owner: string
+    readonly repo: string
+    readonly number: number
+    readonly method: MergeMethod
+    readonly host?: string
+  },
+) =>
+  Effect.flatMap(GitHubClient, (gh) =>
+    gh.mergePullRequest(
+      token,
+      params.owner,
+      params.repo,
+      params.number,
+      params.method,
+      params.host,
+    ),
+  )
 
 /**
  * Create a merge request by orchestrating: the shared git steps (branch, stage,

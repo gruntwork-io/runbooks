@@ -1,0 +1,49 @@
+---
+title: TfModule Demo
+---
+
+# TfModule
+
+A `<TfModule>` block draws its form from an OpenTofu module and generates the code that uses it. The module's `variables.tf` gives each input's name, type, default and validation; its `runbook_block.yml` says how to present them. A `<TerragruntApplyWithGitHubPullRequest>` block then shows that code, opens a pull request for it, and applies it.
+
+This runbook uses a copy of the `google-group` module from the catalog. Open it with `--simulate` so the organization dropdown, the people suggestions, and the plan and apply on the **Apply** tab answer from [simulation.yml](./simulation.yml) instead of your Google Workspace:
+
+```bash
+runbooks open --simulate testdata/feature-demos/tf-module
+```
+
+## Describe the group
+
+<TfModule
+  id="group"
+  source="google-group"
+  template="templates/google-group-unit"
+  path="google-groups/{{ .id }}"
+/>
+
+The runbook decides how to use the module: [its template](./templates/google-group-unit) renders a Terragrunt unit. **Generate** writes it under `google-groups/` in the repository a `<GitClone>` block cloned; in simulation, it lists the files without writing them.
+
+## Apply it
+
+<TerragruntApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
+
+The **Code** tab shows the unit with these values, in its folder in the repository, which simulation.yml stands in for here; the **PR** tab opens a GitHub pull request that adds it, and the **Apply** tab plans and applies it. Merge and apply in either order. Once it applies, the module's outputs are this block's outputs, such as `{{ .outputs.apply_group.runbooks_console_url }}`.
+
+## Use the values
+
+Other blocks read the module's inputs through `inputsId`, as they read an `<Inputs>` block's.
+
+<Command
+  id="show-group"
+  title="Show the group's inputs"
+  inputsId="group"
+  env={{
+    GROUP_EMAIL: "{{ .inputs.id }}",
+    GROUP_NAME: "{{ .inputs.display_name }}",
+    GROUP_DOMAIN: "{{ .inputs.domain }}",
+  }}
+  command={`echo "Group:  $GROUP_EMAIL"
+echo "Name:   $GROUP_NAME"
+echo "Domain: $GROUP_DOMAIN"
+echo "group_email=$GROUP_EMAIL" >> "$RUNBOOK_OUTPUT"`}
+/>

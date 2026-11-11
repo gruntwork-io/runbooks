@@ -96,6 +96,8 @@ function makeApi({
   const invoke = vi.fn(
     async (channel: string, params?: { path?: string; remoteSource?: string; name?: string }) => {
       switch (channel) {
+        case "simulation:state":
+          return { enabled: false }
         case "native:get-cli-config":
           return pageRunbook ?? {}
         case "session:rename":
@@ -205,6 +207,12 @@ function LogSeeder() {
 }
 
 const originalApi = window.api
+
+/** Open the header's Session menu. */
+async function openSessionMenu() {
+  await userEvent.click(screen.getByRole("button", { name: /^Session/ }))
+  await screen.findByRole("menu")
+}
 
 function renderApp(options?: ApiOptions) {
   const mock = makeApi(options)
@@ -350,7 +358,9 @@ describe("App runbook switching", () => {
     const { invoke, emit, newSession } = renderApp()
     await openRunbook(emit, "/work/a", "Runbook A")
 
-    fireEvent.click(screen.getByTestId("session-name"))
+    await openSessionMenu()
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Rename Session" }))
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Session name" })).toHaveFocus())
     await userEvent.keyboard("prod-deploy{Enter}")
 
     expect(invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
@@ -371,7 +381,7 @@ describe("App runbook switching", () => {
     await userEvent.keyboard("{Escape}")
     expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument()
 
-    await emit("menu:preferences")
+    await openSessionMenu()
     await userEvent.click(await screen.findByRole("menuitem", { name: "Rename Session" }))
     // The field keeps the focus the closing menu would give back to its button.
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Session name" })).toHaveFocus())
@@ -383,12 +393,24 @@ describe("App runbook switching", () => {
     await emit("menu:rename-session")
     expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument()
 
-    await emit("menu:preferences")
+    await openSessionMenu()
     expect(await screen.findByRole("menuitem", { name: "Rename Session" })).toHaveAttribute(
       "data-disabled",
     )
     expect(screen.getByRole("menuitem", { name: "Reset Session" })).toHaveAttribute("data-disabled")
-    expect(screen.getByRole("menuitem", { name: "Close Runbook" })).toHaveAttribute("data-disabled")
+    expect(screen.getByRole("menuitem", { name: "Copy session directory" })).toHaveAttribute(
+      "data-disabled",
+    )
+    expect(screen.getByRole("menuitem", { name: "Switch Session…" })).not.toHaveAttribute(
+      "data-disabled",
+    )
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument())
+
+    await emit("menu:preferences")
+    expect(await screen.findByRole("menuitem", { name: "Close Runbook" })).toHaveAttribute(
+      "data-disabled",
+    )
   })
 
   it("shows the saved sessions from the header menu and the native menu, with no runbook open too", async () => {
@@ -401,7 +423,7 @@ describe("App runbook switching", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
 
     await openRunbook(emit, "/work/a", "Runbook A")
-    await emit("menu:preferences")
+    await openSessionMenu()
     await userEvent.click(await screen.findByRole("menuitem", { name: "Switch Session…" }))
     await waitFor(() =>
       expect(screen.getByRole("searchbox", { name: "Filter sessions" })).toHaveFocus(),
@@ -426,53 +448,65 @@ describe("App runbook switching", () => {
       await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument())
     }
 
-    await emit("menu:preferences")
-    await screen.findByRole("menu")
+    await openSessionMenu()
     await closeMenu()
     expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument()
 
-    await emit("menu:preferences")
+    await openSessionMenu()
     await userEvent.click(await screen.findByRole("menuitem", { name: "Rename Session" }))
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Session name" })).toHaveFocus())
     await userEvent.keyboard("{Escape}")
 
     // The next time the menu closes, nothing asked for a rename.
-    await emit("menu:preferences")
-    await screen.findByRole("menu")
+    await openSessionMenu()
     await closeMenu()
     expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument()
   })
 
   it.each([
-    ["Reset Session", "native:reset-session", "Failed to reset the session:"],
-    ["Close Runbook", "native:close-runbook", "Failed to close the runbook:"],
-  ])("asks main to %s from the header menu, and logs a failure", async (item, channel, logged) => {
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {})
-    const { emit, invoke } = renderApp()
-    await openRunbook(emit, "/work/a", "Runbook A")
-    const fallback = invoke.getMockImplementation()!
-    invoke.mockImplementation(async (c: string, params?: Record<string, string>) => {
-      if (c === channel) throw new Error("main is busy")
-      return fallback(c, params)
-    })
+    ["Reset Session", "Session", "native:reset-session", "Failed to reset the session:"],
+    ["Close Runbook", "Menu", "native:close-runbook", "Failed to close the runbook:"],
+  ])(
+    "asks main to %s from the header's %s menu, and logs a failure",
+    async (item, menu, channel, logged) => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {})
+      const { emit, invoke } = renderApp()
+      await openRunbook(emit, "/work/a", "Runbook A")
+      const fallback = invoke.getMockImplementation()!
+      invoke.mockImplementation(async (c: string, params?: Record<string, string>) => {
+        if (c === channel) throw new Error("main is busy")
+        return fallback(c, params)
+      })
 
-    await emit("menu:preferences")
-    await userEvent.click(await screen.findByRole("menuitem", { name: item }))
+      if (menu === "Session") await openSessionMenu()
+      else await emit("menu:preferences")
+      await userEvent.click(await screen.findByRole("menuitem", { name: item }))
 
-    expect(invoke).toHaveBeenCalledWith(channel)
-    await waitFor(() => expect(errors).toHaveBeenCalledWith(logged, expect.any(Error)))
-    errors.mockRestore()
-  })
+      expect(invoke).toHaveBeenCalledWith(channel)
+      await waitFor(() => expect(errors).toHaveBeenCalledWith(logged, expect.any(Error)))
+      errors.mockRestore()
+    },
+  )
 
-  it("copies the session's directory from the header, for a remote runbook too", async () => {
+  it("copies the session's directory from the header's Session menu, for a remote runbook too", async () => {
     // jsdom has no clipboard; the afterEach below takes this one away again.
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
     const { emit } = renderApp()
-    expect(screen.queryByRole("button", { name: "Copy session directory" })).toBeNull()
+    const copyDirectory = async () => {
+      await openSessionMenu()
+      // Says it copied for a moment, even in a menu reopened soon after.
+      await userEvent.click(
+        await screen.findByRole("menuitem", {
+          name: /^(Copy session directory|Session directory copied)$/,
+        }),
+      )
+      await userEvent.keyboard("{Escape}")
+      await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument())
+    }
 
     await openRunbook(emit, "/work/a", "Runbook A")
-    fireEvent.click(screen.getByRole("button", { name: "Copy session directory" }))
+    await copyDirectory()
     await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("/sessions/dirs/session-0"))
 
     // A remote runbook is cloned to a temp folder: the button still copies the
@@ -483,7 +517,7 @@ describe("App runbook switching", () => {
     })
     expect(await screen.findByRole("heading", { name: "Runbook B" })).toBeInTheDocument()
     writeText.mockClear()
-    fireEvent.click(screen.getByRole("button", { name: "Copy session directory" }))
+    await copyDirectory()
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
     expect(writeText).toHaveBeenCalledWith("/sessions/dirs/session-0")
   })

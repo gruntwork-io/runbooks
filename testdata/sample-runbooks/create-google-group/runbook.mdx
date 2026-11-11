@@ -1,0 +1,119 @@
+---
+title: Create a Google Group
+---
+
+# Create a Google Group
+
+This runbook creates a real Google group in your Google Workspace or Cloud Identity organization, as a Terragrunt unit in an infrastructure repository laid out like `infra-live`. Nothing here is simulated: the **Apply** tab creates the group, and the last step deletes it again.
+
+## Before you start
+
+- **Terragrunt 1.1.4 or later and OpenTofu 1.12.6 or later** on your `PATH`, the versions the repository's `root.hcl` requires.
+- **AWS access to the account that keeps the repository's state.** Every unit keeps its state in S3, including units that manage another provider.
+- **An admin who can create groups**, such as a Groups Admin or Super Admin, to sign in as.
+- **A Google Cloud project** for this runbook. Google bills its API calls to that project, so you need permission to use its services, which an Owner or Editor has. Once you sign in, the block below checks which of its APIs to turn on.
+- **A GitHub account** that can push to the repository below.
+- **A Desktop app OAuth client** for Google Sign-In, from that project's **Google Auth Platform → Clients** page. Choose its JSON in the sign-in tab, or point `GOOGLE_OAUTH_CLIENT_CREDENTIALS` at it before you start Runbooks.
+
+## Sign in to Google
+
+Sign in as the admin, and pick the project from above. The extra scopes let the form suggest your organization's domains and people.
+
+<GoogleAuth
+  id="google-auth"
+  title="Sign in to Google"
+  description="Sign in as an admin who can create groups, and pick the project for this runbook."
+  defaultTab="oauth"
+  scopes={[
+    'https://www.googleapis.com/auth/cloud-platform',
+    'https://www.googleapis.com/auth/cloud-identity.groups',
+    'https://www.googleapis.com/auth/admin.directory.customer.readonly',
+    'https://www.googleapis.com/auth/admin.directory.domain.readonly',
+    'https://www.googleapis.com/auth/admin.directory.user.readonly',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'openid',
+  ]}
+/>
+
+## Sign in to AWS
+
+The repository's `root.hcl` keeps the unit's state in the production account's `us-west-2` bucket, so the plan and apply need AWS credentials for that account. Sign in with your organization's AWS access portal, then pick that account and a role that can read and write the state. A profile set up with `aws configure sso` fills in the portal's start URL and region.
+
+<AwsAuth
+  id="aws-auth"
+  title="Sign in to AWS"
+  description="Sign in to the AWS account that keeps the repository's state."
+  defaultTab="sso"
+  defaultRegion="us-west-2"
+/>
+
+## Clone the repository
+
+The group's code goes in a pull request to this repository. It's a sandbox copy of the live infrastructure repository, laid out the same way.
+
+<GitHubAuth
+  id="github-auth"
+  title="Sign in to GitHub"
+  description="Sign in to GitHub to clone the repository and open the pull request."
+/>
+
+<GitClone
+  id="clone-repo"
+  githubAuthId="github-auth"
+  title="Clone the repository"
+  description="Clone the repository the group's code goes in."
+  prefilledUrl="https://github.com/fabricahq/sandbox-infra-live"
+/>
+
+## Create the group
+
+Fill in the group, and **Generate** writes it into the clone as `google/<domain>/groups/<email>/terragrunt.hcl`. The unit includes the repository's `root.hcl` for state and `config/google-provider.hcl` for the Google provider, as its GitHub and Cloudflare units do.
+
+<TfModule
+  id="group"
+  source="git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=6f2bea4c209bd1c36f29f9d6097d332c246490d0"
+  template="templates/google-group-unit"
+  path="google/{{ if .domain }}{{ .domain }}{{ else }}{{ .customer_id }}{{ end }}/groups/{{ .id }}"
+/>
+
+## Apply the group
+
+Check the code on **Code**, open a pull request that adds it on **PR**, then plan and apply on **Apply**. The unit runs in the clone.
+
+<TerragruntApplyWithGitHubPullRequest
+  id="apply-group"
+  tfModuleId="group"
+  title="Terragrunt apply the new Google group"
+  description="Opens a pull request with the group's unit, and applies it."
+/>
+
+## Check the group
+
+<Command
+  id="show-group"
+  title="Show the new group"
+  description="Prints the group's outputs from the apply."
+  env={{
+    GROUP_EMAIL: "{{ .outputs.apply_group.email }}",
+    GROUP_RESOURCE: "{{ .outputs.apply_group.resource_name }}",
+    GROUP_CONSOLE: "{{ .outputs.apply_group.console_url }}",
+  }}
+  command={`echo "Group:         $GROUP_EMAIL"
+echo "Resource name: $GROUP_RESOURCE"
+echo "Admin console: $GROUP_CONSOLE"`}
+/>
+
+## Clean up
+
+When you're done trying it out, delete the group with the same code and state. This can't be undone: the group's email archive goes with it.
+
+<Command
+  id="delete-group"
+  title="Delete the group"
+  description="Runs terragrunt destroy on the unit the apply ran, in the clone."
+  env={{
+    UNIT_DIR: "{{ .outputs.clone_repo.clone_path }}/{{ .outputs.group.CODE_PATH }}",
+  }}
+  command={`terragrunt --working-dir "$UNIT_DIR" --non-interactive destroy -auto-approve -input=false -no-color`}
+  successMessage="The group is deleted."
+/>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, type ReactNode } from "react"
 import { Check, ChevronsUpDown, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -18,12 +18,18 @@ interface DefaultRegionPickerProps {
   selectedRegion: string
   setSelectedRegion: (region: string) => void
   disabled?: boolean
+  /** The field's name, for a region other than the default one. */
+  label?: string
+  /** What the region is used for, shown on hover. */
+  hint?: ReactNode
 }
 
 export function DefaultRegionPicker({
   selectedRegion,
   setSelectedRegion,
   disabled,
+  label = "Default Region",
+  hint,
 }: DefaultRegionPickerProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
@@ -39,7 +45,7 @@ export function DefaultRegionPicker({
   return (
     <div>
       <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
-        Default Region
+        {label}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -50,8 +56,12 @@ export function DefaultRegionPicker({
             </button>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-[280px]">
-            This is the AWS region used by CLI commands that don't explicitly specify a region. This
-            sets the <code>AWS_REGION</code> environment variable.
+            {hint ?? (
+              <>
+                This is the AWS region used by CLI commands that don't explicitly specify a region.
+                This sets the <code>AWS_REGION</code> environment variable.
+              </>
+            )}
           </TooltipContent>
         </Tooltip>
       </label>

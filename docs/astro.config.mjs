@@ -62,6 +62,7 @@ export default defineConfig({
 					'authoring/opening-runbooks',
 					'authoring/boilerplate',
 					'authoring/testing',
+					'authoring/simulation-mode',
 					{
 						label: 'Blocks',
 						items: [{ autogenerate: { directory: 'authoring/blocks' } }],

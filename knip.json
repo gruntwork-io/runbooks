@@ -7,6 +7,7 @@
     "web/src/main.tsx",
     "cli/index.ts",
     "scripts/*.ts",
+    "scripts/control-runbooks/cli.ts",
     ".github/scripts/**/*.mjs",
     "{src,electron,cli,scripts,test}/**/*.test.ts"
   ],
@@ -17,7 +18,7 @@
     "web/src/components/ui/**": ["exports", "types"],
     "web/src/types/boilerplateVariable.ts": ["enumMembers"]
   },
-  "ignoreBinaries": ["script", "osascript", "check"],
+  "ignoreBinaries": ["script", "osascript", "check", "terragrunt"],
   "ignoreDependencies": ["tailwindcss", "tw-animate-css"],
   "vitest": {
     "config": ["web/vitest.config.ts", "vitest.integration.config.ts"]

@@ -1,0 +1,10 @@
+public:
+  label: Public
+  description: Anyone can read it.
+  settings:
+    read: ANYONE
+    write: MEMBERS
+private:
+  settings:
+    read: MEMBERS
+    write: OWNERS

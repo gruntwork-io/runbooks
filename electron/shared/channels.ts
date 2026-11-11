@@ -13,6 +13,10 @@ export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
 import type { ListedSession } from "../../src/domain/session/store.ts"
+import type { TfModuleSpec } from "../../src/domain/tf-module/types.ts"
+import type { ApplyResult, PlanResult, RunEvent } from "../../src/domain/tf-module/run.ts"
+import type { CodeTool, RepoFile, UnitFile } from "../../src/domain/tf-module/unit.ts"
+import type { MergeMethod } from "../../src/services/GitHubClient.ts"
 
 /** What session:switch did. */
 export type SessionSwitchResult =
@@ -193,6 +197,42 @@ export interface IpcChannelMap {
     params: ResolveInputsRequest
     result: { inputs: Record<string, unknown> }
   }
+
+  // TfModule
+  /** The inputs of the module a <TfModule> block presents, shaped by its runbook_block.yml. */
+  "tf-module:read": { params: TfModuleReadRequest; result: TfModuleSpec }
+  /** The rows a named lookup, such as google.people, has for what the user typed. */
+  "tf-module:lookup": {
+    params: TfModuleLookupRequest
+    result: { rows: Record<string, unknown>[] }
+  }
+  "tf-module:readiness": {
+    params: TfModuleReadinessRequest
+    result: TfModuleReadiness
+  }
+
+  // Simulation mode
+  /** The Terragrunt code a <TfModule> block runs, rendered with its inputs. */
+  "tf-module:render": { params: TfModuleRenderRequest; result: TfModuleCode }
+  /** Writes the block's code to its folder in the repository's checkout. */
+  "tf-module:generate": { params: TfModuleGenerateRequest; result: TfModuleGenerated }
+  /** Plans the block's Terragrunt code, streaming `tf-module:event` as it goes. */
+  "tf-module:plan": { params: TfModuleRunRequest; result: PlanResult }
+  /** Applies the plan the last `tf-module:plan` saved, streaming `tf-module:event`. */
+  "tf-module:apply": { params: TfModuleRunRequest; result: ApplyResult }
+  "tf-module:cancel": { params: { runId: string }; result: { ok: true } }
+  /** Commits the block's unit to a new branch of the cloned repo, pushes it, and opens a pull request. */
+  "tf-module:pr-open": { params: TfModulePrOpenRequest; result: TfModulePullRequestResult }
+  /** Commits the unit as the inputs are now to the pull request's branch, and pushes it. */
+  "tf-module:pr-push": { params: TfModulePrPushRequest; result: { ok: true } }
+  /** Changes the title and description of the block's pull request. */
+  "tf-module:pr-update": { params: TfModulePrUpdateRequest; result: { ok: true } }
+  /** Merges the block's pull request. */
+  "tf-module:pr-merge": { params: TfModulePrMergeRequest; result: { sha: string } }
+  /** Whether the app answers from simulation.yml, and its scenarios. */
+  "simulation:state": { params: void; result: SimulationState }
+  /** Picks the scenario lookups answer from. */
+  "simulation:set-scenario": { params: { name: string }; result: { ok: true } }
 
   // AWS Authentication
   "aws:validate": {
@@ -1006,6 +1046,8 @@ export interface IpcEventMap {
   // first block's credential — its AuthSuccess card renders a stale-session
   // warning off this event instead of implying its credential is still active.
   "vcs:session-changed": { provider: "github" | "gitlab"; host: string; source?: string }
+  /** Progress of a <TfModule> plan or apply; `runId` echoes the request's, `at` is when it happened. */
+  "tf-module:event": { runId: string; event: RunEvent; at: string }
 }
 
 // ---------------------------------------------------------------------------
@@ -1064,6 +1106,156 @@ export interface ResolveInputsRequest {
   /** Block outputs for `{{ .outputs.<block>.<name> }}`, as plain strings. */
   outputs?: Record<string, Record<string, string>>
 }
+
+export interface TfModuleReadRequest {
+  /** The module's folder, relative to the runbook. */
+  source: string
+}
+
+/** Where a <TfModule> block's code goes in a repository. */
+export interface TfModuleRepo {
+  /** The repository's checkout in the session; none in simulation, where simulation.yml stands in. */
+  worktreePath?: string | undefined
+  /** The unit's folder in the repository. */
+  path: string
+  /** The branch the code is compared with, which a pull request merges into. */
+  baseBranch?: string | undefined
+}
+
+/** A <TfModule> block's module, and the runbook's template for the code that uses it. */
+export interface TfModuleCodeRef {
+  /** The module's folder, relative to the runbook. */
+  source: string
+  /** The runbook's Boilerplate template for the code that uses the module, relative to the runbook. */
+  template: string
+}
+
+export interface TfModuleRenderRequest extends TfModuleCodeRef {
+  /** The <TfModule> block whose code it is, which names its workspace and its simulated answers. */
+  blockId: string
+  /** The block's inputs, as it publishes them. */
+  values: Record<string, unknown>
+  /** The repository the code goes to, when there is one. */
+  repo?: TfModuleRepo | undefined
+}
+
+/**
+ * A <TfModule> block's code: in its workspace, beside a root.hcl Runbooks
+ * writes when the code is a Terragrunt unit, when there's no repository, or
+ * in the repository's tree.
+ */
+export type TfModuleCode =
+  | { kind: "workspace"; files: UnitFile[]; tool: CodeTool }
+  | {
+      kind: "repo"
+      tool: CodeTool
+      /** The unit's folder in the repository. */
+      folder: string
+      files: RepoFile[]
+      /** Whether the repository has a root.hcl above a Terragrunt unit, so Apply runs it there. */
+      rootHcl: boolean
+      /** The module's `source` from runbook_block.yml, which the code points at; none when it gives none. */
+      source?: string | undefined
+    }
+
+export interface TfModuleGenerateRequest extends TfModuleRenderRequest {
+  /** Paths, relative to the checkout, that the last generate wrote, to remove when this one doesn't write them. */
+  replaces?: string[] | undefined
+}
+
+export interface TfModuleGenerated {
+  code: TfModuleCode
+  /** Paths, relative to the checkout, that it wrote; none in simulation or without a checkout. */
+  written: string[]
+}
+
+export interface TfModuleRunRequest extends TfModuleRenderRequest {
+  /** Names the run, for its events and for `tf-module:cancel`. */
+  runId: string
+}
+
+/** The repository the pull request for a <TfModule> block's code goes to. */
+export interface TfModulePrTarget {
+  /** The repository's checkout in the session; none in simulation. */
+  worktreePath?: string | undefined
+  owner: string
+  repo: string
+  /** The branch the pull request merges into. */
+  baseBranch: string
+}
+
+export interface TfModulePrPushRequest extends TfModuleRunRequest {
+  target: TfModulePrTarget
+  /** Where the unit's files go in the repository. */
+  path: string
+  branch: string
+  title: string
+  commitMessage: string
+}
+
+export interface TfModulePrOpenRequest extends TfModulePrPushRequest {
+  body: string
+}
+
+export interface TfModulePrMergeRequest {
+  runId: string
+  blockId: string
+  target: TfModulePrTarget
+  number: number
+  method: MergeMethod
+}
+
+export interface TfModulePrUpdateRequest {
+  runId: string
+  blockId: string
+  target: TfModulePrTarget
+  number: number
+  title: string
+  body: string
+}
+
+export interface TfModulePullRequestResult {
+  url: string
+  number: number
+  branch: string
+}
+
+export interface TfModuleLookupRequest {
+  /** The lookup's name, such as `google.people`. */
+  from: string
+  /** What the user typed so far. */
+  query?: string
+}
+
+export interface TfModuleReadinessRequest {
+  /** The Google APIs the block needs on, by service name. */
+  services: string[]
+  /** The block's template, whose files say what runs its code. */
+  template: string
+}
+
+/** Whether the block has what it needs to plan and apply, outside its own inputs. */
+export interface TfModuleReadiness {
+  google:
+    | { kind: "none" }
+    | { kind: "signed-out" }
+    | { kind: "no-project" }
+    | { kind: "checked"; project: string; enabled: Record<string, boolean> }
+    | { kind: "error"; project: string; message: string }
+  /** The commands the code runs with, each found on PATH or not; none in simulation. */
+  tools: { command: string; found: boolean; version?: string; install: string }[]
+}
+
+export type SimulationState =
+  | { enabled: false }
+  | {
+      enabled: true
+      scenarios: { name: string; label: string; description?: string }[]
+      /** The scenario lookups answer from. Absent while simulation.yml has a problem. */
+      active?: string
+      /** What's wrong with simulation.yml, fit to show the author. */
+      error?: string
+    }
 
 export interface ProfileInfo {
   name: string

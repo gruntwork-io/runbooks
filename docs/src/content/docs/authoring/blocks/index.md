@@ -13,6 +13,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 ### Collect input and generate files
 
 - [`<Inputs>`](/authoring/blocks/inputs) renders a form whose values other blocks use in their scripts, templates and props.
+- [`<TfModule>`](/authoring/blocks/tfmodule) renders a form for an OpenTofu module's inputs, built from the module's own `variables.tf`, and generates the code that uses the module. Experimental.
 - [`<Template>`](/authoring/blocks/template) generates files from a Boilerplate template directory, with a form for the template's variables.
 - [`<TemplateInline>`](/authoring/blocks/templateinline) renders a Boilerplate template written in the runbook itself and shows the result inline.
 - [`<DirPicker>`](/authoring/blocks/dirpicker) selects a directory path with a cascading set of dropdowns.
@@ -38,6 +39,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 - [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) commits the changes in a cloned repository and opens a GitHub pull request or a GitLab merge request.
 - [`<GitHubPullRequest>`](/authoring/blocks/githubpullrequest) is `<GitPullRequest>` locked to GitHub.
 - [`<GitLabMergeRequest>`](/authoring/blocks/gitlabmergerequest) is `<GitPullRequest>` locked to GitLab.
+- [`<TerragruntApplyWithGitHubPullRequest>`](/authoring/blocks/terragruntapplywithgithubpullrequest) shows the code a `<TfModule>` block generated, opens a GitHub pull request for it, and plans and applies it. Experimental.
 
 ### Show content
 
@@ -53,6 +55,7 @@ Interactive blocks take an `id` prop, a unique identifier for the block. When on
 - `awsAuthId`, `googleAuthId`, `gitAuthId` and `githubAuthId` choose which auth block's credentials a block uses.
 - `dependsOn` names the `<Command>` or `<Check>` blocks that must succeed before a `<Command>`, `<Check>` or `<Finish>` can run. A `<Check>` that ends with a warning counts too. See [Run order](/authoring/blocks/command/#run-order).
 - `gitCloneId` roots a `<DirPicker>` in the repository a `<GitClone>` block cloned.
+- `tfModuleId` names the `<TfModule>` block whose code a `<TerragruntApplyWithGitHubPullRequest>` block applies.
 - `{{ .outputs.<block_id>.<output_name> }}` reads the outputs of a block that has already run. In template syntax, write any hyphens in the ID as underscores. See [Block outputs](/authoring/inputs-and-outputs/#block-outputs).
 
 Each ID must be unique within a runbook. IDs that differ only in hyphens versus underscores (such as `create-account` and `create_account`) count as the same ID.
@@ -63,7 +66,7 @@ In Runbooks, most blocks show a small **ID** badge in their top-right corner. `<
 
 ## Progress
 
-The title bar shows how far through the runbook the user is: a bar along its bottom edge fills in, and a count next to the session name, such as "2 of 5 steps done", says how many steps are done. A window narrower than 1024 pixels shows only the bar.
+The title bar shows how far through the runbook the user is: a bar along its bottom edge fills in as steps are done.
 
 Each block the user acts on is a step. It is done once the block shows it's done, and stops being done if the block goes back:
 
@@ -75,9 +78,11 @@ Each block the user acts on is a step. It is done once the block shows it's done
 | `<Finish>` | The runbook is finished. A final check that ends with a warning leaves it unfinished. |
 | `<Inputs>` | Its form was submitted, and is green. |
 | `<Template>` | Its files were generated, and its form is green. |
+| `<TfModule>` | Its code was generated for its inputs as they are now. |
 | `<AwsAuth>`, `<GoogleAuth>`, `<GitAuth>`, `<GitHubAuth>` and `<GitLabAuth>` | It is signed in, and green: credentials that expire within five minutes turn it red. |
 | `<GitClone>` | It cloned or found its repository, which is still on the session's branch. |
 | `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>` | It opened its pull or merge request. |
+| `<TerragruntApplyWithGitHubPullRequest>` | Its pull request is merged and the code is applied, for the inputs as they are now; applied, without a cloned repository. |
 | `<DirPicker>` | It has a path. |
 
 `<TemplateInline>`, `<Admonition>`, `<Chapter>` and `<Iframe>` aren't steps, as there is nothing in them for the user to do. The blocks inside a `<Chapter>` are steps as they would be anywhere else, and its table of contents counts them per chapter. Neither is an `<Inputs>` nested in a `<Command>` or `<Check>`, which is part of that block, nor a block that shows a configuration error, such as a duplicate ID, in its place.

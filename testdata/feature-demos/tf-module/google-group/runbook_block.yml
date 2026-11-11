@@ -1,0 +1,83 @@
+# How a Runbooks <TfModule> block presents this module. OpenTofu and Terragrunt never read this file.
+# variables.tf owns each input's name, type, default, and validation; this file only adds presentation,
+# and every key under `variables` must name an input there.
+version: 0
+
+# The Google APIs the module's resources call. The block checks they're on in the signed-in project.
+requires:
+  google:
+    apis:
+      - cloudidentity.googleapis.com
+      - cloudresourcemanager.googleapis.com
+
+block:
+  title: Create a Google Group
+  description: Creates a Google group and adds its owners, managers, and members.
+
+variables:
+  # The organization comes first: the group's email ends with its domain.
+  domain:
+    label: Organization
+    description: The Google Workspace or Cloud Identity organization to create the group in, by its primary domain.
+    primary: true
+    lookup:
+      from: google.domains
+      label: "{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}"
+  id:
+    label: Group email
+    description: "The group's address. It's also the group's ID: changing it later replaces the group."
+    primary: true
+    suffix: "@{{ .domain }}"
+  display_name:
+    label: Name
+    primary: true
+  description:
+    primary: true
+  owners:
+    primary: true
+    lookup:
+      from: google.people
+    shortcut:
+      from: google.me
+      label: 'Add "{{ .name }}" as an owner'
+      value: email
+  members:
+    primary: true
+    lookup:
+      from: google.people
+  customer_id:
+    label: Customer ID
+    description: The organization's customer ID, filled from your Google sign-in.
+    # The signed-in organization's, so the module needn't find it from the domain.
+    prefill:
+      from: google.customer
+  managers:
+    lookup:
+      from: google.people
+  types:
+    label: Group type
+    options:
+      default:
+        label: Email group
+        description: People email the group, and members read its conversations.
+      security:
+        label: Security group
+        description: Can grant access in IAM and other access policies. Once set, it can't be removed.
+      dynamic:
+        label: Dynamic group
+        description: Google keeps the membership in sync with a query on user attributes. Needs a premium edition.
+      external:
+        label: External group
+        description: Its members come from an identity provider outside your directory.
+
+outputs:
+  email:
+    label: Group email
+  customer_id:
+    label: Customer ID
+  runbooks_console_url:
+    label: Admin console
+    link: View the Google Group
+
+pullRequest:
+  title: "Add the {{ .id }} Google group"

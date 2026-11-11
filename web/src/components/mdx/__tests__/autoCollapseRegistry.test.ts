@@ -59,16 +59,20 @@ const INSTRUCTION_SOURCE: Record<(typeof COLLAPSIBLE_BLOCKS)[number], string> = 
 
 // Entries that never fold:
 // - Finish shows the author's next steps once the runbook is finished.
-// - Inputs and Template have no title to fold down to, and their values are
-//   worth reviewing.
+// - Inputs, TfModule and Template have no title to fold down to, and their
+//   values are worth reviewing.
 // - DirPicker is done from its first pick, before the user has picked every
 //   level.
+// - TerragruntApplyWithGitHubPullRequest keeps its pull request and run on tabs that
+//   stay worth opening once it's done.
 // - The rest aren't steps: nothing in them becomes done.
 const NOT_COLLAPSIBLE = [
   "Finish",
   "Inputs",
+  "TfModule",
   "Template",
   "DirPicker",
+  "TerragruntApplyWithGitHubPullRequest",
   "TemplateInline",
   "Admonition",
   "Chapter",

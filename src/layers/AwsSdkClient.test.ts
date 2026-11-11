@@ -371,6 +371,51 @@ describe("AwsSdkClient local profiles", () => {
       })
     })
 
+    it("gives an SSO profile its portal, from its sso-session section when it names one", async () => {
+      writeConfig(
+        [
+          "[sso-session acme]",
+          "sso_start_url = https://acme.awsapps.com/start",
+          "sso_region = us-east-2",
+          "[profile sso-new]",
+          "sso_session = acme",
+          "region = us-west-2",
+          "[profile sso-legacy]",
+          "sso_start_url = https://legacy.awsapps.com/start",
+          "sso_region = eu-west-1",
+          "[profile sso-missing]",
+          "sso_session = nowhere",
+          "",
+        ].join("\n"),
+      )
+
+      expect(await run((c) => c.listProfiles())).toEqual(
+        Result.succeed([
+          {
+            name: "sso-new",
+            region: "us-west-2",
+            authType: "sso",
+            ssoStartUrl: "https://acme.awsapps.com/start",
+            ssoRegion: "us-east-2",
+          },
+          {
+            name: "sso-legacy",
+            region: undefined,
+            authType: "sso",
+            ssoStartUrl: "https://legacy.awsapps.com/start",
+            ssoRegion: "eu-west-1",
+          },
+          {
+            name: "sso-missing",
+            region: undefined,
+            authType: "sso",
+            ssoStartUrl: undefined,
+            ssoRegion: undefined,
+          },
+        ]),
+      )
+    })
+
     it("re-reads the files on every call, so a refresh sees edits", async () => {
       writeCredentials(`[first]\n${keys("AKIA_FIRST")}`)
       expect(await run((c) => c.listProfiles())).toEqual(

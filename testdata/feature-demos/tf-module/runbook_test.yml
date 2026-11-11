@@ -1,0 +1,24 @@
+# Test configuration for tf-module
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  - name: happy-path
+    description: The module's values reach a Command through inputsId
+    inputs:
+      group.id: aws-prod-root@example.com
+      group.display_name: AWS prod root
+      group.domain: example.com
+    steps:
+      - block: group
+      - block: show-group
+        assertions:
+          - type: output_equals
+            block: show-group
+            output: group_email
+            value: aws-prod-root@example.com

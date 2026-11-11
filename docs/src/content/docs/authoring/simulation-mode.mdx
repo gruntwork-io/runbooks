@@ -1,0 +1,128 @@
+---
+title: Simulation mode
+description: Preview a runbook's blocks against canned answers, without signing in to anything or changing anything real.
+---
+
+Simulation mode lets you shape a runbook's blocks without signing in to anything or changing anything real. Blocks that read from or change outside systems answer from a `simulation.yml` file beside the runbook instead, so you can see each state of each block, such as a lookup that fails or an apply that's refused, without arranging it for real.
+
+:::caution[Experimental]
+Simulation mode serves the experimental [`<TfModule>`](/authoring/blocks/tfmodule/) and [`<TerragruntApplyWithGitHubPullRequest>`](/authoring/blocks/terragruntapplywithgithubpullrequest/) blocks. Other blocks run as they always do. The `simulation.yml` format may change.
+:::
+
+## Turn it on
+
+Open the runbook with `--simulate`:
+
+```bash
+runbooks open --simulate path/to/runbook
+```
+
+A **Simulation** bar marks the runbook, so nobody mistakes its answers for real ones, and switches between the file's scenarios.
+
+## Scenarios
+
+`simulation.yml` holds named scenarios. Each is one state of the world: what lookups find, how a plan and apply go, what the repository holds, and which APIs are on. A scenario can extend another and replace only some of its answers, so a failure is the happy path with one answer changed:
+
+```yaml title="simulation.yml"
+scenarios:
+  happy-path:
+    label: Happy path
+    description: Everything works.   # optional: shown under the bar
+    lookups:
+      google.domains:
+        - { value: example.com, domainName: example.com, isPrimary: true }
+      google.people:
+        delayMs: 300            # optional: answer after a pause, to see the loading state
+        rows:
+          - { value: ana@example.com, label: Ana Lima, description: Platform team }
+
+  no-directory-access:
+    label: Can't read the directory
+    extends: happy-path         # start from another scenario's answers
+    lookups:
+      google.people:
+        error: The signed-in account can't read your directory.
+```
+
+The file is read each time a block asks, so an edit shows the next time a field looks something up or a block plans.
+
+## Lookups
+
+`lookups` answers a [`<TfModule>` block's lookups](/authoring/blocks/tfmodule/#lookups), by the lookup's name. An answer is a list of rows, a map with `rows`, or a map with `error`, which the field shows as the lookup's failure. A row matches what the user typed when any of its text fields contains it.
+
+## Plan and apply
+
+`modules` answers the plan and apply of the code a `<TfModule>` block generates, by the block's id, so a `<TerragruntApplyWithGitHubPullRequest>` block's **Apply** tab runs without Terragrunt or OpenTofu:
+
+```yaml title="simulation.yml"
+scenarios:
+  happy-path:
+    modules:
+      group:
+        delayMs: 700            # optional: how long each resource takes to apply
+        resources:
+          - address: google_cloud_identity_group.group
+            values:
+              group_key:
+                - { id: "{{ .id }}" }
+            computed:           # what the plan shows as known after apply
+              name: groups/03x5example
+          - address: google_cloud_identity_group_membership.owners["{{ .each }}"]
+            forEach: owners     # one resource for each owner, read as {{ .each }}
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+        outputs:
+          email: "{{ .id }}"
+          runbooks_console_url: https://admin.google.com/ac/groups/03x5example
+
+  apply-fails:
+    extends: happy-path
+    modules:
+      group:
+        applyError: "Error 403: The caller does not have permission."
+```
+
+Strings are templates over the block's inputs. `planError` fails the plan instead of `applyError` failing the apply. A scenario that extends another replaces only the keys it gives for a block.
+
+A resource with `before`, its values now, exists already, so the plan updates it and keeps its `computed` values; `action: delete` removes it, and `action: replace` replaces it. That's how a scenario shows a plan that changes resources rather than creating them.
+
+## Repository
+
+`repository` stands in for the repository a `<GitClone>` block would clone, so a `<TerragruntApplyWithGitHubPullRequest>` block's **Code** tab shows the unit among its files, and its pull request answers as GitHub would without pushing anything. Paths and contents are templates over the block's inputs too, so a scenario can hold the unit the block would change:
+
+```yaml title="simulation.yml"
+scenarios:
+  happy-path:
+    repository:
+      files:
+        root.hcl: |
+          remote_state {
+            backend = "gcs"
+            config  = { bucket = "acme-tofu-state", prefix = path_relative_to_include() }
+          }
+
+  group-exists:
+    extends: happy-path         # adds to the files of the scenario it extends
+    repository:
+      files:
+        "google-groups/{{ .id }}/terragrunt.hcl": |
+          inputs = {
+            id = "{{ .id }}"
+          }
+```
+
+Without a `<GitClone>` block, the repository is named `acme/infrastructure-live`.
+
+## Google APIs
+
+`googleApis` names the signed-in project and the APIs that are off in it, so a `<TfModule>` block's [Before you plan](/authoring/blocks/tfmodule/#before-you-plan) shows its problems. Without it, every API is on in `simulated-project`. Nothing runs in simulation mode, so the block doesn't look for its commands.
+
+```yaml title="simulation.yml"
+scenarios:
+  apis-off:
+    extends: happy-path
+    googleApis:
+      project: acme-ops
+      disabled: [cloudidentity.googleapis.com, admin.googleapis.com]
+```
