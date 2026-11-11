@@ -77,9 +77,11 @@ export async function byteRangeResponse(
   }
 
   const { start, end } = range
+  // Node's web stream is the stream Response takes, though with the DOM's
+  // types loaded the two types don't overlap.
   const body = Readable.toWeb(
     fs.createReadStream(filePath, { start, end }),
-  ) as ReadableStream<Uint8Array>
+  ) as unknown as ReadableStream<Uint8Array>
   return new Response(body, {
     status: 206,
     headers: {
