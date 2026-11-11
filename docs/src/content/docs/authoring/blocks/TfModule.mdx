@@ -192,7 +192,7 @@ A plain configuration's outputs are its own, so declare an output for each modul
 
 **Generate** renders the template with the form's values and writes the code:
 
-- **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. As the values change, it writes them again, and removes the files it wrote before that the new values no longer make, such as the old folder when the group's email changes. It doesn't commit anything.
+- **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. The pull request does that. As the values change, it writes them again, and removes the files it wrote before that the new values no longer make, such as the old folder when the group's email changes.
 - **Without one**, or in [simulation mode](#simulation-mode), it writes nothing, and lists the files the code would have.
 
 While an input needs a fix, the block keeps the code, and the values it publishes, as they were for the last valid inputs. Once it has written the code, the block counts as done, and publishes these outputs, which a [`<TfApplyWithGitHubPullRequest>`](/authoring/blocks/tfapplywithgithubpullrequest/) block reads through its `tfModuleId`:

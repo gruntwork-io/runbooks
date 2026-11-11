@@ -489,7 +489,7 @@ function Generation({
         : code.files.map((f) => f.path)
   const where =
     result.written.length > 0
-      ? `Wrote to ${repository ?? "the repository"}:`
+      ? `Saved in your local clone of ${repository ?? "the repository"}. Nothing is committed or pushed yet:`
       : code.kind === "repo"
         ? "Generated (simulated, so nothing was written):"
         : "Generated, to run in the block's workspace, since no repository is cloned:"
