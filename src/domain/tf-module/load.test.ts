@@ -232,16 +232,6 @@ describe("loadModule", () => {
       expect(await failure(dir)).toContain(`the outputs "url", which the module doesn't declare`)
     })
 
-    it("whose pull request title reads an input variables.tf doesn't declare", async () => {
-      write("runbook_block.yml", 'pullRequest:\n  title: "Add {{ .nmae }}"\n')
-      expect(await failure(dir)).toContain(`pullRequest.title reads "nmae"`)
-    })
-
-    it("whose pull request summary reads an input variables.tf doesn't declare", async () => {
-      write("runbook_block.yml", 'pullRequest:\n  summary: "Creates {{ .nmae }}."\n')
-      expect(await failure(dir)).toContain(`pullRequest.summary reads "nmae"`)
-    })
-
     it("whose input uses a lookup it doesn't define or include", async () => {
       write("runbook_block.yml", "variables:\n  name:\n    lookup: { from: google.people }\n")
       expect(await failure(dir)).toContain(

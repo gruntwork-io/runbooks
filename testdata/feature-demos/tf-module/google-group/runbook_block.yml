@@ -70,9 +70,6 @@ outputs:
     label: Admin console
     link: View the Google Group
 
-pullRequest:
-  title: "Add the {{ .id }} Google group"
-
 # What the form asks Google for, sent by the GoogleAuth block the runbook binds
 # the google group to. Each row's `value` is what a pick puts in the input.
 lookups:

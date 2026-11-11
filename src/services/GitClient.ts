@@ -81,19 +81,6 @@ export interface GitClientShape {
     branch: string,
     options?: PushOptions,
   ) => Effect.Effect<void, GitError | SpawnError>
-  /** Fetches `branch` from `remote` into its remote-tracking ref, `refs/remotes/<remote>/<branch>`. */
-  readonly fetchBranch: (
-    repoPath: string,
-    remote: string,
-    branch: string,
-    options?: Pick<PushOptions, "token" | "username">,
-  ) => Effect.Effect<void, GitError | SpawnError>
-  /** Checks out `branch`, created or reset at `startPoint` (`git checkout -B`). */
-  readonly checkoutBranchAt: (
-    repoPath: string,
-    branch: string,
-    startPoint: string,
-  ) => Effect.Effect<void, GitError | SpawnError>
   readonly deleteBranch: (
     repoPath: string,
     branch: string,

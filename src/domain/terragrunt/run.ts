@@ -1,7 +1,7 @@
 /**
- * What a <TfModule> block shows while Terragrunt plans and applies the
- * module: the resources a plan would change, the resources an apply made, the
- * module's outputs, and progress as it goes.
+ * What a <TerragruntApply> block shows while Terragrunt plans and applies a
+ * unit: the resources a plan would change, the resources an apply made, the
+ * unit's outputs, and progress as it goes.
  *
  * It reads OpenTofu's machine-readable output (`show -json`, `output -json`
  * and the `-json` UI stream), so the shapes here are OpenTofu's, narrowed to

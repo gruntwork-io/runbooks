@@ -8,7 +8,7 @@ import type {
   PlanResult,
   ResourceProgress,
   RunEvent,
-} from "../../../../../src/domain/tf-module/run"
+} from "../../../../../src/domain/terragrunt/run"
 
 export type RunStep = Extract<RunEvent, { kind: "step" }>["step"]
 

@@ -1,0 +1,81 @@
+---
+title: <TerragruntApply>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="Experimental">
+`<TerragruntApply>` is an experiment, like [`<TfModule>`](/authoring/blocks/tfmodule/). Its name and props may change.
+</Aside>
+
+The `<TerragruntApply>` block plans and applies one Terragrunt unit in the repository a [`<GitClone>`](/authoring/blocks/gitclone/) block cloned. It takes the code that's there, whoever wrote it: a [`<TfModule>`](/authoring/blocks/tfmodule/) block, a [`<Template>`](/authoring/blocks/template/) block, or a person.
+
+Before it plans, it runs a [preflight](#preflight): the tools, a check that the clone's changes are pushed, and the checks the unit's module lists. Then it shows the plan resource by resource, applies it, and publishes the unit's outputs as its own.
+
+## Basic usage
+
+```mdx
+<GitHubAuth id="github-auth" />
+<GoogleAuth id="workspace" />
+<AwsAuth id="prod" />
+
+<GitClone id="infra-live" githubAuthId="github-auth" prefilledUrl="https://github.com/acme/infra-live" />
+
+<TfModule
+  id="group"
+  source="git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0"
+  template="templates/google-group"
+  path="google-groups/{{ .id }}"
+/>
+
+<GitHubPullRequest id="pr" />
+
+<TerragruntApply
+  id="apply-group"
+  path="{{ .outputs.group.CODE_PATH }}"
+  auth={["workspace", "prod"]}
+/>
+```
+
+Here Terragrunt runs with Google's credentials for the group, and the `prod` AWS account's for the bucket that holds the unit's state.
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `id` | `string` | required | Unique identifier for this block. Its outputs, after an apply, are the unit's outputs |
+| `path` | `string` | required | The unit's folder, relative to the clone's root. A template, so it can read another block's output, such as a `<TfModule>` block's `CODE_PATH`, or be written out, such as `aws/prod/global/budget` |
+| `gitCloneId` | `string` | none | The `<GitClone>` block whose clone holds the unit. Needed only when the runbook has more than one |
+| `auth` | `string[]` | none | The auth blocks Terragrunt runs with, at most one of each kind: `<AwsAuth>`, `<GoogleAuth>`, `<GitHubAuth>`, `<GitLabAuth>` or `<GitAuth>`. Their credentials go on top of the session's environment |
+| `title` | `string` | `Apply with Terragrunt` | The block's heading. Supports inline markdown |
+| `description` | `string` | none | A line under the heading. Supports inline markdown |
+
+A runbook with no `<GitClone>` block, several and no `gitCloneId`, or an `auth` list that names something other than an auth block, or two of one kind, shows an error in place of the block.
+
+The block waits for every output `path` reads, so it stays disabled until, for example, the `<TfModule>` block has generated its code. It also waits until each block in `auth` is signed in. Above the plan, it shows who the run uses: for AWS, the account and region, and for Google, the account and project.
+
+## Preflight
+
+**Plan** runs the preflight first, and plans only when it passes:
+
+1. **Tools.** Terragrunt, and OpenTofu or Terraform, must be on your `PATH`. A missing one shows with a link to install it.
+2. **Pushed.** Nothing is applied that isn't on the clone's remote. While the clone has changes that aren't committed, or a commit that isn't on any branch of its remote, the block says so and doesn't plan. Push them with the pull request block first. The `.terraform.lock.hcl` a plan writes beside the unit doesn't count; push it with the next change.
+3. **The module's checks.** The block reads the unit's `terraform.source` with `terragrunt render --format=json`, fetches that module, and runs the checks its `runbook_block.yml` lists under `preflight`. See [Lookups and Checks](/authoring/lookups/#a-check). Each check's group is sent by the block in `auth` of the kind the group needs, and reads the unit's inputs as `.inputs`. A unit written by hand or by a `<Template>` block gets its module's checks too.
+
+A failed check shows its message and fix, and the block doesn't plan. A group with no block of its kind in `auth`, or a block without the group's scopes, is a failure too: the block learns its module only here, so it can't say so when the runbook loads. A check that couldn't run, or a source Runbooks can't fetch, such as a registry module, shows why and offers **Plan anyway**.
+
+Rendering evaluates the unit as a plan does, including any `run_cmd` and its dependencies' outputs, so it runs only when you start the plan, with the same credentials.
+
+## Plan and apply
+
+1. **Plan** lists each resource it would create, change, or delete. Each opens to show its properties, with the values OpenTofu can't know yet marked *known after apply*, and a changed resource's values before and after. A filter above the list searches the properties, and narrows them to the known ones or the changed ones.
+2. **Apply** applies that saved plan, so OpenTofu refuses it if the state changed since, and shows each resource as OpenTofu works on it. If a file in the unit's folder, or a `.hcl` file in a folder above it, changed since the plan, the block asks for a new plan instead. A plan with nothing to change counts as applied.
+3. When it's done, the block lists the resources in the state and the unit's outputs, and publishes the outputs as its own, for `{{ .outputs.<id>.<output> }}`, with this block's `id`, its hyphens written as underscores. A sensitive output stays hidden until you show it. The module's [`runbook_block.yml`](/authoring/blocks/tfmodule/#runbook_blockyml) can label an output and show it as a link. Outputs whose names start with `runbooks_` are there for the runbook rather than for the module's callers, such as a link to the new resource in a console. The block shows them apart, above the others.
+
+**Stop** ends a plan or an apply that's running. A stopped plan changes nothing; a stopped or failed apply shows how far each resource got, and **Plan again** shows what's left.
+
+The unit runs in the clone, under the repository's own `root.hcl`. The saved plan, which can hold secrets, and what Terragrunt downloads stay in a temporary folder outside the clone, and the plan is deleted once it's applied.
+
+## Testing
+
+`runbooks test` doesn't plan or apply this block yet.

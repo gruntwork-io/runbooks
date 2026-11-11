@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from "react"
 import {
-  ArrowRight,
   Check,
   ChevronDown,
   Copy,
@@ -22,9 +21,8 @@ import type {
   PropertyValue,
   ResourceAction,
   ResourceProgress,
-} from "../../../../../../src/domain/tf-module/run"
+} from "../../../../../../src/domain/terragrunt/run"
 import type { RunPhase, RunState, RunStatus, RunStep } from "../runMachine"
-import type { NextStep, Tab } from "../flow"
 import {
   filterRows,
   isUnknown,
@@ -384,18 +382,24 @@ function RunbookOutputs({
 }
 
 /**
- * The module's outputs: the runbook's own first, then a table of the rest, each
- * value a link where it's a web address.
+ * The unit's outputs, in the order its module declares them: the runbook's
+ * own first, then a table of the rest, each value a link where it's a web
+ * address.
  */
 function OutputList({
-  outputs: all,
+  outputs: given,
   meta,
 }: {
   outputs: readonly ModuleOutputValue[]
   meta: readonly TfModuleOutput[]
 }) {
   const [revealed, setRevealed] = useState<Set<string>>(() => new Set())
-  if (all.length === 0) return null
+  if (given.length === 0) return null
+  const rank = (name: string) => {
+    const i = meta.findIndex((m) => m.name === name)
+    return i === -1 ? meta.length : i
+  }
+  const all = [...given].sort((a, b) => rank(a.name) - rank(b.name))
   const outputs = all.filter((o) => !isRunbookOutput(o.name))
   return (
     <div className="space-y-2">
@@ -462,16 +466,19 @@ function OutputList({
   )
 }
 
-interface ApplyTabProps {
+interface PlanAndApplyProps {
   /** The block's id, which names its downloaded logs. */
   blockId: string
   state: RunState
-  /** What the run means for the inputs as they are now. */
+  /** What the run means for the unit as it is now. */
   status: RunStatus
+  /** How to present the module's outputs, from its runbook_block.yml, when the block knows the module. */
   outputs: readonly TfModuleOutput[]
-  /** The next step, when it's on another tab, such as merging the pull request. */
-  next: NextStep | undefined
-  onNavigate: (tab: Tab) => void
+  /** What the preflight found, shown above the plan. */
+  preflight: ReactNode
+  /** Whether the preflight is running or waits on the user, so there's no plan to start. */
+  holding: boolean
+  /** Runs the preflight, then the plan. */
   onPlan: () => void
   onApply: () => void
   onCancel: () => void
@@ -496,20 +503,20 @@ function Notice({
 /**
  * Terragrunt, run for the block: a plan whose resources open to show their
  * properties, then an apply that shows each resource as it's made, and what
- * it made with the module's outputs. What it offers next follows the run's
- * state and whether it's still for the inputs as they are now.
+ * it made with the unit's outputs. What it offers next follows the run's
+ * state and whether it's still for the unit as it is now.
  */
-export function ApplyTab({
+export function PlanAndApply({
   blockId,
   state,
   status,
   outputs,
-  next,
-  onNavigate,
+  preflight,
+  holding,
   onPlan,
   onApply,
   onCancel,
-}: ApplyTabProps) {
+}: PlanAndApplyProps) {
   const [filter, setFilter] = useState<PropertyFilter>(NO_FILTER)
   const [layout, setLayout] = useState<PropertyLayout>("table")
   const { phase } = state
@@ -529,21 +536,16 @@ export function ApplyTab({
       .map(([action, n]) => `${n} to ${action}`)
       .join(", ") || "No changes"
 
-  const planButton = (label: string, variant: "default" | "outline") => (
-    <Button type="button" variant={variant} onClick={onPlan}>
-      {variant === "default" ? <Play className="size-4" /> : <RotateCcw className="size-4" />}{" "}
-      {label}
-    </Button>
-  )
+  const planButton = (label: string, variant: "default" | "outline") =>
+    !holding && (
+      <Button type="button" variant={variant} onClick={onPlan}>
+        {variant === "default" ? <Play className="size-4" /> : <RotateCcw className="size-4" />}{" "}
+        {label}
+      </Button>
+    )
   const stopButton = (
     <Button type="button" variant="outline" size="sm" onClick={onCancel}>
       <Square className="size-3.5" /> Stop
-    </Button>
-  )
-  const nextButton = next && status === "current" && (
-    <Button type="button" onClick={() => onNavigate(next.tab)}>
-      {next.label}
-      <ArrowRight className="ml-1 size-4" />
     </Button>
   )
   const resourceList = (heading: string) => (
@@ -572,11 +574,13 @@ export function ApplyTab({
         <StepRail phase={phase} />
       </div>
 
+      {preflight}
+
       {phase.kind === "idle" && (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Apply plans the code on the Code tab first, so you can see every resource it would
-            create before anything changes.
+            Plan runs the preflight checks, then plans the unit, so you can see every resource it
+            would change before anything does.
           </p>
           {planButton("Plan", "default")}
         </div>
@@ -597,12 +601,12 @@ export function ApplyTab({
           {resourceList(`Plan: ${summary}`)}
           {status === "stale" && (
             <Notice tone="warning">
-              The inputs changed since this plan. Plan again to apply them.
+              The unit changed since this plan. Plan again to apply it.
             </Notice>
           )}
           {status === "current" && (
             <Notice tone="success">
-              Nothing to change: the infrastructure already matches these inputs.
+              Nothing to change: the infrastructure already matches the unit.
             </Notice>
           )}
           <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -612,7 +616,6 @@ export function ApplyTab({
               </Button>
             )}
             {planButton("Plan again", status === "stale" ? "default" : "outline")}
-            {nextButton}
           </div>
         </div>
       )}
@@ -629,8 +632,8 @@ export function ApplyTab({
           {status === "stale" ? (
             <div className="space-y-2">
               <Notice tone="warning">
-                The inputs changed since this apply, so what's below is for the old ones. Plan again
-                to apply the new ones.
+                The unit changed since this apply, so what's below is for the old one. Plan again to
+                apply the new one.
               </Notice>
               {planButton("Plan", "default")}
             </div>
@@ -664,11 +667,6 @@ export function ApplyTab({
             />
           </div>
           <OutputList outputs={phase.result.outputs} meta={outputs} />
-          {nextButton && (
-            <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
-              {nextButton}
-            </div>
-          )}
         </div>
       )}
 

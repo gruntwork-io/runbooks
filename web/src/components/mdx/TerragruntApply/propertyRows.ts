@@ -2,7 +2,7 @@ import {
   isHiddenValue,
   type HiddenValue,
   type PropertyValue,
-} from "../../../../../src/domain/tf-module/run"
+} from "../../../../../src/domain/terragrunt/run"
 
 /** A value with nothing inside it: text, a number, a flag, null, or a hidden value. */
 export type Leaf = string | number | boolean | null | HiddenValue

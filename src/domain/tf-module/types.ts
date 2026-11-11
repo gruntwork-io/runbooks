@@ -113,20 +113,12 @@ export interface TfModuleSpec {
   readonly outputs: readonly TfModuleOutput[]
   /** In the order runbook_block.yml lists them, then the rest in the order variables.tf declares them. */
   readonly variables: readonly TfModuleVariable[]
-  /** Templates over the form's values that start the pull request the block opens. */
-  readonly pullRequest?: TfModulePullRequest
   /** The lookups the inputs use, with the definitions they need. */
   readonly definitions: Definitions
+  /** The checks to run before the module is planned, which a <TerragruntApply> block runs. */
+  readonly preflight: readonly Use[]
   /** The lookup groups the inputs use, which the block's `auth` prop binds to auth blocks. */
   readonly authGroups: readonly string[]
   /** Problems in runbook_block.yml that don't stop the form, such as a key Runbooks doesn't know. */
   readonly warnings: readonly string[]
-}
-
-/** How the module's runbook_block.yml starts a pull request, as templates over the form's values. */
-export interface TfModulePullRequest {
-  readonly title?: string
-  /** The sentence above the default description's table of inputs. */
-  readonly summary?: string
-  readonly description?: string
 }

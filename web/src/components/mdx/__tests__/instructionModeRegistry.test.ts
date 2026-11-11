@@ -54,7 +54,7 @@ const ALIAS_SOURCE: Record<string, string> = {
 // Blocks intentionally identical in both modes:
 // - Inputs is the user's way to supply substitution values (spec §6.5.1), and
 //   TfModule is the same for a module's inputs.
-// - TerragruntApplyWithGitHubPullRequest is experimental, with no instructions to show
+// - TerragruntApply is experimental, with no instructions to show
 //   in its place yet.
 // - Admonition is already a static callout.
 // - Iframe only displays a page.
@@ -62,7 +62,7 @@ const ALIAS_SOURCE: Record<string, string> = {
 const PASSTHROUGH_BLOCKS = [
   "Inputs",
   "TfModule",
-  "TerragruntApplyWithGitHubPullRequest",
+  "TerragruntApply",
   "Admonition",
   "Chapter",
   "Iframe",

@@ -22,7 +22,6 @@ import type {
   TfModuleProvider,
   TfModuleSpec,
   TfModuleVariable,
-  TfModulePullRequest,
 } from "./types.ts"
 import { interpretValidations, type TfValidation } from "./validations.ts"
 import { rowTemplateError, templateFields } from "./rowTemplate.ts"
@@ -294,7 +293,6 @@ export interface ModuleMetadata {
   readonly logo?: string
   readonly variables: Readonly<Record<string, VariableMetadata>>
   readonly outputs: Readonly<Record<string, OutputMetadata>>
-  readonly pullRequest?: TfModulePullRequest
   readonly warnings: readonly string[]
   /** The parsed file, whose lookups, checks and includes the lookup engine reads. */
   readonly doc: unknown
@@ -344,7 +342,6 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     "block",
     "variables",
     "outputs",
-    "pullRequest",
     "include",
     "lookups",
     "checks",
@@ -430,16 +427,6 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     }
   }
 
-  const rawPullRequest = isRecord(raw.pullRequest) ? raw.pullRequest : {}
-  problems.unknownKeys("pullRequest", rawPullRequest, ["title", "summary", "description"])
-  const pullRequest: TfModulePullRequest = {}
-  for (const key of ["title", "summary", "description"] as const) {
-    const template = optionalString(rawPullRequest[key], `pullRequest.${key}`, problems)
-    const templateError = template === undefined ? undefined : rowTemplateError(template)
-    if (templateError) problems.errors.push(`pullRequest.${key}: ${templateError}`)
-    if (template) Object.assign(pullRequest, { [key]: template })
-  }
-
   if (problems.errors.length > 0) {
     throw new TfModuleError({ message: `${METADATA_FILE}: ${problems.errors.join(" ")}` })
   }
@@ -449,7 +436,6 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     ...(logo ? { logo } : {}),
     variables,
     outputs,
-    ...(Object.keys(pullRequest).length > 0 ? { pullRequest } : {}),
     warnings: problems.warnings,
     doc: raw,
   }
@@ -509,6 +495,8 @@ export interface BuildSpecInput {
   readonly logo?: string
   /** The lookups and checks runbook_block.yml defines and includes, already checked. */
   readonly definitions?: Definitions
+  /** The checks runbook_block.yml lists to run before the module is planned. */
+  readonly preflight?: readonly Use[]
 }
 
 /** Joins variables.tf and runbook_block.yml into the spec the form draws. */
@@ -549,15 +537,6 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
     if (inputKind(input.variables.find((v) => v.name === name)!.tfType) !== "string") {
       throw new TfModuleError({
         message: `${METADATA_FILE}: variables.${name}.suffix needs a string input.`,
-      })
-    }
-  }
-
-  for (const [key, template] of Object.entries(input.metadata.pullRequest ?? {})) {
-    const missing = templateFields(template).filter((field) => !declared.has(field))
-    if (missing.length > 0) {
-      throw new TfModuleError({
-        message: `${METADATA_FILE}: pullRequest.${key} reads ${missing.map((field) => `"${field}"`).join(", ")}, which variables.tf doesn't declare.`,
       })
     }
   }
@@ -624,8 +603,8 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
       }
     }),
     variables,
-    ...(input.metadata.pullRequest ? { pullRequest: input.metadata.pullRequest } : {}),
     definitions,
+    preflight: input.preflight ?? [],
     authGroups: usedGroups(
       definitions,
       variables.flatMap((v) =>

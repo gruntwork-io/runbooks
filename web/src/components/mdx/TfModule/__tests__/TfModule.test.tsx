@@ -48,6 +48,7 @@ const spec: TfModuleSpec = {
   providers: [{ name: "google" }],
   outputs: [{ name: "group_email", label: "Group email", description: "", sensitive: false }],
   definitions,
+  preflight: [],
   authGroups: ["google"],
   warnings: [],
   variables: [

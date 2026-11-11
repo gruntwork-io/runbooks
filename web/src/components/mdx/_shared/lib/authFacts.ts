@@ -1,4 +1,4 @@
-import type { AuthKind } from "../../../../../src/domain/lookups/types"
+import type { AuthKind } from "../../../../../../src/domain/lookups/types"
 
 /** What a signed-in auth block knows about its sign-in, from its outputs, for lookups to read as `.auth`. */
 export function authFacts(

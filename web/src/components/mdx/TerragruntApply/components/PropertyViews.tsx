@@ -3,7 +3,7 @@ import {
   isHiddenValue,
   type PropertyValue,
   type ResourceAction,
-} from "../../../../../../src/domain/tf-module/run"
+} from "../../../../../../src/domain/terragrunt/run"
 import { childPath, isUnknown, keyText, type Leaf, type PropertyRow } from "../propertyRows"
 
 /** How a resource's properties are laid out. */

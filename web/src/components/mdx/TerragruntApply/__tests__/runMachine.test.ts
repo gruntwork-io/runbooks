@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { ApplyResult, PlanResult } from "../../../../../../src/domain/tf-module/run"
+import type { ApplyResult, PlanResult } from "../../../../../../src/domain/terragrunt/run"
 import { inputsKey } from "../../../../../../src/domain/tf-module/inputsKey"
 import { INITIAL_RUN, runReducer, runStatus, type RunAction, type RunState } from "../runMachine"
 
