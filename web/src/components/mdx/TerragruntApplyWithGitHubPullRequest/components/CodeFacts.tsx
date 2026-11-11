@@ -33,7 +33,7 @@ export function CodeFacts({ code, moduleFolder, repository }: CodeFactsProps) {
         </Fact>
       )}
       <Fact label="Module" icon={<Package className="size-3.5" />}>
-        <Module source={repo ? code.source : undefined} folder={moduleFolder} warn={repo} />
+        <Module source={repo ? code.source : undefined} folder={moduleFolder} />
       </Fact>
       {repo && code.tool === "terragrunt" && !code.rootHcl && (
         <Fact label="State" icon={<Database className="size-3.5" />}>
@@ -48,24 +48,9 @@ export function CodeFacts({ code, moduleFolder, repository }: CodeFactsProps) {
 }
 
 /** The module by name, linked to its folder on GitHub, with the ref it's pinned to. */
-function Module({
-  source,
-  folder,
-  warn,
-}: {
-  source: string | undefined
-  folder: string
-  warn: boolean
-}) {
+function Module({ source, folder }: { source: string | undefined; folder: string }) {
   if (!source) {
-    return (
-      <span className="flex items-center gap-1.5">
-        {folder.split("/").filter(Boolean).at(-1) ?? folder}
-        {warn && (
-          <Warning text="A folder on this computer. Add a pinned source to runbook_block.yml so the code works anywhere." />
-        )}
-      </span>
-    )
+    return <span>{folder.split("/").filter(Boolean).at(-1) ?? folder}</span>
   }
   const info = moduleSourceInfo(source)
   return (

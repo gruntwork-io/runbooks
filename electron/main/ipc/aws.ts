@@ -15,6 +15,8 @@ import {
   checkRegion,
 } from "../../../src/domain/aws/auth.ts"
 import type { AwsCredentials, SsoCompleteParams } from "../../../src/services/AwsClient.ts"
+import { sendAsAws } from "../../../src/domain/send-as-me/send.ts"
+import type { IpcChannelMap } from "../../shared/channels.ts"
 import { handleEnvCredentials, handleEnvCredentialsConfirm } from "./aws-env.ts"
 import type { EnvCredentialsParams, EnvCredentialsConfirmParams } from "./aws-env.ts"
 import { handleProfiles, handleProfileAuth } from "./aws-profiles.ts"
@@ -101,6 +103,10 @@ export function registerAwsHandlers(): void {
   ipcMain.handle(
     "aws:env-credentials-confirm",
     async (_event, params: EnvCredentialsConfirmParams = {}) => handleEnvCredentialsConfirm(params),
+  )
+
+  ipcMain.handle("aws:send", async (_event, params: IpcChannelMap["aws:send"]["params"]) =>
+    runtime.runPromise(sendAsAws(params.credentials, params.request)),
   )
 
   ipcMain.handle("aws:check-region", async (_event, params: ValidatePayload) => {

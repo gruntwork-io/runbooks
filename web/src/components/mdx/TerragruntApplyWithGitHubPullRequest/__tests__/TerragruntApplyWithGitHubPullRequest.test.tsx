@@ -16,7 +16,8 @@ const spec: TfModuleSpec = {
   description: "",
   providers: [{ name: "google" }],
   outputs: [],
-  googleApis: [],
+  definitions: { groups: {}, lookups: {}, checks: {} },
+  authGroups: [],
   warnings: [],
   variables: [],
 }

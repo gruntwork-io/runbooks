@@ -17,6 +17,7 @@ import type { TfModuleSpec } from "../../src/domain/tf-module/types.ts"
 import type { ApplyResult, PlanResult, RunEvent } from "../../src/domain/tf-module/run.ts"
 import type { CodeTool, RepoFile, UnitFile } from "../../src/domain/tf-module/unit.ts"
 import type { MergeMethod } from "../../src/services/GitHubClient.ts"
+import type { HttpReply, HttpRequest } from "../../src/services/HttpRequest.ts"
 
 /** What session:switch did. */
 export type SessionSwitchResult =
@@ -201,15 +202,6 @@ export interface IpcChannelMap {
   // TfModule
   /** The inputs of the module a <TfModule> block presents, shaped by its runbook_block.yml. */
   "tf-module:read": { params: TfModuleReadRequest; result: TfModuleSpec }
-  /** The rows a named lookup, such as google.people, has for what the user typed. */
-  "tf-module:lookup": {
-    params: TfModuleLookupRequest
-    result: { rows: Record<string, unknown>[] }
-  }
-  "tf-module:readiness": {
-    params: TfModuleReadinessRequest
-    result: TfModuleReadiness
-  }
 
   /** The Terragrunt code a <TfModule> block runs, rendered with its inputs. */
   "tf-module:render": { params: TfModuleRenderRequest; result: TfModuleCode }
@@ -366,6 +358,17 @@ export interface IpcChannelMap {
       credentials?: AwsCredentials
     }
     result: { enabled: boolean; warning?: string }
+  }
+  // Send a request as the signed-in user, for another block such as a lookup.
+  // MAIN sends only reads, to the AWS endpoints src/domain/send-as-me/aws.ts
+  // lists, and rejects anything else. The renderer passes the AwsAuth block's
+  // credentials, as it does for a <Command awsAuthId>.
+  "aws:send": {
+    params: {
+      credentials: { accessKeyId: string; secretAccessKey: string; sessionToken?: string }
+      request: HttpRequest
+    }
+    result: HttpReply
   }
 
   // Google Cloud Authentication
@@ -617,6 +620,14 @@ export interface IpcChannelMap {
   "google:credential-committed": {
     params: { blockId?: string; credentialsPath?: string }
     result: { ok: true }
+  }
+  // Send a request as the user the GoogleAuth block `blockId` signed in as,
+  // for another block such as a lookup. MAIN resolves that block's credential
+  // and sends only GET requests, to the hosts src/domain/send-as-me/google.ts
+  // lists, and rejects anything else.
+  "google:send": {
+    params: { blockId: string; request: HttpRequest }
+    result: HttpReply
   }
 
   // GitHub Authentication
@@ -1149,19 +1160,26 @@ export type TfModuleCode =
       files: RepoFile[]
       /** Whether the repository has a root.hcl above a Terragrunt unit, so Apply runs it there. */
       rootHcl: boolean
-      /** The module's `source` from runbook_block.yml, which the code points at; none when it gives none. */
-      source?: string | undefined
+      /** The release of the module the code points at, as a Git source pinned to a tag. */
+      source: string
     }
 
 export interface TfModuleGenerateRequest extends TfModuleRenderRequest {
-  /** Paths, relative to the checkout, that the last generate wrote, to remove when this one doesn't write them. */
-  replaces?: string[] | undefined
+  /**
+   * The files the last generate wrote, by path relative to the checkout, with
+   * the SHA-256 of what it wrote, to remove when this one doesn't write them.
+   */
+  replaces?: Record<string, string> | undefined
 }
 
 export interface TfModuleGenerated {
   code: TfModuleCode
   /** Paths, relative to the checkout, that it wrote; none without a checkout. */
   written: string[]
+  /** The SHA-256 of each file it wrote, by path. */
+  fingerprints: Record<string, string>
+  /** Files an earlier generate wrote that this one doesn't, kept because they changed since. */
+  kept: string[]
 }
 
 export interface TfModuleRunRequest extends TfModuleRenderRequest {
@@ -1213,32 +1231,6 @@ export interface TfModulePullRequestResult {
   url: string
   number: number
   branch: string
-}
-
-export interface TfModuleLookupRequest {
-  /** The lookup's name, such as `google.people`. */
-  from: string
-  /** What the user typed so far. */
-  query?: string
-}
-
-export interface TfModuleReadinessRequest {
-  /** The Google APIs the block needs on, by service name. */
-  services: string[]
-  /** The block's template, whose files say what runs its code. */
-  template: string
-}
-
-/** Whether the block has what it needs to plan and apply, outside its own inputs. */
-export interface TfModuleReadiness {
-  google:
-    | { kind: "none" }
-    | { kind: "signed-out" }
-    | { kind: "no-project" }
-    | { kind: "checked"; project: string; enabled: Record<string, boolean> }
-    | { kind: "error"; project: string; message: string }
-  /** The commands the code runs with, each found on PATH or not. */
-  tools: { command: string; found: boolean; version?: string; install: string }[]
 }
 
 export interface ProfileInfo {

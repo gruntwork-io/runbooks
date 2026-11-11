@@ -7,6 +7,9 @@ import { Effect } from "effect"
 import { TfModuleError } from "../../errors/index.ts"
 import { isContainedInReal } from "../../path-validation.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
+import { loadDeclarations } from "../lookups/load.ts"
+import { moduleLookupUses } from "../lookups/module.ts"
+import { checkDefinitions } from "../lookups/validate.ts"
 import {
   METADATA_FILE,
   buildSpec,
@@ -109,6 +112,34 @@ const readLogo = (moduleDir: string, logo: string) =>
     return `data:${type};base64,${bytes.toString("base64")}`
   })
 
+/**
+ * The lookups and checks runbook_block.yml defines and includes, checked
+ * against each other, the inputs' uses of them, and the module's inputs. A
+ * problem fails the module, since a form with a broken lookup would fail only
+ * once someone used it.
+ */
+const moduleDefinitions = (moduleDir: string, doc: unknown, inputs: readonly string[]) =>
+  Effect.gen(function* () {
+    const file = path.join(moduleDir, METADATA_FILE)
+    const loaded = yield* loadDeclarations(doc, file)
+    const { uses } = moduleLookupUses(doc, file)
+    const problems = [
+      ...loaded.problems,
+      ...checkDefinitions(loaded.definitions, {
+        lookups: uses,
+        preflight: loaded.preflight,
+        inputs,
+        source: file,
+      }),
+    ]
+    if (problems.length > 0) {
+      return yield* new TfModuleError({
+        message: `${METADATA_FILE}: ${problems.map((problem) => problem.message).join(" ")}`,
+      })
+    }
+    return loaded.definitions
+  })
+
 /** Reads the module in `moduleDir`. Fails with a message fit to show the user. */
 export const loadModule = (moduleDir: string) =>
   Effect.gen(function* () {
@@ -174,6 +205,13 @@ export const loadModule = (moduleDir: string) =>
       })
     }
 
+    const variables = tfVariables(parsed, files)
+    const definitions = yield* moduleDefinitions(
+      moduleDir,
+      metadata.doc,
+      variables.map((variable) => variable.name),
+    )
+
     const logo = metadata.logo ? yield* readLogo(moduleDir, metadata.logo) : undefined
     const readme = entries.find(
       (entry) => entry.isFile && /^readme\.(md|markdown)$/i.test(entry.name),
@@ -188,10 +226,11 @@ export const loadModule = (moduleDir: string) =>
           moduleName: path.basename(moduleDir),
           ...(title ? { readmeTitle: title } : {}),
           outputs: tfOutputs(parsed, files),
-          variables: tfVariables(parsed, files),
+          variables,
           providers: requiredProviders(parsed),
           metadata,
           presets,
+          definitions,
           ...(logo ? { logo } : {}),
         }),
       catch: (cause) =>

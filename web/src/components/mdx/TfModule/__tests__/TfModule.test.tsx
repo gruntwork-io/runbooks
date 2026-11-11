@@ -4,19 +4,51 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext, flattenInputs } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
+import YAML from "yaml"
 import type { TfModuleSpec } from "../../../../../../src/domain/tf-module/types"
+import { parseDeclarations } from "../../../../../../src/domain/lookups/parse"
+import { mergeDeclarations } from "../../../../../../src/domain/lookups/validate"
+import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import TfModule from "../TfModule"
 
 vi.mock("@/contexts/useGitWorkTree", () => ({
   useGitWorkTree: () => ({ activeWorkTree: null, workTrees: [] }),
 }))
 
+const DIRECTORY = "https://admin.googleapis.com/admin/directory/v1"
+const SCOPE = "https://www.googleapis.com/auth/admin.directory.domain.readonly"
+
+const definitions = mergeDeclarations(
+  parseDeclarations(
+    YAML.parse(`
+lookups:
+  google:
+    auth: GoogleAuth
+    scopes: [${SCOPE}]
+    domains:
+      request: { url: "${DIRECTORY}/customer/my_customer/domains" }
+      rows: domains
+      fields: { value: domainName }
+    customer:
+      request: { url: "${DIRECTORY}/customers/my_customer" }
+      fields: { value: id }
+    people:
+      request: { url: "${DIRECTORY}/users?customer=my_customer&query={{ .query }}" }
+      rows: users
+      fields: { value: primaryEmail, label: name.fullName }
+`),
+    "runbook_block.yml",
+  ),
+  [],
+).definitions
+
 const spec: TfModuleSpec = {
   title: "Google group",
   description: "A Google Workspace group.",
   providers: [{ name: "google" }],
   outputs: [{ name: "group_email", label: "Group email", description: "", sensitive: false }],
-  googleApis: [],
+  definitions,
+  authGroups: ["google"],
   warnings: [],
   variables: [
     {
@@ -28,12 +60,7 @@ const spec: TfModuleSpec = {
       hasDefault: false,
       sensitive: false,
       primary: true,
-      lookup: {
-        from: "google.domains",
-        label: "{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}",
-        value: "domainName",
-        sets: { display_name: "Team at {{ .domainName }}" },
-      },
+      lookup: { from: "google.domains", with: {} },
     },
     {
       name: "group_name",
@@ -74,15 +101,7 @@ const spec: TfModuleSpec = {
   ],
 }
 
-const ALL_ON = {
-  google: { kind: "checked", project: "acme-ops", enabled: { "admin.googleapis.com": true } },
-  tools: [],
-}
-let readiness: unknown = ALL_ON
-const DOMAINS = [
-  { domainName: "example.com", isPrimary: true },
-  { domainName: "example.org", isPrimary: false },
-]
+const DOMAINS = [{ domainName: "example.com" }, { domainName: "example.org" }]
 let domainRows: unknown[] = DOMAINS
 const GENERATED = {
   code: {
@@ -93,17 +112,24 @@ const GENERATED = {
     rootHcl: true,
   },
   written: ["groups/platform/terragrunt.hcl"],
+  fingerprints: { "groups/platform/terragrunt.hcl": "abc123" },
+  kept: [] as string[],
 }
+let generated = GENERATED
 
-const invoke = vi.fn((channel: string, params?: { from: string }) => {
-  if (channel === "tf-module:lookup") {
-    if (params?.from === "google.customer") {
-      return Promise.resolve({ rows: [{ value: "C01abc23d", id: "C01abc23d" }] })
+const json = (body: unknown) =>
+  Promise.resolve({ status: 200, contentType: "application/json", body: JSON.stringify(body) })
+
+const invoke = vi.fn((channel: string, params?: { request?: { url: string } }) => {
+  if (channel === "google:send") {
+    const url = params?.request?.url ?? ""
+    if (url.endsWith("/customers/my_customer")) return json({ id: "C01abc23d" })
+    if (url.includes("/users?")) {
+      return json({ users: [{ primaryEmail: "ana@example.com", name: { fullName: "Ana Lima" } }] })
     }
-    return Promise.resolve({ rows: domainRows })
+    return json({ domains: domainRows })
   }
-  if (channel === "tf-module:readiness") return Promise.resolve(readiness)
-  if (channel === "tf-module:generate") return Promise.resolve(GENERATED)
+  if (channel === "tf-module:generate") return Promise.resolve(generated)
   return Promise.reject(new Error(`unexpected channel ${channel}`))
 })
 
@@ -129,20 +155,54 @@ function Capture() {
   return null
 }
 
-function renderBlock() {
+/** Stands in for a <GoogleAuth> block on the page, which registers its id, kind and scopes. */
+function FakeGoogleAuth({ id, scopes }: { id: string; scopes: readonly string[] }) {
+  useComponentIdRegistry(id, "GoogleAuth", undefined, scopes)
+  return null
+}
+
+function renderBlock(auth: Record<string, string> = { google: "workspace" }) {
   return render(
     <TestWrapper>
       <Capture />
-      <TfModule id="group" source="google-group" template="templates/google-group-unit" />
+      <FakeGoogleAuth id="workspace" scopes={[SCOPE]} />
+      <TfModule
+        id="group"
+        source="google-group"
+        template="templates/google-group-unit"
+        auth={auth}
+      />
     </TestWrapper>,
   )
+}
+
+const signIn = () =>
+  act(() =>
+    ctx!.registerOutputs("workspace", {
+      GOOGLE_AUTH_TYPE: "oauth",
+      CLOUDSDK_CORE_ACCOUNT: "ana@example.com",
+      GOOGLE_CLOUD_PROJECT: "acme-ops",
+    }),
+  )
+
+const sentUrls = () =>
+  invoke.mock.calls
+    .filter(([channel]) => channel === "google:send")
+    .map(([, params]) => params?.request?.url)
+
+/** Renders the block with the workspace block signed in. */
+async function renderSignedIn() {
+  const view = renderBlock()
+  await waitFor(() => expect(ctx).toBeDefined())
+  signIn()
+  return view
 }
 
 const input = (name: string) => document.getElementById(`group-${name}`) as HTMLInputElement
 
 describe("TfModule", () => {
   beforeEach(() => {
-    readiness = ALL_ON
+    generated = GENERATED
     domainRows = DOMAINS
     moduleSpec = spec
     readError = null
@@ -173,20 +233,22 @@ describe("TfModule", () => {
     expect(invoke).not.toHaveBeenCalledWith("tf-module:generate", expect.anything())
   })
 
-  it("fills other inputs from a lookup pick, then generates the code and says where it went", async () => {
-    renderBlock()
+  it("fills an input from a lookup pick, then generates the code and says where it went", async () => {
+    await renderSignedIn()
     fireEvent.change(input("group_name"), { target: { value: "platform" } })
+    fireEvent.change(input("display_name"), { target: { value: "Team at example.com" } })
 
     const domain = input("domain")
-    fireEvent.change(domain, { target: { value: "example" } })
-    const option = await screen.findByRole("option", { name: /example\.com \(primary\)/ })
+    fireEvent.change(domain, { target: { value: "example.c" } })
+    const option = await screen.findByRole("option", { name: /example\.com/ })
+    // The lookup doesn't send what's typed, so the form filters its rows.
+    expect(screen.queryByRole("option", { name: /example\.org/ })).not.toBeInTheDocument()
     fireEvent.mouseDown(option)
 
     expect(domain).toHaveValue("example.com")
-    expect(input("display_name")).toHaveValue("Team at example.com")
-    expect(invoke).toHaveBeenCalledWith("tf-module:lookup", {
-      from: "google.domains",
-      query: "example",
+    expect(invoke).toHaveBeenCalledWith("google:send", {
+      blockId: "workspace",
+      request: expect.objectContaining({ url: `${DIRECTORY}/customer/my_customer/domains` }),
     })
 
     expect(screen.getByTestId("group-group_name-suffix")).toHaveTextContent("@example.com")
@@ -234,11 +296,21 @@ describe("TfModule", () => {
           "tf-module:generate",
           expect.objectContaining({
             values: expect.objectContaining({ display_name: "Platform" }),
-            replaces: ["groups/platform/terragrunt.hcl"],
+            replaces: { "groups/platform/terragrunt.hcl": "abc123" },
           }),
         ),
       { timeout: 2000 },
     )
+  })
+
+  it("lists files it kept because they changed after it wrote them", async () => {
+    generated = { ...GENERATED, kept: ["groups/old/terragrunt.hcl"] }
+    renderBlock()
+    fireEvent.change(input("domain"), { target: { value: "example.com" } })
+    fireEvent.change(input("group_name"), { target: { value: "platform" } })
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(await screen.findByText("groups/old/terragrunt.hcl")).toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent(/changed after the block wrote it/)
   })
 
   it("keeps the last valid inputs published while one needs a fix", async () => {
@@ -268,44 +340,34 @@ describe("TfModule", () => {
     expect(screen.getByText("Choose Domain first.")).toBeInTheDocument()
   })
 
-  it("lists an API that's off above the form, with a link that turns it on", async () => {
-    readiness = {
-      google: { kind: "checked", project: "acme-ops", enabled: { "admin.googleapis.com": false } },
-      tools: [],
-    }
-    renderBlock()
-    const link = await screen.findByRole("link", { name: /Turn it on/ })
-    expect(link).toHaveAttribute(
-      "href",
-      "https://console.cloud.google.com/apis/library/admin.googleapis.com?project=acme-ops",
-    )
-    expect(screen.getByRole("status", { name: "Before you plan" })).toHaveTextContent(
-      "The Admin SDK API is off in acme-ops",
-    )
-  })
-
-  it("says the preflight checks passed, with what they found on hover", async () => {
-    renderBlock()
-    const ready = await screen.findByLabelText("Ready")
-    expect(ready).toHaveTextContent("This block's preflight checks completed successfully.")
-    expect(ready).toHaveAttribute("title", "1 Google API on in acme-ops")
-  })
-
   it("opens suggestions on typing or Enter, not on focus", async () => {
-    renderBlock()
+    await renderSignedIn()
     const domain = input("domain")
     fireEvent.focus(domain)
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument()
-    expect(invoke).not.toHaveBeenCalledWith("tf-module:lookup", expect.anything())
+    expect(sentUrls()).toEqual([])
 
     fireEvent.keyDown(domain, { key: "Enter" })
     expect(await screen.findByRole("option", { name: /example\.org/ })).toBeInTheDocument()
-    expect(invoke).toHaveBeenCalledWith("tf-module:lookup", { from: "google.domains", query: "" })
+    expect(sentUrls()).toEqual([`${DIRECTORY}/customer/my_customer/domains`])
+  })
+
+  it("sends what's typed to a lookup that asks the API with it", async () => {
+    moduleSpec = {
+      ...spec,
+      variables: spec.variables.map((v) =>
+        v.name === "display_name" ? { ...v, lookup: { from: "google.people", with: {} } } : v,
+      ),
+    }
+    await renderSignedIn()
+    fireEvent.change(input("display_name"), { target: { value: "ana l" } })
+    expect(await screen.findByRole("option", { name: /Ana Lima/ })).toBeInTheDocument()
+    expect(sentUrls()).toContain(`${DIRECTORY}/users?customer=my_customer&query=ana%20l`)
   })
 
   it("says when a lookup finds nothing, rather than showing no list", async () => {
     domainRows = []
-    renderBlock()
+    await renderSignedIn()
     fireEvent.change(input("domain"), { target: { value: "nowhere" } })
     expect(await screen.findByText('Nothing matches "nowhere".')).toBeInTheDocument()
     expect(
@@ -313,16 +375,42 @@ describe("TfModule", () => {
     ).toBeInTheDocument()
   })
 
-  it("asks a lookup again once someone signs in to Google", async () => {
+  it("asks for a sign-in to the bound block, then asks the lookup again once there is one", async () => {
     renderBlock()
-    const domain = input("domain")
-    fireEvent.keyDown(domain, { key: "Enter" })
-    await screen.findByRole("option", { name: /example\.org/ })
-    const lookups = () => invoke.mock.calls.filter(([channel]) => channel === "tf-module:lookup")
-    expect(lookups()).toHaveLength(1)
+    fireEvent.keyDown(input("domain"), { key: "Enter" })
+    expect(
+      await screen.findByText("Sign in with the workspace block above for suggestions here."),
+    ).toBeInTheDocument()
+    expect(sentUrls()).toEqual([])
 
-    act(() => ctx!.registerOutputs("google-auth", { GOOGLE_AUTH_TYPE: "oauth" }))
-    await waitFor(() => expect(lookups()).toHaveLength(2))
+    signIn()
+    expect(await screen.findByRole("option", { name: /example\.org/ })).toBeInTheDocument()
+    expect(sentUrls()).toHaveLength(1)
+  })
+
+  it("refuses an auth prop that leaves a group the module uses unbound", async () => {
+    renderBlock({})
+    expect(
+      await screen.findByText(/The <TfModule> block's auth prop doesn't fit the module's lookups/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/need the google group bound to a GoogleAuth block/),
+    ).toBeInTheDocument()
+  })
+
+  it("refuses an auth prop that binds a group to a block that doesn't request its scopes", async () => {
+    render(
+      <TestWrapper>
+        <FakeGoogleAuth id="workspace" scopes={["openid"]} />
+        <TfModule
+          id="group"
+          source="google-group"
+          template="templates/google-group-unit"
+          auth={{ google: "workspace" }}
+        />
+      </TestWrapper>,
+    )
+    expect(await screen.findByText(new RegExp(`doesn't request ${SCOPE}`))).toBeInTheDocument()
   })
   describe("with a prefill", () => {
     const customerId = {
@@ -335,35 +423,28 @@ describe("TfModule", () => {
       default: "",
       sensitive: false,
       primary: false,
-      prefill: { from: "google.customer" },
+      prefill: { from: "google.customer", with: {} },
     } as const
 
     it("fills the empty input from the lookup, even under Advanced options", async () => {
       moduleSpec = { ...spec, variables: [...spec.variables, customerId] }
-      renderBlock()
-      await waitFor(() =>
-        expect(invoke).toHaveBeenCalledWith("tf-module:lookup", {
-          from: "google.customer",
-          query: "",
-        }),
-      )
+      await renderSignedIn()
+      await waitFor(() => expect(sentUrls()).toContain(`${DIRECTORY}/customers/my_customer`))
       fireEvent.click(screen.getByRole("button", { name: /Advanced options/ }))
       await waitFor(() => expect(input("customer_id").value).toBe("C01abc23d"))
     })
 
     it("leaves an input the user cleared empty", async () => {
       moduleSpec = { ...spec, variables: [...spec.variables, customerId] }
-      renderBlock()
+      await renderSignedIn()
       fireEvent.click(screen.getByRole("button", { name: /Advanced options/ }))
       await waitFor(() => expect(input("customer_id").value).toBe("C01abc23d"))
 
       fireEvent.change(input("customer_id"), { target: { value: "" } })
-      act(() => ctx!.registerOutputs("google-auth", { GOOGLE_AUTH_TYPE: "oauth" }))
-      await waitFor(() =>
-        expect(
-          invoke.mock.calls.filter(([, params]) => params?.from === "google.customer"),
-        ).toHaveLength(2),
-      )
+      signIn()
+      const customerCalls = () =>
+        sentUrls().filter((url) => url === `${DIRECTORY}/customers/my_customer`)
+      await waitFor(() => expect(customerCalls()).toHaveLength(2))
       expect(input("customer_id").value).toBe("")
     })
   })

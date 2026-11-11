@@ -6,7 +6,21 @@ title: TfModule Demo
 
 A `<TfModule>` block draws its form from an OpenTofu module and generates the code that uses it. The module's `variables.tf` gives each input's name, type, default and validation; its `runbook_block.yml` says how to present them. A `<TerragruntApplyWithGitHubPullRequest>` block then shows that code, opens a pull request for it, and applies it.
 
-This runbook uses a copy of the `google-group` module from the catalog. The organization dropdown and the people suggestions ask Google Workspace with the account a `<GoogleAuth>` block signed in. This runbook has none, so those fields say so, and take typed values.
+This runbook uses a copy of the `google-group` module from the catalog. The module's `runbook_block.yml` declares the lookups behind the organization dropdown and the people suggestions, and the `auth` prop binds them to the `<GoogleAuth>` block below, which sends them as the person who signs in. Until someone does, those fields say so, and take typed values.
+
+## Sign in to Google Workspace
+
+<GoogleAuth
+  id="workspace"
+  scopes={[
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "openid",
+    "https://www.googleapis.com/auth/admin.directory.customer.readonly",
+    "https://www.googleapis.com/auth/admin.directory.domain.readonly",
+    "https://www.googleapis.com/auth/admin.directory.user.readonly",
+  ]}
+/>
 
 ## Describe the group
 
@@ -15,6 +29,7 @@ This runbook uses a copy of the `google-group` module from the catalog. The orga
   source="google-group"
   template="templates/google-group-unit"
   path="google-groups/{{ .id }}"
+  auth={{ google: "workspace" }}
 />
 
 The runbook decides how to use the module: [its template](./templates/google-group-unit) renders a Terragrunt unit. **Generate** writes it under `google-groups/` in the repository a `<GitClone>` block cloned; without one, it lists the files without writing them.

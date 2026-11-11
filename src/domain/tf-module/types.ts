@@ -5,6 +5,7 @@
  * Shared by the main process, which builds it, and the renderer, which draws
  * the form from it.
  */
+import type { Definitions, ShortcutUse, Use } from "../lookups/types.ts"
 
 /** One choice for an input, with what it means. */
 export interface TfModuleOption {
@@ -25,32 +26,6 @@ export interface TfModulePreset {
   readonly description?: string
   readonly settings: Readonly<Record<string, unknown>>
 }
-
-/**
- * Where an input's suggestions come from: a lookup Runbooks provides, named by
- * `from`, such as `google.domains`. Each row it returns is a record of fields.
- */
-export interface TfModuleLookup {
-  readonly from: string
-  /** A template over a row's fields for what the form shows, such as `{{ .domainName }}`. */
-  readonly label?: string
-  /** The row field that becomes the input's value. Without it, the row's `value` field. */
-  readonly value?: string
-  /** Other inputs a pick fills in: input name to a template over the row's fields. */
-  readonly sets?: Readonly<Record<string, string>>
-}
-
-/**
- * A button under an input that fills it from the first row of a lookup, such
- * as "Add Ana Lima as an owner" from `google.me`, the signed-in person.
- */
-export type TfModuleShortcut = Omit<TfModuleLookup, "sets">
-
-/**
- * Where an empty input's first value comes from: the first row of a lookup,
- * such as the signed-in organization's customer ID from `google.customer`.
- */
-export type TfModulePrefill = Pick<TfModuleLookup, "from" | "value">
 
 /**
  * A check the form can run before OpenTofu does, from a validation block in
@@ -85,9 +60,12 @@ export interface TfModuleVariable {
   readonly options?: readonly TfModuleOption[]
   /** Whether `options` lists every value the module accepts, so nothing else can be typed. */
   readonly optionsOnly?: boolean
-  readonly lookup?: TfModuleLookup
-  readonly shortcut?: TfModuleShortcut
-  readonly prefill?: TfModulePrefill
+  /** The lookup whose rows the input suggests. */
+  readonly lookup?: Use
+  /** A button that sets the input from a lookup's one row; its label is a template over the row's fields. */
+  readonly shortcut?: ShortcutUse
+  /** The lookup that fills the input when the form loads, if the input is empty. */
+  readonly prefill?: Use
   readonly presets?: readonly TfModulePreset[]
   /**
    * A template over the form's values that ends the input's value, such as
@@ -137,8 +115,10 @@ export interface TfModuleSpec {
   readonly variables: readonly TfModuleVariable[]
   /** Templates over the form's values that start the pull request the block opens. */
   readonly pullRequest?: TfModulePullRequest
-  /** The Google APIs the module's resources call, such as `cloudidentity.googleapis.com`. */
-  readonly googleApis: readonly string[]
+  /** The lookups the inputs use, with the definitions they need. */
+  readonly definitions: Definitions
+  /** The lookup groups the inputs use, which the block's `auth` prop binds to auth blocks. */
+  readonly authGroups: readonly string[]
   /** Problems in runbook_block.yml that don't stop the form, such as a key Runbooks doesn't know. */
   readonly warnings: readonly string[]
 }

@@ -1,5 +1,5 @@
-import { renderRowTemplate, type LookupRow } from "../../../../../src/domain/tf-module/rowTemplate"
-import type { TfModuleLookup } from "../../../../../src/domain/tf-module/types"
+import { renderRowTemplate } from "../../../../../src/domain/tf-module/rowTemplate"
+import type { Row } from "../../../../../src/domain/lookups/types"
 
 /** A lookup row as a suggestion: the value it puts in the input, and what the list shows. */
 export interface Suggestion {
@@ -7,7 +7,6 @@ export interface Suggestion {
   label: string
   /** A second, quieter line, from the row's `description` field. */
   detail?: string
-  row: LookupRow
 }
 
 const text = (value: unknown) =>
@@ -17,19 +16,25 @@ const text = (value: unknown) =>
       ? value
       : JSON.stringify(value)
 
-export function suggestionFor(lookup: TfModuleLookup, row: LookupRow): Suggestion {
-  const value = text(row[lookup.value ?? "value"])
-  const label = lookup.label ? renderRowTemplate(lookup.label, row) : text(row.label) || value
+/**
+ * A row's `value`, shown by its `label` field and described by its
+ * `description` field; `label` replaces the label with a template over the
+ * row's fields, such as a shortcut's `Add "{{ .label }}" as an owner`.
+ */
+export function suggestionFor(row: Row, label?: string): Suggestion {
+  const value = text(row.value)
+  const shown = label ? renderRowTemplate(label, row) : text(row.label) || value
   const detail = text(row.description)
-  return { value, label, ...(detail ? { detail } : {}), row }
+  return { value, label: shown, ...(detail ? { detail } : {}) }
 }
 
-/** The other inputs a pick fills in, from the lookup's `sets`. */
-export function valuesFromPick(lookup: TfModuleLookup, row: LookupRow): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(lookup.sets ?? {}).map(([name, template]) => [
-      name,
-      renderRowTemplate(template, row),
-    ]),
+/** Whether a row has a value containing what the user typed, ignoring case. */
+export function matchesQuery(row: Row, query: string): boolean {
+  if (query === "") return true
+  const needle = query.toLowerCase()
+  return Object.values(row).some(
+    (value) =>
+      (typeof value === "string" || typeof value === "number") &&
+      String(value).toLowerCase().includes(needle),
   )
 }

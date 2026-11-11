@@ -83,6 +83,8 @@ The block also publishes its credentials as block outputs, so a specific AwsAuth
 | `AWS_SECRET_ACCESS_KEY` | The AWS secret key, as a [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) |
 | `AWS_SESSION_TOKEN` | The session token, as a sensitive output. Empty for credentials without one |
 | `AWS_REGION` | The selected region |
+| `AWS_ACCOUNT_ID` | The ID of the account the credentials belong to |
+| `AWS_SSO_REGION` | The block's IAM Identity Center region, its `ssoRegion` prop, whichever way the user signed in |
 
 Clicking **Re-authenticate** replaces them with a single output, `__AUTHENTICATED`, set to `false`, until the user signs in again.
 
@@ -386,6 +388,17 @@ AWS operations often take effect immediately and can't be undone. They create re
 - Authentication happens between your machine and AWS. Credentials are not sent to Gruntwork or any other server unless a script in your runbook sends them.
 - Credentials are stored in your local Runbooks session, which Runbooks saves encrypted with the operating system's credential store. See [What is encrypted](/commands/sessions/#what-is-encrypted).
 - Credentials are validated with STS GetCallerIdentity before they are registered to the session.
+
+### Requests sent for other blocks
+
+Other blocks can ask AwsAuth to send a request to AWS as you, for example to suggest values in a form. AwsAuth sends such a request only when it reads, from an AWS API endpoint on its list:
+
+- The host must be one of `sso`, `identitystore`, `organizations`, `sts`, `iam` or `ec2` at `<service>.<region>.amazonaws.com`, or `iam.amazonaws.com` or `sts.amazonaws.com`. The list is matched exactly, so a bucket, an API Gateway endpoint or any other host on `amazonaws.com` never matches. S3 is never on it.
+- The operation the request names, in its `X-Amz-Target` header or its `Action` parameter, must start with `List`, `Describe` or `Get`.
+- AwsAuth also refuses reads it knows return a secret or mint credentials, such as `GetSessionToken`, `GetFederationToken` and `GetPasswordData`. This part is best effort: no list can name every read that returns a secret.
+- AwsAuth signs the request itself, so a request can't set its own `Authorization` or other signing headers, and it never follows a redirect.
+
+Anything that changes AWS stays in a [Command](/authoring/blocks/command/), which gets the credentials in its environment.
 
 ## Detailed example
 

@@ -26,7 +26,6 @@ import {
   unitFilesOf,
   writeFiles,
 } from "./tf-module-code.ts"
-import { TERRAGRUNT_INSTALL } from "./tf-module-ready.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
 import { describeFailure } from "./ipc-error.ts"
 import { loadModule } from "../../../src/domain/tf-module/load.ts"
@@ -43,6 +42,9 @@ import {
 import { inputsKey } from "../../../src/domain/tf-module/inputsKey.ts"
 import { toolFor, unitFolder, type UnitFile } from "../../../src/domain/tf-module/unit.ts"
 import type { TfModuleRenderRequest, TfModuleRunRequest } from "../../shared/channels.ts"
+
+/** Where to install Terragrunt, for a unit that needs it. */
+const TERRAGRUNT_INSTALL = "https://terragrunt.gruntwork.io/docs/getting-started/install/"
 
 /** Where a plan is saved between the Plan and Apply steps, in the block's workspace. */
 const PLAN_FILE = "runbooks.tfplan"

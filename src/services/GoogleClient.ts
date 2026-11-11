@@ -1,5 +1,6 @@
 import { Context, Effect } from "effect"
 import type { GoogleAuthError, GoogleConfigError, GoogleOAuthError } from "../errors/index.ts"
+import type { HttpReply, HttpRequest } from "./HttpRequest.ts"
 
 /**
  * How a credential was obtained. Mirrors the `type` field of a Google
@@ -66,27 +67,6 @@ export interface GoogleProject {
   readonly displayName: string
   readonly projectNumber?: string | undefined
   readonly state?: string | undefined
-}
-
-/** A domain of the Google Workspace or Cloud Identity organization the credential belongs to. */
-export interface GoogleDomain {
-  readonly domainName: string
-  readonly isPrimary: boolean
-}
-
-/** The Google Workspace or Cloud Identity organization the credential belongs to. */
-export interface GoogleCustomer {
-  /** The customer ID, such as C01abc23d, which Cloud Identity names the organization by. */
-  readonly id: string
-  readonly primaryDomain?: string | undefined
-}
-
-/** A person in the organization's directory. */
-export interface GooglePerson {
-  readonly email: string
-  readonly name?: string | undefined
-  /** Their job title and department, as the directory has them. */
-  readonly title?: string | undefined
 }
 
 /** Metadata about an on-disk credentials JSON. NEVER carries secret fields. */
@@ -206,48 +186,6 @@ export interface GoogleClientShape {
   ) => Effect.Effect<GoogleProject[], GoogleAuthError>
 
   /**
-   * The organization's domains, from the Admin SDK Directory API. Needs an
-   * admin's credential with the admin.directory.domain.readonly scope.
-   */
-  readonly listDomains: (
-    creds: GoogleCredentialRef,
-    quotaProjectId?: string,
-  ) => Effect.Effect<GoogleDomain[], GoogleAuthError>
-
-  /**
-   * The credential's own organization, from the Admin SDK Directory API.
-   * Needs an admin's credential with the admin.directory.customer.readonly scope.
-   */
-  readonly getCustomer: (
-    creds: GoogleCredentialRef,
-    quotaProjectId?: string,
-  ) => Effect.Effect<GoogleCustomer, GoogleAuthError>
-
-  /**
-   * Active users in the organization whose first name, last name or email
-   * starts with the query, or the first of them for an empty one, from the
-   * Admin SDK Directory API. Needs the admin.directory.user.readonly scope and
-   * an admin who can read users.
-   */
-  readonly searchPeople: (
-    creds: GoogleCredentialRef,
-    query: string,
-    limit: number,
-    quotaProjectId?: string,
-  ) => Effect.Effect<GooglePerson[], GoogleAuthError>
-
-  /**
-   * Which of the services are turned on in the project, from Service Usage's
-   * batchGet, by service name. Needs serviceusage.services.get on the project.
-   */
-  readonly enabledServices: (
-    creds: GoogleCredentialRef,
-    project: string,
-    services: readonly string[],
-    quotaProjectId?: string,
-  ) => Effect.Effect<Record<string, boolean>, GoogleAuthError>
-
-  /**
    * <- AwsClient.checkRegion. Confirms the project exists AND is readable.
    * Fails only when the credential cannot produce a client at all; every
    * request-level outcome is reported through `GoogleProjectAccess`.
@@ -256,6 +194,18 @@ export interface GoogleClientShape {
     projectId: string,
     creds: GoogleCredentialRef,
   ) => Effect.Effect<GoogleProjectAccess, GoogleAuthError>
+
+  /**
+   * Sends `request` with the credential's access token, refreshing it when it
+   * has expired, and bills it to `quotaProjectId` when given. Returns Google's
+   * answer whatever its status, and fails only when no answer arrives.
+   * Callers check the request first: this sends anything.
+   */
+  readonly sendAuthorized: (
+    creds: GoogleCredentialRef,
+    request: HttpRequest,
+    quotaProjectId?: string,
+  ) => Effect.Effect<HttpReply, GoogleAuthError>
 }
 
 export class GoogleClient extends Context.Service<GoogleClient, GoogleClientShape>()(

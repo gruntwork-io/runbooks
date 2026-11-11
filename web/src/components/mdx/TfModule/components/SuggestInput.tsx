@@ -1,7 +1,6 @@
 import { useId, useRef, useState, type KeyboardEvent } from "react"
 import { Loader2, X } from "lucide-react"
-import type { TfModuleLookup } from "../../../../../../src/domain/tf-module/types"
-import type { LookupRow } from "../../../../../../src/domain/tf-module/rowTemplate"
+import type { Row, Use } from "../../../../../../src/domain/lookups/types"
 import { useLookup } from "../hooks/useLookup"
 import { suggestionFor, type Suggestion } from "../lookupRows"
 
@@ -11,31 +10,24 @@ const inputClasses = (error?: string) =>
   }`
 
 /** The rows as suggestions, leaving out values already chosen. */
-function suggestionsFor(
-  lookup: TfModuleLookup,
-  rows: readonly LookupRow[],
-  taken: ReadonlySet<string>,
-): Suggestion[] {
+function suggestionsFor(rows: readonly Row[], taken: ReadonlySet<string>): Suggestion[] {
   const list: Suggestion[] = []
+  const seen = new Set<string>()
   for (const row of rows) {
-    try {
-      const suggestion = suggestionFor(lookup, row)
-      if (suggestion.value && !taken.has(suggestion.value)) list.push(suggestion)
-    } catch {
-      // runbook_block.yml's templates were checked when the module loaded.
-    }
+    const suggestion = suggestionFor(row)
+    if (!suggestion.value || taken.has(suggestion.value) || seen.has(suggestion.value)) continue
+    seen.add(suggestion.value)
+    list.push(suggestion)
   }
   return list
 }
 
 interface CommonProps {
   id: string
-  lookup: TfModuleLookup | undefined
+  lookup: Use | undefined
   error?: string | undefined
   placeholder?: string
   onBlur?: () => void
-  /** Called with the row a suggestion came from, when the user picks one. */
-  onPick?: (row: LookupRow) => void
 }
 
 type SuggestInputProps = CommonProps &
@@ -53,7 +45,7 @@ type SuggestInputProps = CommonProps &
  * quiet: typing opens it, and so do Enter and the down arrow in an empty input.
  */
 export function SuggestInput(props: SuggestInputProps) {
-  const { id, lookup, error, placeholder, onBlur, onPick } = props
+  const { id, lookup, error, placeholder, onBlur } = props
   const listId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [searching, setSearching] = useState(false)
@@ -61,11 +53,9 @@ export function SuggestInput(props: SuggestInputProps) {
   const [highlight, setHighlight] = useState(0)
 
   const query = props.multiple ? draft : props.value
-  const { rows, error: lookupError, loading } = useLookup(lookup?.from, query, searching)
+  const { rows, error: lookupError, loading } = useLookup(lookup, query, searching)
 
-  const suggestions = lookup
-    ? suggestionsFor(lookup, rows, new Set(props.multiple ? props.value : []))
-    : []
+  const suggestions = lookup ? suggestionsFor(rows, new Set(props.multiple ? props.value : [])) : []
 
   // An answer with nothing in it says so, so an empty list doesn't look like a broken one.
   const nothing = !loading && !lookupError && suggestions.length === 0
@@ -82,7 +72,6 @@ export function SuggestInput(props: SuggestInputProps) {
   const pick = (suggestion: Suggestion) => {
     if (props.multiple) addChip(suggestion.value)
     else props.onChange(suggestion.value)
-    onPick?.(suggestion.row)
     setHighlight(0)
     setSearching(false)
   }

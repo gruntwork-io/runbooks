@@ -53,6 +53,8 @@ const makeStubAwsClient = (overrides: Partial<AwsClientShape> = {}): AwsClientSh
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "listSsoRoles") })),
   checkRegion: (_region, _creds) =>
     Effect.fail(new AwsAuthError({ message: notConfigured("AwsClient", "checkRegion") })),
+  sendSigned: (_creds, _signing, _request) =>
+    Effect.fail(new AwsAuthError({ message: notConfigured("AwsClient", "sendSigned") })),
   ...overrides,
 })
 
@@ -321,14 +323,8 @@ const makeStubGoogleClient = (overrides: Partial<GoogleClientShape> = {}): Googl
     Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "listProjects") })),
   checkProject: (_projectId, _creds) =>
     Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "checkProject") })),
-  listDomains: () =>
-    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "listDomains") })),
-  getCustomer: () =>
-    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "getCustomer") })),
-  searchPeople: () =>
-    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "searchPeople") })),
-  enabledServices: () =>
-    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "enabledServices") })),
+  sendAuthorized: (_creds, _request, _quotaProjectId) =>
+    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "sendAuthorized") })),
   ...overrides,
 })
 

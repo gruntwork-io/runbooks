@@ -53,6 +53,11 @@ export class AwsSsoError extends Data.TaggedError("AwsSsoError")<{
   readonly cause?: unknown
 }> {}
 
+/** An auth block refused to send a request for another block, such as a write or a host it doesn't send to. */
+export class RequestRefusedError extends Data.TaggedError("RequestRefusedError")<{
+  readonly message: string
+}> {}
+
 // Google Cloud
 export class GoogleAuthError extends Data.TaggedError("GoogleAuthError")<{
   readonly message: string
