@@ -1,20 +1,19 @@
 /**
- * The pull request a <TfModule> block opens: its Terragrunt unit, committed
+ * The pull request a <TfApplyWithGitHubPullRequest> block opens for a
+ * <TfModule> block's code: its Terragrunt unit, committed
  * to a new branch of the repository a <GitClone> block cloned, pushed, opened
  * as a GitHub pull request, and merged when the user says.
  *
  * In simulation mode nothing touches git or GitHub; each step pauses and
  * answers as GitHub would.
  */
-import * as fs from "node:fs/promises"
-import * as path from "node:path"
 import { Effect } from "effect"
 import { ipcMain } from "electron"
 import { runtime } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { simulationEnabled } from "./simulation.ts"
 import { resolveGitHubTokenForRepo } from "./git.ts"
-import { fail, pause, renderInRepo, startRun, unitFilesOf } from "./tf-module-run.ts"
+import { fail, pause, startRun, writeUnit } from "./tf-module-run.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
 import { describeFailure } from "./ipc-error.ts"
 import {
@@ -43,31 +42,17 @@ const SIMULATED_NUMBER = 42
 const asTfModuleError = (cause: unknown) =>
   cause instanceof TfModuleError ? cause : fail(describeFailure(cause))
 
-/**
- * Writes the block's unit to its folder in the repository: the code the Code
- * tab shows there, pointing at the module's pinned source. Returns the paths
- * it wrote.
- */
-const writeUnit = (request: TfModulePrPushRequest, worktree: string) =>
-  Effect.gen(function* () {
-    const code = yield* renderInRepo(request, request.values, {
-      worktreePath: worktree,
-      path: request.path,
-      baseBranch: request.target.baseBranch,
-    })
-    const files = unitFilesOf(code)
-    yield* Effect.tryPromise({
-      try: async () => {
-        for (const file of files) {
-          const target = path.join(worktree, code.folder, file.path)
-          await fs.mkdir(path.dirname(target), { recursive: true })
-          await fs.writeFile(target, file.content)
-        }
-      },
-      catch: asTfModuleError,
-    })
-    return files.map((file) => `${code.folder}/${file.path}`)
-  })
+/** Writes the block's unit to its folder in the checkout. Returns the paths it wrote. */
+const writeUnitFor = (request: TfModulePrPushRequest, worktree: string) =>
+  Effect.map(
+    writeUnit(
+      request,
+      request.values,
+      { path: request.path, baseBranch: request.target.baseBranch },
+      worktree,
+    ),
+    ({ written }) => written,
+  )
 
 /** The repository's checkout, which must be one the session cloned or picked. */
 const checkout = (target: TfModulePrTarget) =>
@@ -119,7 +104,7 @@ export function registerTfModulePrHandlers(): void {
           if (existing) {
             log(`#${existing.number} is already open for ${request.branch}; updating it.`)
             yield* checkOutRemoteBranch(token, worktree, request.branch)
-            const written = yield* writeUnit(request, worktree)
+            const written = yield* writeUnitFor(request, worktree)
             log(`Wrote ${written.join(", ")}`)
             yield* pushToPullRequest(
               token,
@@ -142,7 +127,7 @@ export function registerTfModulePrHandlers(): void {
             log(`Updated ${existing.url}`)
             return { url: existing.url, number: existing.number, branch: existing.branch }
           }
-          const written = yield* writeUnit(request, worktree)
+          const written = yield* writeUnitFor(request, worktree)
           log(`Wrote ${written.join(", ")}`)
           const pr = yield* createPullRequest(
             token,
@@ -182,7 +167,7 @@ export function registerTfModulePrHandlers(): void {
             return { ok: true as const }
           }
           const worktree = yield* checkout(request.target)
-          const written = yield* writeUnit(request, worktree)
+          const written = yield* writeUnitFor(request, worktree)
           log(`Wrote ${written.join(", ")}`)
           const { token, host } = yield* resolveGitHubTokenForRepo(worktree, "pushing", {
             callsApi: true,

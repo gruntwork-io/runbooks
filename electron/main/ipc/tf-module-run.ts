@@ -1,7 +1,8 @@
 /**
- * IPC handlers for a <TfModule> block's Code and Apply tabs: the code the
- * runbook's template renders with the block's inputs to use the module, and a
- * plan and apply of it, streamed to the block as it runs.
+ * IPC handlers for a <TfModule> block's code: the code the runbook's
+ * template renders with the block's inputs to use the module, written to the
+ * repository's checkout when the block generates it, and a plan and apply of
+ * it for a <TfApplyWithGitHubPullRequest> block's tabs, streamed as it runs.
  *
  * The code is a Terragrunt unit when the template renders a terragrunt.hcl,
  * and plain OpenTofu or Terraform code otherwise. Each block gets a workspace
@@ -64,6 +65,8 @@ import {
 import type {
   TfModuleCode,
   TfModuleCodeRef,
+  TfModuleGenerated,
+  TfModuleGenerateRequest,
   TfModuleRenderRequest,
   TfModuleRepo,
   TfModuleRunRequest,
@@ -217,6 +220,69 @@ const renderCode = (request: TfModuleRenderRequest) =>
         kind: "workspace",
         ...code,
       }))
+
+/**
+ * Writes the block's unit to its folder in the repository's checkout: the
+ * code the Code tab shows there, pointing at the module's pinned source.
+ * Removes the files in `replaces`, ones written before for other inputs, that
+ * it doesn't write now. Returns the code and the paths it wrote, relative to
+ * the checkout.
+ */
+export const writeUnit = (
+  ref: TfModuleCodeRef,
+  values: Record<string, unknown>,
+  repo: TfModuleRepo,
+  worktree: string,
+  replaces: readonly string[] = [],
+) =>
+  Effect.gen(function* () {
+    const code = yield* renderInRepo(ref, values, { ...repo, worktreePath: worktree })
+    const files = unitFilesOf(code)
+    yield* writeFiles(path.join(worktree, code.folder), files)
+    const written = files.map((file) => `${code.folder}/${file.path}`)
+    const stale = replaces.filter((file) => !written.includes(file))
+    yield* Effect.tryPromise({
+      try: () => removeFiles(worktree, stale),
+      catch: (cause) => fail(`Couldn't remove the old code: ${describeFailure(cause)}`),
+    })
+    return { code, written }
+  })
+
+/** Removes files under `root` by their paths relative to it, and the folders they leave empty. */
+async function removeFiles(root: string, files: readonly string[]): Promise<void> {
+  const base = path.resolve(root)
+  for (const file of files) {
+    const target = path.resolve(base, file)
+    if (!target.startsWith(base + path.sep)) continue
+    await fs.rm(target, { force: true })
+    let dir = path.dirname(target)
+    while (dir !== base) {
+      const left = await fs.readdir(dir).catch(() => ["unreadable"])
+      if (left.length > 0) break
+      await fs.rmdir(dir)
+      dir = path.dirname(dir)
+    }
+  }
+}
+
+/**
+ * The block's code, written to its folder in the repository's checkout when
+ * there is one. In simulation, or without a checkout, nothing is written.
+ */
+const generateCode = (request: TfModuleGenerateRequest) =>
+  Effect.gen(function* () {
+    if (simulationEnabled() || !request.repo?.worktreePath) {
+      return { code: yield* renderCode(request), written: [] } satisfies TfModuleGenerated
+    }
+    const worktree = yield* validateSessionPath(request.repo.worktreePath)
+    return (yield* writeUnit(
+      request,
+      request.values,
+      request.repo,
+      worktree,
+      request.replaces,
+    )) satisfies TfModuleGenerated
+  })
 
 /** The unit's own files in the repository's code, by path in the unit's folder. */
 export function unitFilesOf(code: Extract<TfModuleCode, { kind: "repo" }>): UnitFile[] {
@@ -573,6 +639,10 @@ export function startRun(sender: WebContents, runId: string) {
 export function registerTfModuleRunHandlers(): void {
   ipcMain.handle("tf-module:render", async (_event, params: TfModuleRenderRequest) =>
     runtime.runPromise(renderCode(params)),
+  )
+
+  ipcMain.handle("tf-module:generate", async (_event, params: TfModuleGenerateRequest) =>
+    runtime.runPromise(generateCode(params)),
   )
 
   ipcMain.handle("tf-module:plan", async (event, params: TfModuleRunRequest) => {

@@ -214,6 +214,8 @@ export interface IpcChannelMap {
   // Simulation mode
   /** The Terragrunt code a <TfModule> block runs, rendered with its inputs. */
   "tf-module:render": { params: TfModuleRenderRequest; result: TfModuleCode }
+  /** Writes the block's code to its folder in the repository's checkout. */
+  "tf-module:generate": { params: TfModuleGenerateRequest; result: TfModuleGenerated }
   /** Plans the block's Terragrunt code, streaming `tf-module:event` as it goes. */
   "tf-module:plan": { params: TfModuleRunRequest; result: PlanResult }
   /** Applies the plan the last `tf-module:plan` saved, streaming `tf-module:event`. */
@@ -1129,6 +1131,7 @@ export interface TfModuleCodeRef {
 }
 
 export interface TfModuleRenderRequest extends TfModuleCodeRef {
+  /** The <TfModule> block whose code it is, which names its workspace and its simulated answers. */
   blockId: string
   /** The block's inputs, as it publishes them. */
   values: Record<string, unknown>
@@ -1155,12 +1158,23 @@ export type TfModuleCode =
       source?: string | undefined
     }
 
+export interface TfModuleGenerateRequest extends TfModuleRenderRequest {
+  /** Paths, relative to the checkout, that the last generate wrote, to remove when this one doesn't write them. */
+  replaces?: string[] | undefined
+}
+
+export interface TfModuleGenerated {
+  code: TfModuleCode
+  /** Paths, relative to the checkout, that it wrote; none in simulation or without a checkout. */
+  written: string[]
+}
+
 export interface TfModuleRunRequest extends TfModuleRenderRequest {
   /** Names the run, for its events and for `tf-module:cancel`. */
   runId: string
 }
 
-/** The repository a <TfModule> block's pull request goes to. */
+/** The repository the pull request for a <TfModule> block's code goes to. */
 export interface TfModulePrTarget {
   /** The repository's checkout in the session; none in simulation. */
   worktreePath?: string | undefined

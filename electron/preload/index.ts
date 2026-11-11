@@ -32,6 +32,7 @@ const INVOKE_CHANNELS = {
   "tf-module:lookup": true,
   "tf-module:readiness": true,
   "tf-module:render": true,
+  "tf-module:generate": true,
   "tf-module:plan": true,
   "tf-module:apply": true,
   "tf-module:cancel": true,
