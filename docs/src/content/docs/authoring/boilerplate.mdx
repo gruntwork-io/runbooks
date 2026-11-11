@@ -567,6 +567,34 @@ When a session is resumed, a locked field starts from the runbook's value, not f
 
 A hidden field is still validated. If its value is invalid, for example because it's `required` and empty, the form shows the field, locked, with its error, so the block never fails on something you can't see. A section whose fields are all hidden doesn't appear.
 
+### Lookups
+
+A field can suggest values from an API, fill itself from one, or offer a button that does, with the same [lookups](/authoring/lookups/) a `<TfModule>` module declares, written with an `x-` prefix:
+
+| Key | Where | What it does |
+|---|---|---|
+| `x-lookups` | Top level | Defines lookups, in groups, as [`lookups`](/authoring/lookups/#a-lookup) does |
+| `x-include` | Top level | Includes [shared definitions](/authoring/lookups/#shared-definitions), by a path relative to the `boilerplate.yml`, or to the runbook for an `<Inputs>` block's inline YAML |
+| `x-lookup` | A `string` or `list` variable | Suggests the lookup's rows as you type |
+| `x-prefill` | A `string` variable | Fills the field when it's empty and the lookup gives exactly one row |
+| `x-shortcut` | A `string` or `list` variable | A button, labelled by its `label`, that sets the field from the lookup's one row, or adds it to a list |
+
+```yaml
+x-include:
+  - ../../_includes/google.yml
+
+variables:
+  - name: Lead
+    type: string
+    x-prefill: { from: google.me }
+  - name: Members
+    type: list
+    x-lookup: { from: google.people }
+    x-shortcut: { from: google.me, label: 'Add "{{ .label }}"' }
+```
+
+The block's `auth` prop binds each group the form uses to an auth block, such as `auth={{ google: "workspace" }}` on an [`<Inputs>`](/authoring/blocks/inputs/#lookups) or [`<Template>`](/authoring/blocks/template/#lookups) block. A lookup that names something undefined, a use on a variable of another type, or a group the `auth` prop doesn't bind shows an error in place of the block. A form runs no checks, so `x-checks` and `x-preflight` are errors too. The Boilerplate CLI ignores all of these keys, so a template that uses them still renders outside Runbooks. The [form-lookups demo runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/form-lookups) uses each one.
+
 ### `x-options`
 
 Lists the allowed values for a `list` variable. The form then renders a multi-select picker. The Boilerplate CLI doesn't check the values against the list.

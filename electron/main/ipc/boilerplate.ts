@@ -6,7 +6,8 @@
  */
 import { Cause, Effect, Exit, Fiber, Semaphore } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager, manifestStore } from "./runtime.ts"
+import { dirname, relative } from "node:path"
+import { runtime, sessionManager, manifestStore, runbookConfig } from "./runtime.ts"
 import {
   parseBoilerplateConfig,
   extractOutputDependencies,
@@ -29,6 +30,7 @@ import {
 } from "../../../src/services/WarmRenderDispatcher.ts"
 import { buildFileTree } from "../../../src/domain/workspace/file-tree.ts"
 import { hashTemplateDir } from "../../../src/domain/boilerplate/templateHash.ts"
+import { readFormLookups } from "../../../src/domain/boilerplate/lookups.ts"
 import {
   buildManifestFromDirectoryWithContent,
   computeDiff,
@@ -190,6 +192,18 @@ export function registerBoilerplateHandlers(): void {
         }
 
         const config = yield* parseBoilerplateConfig(yamlContent)
+
+        // Inline content's includes resolve against the runbook it's written in.
+        const lookups = yield* readFormLookups(
+          yamlContent,
+          resolvedTemplatePath ?? runbookConfig.localPath ?? "boilerplate.yml",
+          resolvedTemplatePath
+            ? runbookConfig.localPath
+              ? relative(dirname(runbookConfig.localPath), resolvedTemplatePath)
+              : resolvedTemplatePath
+            : "The inline boilerplate.yml",
+        )
+        if (lookups) config.lookups = lookups
 
         // Output references gate the Generate button. Inline content has
         // only the boilerplate.yml to scan; a template on disk has its files too.

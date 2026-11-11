@@ -1,7 +1,7 @@
 import { UserPlus } from "lucide-react"
-import type { ShortcutUse } from "../../../../../../src/domain/lookups/types"
-import { useLookup } from "../hooks/useLookup"
-import { suggestionFor } from "../lookupRows"
+import type { ShortcutUse } from "../../../../../../../src/domain/lookups/types"
+import { useLookup } from "../../hooks/useLookup"
+import { suggestionFor } from "../../lib/lookupRows"
 
 interface ShortcutButtonProps {
   shortcut: ShortcutUse
@@ -23,7 +23,7 @@ export function ShortcutButton({ shortcut, current, onAdd }: ShortcutButtonProps
   try {
     suggestion = suggestionFor(row, shortcut.label)
   } catch {
-    // runbook_block.yml's templates were checked when the module loaded.
+    // The label's template was checked when its file loaded.
     return null
   }
   if (!suggestion.value || current.includes(suggestion.value)) return null

@@ -5,7 +5,7 @@ description: Declare the API requests that suggest or fill form fields, and the 
 
 A **lookup** fetches rows from an API to suggest or fill a form field, such as your Identity Center groups or the people in your Google Workspace directory. A **check** is a read request plus a condition, such as "the Admin SDK API is on in this project".
 
-Both are declared in YAML, beside the form they serve: a module's `runbook_block.yml`. Runbooks knows no API. The declaration says what to request and where the results are in the answer, and the auth block the runbook binds the lookup to signs the request and sends it, only if it reads from that provider's API. The author is trusted as for a `Command`, so no list limits which APIs a lookup reaches. See [what AwsAuth sends](/authoring/blocks/awsauth/#requests-sent-for-other-blocks) and [what GoogleAuth sends](/authoring/blocks/googleauth/#requests-sent-for-other-blocks).
+Both are declared in YAML, beside the form they serve: a module's `runbook_block.yml`, or, for lookups only, an `<Inputs>` or `<Template>` block's `boilerplate.yml`, where each key takes an `x-` prefix. See [In a boilerplate.yml](#in-a-boilerplateyml). Runbooks knows no API. The declaration says what to request and where the results are in the answer, and the auth block the runbook binds the lookup to signs the request and sends it, only if it reads from that provider's API. The author is trusted as for a `Command`, so no list limits which APIs a lookup reaches. See [what AwsAuth sends](/authoring/blocks/awsauth/#requests-sent-for-other-blocks) and [what GoogleAuth sends](/authoring/blocks/googleauth/#requests-sent-for-other-blocks).
 
 ## A lookup
 
@@ -67,6 +67,19 @@ An input uses a lookup in one of three ways, each `{ from: <group>.<lookup>, wit
 | `prefill` | Fills the field when the form loads, only if it's empty and the lookup gives exactly one row |
 | `shortcut` | A button, labelled by its `label`, that sets the field from the lookup's one row |
 
+### In a boilerplate.yml
+
+An `<Inputs>` or `<Template>` block's `boilerplate.yml` declares the same lookups with an `x-` prefix on each key: `x-lookups` and `x-include` at the top level, and `x-lookup`, `x-prefill` and `x-shortcut` on a variable, which is a list entry with a `name` rather than a key under `variables`. The block's `auth` prop binds the groups, as `<TfModule>`'s does. A form runs no checks, so it can't declare `x-checks` or `x-preflight`. See [Lookups in boilerplate.yml](/authoring/boilerplate/#lookups).
+
+```yaml
+x-include:
+  - ../_includes/aws.yml
+variables:
+  - name: Group
+    type: string
+    x-lookup: { from: aws.groups }
+```
+
 ## Templates
 
 A request's strings may read values with `{{ }}`. The only thing between the braces is a value:
@@ -121,10 +134,10 @@ An include only makes definitions available, as if written inline. It must stay 
 
 ## Checking declarations
 
-Runbooks checks declarations when it loads them, and refuses a file that names a lookup, check, param, field or auth fact that doesn't exist, puts a form value in a URL's host, puts a template in a GraphQL query, or chains lookups in a circle. `runbooks-cli validate` runs the same checks without the app, for a module's own CI:
+Runbooks checks declarations when it loads them, and refuses a file that names a lookup, check, param, field or auth fact that doesn't exist, puts a form value in a URL's host, puts a template in a GraphQL query, or chains lookups in a circle. `runbooks-cli validate` runs the same checks without the app, for a module's or a template's own CI. It takes module folders, and template folders, which it knows by their `boilerplate.yml`:
 
 ```bash
-runbooks-cli validate modules/google-group modules/aws-account
+runbooks-cli validate modules/google-group modules/aws-account runbooks/_includes/templates/unit
 ```
 
 It exits non-zero when it finds a problem. It also checks the recorded answers in each module's `simulation.yml`, so a declaration that no longer reads its API's answers fails the module's pull request.

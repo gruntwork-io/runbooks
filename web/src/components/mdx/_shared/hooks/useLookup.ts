@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import type { Row, Use } from "../../../../../../src/domain/lookups/types"
-import { matchesQuery } from "../lookupRows"
-import { useLookupEngineContext } from "../../_shared/hooks/useLookupEngine"
+import { matchesQuery } from "../lib/lookupRows"
+import { useLookupEngineContext } from "./useLookupEngine"
 
 /** How long typing pauses before the lookup asks again. */
 const DEBOUNCE_MS = 200

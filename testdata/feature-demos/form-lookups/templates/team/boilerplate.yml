@@ -1,0 +1,24 @@
+x-include:
+  - ../../_includes/google.yml
+
+variables:
+  - name: TeamName
+    type: string
+    description: What the team is called
+    validations:
+      - "required"
+  - name: Domain
+    type: string
+    description: The organization the team's group goes in, by its domain
+    validations:
+      - "required"
+    x-lookup: { from: google.domains }
+  - name: Lead
+    type: string
+    description: Who leads the team. Filled with you once you sign in.
+    x-prefill: { from: google.me }
+  - name: Members
+    type: list
+    description: Everyone on the team
+    x-lookup: { from: google.people }
+    x-shortcut: { from: google.me, label: 'Add "{{ .label }}"' }

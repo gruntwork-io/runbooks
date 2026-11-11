@@ -1,0 +1,51 @@
+---
+title: Form Lookups Demo
+---
+
+# Lookups in Inputs and Template forms
+
+An `<Inputs>` or `<Template>` block's `boilerplate.yml` can declare lookups with `x-` keys, the same ones a `<TfModule>` module's `runbook_block.yml` declares without the prefix. A lookup asks an API for rows, through the auth block the form's `auth` prop binds its group to, and a field uses them:
+
+- `x-lookup` suggests values as you type.
+- `x-prefill` fills an empty field when the lookup finds exactly one row.
+- `x-shortcut` adds a button that sets the field from the lookup's one row.
+
+This runbook's lookups are in `_includes/google.yml`, which both forms include with `x-include`. Until someone signs in below, the fields say so, and take typed values.
+
+## Sign in to Google Workspace
+
+<GoogleAuth
+  id="workspace"
+  scopes={[
+    "https://www.googleapis.com/auth/userinfo.email",
+    "openid",
+    "https://www.googleapis.com/auth/admin.directory.domain.readonly",
+    "https://www.googleapis.com/auth/admin.directory.user.readonly",
+  ]}
+/>
+
+## An Inputs block
+
+The YAML is written in the runbook, so `x-include` is relative to the runbook.
+
+<Inputs id="owner" auth={{ google: "workspace" }}>
+```yaml
+x-include:
+  - _includes/google.yml
+variables:
+  - name: Owner
+    type: string
+    description: Who owns the team's resources. Filled with you once you sign in.
+    x-prefill: { from: google.me }
+  - name: Reviewers
+    type: list
+    description: Who reviews changes
+    x-lookup: { from: google.people }
+```
+</Inputs>
+
+## A Template block
+
+The template's `boilerplate.yml` includes the same file, relative to itself.
+
+<Template id="team" path="templates/team" auth={{ google: "workspace" }} />

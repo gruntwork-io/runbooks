@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
-import type { Use } from "../../../../../../src/domain/lookups/types"
-import { useLookup } from "../hooks/useLookup"
-import { suggestionFor } from "../lookupRows"
+import type { Use } from "../../../../../../../src/domain/lookups/types"
+import { useLookup } from "../../hooks/useLookup"
+import { suggestionFor } from "../../lib/lookupRows"
 
 interface PrefillProps {
   prefill: Use

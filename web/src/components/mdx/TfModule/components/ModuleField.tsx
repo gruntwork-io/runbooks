@@ -4,8 +4,8 @@ import type { TfModuleVariable } from "../../../../../../src/domain/tf-module/ty
 import type { Suffix } from "../lib"
 import { OptionCards } from "./OptionCards"
 import { PresetPicker } from "./PresetPicker"
-import { ShortcutButton } from "./ShortcutButton"
-import { SuggestInput } from "./SuggestInput"
+import { ShortcutButton } from "../../_shared/components/lookups/ShortcutButton"
+import { SuggestInput } from "../../_shared/components/lookups/SuggestInput"
 
 /** Option cards suit a few choices; more than this get a dropdown. */
 const MAX_OPTION_CARDS = 6

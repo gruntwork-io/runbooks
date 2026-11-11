@@ -22,6 +22,8 @@ import { TemplateInstruction } from "./TemplateInstruction"
 import { localOnlyValues, useSharedTemplateVars } from "./useSharedTemplateVars"
 import { useFormHistory } from "../_shared/hooks/useFormHistory"
 import { useRenderHistory } from "../_shared/hooks/useRenderHistory"
+import { useBindingError } from "../_shared/hooks/useBindingError"
+import { lookupsError } from "../_shared/lib/lookupsError"
 
 /**
  * Template component - generates files from a boilerplate template directory.
@@ -45,6 +47,8 @@ import { useRenderHistory } from "../_shared/hooks/useRenderHistory"
  * @param props.id - Unique identifier for this component (required)
  * @param props.path - Path to the boilerplate template directory (required)
  * @param props.inputsId - Optional ID(s) of Inputs components to import variable values from
+ * @param props.auth - Binds each lookup group the boilerplate.yml uses to an
+ *   auth block by id, such as `{{ google: "workspace" }}`
  *
  * @example
  * // Standalone template with its own form
@@ -62,9 +66,13 @@ interface TemplateProps {
   inputsId?: string | string[]
   /** Where template output is written. "generated" (default) writes to $GENERATED_FILES. "worktree" writes to the active git worktree ($REPO_FILES). */
   target?: "generated" | "worktree"
+  /** Binds each lookup group the boilerplate.yml uses to an auth block by id. */
+  auth?: Readonly<Record<string, string>>
 }
 
-function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
+const NO_BINDING: Readonly<Record<string, string>> = {}
+
+function TemplateInteractive({ id, path, inputsId, target, auth = NO_BINDING }: TemplateProps) {
   // Register with ID registry to detect duplicates (including normalized collisions like "a-b" vs "a_b")
   const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
@@ -130,6 +138,14 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     path,
     "", // No inline YAML for Template
     !validationError,
+  )
+
+  const declarationsError = lookupsError("<Template>", boilerplateConfig?.lookups)
+  const bindingError = useBindingError(
+    boilerplateConfig?.lookups,
+    auth,
+    "<Template>",
+    "its boilerplate.yml's",
   )
 
   // Report errors to the error reporting context
@@ -454,6 +470,10 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     return <ErrorDisplay error={apiError} />
   }
 
+  if (declarationsError ?? bindingError) {
+    return <ErrorDisplay error={(declarationsError ?? bindingError)!} />
+  }
+
   // Render the form with output dependency warning and inline render errors
   return (
     <div ref={blockRef} data-testid={id}>
@@ -478,6 +498,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
         liveVarValues={liveVarValues}
         unmetOutputDependencies={unmetOutputDependencies}
         importedValues={inputValues}
+        auth={auth}
       />
     </div>
   )

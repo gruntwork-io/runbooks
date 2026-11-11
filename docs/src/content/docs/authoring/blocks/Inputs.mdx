@@ -40,6 +40,7 @@ Inputs and [Template](/authoring/blocks/template/) both render forms to collect 
 
 - `path` (string). Path to a directory containing a `boilerplate.yml` (or `boilerplate.yaml`) file, or to the file itself, relative to the runbook. Required unless the block has inline YAML. [Runbook tests](/authoring/testing/) only read a file named `boilerplate.yml`.
 - `prefilledVariables` (object). An object of variable names to values that pre-populate the form fields. These values override any `default` values defined in the YAML.
+- `auth` (object). Binds each [lookup](#lookups) group the `boilerplate.yml` uses to an auth block, by id, such as `{{ google: "workspace" }}`.
 
 ## Declaring variables
 
@@ -195,6 +196,27 @@ You can embed Inputs directly inside a Command or Check block:
 When embedded, the Inputs form renders inline within the parent block without a separate submit button, and the parent can use its variables.
 
 Other blocks can still reference embedded Inputs using the standard `inputsId` pattern.
+
+## Lookups
+
+A field can suggest values from an API, fill itself from one, or offer a button that does. Declare the lookups in the `boilerplate.yml` with [`x-` keys](/authoring/boilerplate/#lookups), and bind their groups to the runbook's auth blocks with `auth`:
+
+`````mdx
+<GoogleAuth id="workspace" scopes={["openid", "https://www.googleapis.com/auth/admin.directory.user.readonly"]} />
+
+<Inputs id="team" auth={{ google: "workspace" }}>
+```yaml
+x-include:
+  - _includes/google.yml
+variables:
+  - name: Members
+    type: list
+    x-lookup: { from: google.people }
+```
+</Inputs>
+`````
+
+An `x-include` in inline YAML is relative to the runbook. Until someone signs in at the bound block, the fields say so, and take typed values. In [simulation mode](/authoring/simulation-mode/), the runbook's `simulation.yml` answers the lookups.
 
 ## Sections
 

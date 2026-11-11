@@ -13,11 +13,10 @@ import { LoadingDisplay } from "../_shared/components/LoadingDisplay"
 import { ProgressStep } from "../_shared/components/ProgressStep"
 import { useInputRegistration } from "../_shared/hooks/useInputRegistration"
 import type { TfModuleSpec } from "../../../../../src/domain/tf-module/types"
-import { bindingProblems } from "../../../../../src/domain/lookups/validate"
-import { usePageBlocks } from "@/contexts/ComponentIdRegistry"
+import { useBindingError } from "../_shared/hooks/useBindingError"
 import { ModuleField } from "./components/ModuleField"
 import { ModuleLogo } from "./components/ModuleLogo"
-import { Prefill } from "./components/Prefill"
+import { Prefill } from "../_shared/components/lookups/Prefill"
 import { useGitSignIns } from "./hooks/useGitSignIns"
 import { LookupEngineContext, useLookupEngine } from "../_shared/hooks/useLookupEngine"
 import type { TfModuleGenerated, TfModuleRepo } from "../../../../../electron/shared/channels"
@@ -120,7 +119,12 @@ function TfModule({ id, source, template, path, auth = NO_BINDING }: TfModulePro
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [gitSignIns])
   const config = spec ? registryConfig(spec) : null
-  const bindingError = useBindingError(spec ?? undefined, auth)
+  const bindingError = useBindingError(
+    spec ? { definitions: spec.definitions, groups: spec.authGroups } : undefined,
+    auth,
+    "<TfModule>",
+    "the module's",
+  )
 
   const blockRef = useRef<HTMLDivElement>(null)
   const {
@@ -172,29 +176,6 @@ function TfModule({ id, source, template, path, auth = NO_BINDING }: TfModulePro
       />
     </div>
   )
-}
-
-/**
- * What's wrong with how the `auth` prop binds the module's lookup groups to
- * the runbook's auth blocks, once the module is read and the blocks on the
- * page have registered.
- */
-function useBindingError(
-  spec: TfModuleSpec | undefined,
-  auth: Readonly<Record<string, string>>,
-): AppError | null {
-  const { blockOf, registered } = usePageBlocks()
-  if (!spec || !registered) return null
-  const blocks = Object.values(auth).flatMap((blockId) => {
-    const block = blockOf(blockId)
-    return block ? [{ id: blockId, kind: block.kind, scopes: block.scopes }] : []
-  })
-  const problems = bindingProblems(spec.definitions, spec.authGroups, auth, blocks)
-  if (problems.length === 0) return null
-  return {
-    message: "The <TfModule> block's auth prop doesn't fit the module's lookups.",
-    details: problems.join("\n"),
-  }
 }
 
 interface TfModuleFormProps {

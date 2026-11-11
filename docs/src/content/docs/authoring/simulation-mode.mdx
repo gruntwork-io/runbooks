@@ -6,7 +6,7 @@ description: Preview a runbook's blocks against canned answers, without signing 
 Simulation mode lets you shape a runbook's blocks without signing in to anything or changing anything real. Lookups, checks and `<TerragruntApply>` blocks answer from a `simulation.yml` file beside the runbook instead, so you can see each state of each block, such as a lookup that fails or an apply that's refused, without arranging it for real.
 
 :::caution[Experimental]
-Simulation mode serves the [lookups and checks](/authoring/lookups/) of experimental blocks such as [`<TfModule>`](/authoring/blocks/tfmodule/), and the experimental [`<TerragruntApply>`](/authoring/blocks/terragruntapply/) block. Other blocks run as they always do. The `simulation.yml` format may change.
+Simulation mode serves the [lookups and checks](/authoring/lookups/) of experimental blocks such as [`<TfModule>`](/authoring/blocks/tfmodule/), the lookups of [`<Inputs>`](/authoring/blocks/inputs/#lookups) and [`<Template>`](/authoring/blocks/template/#lookups) forms, and the experimental [`<TerragruntApply>`](/authoring/blocks/terragruntapply/) block. Other blocks run as they always do. The `simulation.yml` format may change.
 :::
 
 ## Turn it on
@@ -65,7 +65,7 @@ scenarios:
           body: { state: ENABLED }
 ```
 
-A lookup or check the scenario doesn't answer answers from the `recorded` scenario of its module's own `simulation.yml`, which [`runbooks-cli lookups record`](/authoring/lookups/#recording-real-answers) writes from the real APIs. So a module's recording serves every runbook that uses it, and a runbook's scenarios only give the answers that make them different.
+A lookup or check the scenario doesn't answer answers from the `recorded` scenario of its module's own `simulation.yml`, which [`runbooks-cli lookups record`](/authoring/lookups/#recording-real-answers) writes from the real APIs. So a module's recording serves every runbook that uses it, and a runbook's scenarios only give the answers that make them different. A form's lookups have no module, so the runbook's scenarios answer all of them.
 
 Nobody signs in during a simulation. A lookup that reads what an auth block knows, such as `{{ .auth.accountId }}`, reads `111122223333` in `us-east-1` for AWS, and `you@example.com` in `simulated-project` for Google, unless the block is signed in. A lookup that searches with what's typed gets the same answer whatever is typed.
 

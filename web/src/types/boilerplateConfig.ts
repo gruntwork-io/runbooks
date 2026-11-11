@@ -1,3 +1,4 @@
+import type { FormLookups } from "../../../src/domain/boilerplate/lookups"
 import type { BoilerplateVariable } from "./boilerplateVariable"
 
 // Section represents a grouping of variables under a section header (Runbooks extension).
@@ -33,4 +34,7 @@ export interface BoilerplateConfig {
   // A hash of the template directory's files, when the config came from one.
   // A Template block keeps it with what it wrote, to tell when its files changed.
   contentHash?: string
+  // The lookups the file declares with x- keys (x-lookups, x-include, and
+  // x-lookup, x-prefill and x-shortcut on a variable), when it declares any.
+  lookups?: FormLookups
 }
