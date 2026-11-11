@@ -1,8 +1,7 @@
 /**
  * Send a request as the user an auth block signed in as, for another block
- * such as a lookup or a check. Each auth block first checks the request
- * against its own rules (aws.ts, google.ts), so through this a module can
- * only read, and only from hosts its provider runs.
+ * such as a lookup or a check. Each auth block first checks that the request
+ * reads, from its provider's API.
  */
 import { Effect } from "effect"
 import { AwsClient, type AwsCredentials } from "../../services/AwsClient.ts"
