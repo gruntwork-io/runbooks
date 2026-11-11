@@ -1146,14 +1146,21 @@ export type TfModuleCode =
     }
 
 export interface TfModuleGenerateRequest extends TfModuleRenderRequest {
-  /** Paths, relative to the checkout, that the last generate wrote, to remove when this one doesn't write them. */
-  replaces?: string[] | undefined
+  /**
+   * The files the last generate wrote, by path relative to the checkout, with
+   * the SHA-256 of what it wrote, to remove when this one doesn't write them.
+   */
+  replaces?: Record<string, string> | undefined
 }
 
 export interface TfModuleGenerated {
   code: TfModuleCode
   /** Paths, relative to the checkout, that it wrote; none without a checkout. */
   written: string[]
+  /** The SHA-256 of each file it wrote, by path. */
+  fingerprints: Record<string, string>
+  /** Files an earlier generate wrote that this one doesn't, kept because they changed since. */
+  kept: string[]
 }
 
 export interface ProfileInfo {

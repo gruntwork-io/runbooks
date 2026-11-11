@@ -111,7 +111,10 @@ const GENERATED = {
     rootHcl: true,
   },
   written: ["groups/platform/terragrunt.hcl"],
+  fingerprints: { "groups/platform/terragrunt.hcl": "abc123" },
+  kept: [] as string[],
 }
+let generated = GENERATED
 
 const json = (body: unknown) =>
   Promise.resolve({ status: 200, contentType: "application/json", body: JSON.stringify(body) })
@@ -125,7 +128,7 @@ const invoke = vi.fn((channel: string, params?: { request?: { url: string } }) =
     }
     return json({ domains: domainRows })
   }
-  if (channel === "tf-module:generate") return Promise.resolve(GENERATED)
+  if (channel === "tf-module:generate") return Promise.resolve(generated)
   return Promise.reject(new Error(`unexpected channel ${channel}`))
 })
 
@@ -198,6 +201,7 @@ const input = (name: string) => document.getElementById(`group-${name}`) as HTML
 
 describe("TfModule", () => {
   beforeEach(() => {
+    generated = GENERATED
     domainRows = DOMAINS
     moduleSpec = spec
     readError = null
@@ -291,11 +295,21 @@ describe("TfModule", () => {
           "tf-module:generate",
           expect.objectContaining({
             values: expect.objectContaining({ display_name: "Platform" }),
-            replaces: ["groups/platform/terragrunt.hcl"],
+            replaces: { "groups/platform/terragrunt.hcl": "abc123" },
           }),
         ),
       { timeout: 2000 },
     )
+  })
+
+  it("lists files it kept because they changed after it wrote them", async () => {
+    generated = { ...GENERATED, kept: ["groups/old/terragrunt.hcl"] }
+    renderBlock()
+    fireEvent.change(input("domain"), { target: { value: "example.com" } })
+    fireEvent.change(input("group_name"), { target: { value: "platform" } })
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(await screen.findByText("groups/old/terragrunt.hcl")).toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent(/changed after the block wrote it/)
   })
 
   it("keeps the last valid inputs published while one needs a fix", async () => {
