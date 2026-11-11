@@ -5,7 +5,7 @@ title: <TfModule>
 import { Aside } from '@astrojs/starlight/components';
 
 <Aside type="caution" title="Experimental">
-`<TfModule>` is an experiment. Its props, the `runbook_block.yml` format and simulation mode may change. It reads modules from a local folder so far, though the code it writes can point at the module's catalog URL at a pinned version; reading the module itself from that URL comes next.
+`<TfModule>` is an experiment. Its props, the `runbook_block.yml` format and simulation mode may change.
 </Aside>
 
 The `<TfModule>` block renders a form for an OpenTofu module's inputs. The form comes from the module itself, so a runbook doesn't restate what the module already says:
@@ -20,7 +20,11 @@ The block's job ends when the code is written. **Generate** checks the values, p
 ## Basic usage
 
 ```mdx
-<TfModule id="group" source="modules/google-group" template="templates/google-group" />
+<TfModule
+  id="group"
+  source="git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0"
+  template="templates/google-group"
+/>
 
 <TerragruntApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
 
@@ -37,9 +41,25 @@ The block's job ends when the code is written. **Generate** checks the values, p
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
 | `id` | `string` | required | Unique identifier for this block. Other blocks name it in `inputsId` and `tfModuleId` |
-| `source` | `string` | required | The module's folder, relative to the runbook. It must be inside the runbook's folder |
+| `source` | `string` | required | The module. See [Module source](#module-source) |
 | `template` | `string` | required | The [template](#the-template) for the code that uses the module: a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder, relative to the runbook |
 | `path` | `string` | the block's `id` | Where the code goes in the cloned repository: a folder, as a template over the form's values, such as `google-groups/{{ .id }}` |
+
+## Module source
+
+`source` names the module as OpenTofu's own [module sources](https://opentofu.org/docs/language/modules/sources/) do, with a Git repository, `//` and the module's folder in it, and `?ref=` for the tag or commit to read:
+
+```text
+git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0
+github.com/acme/infra-catalog//modules/google-group?ref=v1.4.0
+git@github.com:acme/infra-catalog.git//modules/google-group?ref=v1.4.0
+```
+
+The block clones the repository once while Runbooks runs, and reads the module from the clone. A private repository needs a sign-in: a [`<GitHubAuth>`](/authoring/blocks/githubauth/) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth/) block above, a token in the environment such as `GITHUB_TOKEN`, the `gh` or `glab` CLI's sign-in, or your own Git credentials, as when Runbooks opens a remote runbook. See [Authentication for private repos](/commands/open/#authentication-for-private-repos). If the clone fails for want of one, the block says so, and reads the module again after a sign-in. Pin the source with `?ref=`: without one, the block reads the default branch, and the code it writes follows that branch as it changes, which the block warns about.
+
+The code the block writes points at the same source, so the module a repository runs is the module the form was built from.
+
+While working on a module, `source` can instead be its folder, relative to the runbook and inside the runbook's folder. The code then points at that folder on your computer, which works only there, and a `<TerragruntApplyWithGitHubPullRequest>` block's **Code** tab warns about it.
 
 ## How the form is built
 
@@ -61,9 +81,6 @@ OpenTofu and Terragrunt never read `runbook_block.yml`, so it can sit in the mod
 
 ```yaml title="runbook_block.yml"
 version: 0
-
-# Where code in an infrastructure repository finds the module, pinned to a release.
-source: git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=v0.14.0
 
 block:
   title: Create a Google Group
@@ -117,7 +134,6 @@ outputs:
 | Key | Description |
 |-----|-------------|
 | `version` | The format's version, `0` |
-| `source` | Where code in a repository finds the module, such as a Git URL pinned with `?ref=`. With a cloned repository, the code the block writes points at it. Without a `source`, that code points at the module's folder on your computer, and a `<TerragruntApplyWithGitHubPullRequest>` block's **Code** tab warns that it won't work anywhere else |
 | `requires.google.apis` | The Google APIs the module's resources call, by service name, such as `cloudidentity.googleapis.com`. See [Before you plan](#before-you-plan) |
 | `block.title`, `block.description` | The block's heading and the line under it |
 | `block.logo` | The block's logo, a file in the module or an `https:` URL |
@@ -158,7 +174,7 @@ requires:
 
 ## The template
 
-The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder beside the runbook. The block renders it with the form's values, plus `ModuleSource`, where the code finds the module: the module's `source` from `runbook_block.yml` when a `<GitClone>` block has cloned a repository, and the module's folder otherwise. Declare each variable the template uses in its `boilerplate.yml`.
+The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder beside the runbook. The block renders it with the form's values, plus `ModuleSource`, where the code finds the module: the block's [`source`](#module-source) when it's remote and a `<GitClone>` block has cloned a repository, and the module's folder on your computer otherwise. Declare each variable the template uses in its `boilerplate.yml`.
 
 What the template renders decides how the code runs. A template that renders a `terragrunt.hcl` makes a Terragrunt unit:
 

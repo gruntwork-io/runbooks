@@ -6,7 +6,7 @@
 import { Effect } from "effect"
 import { ipcMain } from "electron"
 import { runtime } from "./runtime.ts"
-import { validateSessionPath } from "./path-guard.ts"
+import { moduleDir } from "./tf-module-source.ts"
 import { activeSimulationScenario, simulationEnabled } from "./simulation.ts"
 import { loadModule } from "../../../src/domain/tf-module/load.ts"
 import { simulatedRows } from "../../../src/domain/tf-module/simulation.ts"
@@ -22,7 +22,7 @@ import {
 import { GoogleClient } from "../../../src/services/GoogleClient.ts"
 import { activeCredentialFor } from "./google-credential-registry.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
-import { isRemoteSource } from "../../../src/remote-source.ts"
+import { unpinnedSourceWarning } from "../../../src/domain/tf-module/moduleSource.ts"
 import type { TfModuleLookupRequest, TfModuleReadRequest } from "../../shared/channels.ts"
 
 /** The most rows a lookup returns; the user narrows the rest by typing. */
@@ -86,13 +86,9 @@ export function registerTfModuleHandlers(): void {
             message: "The block needs a source: the module's path or URL.",
           })
         }
-        if (isRemoteSource(params.source)) {
-          return yield* new TfModuleError({
-            message: "Reading a module from a URL isn't supported yet. Use a path to a local copy.",
-          })
-        }
-        const dir = yield* validateSessionPath(params.source)
-        return yield* loadModule(dir)
+        const spec = yield* loadModule(yield* moduleDir(params.source))
+        const warning = unpinnedSourceWarning(params.source)
+        return warning ? { ...spec, warnings: [...spec.warnings, warning] } : spec
       }),
     ),
   )

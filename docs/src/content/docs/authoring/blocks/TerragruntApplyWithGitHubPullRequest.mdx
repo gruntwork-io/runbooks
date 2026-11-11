@@ -27,7 +27,7 @@ Until the `<TfModule>` block has generated its code, the block waits, with a lin
 
 <TfModule
   id="group"
-  source="modules/google-group"
+  source="git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0"
   template="templates/google-group"
   path="google-groups/{{ .id }}"
 />

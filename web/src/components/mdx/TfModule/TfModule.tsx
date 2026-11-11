@@ -25,6 +25,7 @@ import type { LookupRow } from "../../../../../src/domain/tf-module/rowTemplate"
 import { ModuleField } from "./components/ModuleField"
 import { ModuleLogo } from "./components/ModuleLogo"
 import { Prefill } from "./components/Prefill"
+import { useGitSignIns } from "./hooks/useGitSignIns"
 import { useReadiness } from "./hooks/useReadiness"
 import { Readiness } from "./components/Readiness"
 import { readinessReport } from "./readiness"
@@ -61,7 +62,9 @@ import { valuesFromPick } from "./lookupRows"
  * <TerragruntApplyWithGitHubPullRequest> block takes the code from there.
  *
  * @param props.id - Unique identifier for this block (required)
- * @param props.source - The module's folder, relative to the runbook
+ * @param props.source - The module: a Git source such as
+ *   `git::https://github.com/acme/catalog.git//modules/group?ref=v1.0.0`, or a
+ *   folder relative to the runbook while working on the module
  * @param props.template - The Boilerplate template for the code that uses the
  *   module, a folder relative to the runbook
  * @param props.path - Where the code goes in the cloned repository, a template
@@ -88,7 +91,8 @@ function propsError(id: string, source: string, template: string): AppError | nu
   if (!source) {
     return {
       message: "The <TfModule> block requires a 'source' prop.",
-      details: "Set 'source' to the module's folder, relative to the runbook.",
+      details:
+        "Set 'source' to the module's Git source, such as git::https://github.com/acme/catalog.git//modules/group?ref=v1.0.0, or to its folder relative to the runbook.",
     }
   }
   if (!template) {
@@ -108,7 +112,15 @@ function TfModule({ id, source, template, path }: TfModuleProps) {
     data: spec,
     isLoading,
     error: apiError,
+    refetch,
   } = useIpc<TfModuleSpec>(validationError ? "" : "tf-module:read", { source })
+  // A private repository's module may clone once someone signs in to its host.
+  const gitSignIns = useGitSignIns()
+  useEffect(() => {
+    if (apiError) refetch()
+    // Reads again on a sign-in, not when the error or refetch changes.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [gitSignIns])
   const config = spec ? registryConfig(spec) : null
 
   const blockRef = useRef<HTMLDivElement>(null)

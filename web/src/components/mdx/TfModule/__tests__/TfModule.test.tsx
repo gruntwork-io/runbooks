@@ -108,8 +108,10 @@ const invoke = vi.fn((channel: string, params?: { from: string }) => {
 })
 
 let moduleSpec = spec
+let readError: { message: string } | null = null
+const refetch = vi.fn()
 vi.mock("@/hooks/useIpc", () => ({
-  useIpc: () => ({ data: moduleSpec, isLoading: false, error: null }),
+  useIpc: () => ({ data: moduleSpec, isLoading: false, error: readError, refetch }),
 }))
 
 // One object, as the app's provider gives, so hooks that depend on it don't ask again each render.
@@ -143,6 +145,8 @@ describe("TfModule", () => {
     readiness = ALL_ON
     domainRows = DOMAINS
     moduleSpec = spec
+    readError = null
+    refetch.mockClear()
     ctx = undefined
     invoke.mockClear()
   })
@@ -362,5 +366,15 @@ describe("TfModule", () => {
       )
       expect(input("customer_id").value).toBe("")
     })
+  })
+  it("reads a module it couldn't clone again once someone signs in to GitHub", async () => {
+    readError = { message: "Couldn't clone acme/catalog: sign in to GitHub." }
+    renderBlock()
+    expect(screen.getByText(/sign in to GitHub/)).toBeInTheDocument()
+    await waitFor(() => expect(ctx).toBeDefined())
+    refetch.mockClear()
+
+    act(() => ctx!.registerOutputs("github-auth", { GIT_PROVIDER: "github" }))
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1))
   })
 })

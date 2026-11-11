@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { moduleSourceInfo } from "./moduleSource.ts"
+import { moduleSourceInfo, unpinnedSourceWarning } from "./moduleSource.ts"
 
 describe("moduleSourceInfo", () => {
   it("names a module in a GitHub repository, its ref, and its folder there", () => {
@@ -36,5 +36,20 @@ describe("moduleSourceInfo", () => {
       name: "group",
       ref: "v1",
     })
+  })
+})
+
+describe("unpinnedSourceWarning", () => {
+  it("warns about a remote source with no ref", () => {
+    expect(
+      unpinnedSourceWarning("git::https://github.com/acme/catalog.git//modules/group"),
+    ).toContain("has no ?ref=")
+  })
+
+  it("accepts a pinned remote source and a local folder", () => {
+    expect(
+      unpinnedSourceWarning("git::https://github.com/acme/catalog.git//modules/group?ref=v1.0.0"),
+    ).toBeUndefined()
+    expect(unpinnedSourceWarning("modules/group")).toBeUndefined()
   })
 })

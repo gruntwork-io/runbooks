@@ -1,6 +1,7 @@
 /**
  * What a module source address names, for showing it briefly: the module's
- * name, the ref it's pinned to, and its page on GitHub when it lives there.
+ * name, the ref it's pinned to, and its page on GitHub when it lives there;
+ * and whether it's pinned to a ref at all.
  */
 
 export interface ModuleSourceInfo {
@@ -9,6 +10,17 @@ export interface ModuleSourceInfo {
   readonly ref?: string
   /** The module's folder on GitHub, at its ref. */
   readonly url?: string
+}
+
+import { isRemoteSource } from "../../remote-source.ts"
+
+/**
+ * Why a remote source should name a ref, when it doesn't: the block reads the
+ * remote's default branch, and code that uses the module follows it.
+ */
+export function unpinnedSourceWarning(source: string): string | undefined {
+  if (!isRemoteSource(source) || /[?&]ref=/.test(source)) return undefined
+  return "The source has no ?ref=, so the block reads the module's default branch, and code in a repository follows that branch as it changes. Pin it to a tag."
 }
 
 /** A GitHub repository in a source's address: https, scp-like, or scheme-less. */

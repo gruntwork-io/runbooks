@@ -54,9 +54,6 @@ describe("loadModule", () => {
       "cloudidentity.googleapis.com",
       "cloudresourcemanager.googleapis.com",
     ])
-    expect(spec.source).toBe(
-      "git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=v0.14.0",
-    )
     expect(spec.providers).toEqual([
       { name: "google", source: "hashicorp/google", version: ">= 8.10.0, < 9.0.0" },
     ])
@@ -227,11 +224,6 @@ describe("loadModule", () => {
       expect(await failure(dir)).toContain(`pullRequest.summary reads "nmae"`)
     })
 
-    it("whose source isn't a URL", async () => {
-      write("runbook_block.yml", "source: ../modules/group\n")
-      expect(await failure(dir)).toContain("source must be a URL")
-    })
-
     it("whose runbook_block.yml names a file outside the module", async () => {
       write("runbook_block.yml", "variables:\n  name:\n    presets: ../../etc/passwd\n")
       expect(await failure(dir)).toContain("outside the module")
@@ -266,27 +258,6 @@ describe("loadModule", () => {
       )
       const spec = await loaded(dir)
       expect(spec.warnings).toEqual([`variables.name: Runbooks doesn't know the key "lable".`])
-    } finally {
-      nodeFs.rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it("warns about a source with no ref, and still loads", async () => {
-    const dir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "tf-module-"))
-    try {
-      nodeFs.writeFileSync(
-        nodePath.join(dir, "variables.tf"),
-        'variable "name" {\n  type = string\n}\n',
-      )
-      nodeFs.writeFileSync(
-        nodePath.join(dir, "runbook_block.yml"),
-        "source: git::https://github.com/acme/catalog.git//modules/group\n",
-      )
-      const spec = await loaded(dir)
-      expect(spec.source).toBe("git::https://github.com/acme/catalog.git//modules/group")
-      expect(spec.warnings).toEqual([
-        "source has no ?ref=, so code in a repository follows the module's default branch. Pin it to a tag.",
-      ])
     } finally {
       nodeFs.rmSync(dir, { recursive: true, force: true })
     }

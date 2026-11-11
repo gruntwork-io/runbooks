@@ -22,6 +22,7 @@ import { Effect } from "effect"
 import { ipcMain, type WebContents } from "electron"
 import { runtime, sessionManager } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
+import { moduleDir } from "./tf-module-source.ts"
 import { activeSimulationScenario, simulationEnabled } from "./simulation.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
@@ -81,16 +82,6 @@ export const TOFU_INSTALL = "https://opentofu.org/docs/intro/install/"
 const activeRuns = new Map<string, AbortController>()
 
 export const fail = (message: string) => new TfModuleError({ message })
-
-const moduleDir = (source: string) =>
-  Effect.gen(function* () {
-    if (isRemoteSource(source)) {
-      return yield* fail(
-        "Reading a module from a URL isn't supported yet. Use a path to a local copy.",
-      )
-    }
-    return yield* validateSessionPath(source)
-  })
 
 /**
  * The runbook's template rendered with the inputs and `ModuleSource`, where
@@ -192,12 +183,13 @@ export const renderInRepo = (
 ) =>
   Effect.gen(function* () {
     const dir = yield* moduleDir(ref.source)
-    const spec = yield* loadModule(dir)
+    // Code in a repository fetches a remote module itself; a local one only exists here.
+    const source = isRemoteSource(ref.source) ? ref.source : undefined
     const folder = yield* Effect.try({
       try: () => repoFolder(repo.path),
       catch: (cause) => fail(describeFailure(cause)),
     })
-    const rendered = yield* renderTemplate(ref.template, values, spec.source ?? dir)
+    const rendered = yield* renderTemplate(ref.template, values, source ?? dir)
     const tool = toolFor(rendered)
     const placed = placeUnit(folder, rendered, yield* existingFiles(repo, folder, rendered, values))
     // The .hcl files above are context only for a Terragrunt unit, which may include them.
@@ -208,7 +200,7 @@ export const renderInRepo = (
       folder,
       files,
       rootHcl: hasRootHcl(files),
-      source: spec.source,
+      source,
     } satisfies TfModuleCode
   })
 
