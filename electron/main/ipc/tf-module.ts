@@ -11,6 +11,7 @@ import { activeSimulationScenario, simulationEnabled } from "./simulation.ts"
 import { loadModule } from "../../../src/domain/tf-module/load.ts"
 import { simulatedRows } from "../../../src/domain/tf-module/simulation.ts"
 import {
+  customerRows,
   domainRows,
   isLookupName,
   LOOKUPS,
@@ -55,6 +56,12 @@ const googleLookup = (from: string, query: string) =>
     switch (from) {
       case "google.me":
         return meRows(credential.principal)
+      case "google.customer": {
+        const customer = yield* google
+          .getCustomer(credential.ref, credential.projectId)
+          .pipe(Effect.mapError(asLookupError))
+        return customerRows(customer)
+      }
       case "google.domains": {
         const domains = yield* google
           .listDomains(credential.ref, credential.projectId)

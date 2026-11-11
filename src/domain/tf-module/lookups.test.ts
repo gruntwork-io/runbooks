@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { domainRows, isLookupName, matchesQuery, meRows, personRows } from "./lookups.ts"
+import {
+  customerRows,
+  domainRows,
+  isLookupName,
+  matchesQuery,
+  meRows,
+  personRows,
+} from "./lookups.ts"
 
 describe("lookups", () => {
   test("knows its names", () => {
@@ -30,6 +37,13 @@ describe("lookups", () => {
       { value: "ana@example.com", label: "Ana Lima", description: "Engineer" },
       { value: "bo@example.com", label: "bo@example.com" },
     ])
+  })
+
+  test("gives the organization's customer ID as its value", () => {
+    expect(customerRows({ id: "C01abc23d", primaryDomain: "example.com" })).toEqual([
+      { value: "C01abc23d", id: "C01abc23d", primaryDomain: "example.com" },
+    ])
+    expect(customerRows({ id: "C01abc23d" })).toEqual([{ value: "C01abc23d", id: "C01abc23d" }])
   })
 
   test("gives the signed-in account as email and name", () => {

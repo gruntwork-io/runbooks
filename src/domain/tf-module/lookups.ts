@@ -4,11 +4,12 @@
  * them from Google with the account a GoogleAuth block signed in, or from
  * simulation.yml in simulation mode, so both must give rows of these shapes.
  */
-import type { GoogleDomain, GooglePerson } from "../../services/GoogleClient.ts"
+import type { GoogleCustomer, GoogleDomain, GooglePerson } from "../../services/GoogleClient.ts"
 import type { LookupRow } from "./rowTemplate.ts"
 
 export const LOOKUPS = {
   "google.me": "the signed-in account: email, name",
+  "google.customer": "the organization: value (customer ID), id, primaryDomain",
   "google.domains": "the organization's domains: domainName, isPrimary",
   "google.people": "active users in the organization: value (email), label (name), description",
 } as const
@@ -29,6 +30,14 @@ export function matchesQuery(row: LookupRow, query: string): boolean {
 }
 
 export const meRows = (email: string): LookupRow[] => [{ email, name: email }]
+
+export const customerRows = (customer: GoogleCustomer): LookupRow[] => [
+  {
+    value: customer.id,
+    id: customer.id,
+    ...(customer.primaryDomain ? { primaryDomain: customer.primaryDomain } : {}),
+  },
+]
 
 /** The domains, primary first, as the rows google.domains gives. */
 export function domainRows(domains: readonly GoogleDomain[]): LookupRow[] {

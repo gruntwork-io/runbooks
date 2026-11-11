@@ -33,6 +33,7 @@ import type {
   GoogleCredentialRef,
   GoogleCredentialType,
   GoogleIdentity,
+  GoogleCustomer,
   GoogleDomain,
   GooglePerson,
   GoogleProject,
@@ -657,6 +658,12 @@ interface DirectoryDomainsResponse {
   readonly domains?: readonly { readonly domainName?: string; readonly isPrimary?: boolean }[]
 }
 
+/** The Directory API's answer to customers.get, with the fields a customer's row needs. */
+interface DirectoryCustomerResponse {
+  readonly id?: string
+  readonly customerDomain?: string
+}
+
 /** The Directory API's answer to users.list, with the fields a person's row needs. */
 interface DirectoryUsersResponse {
   readonly users?: readonly {
@@ -1191,6 +1198,27 @@ const impl: GoogleClientShape = {
       catch: (err) =>
         new GoogleAuthError({
           message: `Couldn't list your organization's domains: ${apiErrorMessage(err)}`,
+          cause: err,
+        }),
+    }),
+
+  getCustomer: (creds: GoogleCredentialRef, quotaProjectId?: string) =>
+    Effect.tryPromise({
+      try: async (): Promise<GoogleCustomer> => {
+        const authClient = await authClientFor(creds)
+        const resp = await authClient.request<DirectoryCustomerResponse>({
+          url: `${DIRECTORY_BASE}/customers/my_customer`,
+          headers: quotaHeaders(quotaProjectId),
+        })
+        if (!resp.data.id) throw new Error("Google's answer has no customer ID.")
+        return {
+          id: resp.data.id,
+          ...(resp.data.customerDomain ? { primaryDomain: resp.data.customerDomain } : {}),
+        }
+      },
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Couldn't read your organization's customer ID: ${apiErrorMessage(err)}`,
           cause: err,
         }),
     }),

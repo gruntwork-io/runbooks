@@ -74,6 +74,13 @@ export interface GoogleDomain {
   readonly isPrimary: boolean
 }
 
+/** The Google Workspace or Cloud Identity organization the credential belongs to. */
+export interface GoogleCustomer {
+  /** The customer ID, such as C01abc23d, which Cloud Identity names the organization by. */
+  readonly id: string
+  readonly primaryDomain?: string | undefined
+}
+
 /** A person in the organization's directory. */
 export interface GooglePerson {
   readonly email: string
@@ -206,6 +213,15 @@ export interface GoogleClientShape {
     creds: GoogleCredentialRef,
     quotaProjectId?: string,
   ) => Effect.Effect<GoogleDomain[], GoogleAuthError>
+
+  /**
+   * The credential's own organization, from the Admin SDK Directory API.
+   * Needs an admin's credential with the admin.directory.customer.readonly scope.
+   */
+  readonly getCustomer: (
+    creds: GoogleCredentialRef,
+    quotaProjectId?: string,
+  ) => Effect.Effect<GoogleCustomer, GoogleAuthError>
 
   /**
    * Active users in the organization whose first name, last name or email

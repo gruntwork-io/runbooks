@@ -732,6 +732,20 @@ describe("directory lookups", () => {
     }
   })
 
+  it("reads the organization's customer ID, billed to the quota project", async () => {
+    const api = answering({ id: "C01abc23d", customerDomain: "example.com" })
+    try {
+      const customer = await run((c) => c.getCustomer(TOKEN, "acme-ops"))
+      expect(customer).toEqual({ id: "C01abc23d", primaryDomain: "example.com" })
+      expect(api.calls[0]!.url).toBe(
+        "https://admin.googleapis.com/admin/directory/v1/customers/my_customer",
+      )
+      expect(api.calls[0]!.headers).toEqual({ "x-goog-user-project": "acme-ops" })
+    } finally {
+      api.restore()
+    }
+  })
+
   it("finds users by the start of a name or email, once each, and lists them without a query", async () => {
     const api = answering({
       users: [
