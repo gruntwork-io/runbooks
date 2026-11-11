@@ -61,6 +61,7 @@ export default defineConfig({
 					'authoring/inputs-and-outputs',
 					'authoring/opening-runbooks',
 					'authoring/boilerplate',
+					'authoring/lookups',
 					'authoring/testing',
 					'authoring/simulation-mode',
 					{

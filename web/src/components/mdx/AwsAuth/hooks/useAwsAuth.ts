@@ -220,16 +220,21 @@ export function useAwsAuth({
   // a block that marked them `sensitive:`), so a template that shows them shows
   // <redacted>. Their readers (awsAuthId, a { block } source) reveal the real
   // values.
+  //
+  // The account ID and the IAM Identity Center region describe the sign-in to
+  // blocks that send requests through this one.
   const publishCredentials = useCallback(
-    (creds: AwsCredentials) => {
+    (creds: AwsCredentials, accountId: string | undefined) => {
       registerOutputs(id, {
         AWS_ACCESS_KEY_ID: creds.accessKeyId,
         AWS_SECRET_ACCESS_KEY: sensitiveOutput(creds.secretAccessKey),
         AWS_REGION: creds.region,
         AWS_SESSION_TOKEN: sensitiveOutput(creds.sessionToken || ""),
+        AWS_ACCOUNT_ID: accountId ?? "",
+        AWS_SSO_REGION: ssoRegion,
       })
     },
-    [id, registerOutputs],
+    [id, registerOutputs, ssoRegion],
   )
 
   // Register credentials as outputs, set the session environment, and keep
@@ -243,7 +248,7 @@ export function useAwsAuth({
         AWS_SESSION_TOKEN: creds.sessionToken || "",
       } satisfies Record<(typeof AWS_AUTH_ENV_VARS)[number], string>
 
-      publishCredentials(creds)
+      publishCredentials(creds, account.accountId)
       setExpiresAt(creds.expiresAt)
       history.record(id, "auth", {
         status: "signed-in",
@@ -274,7 +279,7 @@ export function useAwsAuth({
   useEffect(() => {
     if (restoredAtMount === undefined) return
     const credentials = omitUndefined(restoredAtMount.credentials)
-    publishCredentials(credentials)
+    publishCredentials(credentials, restoredAtMount.account?.accountId)
     const flow = authFlowRef.current
     void api
       .invoke("aws:validate", credentials)

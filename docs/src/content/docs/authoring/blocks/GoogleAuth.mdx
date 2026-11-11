@@ -564,6 +564,16 @@ No detection runs, no browser opens, and no credentials are read or written.
 - **Federated credentials are checked before they are used.** A service account key and a user credential are inert data, but an `external_account` or `impersonated_service_account` document names the endpoints Google's auth library must call and the local file it must read. Runbooks rejects any such document that points anywhere other than `*.googleapis.com` over HTTPS, and rejects `credential_source` entirely, so a credentials file from an untrusted source cannot make the block send a request or read a file on someone else's behalf. Workforce pool sign-in (`gcloud auth application-default login`) and impersonation chains are unaffected. File-, URL-, and executable-sourced workload identity federation is not accepted.
 - **Errors are redacted.** Error messages that could echo key material are scrubbed before they are displayed.
 
+### Requests sent for other blocks
+
+Other blocks can ask GoogleAuth to send a request to Google as you, for example to suggest people from your directory in a form. The runbook's author writes that request, and is trusted as they are for a [Command](/authoring/blocks/command/), so GoogleAuth doesn't limit which APIs it reaches. It checks only that the request goes to Google and reads, so a form can't change anything by mistake:
+
+- The host must be a Google API host, one label under `googleapis.com`, such as `admin.googleapis.com`.
+- The request must be a `GET`.
+- GoogleAuth adds the access token and bills the request to the block's project, so a request can set only its `Accept` header, and GoogleAuth never follows a redirect.
+
+Anything that changes Google stays in a [Command](/authoring/blocks/command/) or a plan you review.
+
 ### Confirmation, and what it does not do
 
 Confirmation controls what this block registers and publishes. No session variables are written and no outputs are produced until the user confirms.

@@ -1,27 +1,27 @@
 import { UserPlus } from "lucide-react"
-import type { TfModuleShortcut } from "../../../../../../src/domain/tf-module/types"
+import type { ShortcutUse } from "../../../../../../src/domain/lookups/types"
 import { useLookup } from "../hooks/useLookup"
 import { suggestionFor } from "../lookupRows"
 
 interface ShortcutButtonProps {
-  shortcut: TfModuleShortcut
+  shortcut: ShortcutUse
   /** The values the input holds already; the button hides once its value is one of them. */
   current: readonly string[]
   onAdd: (value: string) => void
 }
 
 /**
- * A button that fills an input from the first row of a lookup, such as the
- * signed-in person for "Add Ana Lima as an owner". It stays hidden while the
- * lookup has no row, so a failed lookup costs the form nothing.
+ * A button that fills an input from a lookup's one row, such as the
+ * signed-in person for "Add Ana Lima as an owner". It stays hidden unless the
+ * lookup gives exactly one row, so a failed lookup costs the form nothing.
  */
 export function ShortcutButton({ shortcut, current, onAdd }: ShortcutButtonProps) {
-  const { rows } = useLookup(shortcut.from, "", true)
-  const row = rows[0]
+  const { rows } = useLookup(shortcut, "", true)
+  const row = rows.length === 1 ? rows[0] : undefined
   if (!row) return null
   let suggestion
   try {
-    suggestion = suggestionFor(shortcut, row)
+    suggestion = suggestionFor(row, shortcut.label)
   } catch {
     // runbook_block.yml's templates were checked when the module loaded.
     return null

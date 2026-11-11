@@ -286,30 +286,6 @@ function makeGitClient(spawner: ProcessSpawnerShape): GitClientShape {
         yield* runGit(spawner, args, repoPath, undefined, env)
       }),
 
-    fetchBranch: (
-      repoPath: string,
-      remote: string,
-      branch: string,
-      options?: Pick<PushOptions, "token" | "username">,
-    ) =>
-      Effect.gen(function* () {
-        // `--` keeps a remote or refspec that looks like an option an argument.
-        const args = [
-          "fetch",
-          "--",
-          remote,
-          `refs/heads/${branch}:refs/remotes/${remote}/${branch}`,
-        ]
-        const env = yield* sshSpawnEnv(spawner, repoPath)
-        // Like push, the token rides in the environment, for the fetch URL's host only.
-        const [fetchUrl = ""] = yield* runGit(spawner, ["remote", "get-url", remote], repoPath)
-        const authEnv = withGitHttpAuth(env, fetchUrl, options?.token, options?.username)
-        yield* runGit(spawner, args, repoPath, undefined, authEnv)
-      }),
-
-    checkoutBranchAt: (repoPath: string, branch: string, startPoint: string) =>
-      Effect.asVoid(runGit(spawner, ["checkout", "-B", branch, startPoint, "--"], repoPath)),
-
     deleteBranch: (repoPath: string, branch: string) =>
       Effect.asVoid(runGit(spawner, ["branch", "-d", "--", branch], repoPath)),
 

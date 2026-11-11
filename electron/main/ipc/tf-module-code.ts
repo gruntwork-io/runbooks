@@ -1,10 +1,9 @@
 /**
  * IPC handler for a <TfModule> block's code: the code the runbook's template
  * renders with the block's inputs to use the module, written to the
- * repository's checkout when the block generates it. In simulation mode,
- * simulation.yml's repository stands in for the checkout, and nothing is
- * written.
+ * repository's checkout when the block generates it.
  */
+import { createHash } from "node:crypto"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
@@ -13,13 +12,15 @@ import { ipcMain } from "electron"
 import { runtime } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { moduleDir } from "./tf-module-source.ts"
-import { activeSimulationScenario, simulationEnabled } from "./simulation.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
 import { describeFailure } from "./ipc-error.ts"
 import { isRemoteSource } from "../../../src/remote-source.ts"
 import { filesAtBase } from "../../../src/domain/tf-module/repoFiles.ts"
-import { simulatedRepository } from "../../../src/domain/tf-module/simulation.ts"
+import {
+  localModuleSource,
+  remoteModuleSource,
+} from "../../../src/domain/tf-module/pinnedSource.ts"
 import { alignAttributes, isHclFile } from "../../../src/domain/tf-module/hclFormat.ts"
 import {
   ancestorsOf,
@@ -112,20 +113,11 @@ export const renderUnit = (
  * What the repository holds where the unit lands: the files the unit would
  * write, and the files in each folder above it. Read from the base branch's
  * commit, so the unit shows as added until it's merged even after a plan
- * writes it to the checkout; from the simulated repository when there's no
- * checkout.
+ * writes it to the checkout. Without a checkout, there are none.
  */
-const existingFiles = (
-  repo: TfModuleRepo,
-  folder: string,
-  rendered: readonly UnitFile[],
-  values: Record<string, unknown>,
-) =>
+const existingFiles = (repo: TfModuleRepo, folder: string, rendered: readonly UnitFile[]) =>
   Effect.gen(function* () {
-    if (!repo.worktreePath) {
-      if (!simulationEnabled()) return new Map<string, string>()
-      return simulatedRepository(yield* activeSimulationScenario, values)
-    }
+    if (!repo.worktreePath) return new Map<string, string>()
     const worktree = yield* validateSessionPath(repo.worktreePath)
     return yield* filesAtBase(
       worktree,
@@ -137,8 +129,8 @@ const existingFiles = (
 
 /**
  * The block's code as it lands in the repository: in its folder there,
- * pointing at the module's `source` from runbook_block.yml, among the files the
- * repository already holds around it.
+ * pointing at a release of the module, among the files the repository
+ * already holds around it.
  */
 export const renderInRepo = (
   ref: TfModuleCodeRef,
@@ -147,15 +139,17 @@ export const renderInRepo = (
 ) =>
   Effect.gen(function* () {
     const dir = yield* moduleDir(ref.source)
-    // Code in a repository fetches a remote module itself; a local one only exists here.
-    const source = isRemoteSource(ref.source) ? ref.source : undefined
+    // Code in a repository fetches the module itself, so it needs a release of it.
+    const source = isRemoteSource(ref.source)
+      ? yield* remoteModuleSource(ref.source, dir)
+      : yield* localModuleSource(dir)
     const folder = yield* Effect.try({
       try: () => repoFolder(repo.path),
       catch: (cause) => fail(describeFailure(cause)),
     })
-    const rendered = yield* renderTemplate(ref.template, values, source ?? dir)
+    const rendered = yield* renderTemplate(ref.template, values, source)
     const tool = toolFor(rendered)
-    const placed = placeUnit(folder, rendered, yield* existingFiles(repo, folder, rendered, values))
+    const placed = placeUnit(folder, rendered, yield* existingFiles(repo, folder, rendered))
     // The .hcl files above are context only for a Terragrunt unit, which may include them.
     const files = tool === "terragrunt" ? placed : placed.filter((f) => f.status !== "context")
     return {
@@ -177,39 +171,60 @@ export const renderCode = (request: TfModuleRenderRequest) =>
         ...code,
       }))
 
+const sha256 = (content: string | Buffer) => createHash("sha256").update(content).digest("hex")
+
 /**
  * Writes the block's unit to its folder in the repository's checkout: the
  * code the Code tab shows there, pointing at the module's pinned source.
  * Removes the files in `replaces`, ones written before for other inputs, that
- * it doesn't write now. Returns the code and the paths it wrote, relative to
- * the checkout.
+ * it doesn't write now, unless they changed since, which it keeps. Returns
+ * the code, the paths it wrote, relative to the checkout, with what it wrote
+ * in each, and the files it kept.
  */
 export const writeUnit = (
   ref: TfModuleCodeRef,
   values: Record<string, unknown>,
   repo: TfModuleRepo,
   worktree: string,
-  replaces: readonly string[] = [],
+  replaces: Readonly<Record<string, string>> = {},
 ) =>
   Effect.gen(function* () {
     const code = yield* renderInRepo(ref, values, { ...repo, worktreePath: worktree })
     const files = unitFilesOf(code)
     yield* writeFiles(path.join(worktree, code.folder), files)
     const written = files.map((file) => `${code.folder}/${file.path}`)
-    const stale = replaces.filter((file) => !written.includes(file))
-    yield* Effect.tryPromise({
-      try: () => removeFiles(worktree, stale),
+    const fingerprints = Object.fromEntries(
+      files.map((file) => [`${code.folder}/${file.path}`, sha256(file.content)]),
+    )
+    const stale = Object.entries(replaces).filter(([file]) => !written.includes(file))
+    const kept = yield* Effect.tryPromise({
+      try: () => removeStaleFiles(worktree, stale),
       catch: (cause) => fail(`Couldn't remove the old code: ${describeFailure(cause)}`),
     })
-    return { code, written }
+    return { code, written, fingerprints, kept }
   })
 
-/** Removes files under `root` by their paths relative to it, and the folders they leave empty. */
-async function removeFiles(root: string, files: readonly string[]): Promise<void> {
+/**
+ * Removes files under `root`, by their paths relative to it, and the folders
+ * they leave empty. A file whose content no longer has the SHA-256 it was
+ * written with was changed since, by hand or by another tool, so it's kept.
+ * Returns the paths it kept.
+ */
+export async function removeStaleFiles(
+  root: string,
+  files: readonly (readonly [string, string])[],
+): Promise<string[]> {
   const base = path.resolve(root)
-  for (const file of files) {
+  const kept: string[] = []
+  for (const [file, fingerprint] of files) {
     const target = path.resolve(base, file)
     if (!target.startsWith(base + path.sep)) continue
+    const content = await fs.readFile(target).catch(() => undefined)
+    if (content === undefined) continue
+    if (sha256(content) !== fingerprint) {
+      kept.push(file)
+      continue
+    }
     await fs.rm(target, { force: true })
     let dir = path.dirname(target)
     while (dir !== base) {
@@ -219,16 +234,22 @@ async function removeFiles(root: string, files: readonly string[]): Promise<void
       dir = path.dirname(dir)
     }
   }
+  return kept
 }
 
 /**
  * The block's code, written to its folder in the repository's checkout when
- * there is one. In simulation, or without a checkout, nothing is written.
+ * there is one. Without a checkout, nothing is written.
  */
 const generateCode = (request: TfModuleGenerateRequest) =>
   Effect.gen(function* () {
-    if (simulationEnabled() || !request.repo?.worktreePath) {
-      return { code: yield* renderCode(request), written: [] } satisfies TfModuleGenerated
+    if (!request.repo?.worktreePath) {
+      return {
+        code: yield* renderCode(request),
+        written: [],
+        fingerprints: {},
+        kept: [],
+      } satisfies TfModuleGenerated
     }
     const worktree = yield* validateSessionPath(request.repo.worktreePath)
     return (yield* writeUnit(
@@ -272,9 +293,6 @@ export const writeFiles = (dir: string, files: readonly UnitFile[]) =>
   })
 
 export function registerTfModuleCodeHandlers(): void {
-  ipcMain.handle("tf-module:render", async (_event, params: TfModuleRenderRequest) =>
-    runtime.runPromise(renderCode(params)),
-  )
   ipcMain.handle("tf-module:generate", async (_event, params: TfModuleGenerateRequest) =>
     runtime.runPromise(generateCode(params)),
   )

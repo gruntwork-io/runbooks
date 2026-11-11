@@ -53,6 +53,11 @@ export class AwsSsoError extends Data.TaggedError("AwsSsoError")<{
   readonly cause?: unknown
 }> {}
 
+/** An auth block refused to send a request for another block, such as a write or a host it doesn't send to. */
+export class RequestRefusedError extends Data.TaggedError("RequestRefusedError")<{
+  readonly message: string
+}> {}
+
 // Google Cloud
 export class GoogleAuthError extends Data.TaggedError("GoogleAuthError")<{
   readonly message: string
@@ -150,6 +155,13 @@ export class WasmError extends Data.TaggedError("WasmError")<{
 // TfModule
 /** A module a <TfModule> block reads is missing, or its files are wrong. The message is fit to show the user. */
 export class TfModuleError extends Data.TaggedError("TfModuleError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
+// Simulation
+/** The runbook's simulation.yml is missing, malformed, or has no answer for a request. The message is fit to show the author. */
+export class SimulationError extends Data.TaggedError("SimulationError")<{
   readonly message: string
   readonly cause?: unknown
 }> {}

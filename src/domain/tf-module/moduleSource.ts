@@ -20,7 +20,7 @@ import { isRemoteSource } from "../../remote-source.ts"
  */
 export function unpinnedSourceWarning(source: string): string | undefined {
   if (!isRemoteSource(source) || /[?&]ref=/.test(source)) return undefined
-  return "The source has no ?ref=, so the block reads the module's default branch, and code in a repository follows that branch as it changes. Pin it to a tag."
+  return "The source has no ?ref=, so the block reads the module's default branch, and Generate won't write code that uses it. Pin it to a tag."
 }
 
 /** A GitHub repository in a source's address: https, scp-like, or scheme-less. */

@@ -13,7 +13,6 @@ import type {
   GitHubRef,
   CreatePRParams,
   PullRequestResult,
-  MergeMethod,
 } from "../services/GitHubClient.ts"
 import { GitHubApiError } from "../errors/index.ts"
 import { errorMessage } from "../errors/message.ts"
@@ -427,72 +426,6 @@ const impl: GitHubClientShape = {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ labels }),
         })
-      },
-      catch: toGitHubApiError,
-    }),
-
-  findOpenPullRequest: (
-    token: string,
-    owner: string,
-    repo: string,
-    headBranch: string,
-    host?: string,
-  ) =>
-    Effect.tryPromise({
-      try: async (): Promise<PullRequestResult | undefined> => {
-        const API_BASE = apiBaseFor(host)
-        const query = new URLSearchParams({ state: "open", head: `${owner}:${headBranch}` })
-        const data = await githubJson<
-          { html_url: string; number: number; head: { ref: string } }[]
-        >(`${API_BASE}/repos/${owner}/${repo}/pulls?${query}`, { token })
-        const pr = data[0]
-        return pr && { url: pr.html_url, number: pr.number, branch: pr.head.ref }
-      },
-      catch: toGitHubApiError,
-    }),
-
-  updatePullRequest: (
-    token: string,
-    owner: string,
-    repo: string,
-    prNumber: number,
-    changes: { readonly title: string; readonly body: string },
-    host?: string,
-  ) =>
-    Effect.tryPromise({
-      try: async (): Promise<void> => {
-        const API_BASE = apiBaseFor(host)
-        await githubJson(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, {
-          method: "PATCH",
-          token,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: changes.title, body: changes.body }),
-        })
-      },
-      catch: toGitHubApiError,
-    }),
-
-  mergePullRequest: (
-    token: string,
-    owner: string,
-    repo: string,
-    prNumber: number,
-    method: MergeMethod,
-    host?: string,
-  ) =>
-    Effect.tryPromise({
-      try: async () => {
-        const API_BASE = apiBaseFor(host)
-        const data = await githubJson<{ sha: string }>(
-          `${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}/merge`,
-          {
-            method: "PUT",
-            token,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ merge_method: method }),
-          },
-        )
-        return { sha: data.sha }
       },
       catch: toGitHubApiError,
     }),

@@ -1,11 +1,11 @@
 /**
- * Renders the small templates runbook_block.yml uses to label a lookup's rows and
- * fill other inputs from a pick, such as
- * `{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}`.
+ * Renders the small templates runbook_block.yml uses over a record of values:
+ * a shortcut's label over its row, such as `Add "{{ .label }}" as an owner`,
+ * and an input's suffix over the form's values, such as `@{{ .domain }}`.
  *
  * The syntax is the subset of Go templates these need: `{{ .field }}`, and
  * `{{ if .field }}...{{ else }}...{{ end }}`, without nesting. It runs in the
- * renderer for every row as the user types, so it can't go through the
+ * renderer as the user types, so it can't go through the
  * boilerplate engine; anything else in `{{ }}` is an error, so a template
  * that uses more than this fails loudly instead of rendering wrong.
  */

@@ -33,9 +33,6 @@ import type {
   GoogleCredentialRef,
   GoogleCredentialType,
   GoogleIdentity,
-  GoogleCustomer,
-  GoogleDomain,
-  GooglePerson,
   GoogleProject,
   GoogleProjectAccess,
   OAuthFlowResult,
@@ -54,13 +51,11 @@ import {
   resolveGcloudConfigPaths,
 } from "../domain/google/gcloud-config.ts"
 import { assertFederatedCredentialAllowed } from "../domain/google/credential-policy.ts"
-import { userSearchQueries } from "../domain/google/user-search.ts"
+import { sendHttp } from "./sendHttp.ts"
 
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 const CRM_BASE = "https://cloudresourcemanager.googleapis.com/v3"
 const MAX_PROJECTS = 500
-const DIRECTORY_BASE = "https://admin.googleapis.com/admin/directory/v1"
-const SERVICE_USAGE_BASE = "https://serviceusage.googleapis.com/v1"
 const OAUTH_FLOW_TTL_MS = 5 * 60 * 1000
 
 /**
@@ -654,53 +649,6 @@ async function searchProjects(
   return projects
 }
 
-interface DirectoryDomainsResponse {
-  readonly domains?: readonly { readonly domainName?: string; readonly isPrimary?: boolean }[]
-}
-
-/** The Directory API's answer to customers.get, with the fields a customer's row needs. */
-interface DirectoryCustomerResponse {
-  readonly id?: string
-  readonly customerDomain?: string
-}
-
-/** The Directory API's answer to users.list, with the fields a person's row needs. */
-interface DirectoryUsersResponse {
-  readonly users?: readonly {
-    readonly primaryEmail?: string
-    readonly name?: { readonly fullName?: string }
-    readonly organizations?: readonly {
-      readonly title?: string
-      readonly department?: string
-      readonly primary?: boolean
-    }[]
-  }[]
-}
-
-/** Service Usage's answer to services:batchGet. */
-interface ServiceUsageBatchResponse {
-  readonly services?: readonly {
-    readonly name?: string
-    readonly config?: { readonly name?: string }
-    readonly state?: string
-  }[]
-}
-
-/**
- * Bills a user credential's calls to a project. Google needs one for APIs
- * like the Admin SDK and People API when the credential is gcloud's own
- * OAuth client, which has no project of its own.
- */
-function quotaHeaders(quotaProjectId: string | undefined): Record<string, string> {
-  return quotaProjectId ? { "x-goog-user-project": quotaProjectId } : {}
-}
-
-/** Google's own explanation of a failed call, which names the missing scope or permission. */
-function apiErrorMessage(err: unknown): string {
-  const body = (err as GoogleApiError | undefined)?.response?.data?.error
-  return typeof body?.message === "string" && body.message ? body.message : errorMessage(err)
-}
-
 /**
  * google.rpc.Code names, read from a failed call's `error.status`, that mean
  * "the API could not answer", NOT "you cannot see this project".
@@ -1183,117 +1131,6 @@ const impl: GoogleClientShape = {
         }),
     }),
 
-  listDomains: (creds: GoogleCredentialRef, quotaProjectId?: string) =>
-    Effect.tryPromise({
-      try: async (): Promise<GoogleDomain[]> => {
-        const authClient = await authClientFor(creds)
-        const resp = await authClient.request<DirectoryDomainsResponse>({
-          url: `${DIRECTORY_BASE}/customer/my_customer/domains`,
-          headers: quotaHeaders(quotaProjectId),
-        })
-        return (resp.data.domains ?? [])
-          .filter((d): d is { domainName: string; isPrimary?: boolean } => Boolean(d.domainName))
-          .map((d) => ({ domainName: d.domainName, isPrimary: d.isPrimary === true }))
-      },
-      catch: (err) =>
-        new GoogleAuthError({
-          message: `Couldn't list your organization's domains: ${apiErrorMessage(err)}`,
-          cause: err,
-        }),
-    }),
-
-  getCustomer: (creds: GoogleCredentialRef, quotaProjectId?: string) =>
-    Effect.tryPromise({
-      try: async (): Promise<GoogleCustomer> => {
-        const authClient = await authClientFor(creds)
-        const resp = await authClient.request<DirectoryCustomerResponse>({
-          url: `${DIRECTORY_BASE}/customers/my_customer`,
-          headers: quotaHeaders(quotaProjectId),
-        })
-        if (!resp.data.id) throw new Error("Google's answer has no customer ID.")
-        return {
-          id: resp.data.id,
-          ...(resp.data.customerDomain ? { primaryDomain: resp.data.customerDomain } : {}),
-        }
-      },
-      catch: (err) =>
-        new GoogleAuthError({
-          message: `Couldn't read your organization's customer ID: ${apiErrorMessage(err)}`,
-          cause: err,
-        }),
-    }),
-
-  searchPeople: (
-    creds: GoogleCredentialRef,
-    query: string,
-    limit: number,
-    quotaProjectId?: string,
-  ) =>
-    Effect.tryPromise({
-      try: async (): Promise<GooglePerson[]> => {
-        const authClient = await authClientFor(creds)
-        const answers = await Promise.all(
-          userSearchQueries(query).map((q) =>
-            authClient.request<DirectoryUsersResponse>({
-              url: `${DIRECTORY_BASE}/users?${new URLSearchParams({
-                customer: "my_customer",
-                query: q,
-                orderBy: "email",
-                maxResults: String(limit),
-              }).toString()}`,
-              headers: quotaHeaders(quotaProjectId),
-            }),
-          ),
-        )
-        const people = new Map<string, GooglePerson>()
-        for (const user of answers.flatMap((resp) => resp.data.users ?? [])) {
-          const email = user.primaryEmail
-          if (!email || people.has(email)) continue
-          const org = user.organizations?.find((o) => o.primary) ?? user.organizations?.[0]
-          const title = [org?.title, org?.department].filter(Boolean).join(", ")
-          people.set(email, { email, name: user.name?.fullName, title: title || undefined })
-        }
-        return [...people.values()].slice(0, limit)
-      },
-      catch: (err) =>
-        new GoogleAuthError({
-          message: `Couldn't search your directory: ${apiErrorMessage(err)}`,
-          cause: err,
-        }),
-    }),
-
-  enabledServices: (
-    creds: GoogleCredentialRef,
-    project: string,
-    services: readonly string[],
-    quotaProjectId?: string,
-  ) =>
-    Effect.tryPromise({
-      try: async (): Promise<Record<string, boolean>> => {
-        if (services.length === 0) return {}
-        const authClient = await authClientFor(creds)
-        const parent = `projects/${encodeURIComponent(project)}`
-        const params = new URLSearchParams(
-          services.map((service) => ["names", `${parent}/services/${service}`]),
-        )
-        const resp = await authClient.request<ServiceUsageBatchResponse>({
-          url: `${SERVICE_USAGE_BASE}/${parent}/services:batchGet?${params.toString()}`,
-          headers: quotaHeaders(quotaProjectId),
-        })
-        const enabled = Object.fromEntries(services.map((service) => [service, false]))
-        for (const service of resp.data.services ?? []) {
-          const name = service.config?.name ?? service.name?.split("/").pop()
-          if (name && name in enabled) enabled[name] = service.state === "ENABLED"
-        }
-        return enabled
-      },
-      catch: (err) =>
-        new GoogleAuthError({
-          message: `Couldn't check which APIs are on in ${project}: ${apiErrorMessage(err)}`,
-          cause: err,
-        }),
-    }),
-
   checkProject: (projectId: string, creds: GoogleCredentialRef) =>
     Effect.tryPromise({
       try: async (): Promise<GoogleProjectAccess> => {
@@ -1310,6 +1147,24 @@ const impl: GoogleClientShape = {
       catch: (err) =>
         new GoogleAuthError({
           message: `Failed to check project: ${errorMessage(err)}`,
+          cause: err,
+        }),
+    }),
+
+  sendAuthorized: (creds: GoogleCredentialRef, request, quotaProjectId?: string) =>
+    Effect.tryPromise({
+      try: async () => {
+        const authClient = await authClientFor(creds)
+        const headers: Record<string, string> = { ...request.headers }
+        for (const [name, value] of await authClient.getRequestHeaders(request.url)) {
+          headers[name] = value
+        }
+        if (quotaProjectId) headers["x-goog-user-project"] = quotaProjectId
+        return sendHttp(request, headers)
+      },
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Couldn't send the request to ${new URL(request.url).hostname}: ${errorMessage(err)}`,
           cause: err,
         }),
     }),

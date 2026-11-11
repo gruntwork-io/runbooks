@@ -1,0 +1,41 @@
+# Answers to the module's lookups and checks, for simulation mode.
+# `runbooks-cli lookups record` writes the recorded scenario from the real APIs.
+scenarios:
+  recorded:
+    label: Recorded
+    description: Answers recorded from the real APIs, with placeholder values.
+    responses:
+      google.me:
+        - status: 200
+          body:
+            primaryEmail: user-1@example.com
+            name: { fullName: fullName-1 }
+      google.customer:
+        - status: 200
+          body: { id: id-1, customerDomain: customerDomain-1 }
+      google.domains:
+        - status: 200
+          body:
+            domains:
+              - { domainName: domainName-1 }
+              - { domainName: domainName-2 }
+      google.people:
+        - status: 200
+          body:
+            users:
+              - primaryEmail: user-1@example.com
+                name: { fullName: fullName-1 }
+                organizations: [{ title: title-1 }]
+              - primaryEmail: user-2@example.com
+                name: { fullName: fullName-2 }
+                organizations: [{ title: title-2 }]
+              - primaryEmail: user-3@example.com
+                name: { fullName: fullName-3 }
+                organizations: [{ title: title-3 }]
+      google.apiEnabled:
+        - with: { api: cloudidentity.googleapis.com }
+          status: 200
+          body: { state: ENABLED }
+        - with: { api: cloudresourcemanager.googleapis.com }
+          status: 200
+          body: { state: ENABLED }

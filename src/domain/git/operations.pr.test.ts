@@ -13,14 +13,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect, Layer } from "effect"
-import {
-  checkOutRemoteBranch,
-  createPullRequest,
-  createMergeRequest,
-  mergePullRequest,
-  pushToPullRequest,
-  updatePullRequest,
-} from "./operations.ts"
+import { createPullRequest, createMergeRequest } from "./operations.ts"
 import type { CreatePullRequestParams } from "./operations.ts"
 import { makeTestLayer, makeTestGitHubClient } from "../../test-utils/TestLayer.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
@@ -50,65 +43,6 @@ const openedPr = (p: CreatePRParams) =>
 // ---------------------------------------------------------------------------
 // runGitSteps: guard and resume
 // ---------------------------------------------------------------------------
-
-describe("pushToPullRequest and mergePullRequest", () => {
-  it("commits to the open pull request's branch and pushes, without opening another", async () => {
-    const steps: string[] = []
-    const layer = makeTestLayer({
-      git: {
-        getCurrentBranch: () => Effect.succeed("runbook/123"),
-        status: () => Effect.succeed([{ path: "unit/terragrunt.hcl", status: "M" }]),
-        stageAll: () => Effect.sync(() => void steps.push("stageAll")),
-        commit: () => Effect.sync(() => void steps.push("commit")),
-        push: () => Effect.sync(() => void steps.push("push")),
-      },
-      github: { createPullRequest: () => Effect.die("must not open a pull request") },
-    })
-    await Effect.runPromise(pushToPullRequest("tok", params).pipe(Effect.provide(layer)))
-    expect(steps).toEqual(["stageAll", "commit", "push"])
-  })
-
-  it("changes the title and description on the pull request's own host", async () => {
-    const calls: unknown[][] = []
-    const layer = makeTestLayer({
-      github: { updatePullRequest: (...args) => Effect.sync(() => void calls.push(args)) },
-    })
-    await Effect.runPromise(
-      updatePullRequest("tok", {
-        owner: "acme",
-        repo: "infra",
-        number: 42,
-        title: "New title",
-        body: "New body",
-        host: "ghe.example.com",
-      }).pipe(Effect.provide(layer)),
-    )
-    expect(calls).toEqual([
-      ["tok", "acme", "infra", 42, { title: "New title", body: "New body" }, "ghe.example.com"],
-    ])
-  })
-
-  it("merges on the pull request's own host, with the chosen method", async () => {
-    const calls: unknown[][] = []
-    const layer = makeTestLayer({
-      github: {
-        mergePullRequest: (...args) =>
-          Effect.sync(() => void calls.push(args)).pipe(Effect.as({ sha: "abc1234" })),
-      },
-    })
-    const merged = await Effect.runPromise(
-      mergePullRequest("tok", {
-        owner: "acme",
-        repo: "infra",
-        number: 42,
-        method: "squash",
-        host: "ghe.example.com",
-      }).pipe(Effect.provide(layer)),
-    )
-    expect(merged).toEqual({ sha: "abc1234" })
-    expect(calls).toEqual([["tok", "acme", "infra", 42, "squash", "ghe.example.com"]])
-  })
-})
 
 describe("runGitSteps", () => {
   it("resumes on the head branch when HEAD is already on it: no checkout -b, commits what is staged, pushes", async () => {
@@ -679,47 +613,6 @@ describe("createPullRequest retry (real git)", () => {
     expect(git(remote, "show", "--name-only", "--format=", "runbook/124").trim()).toBe(
       "generated.tf",
     )
-  })
-
-  it("adds to a pull request's branch on origin, which a rejected push left a local copy of", async () => {
-    git(work, "remote", "add", "origin", remote)
-    git(work, "push", "-u", "origin", "main")
-    // The pull request's branch, as an earlier run pushed it.
-    git(work, "checkout", "-b", "runbook/123")
-    fs.writeFileSync(path.join(work, "generated.tf"), "first\n")
-    git(work, "add", "generated.tf")
-    git(work, "commit", "-m", "First")
-    git(work, "push", "origin", "runbook/123")
-    const pushed = git(work, "rev-parse", "HEAD").trim()
-    // A later run started from main, committed again on the same name, and
-    // its push was rejected: the local branch has diverged from origin's.
-    git(work, "checkout", "main")
-    git(work, "branch", "-D", "runbook/123")
-    git(work, "checkout", "-b", "runbook/123")
-    fs.writeFileSync(path.join(work, "generated.tf"), "rejected\n")
-    git(work, "add", "generated.tf")
-    git(work, "commit", "-m", "Rejected")
-    git(work, "checkout", "main")
-
-    await Effect.runPromise(
-      checkOutRemoteBranch("tok", work, "runbook/123").pipe(Effect.provide(layer)),
-    )
-    expect(git(work, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("runbook/123")
-    expect(git(work, "rev-parse", "HEAD").trim()).toBe(pushed)
-
-    fs.writeFileSync(path.join(work, "generated.tf"), "second\n")
-    await Effect.runPromise(
-      pushToPullRequest("tok", { ...params, commitMessage: "Second", repoPath: work }).pipe(
-        Effect.provide(layer),
-      ),
-    )
-    // The push fast-forwarded the branch: its first commit, then the new one.
-    expect(git(remote, "log", "--format=%s", "runbook/123").trim().split("\n")).toEqual([
-      "Second",
-      "First",
-      "initial",
-    ])
-    expect(git(remote, "show", "runbook/123:generated.tf")).toBe("second\n")
   })
 
   it("after a PR was opened, refuses a new branch name with nothing new instead of repeating its commits", async () => {
