@@ -37,7 +37,8 @@ export function SsoForm({
   onCancelSsoAuth,
 }: SsoFormProps) {
   const isAuthenticating = authStatus === "authenticating"
-  const startUrlValid = /^https:\/\/\S+$/.test(ssoStartUrl)
+  // Only a URL the user typed is checked: the runbook's own goes as written.
+  const startUrlValid = portalInput ? /^https:\/\/\S+$/.test(ssoStartUrl) : ssoStartUrl !== ""
 
   return (
     <div className="space-y-4">

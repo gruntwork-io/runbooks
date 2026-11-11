@@ -178,6 +178,39 @@ describe("AwsAuth — rendering", () => {
     )
   })
 
+  it("takes an empty start URL from the runbook as none, and signs in to the typed portal", async () => {
+    installApi((channel) => {
+      if (channel === "aws:profiles") return { profiles: [] }
+      if (channel === "aws:sso-start") return { verificationUri: "", error: "stop here" }
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    renderBlock(
+      <AwsAuth id="test-aws" detectCredentials={false} ssoStartUrl="" ssoRegion="us-west-2" />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "AWS SSO" }))
+    fireEvent.change(screen.getByLabelText(/SSO start URL/), {
+      target: { value: "https://acme.awsapps.com/start" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with SSO" }))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("aws:sso-start", {
+        startUrl: "https://acme.awsapps.com/start",
+        region: "us-west-2",
+      }),
+    )
+  })
+
+  it("signs in to the runbook's own start URL as written", () => {
+    renderBlock(
+      <AwsAuth id="test-aws" detectCredentials={false} ssoStartUrl="http://sso.internal/start" />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "AWS SSO" }))
+
+    expect(screen.getByRole("button", { name: "Sign in with SSO" })).toBeEnabled()
+  })
+
   it("renders custom title", () => {
     renderBlock(<AwsAuth id="test-aws" detectCredentials={false} title="Connect to AWS" />)
     expect(screen.getByText("Connect to AWS")).toBeInTheDocument()

@@ -119,7 +119,7 @@ export function useAwsAuth({
   // A runbook that sets no ssoStartUrl leaves the portal to the user: its start
   // URL, and the region its IAM Identity Center lives in.
   const [portal, setPortal] = useState<SsoPortal>({ startUrl: "", region: ssoRegion })
-  const startUrl = ssoStartUrl ?? portal.startUrl.trim()
+  const startUrl = ssoStartUrl || portal.startUrl.trim()
   const identityCenterRegion = ssoStartUrl ? ssoRegion : portal.region
 
   // SSO account/role selection state
