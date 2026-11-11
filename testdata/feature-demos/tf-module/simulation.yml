@@ -7,6 +7,14 @@ scenarios:
     label: Happy path
     description: Two domains, a small directory, and every API on.
     responses:
+      google.me:
+        - status: 200
+          body:
+            primaryEmail: sam@example.com
+            name: { fullName: Sam Rivera }
+      google.customer:
+        - status: 200
+          body: { id: C03example, customerDomain: example.com }
       google.domains:
         - status: 200
           body:
