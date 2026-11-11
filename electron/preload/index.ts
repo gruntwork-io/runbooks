@@ -31,7 +31,15 @@ const INVOKE_CHANNELS = {
   "tf-module:read": true,
   "tf-module:lookup": true,
   "tf-module:readiness": true,
+  "tf-module:render": true,
   "tf-module:generate": true,
+  "tf-module:plan": true,
+  "tf-module:apply": true,
+  "tf-module:cancel": true,
+  "tf-module:pr-open": true,
+  "tf-module:pr-push": true,
+  "tf-module:pr-merge": true,
+  "tf-module:pr-update": true,
   "aws:validate": true,
   "aws:profiles": true,
   "aws:sso-start": true,
@@ -110,6 +118,7 @@ const INVOKE_CHANNELS = {
 
 const EVENT_CHANNELS = {
   "exec:log": true,
+  "tf-module:event": true,
   "exec:log-file": true,
   "exec:files-captured": true,
   "watch:file-change": true,

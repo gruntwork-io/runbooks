@@ -1,0 +1,79 @@
+---
+title: <TerragruntApplyWithGitHubPullRequest>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="Experimental">
+`<TerragruntApplyWithGitHubPullRequest>` is an experiment, like [`<TfModule>`](/authoring/blocks/tfmodule/). Its name and props may change, and it opens GitHub pull requests only so far.
+</Aside>
+
+The `<TerragruntApplyWithGitHubPullRequest>` block takes the code a [`<TfModule>`](/authoring/blocks/tfmodule/) block generated and gets it into your infrastructure: it shows the code, opens a GitHub pull request that adds it to a cloned repository, and plans and applies it.
+
+The block has three tabs:
+
+- **Code** shows the code, in the folder it goes to in the repository. It changes as the `<TfModule>` block's values do. **Next** moves on to **PR**.
+- **PR** opens a GitHub pull request that adds the code to the cloned repository, pushes later changes to it, and merges it. See [Pull request](#pull-request).
+- **Apply** runs the code with Terragrunt: a plan whose resources open to show their properties as a table or as plan text, then an apply that shows each resource as it's made. Afterwards it lists what the apply made and the module's outputs, which become the block's outputs.
+
+Until the `<TfModule>` block has generated its code, the block waits, with a link to it.
+
+## Basic usage
+
+```mdx
+<GitHubAuth id="github-auth" />
+
+<GitClone id="clone-repo" githubAuthId="github-auth" prefilledUrl="https://github.com/acme/infrastructure-live" />
+
+<TfModule
+  id="group"
+  source="git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0"
+  template="templates/google-group"
+  path="google-groups/{{ .id }}"
+/>
+
+<TerragruntApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
+```
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `id` | `string` | required | Unique identifier for this block. Its outputs, after an apply, are the module's outputs |
+| `tfModuleId` | `string` | required | The `id` of the `<TfModule>` block whose code it applies |
+| `title` | `string` | `Apply with a GitHub pull request` | The block's heading. Supports inline markdown |
+| `description` | `string` | none | A line under the heading. Supports inline markdown |
+
+## Code and Apply
+
+The **Code** tab shows the code the `<TfModule>` block generated. When a `<GitClone>` block has cloned a repository, it shows the code where it goes there, in the folder the `<TfModule>` block's `path` names. Beside it, it shows the `.hcl` files in the folders above it, such as the `root.hcl` a unit includes, dimmed, since the code doesn't change them. Each of the code's files is marked against the branch the clone checked out: **A** for a file that isn't there yet, and **M** for one the code changes, which opens on its changes.
+
+Without a repository, the tab shows the code in the `<TfModule>` block's folder, and a Terragrunt unit beside a `root.hcl` the block writes, which keeps state in a local file.
+
+The block applies Terragrunt units only: the `<TfModule>` block's [template](/authoring/blocks/tfmodule/#the-template) must render a `terragrunt.hcl`. For a template that makes a plain OpenTofu or Terraform configuration, the block says so in place of its tabs.
+
+The **Apply** tab runs the unit with Terragrunt. With a cloned repository, it runs in the clone, where the `<TfModule>` block wrote it, so it uses the repository's own `root.hcl` and its state. If the repository has no `root.hcl` above the unit, or there's no repository, it runs the unit in the session's `.runbooks/tf-module/<tfModuleId>/` folder beside the block's `root.hcl`. The saved plan and what the run downloads stay in that folder, out of the clone the pull request commits.
+
+1. **Plan** lists each resource it would create, change, or delete. Each opens to show its properties, with the values OpenTofu can't know yet marked *known after apply*, and a changed resource's values before and after. A filter above the list searches the properties, and narrows them to the known ones or the changed ones.
+2. **Apply** applies that plan and shows each resource as OpenTofu works on it. If the inputs change after a plan or an apply, the block asks for a new plan first, and Runbooks applies a saved plan only with the inputs it was made for. A plan with nothing to change counts as applied.
+3. When it's done, the block lists the resources in the state and the module's outputs, and publishes the outputs as its own, for `{{ .outputs.<id>.<output> }}`, with this block's `id`. A sensitive output stays hidden until you show it. Outputs whose names start with `runbooks_` are there for the runbook rather than for the module's callers, such as a link to the new resource in a console. The block shows them apart, above the module's other outputs.
+
+**Stop** ends a plan or an apply that's running. A stopped plan changes nothing; a stopped or failed apply shows how far each resource got, and **Plan again** shows what's left.
+
+Terragrunt and OpenTofu must be on your `PATH`, which the `<TfModule>` block's [Before you plan](/authoring/blocks/tfmodule/#before-you-plan) checks. They run with the session's environment, so they use the credentials an auth block put there.
+
+## Pull request
+
+The **PR** tab opens a GitHub pull request that adds the code to a repository, so the change is reviewed and kept with the rest of your infrastructure code. It needs a `<GitHubAuth>` block to sign in and a `<GitClone>` block to clone the repository first, and it targets the branch the clone checked out.
+
+1. The title and description start from the module's [`pullRequest` templates](/authoring/blocks/tfmodule/#runbook_blockyml) and follow the `<TfModule>` block's form until you edit them. **Customize commit** holds the branch name and commit message. **What files will be committed?** lists the code's files under its folder that are new or changed, as the **Code** tab marks them. Click one to see it there.
+2. **Create Pull Request** writes the code into the clone again, so it matches the inputs, commits every change in the clone to a new branch, pushes the branch, and opens the pull request. When the branch already has an open pull request, such as one opened before the app restarted, it adds a commit to that branch and updates the pull request's title and description instead.
+3. While it's open, **Edit** changes its title and description, and if the inputs change, **Git Push** commits the code as it is now to the same branch.
+4. **Merge Pull Request** merges it with the method you pick: squash, a merge commit, or rebase.
+5. If the inputs change after a merge, **New pull request** starts another one for the change, on a branch of its own.
+
+You can merge and then apply, or apply and then merge, whichever your team's process asks for. While the pull request is open, **Apply first** next to the merge button takes you to the **Apply** tab, and after a merge, **Apply** does.
+
+## Testing
+
+`runbooks test` doesn't plan, apply, or open pull requests for this block yet.

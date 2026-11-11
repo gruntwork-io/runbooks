@@ -4,7 +4,7 @@ title: TfModule Demo
 
 # TfModule
 
-A `<TfModule>` block draws its form from an OpenTofu module and generates the code that uses it. The module's `variables.tf` gives each input's name, type, default and validation; its `runbook_block.yml` says how to present them.
+A `<TfModule>` block draws its form from an OpenTofu module and generates the code that uses it. The module's `variables.tf` gives each input's name, type, default and validation; its `runbook_block.yml` says how to present them. A `<TerragruntApplyWithGitHubPullRequest>` block then shows that code, opens a pull request for it, and applies it.
 
 This runbook uses a copy of the `google-group` module from the catalog. The organization dropdown and the people suggestions ask Google Workspace with the account a `<GoogleAuth>` block signed in. This runbook has none, so those fields say so, and take typed values.
 
@@ -18,6 +18,12 @@ This runbook uses a copy of the `google-group` module from the catalog. The orga
 />
 
 The runbook decides how to use the module: [its template](./templates/google-group-unit) renders a Terragrunt unit. **Generate** writes it under `google-groups/` in the repository a `<GitClone>` block cloned; without one, it lists the files without writing them.
+
+## Apply it
+
+<TerragruntApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
+
+The **Code** tab shows the unit with these values, in its folder in the repository a `<GitClone>` block cloned; the **PR** tab opens a GitHub pull request that adds it, and the **Apply** tab plans and applies it. Merge and apply in either order. Once it applies, the module's outputs are this block's outputs, such as `{{ .outputs.apply_group.runbooks_console_url }}`.
 
 ## Use the values
 

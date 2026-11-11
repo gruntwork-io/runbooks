@@ -50,7 +50,8 @@ import { valuesFromPick } from "./lookupRows"
  * Generate renders the runbook's template with those values and writes the
  * code to its folder in the repository a <GitClone> block cloned, and writes
  * it again as the inputs change. The runbook, not the module, decides how the
- * module is used: a Terragrunt unit, or plain OpenTofu or Terraform code.
+ * module is used: a Terragrunt unit, or plain OpenTofu or Terraform code. A
+ * <TerragruntApplyWithGitHubPullRequest> block takes the code from there.
  *
  * @param props.id - Unique identifier for this block (required)
  * @param props.source - The module: a Git source such as

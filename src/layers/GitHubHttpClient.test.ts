@@ -261,6 +261,32 @@ describe("GitHubHttpClient pull requests", () => {
     ])
   })
 
+  it("findOpenPullRequest asks for open pull requests from the branch in the same repository", async () => {
+    const urls: string[] = []
+    const find = (answer: unknown) => {
+      mockFetch((url) => {
+        urls.push(url)
+        return json(answer)
+      })
+      return Effect.runPromise(
+        withClient(
+          Effect.gen(function* () {
+            const client = yield* GitHubClient
+            return yield* client.findOpenPullRequest("ghp_test", "o", "r", "runbooks/add-a@b.c")
+          }),
+        ),
+      )
+    }
+
+    expect(
+      await find([{ html_url: "https://github.com/o/r/pull/7", number: 7, head: { ref: "x" } }]),
+    ).toEqual({ url: "https://github.com/o/r/pull/7", number: 7, branch: "x" })
+    expect(await find([])).toBeUndefined()
+    expect(urls[0]).toBe(
+      "https://api.github.com/repos/o/r/pulls?state=open&head=o%3Arunbooks%2Fadd-a%40b.c",
+    )
+  })
+
   it("addLabels POSTs the labels to the PR's issue", async () => {
     const calls: Array<{ url: string; method?: string | undefined; body?: unknown }> = []
     mockFetch((url, init) => {

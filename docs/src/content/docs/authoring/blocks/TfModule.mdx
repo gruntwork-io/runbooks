@@ -15,7 +15,7 @@ The `<TfModule>` block renders a form for an OpenTofu module's inputs. The form 
 
 How the module is used is the runbook's choice, not the module's: one runbook may write a Terragrunt unit for an infrastructure repository, another a plain OpenTofu or Terraform configuration. So the runbook gives the block a [template](#the-template) for that code.
 
-The block's job ends when the code is written. **Generate** checks the values, publishes them like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`, and writes the code. See [Generate](#generate).
+The block's job ends when the code is written. **Generate** checks the values, publishes them like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`, and writes the code. See [Generate](#generate). A [`<TerragruntApplyWithGitHubPullRequest>`](/authoring/blocks/terragruntapplywithgithubpullrequest/) block then shows the code, opens a pull request for it, and applies it.
 
 ## Basic usage
 
@@ -25,6 +25,8 @@ The block's job ends when the code is written. **Generate** checks the values, p
   source="git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0"
   template="templates/google-group"
 />
+
+<TerragruntApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
 
 <Command
   id="show-group"
@@ -38,7 +40,7 @@ The block's job ends when the code is written. **Generate** checks the values, p
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `id` | `string` | required | Unique identifier for this block. Other blocks name it in `inputsId` |
+| `id` | `string` | required | Unique identifier for this block. Other blocks name it in `inputsId` and `tfModuleId` |
 | `source` | `string` | required | The module. See [Module source](#module-source) |
 | `template` | `string` | required | The [template](#the-template) for the code that uses the module: a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder, relative to the runbook |
 | `path` | `string` | the block's `id` | Where the code goes in the cloned repository: a folder, as a template over the form's values, such as `google-groups/{{ .id }}` |
@@ -57,7 +59,7 @@ The block clones the repository once while Runbooks runs, and reads the module f
 
 The code the block writes points at the same source, so the module a repository runs is the module the form was built from.
 
-While working on a module, `source` can instead be its folder, relative to the runbook and inside the runbook's folder. The code then points at that folder on your computer, which works only there.
+While working on a module, `source` can instead be its folder, relative to the runbook and inside the runbook's folder. The code then points at that folder on your computer, which works only there, and a `<TerragruntApplyWithGitHubPullRequest>` block's **Code** tab warns about it.
 
 ## How the form is built
 
@@ -120,6 +122,13 @@ variables:
   access:
     primary: true
     presets: presets.yaml
+
+outputs:
+  email:
+    label: Group email
+  runbooks_console_url:
+    label: Admin console
+    link: View the Google Group
 ```
 
 | Key | Description |
@@ -137,6 +146,12 @@ variables:
 | `variables.<name>.suffix` | A template over the form's values that ends a string input's value, such as `@{{ .domain }}`. The form shows it fixed after the field, so the user types only the rest |
 | `variables.<name>.prefill` | Fills an empty string input from the first row of a lookup, such as the signed-in organization's customer ID, so the user needn't look it up. It takes `from` and `value`, like a [lookup](#lookups) |
 | `variables.<name>.shortcut` | A button under the input that adds the first row of a lookup, such as the signed-in person. It takes `from`, `label` and `value`, like a [lookup](#lookups) |
+| `outputs.<name>.label` | The output's label on a `<TerragruntApplyWithGitHubPullRequest>` block's **Apply** tab. Without it, the name with its first letter capitalized |
+| `outputs.<name>.description` | Replaces the output's description from the module |
+| `outputs.<name>.link` | Shows the output's value, an `https:` URL, as a link with this text. Any other `https:` value shows as a link to itself |
+| `pullRequest.title` | A template over the form's values that starts the pull request's title on a `<TerragruntApplyWithGitHubPullRequest>` block's **PR** tab. Without it, the block's title |
+| `pullRequest.summary` | A template over the form's values for the sentence above the default description's table of inputs, such as `Creates a Google group.` |
+| `pullRequest.description` | A template over the form's values that starts the pull request's description. Without it, `pullRequest.summary` (or a generic sentence) above a table of the inputs that have a value, leaving out sensitive ones |
 
 ## Before you plan
 
@@ -178,7 +193,7 @@ inputs = {
 }
 ```
 
-Any other template makes a plain OpenTofu or Terraform configuration, such as a `main.tf` that calls the module:
+Any other template makes a plain OpenTofu or Terraform configuration, such as a `main.tf` that calls the module. A `<TerragruntApplyWithGitHubPullRequest>` block applies Terragrunt units only, so a runbook applies a plain configuration some other way, such as a `<Command>` block:
 
 ```hcl title="templates/google-group-tofu/main.tf"
 module "group" {
@@ -198,10 +213,10 @@ A plain configuration's outputs are its own, so declare an output for each modul
 
 **Generate** renders the template with the form's values and writes the code:
 
-- **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. As the values change, it writes them again, and removes the files it wrote before that the new values no longer make, such as the old folder when the group's email changes.
+- **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. The pull request does that. As the values change, it writes them again, and removes the files it wrote before that the new values no longer make, such as the old folder when the group's email changes.
 - **Without one**, it writes nothing, and lists the files the code would have.
 
-While an input needs a fix, the block keeps the code, and the values it publishes, as they were for the last valid inputs. Once it has written the code, the block counts as done, and publishes these outputs:
+While an input needs a fix, the block keeps the code, and the values it publishes, as they were for the last valid inputs. Once it has written the code, the block counts as done, and publishes these outputs, which a [`<TerragruntApplyWithGitHubPullRequest>`](/authoring/blocks/terragruntapplywithgithubpullrequest/) block reads through its `tfModuleId`:
 
 | Output | Description |
 |--------|-------------|

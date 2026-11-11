@@ -14,7 +14,9 @@ import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
 import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { TfModuleSpec } from "../../src/domain/tf-module/types.ts"
+import type { ApplyResult, PlanResult, RunEvent } from "../../src/domain/tf-module/run.ts"
 import type { CodeTool, RepoFile, UnitFile } from "../../src/domain/tf-module/unit.ts"
+import type { MergeMethod } from "../../src/services/GitHubClient.ts"
 
 /** What session:switch did. */
 export type SessionSwitchResult =
@@ -209,8 +211,23 @@ export interface IpcChannelMap {
     result: TfModuleReadiness
   }
 
+  /** The Terragrunt code a <TfModule> block runs, rendered with its inputs. */
+  "tf-module:render": { params: TfModuleRenderRequest; result: TfModuleCode }
   /** Writes the block's code to its folder in the repository's checkout. */
   "tf-module:generate": { params: TfModuleGenerateRequest; result: TfModuleGenerated }
+  /** Plans the block's Terragrunt code, streaming `tf-module:event` as it goes. */
+  "tf-module:plan": { params: TfModuleRunRequest; result: PlanResult }
+  /** Applies the plan the last `tf-module:plan` saved, streaming `tf-module:event`. */
+  "tf-module:apply": { params: TfModuleRunRequest; result: ApplyResult }
+  "tf-module:cancel": { params: { runId: string }; result: { ok: true } }
+  /** Commits the block's unit to a new branch of the cloned repo, pushes it, and opens a pull request. */
+  "tf-module:pr-open": { params: TfModulePrOpenRequest; result: TfModulePullRequestResult }
+  /** Commits the unit as the inputs are now to the pull request's branch, and pushes it. */
+  "tf-module:pr-push": { params: TfModulePrPushRequest; result: { ok: true } }
+  /** Changes the title and description of the block's pull request. */
+  "tf-module:pr-update": { params: TfModulePrUpdateRequest; result: { ok: true } }
+  /** Merges the block's pull request. */
+  "tf-module:pr-merge": { params: TfModulePrMergeRequest; result: { sha: string } }
 
   // AWS Authentication
   "aws:validate": {
@@ -1024,6 +1041,8 @@ export interface IpcEventMap {
   // first block's credential — its AuthSuccess card renders a stale-session
   // warning off this event instead of implying its credential is still active.
   "vcs:session-changed": { provider: "github" | "gitlab"; host: string; source?: string }
+  /** Progress of a <TfModule> plan or apply; `runId` echoes the request's, `at` is when it happened. */
+  "tf-module:event": { runId: string; event: RunEvent; at: string }
 }
 
 // ---------------------------------------------------------------------------
@@ -1128,7 +1147,7 @@ export type TfModuleCode =
       /** The unit's folder in the repository. */
       folder: string
       files: RepoFile[]
-      /** Whether the repository has a root.hcl above a Terragrunt unit, for the unit to include. */
+      /** Whether the repository has a root.hcl above a Terragrunt unit, so Apply runs it there. */
       rootHcl: boolean
       /** The module's `source` from runbook_block.yml, which the code points at; none when it gives none. */
       source?: string | undefined
@@ -1143,6 +1162,57 @@ export interface TfModuleGenerated {
   code: TfModuleCode
   /** Paths, relative to the checkout, that it wrote; none without a checkout. */
   written: string[]
+}
+
+export interface TfModuleRunRequest extends TfModuleRenderRequest {
+  /** Names the run, for its events and for `tf-module:cancel`. */
+  runId: string
+}
+
+/** The repository the pull request for a <TfModule> block's code goes to. */
+export interface TfModulePrTarget {
+  /** The repository's checkout in the session. */
+  worktreePath?: string | undefined
+  owner: string
+  repo: string
+  /** The branch the pull request merges into. */
+  baseBranch: string
+}
+
+export interface TfModulePrPushRequest extends TfModuleRunRequest {
+  target: TfModulePrTarget
+  /** Where the unit's files go in the repository. */
+  path: string
+  branch: string
+  title: string
+  commitMessage: string
+}
+
+export interface TfModulePrOpenRequest extends TfModulePrPushRequest {
+  body: string
+}
+
+export interface TfModulePrMergeRequest {
+  runId: string
+  blockId: string
+  target: TfModulePrTarget
+  number: number
+  method: MergeMethod
+}
+
+export interface TfModulePrUpdateRequest {
+  runId: string
+  blockId: string
+  target: TfModulePrTarget
+  number: number
+  title: string
+  body: string
+}
+
+export interface TfModulePullRequestResult {
+  url: string
+  number: number
+  branch: string
 }
 
 export interface TfModuleLookupRequest {

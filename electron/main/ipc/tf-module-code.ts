@@ -259,6 +259,9 @@ export const writeFiles = (dir: string, files: readonly UnitFile[]) =>
   })
 
 export function registerTfModuleCodeHandlers(): void {
+  ipcMain.handle("tf-module:render", async (_event, params: TfModuleRenderRequest) =>
+    runtime.runPromise(renderCode(params)),
+  )
   ipcMain.handle("tf-module:generate", async (_event, params: TfModuleGenerateRequest) =>
     runtime.runPromise(generateCode(params)),
   )

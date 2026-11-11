@@ -18,6 +18,7 @@ const variable = (name: string, extra: Partial<TfModuleVariable> = {}): TfModule
 const spec = (googleApis: string[], variables: TfModuleVariable[]): TfModuleSpec => ({
   title: "Group",
   providers: [],
+  outputs: [],
   variables,
   googleApis,
   warnings: [],

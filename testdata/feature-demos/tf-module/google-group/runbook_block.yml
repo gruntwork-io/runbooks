@@ -69,3 +69,15 @@ variables:
       external:
         label: External group
         description: Its members come from an identity provider outside your directory.
+
+outputs:
+  email:
+    label: Group email
+  customer_id:
+    label: Customer ID
+  runbooks_console_url:
+    label: Admin console
+    link: View the Google Group
+
+pullRequest:
+  title: "Add the {{ .id }} Google group"

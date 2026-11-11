@@ -15,12 +15,14 @@ import type {
   TfModuleInputKind,
   TfModuleLookup,
   TfModuleOption,
+  TfModuleOutput,
   TfModulePreset,
   TfModuleProvider,
   TfModulePrefill,
   TfModuleShortcut,
   TfModuleSpec,
   TfModuleVariable,
+  TfModulePullRequest,
 } from "./types.ts"
 import { interpretValidations, type TfValidation } from "./validations.ts"
 import { rowTemplateError, templateFields } from "./rowTemplate.ts"
@@ -320,9 +322,18 @@ export interface ModuleMetadata {
   /** The logo's path in the module, or an https: URL. */
   readonly logo?: string
   readonly variables: Readonly<Record<string, VariableMetadata>>
+  readonly outputs: Readonly<Record<string, OutputMetadata>>
+  readonly pullRequest?: TfModulePullRequest
   /** The Google APIs the module's resources call. */
   readonly googleApis: readonly string[]
   readonly warnings: readonly string[]
+}
+
+export interface OutputMetadata {
+  readonly label?: string
+  readonly description?: string
+  /** The text of a link to the output's value, which must be an https: URL. */
+  readonly link?: string
 }
 
 export interface VariableMetadata {
@@ -341,7 +352,7 @@ export interface VariableMetadata {
 
 /** Reads runbook_block.yml. Fails on anything that would make the form wrong. */
 export function parseMetadata(content: string | undefined): ModuleMetadata {
-  if (content === undefined) return { variables: {}, googleApis: [], warnings: [] }
+  if (content === undefined) return { variables: {}, outputs: {}, googleApis: [], warnings: [] }
   let raw: unknown
   try {
     raw = YAML.parse(content)
@@ -352,12 +363,19 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     })
   }
   if (raw === null || raw === undefined) {
-    return { variables: {}, googleApis: [], warnings: [] }
+    return { variables: {}, outputs: {}, googleApis: [], warnings: [] }
   }
   if (!isRecord(raw)) throw new TfModuleError({ message: `${METADATA_FILE} must be a map.` })
 
   const problems = new Problems()
-  problems.unknownKeys(METADATA_FILE, raw, ["version", "block", "variables", "requires"])
+  problems.unknownKeys(METADATA_FILE, raw, [
+    "version",
+    "block",
+    "variables",
+    "outputs",
+    "pullRequest",
+    "requires",
+  ])
   if (raw.version !== undefined && !METADATA_VERSIONS.has(raw.version as number)) {
     throw new TfModuleError({
       message: `${METADATA_FILE} is version ${JSON.stringify(raw.version)}, which this version of Runbooks can't read. Update Runbooks.`,
@@ -429,6 +447,36 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     }
   }
 
+  const outputs: Record<string, OutputMetadata> = {}
+  const rawOutputs = raw.outputs ?? {}
+  if (!isRecord(rawOutputs)) {
+    problems.errors.push("outputs must be a map from each output's name to how to present it.")
+  } else {
+    for (const [name, entry] of Object.entries(rawOutputs)) {
+      const where = `outputs.${name}`
+      const fields = isRecord(entry) ? entry : {}
+      problems.unknownKeys(where, fields, ["label", "description", "link"])
+      const label = optionalString(fields.label, `${where}.label`, problems)
+      const outDescription = optionalString(fields.description, `${where}.description`, problems)
+      const link = optionalString(fields.link, `${where}.link`, problems)
+      outputs[name] = {
+        ...(label ? { label } : {}),
+        ...(outDescription ? { description: outDescription } : {}),
+        ...(link ? { link } : {}),
+      }
+    }
+  }
+
+  const rawPullRequest = isRecord(raw.pullRequest) ? raw.pullRequest : {}
+  problems.unknownKeys("pullRequest", rawPullRequest, ["title", "summary", "description"])
+  const pullRequest: TfModulePullRequest = {}
+  for (const key of ["title", "summary", "description"] as const) {
+    const template = optionalString(rawPullRequest[key], `pullRequest.${key}`, problems)
+    const templateError = template === undefined ? undefined : rowTemplateError(template)
+    if (templateError) problems.errors.push(`pullRequest.${key}: ${templateError}`)
+    if (template) Object.assign(pullRequest, { [key]: template })
+  }
+
   const googleApis = readGoogleApis(raw.requires, problems)
 
   if (problems.errors.length > 0) {
@@ -439,6 +487,8 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     ...(description ? { description } : {}),
     ...(logo ? { logo } : {}),
     variables,
+    outputs,
+    ...(Object.keys(pullRequest).length > 0 ? { pullRequest } : {}),
     googleApis,
     warnings: problems.warnings,
   }
@@ -489,11 +539,41 @@ export function readmeTitle(readme: string | undefined): string | undefined {
   return match ? match[1] : undefined
 }
 
+/** An output as outputs.tf declares it. */
+export interface TfOutput {
+  readonly name: string
+  readonly description: string
+  readonly sensitive: boolean
+}
+
+/** The outputs the parsed files declare, in declaration order. */
+export function tfOutputs(parsed: readonly HclJson[], files: readonly ModuleFile[]): TfOutput[] {
+  const order = new Map<string, number>()
+  for (const file of files) {
+    for (const match of file.content.matchAll(/^\s*output\s+"([^"]+)"/gm)) {
+      if (!order.has(match[1]!)) order.set(match[1]!, order.size)
+    }
+  }
+  const position = (name: string) => order.get(name) ?? Number.MAX_SAFE_INTEGER
+  return parsed
+    .flatMap((json) => (isRecord(json.output) ? Object.entries(json.output) : []))
+    .map(([name, value]) => {
+      const body = blockBody(value) ?? {}
+      return {
+        name,
+        description: typeof body.description === "string" ? body.description : "",
+        sensitive: body.sensitive === true,
+      }
+    })
+    .sort((a, b) => position(a.name) - position(b.name))
+}
+
 export interface BuildSpecInput {
   /** The module's folder name, the title when neither runbook_block.yml nor the README gives one. */
   readonly moduleName: string
   /** The title the module's README gives, the title when runbook_block.yml gives none. */
   readonly readmeTitle?: string
+  readonly outputs: readonly TfOutput[]
   readonly variables: readonly TfVariable[]
   readonly providers: readonly TfModuleProvider[]
   readonly metadata: ModuleMetadata
@@ -528,6 +608,14 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
     }
   }
 
+  const outputs = new Set(input.outputs.map((output) => output.name))
+  const unknownOutputs = Object.keys(input.metadata.outputs).filter((name) => !outputs.has(name))
+  if (unknownOutputs.length > 0) {
+    throw new TfModuleError({
+      message: `${METADATA_FILE} describes the outputs ${unknownOutputs.map((name) => `"${name}"`).join(", ")}, which the module doesn't declare.`,
+    })
+  }
+
   for (const [name, meta] of Object.entries(input.metadata.variables)) {
     if (!meta.suffix) continue
     const missing = templateFields(meta.suffix).filter((field) => !declared.has(field))
@@ -539,6 +627,15 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
     if (inputKind(input.variables.find((v) => v.name === name)!.tfType) !== "string") {
       throw new TfModuleError({
         message: `${METADATA_FILE}: variables.${name}.suffix needs a string input.`,
+      })
+    }
+  }
+
+  for (const [key, template] of Object.entries(input.metadata.pullRequest ?? {})) {
+    const missing = templateFields(template).filter((field) => !declared.has(field))
+    if (missing.length > 0) {
+      throw new TfModuleError({
+        message: `${METADATA_FILE}: pullRequest.${key} reads ${missing.map((field) => `"${field}"`).join(", ")}, which variables.tf doesn't declare.`,
       })
     }
   }
@@ -593,7 +690,18 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
     ...(input.metadata.description ? { description: input.metadata.description } : {}),
     providers: input.providers,
     ...(input.logo ? { logo: input.logo } : {}),
+    outputs: input.outputs.map((output): TfModuleOutput => {
+      const meta = input.metadata.outputs[output.name] ?? {}
+      return {
+        name: output.name,
+        label: meta.label ?? labelFromName(output.name),
+        description: meta.description ?? output.description,
+        sensitive: output.sensitive,
+        ...(meta.link ? { link: meta.link } : {}),
+      }
+    }),
     variables,
+    ...(input.metadata.pullRequest ? { pullRequest: input.metadata.pullRequest } : {}),
     googleApis: input.metadata.googleApis,
     warnings: input.metadata.warnings,
   }
