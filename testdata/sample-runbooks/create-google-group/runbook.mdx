@@ -27,6 +27,7 @@ Sign in as the admin, and pick the project from above. The extra scopes let the 
   scopes={[
     'https://www.googleapis.com/auth/cloud-platform',
     'https://www.googleapis.com/auth/cloud-identity.groups',
+    'https://www.googleapis.com/auth/admin.directory.customer.readonly',
     'https://www.googleapis.com/auth/admin.directory.domain.readonly',
     'https://www.googleapis.com/auth/admin.directory.user.readonly',
     'https://www.googleapis.com/auth/userinfo.email',
@@ -85,10 +86,6 @@ Check the code on **Code**, open a pull request that adds it on **PR**, then pla
   title="Terragrunt apply the new Google group"
   description="Opens a pull request with the group's unit, and applies it."
 />
-
-<Admonition type="note" title="If the plan can't find your organization">
-The module finds the organization's customer ID from its domain through Cloud Resource Manager, which works only when the domain has a Google Cloud organization. If it doesn't, clear **Organization**, and give the **Customer ID** under **Advanced options** instead. It's on the **Account settings** page of the Google Admin console.
-</Admonition>
 
 ## Check the group
 

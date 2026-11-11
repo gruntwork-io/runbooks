@@ -35,10 +35,10 @@ inputs = {
 {{- if .description }}
   description = {{ .description | toJson }}
 {{- end }}
-{{- if .domain }}
-  domain = {{ .domain | toJson }}
-{{- else }}
+{{- if .customer_id }}
   customer_id = {{ .customer_id | toJson }}
+{{- else }}
+  domain = {{ .domain | toJson }}
 {{- end }}
 {{- if .owners }}
   owners = {{ .owners | toJson }}
