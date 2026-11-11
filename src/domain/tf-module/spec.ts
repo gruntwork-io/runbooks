@@ -11,14 +11,14 @@ import YAML from "yaml"
 import { TfModuleError } from "../../errors/index.ts"
 import { errorMessage } from "../../errors/message.ts"
 import { loadGoWasm } from "../../layers/goWasmGlobal.ts"
+import { parseInputLookups } from "../lookups/parse.ts"
+import type { Definitions, ShortcutUse, Use } from "../lookups/types.ts"
+import { usedGroups } from "../lookups/validate.ts"
 import type {
   TfModuleInputKind,
-  TfModuleLookup,
   TfModuleOption,
   TfModulePreset,
   TfModuleProvider,
-  TfModulePrefill,
-  TfModuleShortcut,
   TfModuleSpec,
   TfModuleVariable,
 } from "./types.ts"
@@ -243,35 +243,6 @@ function readOptions(
   })
 }
 
-function readLookup(raw: unknown, where: string, problems: Problems): TfModuleLookup | undefined {
-  if (raw === undefined) return undefined
-  if (!isRecord(raw) || typeof raw.from !== "string" || raw.from === "") {
-    problems.errors.push(`${where} needs "from", the name of a lookup such as google.people.`)
-    return undefined
-  }
-  problems.unknownKeys(where, raw, ["from", "label", "value", "sets"])
-  const label = optionalString(raw.label, `${where}.label`, problems)
-  const value = optionalString(raw.value, `${where}.value`, problems)
-  let sets: Record<string, string> | undefined
-  if (raw.sets !== undefined) {
-    if (isRecord(raw.sets) && Object.values(raw.sets).every((v) => typeof v === "string")) {
-      sets = raw.sets as Record<string, string>
-    } else {
-      problems.errors.push(`${where}.sets must map input names to templates.`)
-    }
-  }
-  for (const [key, template] of [["label", label], ...Object.entries(sets ?? {})]) {
-    const error = template === undefined ? undefined : rowTemplateError(template)
-    if (error) problems.errors.push(`${where} ${key}: ${error}`)
-  }
-  return {
-    from: raw.from,
-    ...(label ? { label } : {}),
-    ...(value ? { value } : {}),
-    ...(sets ? { sets } : {}),
-  }
-}
-
 /** A presets file: a map from each preset's name to its label, description and settings. */
 export function parsePresets(content: string, where: string): TfModulePreset[] {
   const problems = new Problems()
@@ -320,9 +291,9 @@ export interface ModuleMetadata {
   /** The logo's path in the module, or an https: URL. */
   readonly logo?: string
   readonly variables: Readonly<Record<string, VariableMetadata>>
-  /** The Google APIs the module's resources call. */
-  readonly googleApis: readonly string[]
   readonly warnings: readonly string[]
+  /** The parsed file, whose lookups, checks and includes the lookup engine reads. */
+  readonly doc: unknown
 }
 
 export interface VariableMetadata {
@@ -330,9 +301,9 @@ export interface VariableMetadata {
   readonly description?: string
   readonly primary?: boolean
   readonly options?: readonly TfModuleOption[]
-  readonly lookup?: TfModuleLookup
-  readonly shortcut?: TfModuleShortcut
-  readonly prefill?: TfModulePrefill
+  readonly lookup?: Use
+  readonly shortcut?: ShortcutUse
+  readonly prefill?: Use
   /** The presets file's path in the module. */
   readonly presets?: string
   /** A template over the form's values that ends the input's value, such as `@{{ .domain }}`. */
@@ -341,7 +312,7 @@ export interface VariableMetadata {
 
 /** Reads runbook_block.yml. Fails on anything that would make the form wrong. */
 export function parseMetadata(content: string | undefined): ModuleMetadata {
-  if (content === undefined) return { variables: {}, googleApis: [], warnings: [] }
+  if (content === undefined) return { variables: {}, warnings: [], doc: undefined }
   let raw: unknown
   try {
     raw = YAML.parse(content)
@@ -352,12 +323,20 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     })
   }
   if (raw === null || raw === undefined) {
-    return { variables: {}, googleApis: [], warnings: [] }
+    return { variables: {}, warnings: [], doc: raw }
   }
   if (!isRecord(raw)) throw new TfModuleError({ message: `${METADATA_FILE} must be a map.` })
 
   const problems = new Problems()
-  problems.unknownKeys(METADATA_FILE, raw, ["version", "block", "variables", "requires"])
+  problems.unknownKeys(METADATA_FILE, raw, [
+    "version",
+    "block",
+    "variables",
+    "include",
+    "lookups",
+    "checks",
+    "preflight",
+  ])
   if (raw.version !== undefined && !METADATA_VERSIONS.has(raw.version as number)) {
     throw new TfModuleError({
       message: `${METADATA_FILE} is version ${JSON.stringify(raw.version)}, which this version of Runbooks can't read. Update Runbooks.`,
@@ -395,22 +374,11 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
       const label = optionalString(fields.label, `${where}.label`, problems)
       const varDescription = optionalString(fields.description, `${where}.description`, problems)
       const options = readOptions(fields.options, `${where}.options`, problems)
-      const lookup = readLookup(fields.lookup, `${where}.lookup`, problems)
-      const shortcutLookup = readLookup(fields.shortcut, `${where}.shortcut`, problems)
-      if (shortcutLookup?.sets) problems.errors.push(`${where}.shortcut can't have "sets".`)
-      const shortcut = shortcutLookup && {
-        from: shortcutLookup.from,
-        ...(shortcutLookup.label ? { label: shortcutLookup.label } : {}),
-        ...(shortcutLookup.value ? { value: shortcutLookup.value } : {}),
-      }
-      const prefillLookup = readLookup(fields.prefill, `${where}.prefill`, problems)
-      if (prefillLookup?.sets || prefillLookup?.label) {
-        problems.errors.push(`${where}.prefill takes only "from" and "value".`)
-      }
-      const prefill = prefillLookup && {
-        from: prefillLookup.from,
-        ...(prefillLookup.value ? { value: prefillLookup.value } : {}),
-      }
+      const uses = parseInputLookups(fields, where, METADATA_FILE)
+      problems.errors.push(...uses.problems.map((problem) => problem.message))
+      const { lookup, prefill, shortcut } = uses.lookups
+      const shortcutError = shortcut?.label ? rowTemplateError(shortcut.label) : undefined
+      if (shortcutError) problems.errors.push(`${where}.shortcut.label: ${shortcutError}`)
       const presets = optionalString(fields.presets, `${where}.presets`, problems)
       const suffix = optionalString(fields.suffix, `${where}.suffix`, problems)
       const suffixError = suffix === undefined ? undefined : rowTemplateError(suffix)
@@ -429,8 +397,6 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     }
   }
 
-  const googleApis = readGoogleApis(raw.requires, problems)
-
   if (problems.errors.length > 0) {
     throw new TfModuleError({ message: `${METADATA_FILE}: ${problems.errors.join(" ")}` })
   }
@@ -439,44 +405,9 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     ...(description ? { description } : {}),
     ...(logo ? { logo } : {}),
     variables,
-    googleApis,
     warnings: problems.warnings,
+    doc: raw,
   }
-}
-
-/** A Google API's service name, such as cloudidentity.googleapis.com. */
-const GOOGLE_SERVICE = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)*\.googleapis\.com$/
-
-/** `requires.google.apis`: the Google APIs the module's resources call. */
-function readGoogleApis(rawRequires: unknown, problems: Problems): string[] {
-  if (rawRequires === undefined) return []
-  if (!isRecord(rawRequires)) {
-    problems.errors.push("requires must be a map, such as requires: { google: { apis: [...] } }.")
-    return []
-  }
-  problems.unknownKeys("requires", rawRequires, ["google"])
-  const google = rawRequires.google ?? {}
-  if (!isRecord(google)) {
-    problems.errors.push("requires.google must be a map with apis.")
-    return []
-  }
-  problems.unknownKeys("requires.google", google, ["apis"])
-  const apis = google.apis ?? []
-  if (!Array.isArray(apis)) {
-    problems.errors.push("requires.google.apis must be a list of service names.")
-    return []
-  }
-  const services: string[] = []
-  for (const api of apis) {
-    if (typeof api !== "string" || !GOOGLE_SERVICE.test(api)) {
-      problems.errors.push(
-        `requires.google.apis lists ${JSON.stringify(api)}, which isn't a Google API's service name, such as cloudidentity.googleapis.com.`,
-      )
-    } else if (!services.includes(api)) {
-      services.push(api)
-    }
-  }
-  return services
 }
 
 // ---------------------------------------------------------------------------
@@ -501,6 +432,8 @@ export interface BuildSpecInput {
   readonly presets: Readonly<Record<string, readonly TfModulePreset[]>>
   /** The logo runbook_block.yml names, already read into a URL. */
   readonly logo?: string
+  /** The lookups and checks runbook_block.yml defines and includes, already checked. */
+  readonly definitions?: Definitions
 }
 
 /** Joins variables.tf and runbook_block.yml into the spec the form draws. */
@@ -518,12 +451,6 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
     if (meta.prefill && tfType !== undefined && inputKind(tfType) !== "string") {
       throw new TfModuleError({
         message: `${METADATA_FILE}: variables.${name}.prefill fills a string input, and ${name} is ${tfType}.`,
-      })
-    }
-    const missing = Object.keys(meta.lookup?.sets ?? {}).filter((target) => !declared.has(target))
-    if (missing.length > 0) {
-      throw new TfModuleError({
-        message: `${METADATA_FILE}: variables.${name}.lookup.sets fills ${missing.map((target) => `"${target}"`).join(", ")}, which variables.tf doesn't declare.`,
       })
     }
   }
@@ -588,13 +515,21 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
     }
   })
 
+  const definitions = input.definitions ?? { groups: {}, lookups: {}, checks: {} }
   return {
     title: input.metadata.title ?? input.readmeTitle ?? labelFromName(input.moduleName),
     ...(input.metadata.description ? { description: input.metadata.description } : {}),
     providers: input.providers,
     ...(input.logo ? { logo: input.logo } : {}),
     variables,
-    googleApis: input.metadata.googleApis,
+    definitions,
+    authGroups: usedGroups(
+      definitions,
+      variables.flatMap((v) =>
+        [v.lookup, v.prefill, v.shortcut].filter((use) => use !== undefined),
+      ),
+      [],
+    ),
     warnings: input.metadata.warnings,
   }
 }

@@ -18,7 +18,7 @@ export async function sendHttp(
   const response = await fetch(request.url, {
     method: request.method,
     headers,
-    body: request.body,
+    ...(request.body === undefined ? {} : { body: request.body }),
     redirect: "manual",
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })

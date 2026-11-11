@@ -29,8 +29,6 @@ const INVOKE_CHANNELS = {
   "boilerplate:render-inline": true,
   "boilerplate:resolve-inputs": true,
   "tf-module:read": true,
-  "tf-module:lookup": true,
-  "tf-module:readiness": true,
   "tf-module:generate": true,
   "aws:validate": true,
   "aws:profiles": true,

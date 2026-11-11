@@ -20,10 +20,13 @@ The block's job ends when the code is written. **Generate** checks the values, p
 ## Basic usage
 
 ```mdx
+<GoogleAuth id="workspace" />
+
 <TfModule
   id="group"
   source="git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0"
   template="templates/google-group"
+  auth={{ google: "workspace" }}
 />
 
 <Command
@@ -42,6 +45,7 @@ The block's job ends when the code is written. **Generate** checks the values, p
 | `source` | `string` | required | The module. See [Module source](#module-source) |
 | `template` | `string` | required | The [template](#the-template) for the code that uses the module: a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder, relative to the runbook |
 | `path` | `string` | the block's `id` | Where the code goes in the cloned repository: a folder, as a template over the form's values, such as `google-groups/{{ .id }}` |
+| `auth` | `object` | none | Binds each [lookup](#lookups) group the module uses to an auth block, by id, such as `{{ google: "workspace" }}` |
 
 ## Module source
 
@@ -91,7 +95,6 @@ variables:
     primary: true
     lookup:
       from: google.domains
-      label: "{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}"
   id:
     label: Group email
     primary: true
@@ -106,8 +109,7 @@ variables:
       from: google.people
     shortcut:
       from: google.me
-      label: 'Add "{{ .name }}" as an owner'
-      value: email
+      label: 'Add "{{ .label }}" as an owner'
   types:
     label: Group type
     options:
@@ -120,42 +122,34 @@ variables:
   access:
     primary: true
     presets: presets.yaml
+
+lookups:
+  google:
+    auth: GoogleAuth
+    domains:
+      request:
+        url: https://admin.googleapis.com/admin/directory/v1/customer/my_customer/domains
+      rows: domains
+      fields:
+        value: domainName
+    # customer, people and me are declared the same way
 ```
 
 | Key | Description |
 |-----|-------------|
 | `version` | The format's version, `0` |
-| `requires.google.apis` | The Google APIs the module's resources call, by service name, such as `cloudidentity.googleapis.com`. See [Before you plan](#before-you-plan) |
 | `block.title`, `block.description` | The block's heading and the line under it |
 | `block.logo` | The block's logo, a file in the module or an `https:` URL |
 | `variables.<name>.label` | The input's label. Without it, the name with its first letter capitalized |
 | `variables.<name>.description` | Replaces the input's description from `variables.tf` |
 | `variables.<name>.primary` | `true` to show the input before **Advanced options** |
 | `variables.<name>.options` | A map from each value to its `label` and `description`, or a list of values |
-| `variables.<name>.lookup` | Where the input's suggestions come from. See [Lookups](#lookups) |
+| `variables.<name>.lookup` | The lookup whose rows the input suggests, as `{ from, with }`. See [Lookups](#lookups) |
 | `variables.<name>.presets` | A file in the module of named settings for an object or map input. See [Presets](#presets) |
 | `variables.<name>.suffix` | A template over the form's values that ends a string input's value, such as `@{{ .domain }}`. The form shows it fixed after the field, so the user types only the rest |
-| `variables.<name>.prefill` | Fills an empty string input from the first row of a lookup, such as the signed-in organization's customer ID, so the user needn't look it up. It takes `from` and `value`, like a [lookup](#lookups) |
-| `variables.<name>.shortcut` | A button under the input that adds the first row of a lookup, such as the signed-in person. It takes `from`, `label` and `value`, like a [lookup](#lookups) |
-
-## Before you plan
-
-The block checks what it needs outside its inputs, and shows the result under its heading, above the form:
-
-- **Google APIs** on in the project a `<GoogleAuth>` block above signed in to: the ones `requires.google.apis` lists, which the plan needs, and the ones the block's [lookups](#lookups) call, which only its suggestions need. `google.customer`, `google.domains` and `google.people` call the Admin SDK API.
-- **The commands the code runs with** on your `PATH`, which applying the code needs: OpenTofu or Terraform, and Terragrunt too for a [template](#the-template) that renders a Terragrunt unit.
-
-When everything's in place, a green check says *This block's preflight checks completed successfully.*, and hovering it shows what it found, such as *4 Google APIs on in acme-ops · OpenTofu 1.12.6*. Otherwise the block lists what's missing, each with its fix: a link to the Cloud console page that turns the API on, or the tool's install page. It checks again after a sign-in or a change of project, when the Runbooks window comes back into focus, and on **Check again**.
-
-The check asks Google's Service Usage API, so the signed-in account needs permission to see the project's services, which the Viewer role has.
-
-```yaml title="runbook_block.yml"
-requires:
-  google:
-    apis:
-      - cloudidentity.googleapis.com
-      - cloudresourcemanager.googleapis.com
-```
+| `variables.<name>.prefill` | Fills an empty string input from a lookup that gives one row, such as the signed-in organization's customer ID, so the user needn't look it up. It takes `from` and `with`, like a [lookup](#lookups) |
+| `variables.<name>.shortcut` | A button under the input that adds a lookup's one row, such as the signed-in person. It takes `from` and `with`, and `label`, a template over the row's fields such as `Add "{{ .label }}" as an owner` |
+| `lookups`, `checks`, `preflight`, `include` | The module's lookups and checks, the checks to run before it's planned, and files of shared ones. See [Lookups and Checks](/authoring/lookups/) |
 
 ## The template
 
@@ -211,27 +205,13 @@ While an input needs a fix, the block keeps the code, and the values it publishe
 
 ## Lookups
 
-A lookup suggests values as the user types, such as the people in a directory. It's named by `from`, and returns rows of fields:
+A lookup suggests values as the user types, such as the people in a directory. The module declares its lookups in `runbook_block.yml`, as [Lookups and Checks](/authoring/lookups/) describes: the request to send, where the rows are in the answer, and each row's fields. An input uses one by name, with `from`, and passes its params with `with`. A row's `value` field is what a pick puts in the input, its `label` field what the suggestion shows, and its `description` field a second line under it. A suggestion helps the user; it doesn't limit what they can type.
 
-| Key | Description |
-|-----|-------------|
-| `from` | The lookup's name, such as `google.people` |
-| `value` | The row field that becomes the input's value. Default: `value` |
-| `label` | A template over the row's fields for what the suggestion shows. Default: the row's `label` field |
-| `sets` | Other inputs a pick fills in: a map from an input's name to a template over the row's fields |
+The module's lookups sit in groups, each needing a kind of auth block, such as `google: { auth: GoogleAuth, ... }`. The runbook binds each group the form uses to one of its auth blocks with the `auth` prop, and that block sends the group's requests as its signed-in user, under [its own rules](/authoring/blocks/googleauth/#requests-sent-for-other-blocks). The block refuses a binding that leaves a group unbound, names a block of the wrong kind, or names a block that doesn't request the scopes the group declares.
 
-A template uses `{{ .field }}` and `{{ if .field }}...{{ else }}...{{ end }}`. A suggestion helps the user; it doesn't limit what they can type.
+When the bound block hasn't signed in, or the API refuses, the field says why, and the user can still type a value. A lookup that sends what's typed, through `{{ .query }}`, asks again as the user types; any other lookup asks once, and the field filters its rows. A `shortcut` reads its lookup when the form opens and again after each sign-in, and shows only when the lookup gives exactly one row. A `prefill` reads it the same way, and fills its input with the row's value while the input is empty. It fills each value once, so an input the user clears stays clear until a sign-in gives another value.
 
-Runbooks has these lookups. Each reads Google with the account a `<GoogleAuth>` block above signed in, so that block must ask for the scope it needs:
-
-| Lookup | Rows | Scope |
-|--------|------|-------|
-| `google.me` | The signed-in account: `email`, `name` | None |
-| `google.customer` | The signed-in organization: `value` and `id` (its customer ID, such as `C01abc23d`), `primaryDomain` | `https://www.googleapis.com/auth/admin.directory.customer.readonly`, from an admin |
-| `google.domains` | The organization's domains, primary first: `value` and `domainName` (the domain), `isPrimary` | `https://www.googleapis.com/auth/admin.directory.domain.readonly`, from an admin |
-| `google.people` | Active users in the organization whose first name, last name or email starts with what's typed: `value` (email), `label` (name), `description` (title and department) | `https://www.googleapis.com/auth/admin.directory.user.readonly`, from an admin |
-
-When no `<GoogleAuth>` block has signed in, or Google refuses, the field says why, and the user can still type a value. A `shortcut` reads the first row of its lookup when the form opens and again after each sign-in, and stays hidden while the lookup has none. A `prefill` reads it the same way, and fills its input with the row's value while the input is empty. It fills each value once, so an input the user clears stays clear until a sign-in gives another value. Lookups that come from Google ask again after a sign-in too.
+The block doesn't run the module's `preflight` checks: the block that plans the code does.
 
 ## Presets
 

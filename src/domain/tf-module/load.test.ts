@@ -50,10 +50,14 @@ describe("loadModule", () => {
   it("reads the google-group module with its runbook_block.yml", async () => {
     const spec = await loaded(GOOGLE_GROUP)
     expect(spec.title).toBe("Create a Google Group")
-    expect(spec.googleApis).toEqual([
-      "cloudidentity.googleapis.com",
-      "cloudresourcemanager.googleapis.com",
+    expect(Object.keys(spec.definitions.lookups).sort()).toEqual([
+      "google.customer",
+      "google.domains",
+      "google.me",
+      "google.people",
     ])
+    expect(Object.keys(spec.definitions.checks)).toEqual(["google.apiEnabled"])
+    expect(spec.authGroups).toEqual(["google"])
     expect(spec.providers).toEqual([
       { name: "google", source: "hashicorp/google", version: ">= 8.10.0, < 9.0.0" },
     ])
@@ -90,11 +94,11 @@ describe("loadModule", () => {
       kind: "list",
       primary: true,
       default: [],
-      lookup: { from: "google.people" },
-      shortcut: { from: "google.me", value: "email" },
+      lookup: { from: "google.people", with: {} },
+      shortcut: { from: "google.me", with: {}, label: 'Add "{{ .label }}" as an owner' },
     })
     expect(byName(spec, "managers").primary).toBe(false)
-    expect(byName(spec, "customer_id").prefill).toEqual({ from: "google.customer" })
+    expect(byName(spec, "customer_id").prefill).toEqual({ from: "google.customer", with: {} })
 
     const types = byName(spec, "types")
     expect(types.kind).toBe("list")
@@ -193,10 +197,47 @@ describe("loadModule", () => {
 
     it("whose prefill fills an input that isn't a string", async () => {
       write("variables.tf", 'variable "names" {\n  type = list(string)\n}\n')
-      write("runbook_block.yml", "variables:\n  names:\n    prefill: { from: google.me }\n")
+      write(
+        "runbook_block.yml",
+        [
+          "variables:",
+          "  names:",
+          "    prefill: { from: google.me }",
+          "lookups:",
+          "  google:",
+          "    auth: GoogleAuth",
+          "    me:",
+          "      request: { url: https://admin.googleapis.com/admin/directory/v1/users/me }",
+          "      fields: { value: primaryEmail }",
+          "",
+        ].join("\n"),
+      )
       expect(await failure(dir)).toContain(
         "prefill fills a string input, and names is list(string)",
       )
+    })
+
+    it("whose input uses a lookup it doesn't define or include", async () => {
+      write("runbook_block.yml", "variables:\n  name:\n    lookup: { from: google.people }\n")
+      expect(await failure(dir)).toContain(
+        "variables.name.lookup uses google.people, which isn't defined or included",
+      )
+    })
+
+    it("whose lookup reads an input variables.tf doesn't declare", async () => {
+      write(
+        "runbook_block.yml",
+        [
+          "lookups:",
+          "  aws:",
+          "    auth: AwsAuth",
+          "    groups:",
+          "      request: { url: 'https://iam.amazonaws.com/?Action=ListGroups&PathPrefix={{ .inputs.nmae }}' }",
+          "      fields: { value: GroupName }",
+          "",
+        ].join("\n"),
+      )
+      expect(await failure(dir)).toContain("nmae")
     })
 
     it("whose runbook_block.yml names a file outside the module", async () => {

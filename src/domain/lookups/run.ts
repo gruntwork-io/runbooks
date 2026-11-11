@@ -215,3 +215,31 @@ async function sendForJson(
     throw new LookupFailure(`${def.id}: ${new URL(request.url).hostname} didn't answer with JSON.`)
   }
 }
+
+/**
+ * The form inputs a use reads, through its params, its definition's request
+ * and the lookups that request chains from, so a form runs it again only when
+ * one of them changes.
+ */
+export function inputsRead(definitions: Definitions, use: Use): string[] {
+  const names = new Set<string>()
+  const visit = (text: string) => {
+    try {
+      for (const { ref } of tokens(text)) if (ref.kind === "inputs") names.add(ref.name)
+    } catch {
+      // A malformed template is a load problem, reported when the file loads.
+    }
+  }
+  Object.values(use.with).forEach(visit)
+  const seen = new Set<string>()
+  const visitDef = (def: LookupDef | CheckDef | undefined) => {
+    if (!def || seen.has(def.id)) return
+    seen.add(def.id)
+    visit(def.request.url)
+    Object.values(def.request.headers).forEach(visit)
+    walkStrings(def.request.body, "body", visit)
+    for (const id of chainedLookups(def)) visitDef(definitions.lookups[id])
+  }
+  visitDef(definitions.lookups[use.from] ?? definitions.checks[use.from])
+  return [...names].sort()
+}

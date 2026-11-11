@@ -13,15 +13,13 @@ import { LoadingDisplay } from "../_shared/components/LoadingDisplay"
 import { ProgressStep } from "../_shared/components/ProgressStep"
 import { useInputRegistration } from "../_shared/hooks/useInputRegistration"
 import type { TfModuleSpec } from "../../../../../src/domain/tf-module/types"
-import type { LookupRow } from "../../../../../src/domain/tf-module/rowTemplate"
+import { bindingProblems } from "../../../../../src/domain/lookups/validate"
+import { usePageBlocks } from "@/contexts/ComponentIdRegistry"
 import { ModuleField } from "./components/ModuleField"
 import { ModuleLogo } from "./components/ModuleLogo"
 import { Prefill } from "./components/Prefill"
 import { useGitSignIns } from "./hooks/useGitSignIns"
-import { useReadiness } from "./hooks/useReadiness"
-import { Readiness } from "./components/Readiness"
-import { readinessReport } from "./readiness"
-import { requiredApis } from "../../../../../src/domain/tf-module/requirements"
+import { LookupEngineContext, useLookupEngine } from "./hooks/useLookupEngine"
 import type { TfModuleGenerated, TfModuleRepo } from "../../../../../electron/shared/channels"
 import { inputsKey } from "../../../../../src/domain/tf-module/inputsKey"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
@@ -35,7 +33,6 @@ import {
   withoutSuffix,
   type FormValues,
 } from "./lib"
-import { valuesFromPick } from "./lookupRows"
 
 /**
  * TfModule block: a form for an OpenTofu module's inputs, which generates the
@@ -46,6 +43,10 @@ import { valuesFromPick } from "./lookupRows"
  * to present them (labels, which inputs come first, what each option means,
  * presets, and lookups that suggest values). The values are published like an
  * <Inputs> block's, so a <Template> or <Command> uses them through `inputsId`.
+ *
+ * The module declares its lookups in groups, each needing a kind of auth
+ * block, and the `auth` prop binds each group the form uses to one of the
+ * runbook's auth blocks, which sends the group's requests as its signed-in user.
  *
  * Generate renders the runbook's template with those values and writes the
  * code to its folder in the repository a <GitClone> block cloned, and writes
@@ -60,13 +61,18 @@ import { valuesFromPick } from "./lookupRows"
  *   module, a folder relative to the runbook
  * @param props.path - Where the code goes in the cloned repository, a template
  *   over the inputs such as `groups/{{ .id }}`; the block's id by default
+ * @param props.auth - Binds each lookup group the module uses to an auth
+ *   block by id, such as `{{ google: "workspace" }}`
  */
 interface TfModuleProps {
   id: string
   source: string
   template: string
   path?: string
+  auth?: Readonly<Record<string, string>>
 }
+
+const NO_BINDING: Readonly<Record<string, string>> = {}
 
 /** How long the inputs must settle before generated code is written again. */
 const REGENERATE_MS = 500
@@ -96,7 +102,7 @@ function propsError(id: string, source: string, template: string): AppError | nu
   return null
 }
 
-function TfModule({ id, source, template, path }: TfModuleProps) {
+function TfModule({ id, source, template, path, auth = NO_BINDING }: TfModuleProps) {
   const validationError = propsError(id, source, template)
 
   const {
@@ -113,6 +119,7 @@ function TfModule({ id, source, template, path }: TfModuleProps) {
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [gitSignIns])
   const config = spec ? registryConfig(spec) : null
+  const bindingError = useBindingError(spec ?? undefined, auth)
 
   const blockRef = useRef<HTMLDivElement>(null)
   const {
@@ -143,6 +150,7 @@ function TfModule({ id, source, template, path }: TfModuleProps) {
   }
   if (validationError) return <ErrorDisplay error={validationError} />
   if (apiError) return <ErrorDisplay error={apiError} />
+  if (bindingError) return <ErrorDisplay error={bindingError} />
   if (isLoading || !spec || Object.keys(initialData).length === 0) {
     return <LoadingDisplay message="Reading the module..." />
   }
@@ -154,6 +162,7 @@ function TfModule({ id, source, template, path }: TfModuleProps) {
         source={source}
         template={template}
         path={path}
+        auth={auth}
         spec={spec}
         initialData={initialData}
         hasSubmitted={hasSubmitted}
@@ -164,11 +173,35 @@ function TfModule({ id, source, template, path }: TfModuleProps) {
   )
 }
 
+/**
+ * What's wrong with how the `auth` prop binds the module's lookup groups to
+ * the runbook's auth blocks, once the module is read and the blocks on the
+ * page have registered.
+ */
+function useBindingError(
+  spec: TfModuleSpec | undefined,
+  auth: Readonly<Record<string, string>>,
+): AppError | null {
+  const { blockOf, registered } = usePageBlocks()
+  if (!spec || !registered) return null
+  const blocks = Object.values(auth).flatMap((blockId) => {
+    const block = blockOf(blockId)
+    return block ? [{ id: blockId, kind: block.kind, scopes: block.scopes }] : []
+  })
+  const problems = bindingProblems(spec.definitions, spec.authGroups, auth, blocks)
+  if (problems.length === 0) return null
+  return {
+    message: "The <TfModule> block's auth prop doesn't fit the module's lookups.",
+    details: problems.join("\n"),
+  }
+}
+
 interface TfModuleFormProps {
   id: string
   source: string
   template: string
   path?: string | undefined
+  auth: Readonly<Record<string, string>>
   spec: TfModuleSpec
   initialData: FormValues
   hasSubmitted: boolean
@@ -181,6 +214,7 @@ function TfModuleForm({
   source,
   template,
   path,
+  auth,
   spec,
   initialData,
   hasSubmitted,
@@ -207,8 +241,8 @@ function TfModuleForm({
   )
   const generator = useGenerator(api)
 
-  // A pick changes its own input and then the ones its lookup sets, in one
-  // event, so each change builds on the last instead of on this render's values.
+  // Changes in one event, such as a prefill and a pick, build on each other
+  // instead of on this render's values.
   const latest = useRef(values)
   const update = (changes: FormValues) => {
     const next = { ...latest.current, ...changes }
@@ -218,17 +252,13 @@ function TfModuleForm({
     if (Object.keys(formErrors(spec, next)).length === 0) onAutoUpdate(publishedValues(spec, next))
   }
 
-  const pickFrom = (name: string) => (row: LookupRow) => {
-    const lookup = spec.variables.find((v) => v.name === name)?.lookup
-    if (lookup?.sets) update(valuesFromPick(lookup, row))
-  }
-
   const shownError = (name: string) =>
     submitAttempted || hasSubmitted || touched.has(name) ? errors[name] : undefined
 
   const isValid = Object.keys(errors).length === 0
   const errorCount = Object.keys(errors).length
   const published = publishedValues(spec, values)
+  const engine = useLookupEngine(spec.definitions, auth, published)
   const repoPath = unitPath(path, id, published)
   const repo: TfModuleRepo | undefined = activeWorkTree
     ? {
@@ -287,122 +317,111 @@ function TfModuleForm({
         error={shownError(name)}
         onChange={(value) => update({ [name]: value })}
         onBlur={() => setTouched((t) => new Set(t).add(name))}
-        onPick={pickFrom(name)}
       />
     )
   }
 
-  const apis = requiredApis(spec)
-  const ready = useReadiness(
-    apis.map((required) => required.service),
-    template,
-  )
   const { state: generation } = generator
   const started = generation.kind !== "idle"
   const current =
     generation.kind === "generated" && generation.inputs === inputsKey(published) && isValid
 
   return (
-    <div className="runbook-block relative mb-4 rounded-lg border border-border bg-muted p-6 shadow-sm">
-      <ProgressStep done={current} />
-      <div className="absolute right-3 top-2">
-        <BlockIdLabel id={id} size="large" />
-      </div>
+    <LookupEngineContext.Provider value={engine}>
+      <div className="runbook-block relative mb-4 rounded-lg border border-border bg-muted p-6 shadow-sm">
+        <ProgressStep done={current} />
+        <div className="absolute right-3 top-2">
+          <BlockIdLabel id={id} size="large" />
+        </div>
 
-      <div className="mb-5 flex items-start gap-3 pr-24">
-        <ModuleLogo spec={spec} />
-        <div className="min-w-0">
-          <div className="text-lg font-semibold text-foreground">{spec.title}</div>
-          {spec.description && (
-            <div className="text-sm text-muted-foreground">{spec.description}</div>
-          )}
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span className="font-mono">{source}</span>
+        <div className="mb-5 flex items-start gap-3 pr-24">
+          <ModuleLogo spec={spec} />
+          <div className="min-w-0">
+            <div className="text-lg font-semibold text-foreground">{spec.title}</div>
+            {spec.description && (
+              <div className="text-sm text-muted-foreground">{spec.description}</div>
+            )}
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-mono">{source}</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      {spec.warnings.length > 0 && (
-        <div className="mb-5 rounded-md border border-warning/30 bg-warning-muted p-3 text-sm text-warning-foreground">
-          <p className="flex items-center gap-1.5 font-medium">
-            <TriangleAlert className="size-4" /> runbook_block.yml
-          </p>
-          <ul className="mt-1 list-disc pl-5">
-            {spec.warnings.map((warning) => (
-              <li key={warning}>{warning}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <Readiness
-        report={ready.readiness && readinessReport(apis, ready.readiness)}
-        error={ready.error}
-        checking={ready.checking}
-        onRecheck={ready.recheck}
-      />
-
-      {spec.variables.map(
-        (variable) =>
-          variable.prefill && (
-            <Prefill
-              key={variable.name}
-              prefill={variable.prefill}
-              empty={isEmptyValue(values[variable.name])}
-              onFill={(value) => update({ [variable.name]: value })}
-            />
-          ),
-      )}
-      <form onSubmit={submit} className="space-y-6" noValidate>
-        <div className="space-y-5">
-          {spec.variables.filter((v) => v.primary).map((v) => field(v.name))}
-        </div>
-
-        {advanced.length > 0 && (
-          <div className="space-y-5">
-            <button
-              type="button"
-              aria-expanded={showAdvanced}
-              onClick={() => setShowAdvanced((open) => !open)}
-              className="flex items-center gap-1.5 text-sm font-semibold text-foreground"
-            >
-              {showAdvanced ? (
-                <ChevronDown className="size-4" />
-              ) : (
-                <ChevronRight className="size-4" />
-              )}
-              Advanced options
-              <span className="font-normal text-muted-foreground">({advanced.length})</span>
-            </button>
-            {showAdvanced && (
-              <div className="space-y-5 border-l-2 border-border pl-4">
-                {advanced.map((v) => field(v.name))}
-              </div>
-            )}
+        {spec.warnings.length > 0 && (
+          <div className="mb-5 rounded-md border border-warning/30 bg-warning-muted p-3 text-sm text-warning-foreground">
+            <p className="flex items-center gap-1.5 font-medium">
+              <TriangleAlert className="size-4" /> runbook_block.yml
+            </p>
+            <ul className="mt-1 list-disc pl-5">
+              {spec.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
           </div>
         )}
 
-        <div className="space-y-3 border-t border-border pt-4">
-          {!started && (
-            <Button type="submit" variant="default">
-              <FileCode className="size-4" /> Generate
-            </Button>
+        {spec.variables.map(
+          (variable) =>
+            variable.prefill && (
+              <Prefill
+                key={variable.name}
+                prefill={variable.prefill}
+                empty={isEmptyValue(values[variable.name])}
+                onFill={(value) => update({ [variable.name]: value })}
+              />
+            ),
+        )}
+        <form onSubmit={submit} className="space-y-6" noValidate>
+          <div className="space-y-5">
+            {spec.variables.filter((v) => v.primary).map((v) => field(v.name))}
+          </div>
+
+          {advanced.length > 0 && (
+            <div className="space-y-5">
+              <button
+                type="button"
+                aria-expanded={showAdvanced}
+                onClick={() => setShowAdvanced((open) => !open)}
+                className="flex items-center gap-1.5 text-sm font-semibold text-foreground"
+              >
+                {showAdvanced ? (
+                  <ChevronDown className="size-4" />
+                ) : (
+                  <ChevronRight className="size-4" />
+                )}
+                Advanced options
+                <span className="font-normal text-muted-foreground">({advanced.length})</span>
+              </button>
+              {showAdvanced && (
+                <div className="space-y-5 border-l-2 border-border pl-4">
+                  {advanced.map((v) => field(v.name))}
+                </div>
+              )}
+            </div>
           )}
-          {submitAttempted && errorCount > 0 && (
-            <p className="text-sm text-destructive">
-              {errorCount === 1
-                ? "1 input above needs a fix."
-                : `${errorCount} inputs above need a fix.`}
-            </p>
-          )}
-          <Generation
-            state={generation}
-            repository={activeWorkTree?.gitInfo.repoName}
-            stale={started && !current}
-          />
-        </div>
-      </form>
-    </div>
+
+          <div className="space-y-3 border-t border-border pt-4">
+            {!started && (
+              <Button type="submit" variant="default">
+                <FileCode className="size-4" /> Generate
+              </Button>
+            )}
+            {submitAttempted && errorCount > 0 && (
+              <p className="text-sm text-destructive">
+                {errorCount === 1
+                  ? "1 input above needs a fix."
+                  : `${errorCount} inputs above need a fix.`}
+              </p>
+            )}
+            <Generation
+              state={generation}
+              repository={activeWorkTree?.gitInfo.repoName}
+              stale={started && !current}
+            />
+          </div>
+        </form>
+      </div>
+    </LookupEngineContext.Provider>
   )
 }
 

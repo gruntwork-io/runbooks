@@ -19,6 +19,7 @@ import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/component
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import type { AppError } from "@/types/error"
 import type { GoogleAuthProps } from "./types"
+import { DEFAULT_GOOGLE_SCOPES } from "./constants"
 import { useGoogleAuth } from "./hooks/useGoogleAuth"
 import { getStatusClasses, StatusIcon, getStatusIconClasses } from "./utils"
 import { GoogleCloudLogo } from "./components/GoogleCloudLogo"
@@ -95,6 +96,7 @@ function GoogleAuthInteractive({
     id,
     "GoogleAuth",
     blockRef,
+    scopes ?? DEFAULT_GOOGLE_SCOPES,
   )
 
   // Validate detectCredentials configuration: only one { block: string } source allowed.
