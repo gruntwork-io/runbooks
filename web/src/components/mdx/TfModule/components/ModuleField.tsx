@@ -1,7 +1,6 @@
 import { FormControl } from "../../_shared/components/FormControls"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
 import type { TfModuleVariable } from "../../../../../../src/domain/tf-module/types"
-import type { LookupRow } from "../../../../../../src/domain/tf-module/rowTemplate"
 import type { Suffix } from "../lib"
 import { OptionCards } from "./OptionCards"
 import { PresetPicker } from "./PresetPicker"
@@ -20,8 +19,6 @@ interface ModuleFieldProps {
   error?: string | undefined
   onChange: (value: unknown) => void
   onBlur: () => void
-  /** A pick from the input's lookup, whose `sets` fill other inputs. */
-  onPick: (row: LookupRow) => void
 }
 
 /** A string or number value as a text control shows it; anything else shows as empty. */
@@ -31,16 +28,7 @@ const asText = (value: unknown): string =>
 const asStrings = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : [])
 
 /** One input's control, chosen from its type and what runbook_block.yml says about it. */
-function Control({
-  blockId,
-  variable,
-  value,
-  suffix,
-  error,
-  onChange,
-  onBlur,
-  onPick,
-}: ModuleFieldProps) {
+function Control({ blockId, variable, value, suffix, error, onChange, onBlur }: ModuleFieldProps) {
   const fieldId = `${blockId}-${variable.name}`
 
   if (suffix) {
@@ -119,7 +107,6 @@ function Control({
         value={asStrings(value)}
         onChange={onChange}
         onBlur={onBlur}
-        onPick={onPick}
         error={error}
         placeholder={
           variable.lookup ? "Type to search, or enter a value" : "Type a value and press Enter"
@@ -136,7 +123,6 @@ function Control({
         value={asText(value)}
         onChange={onChange}
         onBlur={onBlur}
-        onPick={onPick}
         error={error}
         placeholder="Type to search"
       />

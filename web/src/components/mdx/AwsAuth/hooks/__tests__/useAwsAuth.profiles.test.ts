@@ -105,6 +105,8 @@ describe("useAwsAuth — local profiles", () => {
       AWS_SECRET_ACCESS_KEY: sensitiveOutput("dev-secret"),
       AWS_REGION: "us-west-2",
       AWS_SESSION_TOKEN: sensitiveOutput(""),
+      AWS_ACCOUNT_ID: "111122223333",
+      AWS_SSO_REGION: "us-east-1",
     })
   })
 })

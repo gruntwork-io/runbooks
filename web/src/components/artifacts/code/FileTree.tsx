@@ -245,29 +245,16 @@ export interface FileTreeProps {
   selectedId?: string | null | undefined
   /** Files that changed since the user reviewed them, by ID. They and the folders holding them are marked. */
   changes?: ReadonlyMap<string, FileChange> | undefined
-  /** What the marks say, when the changes are against something other than the user's last review. */
-  changeLabels?: ChangeLabels | undefined
-  /** The folders to show open at first, by ID. */
-  defaultExpandedIds?: readonly string[] | undefined
-}
-
-/** What a changed file's mark, and a folder holding changed files, say to a screen reader and on hover. */
-export interface ChangeLabels {
-  readonly added: string
-  readonly modified: string
-  readonly folder: string
-}
-
-const REVIEW_LABELS: ChangeLabels = {
-  added: "Added since you last reviewed it",
-  modified: "Modified since you last reviewed it",
-  folder: "Holds files changed since you last reviewed them",
 }
 
 /** The mark of a changed file, as the tree shows it after its name. */
 const CHANGE_MARKS = {
-  added: { letter: "A", className: "text-success" },
-  modified: { letter: "M", className: "text-warning-foreground" },
+  added: { letter: "A", label: "Added since you last reviewed it", className: "text-success" },
+  modified: {
+    letter: "M",
+    label: "Modified since you last reviewed it",
+    className: "text-warning-foreground",
+  },
 } as const
 
 /**
@@ -297,11 +284,9 @@ export const FileTree = ({
   indent = FILE_TREE_INDENT, // Indent per level (8 base + 11 = 19px for level 1)
   selectedId,
   changes,
-  changeLabels = REVIEW_LABELS,
-  defaultExpandedIds,
 }: FileTreeProps) => {
   /** Set of expanded folder IDs */
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(() => new Set(defaultExpandedIds))
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   /** Currently selected item ID */
   const [selectedItem, setSelectedItem] = useState<string | null>(null)
   const selected = selectedId !== undefined ? selectedId : selectedItem
@@ -359,10 +344,7 @@ export const FileTree = ({
     const isIgnored = item.isIgnored ?? false
     const FileIcon = !isFolder ? getFileIcon(item.name) : null
     const change = isFolder ? undefined : changes?.get(item.id)
-    const mark = change && {
-      ...CHANGE_MARKS[change.status],
-      label: changeLabels[change.status],
-    }
+    const mark = change && CHANGE_MARKS[change.status]
     const holdsChanges = isFolder && (changedFolders?.has(item.id) ?? false)
 
     return (
@@ -370,7 +352,10 @@ export const FileTree = ({
         <button
           role="treeitem"
           // A description, so the item's name stays the file's name.
-          aria-description={mark?.label ?? (holdsChanges ? changeLabels.folder : undefined)}
+          aria-description={
+            mark?.label ??
+            (holdsChanges ? "Holds files changed since you last reviewed them" : undefined)
+          }
           onClick={() => handleItemClick(item)}
           className={cn(
             "min-w-full w-max flex items-center gap-0.5 py-1 pr-2 text-left text-sm cursor-pointer",
@@ -449,7 +434,7 @@ export const FileTree = ({
             <span
               aria-hidden="true"
               className="ml-auto pl-3 flex items-center"
-              title={changeLabels.folder}
+              title="Holds files changed since you last reviewed them"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-warning" />
             </span>

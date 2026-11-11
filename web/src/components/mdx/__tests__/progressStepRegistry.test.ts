@@ -26,7 +26,7 @@ const STEP_BLOCKS = [
   "GitLabAuth",
   "Inputs",
   "TfModule",
-  "TerragruntApplyWithGitHubPullRequest",
+  "TerragruntApply",
   "Template",
   "GitClone",
   "GitPullRequest",

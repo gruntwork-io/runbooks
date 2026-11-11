@@ -14,6 +14,7 @@
         "@aws-sdk/util-endpoints": "^3.996.52",
         "@cdktf/hcl2json": "0.21.0",
         "@smithy/core": "^3.36.0",
+        "@smithy/signature-v4": "^5.7.5",
         "chokidar": "^6.0.0",
         "commander": "^15.0.0",
         "effect": "^4.1.0",

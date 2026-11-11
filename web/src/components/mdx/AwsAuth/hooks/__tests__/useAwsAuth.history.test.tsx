@@ -332,6 +332,8 @@ describe("useAwsAuth in a session — resuming", () => {
         AWS_SECRET_ACCESS_KEY: sensitiveOutput("saved-secret"),
         AWS_REGION: "us-west-2",
         AWS_SESSION_TOKEN: sensitiveOutput("saved-token"),
+        AWS_ACCOUNT_ID: "111122223333",
+        AWS_SSO_REGION: "us-east-1",
       }),
     )
     expect(invoke).toHaveBeenCalledWith("aws:validate", SAVED.credentials)

@@ -34,10 +34,7 @@ import { registerWatchHandlers } from "./watch.ts"
 import { registerThemeHandlers } from "./theme.ts"
 import { registerTfModuleHandlers } from "./tf-module.ts"
 import { registerTfModuleCodeHandlers } from "./tf-module-code.ts"
-import { registerTfModuleRunHandlers } from "./tf-module-run.ts"
-import { registerTfModulePrHandlers } from "./tf-module-pr.ts"
-import { registerTfModuleReadyHandlers } from "./tf-module-ready.ts"
-import { registerSimulationHandlers } from "./simulation.ts"
+import { registerTerragruntApplyHandlers } from "./terragrunt-apply.ts"
 import { withVcs } from "./vcs-tristate.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 
@@ -95,9 +92,6 @@ export function registerAllIpcHandlers(): void {
   registerThemeHandlers()
   registerTfModuleHandlers()
   registerTfModuleCodeHandlers()
-  registerTfModuleRunHandlers()
-  registerTfModulePrHandlers()
-  registerTfModuleReadyHandlers()
-  registerSimulationHandlers()
+  registerTerragruntApplyHandlers()
   registerVcsStatusHandler()
 }

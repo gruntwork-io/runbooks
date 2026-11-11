@@ -83,6 +83,8 @@ The block also publishes its credentials as block outputs, so a specific AwsAuth
 | `AWS_SECRET_ACCESS_KEY` | The AWS secret key, as a [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) |
 | `AWS_SESSION_TOKEN` | The session token, as a sensitive output. Empty for credentials without one |
 | `AWS_REGION` | The selected region |
+| `AWS_ACCOUNT_ID` | The ID of the account the credentials belong to |
+| `AWS_SSO_REGION` | The block's IAM Identity Center region, its `ssoRegion` prop, whichever way the user signed in |
 
 Clicking **Re-authenticate** replaces them with a single output, `__AUTHENTICATED`, set to `false`, until the user signs in again.
 
@@ -386,6 +388,16 @@ AWS operations often take effect immediately and can't be undone. They create re
 - Authentication happens between your machine and AWS. Credentials are not sent to Gruntwork or any other server unless a script in your runbook sends them.
 - Credentials are stored in your local Runbooks session, which Runbooks saves encrypted with the operating system's credential store. See [What is encrypted](/commands/sessions/#what-is-encrypted).
 - Credentials are validated with STS GetCallerIdentity before they are registered to the session.
+
+### Requests sent for other blocks
+
+Other blocks can ask AwsAuth to send a request to AWS as you, for example to suggest values in a form. The runbook's author writes that request, and is trusted as they are for a [Command](/authoring/blocks/command/), so AwsAuth doesn't limit which services or operations it reaches. It checks only that the request goes to AWS and reads, so a form can't change anything by mistake:
+
+- The host must be an AWS API endpoint: `<service>.<region>.amazonaws.com`, such as `sso.us-east-2.amazonaws.com`, or a global one such as `iam.amazonaws.com`. A host with another label in front, such as a bucket's or an API Gateway's, doesn't match. AwsAuth signs the request for the service and region the host names, and a global endpoint for `us-east-1`.
+- The request must read. When it names an operation, in its `X-Amz-Target` header or its `Action` parameter, the operation must start with `List`, `Describe` or `Get`. A request that names none, to a REST API, must be a `GET`.
+- AwsAuth signs the request itself, so a request can set only its `Accept`, `Content-Type` and `X-Amz-Target` headers, and AwsAuth never follows a redirect.
+
+Anything that changes AWS stays in a [Command](/authoring/blocks/command/) or a plan you review.
 
 ## Detailed example
 

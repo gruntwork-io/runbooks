@@ -4,13 +4,29 @@ title: TfModule Demo
 
 # TfModule
 
-A `<TfModule>` block draws its form from an OpenTofu module and generates the code that uses it. The module's `variables.tf` gives each input's name, type, default and validation; its `runbook_block.yml` says how to present them. A `<TerragruntApplyWithGitHubPullRequest>` block then shows that code, opens a pull request for it, and applies it.
+A `<TfModule>` block draws its form from an OpenTofu module and generates the code that uses it. The module's `variables.tf` gives each input's name, type, default and validation; its `runbook_block.yml` says how to present them. A `<GitHubPullRequest>` block then pushes that code, and a `<TerragruntApply>` block applies it.
 
-This runbook uses a copy of the `google-group` module from the catalog. Open it with `--simulate` so the organization dropdown, the people suggestions, and the plan and apply on the **Apply** tab answer from [simulation.yml](./simulation.yml) instead of your Google Workspace:
+This runbook uses a copy of the `google-group` module from the catalog. The module's `runbook_block.yml` declares the lookups behind the organization dropdown and the people suggestions, and the `auth` prop binds them to the `<GoogleAuth>` block below, which sends them as the person who signs in. Until someone does, those fields say so, and take typed values.
 
-```bash
-runbooks open --simulate testdata/feature-demos/tf-module
-```
+## Sign in to Google Workspace
+
+<GoogleAuth
+  id="workspace"
+  scopes={[
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "openid",
+    "https://www.googleapis.com/auth/admin.directory.customer.readonly",
+    "https://www.googleapis.com/auth/admin.directory.domain.readonly",
+    "https://www.googleapis.com/auth/admin.directory.user.readonly",
+  ]}
+/>
+
+## Clone your infrastructure repository
+
+<GitHubAuth id="github" />
+
+<GitClone id="infra-live" githubAuthId="github" title="Clone your infrastructure repository" />
 
 ## Describe the group
 
@@ -19,15 +35,27 @@ runbooks open --simulate testdata/feature-demos/tf-module
   source="google-group"
   template="templates/google-group-unit"
   path="google-groups/{{ .id }}"
+  auth={{ google: "workspace" }}
 />
 
-The runbook decides how to use the module: [its template](./templates/google-group-unit) renders a Terragrunt unit. **Generate** writes it under `google-groups/` in the repository a `<GitClone>` block cloned; in simulation, it lists the files without writing them.
+The runbook decides how to use the module: [its template](./templates/google-group-unit) renders a Terragrunt unit. **Generate** writes it under `google-groups/` in the clone.
+
+## Push it
+
+Nothing is applied that isn't pushed, so the pull request comes first.
+
+<GitHubPullRequest
+  id="pr"
+  githubAuthId="github"
+  prefilledPullRequestTitle="Add the {{ .inputs.id }} Google group"
+  inputsId="group"
+/>
 
 ## Apply it
 
-<TerragruntApplyWithGitHubPullRequest id="apply-group" tfModuleId="group" />
+<TerragruntApply id="apply-group" path="{{ .outputs.group.CODE_PATH }}" auth={["workspace"]} />
 
-The **Code** tab shows the unit with these values, in its folder in the repository, which simulation.yml stands in for here; the **PR** tab opens a GitHub pull request that adds it, and the **Apply** tab plans and applies it. Merge and apply in either order. Once it applies, the module's outputs are this block's outputs, such as `{{ .outputs.apply_group.runbooks_console_url }}`.
+Plan first runs the module's preflight checks through the `workspace` block, then shows what the plan would create. Once it applies, the module's outputs are this block's outputs, such as `{{ .outputs.apply_group.runbooks_console_url }}`.
 
 ## Use the values
 

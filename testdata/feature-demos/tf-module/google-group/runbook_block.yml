@@ -3,13 +3,6 @@
 # and every key under `variables` must name an input there.
 version: 0
 
-# The Google APIs the module's resources call. The block checks they're on in the signed-in project.
-requires:
-  google:
-    apis:
-      - cloudidentity.googleapis.com
-      - cloudresourcemanager.googleapis.com
-
 block:
   title: Create a Google Group
   description: Creates a Google group and adds its owners, managers, and members.
@@ -22,7 +15,6 @@ variables:
     primary: true
     lookup:
       from: google.domains
-      label: "{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}"
   id:
     label: Group email
     description: "The group's address. It's also the group's ID: changing it later replaces the group."
@@ -39,8 +31,7 @@ variables:
       from: google.people
     shortcut:
       from: google.me
-      label: 'Add "{{ .name }}" as an owner'
-      value: email
+      label: 'Add "{{ .label }}" as an owner'
   members:
     primary: true
     lookup:
@@ -79,5 +70,60 @@ outputs:
     label: Admin console
     link: View the Google Group
 
-pullRequest:
-  title: "Add the {{ .id }} Google group"
+# What the form asks Google for, sent by the GoogleAuth block the runbook binds
+# the google group to. Each row's `value` is what a pick puts in the input.
+lookups:
+  google:
+    auth: GoogleAuth
+    scopes:
+      - https://www.googleapis.com/auth/admin.directory.customer.readonly
+      - https://www.googleapis.com/auth/admin.directory.domain.readonly
+      - https://www.googleapis.com/auth/admin.directory.user.readonly
+    # The signed-in person.
+    me:
+      request:
+        url: "https://admin.googleapis.com/admin/directory/v1/users/{{ .auth.email }}?viewType=domain_public"
+      fields:
+        value: primaryEmail
+        label: name.fullName
+    # The signed-in organization.
+    customer:
+      request:
+        url: https://admin.googleapis.com/admin/directory/v1/customers/my_customer
+      fields:
+        value: id
+        description: customerDomain
+    domains:
+      request:
+        url: https://admin.googleapis.com/admin/directory/v1/customer/my_customer/domains
+      rows: domains
+      fields:
+        value: domainName
+    # People whose name or email matches what's typed: one page, since typing narrows it.
+    people:
+      request:
+        url: "https://admin.googleapis.com/admin/directory/v1/users?customer=my_customer&viewType=domain_public&orderBy=email&maxResults=50&query={{ .query }}"
+      rows: users
+      maxPages: 1
+      fields:
+        value: primaryEmail
+        label: name.fullName
+        description: organizations.0.title
+
+# Checked before the module is planned.
+checks:
+  google:
+    auth: GoogleAuth
+    apiEnabled:
+      params: [api]
+      request:
+        url: "https://serviceusage.googleapis.com/v1/projects/{{ .auth.project }}/services/{{ .params.api }}"
+      expect: { path: state, equals: ENABLED }
+      message: "{{ .params.api }} is off in {{ .auth.project }}."
+      fix: "https://console.cloud.google.com/apis/library/{{ .params.api }}?project={{ .auth.project }}"
+
+preflight:
+  - check: google.apiEnabled
+    with: { api: cloudidentity.googleapis.com }
+  - check: google.apiEnabled
+    with: { api: cloudresourcemanager.googleapis.com }
