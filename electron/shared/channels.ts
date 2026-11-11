@@ -59,6 +59,8 @@ export interface IpcChannelMap {
       language: string
       size: number
       isWatchMode?: boolean
+      /** --disable-live-file-reload: a reload keeps the registry built at open. */
+      disableLiveFileReload?: boolean
       warnings?: string[]
       remoteSource?: string
       assetHost: string
@@ -971,10 +973,12 @@ export interface IpcEventMap {
     fileTree: unknown
   }
   /**
-   * `path` is the runbook the watcher watches (as runbook:get resolved it), so
-   * after a failed open the renderer reloads that runbook, not the failed one.
+   * The open runbook was written on disk, in any mode. `path` is the runbook
+   * the watcher watches (as runbook:get resolved it), so after a failed open
+   * the renderer reloads that runbook, not the failed one. `contentHash` is
+   * the hash of the file as it is now, as runbook:get computes it.
    */
-  "watch:file-change": { type: "reload"; path: string }
+  "watch:file-change": { type: "reload"; path: string; contentHash: string }
   /**
    * Script files the registry was built from were written on disk.
    * `componentIds` are the blocks that run them: each asks

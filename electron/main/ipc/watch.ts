@@ -1,14 +1,16 @@
 /**
- * Watch mode: tells the renderer to reload when the open runbook changes.
+ * Tells the renderer when the open runbook changes on disk.
  *
  * The main process owns the watcher. `runbook:get` starts it for the loaded
- * runbook when the app was launched with --watch; closing the runbook or
- * quitting stops it. Watching a different runbook replaces the previous
- * watcher (see runbook-watcher.ts).
+ * runbook in every mode; closing the runbook or quitting stops it. Watching
+ * a different runbook replaces the previous watcher (see runbook-watcher.ts).
  *
- * The watcher only signals "reload". The renderer's reload goes back through
- * `runbook:get`, which is the one place the executable registry is rebuilt
- * (or kept frozen under --disable-live-file-reload).
+ * The watcher only signals that the runbook was written, with the hash of
+ * what is on disk now. With --watch the renderer reloads at once; without
+ * it, the renderer offers the reload unless the hash is the one it loaded.
+ * Either reload goes back through `runbook:get`, which is the one place the
+ * executable registry is rebuilt (or kept frozen under
+ * --disable-live-file-reload).
  *
  * A second watcher, in every mode, covers the script files the registry was
  * built from. It only signals which blocks' scripts were written: those
@@ -21,11 +23,24 @@ import { makeRunbookWatcher, makeScriptWatcher } from "./runbook-watcher.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { markRunbookClosed } from "./runbook.ts"
 import { getMainWindow } from "../window.ts"
+import { makeLogger } from "../logger.ts"
+import { readFileMetadata } from "../../../src/domain/workspace/file.ts"
+
+const log = makeLogger("ipc:watch")
 
 const runbookWatcher = makeRunbookWatcher(runtime, (runbookPath) => {
-  const win = getMainWindow()
-  if (!win || win.isDestroyed()) return
-  win.webContents.send("watch:file-change", { type: "reload", path: runbookPath })
+  // The same hash runbook:get returns. A runbook that can't be read (deleted,
+  // or mid-rename by an editor) reports nothing: its next write does.
+  runtime
+    .runPromise(readFileMetadata(runbookPath))
+    .then(({ contentHash }) => {
+      const win = getMainWindow()
+      if (!win || win.isDestroyed()) return
+      win.webContents.send("watch:file-change", { type: "reload", path: runbookPath, contentHash })
+    })
+    .catch((err: unknown) => {
+      log.debug("failed to read the changed runbook", runbookPath, err)
+    })
 })
 
 const scriptWatcher = makeScriptWatcher(runtime, (scriptsWritten) => {
@@ -65,8 +80,8 @@ export function closeRunbook(): void {
 
 export function registerWatchHandlers(): void {
   // Kept for the declared channel contract; nothing calls it. runbook:get
-  // owns starting the watcher (in --watch mode), and the renderer only
-  // listens for watch:file-change when runbook:get reports isWatchMode.
+  // owns starting the watcher, in every mode, and the renderer decides from
+  // runbook:get's isWatchMode whether a watch:file-change reloads at once.
   ipcMain.handle("watch:subscribe", async (_event, params?: { runbookPath?: string }) => {
     // Prefer the already-trusted runbookConfig.localPath; only use the
     // renderer-supplied path if it passes validation.

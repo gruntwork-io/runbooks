@@ -11,6 +11,7 @@ import { ErrorSummaryBanner } from "./components/layout/ErrorSummaryBanner"
 import { RunbookOpenError } from "./components/layout/RunbookOpenError"
 import { SessionResumedNotice } from "./components/layout/SessionResumedNotice"
 import { FinishedSessionNotice } from "./components/layout/FinishedSessionNotice"
+import { RunbookChangedNotice } from "./components/layout/RunbookChangedNotice"
 import { SessionsDialog } from "./components/layout/SessionsDialog"
 import MDXContainer from "./components/MDXContainer"
 import { ArtifactsContainer } from "./components/layout/ArtifactsContainer"
@@ -21,11 +22,11 @@ import {
   GeneratedFilesAlert,
   shouldShowGeneratedFilesAlert,
 } from "./components/layout/GeneratedFilesAlert"
-import { getDirectoryPath, getRunbookName, hasGeneratedFiles } from "./lib/utils"
+import { basename, getDirectoryPath, getRunbookName, hasGeneratedFiles } from "./lib/utils"
 import { useIpcGetRunbook } from "./hooks/useIpcGetRunbook"
 import { useGeneratedFiles } from "./hooks/useGeneratedFiles"
 import { useGitWorkTree } from "./contexts/useGitWorkTree"
-import { useIpcWatchMode } from "./hooks/useIpcWatchMode"
+import { useIpcWatchMode, type RunbookFileChange } from "./hooks/useIpcWatchMode"
 import { useIpcGeneratedFilesCheck } from "./hooks/useIpcGeneratedFilesCheck"
 import { useWheelScrollFallback } from "./hooks/useWheelScrollFallback"
 import { useResizableSplit } from "./hooks/useResizableSplit"
@@ -162,23 +163,60 @@ function App() {
     }
   }, [getRunbookResult.data?.content, clearAllErrors])
 
-  // Watch mode: reload the runbook, without a loading flash, when the main
-  // process reports that the runbook it watches changed. A failed open leaves
-  // the previous runbook on screen, and main keeps watching it, while the last
-  // request is the failed one: re-sending that would raise its error again on
-  // every save, so reload the displayed runbook instead.
+  // Reload the runbook without a loading flash, keeping its session. A failed
+  // open leaves the previous runbook on screen, and main keeps watching it,
+  // while the last request is the failed one: re-sending that would raise its
+  // error again, so reload the displayed runbook instead.
   const { data: displayedRunbook, error: runbookError, reloadForWatch } = getRunbookResult
-  const handleRunbookFileChange = useCallback(
-    (changedPath: string) => {
-      if (runbookError && displayedRunbook?.path === changedPath) {
+  const reloadDisplayedRunbook = () => {
+    if (runbookError && displayedRunbook) {
+      reloadForWatch(displayedRunbook.path, displayedRunbook.remoteSource)
+    } else {
+      reloadForWatch()
+    }
+  }
+
+  // The hash of the displayed runbook's file as main last reported it, for
+  // the loaded runbook and session it was reported in. Without --watch a
+  // change is offered as a reload, until the runbook on screen is the one on
+  // disk again: after the reload, or after a save that undid the change.
+  const [runbookOnDisk, setRunbookOnDisk] = useState<{
+    sessionKey: string
+    contentHash: string
+  } | null>(null)
+  const handleRunbookFileChange = (change: RunbookFileChange) => {
+    if (displayedRunbook?.isWatchMode) {
+      // Watch mode: reload at once, even on a save that changed nothing, so
+      // the blocks re-read script files that changed since.
+      if (runbookError && displayedRunbook.path === change.path) {
         reloadForWatch(displayedRunbook.path, displayedRunbook.remoteSource)
       } else {
         reloadForWatch()
       }
-    },
-    [runbookError, displayedRunbook, reloadForWatch],
-  )
-  useIpcWatchMode(handleRunbookFileChange, displayedRunbook?.isWatchMode ?? false)
+      return
+    }
+    // A change to a runbook that is no longer on screen (main stops watching
+    // it, but its last event can still be on the way)
+    if (!loadedSessionKey || displayedRunbook?.path !== change.path) return
+    setRunbookOnDisk({ sessionKey: loadedSessionKey, contentHash: change.contentHash })
+  }
+  useIpcWatchMode(handleRunbookFileChange)
+  // The file's hash when the user dismissed the notice. It stays dismissed
+  // for that hash only: a later save that changes the file again shows it
+  // again, and so does any save after a load that changed the runbook on
+  // screen, which forgets the dismissal.
+  const [dismissedRunbookChange, setDismissedRunbookChange] = useState<string | null>(null)
+  const displayedRunbookKey = `${loadedSessionKey ?? ""}\n${displayedRunbook?.contentHash ?? ""}`
+  const [prevDisplayedRunbookKey, setPrevDisplayedRunbookKey] = useState(displayedRunbookKey)
+  if (displayedRunbookKey !== prevDisplayedRunbookKey) {
+    setPrevDisplayedRunbookKey(displayedRunbookKey)
+    setDismissedRunbookChange(null)
+  }
+  const showRunbookChanged =
+    runbookOnDisk !== null &&
+    runbookOnDisk.sessionKey === loadedSessionKey &&
+    runbookOnDisk.contentHash !== displayedRunbook?.contentHash &&
+    runbookOnDisk.contentHash !== dismissedRunbookChange
 
   // Get file tree state to detect when files are generated
   const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
@@ -541,6 +579,16 @@ function App() {
                       runbookFilePath={getRunbookResult.data?.path}
                       remoteSource={getRunbookResult.data?.remoteSource}
                       assetHost={getRunbookResult.data?.assetHost}
+                      notice={
+                        showRunbookChanged && (
+                          <RunbookChangedNotice
+                            fileName={basename(getRunbookResult.data?.path ?? "")}
+                            registryFrozen={getRunbookResult.data?.disableLiveFileReload === true}
+                            onReload={reloadDisplayedRunbook}
+                            onDismiss={() => setDismissedRunbookChange(runbookOnDisk.contentHash)}
+                          />
+                        )
+                      }
                       banner={
                         shownResumeNotice ? (
                           <SessionResumedNotice

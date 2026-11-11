@@ -323,11 +323,11 @@ export function registerRunbookHandlers(): void {
       const session = persistence.currentSession()
       if (session === undefined) throw new Error("the open runbook has no saved session")
 
-      // Watch mode: reload the renderer when this runbook changes. A no-op if
-      // it's already watched; a watcher on a previous runbook is stopped.
-      if (config.isWatchMode) {
-        startWatcher(runbookPath)
-      }
+      // Tell the renderer when this runbook changes on disk, with or without
+      // --watch: in watch mode it reloads on its own, otherwise it offers the
+      // reload to the user. A no-op if it's already watched; a watcher on a
+      // previous runbook is stopped.
+      startWatcher(runbookPath)
 
       // --disable-live-file-reload freezes the registry built when this
       // runbook was opened: reloading it (watch mode, re-opening the same
@@ -381,6 +381,8 @@ export function registerRunbookHandlers(): void {
         language: ext || "mdx",
         size: fileData.content.length,
         isWatchMode: config.isWatchMode,
+        // A reload keeps the registry built at open (see above).
+        disableLiveFileReload: config.disableLiveFileReload === true,
         warnings: registry.getWarnings(),
         remoteSource: params.remoteSource,
         assetHost: runbookAssetHost(config),

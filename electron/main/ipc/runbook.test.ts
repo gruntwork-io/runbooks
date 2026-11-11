@@ -3,6 +3,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { mockElectron } from "../test-utils/mock-electron.ts"
+import { computeContentHash } from "../../../src/domain/workspace/file.ts"
 
 // runbook.ts imports electron's `ipcMain` only to register handlers. Capture
 // them so the test can call a handler the way the renderer's invoke would.
@@ -45,7 +46,9 @@ type TestSessionPersistence = ReturnType<typeof installTestSessionPersistence>
 
 type RunbookGetResult = {
   path: string
+  contentHash: string
   isWatchMode?: boolean
+  disableLiveFileReload?: boolean
   sessionId: string
   sessionName: string
   sessionDir: string
@@ -59,12 +62,15 @@ const getRunbook = (runbookPath: string, extra?: Record<string, unknown>) =>
     ...extra,
   }) as Promise<RunbookGetResult>
 
-/** The runbook paths of the watch:file-change events sent since `from`. */
-const reloadsSince = (from: number) =>
+/** The watch:file-change events sent since `from`. */
+const fileChangesSince = (from: number) =>
   sent
     .slice(from)
     .filter((m) => m.channel === "watch:file-change")
-    .map((m) => (m.payload as { path: string }).path)
+    .map((m) => m.payload as { type: string; path: string; contentHash: string })
+
+/** The runbook paths of the watch:file-change events sent since `from`. */
+const reloadsSince = (from: number) => fileChangesSince(from).map((change) => change.path)
 
 const registryUpdatesSince = (from: number) =>
   sent.slice(from).filter((m) => m.channel === "registry:updated").length
@@ -200,43 +206,88 @@ describe("runbook IPC handlers", () => {
       })
     })
 
+    it("reports --disable-live-file-reload, so the renderer can say a reload keeps the registry", async () => {
+      expect((await getRunbook(dirA)).disableLiveFileReload).toBe(false)
+
+      setRunbookConfig({ ...originalRunbookConfig, disableLiveFileReload: true })
+      expect((await getRunbook(dirA)).disableLiveFileReload).toBe(true)
+    })
+
+    // The runbook is watched in every mode: --watch only decides whether the
+    // renderer reloads on its own or offers the reload to the user.
+    for (const isWatchMode of [true, false]) {
+      const mode = isWatchMode ? "with --watch" : "without --watch"
+
+      it(
+        `${mode}, reports edits to the open runbook, and only the new one's after a switch`,
+        async () => {
+          setRunbookConfig({ ...originalRunbookConfig, isWatchMode })
+          const a = await getRunbook(dirA)
+          await editUntilReloaded(a.path)
+
+          const b = await getRunbook(dirB)
+          const switched = sent.length
+          fs.writeFileSync(a.path, runbookWith("echo a-after-switch"))
+          // B's reload comes at least one debounce after A's edit, so a watcher
+          // still running on A would have reported that edit first.
+          await editUntilReloaded(b.path, switched)
+
+          expect(new Set(reloadsSince(switched))).toEqual(new Set([b.path]))
+        },
+        WATCH_TEST_TIMEOUT_MS,
+      )
+
+      it(
+        `${mode}, closeRunbook stops reporting edits to the runbook it closed`,
+        async () => {
+          setRunbookConfig({ ...originalRunbookConfig, isWatchMode })
+          const a = await getRunbook(dirA)
+          await editUntilReloaded(a.path)
+
+          const closed = sent.length
+          closeRunbook()
+          expect(sent.slice(closed).map((m) => m.channel)).toEqual(["menu:close-runbook"])
+
+          fs.writeFileSync(a.path, runbookWith("echo a-after-close"))
+          // There is no event to wait for when nothing should happen: give a
+          // watcher that is still running well over its 300ms debounce.
+          await new Promise((resolve) => {
+            setTimeout(resolve, 1_000)
+          })
+          expect(reloadsSince(closed)).toEqual([])
+        },
+        WATCH_TEST_TIMEOUT_MS,
+      )
+    }
+
     it(
-      "in watch mode, reloads on edits to the open runbook, and only the new one's after a switch",
+      "without --watch, reports edits to the open runbook with the file's hash",
       async () => {
-        setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
         const a = await getRunbook(dirA)
+        expect(a.isWatchMode).toBe(false)
+        // Once one edit is reported, the watcher has finished its initial scan.
         await editUntilReloaded(a.path)
 
-        const b = await getRunbook(dirB)
-        const switched = sent.length
-        fs.writeFileSync(a.path, runbookWith("echo a-after-switch"))
-        // B's reload comes at least one debounce after A's edit, so a watcher
-        // still running on A would have reported that edit first.
-        await editUntilReloaded(b.path, switched)
+        const from = sent.length
+        const edited = runbookWith("echo a-edited")
+        const editedHash = computeContentHash(edited)
+        fs.writeFileSync(a.path, edited)
+        expect(
+          await waitUntil(
+            () => fileChangesSince(from).some((c) => c.contentHash === editedHash),
+            WATCH_TEST_TIMEOUT_MS / 2,
+          ),
+        ).toBe(true)
 
-        expect(new Set(reloadsSince(switched))).toEqual(new Set([b.path]))
-      },
-      WATCH_TEST_TIMEOUT_MS,
-    )
-
-    it(
-      "closeRunbook stops reloading the runbook it closed",
-      async () => {
-        setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
-        const a = await getRunbook(dirA)
-        await editUntilReloaded(a.path)
-
-        const closed = sent.length
-        closeRunbook()
-        expect(sent.slice(closed).map((m) => m.channel)).toEqual(["menu:close-runbook"])
-
-        fs.writeFileSync(a.path, runbookWith("echo a-after-close"))
-        // There is no event to wait for when nothing should happen: give a
-        // watcher that is still running well over its 300ms debounce.
-        await new Promise((resolve) => {
-          setTimeout(resolve, 1_000)
+        // The same hash runbook:get returns for the file, so the renderer can
+        // tell a change from a save that left the runbook as it loaded it.
+        expect(fileChangesSince(from).at(-1)).toEqual({
+          type: "reload",
+          path: a.path,
+          contentHash: editedHash,
         })
-        expect(reloadsSince(closed)).toEqual([])
+        const reloaded = await getRunbook(dirA, { reload: true })
+        expect(reloaded.contentHash).toBe(editedHash)
       },
       WATCH_TEST_TIMEOUT_MS,
     )
@@ -807,20 +858,53 @@ describe("runbook IPC handlers", () => {
         diskContent: string
         diskContentHash: string
       }
+      const runbookContent =
+        '# Runbook\n\n<Command id="deploy" path="scripts/deploy.sh" />\n\n<Check id="verify" path="scripts/verify.sh" />\n'
       let runbookFile: string
       let scriptFile: string
+      let verifyFile: string
 
       beforeEach(() => {
         runbookFile = path.join(dirA, "runbook.mdx")
         scriptFile = path.join(dirA, "scripts", "deploy.sh")
+        verifyFile = path.join(dirA, "scripts", "verify.sh")
         fs.mkdirSync(path.dirname(scriptFile))
         fs.writeFileSync(scriptFile, "echo v1\n")
-        fs.writeFileSync(path.join(dirA, "scripts", "verify.sh"), "echo verify\n")
-        fs.writeFileSync(
-          runbookFile,
-          '# Runbook\n\n<Command id="deploy" path="scripts/deploy.sh" />\n\n<Check id="verify" path="scripts/verify.sh" />\n',
-        )
+        fs.writeFileSync(verifyFile, "echo verify\n")
+        fs.writeFileSync(runbookFile, runbookContent)
       })
+
+      /** Whether a watch:script-change sent since `from` names block `componentId`. */
+      const scriptChangeNamed = (componentId: string, from: number) =>
+        scriptChangesSince(from).some((ids) => ids.includes(componentId))
+
+      /**
+       * Wait until the script watcher is watching and has reported every
+       * script write made before this call, such as this suite's beforeEach,
+       * which macOS can deliver after the watcher started.
+       *
+       * A watcher that has only just started can miss a write made before
+       * chokidar finished its initial scan, so verify.sh, the last script
+       * beforeEach writes, is written until a change to it is reported. A
+       * watcher reports a directory's events in order, so by then every
+       * earlier write has been reported too, except a second write of this
+       * loop that was still on the way. One more write, of deploy.sh, is then
+       * reported after all of them.
+       */
+      async function catchUpScriptWatcher(): Promise<void> {
+        const ready = sent.length
+        const deadline = Date.now() + WATCH_TEST_TIMEOUT_MS / 4
+        while (!scriptChangeNamed("verify", ready)) {
+          if (Date.now() > deadline) throw new Error("no change to verify.sh was reported")
+          fs.writeFileSync(verifyFile, "echo verify\n")
+          await waitUntil(() => scriptChangeNamed("verify", ready), 1_000)
+        }
+        const fence = sent.length
+        fs.writeFileSync(scriptFile, "echo v1\n")
+        if (!(await waitUntil(() => scriptChangeNamed("deploy", fence), 5_000))) {
+          throw new Error("no change to deploy.sh was reported")
+        }
+      }
 
       const scriptChange = async () =>
         (
@@ -900,23 +984,28 @@ describe("runbook IPC handlers", () => {
       it(
         "tells the renderer which block's script file was written, without --watch",
         async () => {
-          await getRunbook(dirA)
-          const from = sent.length
+          const loaded = await getRunbook(dirA)
+          await catchUpScriptWatcher()
 
-          // A watcher that has only just started can miss a write made before
-          // chokidar finished its initial scan, so write until one is reported.
-          const deadline = Date.now() + WATCH_TEST_TIMEOUT_MS / 2
-          for (let edit = 1; scriptChangesSince(from).length === 0; edit++) {
-            if (Date.now() > deadline) throw new Error("no script change was sent")
-            fs.writeFileSync(scriptFile, `echo edit-${edit}\n`)
-            await waitUntil(() => scriptChangesSince(from).length > 0, 1_000)
-          }
+          const from = sent.length
+          fs.writeFileSync(scriptFile, "echo edit\n")
+          expect(await waitUntil(() => scriptChangesSince(from).length > 0, 5_000)).toBe(true)
 
           // Only the block whose script was written is named, never "verify".
           expect(new Set(scriptChangesSince(from).flat())).toEqual(new Set(["deploy"]))
-          // Nothing but the notice: the runbook isn't reloaded and the registry isn't rebuilt.
-          expect(new Set(sent.slice(from).map((m) => m.channel))).toEqual(
-            new Set(["watch:script-change"]),
+          // Nothing but the notice: the registry isn't rebuilt, and the
+          // runbook isn't reloaded. The runbook watcher, which runs in every
+          // mode, may still report beforeEach's write of runbook.mdx, but only
+          // as the version loaded, which the renderer ignores.
+          const channels = new Set(sent.slice(from).map((m) => m.channel))
+          channels.delete("watch:file-change")
+          expect(channels).toEqual(new Set(["watch:script-change"]))
+          expect(fileChangesSince(from)).toEqual(
+            fileChangesSince(from).map(() => ({
+              type: "reload",
+              path: runbookFile,
+              contentHash: loaded.contentHash,
+            })),
           )
           expect(registeredScript()).toBe("echo v1\n")
         },

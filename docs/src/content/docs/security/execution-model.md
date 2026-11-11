@@ -50,7 +50,7 @@ Every script Runbooks runs comes from the registry. The ways of opening a runboo
 runbooks open path/to/runbook.mdx
 ```
 
-The registry is built once, when the runbook opens. Changes you make to the runbook or its scripts afterwards do not run until you close and reopen the runbook, or until you [reload a changed script file](#reloading-a-changed-script-file) from its block. This is the mode for consumers who want to run exactly what the author wrote.
+The registry is built once, when the runbook opens. Changes you make to the runbook or its scripts afterwards do not run until you [reload the changed runbook](#reloading-a-changed-runbook), close and reopen it, or [reload a changed script file](#reloading-a-changed-script-file) from its block. This is the mode for consumers who want to run exactly what the author wrote.
 
 ### Watch mode
 
@@ -83,7 +83,19 @@ Runbooks watches the script files that `<Check>`, `<Command>` and `<Finish>` blo
 **Security:**
 - A changed script is never executed without a click on a notice that shows what changed
 - The reload approves the content you saw. A write that lands between the diff and the click is rejected
-- Only script files are covered. A changed inline `command` is part of `runbook.mdx`, so it needs the runbook to be reloaded
+- Only script files are covered. A changed inline `command` is part of `runbook.mdx`, so it needs the runbook to be [reloaded](#reloading-a-changed-runbook)
+
+### Reloading a changed runbook
+
+Runbooks watches the open runbook file in every mode. Without `--watch`, a save to it changes nothing about what the app shows or runs. The runbook shows a "Runbook changed" notice with a **Reload runbook** button, and Run keeps executing the version in the registry until you click it. The notice shows at the top of the runbook, with the session notice, and scrolls away with the runbook. In a runbook with [chapters](/authoring/blocks/chapter/), it shows at the top of the chapter on screen instead, so it is there on each chapter that **Next** or **Previous** moves to. The notice goes away if a later save puts the file back to the version Runbooks loaded. Dismissing it hides it, on every chapter, for that version of the file only: a later save that changes the file again shows it again. A runbook that fails to compile shows the notice above its error, so a save that fixes it can be reloaded.
+
+**View > Reload** (Cmd/Ctrl+R) also reloads the runbook, with or without a notice, but it reloads the whole page, so it stops every script that is still running. The notice's reload stops a running script only when the runbook's content changed.
+
+The notice's reload works like a watch-mode reload. It keeps the [session](/commands/sessions/) and rebuilds the registry from the runbook and the scripts it references as they are on disk at that moment. With `--disable-live-file-reload` it keeps the registry built at open: the app shows the new version, and blocks whose command or script changed show a "Script changed" warning and run the original.
+
+**Security:**
+- A changed runbook is never executed without a click
+- The notice shows no diff, and the click approves whatever is on disk when you click, not a version you reviewed. This is the same trust as closing and reopening the runbook, and weaker than [reloading a changed script file](#reloading-a-changed-script-file), which refuses a script that changed after you saw it
 
 ## How scripts run
 
