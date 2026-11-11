@@ -6,7 +6,8 @@
  * a clone with changes that aren't on its remote. The saved plan, which can
  * hold secrets, and what Terragrunt downloads stay in a folder outside the
  * clone, and the plan is deleted once it's applied. A plan is applied only
- * while the unit's files, and the .hcl files above it, are as they were.
+ * while the unit's files, and the .hcl files above it, are as they were. In
+ * simulation mode, simulation.yml answers instead (see terragrunt-simulate.ts).
  */
 import { createHash } from "node:crypto"
 import { execFile, spawn } from "node:child_process"
@@ -20,6 +21,8 @@ import { runtime, sessionManager } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { moduleDir } from "./tf-module-source.ts"
 import { describeFailure } from "./ipc-error.ts"
+import { simulationEnabled } from "./simulation.ts"
+import { simulateApply, simulatedPreflight, simulatePlan } from "./terragrunt-simulate.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
 import { isRemoteSource } from "../../../src/remote-source.ts"
 import { disallowedEnvVars } from "../../../src/domain/exec/authEnv.ts"
@@ -397,7 +400,9 @@ const preflight = (request: TerragruntApplyRequest) =>
 
 export function registerTerragruntApplyHandlers(): void {
   ipcMain.handle("terragrunt-apply:preflight", (_event, params: TerragruntApplyRequest) =>
-    runtime.runPromise(preflight(params)),
+    simulationEnabled()
+      ? runtime.runPromise(simulatedPreflight(params))
+      : runtime.runPromise(preflight(params)),
   )
 
   ipcMain.handle("terragrunt-apply:plan", async (event, params: TerragruntRunRequest) => {
@@ -405,6 +410,7 @@ export function registerTerragruntApplyHandlers(): void {
     try {
       return await runtime.runPromise(
         Effect.gen(function* () {
+          if (simulationEnabled()) return yield* simulatePlan(params, run)
           // Until this plan finishes, there's no plan to apply.
           yield* forgetPlan(params.blockId)
           const env = yield* runEnv(params)
@@ -449,6 +455,7 @@ export function registerTerragruntApplyHandlers(): void {
     try {
       return await runtime.runPromise(
         Effect.gen(function* () {
+          if (simulationEnabled()) return yield* simulateApply(params, run)
           const env = yield* runEnv(params)
           const { worktree, unit } = yield* unitOf(params)
           const saved = savedPlans.get(params.blockId)

@@ -29,6 +29,7 @@ import { UnmetDependenciesWarning } from "../_shared/components/UnmetDependencie
 import { useTemplateDependencies } from "../_shared/hooks/useTemplateDependencies"
 import { buildAuthEnvVars, buildGoogleAuthEnvVars } from "../_shared/hooks/useScriptExecution"
 import { authFacts, signedIn } from "../_shared/lib/authFacts"
+import { useSimulation } from "@/contexts/useSimulation"
 import { GITHUB_AUTH_ENV_VARS, GIT_AUTH_ENV_VARS } from "../../../../../src/domain/exec/authEnv"
 import { revealOutputs } from "../../../../../src/domain/exec/outputValues"
 import type { BoundBlock } from "../../../../../src/domain/lookups/validate"
@@ -188,6 +189,7 @@ function TerragruntApply({
   const authList = Array.isArray(auth) ? auth : NO_AUTH
   const authBlocks = useAuthBlocks(authList)
   const clone = useCloneId(gitCloneId)
+  const simulating = useSimulation().state.enabled
   const { workTrees } = useGitWorkTree()
   const workTree = clone.cloneId
     ? workTrees.find((tree) => normalizeBlockId(tree.id) === normalizeBlockId(clone.cloneId!))
@@ -232,7 +234,8 @@ function TerragruntApply({
       />,
     )
   }
-  if (!clone.cloneId || !workTree) {
+  // A simulated unit runs nowhere, so it needs no clone.
+  if (!simulating && (!clone.cloneId || !workTree)) {
     return waiting(
       <Waiting>
         Clone the repository in the{" "}
@@ -246,9 +249,10 @@ function TerragruntApply({
       <Runner
         id={id}
         header={header}
-        worktreePath={workTree.localPath}
+        worktreePath={workTree?.localPath ?? ""}
         path={resolvedPath}
         auth={authBlocks.blocks}
+        simulating={simulating}
       />
     </div>
   )
@@ -314,19 +318,28 @@ interface RunnerProps {
   worktreePath: string
   path: string
   auth: readonly BoundBlock[]
+  /** simulation.yml answers for the unit, so nobody needs to sign in. */
+  simulating: boolean
 }
 
 /** The preflight, the plan and the apply, once the block knows its unit and clone. */
-function Runner({ id, header, worktreePath, path, auth }: RunnerProps) {
-  const { registerOutputs } = useRunbookContext()
+function Runner({ id, header, worktreePath, path, auth, simulating }: RunnerProps) {
+  const { registerOutputs, blockInputs } = useRunbookContext()
   const allOutputs = useAllOutputs()
   const envs = auth.map((block) => ({ block, env: envOf(block, allOutputs) }))
-  const signedOut = envs.filter((entry) => !entry.env).map((entry) => entry.block)
+  const signedOut = simulating ? [] : envs.filter((entry) => !entry.env).map((entry) => entry.block)
   const request: TerragruntApplyRequest = {
     blockId: id,
     worktreePath,
     path,
     env: Object.assign({}, ...envs.map((entry) => entry.env ?? {})) as Record<string, string>,
+    ...(simulating
+      ? {
+          blockInputs: Object.fromEntries(
+            Object.entries(blockInputs).map(([blockId, { values }]) => [blockId, values]),
+          ),
+        }
+      : {}),
   }
   const run = useTerragruntRun(request, `${worktreePath}\0${path}`)
   const preflight = usePreflight(request, auth)
@@ -370,6 +383,10 @@ function Runner({ id, header, worktreePath, path, auth }: RunnerProps) {
                 <div key={block.id}>
                   {envs.find((entry) => entry.block === block)?.env ? (
                     callerOf(block, allOutputs)
+                  ) : simulating ? (
+                    <span>
+                      nobody, simulated for <BlockLink blockId={block.id} />
+                    </span>
                   ) : (
                     <span className="text-warning-foreground">
                       not signed in to <BlockLink blockId={block.id} />

@@ -218,6 +218,23 @@ checks:
     )
   })
 
+  it("tells send which check a request is for, with the use's params", async () => {
+    const { context } = contextFor(CHECK, () => ({ state: "ENABLED" }))
+    const about: unknown[] = []
+    const send = context.send
+    await runCheck(
+      {
+        ...context,
+        send: (request, group, auth, sendFor) => {
+          about.push(sendFor)
+          return send(request, group, auth, sendFor)
+        },
+      },
+      use,
+    )
+    expect(about).toEqual([{ id: "google.apiEnabled", with: { api: "admin.googleapis.com" } }])
+  })
+
   it("fails with its message and fix when the answer doesn't", async () => {
     const { context } = contextFor(CHECK, () => ({ state: "DISABLED" }))
     expect(await runCheck(context, use)).toEqual({

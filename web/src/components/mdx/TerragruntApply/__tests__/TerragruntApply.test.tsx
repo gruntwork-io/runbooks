@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useComponentIdRegistry, type BlockComponentType } from "@/contexts/ComponentIdRegistry"
+import { SimulationContext, type SimulationContextValue } from "@/contexts/SimulationContext.types"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import type { TerragruntPreflight } from "../../../../../../electron/shared/channels"
 import type { TfModuleSpec } from "../../../../../../src/domain/tf-module/types"
@@ -35,6 +36,7 @@ const invoke = vi.fn((channel: string, _params?: unknown): Promise<unknown> => {
     case "terragrunt-apply:plan":
       return Promise.resolve({ resources: [] })
     case "aws:send":
+    case "simulation:respond":
       return Promise.resolve({
         status: 200,
         contentType: "application/json",
@@ -95,20 +97,36 @@ function Capture() {
   return null
 }
 
+const SIMULATING: SimulationContextValue = {
+  state: { enabled: true, scenarios: [], active: "happy" },
+  setScenario: () => {},
+  revision: 1,
+}
+const NOT_SIMULATING: SimulationContextValue = { ...SIMULATING, state: { enabled: false } }
+
 function renderBlock(
   props: Partial<React.ComponentProps<typeof TerragruntApply>> = {},
   blocks: { id: string; kind: BlockComponentType }[] = [
     { id: "repo", kind: "GitClone" },
     { id: "prod", kind: "AwsAuth" },
   ],
+  simulating = false,
 ) {
+  const simulation = simulating ? SIMULATING : NOT_SIMULATING
   return render(
     <TestWrapper>
-      <Capture />
-      {blocks.map((block) => (
-        <Fake key={block.id} {...block} />
-      ))}
-      <TerragruntApply id="apply-budget" path="aws/prod/global/budget" auth={["prod"]} {...props} />
+      <SimulationContext.Provider value={simulation}>
+        <Capture />
+        {blocks.map((block) => (
+          <Fake key={block.id} {...block} />
+        ))}
+        <TerragruntApply
+          id="apply-budget"
+          path="aws/prod/global/budget"
+          auth={["prod"]}
+          {...props}
+        />
+      </SimulationContext.Provider>
     </TestWrapper>,
   )
 }
@@ -226,5 +244,21 @@ describe("TerragruntApply", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Plan" }))
     expect(await screen.findByText(/need an AwsAuth block/)).toBeInTheDocument()
     expect(calls("terragrunt-apply:plan")).toHaveLength(0)
+  })
+
+  it("in simulation, plans with no clone and no sign-in, and answers checks from simulation.yml", async () => {
+    workTrees = []
+    preflight = { kind: "ready", tools: [], inputs: {}, module: moduleWithCheck }
+    renderBlock({}, undefined, true)
+    expect(await screen.findByText(/simulated for/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }))
+
+    await waitFor(() => expect(calls("terragrunt-apply:plan")).toHaveLength(1))
+    expect(calls("simulation:respond")[0]![1]).toEqual({ id: "aws.enabled", with: {} })
+    expect(calls("aws:send")).toHaveLength(0)
+    expect(calls("terragrunt-apply:preflight")[0]![1]).toMatchObject({
+      worktreePath: "",
+      blockInputs: {},
+    })
   })
 })

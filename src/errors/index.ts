@@ -159,6 +159,13 @@ export class TfModuleError extends Data.TaggedError("TfModuleError")<{
   readonly cause?: unknown
 }> {}
 
+// Simulation
+/** The runbook's simulation.yml is missing, malformed, or has no answer for a request. The message is fit to show the author. */
+export class SimulationError extends Data.TaggedError("SimulationError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
 // Session
 export class SessionError extends Data.TaggedError("SessionError")<{
   readonly message: string

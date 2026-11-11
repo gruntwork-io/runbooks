@@ -19,7 +19,8 @@ export function SimulationBar() {
         <FlaskConical className="size-4 text-warning" aria-hidden />
         <span className="font-semibold text-foreground">Simulation</span>
         <span className="text-muted-foreground">
-          Lookups answer from simulation.yml. Nothing real is read or changed.
+          Lookups, checks and Terragrunt runs answer from simulation.yml. Nothing real is read or
+          changed.
         </span>
         {state.scenarios.length > 0 && (
           <label className="ml-auto flex items-center gap-2">

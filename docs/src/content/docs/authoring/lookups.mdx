@@ -137,6 +137,6 @@ It exits non-zero when it finds a problem. It also checks the recorded answers i
 runbooks-cli lookups record modules/aws-sso-account-access --auth aws.ssoRegion=us-east-2
 ```
 
-A sample needs the answer's shape, not real data, so by default it keeps three rows and only the paths the lookup or check reads, and replaces each value with a placeholder of the same type, such as `user-1@example.com`. `--keep-values` keeps the real values of the rows it keeps. The command shows the file and asks before writing it; `--yes` writes it without asking. The file's other scenarios are kept.
+A sample needs the answer's shape, not real data, so by default it keeps three rows and only the paths the lookup or check reads, and replaces each value with a placeholder of the same type, such as `user-1@example.com`. `--keep-values` keeps the real values of the rows it keeps. The command shows the file and asks before writing it; `--yes` writes it without asking. The file's other scenarios are kept. [Simulation mode](/authoring/simulation-mode/#lookups-and-checks) answers from the recording in every runbook that uses the module.
 
 Credentials come from the environment: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` with `AWS_REGION`, or `AWS_PROFILE`, for AWS; and Google's application default credentials, from `GOOGLE_APPLICATION_CREDENTIALS` or `gcloud auth application-default login`. `--input name=value` sets a form value the requests read, and `--auth group.fact=value` sets what a group's auth block knows, such as the Identity Center region.
