@@ -1132,7 +1132,11 @@ export function useAwsAuth({
     manualHint:
       detectCredentials === false
         ? null
-        : signInHint({ invalidDetected: detectionWarning !== null, nothingDetected }),
+        : signInHint({
+            invalidDetected: detectionWarning !== null,
+            nothingDetected,
+            signInFailed: authStatus === "failed",
+          }),
 
     // Credentials form
     accessKeyId,
