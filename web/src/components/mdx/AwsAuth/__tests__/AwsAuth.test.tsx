@@ -65,6 +65,16 @@ function SourceBlock({ id }: { id: string }) {
   )
 }
 
+/** Stands in for a block that produces outputs, such as one that creates an account. */
+function OutputsBlock({ id, outputs }: { id: string; outputs: Record<string, string> }) {
+  const { registerOutputs } = useRunbookContext()
+  return (
+    <button type="button" onClick={() => registerOutputs(id, outputs)}>
+      Run {id}
+    </button>
+  )
+}
+
 beforeEach(() => {
   installApi(() => {
     throw new Error("no IPC expected")
@@ -101,6 +111,32 @@ describe("AwsAuth — rendering", () => {
     expect(screen.getByText("https://acme.awsapps.com/start")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Sign in with SSO" })).toBeInTheDocument()
     expect(screen.queryByPlaceholderText("AKIAIOSFODNN7EXAMPLE")).toBeNull()
+  })
+
+  it("waits for the outputs its SSO props read, then signs in to the account they name", async () => {
+    renderBlock(
+      <>
+        <OutputsBlock id="account" outputs={{ account_id: "222222222222" }} />
+        <AwsAuth
+          id="new-account"
+          detectCredentials={false}
+          defaultTab="sso"
+          ssoStartUrl="https://acme.awsapps.com/start"
+          ssoAccountId="{{ .outputs.account.account_id }}"
+          ssoRoleName="AdministratorAccess"
+        />
+      </>,
+    )
+
+    expect(screen.getByText(/Waiting for outputs from/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Sign in with SSO" })).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Run account" }))
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Sign in with SSO" })).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/Waiting for outputs from/)).toBeNull()
   })
 
   it("renders custom title", () => {
