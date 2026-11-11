@@ -45,8 +45,22 @@ import type {
 export const fail = (message: string) => new TfModuleError({ message })
 
 /**
- * The runbook's template rendered with the inputs and `ModuleSource`, where
- * the code finds the module; its files by path in the code's folder.
+ * What a template renders with: each input by its name, the same inputs as
+ * one map in `Inputs`, so one template can write any module's inputs, and
+ * `ModuleSource`, where the code finds the module.
+ */
+export const templateVariables = (
+  values: Record<string, unknown>,
+  moduleSource: string,
+): Record<string, unknown> => ({
+  ...values,
+  Inputs: values,
+  ModuleSource: moduleSource,
+})
+
+/**
+ * The runbook's template rendered with templateVariables; its files by path
+ * in the code's folder.
  */
 export const renderTemplate = (
   template: string,
@@ -76,10 +90,7 @@ export const renderTemplate = (
       Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "runbooks-tf-module-"))),
       (tmp) =>
         Effect.gen(function* () {
-          yield* renderer.renderTemplate(templateDir, tmp, {
-            ...values,
-            ModuleSource: moduleSource,
-          })
+          yield* renderer.renderTemplate(templateDir, tmp, templateVariables(values, moduleSource))
           const files = yield* Effect.promise(() => readTree(tmp))
           return files.map((file) =>
             isHclFile(file.path) ? { ...file, content: alignAttributes(file.content) } : file,

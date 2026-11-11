@@ -160,7 +160,7 @@ lookups:
 
 ## The template
 
-The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder beside the runbook. The block renders it with the form's values, plus `ModuleSource`, where the code finds the module: the release [Versions](#versions) describes when a `<GitClone>` block has cloned a repository, and the module's folder on your computer otherwise. Declare each variable the template uses in its `boilerplate.yml`.
+The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder beside the runbook. The block renders it with each of the form's values by its input's name, the same values as one map in `Inputs`, and `ModuleSource`, where the code finds the module: the release [Versions](#versions) describes when a `<GitClone>` block has cloned a repository, and the module's folder on your computer otherwise. The folder needs a `boilerplate.yml`, which can leave its `variables` empty, since the block passes every value.
 
 What the template renders decides how the code runs. A template that renders a `terragrunt.hcl` makes a Terragrunt unit:
 
@@ -178,6 +178,26 @@ inputs = {
   domain = {{ .domain | toJson }}
 }
 ```
+
+A template that writes every input from `Inputs` serves any module, so units that share a shape can share one template:
+
+```hcl title="templates/unit/terragrunt.hcl"
+include "root" {
+  path = find_in_parent_folders("root.hcl")
+}
+
+terraform {
+  source = {{ .ModuleSource | toJson }}
+}
+
+inputs = {
+{{- range $name, $value := .Inputs }}
+  {{ $name }} = {{ $value | toJson }}
+{{- end }}
+}
+```
+
+The inputs come out in alphabetical order, each as JSON, which HCL reads as the same value.
 
 Any other template makes a plain OpenTofu or Terraform configuration, such as a `main.tf` that calls the module:
 
