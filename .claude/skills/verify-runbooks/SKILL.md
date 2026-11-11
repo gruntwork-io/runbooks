@@ -1,6 +1,6 @@
 ---
 name: verify-runbooks
-description: Drive the Runbooks desktop app (Electron) the way a user does, one action at a time, and capture evidence that a change works. Use to prove a block's UI, a runbook's flow, or a fix in the real app rather than only in tests, especially the TfModule and TerragruntApplyWithGitHubPullRequest blocks and simulation mode.
+description: Drive the Runbooks desktop app (Electron) the way a user does, one action at a time, and capture evidence that a change works. Use to prove a block's UI, a runbook's flow, or a fix in the real app rather than only in tests, especially the TfModule and TerragruntApply blocks and simulation mode.
 ---
 
 # Verify Runbooks
@@ -40,9 +40,9 @@ Read-only. Checks the build is current, the process is alive, the console record
 | Sequence | End state |
 | --- | --- |
 | `$C setup trust` | No trust prompt: blocks can run. |
-| `$C setup scenario <name-or-label>` | The simulation bar's Scenario picker shows that scenario. For the TfModule demo: `happy-path`, `empty-directory`, `no-directory-access`, `apply-fails`, `group-exists`. |
+| `$C setup scenario <name-or-label>` | The simulation bar's Scenario picker shows that scenario. For the TfModule demo: `happy-path`, `no-directory-access`, `api-off`, `apply-fails`, `group-exists`. |
 | `$C setup group-form [block-id]` | The TfModule demo's Google Group block (`group`) has Organization example.com, Group email platform, Name Platform team, and Sam Rivera as an owner, with nothing needing a fix. Trusts the runbook first. |
-| `$C setup group-code [block-id]` | `group-form`, then Generate: the block lists its code, and the `apply-group` block shows its Code, PR and Apply tabs. |
+| `$C setup group-code [block-id]` | `group-form`, then Generate: the block lists its code, and the `apply-group` block shows the unit's path and Plan. |
 
 A sequence stops at the first step whose end state doesn't appear and reports that step and a screenshot. Setup is for preconditions only: when the behavior under test is filling the form, fill it yourself.
 
@@ -84,7 +84,7 @@ Proof standards:
 
 - Use the real user path: clicks, typing, picks. Never `eval` a setter or call IPC to skip a step.
 - Capture the action and the resulting state, not just the final screen. A journey's screenshots should read as a story.
-- Check side effects alongside the screen. In simulation, nothing is written to a repository: confirm the Code tab and PR tab agree on the files. Without simulation, check the files in the cloned repository, the branch, and the pull request.
+- Check side effects alongside the screen. In simulation, nothing is applied: confirm the plan's resources follow the form's inputs. Without simulation, check the files in the cloned repository, the branch, and the pull request.
 - Judge each step by what the user should be able to tell from the screen alone: is anything missing, repeated, contradictory, or in the app's internal terms, and is it clear what happens next? Confusing output with the right end state is a finding, not a pass. Report it with the screenshot.
 - Exact text that users or scripts rely on belongs in the automated tests the feature file names, not in a pinned string here.
 

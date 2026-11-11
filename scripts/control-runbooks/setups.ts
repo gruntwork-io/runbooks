@@ -134,7 +134,7 @@ export const SEQUENCES: readonly Sequence[] = [
     name: "group-code",
     usage: "setup group-code [block-id]",
     endState:
-      "The group-form setup, then Generate: the Google Group block lists the code it generated, and the block that applies it shows its tabs.",
+      "The group-form setup, then Generate: the Google Group block lists the code it generated, and the TerragruntApply block below can plan it.",
     steps: ([blockId = "group"]) => {
       const block = (page: Page) => page.getByTestId(blockId)
       const form = sequence("group-form").steps([blockId])

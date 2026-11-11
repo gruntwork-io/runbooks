@@ -11,7 +11,7 @@ A `<TfModule>` block is a form drawn from an OpenTofu module, whose Generate but
 - Validation: errors show once a field is left, or on Generate; Generate with errors writes nothing, says how many inputs need a fix, and opens Advanced options when one of them is there.
 - Generate: lists the files it wrote (in simulation, the files it would write), and writes them again as the inputs change.
 - Advanced options: inputs runbook_block.yml doesn't mark `primary`, folded away.
-- A lookup that fails (scenario `no-directory-access`) or finds nobody (`empty-directory`).
+- A lookup that fails (scenario `no-directory-access`).
 
 ## How to get to it (user POV)
 
@@ -27,12 +27,12 @@ Open the runbook (`runbooks open --simulate testdata/feature-demos/tf-module`), 
 6. `$C fill platform --label "Group email" --within group`, `$C fill "Platform team" --label Name --exact --within group`.
 7. `$C type ana --label Members --within group`. Check: Ana Lima suggested with her address. `$C click option:"Ana Lima" --within group`. Check: a chip ana@example.com.
 8. `$C click button:"as an owner" --within group`. Check: a chip sam@example.com under Owners.
-9. `$C click button:Generate --within group`. Check: the block lists google-groups/platform@example.com/terragrunt.hcl, and `apply-group` shows its Code, PR and Apply tabs.
+9. `$C click button:Generate --within group`. Check: the block lists google-groups/platform@example.com/terragrunt.hcl, and `apply-group` shows the unit's path and Plan.
 10. Failing lookup: `$C setup scenario no-directory-access`, `$C type bo --label Members --within group`. Check: the error says what's wrong and that a typed value still works; `$C press Enter` adds bo as a chip.
 
 Proof: the published values reach other blocks. Scroll to "Use the values" and run the Command (`$C click button:Run --within show-group`); its output shows the group email, name, and domain you entered.
 
-Automated tests: `web/src/components/mdx/TfModule/__tests__/TfModule.test.tsx` (form, errors, publishing), `src/domain/tf-module/load.test.ts` (runbook_block.yml), `src/domain/tf-module/simulation.test.ts` (lookup answers).
+Automated tests: `web/src/components/mdx/TfModule/__tests__/TfModule.test.tsx` (form, errors, publishing), `src/domain/tf-module/load.test.ts` (runbook_block.yml), `src/domain/lookups/run.test.ts` (lookup answers).
 
 ## Gotchas
 
