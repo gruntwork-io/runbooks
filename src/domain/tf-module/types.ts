@@ -47,6 +47,12 @@ export interface TfModuleLookup {
 export type TfModuleShortcut = Omit<TfModuleLookup, "sets">
 
 /**
+ * Where an empty input's first value comes from: the first row of a lookup,
+ * such as the signed-in organization's customer ID from `google.customer`.
+ */
+export type TfModulePrefill = Pick<TfModuleLookup, "from" | "value">
+
+/**
  * A check the form can run before OpenTofu does, from a validation block in
  * variables.tf whose condition it recognizes.
  */
@@ -81,6 +87,7 @@ export interface TfModuleVariable {
   readonly optionsOnly?: boolean
   readonly lookup?: TfModuleLookup
   readonly shortcut?: TfModuleShortcut
+  readonly prefill?: TfModulePrefill
   readonly presets?: readonly TfModulePreset[]
   /**
    * A template over the form's values that ends the input's value, such as

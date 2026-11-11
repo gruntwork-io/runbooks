@@ -50,6 +50,10 @@ variables:
       from: google.people
   customer_id:
     label: Customer ID
+    description: The organization's customer ID, filled from your Google sign-in.
+    # The signed-in organization's, so the module needn't find it from the domain.
+    prefill:
+      from: google.customer
   managers:
     lookup:
       from: google.people

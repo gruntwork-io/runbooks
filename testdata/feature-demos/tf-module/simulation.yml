@@ -27,6 +27,8 @@ scenarios:
         README.md: |
           # Acme infrastructure
     lookups:
+      google.customer:
+        - { value: C03example, id: C03example, primaryDomain: example.com }
       google.me:
         - { email: sam@example.com, name: Sam Rivera }
       google.domains:

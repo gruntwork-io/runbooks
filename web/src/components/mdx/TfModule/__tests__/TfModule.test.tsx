@@ -95,8 +95,11 @@ const GENERATED = {
   written: ["groups/platform/terragrunt.hcl"],
 }
 
-const invoke = vi.fn((channel: string) => {
+const invoke = vi.fn((channel: string, params?: { from: string }) => {
   if (channel === "tf-module:lookup") {
+    if (params?.from === "google.customer") {
+      return Promise.resolve({ rows: [{ value: "C01abc23d", id: "C01abc23d" }] })
+    }
     return Promise.resolve({ rows: domainRows })
   }
   if (channel === "tf-module:readiness") return Promise.resolve(readiness)
@@ -104,7 +107,10 @@ const invoke = vi.fn((channel: string) => {
   return Promise.reject(new Error(`unexpected channel ${channel}`))
 })
 
-vi.mock("@/hooks/useIpc", () => ({ useIpc: () => ({ data: spec, isLoading: false, error: null }) }))
+let moduleSpec = spec
+vi.mock("@/hooks/useIpc", () => ({
+  useIpc: () => ({ data: moduleSpec, isLoading: false, error: null }),
+}))
 
 // One object, as the app's provider gives, so hooks that depend on it don't ask again each render.
 const api = { invoke }
@@ -136,6 +142,7 @@ describe("TfModule", () => {
   beforeEach(() => {
     readiness = ALL_ON
     domainRows = DOMAINS
+    moduleSpec = spec
     ctx = undefined
     invoke.mockClear()
   })
@@ -312,5 +319,48 @@ describe("TfModule", () => {
 
     act(() => ctx!.registerOutputs("google-auth", { GOOGLE_AUTH_TYPE: "oauth" }))
     await waitFor(() => expect(lookups()).toHaveLength(2))
+  })
+  describe("with a prefill", () => {
+    const customerId = {
+      name: "customer_id",
+      label: "Customer ID",
+      description: "",
+      tfType: "string",
+      kind: "string",
+      hasDefault: true,
+      default: "",
+      sensitive: false,
+      primary: false,
+      prefill: { from: "google.customer" },
+    } as const
+
+    it("fills the empty input from the lookup, even under Advanced options", async () => {
+      moduleSpec = { ...spec, variables: [...spec.variables, customerId] }
+      renderBlock()
+      await waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith("tf-module:lookup", {
+          from: "google.customer",
+          query: "",
+        }),
+      )
+      fireEvent.click(screen.getByRole("button", { name: /Advanced options/ }))
+      await waitFor(() => expect(input("customer_id").value).toBe("C01abc23d"))
+    })
+
+    it("leaves an input the user cleared empty", async () => {
+      moduleSpec = { ...spec, variables: [...spec.variables, customerId] }
+      renderBlock()
+      fireEvent.click(screen.getByRole("button", { name: /Advanced options/ }))
+      await waitFor(() => expect(input("customer_id").value).toBe("C01abc23d"))
+
+      fireEvent.change(input("customer_id"), { target: { value: "" } })
+      act(() => ctx!.registerOutputs("google-auth", { GOOGLE_AUTH_TYPE: "oauth" }))
+      await waitFor(() =>
+        expect(
+          invoke.mock.calls.filter(([, params]) => params?.from === "google.customer"),
+        ).toHaveLength(2),
+      )
+      expect(input("customer_id").value).toBe("")
+    })
   })
 })

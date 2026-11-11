@@ -107,6 +107,7 @@ describe("loadModule", () => {
       shortcut: { from: "google.me", value: "email" },
     })
     expect(byName(spec, "managers").primary).toBe(false)
+    expect(byName(spec, "customer_id").prefill).toEqual({ from: "google.customer" })
 
     const types = byName(spec, "types")
     expect(types.kind).toBe("list")
@@ -201,6 +202,14 @@ describe("loadModule", () => {
     it("whose suffix reads an input variables.tf doesn't declare", async () => {
       write("runbook_block.yml", 'variables:\n  name:\n    suffix: "@{{ .domain }}"\n')
       expect(await failure(dir)).toContain(`suffix reads "domain"`)
+    })
+
+    it("whose prefill fills an input that isn't a string", async () => {
+      write("variables.tf", 'variable "names" {\n  type = list(string)\n}\n')
+      write("runbook_block.yml", "variables:\n  names:\n    prefill: { from: google.me }\n")
+      expect(await failure(dir)).toContain(
+        "prefill fills a string input, and names is list(string)",
+      )
     })
 
     it("whose runbook_block.yml describes an output the module doesn't declare", async () => {

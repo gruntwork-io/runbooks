@@ -24,6 +24,7 @@ import type { TfModuleSpec } from "../../../../../src/domain/tf-module/types"
 import type { LookupRow } from "../../../../../src/domain/tf-module/rowTemplate"
 import { ModuleField } from "./components/ModuleField"
 import { ModuleLogo } from "./components/ModuleLogo"
+import { Prefill } from "./components/Prefill"
 import { useReadiness } from "./hooks/useReadiness"
 import { Readiness } from "./components/Readiness"
 import { readinessReport } from "./readiness"
@@ -346,6 +347,17 @@ function TfModuleForm({
         onRecheck={ready.recheck}
       />
 
+      {spec.variables.map(
+        (variable) =>
+          variable.prefill && (
+            <Prefill
+              key={variable.name}
+              prefill={variable.prefill}
+              empty={isEmptyValue(values[variable.name])}
+              onFill={(value) => update({ [variable.name]: value })}
+            />
+          ),
+      )}
       <form onSubmit={submit} className="space-y-6" noValidate>
         <div className="space-y-5">
           {spec.variables.filter((v) => v.primary).map((v) => field(v.name))}
@@ -509,6 +521,9 @@ function Generation({
     </div>
   )
 }
+
+/** Whether a string input holds nothing the user gave, so a prefill can fill it. */
+const isEmptyValue = (value: unknown) => value === undefined || value === null || value === ""
 
 TfModule.displayName = "TfModule"
 

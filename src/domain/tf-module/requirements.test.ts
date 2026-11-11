@@ -45,6 +45,14 @@ describe("requiredApis", () => {
     ])
   })
 
+  it("counts a prefill's lookup", () => {
+    expect(
+      requiredApis(spec([], [variable("customer_id", { prefill: { from: "google.customer" } })])),
+    ).toEqual([
+      { service: "admin.googleapis.com", name: "Admin SDK API", neededFor: "suggestions" },
+    ])
+  })
+
   it("needs nothing for a module without Google APIs or lookups", () => {
     expect(requiredApis(spec([], [variable("name")]))).toEqual([])
   })
@@ -69,4 +77,14 @@ it("links to the console page that turns an API on in the project", () => {
   expect(enableApiUrl("admin.googleapis.com", "acme-ops")).toBe(
     "https://console.cloud.google.com/apis/library/admin.googleapis.com?project=acme-ops",
   )
+})
+
+describe("prefill in runbook_block.yml", () => {
+  it("refuses a label or sets, which only a lookup shows", () => {
+    expect(() =>
+      parseMetadata(
+        "variables:\n  customer_id:\n    prefill: { from: google.customer, label: x }\n",
+      ),
+    ).toThrow('prefill takes only "from" and "value"')
+  })
 })

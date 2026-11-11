@@ -18,6 +18,7 @@ import type {
   TfModuleOutput,
   TfModulePreset,
   TfModuleProvider,
+  TfModulePrefill,
   TfModuleShortcut,
   TfModuleSpec,
   TfModuleVariable,
@@ -345,6 +346,7 @@ export interface VariableMetadata {
   readonly options?: readonly TfModuleOption[]
   readonly lookup?: TfModuleLookup
   readonly shortcut?: TfModuleShortcut
+  readonly prefill?: TfModulePrefill
   /** The presets file's path in the module. */
   readonly presets?: string
   /** A template over the form's values that ends the input's value, such as `@{{ .domain }}`. */
@@ -418,6 +420,7 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
         "presets",
         "suffix",
         "shortcut",
+        "prefill",
       ])
       if (fields.primary !== undefined && typeof fields.primary !== "boolean") {
         problems.errors.push(`${where}.primary must be true or false.`)
@@ -433,6 +436,14 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
         ...(shortcutLookup.label ? { label: shortcutLookup.label } : {}),
         ...(shortcutLookup.value ? { value: shortcutLookup.value } : {}),
       }
+      const prefillLookup = readLookup(fields.prefill, `${where}.prefill`, problems)
+      if (prefillLookup?.sets || prefillLookup?.label) {
+        problems.errors.push(`${where}.prefill takes only "from" and "value".`)
+      }
+      const prefill = prefillLookup && {
+        from: prefillLookup.from,
+        ...(prefillLookup.value ? { value: prefillLookup.value } : {}),
+      }
       const presets = optionalString(fields.presets, `${where}.presets`, problems)
       const suffix = optionalString(fields.suffix, `${where}.suffix`, problems)
       const suffixError = suffix === undefined ? undefined : rowTemplateError(suffix)
@@ -444,6 +455,7 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
         ...(options ? { options } : {}),
         ...(lookup ? { lookup } : {}),
         ...(shortcut ? { shortcut } : {}),
+        ...(prefill ? { prefill } : {}),
         ...(presets ? { presets } : {}),
         ...(suffix ? { suffix } : {}),
       }
@@ -598,6 +610,12 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
   }
 
   for (const [name, meta] of Object.entries(input.metadata.variables)) {
+    const tfType = input.variables.find((variable) => variable.name === name)?.tfType
+    if (meta.prefill && tfType !== undefined && inputKind(tfType) !== "string") {
+      throw new TfModuleError({
+        message: `${METADATA_FILE}: variables.${name}.prefill fills a string input, and ${name} is ${tfType}.`,
+      })
+    }
     const missing = Object.keys(meta.lookup?.sets ?? {}).filter((target) => !declared.has(target))
     if (missing.length > 0) {
       throw new TfModuleError({
@@ -675,6 +693,7 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
       ...(options && allowedValues ? { optionsOnly: true } : {}),
       ...(meta.lookup ? { lookup: meta.lookup } : {}),
       ...(meta.shortcut ? { shortcut: meta.shortcut } : {}),
+      ...(meta.prefill ? { prefill: meta.prefill } : {}),
       ...(presets ? { presets } : {}),
       ...(meta.suffix ? { suffix: meta.suffix } : {}),
       ...(checks.length > 0 ? { checks } : {}),

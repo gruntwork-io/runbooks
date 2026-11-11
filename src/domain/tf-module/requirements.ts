@@ -11,6 +11,7 @@ import type { TfModuleSpec } from "./types.ts"
 /** The API each lookup calls, when it calls one. */
 const LOOKUP_APIS: Readonly<Record<LookupName, string | undefined>> = {
   "google.me": undefined,
+  "google.customer": "admin.googleapis.com",
   "google.domains": "admin.googleapis.com",
   "google.people": "admin.googleapis.com",
 }
@@ -46,7 +47,7 @@ export function requiredApis(spec: TfModuleSpec): RequiredApi[] {
     neededFor: "apply",
   }))
   for (const variable of spec.variables) {
-    for (const from of [variable.lookup?.from, variable.shortcut?.from]) {
+    for (const from of [variable.lookup?.from, variable.shortcut?.from, variable.prefill?.from]) {
       const service = from !== undefined && isLookupName(from) ? LOOKUP_APIS[from] : undefined
       if (service && !apis.some((api) => api.service === service)) {
         apis.push({ service, name: apiName(service), neededFor: "suggestions" })

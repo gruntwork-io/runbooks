@@ -81,6 +81,10 @@ variables:
     label: Group email
     primary: true
     suffix: "@{{ .domain }}"     # the user types the part before the @
+  customer_id:
+    label: Customer ID
+    prefill:
+      from: google.customer      # the signed-in organization's, so nobody looks it up
   owners:
     primary: true
     lookup:
@@ -124,6 +128,7 @@ outputs:
 | `variables.<name>.lookup` | Where the input's suggestions come from. See [Lookups](#lookups) |
 | `variables.<name>.presets` | A file in the module of named settings for an object or map input. See [Presets](#presets) |
 | `variables.<name>.suffix` | A template over the form's values that ends a string input's value, such as `@{{ .domain }}`. The form shows it fixed after the field, so the user types only the rest |
+| `variables.<name>.prefill` | Fills an empty string input from the first row of a lookup, such as the signed-in organization's customer ID, so the user needn't look it up. It takes `from` and `value`, like a [lookup](#lookups) |
 | `variables.<name>.shortcut` | A button under the input that adds the first row of a lookup, such as the signed-in person. It takes `from`, `label` and `value`, like a [lookup](#lookups) |
 | `outputs.<name>.label` | The output's label on a `<TerragruntApplyWithGitHubPullRequest>` block's **Apply** tab. Without it, the name with its first letter capitalized |
 | `outputs.<name>.description` | Replaces the output's description from the module |
@@ -221,10 +226,11 @@ Runbooks has these lookups. Each reads Google with the account a `<GoogleAuth>` 
 | Lookup | Rows | Scope |
 |--------|------|-------|
 | `google.me` | The signed-in account: `email`, `name` | None |
+| `google.customer` | The signed-in organization: `value` and `id` (its customer ID, such as `C01abc23d`), `primaryDomain` | `https://www.googleapis.com/auth/admin.directory.customer.readonly`, from an admin |
 | `google.domains` | The organization's domains, primary first: `value` and `domainName` (the domain), `isPrimary` | `https://www.googleapis.com/auth/admin.directory.domain.readonly`, from an admin |
 | `google.people` | Active users in the organization whose first name, last name or email starts with what's typed: `value` (email), `label` (name), `description` (title and department) | `https://www.googleapis.com/auth/admin.directory.user.readonly`, from an admin |
 
-When no `<GoogleAuth>` block has signed in, or Google refuses, the field says why, and the user can still type a value. In [simulation mode](#simulation-mode), lookups answer from `simulation.yml` instead. A `shortcut` reads the first row of its lookup when the form opens and again after each sign-in, and stays hidden while the lookup has none. Lookups that come from Google ask again after a sign-in too.
+When no `<GoogleAuth>` block has signed in, or Google refuses, the field says why, and the user can still type a value. In [simulation mode](#simulation-mode), lookups answer from `simulation.yml` instead. A `shortcut` reads the first row of its lookup when the form opens and again after each sign-in, and stays hidden while the lookup has none. A `prefill` reads it the same way, and fills its input with the row's value while the input is empty. It fills each value once, so an input the user clears stays clear until a sign-in gives another value. Lookups that come from Google ask again after a sign-in too.
 
 ## Presets
 
