@@ -71,7 +71,7 @@ Fill in the group, and **Generate** writes it into the clone as `google/<domain>
 
 <TfModule
   id="group"
-  source="google-group"
+  source="git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=6f2bea4c209bd1c36f29f9d6097d332c246490d0"
   template="templates/google-group-unit"
   path="google/{{ if .domain }}{{ .domain }}{{ else }}{{ .customer_id }}{{ end }}/groups/{{ .id }}"
 />
