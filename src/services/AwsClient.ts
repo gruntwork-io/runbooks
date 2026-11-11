@@ -1,5 +1,6 @@
 import { Context, Effect } from "effect"
 import type { AwsAuthError, AwsConfigError, AwsSsoError } from "../errors/index.ts"
+import type { HttpReply, HttpRequest } from "./HttpRequest.ts"
 
 export interface AwsCredentials {
   readonly accessKeyId: string
@@ -101,6 +102,16 @@ export interface AwsClientShape {
     region: string,
     creds: AwsCredentials,
   ) => Effect.Effect<boolean, AwsAuthError>
+  /**
+   * Signs `request` with SigV4 for `signing.service` in `signing.region`,
+   * sends it, and returns AWS's answer whatever its status. Fails only when
+   * no answer arrives. Callers check the request first: this sends anything.
+   */
+  readonly sendSigned: (
+    creds: Pick<AwsCredentials, "accessKeyId" | "secretAccessKey" | "sessionToken">,
+    signing: { readonly service: string; readonly region: string },
+    request: HttpRequest,
+  ) => Effect.Effect<HttpReply, AwsAuthError>
 }
 
 export class AwsClient extends Context.Service<AwsClient, AwsClientShape>()("AwsClient") {}

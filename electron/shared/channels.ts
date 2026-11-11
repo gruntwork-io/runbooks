@@ -15,6 +15,7 @@ import type { SavedBlockState, SessionEventKind } from "../../src/domain/session
 import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { TfModuleSpec } from "../../src/domain/tf-module/types.ts"
 import type { CodeTool, RepoFile, UnitFile } from "../../src/domain/tf-module/unit.ts"
+import type { HttpReply, HttpRequest } from "../../src/services/HttpRequest.ts"
 
 /** What session:switch did. */
 export type SessionSwitchResult =
@@ -350,6 +351,17 @@ export interface IpcChannelMap {
     }
     result: { enabled: boolean; warning?: string }
   }
+  // Send a request as the signed-in user, for another block such as a lookup.
+  // MAIN sends only reads, to the AWS endpoints src/domain/send-as-me/aws.ts
+  // lists, and rejects anything else. The renderer passes the AwsAuth block's
+  // credentials, as it does for a <Command awsAuthId>.
+  "aws:send": {
+    params: {
+      credentials: { accessKeyId: string; secretAccessKey: string; sessionToken?: string }
+      request: HttpRequest
+    }
+    result: HttpReply
+  }
 
   // Google Cloud Authentication
   //
@@ -600,6 +612,14 @@ export interface IpcChannelMap {
   "google:credential-committed": {
     params: { blockId?: string; credentialsPath?: string }
     result: { ok: true }
+  }
+  // Send a request as the user the GoogleAuth block `blockId` signed in as,
+  // for another block such as a lookup. MAIN resolves that block's credential
+  // and sends only GET requests, to the hosts src/domain/send-as-me/google.ts
+  // lists, and rejects anything else.
+  "google:send": {
+    params: { blockId: string; request: HttpRequest }
+    result: HttpReply
   }
 
   // GitHub Authentication

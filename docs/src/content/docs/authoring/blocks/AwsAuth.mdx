@@ -387,6 +387,17 @@ AWS operations often take effect immediately and can't be undone. They create re
 - Credentials are stored in your local Runbooks session, which Runbooks saves encrypted with the operating system's credential store. See [What is encrypted](/commands/sessions/#what-is-encrypted).
 - Credentials are validated with STS GetCallerIdentity before they are registered to the session.
 
+### Requests sent for other blocks
+
+Other blocks can ask AwsAuth to send a request to AWS as you, for example to suggest values in a form. AwsAuth sends such a request only when it reads, from an AWS API endpoint on its list:
+
+- The host must be one of `sso`, `identitystore`, `organizations`, `sts`, `iam` or `ec2` at `<service>.<region>.amazonaws.com`, or `iam.amazonaws.com` or `sts.amazonaws.com`. The list is matched exactly, so a bucket, an API Gateway endpoint or any other host on `amazonaws.com` never matches. S3 is never on it.
+- The operation the request names, in its `X-Amz-Target` header or its `Action` parameter, must start with `List`, `Describe` or `Get`.
+- AwsAuth also refuses reads it knows return a secret or mint credentials, such as `GetSessionToken`, `GetFederationToken` and `GetPasswordData`. This part is best effort: no list can name every read that returns a secret.
+- AwsAuth signs the request itself, so a request can't set its own `Authorization` or other signing headers, and it never follows a redirect.
+
+Anything that changes AWS stays in a [Command](/authoring/blocks/command/), which gets the credentials in its environment.
+
 ## Detailed example
 
 The [aws-auth feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/aws-auth) is a runbook that walks through the AwsAuth block.
