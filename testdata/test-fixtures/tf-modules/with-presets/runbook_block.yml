@@ -1,0 +1,16 @@
+version: 0
+block:
+  logo: logo.svg
+variables:
+  access:
+    label: Who can see it
+    primary: true
+    presets: presets.yaml
+  tier:
+    options:
+      basic: Basic
+      standard:
+        label: Standard
+        description: What most teams use.
+      premium:
+        label: Premium

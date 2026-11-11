@@ -1,0 +1,253 @@
+---
+title: <TfModule>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="Experimental">
+`<TfModule>` is an experiment. Its props and the `runbook_block.yml` format may change.
+</Aside>
+
+The `<TfModule>` block renders a form for an OpenTofu module's inputs. The form comes from the module itself, so a runbook doesn't restate what the module already says:
+
+- The module's `variables.tf` gives each input's name, type, default, and validation.
+- An optional `runbook_block.yml` beside it says how to present them: labels, which inputs come first, what each option means, presets, and lookups that suggest values.
+
+How the module is used is the runbook's choice, not the module's: one runbook may write a Terragrunt unit for an infrastructure repository, another a plain OpenTofu or Terraform configuration. So the runbook gives the block a [template](#the-template) for that code.
+
+The block's job ends when the code is written. **Generate** checks the values, publishes them like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`, and writes the code. See [Generate](#generate).
+
+## Basic usage
+
+```mdx
+<TfModule
+  id="group"
+  source="git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0"
+  template="templates/google-group"
+/>
+
+<Command
+  id="show-group"
+  inputsId="group"
+  env={{ GROUP_EMAIL: "{{ .inputs.id }}" }}
+  command={`echo "Creating $GROUP_EMAIL"`}
+/>
+```
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `id` | `string` | required | Unique identifier for this block. Other blocks name it in `inputsId` |
+| `source` | `string` | required | The module. See [Module source](#module-source) |
+| `template` | `string` | required | The [template](#the-template) for the code that uses the module: a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder, relative to the runbook |
+| `path` | `string` | the block's `id` | Where the code goes in the cloned repository: a folder, as a template over the form's values, such as `google-groups/{{ .id }}` |
+
+## Module source
+
+`source` names the module as OpenTofu's own [module sources](https://opentofu.org/docs/language/modules/sources/) do, with a Git repository, `//` and the module's folder in it, and `?ref=` for the tag or commit to read:
+
+```text
+git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0
+github.com/acme/infra-catalog//modules/google-group?ref=v1.4.0
+git@github.com:acme/infra-catalog.git//modules/google-group?ref=v1.4.0
+```
+
+The block clones the repository once while Runbooks runs, and reads the module from the clone. A private repository needs a sign-in: a [`<GitHubAuth>`](/authoring/blocks/githubauth/) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth/) block above, a token in the environment such as `GITHUB_TOKEN`, the `gh` or `glab` CLI's sign-in, or your own Git credentials, as when Runbooks opens a remote runbook. See [Authentication for private repos](/commands/open/#authentication-for-private-repos). If the clone fails for want of one, the block says so, and reads the module again after a sign-in. Pin the source with `?ref=`: without one, the block reads the default branch, and the code it writes follows that branch as it changes, which the block warns about.
+
+The code the block writes points at the same source, so the module a repository runs is the module the form was built from.
+
+While working on a module, `source` can instead be its folder, relative to the runbook and inside the runbook's folder. The code then points at that folder on your computer, which works only there.
+
+## How the form is built
+
+Every input `variables.tf` declares appears: those `runbook_block.yml` lists first, in its order, then the rest in the order `variables.tf` declares them.
+
+- **Required inputs.** An input without a default is required, and is marked with `*`.
+- **Primary and advanced inputs.** Inputs `runbook_block.yml` marks `primary` show first; the rest sit under **Advanced options**. Without any `primary` marks, the required inputs show first.
+- **Controls.** A `string` is a text field, a `number` a number field, a `bool` a checkbox, a `list(string)` or `set(string)` a list of chips, and a `map(string)` a key and value list. Any other type, such as an `object`, is a JSON field.
+- **Choices.** An input with options shows each as a card with its description. A `list` input with options lets the user pick several.
+- **Validation.** The form checks the validation idioms modules use most as the user types: `contains([...], var.x)` becomes a choice, `can(regex("...", var.x))` a pattern, `length(var.x) >= N && length(var.x) <= M` a length range, and `var.x != ""` a required value. The form shows the error message of any other condition under the input as a rule, and leaves checking it to OpenTofu.
+- **Title.** The block's title is `runbook_block.yml`'s `block.title`, else the README's first heading, else the module's folder name.
+- **Logo.** The block shows the mark of the module's provider, from `required_providers`, unless `runbook_block.yml` sets `block.logo`.
+
+OpenTofu reads a `.tofu` file in place of a `.tf` file with the same name, and so does the block.
+
+## runbook_block.yml
+
+OpenTofu and Terragrunt never read `runbook_block.yml`, so it can sit in the module's folder without changing what the module does. Every key under `variables` must name an input `variables.tf` declares; the block refuses a module whose `runbook_block.yml` names one it doesn't.
+
+```yaml title="runbook_block.yml"
+version: 0
+
+block:
+  title: Create a Google Group
+  description: Creates a Google group and adds its owners, managers, and members.
+  logo: logo.svg              # optional: an SVG, PNG, JPEG, or WebP in the module, or an https: URL
+
+variables:
+  domain:
+    label: Organization
+    primary: true
+    lookup:
+      from: google.domains
+      label: "{{ .domainName }}{{ if .isPrimary }} (primary){{ end }}"
+  id:
+    label: Group email
+    primary: true
+    suffix: "@{{ .domain }}"     # the user types the part before the @
+  customer_id:
+    label: Customer ID
+    prefill:
+      from: google.customer      # the signed-in organization's, so nobody looks it up
+  owners:
+    primary: true
+    lookup:
+      from: google.people
+    shortcut:
+      from: google.me
+      label: 'Add "{{ .name }}" as an owner'
+      value: email
+  types:
+    label: Group type
+    options:
+      default:
+        label: Email group
+        description: People email the group, and members read its conversations.
+      security:
+        label: Security group
+        description: Can grant access in IAM and other access policies.
+  access:
+    primary: true
+    presets: presets.yaml
+```
+
+| Key | Description |
+|-----|-------------|
+| `version` | The format's version, `0` |
+| `requires.google.apis` | The Google APIs the module's resources call, by service name, such as `cloudidentity.googleapis.com`. See [Before you plan](#before-you-plan) |
+| `block.title`, `block.description` | The block's heading and the line under it |
+| `block.logo` | The block's logo, a file in the module or an `https:` URL |
+| `variables.<name>.label` | The input's label. Without it, the name with its first letter capitalized |
+| `variables.<name>.description` | Replaces the input's description from `variables.tf` |
+| `variables.<name>.primary` | `true` to show the input before **Advanced options** |
+| `variables.<name>.options` | A map from each value to its `label` and `description`, or a list of values |
+| `variables.<name>.lookup` | Where the input's suggestions come from. See [Lookups](#lookups) |
+| `variables.<name>.presets` | A file in the module of named settings for an object or map input. See [Presets](#presets) |
+| `variables.<name>.suffix` | A template over the form's values that ends a string input's value, such as `@{{ .domain }}`. The form shows it fixed after the field, so the user types only the rest |
+| `variables.<name>.prefill` | Fills an empty string input from the first row of a lookup, such as the signed-in organization's customer ID, so the user needn't look it up. It takes `from` and `value`, like a [lookup](#lookups) |
+| `variables.<name>.shortcut` | A button under the input that adds the first row of a lookup, such as the signed-in person. It takes `from`, `label` and `value`, like a [lookup](#lookups) |
+
+## Before you plan
+
+The block checks what it needs outside its inputs, and shows the result under its heading, above the form:
+
+- **Google APIs** on in the project a `<GoogleAuth>` block above signed in to: the ones `requires.google.apis` lists, which the plan needs, and the ones the block's [lookups](#lookups) call, which only its suggestions need. `google.customer`, `google.domains` and `google.people` call the Admin SDK API.
+- **The commands the code runs with** on your `PATH`, which applying the code needs: OpenTofu or Terraform, and Terragrunt too for a [template](#the-template) that renders a Terragrunt unit.
+
+When everything's in place, a green check says *This block's preflight checks completed successfully.*, and hovering it shows what it found, such as *4 Google APIs on in acme-ops · OpenTofu 1.12.6*. Otherwise the block lists what's missing, each with its fix: a link to the Cloud console page that turns the API on, or the tool's install page. It checks again after a sign-in or a change of project, when the Runbooks window comes back into focus, and on **Check again**.
+
+The check asks Google's Service Usage API, so the signed-in account needs permission to see the project's services, which the Viewer role has.
+
+```yaml title="runbook_block.yml"
+requires:
+  google:
+    apis:
+      - cloudidentity.googleapis.com
+      - cloudresourcemanager.googleapis.com
+```
+
+## The template
+
+The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder beside the runbook. The block renders it with the form's values, plus `ModuleSource`, where the code finds the module: the block's [`source`](#module-source) when it's remote and a `<GitClone>` block has cloned a repository, and the module's folder on your computer otherwise. Declare each variable the template uses in its `boilerplate.yml`.
+
+What the template renders decides how the code runs. A template that renders a `terragrunt.hcl` makes a Terragrunt unit:
+
+```hcl title="templates/google-group/terragrunt.hcl"
+include "root" {
+  path = find_in_parent_folders("root.hcl")
+}
+
+terraform {
+  source = {{ .ModuleSource | toJson }}
+}
+
+inputs = {
+  id     = {{ .id | toJson }}
+  domain = {{ .domain | toJson }}
+}
+```
+
+Any other template makes a plain OpenTofu or Terraform configuration, such as a `main.tf` that calls the module:
+
+```hcl title="templates/google-group-tofu/main.tf"
+module "group" {
+  source = {{ .ModuleSource | toJson }}
+  id     = {{ .id | toJson }}
+  domain = {{ .domain | toJson }}
+}
+
+output "email" {
+  value = module.group.email
+}
+```
+
+A plain configuration's outputs are its own, so declare an output for each module output the runbook uses.
+
+## Generate
+
+**Generate** renders the template with the form's values and writes the code:
+
+- **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. As the values change, it writes them again, and removes the files it wrote before that the new values no longer make, such as the old folder when the group's email changes.
+- **Without one**, it writes nothing, and lists the files the code would have.
+
+While an input needs a fix, the block keeps the code, and the values it publishes, as they were for the last valid inputs. Once it has written the code, the block counts as done, and publishes these outputs:
+
+| Output | Description |
+|--------|-------------|
+| `MODULE_SOURCE` | The block's `source` prop |
+| `TEMPLATE` | The block's `template` prop |
+| `CODE_PATH` | The code's folder in the repository, `path` rendered with the inputs |
+
+## Lookups
+
+A lookup suggests values as the user types, such as the people in a directory. It's named by `from`, and returns rows of fields:
+
+| Key | Description |
+|-----|-------------|
+| `from` | The lookup's name, such as `google.people` |
+| `value` | The row field that becomes the input's value. Default: `value` |
+| `label` | A template over the row's fields for what the suggestion shows. Default: the row's `label` field |
+| `sets` | Other inputs a pick fills in: a map from an input's name to a template over the row's fields |
+
+A template uses `{{ .field }}` and `{{ if .field }}...{{ else }}...{{ end }}`. A suggestion helps the user; it doesn't limit what they can type.
+
+Runbooks has these lookups. Each reads Google with the account a `<GoogleAuth>` block above signed in, so that block must ask for the scope it needs:
+
+| Lookup | Rows | Scope |
+|--------|------|-------|
+| `google.me` | The signed-in account: `email`, `name` | None |
+| `google.customer` | The signed-in organization: `value` and `id` (its customer ID, such as `C01abc23d`), `primaryDomain` | `https://www.googleapis.com/auth/admin.directory.customer.readonly`, from an admin |
+| `google.domains` | The organization's domains, primary first: `value` and `domainName` (the domain), `isPrimary` | `https://www.googleapis.com/auth/admin.directory.domain.readonly`, from an admin |
+| `google.people` | Active users in the organization whose first name, last name or email starts with what's typed: `value` (email), `label` (name), `description` (title and department) | `https://www.googleapis.com/auth/admin.directory.user.readonly`, from an admin |
+
+When no `<GoogleAuth>` block has signed in, or Google refuses, the field says why, and the user can still type a value. A `shortcut` reads the first row of its lookup when the form opens and again after each sign-in, and stays hidden while the lookup has none. A `prefill` reads it the same way, and fills its input with the row's value while the input is empty. It fills each value once, so an input the user clears stays clear until a sign-in gives another value. Lookups that come from Google ask again after a sign-in too.
+
+## Presets
+
+A preset is a named set of settings for an object or map input, such as "Public group". The user picks a preset instead of filling in each setting, and the info icon beside it lists every setting it makes.
+
+```yaml title="presets.yaml"
+public:
+  label: Public
+  description: Anyone, including people outside your organization, can email the group.
+  settings:
+    who_can_post_message: ANYONE_CAN_POST
+    who_can_view_group: ALL_MEMBERS_CAN_VIEW
+```
+
+The module can read the same file with `yamldecode(file("${path.module}/presets.yaml"))`, so what the info icon shows is what OpenTofu applies.
+
+## Testing
+
+`runbooks test` treats a `<TfModule>` block as it treats an `<Inputs>` block: it checks the block and moves on. It doesn't read the module yet, so a test sets the inputs the runbook uses under `inputs`, named `<id>.<input>`, such as `group.id`. It doesn't write the code either, so the block publishes no outputs in a test.

@@ -115,6 +115,9 @@ export class InputValidator {
     for (const prType of PR_BLOCK_TYPES) {
       components.push(...this.parseAuthBlocks(elements, prType))
     }
+    // Its inputs come from the module, which this runner doesn't read yet, so
+    // a test sets the ones the runbook uses.
+    components.push(...findComponents(elements, "TfModule"))
     // Only an Iframe with an id can set outputs, so only those are steps.
     components.push(...findComponents(elements, "Iframe").filter((comp) => comp.hasExplicitId))
 

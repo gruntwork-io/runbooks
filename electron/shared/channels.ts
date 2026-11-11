@@ -13,6 +13,8 @@ export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
 import type { ListedSession } from "../../src/domain/session/store.ts"
+import type { TfModuleSpec } from "../../src/domain/tf-module/types.ts"
+import type { CodeTool, RepoFile, UnitFile } from "../../src/domain/tf-module/unit.ts"
 
 /** What session:switch did. */
 export type SessionSwitchResult =
@@ -193,6 +195,22 @@ export interface IpcChannelMap {
     params: ResolveInputsRequest
     result: { inputs: Record<string, unknown> }
   }
+
+  // TfModule
+  /** The inputs of the module a <TfModule> block presents, shaped by its runbook_block.yml. */
+  "tf-module:read": { params: TfModuleReadRequest; result: TfModuleSpec }
+  /** The rows a named lookup, such as google.people, has for what the user typed. */
+  "tf-module:lookup": {
+    params: TfModuleLookupRequest
+    result: { rows: Record<string, unknown>[] }
+  }
+  "tf-module:readiness": {
+    params: TfModuleReadinessRequest
+    result: TfModuleReadiness
+  }
+
+  /** Writes the block's code to its folder in the repository's checkout. */
+  "tf-module:generate": { params: TfModuleGenerateRequest; result: TfModuleGenerated }
 
   // AWS Authentication
   "aws:validate": {
@@ -1063,6 +1081,94 @@ export interface ResolveInputsRequest {
   inputs: Record<string, unknown>
   /** Block outputs for `{{ .outputs.<block>.<name> }}`, as plain strings. */
   outputs?: Record<string, Record<string, string>>
+}
+
+export interface TfModuleReadRequest {
+  /** The module: a Git source, or its folder relative to the runbook. */
+  source: string
+}
+
+/** Where a <TfModule> block's code goes in a repository. */
+export interface TfModuleRepo {
+  /** The repository's checkout in the session, when a <GitClone> block cloned it. */
+  worktreePath?: string | undefined
+  /** The unit's folder in the repository. */
+  path: string
+  /** The branch the code is compared with, which a pull request merges into. */
+  baseBranch?: string | undefined
+}
+
+/** A <TfModule> block's module, and the runbook's template for the code that uses it. */
+export interface TfModuleCodeRef {
+  /** The module: a Git source, or its folder relative to the runbook. */
+  source: string
+  /** The runbook's Boilerplate template for the code that uses the module, relative to the runbook. */
+  template: string
+}
+
+export interface TfModuleRenderRequest extends TfModuleCodeRef {
+  /** The <TfModule> block whose code it is, which names its workspace. */
+  blockId: string
+  /** The block's inputs, as it publishes them. */
+  values: Record<string, unknown>
+  /** The repository the code goes to, when there is one. */
+  repo?: TfModuleRepo | undefined
+}
+
+/**
+ * A <TfModule> block's code: in its workspace, beside a root.hcl Runbooks
+ * writes when the code is a Terragrunt unit, when there's no repository, or
+ * in the repository's tree.
+ */
+export type TfModuleCode =
+  | { kind: "workspace"; files: UnitFile[]; tool: CodeTool }
+  | {
+      kind: "repo"
+      tool: CodeTool
+      /** The unit's folder in the repository. */
+      folder: string
+      files: RepoFile[]
+      /** Whether the repository has a root.hcl above a Terragrunt unit, for the unit to include. */
+      rootHcl: boolean
+      /** The module's `source` from runbook_block.yml, which the code points at; none when it gives none. */
+      source?: string | undefined
+    }
+
+export interface TfModuleGenerateRequest extends TfModuleRenderRequest {
+  /** Paths, relative to the checkout, that the last generate wrote, to remove when this one doesn't write them. */
+  replaces?: string[] | undefined
+}
+
+export interface TfModuleGenerated {
+  code: TfModuleCode
+  /** Paths, relative to the checkout, that it wrote; none without a checkout. */
+  written: string[]
+}
+
+export interface TfModuleLookupRequest {
+  /** The lookup's name, such as `google.people`. */
+  from: string
+  /** What the user typed so far. */
+  query?: string
+}
+
+export interface TfModuleReadinessRequest {
+  /** The Google APIs the block needs on, by service name. */
+  services: string[]
+  /** The block's template, whose files say what runs its code. */
+  template: string
+}
+
+/** Whether the block has what it needs to plan and apply, outside its own inputs. */
+export interface TfModuleReadiness {
+  google:
+    | { kind: "none" }
+    | { kind: "signed-out" }
+    | { kind: "no-project" }
+    | { kind: "checked"; project: string; enabled: Record<string, boolean> }
+    | { kind: "error"; project: string; message: string }
+  /** The commands the code runs with, each found on PATH or not. */
+  tools: { command: string; found: boolean; version?: string; install: string }[]
 }
 
 export interface ProfileInfo {

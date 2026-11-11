@@ -18,6 +18,7 @@ export type BlockComponentType =
   | "Finish"
   | "Prerequisites"
   | "Inputs"
+  | "TfModule"
   | "Template"
   | "TemplateInline"
   | "AwsAuth"
