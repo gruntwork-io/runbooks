@@ -136,10 +136,7 @@ function PortalFields({
   return (
     <>
       <div>
-        <label
-          htmlFor={startUrlId}
-          className="block text-sm font-medium text-foreground mb-1"
-        >
+        <label htmlFor={startUrlId} className="block text-sm font-medium text-foreground mb-1">
           SSO start URL <span className="text-destructive">*</span>
         </label>
         <input
