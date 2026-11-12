@@ -34,6 +34,18 @@ describe("PlanAndApply", () => {
     expect(screen.getByText("Preflight passed: 2 checks.")).toBeInTheDocument()
   })
 
+  it("shows a stop under way until the run ends, with no second Stop", () => {
+    renderPhase({
+      kind: "applying",
+      inputs: "{}",
+      plan: PLAN,
+      progress: {},
+      step: "apply",
+      stopping: true,
+    })
+    expect(screen.getByRole("button", { name: /Stopping/ })).toBeDisabled()
+  })
+
   it("says it applied in one line, without the steps, the preflight or a mark on each resource", () => {
     renderPhase({
       kind: "applied",
