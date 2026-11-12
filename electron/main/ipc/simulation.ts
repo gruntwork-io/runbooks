@@ -102,7 +102,19 @@ const scenariosIn = (dir: string) =>
           () => new SimulationError({ message: `Simulation: couldn't read ${file}.` }),
         ),
       )
-    return yield* Effect.try({ try: () => parseSimulation(content), catch: asSimulationError })
+    return yield* Effect.try({
+      try: () => parseSimulation(content),
+      // Names the file, since a module's simulation.yml can be wrong as well as the runbook's.
+      catch: (cause) => {
+        const { message } = asSimulationError(cause)
+        return new SimulationError({
+          message: message.startsWith(SIMULATION_FILE)
+            ? `${file}${message.slice(SIMULATION_FILE.length)}`
+            : `${file}: ${message}`,
+          cause,
+        })
+      },
+    })
   })
 
 /** The scenarios in the open runbook's simulation.yml. */
@@ -195,10 +207,13 @@ export function registerSimulationHandlers(): void {
     return runtime.runPromise(
       Effect.gen(function* () {
         const scenario = yield* activeSimulationScenario
-        const recorded = params.module ? yield* recordedFor(params.module) : undefined
-        const answer =
-          simulatedResponse(scenario, params.id, params.with) ??
-          (recorded && simulatedResponse(recorded, params.id, params.with))
+        // The module's recording is read only when the scenario doesn't answer, so a broken one
+        // can't stop an answer the runbook gives itself.
+        let answer = simulatedResponse(scenario, params.id, params.with)
+        if (!answer && params.module) {
+          const recorded = yield* recordedFor(params.module)
+          answer = recorded && simulatedResponse(recorded, params.id, params.with)
+        }
         if (!answer) return yield* noResponse(scenario, params.id, params.with)
         if (answer.delayMs > 0) yield* Effect.sleep(answer.delayMs)
         return answer.reply
