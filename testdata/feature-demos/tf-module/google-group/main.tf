@@ -2,12 +2,12 @@
 # Adapted from terraform-google-modules/terraform-google-group (Apache License 2.0, Copyright 2018 Google LLC).
 
 data "google_organization" "org" {
-  count  = var.domain == "" ? 0 : 1
+  count  = var.customer_id == "" ? 1 : 0
   domain = var.domain
 }
 
 locals {
-  customer_id = var.domain == "" ? var.customer_id : data.google_organization.org[0].directory_customer_id
+  customer_id = var.customer_id != "" ? var.customer_id : data.google_organization.org[0].directory_customer_id
   label_keys = {
     default  = "cloudidentity.googleapis.com/groups.discussion_forum"
     dynamic  = "cloudidentity.googleapis.com/groups.dynamic"
