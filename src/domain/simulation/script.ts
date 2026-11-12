@@ -41,6 +41,13 @@ const EXIT_CODES: Readonly<Record<ExecStatusEvent["status"], number>> = {
   warn: 2,
 }
 
+/**
+ * The key a scenario's `scripts` holds the block `blockId`'s run under. `-`
+ * and `_` name the same block, as they do in a block's outputs, so
+ * `set-settings` and `set_settings` answer the same block.
+ */
+export const scriptKey = (blockId: string) => blockId.replace(/-/g, "_")
+
 export function readScript(raw: unknown, where: string): SimulatedScript {
   if (!isRecord(raw)) throw simulationError(`${where} must be a map.`)
   const status = raw.status ?? "success"

@@ -118,6 +118,19 @@ function declarationOrder(files: readonly ModuleFile[]): Map<string, number> {
   return order
 }
 
+/**
+ * A default as the module receives it. The parser keeps a string's template
+ * escapes, `$${` and `%%{`, which a default can only mean literally.
+ */
+const literalDefault = (value: unknown): unknown =>
+  typeof value === "string"
+    ? value.replace(/\$\$\{/g, () => "${").replace(/%%\{/g, () => "%{")
+    : Array.isArray(value)
+      ? value.map(literalDefault)
+      : isRecord(value)
+        ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, literalDefault(v)]))
+        : value
+
 /** The inputs the parsed files declare, in declaration order. */
 export function tfVariables(
   parsed: readonly HclJson[],
@@ -141,7 +154,7 @@ export function tfVariables(
         tfType: expressionText(body.type) ?? "any",
         description: typeof body.description === "string" ? body.description : "",
         hasDefault,
-        ...(hasDefault ? { default: body.default } : {}),
+        ...(hasDefault ? { default: literalDefault(body.default) } : {}),
         sensitive: body.sensitive === true,
         validations,
       })

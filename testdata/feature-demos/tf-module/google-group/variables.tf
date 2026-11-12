@@ -25,20 +25,20 @@ variable "description" {
 }
 
 variable "domain" {
-  description = "Primary domain of the Google Workspace or Cloud Identity organization to create the group in, such as example.com. Give exactly one of domain and customer_id."
+  description = "Primary domain of the Google Workspace or Cloud Identity organization to create the group in, such as example.com. Give domain, customer_id, or both."
   type        = string
   nullable    = false
   default     = ""
 }
 
 variable "customer_id" {
-  description = "Customer ID of the organization to create the group in, such as C01abc23d. Give exactly one of domain and customer_id."
+  description = "Customer ID of the organization to create the group in, such as C01abc23d. When both are given, customer_id names the organization."
   type        = string
   nullable    = false
   default     = ""
   validation {
-    condition     = (var.domain == "") != (var.customer_id == "")
-    error_message = "Give exactly one of domain and customer_id."
+    condition     = var.domain != "" || var.customer_id != ""
+    error_message = "Give domain or customer_id."
   }
 }
 

@@ -3,7 +3,7 @@ import { useApi } from "@/contexts/ApiContext"
 import { usePageBlocks } from "@/contexts/ComponentIdRegistry"
 import { useAllOutputs } from "@/contexts/useRunbook"
 import { useSimulation } from "@/contexts/useSimulation"
-import { simulatesLookup } from "@/contexts/simulates"
+import { simulatesLookup, simulatesSignIn } from "@/contexts/simulates"
 import { normalizeBlockId } from "@/lib/utils"
 import { revealOutputs } from "../../../../../../src/domain/exec/outputValues"
 import {
@@ -63,7 +63,7 @@ export function useEngineDeps(): EngineDeps {
     asWritten: usePageBlocks().asWritten,
     simulation: state.enabled ? revision : undefined,
     simulates: (id) => simulatesLookup(state, id),
-    simulatedSignIn: state.enabled && !state.runUnanswered,
+    simulatedSignIn: simulatesSignIn(state),
   }
 }
 

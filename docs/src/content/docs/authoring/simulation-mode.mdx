@@ -6,8 +6,12 @@ description: Preview a runbook's blocks against canned answers, without signing 
 Simulation mode lets you shape a runbook's blocks without signing in to anything or changing anything real. Lookups, checks, `<TerragruntApply>` blocks, and the `<Command>` and `<Check>` blocks you choose answer from a `simulation.yml` file beside the runbook instead, so you can see each state of each block, such as a lookup that fails or an apply that's refused, without arranging it for real.
 
 :::caution[Experimental]
-Simulation mode serves the [lookups and checks](/authoring/lookups/) of experimental blocks such as [`<TfModule>`](/authoring/blocks/tfmodule/), the lookups of [`<Inputs>`](/authoring/blocks/inputs/#lookups) and [`<Template>`](/authoring/blocks/template/#lookups) forms, and the experimental [`<TerragruntApply>`](/authoring/blocks/terragruntapply/) block. It also answers the [`<Command>`](/authoring/blocks/command/) and [`<Check>`](/authoring/blocks/check/) blocks a scenario names. Other blocks run as they always do. The `simulation.yml` format may change.
+Simulation mode serves the [lookups and checks](/authoring/lookups/) of experimental blocks such as [`<TfModule>`](/authoring/blocks/tfmodule/), the lookups of [`<Inputs>`](/authoring/blocks/inputs/#lookups) and [`<Template>`](/authoring/blocks/template/#lookups) forms, and the experimental [`<TerragruntApply>`](/authoring/blocks/terragruntapply/) block. It also answers the [`<Command>`](/authoring/blocks/command/) and [`<Check>`](/authoring/blocks/check/) blocks a scenario names. It also answers the [`<Command>`](/authoring/blocks/command/) and [`<Check>`](/authoring/blocks/check/) blocks a scenario names. The `simulation.yml` format may change.
 :::
+
+## What doesn't run
+
+Anything `simulation.yml` doesn't answer that would reach a real system is refused, with an error that says so: signing in, calling a cloud or Git host's API, running a `<Command>` or `<Check>` block's script that the scenario doesn't answer, cloning, pushing, and opening a pull request. So a block that simulation mode doesn't serve can't change anything real by mistake. Blocks that stay on your computer, such as `<Inputs>`, `<Template>`, `<Prerequisites>`, and a `<TfModule>` block's form and code, work as they always do.
 
 ## Turn it on
 
@@ -18,6 +22,8 @@ runbooks open --simulate path/to/runbook
 ```
 
 A **Simulation** bar marks the runbook, so nobody mistakes its answers for real ones, and switches between the file's scenarios.
+
+Simulation mode is on or off for the whole app. If Runbooks is already open in the other mode, the launch shows a warning and opens nothing: quit Runbooks first.
 
 ## Scenarios
 
@@ -110,7 +116,7 @@ A resource with `before`, its values now, exists already, so the plan updates it
 
 ## Commands and checks
 
-`scripts` answers a `<Command>` or `<Check>` block by its id, in place of running its script. That suits a script that calls a real service, such as one that changes a setting through an API, so the blocks after it can run in a simulation too:
+`scripts` answers a `<Command>` or `<Check>` block by its id, in place of running its script, so the blocks after it, such as ones that read its outputs, can run in a simulation too:
 
 ```yaml title="simulation.yml"
 scenarios:
@@ -131,11 +137,11 @@ scenarios:
         log: The root email isn't the group's.
 ```
 
-Outputs are templates rendered like the block's `env` prop, so they read the same inputs and outputs the block does. A block that fails publishes no outputs, as a script that fails doesn't. A block the scenario answers needs no sign-in, so its `awsAuthId`, `googleAuthId` and `githubAuthId` blocks don't hold it up. A block the scenario doesn't name runs its script for real.
+Outputs are templates rendered like the block's `env` prop, so they read the same inputs and outputs the block does. A block that fails publishes no outputs, as a script that fails doesn't. A block the scenario answers needs no sign-in, so its `awsAuthId`, `googleAuthId` and `githubAuthId` blocks don't hold it up. A block the scenario doesn't name is refused, so a script that changes something real never runs by mistake, unless the scenario [runs what it doesn't answer for real](#simulate-one-step-of-a-real-run). A key matches a block's id with `-` and `_` alike, so `set_group_settings` answers `set-group-settings`. The bar lists any key that no block on the page has, which is usually a typo or a renamed block.
 
 ## Simulate one step of a real run
 
-A scenario normally answers every lookup, check and `<TerragruntApply>` block, and a missing answer is an error, so a forgotten one never reaches a real API. With `runUnanswered: true`, everything the scenario doesn't answer runs for real instead. That lets you run a runbook for real while standing in for one step you can't or don't want to repeat, such as creating an account:
+Anything a scenario doesn't answer is normally an error or refused, so a forgotten answer never reaches a real system. With `runUnanswered: true`, everything the scenario doesn't answer runs for real instead. That lets you run a runbook for real while standing in for one step you can't or don't want to repeat, such as creating an account:
 
 ```yaml title="simulation.yml"
 scenarios:
@@ -148,4 +154,6 @@ scenarios:
           account_id: "444455556666"   # an account that already exists
 ```
 
-Here only `apply-account` is simulated. Every other lookup, check, `<TerragruntApply>` block and `<Command>` or `<Check>` block signs in and runs as it would without `--simulate`. A simulated `<TerragruntApply>` block's preflight checks answer from the scenario too, as in any simulation. The **Simulation** bar says when a scenario runs what it doesn't answer for real.
+Here only `apply-account` is simulated. Every other lookup, check, `<TerragruntApply>` block and `<Command>` or `<Check>` block signs in and runs as it would without `--simulate`. A simulated `<TerragruntApply>` block's preflight checks answer from the scenario too, as in any simulation. The **Simulation** bar says when a scenario runs what it doesn't answer for real, and each `<TerragruntApply>` block it doesn't answer says it runs for real. The bar also lists any `units` key that no `<TerragruntApply>` block on the page has, since a misspelled key leaves that block to run for real.
+
+To keep a real run from starting by surprise, a scenario only runs what it doesn't answer for real when it sets `runUnanswered: true` itself, not through `extends`, and Runbooks never picks such a scenario until you pick it in the bar.

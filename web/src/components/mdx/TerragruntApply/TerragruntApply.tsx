@@ -38,6 +38,7 @@ import type { TerragruntApplyRequest } from "../../../../../electron/shared/chan
 import { PlanAndApply } from "./components/PlanAndApply"
 import { usePreflight } from "./hooks/usePreflight"
 import { useTerragruntRun } from "./hooks/useTerragruntRun"
+import { running } from "./runMachine"
 import type { PreflightState } from "./preflight"
 
 /**
@@ -304,7 +305,10 @@ function Runner({ id, header, worktreePath, path, auth, simulating }: RunnerProp
         }
       : {}),
   }
-  const run = useTerragruntRun(request, `${worktreePath}\0${path}`)
+  const simulation = useSimulation().state
+  // A plan from another scenario isn't this one's to apply.
+  const scenario = simulation.enabled ? (simulation.active ?? "") : ""
+  const run = useTerragruntRun(request, `${worktreePath}\0${path}\0${scenario}`)
   const preflight = usePreflight(request, auth, simulating)
   const moduleOutputs =
     preflight.state.kind === "ready" ? preflight.state.module?.outputs : undefined
@@ -358,6 +362,16 @@ function Runner({ id, header, worktreePath, path, auth, simulating }: RunnerProp
                 </div>
               ))}
         </dd>
+        {simulation.enabled && !simulating && (
+          <>
+            <dt className="text-xs font-medium uppercase leading-5 tracking-wide text-muted-foreground">
+              Simulation
+            </dt>
+            <dd className="m-0 text-[13px] font-medium leading-5 text-destructive">
+              Runs for real: the scenario doesn&apos;t answer this block.
+            </dd>
+          </>
+        )}
       </dl>
       {signedOut.length > 0 ? (
         <Waiting>
@@ -376,7 +390,13 @@ function Runner({ id, header, worktreePath, path, auth, simulating }: RunnerProp
           state={run.state}
           status={run.status}
           outputs={moduleOutputs ?? []}
-          preflight={<Preflight state={preflight.state} onPlanAnyway={() => void run.plan()} />}
+          preflight={
+            <Preflight
+              state={preflight.state}
+              // Only when nothing is running: a plan never starts beside another run.
+              {...(running(run.state.phase) ? {} : { onPlanAnyway: () => void run.plan() })}
+            />
+          }
           holding={preflight.state.kind === "running"}
           onPlan={() => void plan()}
           onApply={() => void apply()}
@@ -388,7 +408,7 @@ function Runner({ id, header, worktreePath, path, auth, simulating }: RunnerProp
 }
 
 /** What the preflight found, with each problem's fix. */
-function Preflight({ state, onPlanAnyway }: { state: PreflightState; onPlanAnyway: () => void }) {
+function Preflight({ state, onPlanAnyway }: { state: PreflightState; onPlanAnyway?: () => void }) {
   switch (state.kind) {
     case "idle":
       return null
@@ -493,9 +513,11 @@ function Preflight({ state, onPlanAnyway }: { state: PreflightState; onPlanAnywa
                 </li>
               ))}
             </ul>
-            <Button type="button" size="sm" className="mt-2" onClick={onPlanAnyway}>
-              <Play className="size-3.5" /> Plan anyway
-            </Button>
+            {onPlanAnyway && (
+              <Button type="button" size="sm" className="mt-2" onClick={onPlanAnyway}>
+                <Play className="size-3.5" /> Plan anyway
+              </Button>
+            )}
           </Finding>
         )
       }

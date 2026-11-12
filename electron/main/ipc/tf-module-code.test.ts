@@ -12,12 +12,17 @@ const { removeStaleFiles, templateVariables } = await import("./tf-module-code.t
 const sha256 = (content: string) => createHash("sha256").update(content).digest("hex")
 
 describe("templateVariables", () => {
-  it("gives each input by name, all of them in Inputs, and ModuleSource", () => {
-    const values = { name: "dev", grants: [{ group: "admins" }] }
-    expect(templateVariables(values, "git::https://example.com/m.git//x?ref=v1")).toEqual({
+  it("gives each input by name, all of them in Inputs, the ones the code sets as HCL, and ModuleSource", () => {
+    const values = { name: "dev", role: "Admin" }
+    const inputs = [
+      { name: "name", kind: "string", hasDefault: false },
+      { name: "role", kind: "string", hasDefault: true, default: "Admin" },
+    ] as const
+    expect(templateVariables(values, inputs, "git::https://example.com/m.git//x?ref=v1")).toEqual({
       name: "dev",
-      grants: [{ group: "admins" }],
+      role: "Admin",
       Inputs: values,
+      InputsHcl: '  name = "dev"',
       ModuleSource: "git::https://example.com/m.git//x?ref=v1",
     })
   })
