@@ -1,6 +1,6 @@
 /**
  * Where a <TfModule> block's module is on this computer. A local `source` is
- * a folder in the session; a remote one, such as
+ * a folder in the session or in the runbook's repository; a remote one, such as
  * `git::https://github.com/acme/catalog.git//modules/group?ref=v1.0.0`, is
  * cloned once per source while the app runs, with the credentials a remote
  * runbook's clone uses, so a private catalog opens after a GitHub sign-in.
@@ -9,7 +9,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { Effect, Exit } from "effect"
 import { runtime } from "./runtime.ts"
-import { validateSessionPath } from "./path-guard.ts"
+import { validateRunbookRepoPath } from "./path-guard.ts"
 import { describeCause, describeFailure } from "./ipc-error.ts"
 import { cloneRemoteSource } from "../remote.ts"
 import { isRemoteSource } from "../../../src/remote-source.ts"
@@ -45,7 +45,7 @@ const cloneModule = (source: string) =>
  */
 export const moduleDir = (source: string) =>
   Effect.gen(function* () {
-    if (!isRemoteSource(source)) return yield* validateSessionPath(source)
+    if (!isRemoteSource(source)) return yield* validateRunbookRepoPath(source)
     let clone = clones.get(source)
     if (!clone) {
       clone = runtime.runPromiseExit(cloneModule(source)) as Promise<
