@@ -101,6 +101,7 @@ function renderBlock(
     { id: "repo", kind: "GitClone" },
     { id: "prod", kind: "AwsAuth" },
   ],
+  below: { id: string; kind: BlockComponentType }[] = [],
 ) {
   return render(
     <TestWrapper>
@@ -109,6 +110,9 @@ function renderBlock(
         <Fake key={block.id} {...block} />
       ))}
       <TerragruntApply id="apply-budget" path="aws/prod/global/budget" auth={["prod"]} {...props} />
+      {below.map((block) => (
+        <Fake key={block.id} {...block} />
+      ))}
     </TestWrapper>,
   )
 }
@@ -147,13 +151,29 @@ describe("TerragruntApply", () => {
     expect(await screen.findByText(/needs a <GitClone> block/)).toBeInTheDocument()
   })
 
-  it("needs a gitCloneId when the runbook has several clones", async () => {
-    renderBlock({}, [
-      { id: "repo", kind: "GitClone" },
-      { id: "other", kind: "GitClone" },
-      { id: "prod", kind: "AwsAuth" },
-    ])
+  it("needs a gitCloneId when none of several clones is above it", async () => {
+    renderBlock(
+      {},
+      [{ id: "prod", kind: "AwsAuth" }],
+      [
+        { id: "repo", kind: "GitClone" },
+        { id: "other", kind: "GitClone" },
+      ],
+    )
     expect(await screen.findByText(/needs a gitCloneId/)).toBeInTheDocument()
+  })
+
+  it("takes the nearest clone above it when there are several", async () => {
+    renderBlock(
+      {},
+      [
+        { id: "repo", kind: "GitClone" },
+        { id: "prod", kind: "AwsAuth" },
+      ],
+      [{ id: "other", kind: "GitClone" }],
+    )
+    expect(await screen.findByTestId("apply-budget")).toBeInTheDocument()
+    expect(screen.queryByText(/needs a gitCloneId/)).not.toBeInTheDocument()
   })
 
   it("refuses an auth list with a block that isn't an auth block, or two of one kind", async () => {
