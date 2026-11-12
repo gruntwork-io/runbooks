@@ -934,7 +934,7 @@ export function registerGitHandlers(): void {
     ),
   )
 
-  ipcMain.handle("git:pr-merge", async (_event, params: GitHubPrRef) =>
+  ipcMain.handle("git:pr-merge", async (_event, params: GitHubPrRef & { headSha: string }) =>
     runAndUnwrap(
       Effect.gen(function* () {
         const repoPath = yield* validateSessionPath(params.worktreePath)
@@ -943,7 +943,8 @@ export function registerGitHandlers(): void {
           "merging the pull request",
           { callsApi: true },
         )
-        return yield* mergeGitHubPullRequest(token, { ...params, host })
+        const { headSha, ...ref } = params
+        return yield* mergeGitHubPullRequest(token, { ...ref, host }, headSha)
       }),
     ),
   )

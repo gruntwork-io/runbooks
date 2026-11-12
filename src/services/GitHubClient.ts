@@ -89,6 +89,8 @@ export interface PullRequestMergeFacts {
   /** Such as `clean`, `blocked`, `behind`, `dirty`, `unstable` or `unknown`. */
   readonly mergeableState: string
   readonly mergeCommitSha: string | null
+  /** The commit at the head of the pull request's branch, which the facts are about. */
+  readonly headSha: string
 }
 
 /** The merge methods a repository allows. */
@@ -181,13 +183,17 @@ export interface GitHubClientShape {
     repo: string,
     host?: string,
   ) => Effect.Effect<RepoMergeMethods, GitHubApiError>
-  /** Merges a pull request; resolves to the merge commit's sha. */
+  /**
+   * Merges a pull request whose head is still `headSha`; GitHub refuses when
+   * the branch has moved. Resolves to the merge commit's sha.
+   */
   readonly mergePullRequest: (
     token: string,
     owner: string,
     repo: string,
     prNumber: number,
     method: MergeMethod,
+    headSha: string,
     host?: string,
   ) => Effect.Effect<{ readonly sha: string }, GitHubApiError>
 }

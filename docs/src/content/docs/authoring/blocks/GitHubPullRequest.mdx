@@ -117,7 +117,7 @@ Under the form, the block lists every file that changed in the clone, as a tree 
 
 With `allowMerge`, the block shows a **Merge** button under the pull request once it's open. The block asks GitHub whether the pull request can merge when it opens and every 15 seconds after, and **Check again** asks right away. The button merges with the first method the repository allows, in GitHub's order: a merge commit, then squash, then rebase. It reads **Merge**, **Squash and merge** or **Rebase and merge** to match.
 
-GitHub's rules decide, branch protection included. While a required review or check is missing, the base branch has moved on and must be merged in first, the pull request conflicts with its base, or it's a draft, the button stays disabled and the block says why. Once merged, it shows the merge commit, and **Git Push** is disabled.
+GitHub's rules decide, branch protection included. While a required review or check is missing, the base branch has moved on and must be merged in first, the pull request conflicts with its base, or it's a draft, the button stays disabled and the block says why. When checks that branch protection doesn't require are failing or still running, the button is enabled and the block warns about them. A merge merges only the commit GitHub said was ready: if the branch gets new commits after that, the merge is refused until the block checks again. Once merged, it shows the merge commit, and **Git Push** is disabled.
 
 Without `allowMerge`, the block links to the pull request, and it's merged on GitHub.
 

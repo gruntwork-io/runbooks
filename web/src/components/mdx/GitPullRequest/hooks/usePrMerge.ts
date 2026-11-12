@@ -70,19 +70,23 @@ export function usePrMerge(pr: GitHubPrRef | undefined): PrMerge {
 
   const refresh = useCallback(() => setAttempt((n) => n + 1), [])
 
+  // The head GitHub said was ready, so a merge never takes commits the user hasn't seen.
+  const readyHead =
+    state?.state === "open" && state.mergeability === "ready" ? state.headSha : undefined
+
   const merge = useCallback(() => {
-    if (!key) return
+    if (!key || !readyHead) return
     setMerging(true)
     setMergeError(undefined)
     api
-      .invoke("git:pr-merge", JSON.parse(key) as GitHubPrRef)
+      .invoke("git:pr-merge", { ...(JSON.parse(key) as GitHubPrRef), headSha: readyHead })
       .then(({ sha }) => setState(sha ? { state: "merged", sha } : { state: "merged" }))
       .catch((err: unknown) => {
         setMergeError(message(err))
         setAttempt((n) => n + 1)
       })
       .finally(() => setMerging(false))
-  }, [api, key])
+  }, [api, key, readyHead])
 
   return { state, checkError, merging, mergeError, refresh, merge }
 }

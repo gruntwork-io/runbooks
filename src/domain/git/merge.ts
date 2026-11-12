@@ -22,10 +22,14 @@ export type MergeState =
   | {
       readonly state: "open"
       readonly mergeability: Mergeability
+      /** The commit this state is about; a merge merges exactly this head. */
+      readonly headSha: string
       /** The method a merge uses: the first the repository allows, in GitHub's order. */
       readonly method?: MergeMethod
       /** Why it can't merge now, fit to show the user. */
       readonly reason?: string
+      /** Why merging now may be unwise though GitHub allows it, fit to show the user. */
+      readonly warning?: string
     }
 
 const METHODS: readonly MergeMethod[] = ["merge", "squash", "rebase"]
@@ -38,6 +42,9 @@ const REASONS: Record<Exclude<Mergeability, "ready">, string> = {
   draft: "It's a draft. Mark it ready for review on GitHub to merge it.",
   checking: "GitHub is still working out whether it can merge.",
 }
+
+const UNSTABLE =
+  "Some checks that branch protection doesn't require are failing or haven't finished. GitHub allows the merge anyway."
 
 function mergeability(facts: PullRequestMergeFacts): Mergeability {
   if (facts.draft || facts.mergeableState === "draft") return "draft"
@@ -67,16 +74,21 @@ export function mergeStateOf(facts: PullRequestMergeFacts, methods: RepoMergeMet
   if (facts.state === "closed") return { state: "closed" }
   const method = METHODS.find((m) => methods[m])
   const found = mergeability(facts)
+  const { headSha } = facts
   if (!method) {
     return {
       state: "open",
       mergeability: "blocked",
+      headSha,
       reason: "The repository allows no merge method.",
     }
   }
-  return found === "ready"
-    ? { state: "open", mergeability: found, method }
-    : { state: "open", mergeability: found, method, reason: REASONS[found] }
+  if (found !== "ready") {
+    return { state: "open", mergeability: found, headSha, method, reason: REASONS[found] }
+  }
+  return facts.mergeableState === "unstable"
+    ? { state: "open", mergeability: found, headSha, method, warning: UNSTABLE }
+    : { state: "open", mergeability: found, headSha, method }
 }
 
 export interface PullRequestRef {
@@ -100,13 +112,23 @@ export const pullRequestMergeState = (token: string, pr: PullRequestRef) =>
     return mergeStateOf(facts, methods)
   })
 
-/** Merges the pull request with the method GitHub says it can merge with now. */
-export const mergeGitHubPullRequest = (token: string, pr: PullRequestRef) =>
+/**
+ * Merges the pull request with the method GitHub says it can merge with now,
+ * provided its head is still `headSha`, the commit the user saw it ready at.
+ */
+export const mergeGitHubPullRequest = (token: string, pr: PullRequestRef, headSha: string) =>
   Effect.gen(function* () {
     const current = yield* pullRequestMergeState(token, pr)
     if (current.state === "merged") return { sha: current.sha ?? "" }
     if (current.state === "closed")
       return yield* new GitHubApiError({ status: 0, message: "The pull request is closed." })
+    if (current.headSha !== headSha) {
+      return yield* new GitHubApiError({
+        status: 0,
+        message:
+          "The pull request has new commits since GitHub said it could merge. Look at them, then merge again.",
+      })
+    }
     if (current.mergeability !== "ready" || !current.method) {
       return yield* new GitHubApiError({
         status: 0,
@@ -114,5 +136,13 @@ export const mergeGitHubPullRequest = (token: string, pr: PullRequestRef) =>
       })
     }
     const gh = yield* GitHubClient
-    return yield* gh.mergePullRequest(token, pr.owner, pr.repo, pr.number, current.method, pr.host)
+    return yield* gh.mergePullRequest(
+      token,
+      pr.owner,
+      pr.repo,
+      pr.number,
+      current.method,
+      headSha,
+      pr.host,
+    )
   })
