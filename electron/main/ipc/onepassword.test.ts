@@ -109,6 +109,19 @@ describe("onepassword:create-item", () => {
     expect(argv.flat()).not.toContain("s3cr3t")
   })
 
+  it("fails, saving nothing, when a prop renders empty", async () => {
+    const reply = await invoke({
+      item: { vault: "Ops", title: "IAM", password: "{{ .outputs.iam.SECRET_ACCESS_KEY }}" },
+      templateVarValues: { inputs: {}, outputs: { iam: { SECRET_ACCESS_KEY: "" } } },
+    })
+    expect(reply).toEqual({
+      ok: false,
+      error:
+        "password came out empty, so nothing was saved. Check that the outputs it reads have values.",
+    })
+    expect(argv).toEqual([])
+  })
+
   it("fails, naming the prop, when a template can't render", async () => {
     const reply = await invoke({
       item: { vault: "Ops", title: "IAM", password: "{{ .outputs.iam.MISSING }}" },

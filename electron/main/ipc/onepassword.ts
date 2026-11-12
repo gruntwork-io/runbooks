@@ -46,6 +46,17 @@ export async function createOnePasswordItemFromTemplates(
     const result = await runtime.runPromise(
       Effect.gen(function* () {
         const rendered = yield* renderTemplateValues(templates, templateVarValues ?? {})
+        // A prop that renders empty would save an item missing what the runbook meant it to hold.
+        const empty = Object.keys(templates).filter(
+          (name) => templates[name]!.trim() !== "" && (rendered[name] ?? "").trim() === "",
+        )
+        if (empty.length > 0) {
+          return yield* Effect.fail(
+            new Error(
+              `${empty.join(", ")} came out empty, so nothing was saved. Check that the outputs ${empty.length === 1 ? "it reads have" : "they read have"} values.`,
+            ),
+          )
+        }
         return yield* createOnePasswordItem({
           vault: rendered.vault!,
           title: rendered.itemTitle!,
