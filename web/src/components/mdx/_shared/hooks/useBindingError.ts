@@ -24,9 +24,10 @@ export function useBindingError(
   const { blockOf, registered } = usePageBlocks()
   useScopeRequests(declarations ? scopesByBlock(declarations, auth) : {})
   if (!declarations || !registered) return null
+  // Without each block's scopes: this asks the block for the ones its groups need, so it requests them.
   const blocks = Object.values(auth).flatMap((blockId) => {
     const found = blockOf(blockId)
-    return found ? [{ id: blockId, kind: found.kind, scopes: found.scopes }] : []
+    return found ? [{ id: blockId, kind: found.kind }] : []
   })
   const problems = bindingProblems(declarations.definitions, declarations.groups, auth, blocks)
   if (problems.length === 0) return null

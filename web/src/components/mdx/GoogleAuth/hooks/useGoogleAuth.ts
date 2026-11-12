@@ -147,7 +147,10 @@ interface AuthCompletion extends PendingAccount {
 export interface UseGoogleAuthOptions {
   id: string
   project?: string | undefined
+  /** The scopes any credential must have. */
   scopes?: string[] | undefined
+  /** The scopes Google Sign-In asks for, when they're more than `scopes`. */
+  signInScopes?: string[] | undefined
   oauthClientId?: string | undefined
   oauthClientSecret?: string | undefined
   oauthClientFile?: string | undefined
@@ -279,6 +282,7 @@ export function useGoogleAuth({
   id,
   project,
   scopes,
+  signInScopes = scopes,
   oauthClientId,
   oauthClientSecret,
   oauthClientFile,
@@ -1668,7 +1672,7 @@ export function useGoogleAuth({
         ...(oauthClientId ? { clientId: oauthClientId } : {}),
         ...(oauthClientSecret ? { clientSecret: oauthClientSecret } : {}),
         ...(effectiveOauthClientFile ? { clientFile: effectiveOauthClientFile } : {}),
-        ...(scopes && scopes.length > 0 ? { scopes } : {}),
+        ...(signInScopes && signInScopes.length > 0 ? { scopes: signInScopes } : {}),
       })
 
       if (!data.flowId || !data.authUrl) {
@@ -1701,7 +1705,7 @@ export function useGoogleAuth({
     oauthClientId,
     oauthClientSecret,
     effectiveOauthClientFile,
-    scopes,
+    signInScopes,
     pollOAuthCompletion,
     invalidateBlockOutputs,
   ])
