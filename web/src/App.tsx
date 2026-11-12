@@ -204,9 +204,14 @@ function App() {
     setIsPanelSliding(isDesktopLayout)
   }
   const endPanelSlide = (e: TransitionEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget && e.propertyName === "flex-grow") {
-      setIsPanelSliding(false)
-    }
+    // React leaves propertyName off a transitioncancel: the DOM event has it.
+    if (e.target !== e.currentTarget || e.nativeEvent.propertyName !== "flex-grow") return
+    // Showing or hiding the panel mid-slide cancels the slide for one that
+    // slides it back, so the panel still slides.
+    const slidesOn = e.currentTarget
+      .getAnimations()
+      .some((a) => a instanceof CSSTransition && a.transitionProperty === "flex-grow")
+    if (!slidesOn) setIsPanelSliding(false)
   }
 
   // Hides the "show code" button along with showing the panel, so the button

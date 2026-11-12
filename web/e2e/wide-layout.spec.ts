@@ -233,6 +233,69 @@ test.describe("showing and hiding the files workspace", () => {
       })
     }
   }
+
+  for (const setting of ["Fixed", "Fill window"] as const) {
+    test(`slides the runbook back without a jump when hidden mid-slide with Runbook width ${setting}`, async ({
+      launchRunbook,
+      resizeWindow,
+      consoleMessages,
+    }) => {
+      const page = await launchRunbook(RUNBOOK)
+      await resizeWindow(1920, 1080)
+      const runbook = await openRunbook(page)
+      await setRunbookWidth(page, setting)
+      const row = 1920 - 2 * MARGIN
+      const closed = setting === "Fixed" ? FIXED_RUNBOOK_WIDTH : row - 80
+      const open = (row - HANDLE) / 3
+
+      // Hides the files workspace once the runbook has narrowed 60% of the
+      // way, so the slide back still takes over 300ms. A dispatched click: the
+      // button is still moving, so a real click would wait for the slide to end.
+      await page.getByTitle("Show generated files").click()
+      await page.waitForFunction(
+        `document.querySelector('[data-testid="runbook-content"]').getBoundingClientRect().width < ${closed - 0.6 * (closed - open)}`,
+      )
+      const closing = await perFrame(page, async () => {
+        await page.getByTitle("Hide files workspace").locator("visible=true").dispatchEvent("click")
+        // A few frames on, past the first slide's transitioncancel, the
+        // runbook still slides with the panel.
+        expect(await paneTransition(page, 3)).toBe("0.7s")
+      })
+      expectSlide(closing, 1)
+      await expect.poll(() => width(runbook)).toBeCloseTo(closed, 0)
+      // Once the slide back ends, the runbook stops sliding.
+      await expect.poll(() => paneTransition(page, 0)).toBe("0s")
+
+      expectNoConsoleErrors(consoleMessages)
+    })
+  }
+
+  test("stops sliding when the window narrows mid-slide", async ({
+    launchRunbook,
+    resizeWindow,
+    consoleMessages,
+  }) => {
+    const page = await launchRunbook(RUNBOOK)
+    await resizeWindow(1920, 1080)
+    const runbook = await openRunbook(page)
+    await setRunbookWidth(page, "Fill window")
+    const closed = 1920 - 2 * MARGIN - 80
+
+    // Below 1250px the files workspace leaves the row, which cancels its slide.
+    await page.getByTitle("Show generated files").click()
+    await page.waitForFunction(
+      `document.querySelector('[data-testid="runbook-content"]').getBoundingClientRect().width < ${closed - 20}`,
+    )
+    await resizeWindow(1200, 900)
+    await resizeWindow(1920, 1080)
+
+    // Back on the desktop layout, the runbook no longer slides, so the
+    // handle's arrow keys and double-click set its width at once.
+    await expect(runbook).toBeVisible()
+    await expect.poll(() => paneTransition(page, 0)).toBe("0s")
+
+    expectNoConsoleErrors(consoleMessages)
+  })
 })
 
 /** Waits for the runbook to render, and returns it. */
@@ -284,6 +347,20 @@ async function maxWidth(locator: Locator): Promise<string> {
         globalThis as unknown as { getComputedStyle(e: unknown): { maxWidth: string } }
       ).getComputedStyle(el).maxWidth,
   )
+}
+
+/**
+ * The runbook pane's transition-duration, `frames` frames from now: 0.7s
+ * while it slides with the files workspace, 0s otherwise.
+ */
+async function paneTransition(page: Page, frames: number): Promise<string> {
+  return (await page.evaluate(`new Promise((done) => {
+    const pane = document.querySelector('[aria-label="Resize the runbook"]').previousElementSibling
+    let left = ${frames}
+    const read = () =>
+      left-- > 0 ? requestAnimationFrame(read) : done(getComputedStyle(pane).transitionDuration)
+    read()
+  })`)) as string
 }
 
 interface Frames {
