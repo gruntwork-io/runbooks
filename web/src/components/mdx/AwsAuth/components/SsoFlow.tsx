@@ -1,3 +1,4 @@
+import { useId } from "react"
 import { Loader2, ExternalLink, XCircle, Check } from "lucide-react"
 import { SearchInput } from "@/components/mdx/_shared/components/SearchInput"
 import { Button } from "@/components/ui/button"
@@ -127,6 +128,8 @@ function PortalFields({
   disabled: boolean
   invalid: boolean
 }) {
+  // Each block's field gets its own id, so its label names it on a page of several.
+  const startUrlId = useId()
   const others = configured.filter(
     (c) => c.startUrl !== portal.startUrl.trim() || c.region !== portal.region,
   )
@@ -134,13 +137,13 @@ function PortalFields({
     <>
       <div>
         <label
-          htmlFor="aws-sso-start-url"
+          htmlFor={startUrlId}
           className="block text-sm font-medium text-foreground mb-1"
         >
           SSO start URL <span className="text-destructive">*</span>
         </label>
         <input
-          id="aws-sso-start-url"
+          id={startUrlId}
           type="url"
           value={portal.startUrl}
           onChange={(e) => setPortal({ ...portal, startUrl: e.target.value })}

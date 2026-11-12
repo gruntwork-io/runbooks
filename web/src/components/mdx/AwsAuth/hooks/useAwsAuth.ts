@@ -20,6 +20,7 @@ import type {
   DetectedAwsCredentials,
 } from "../types"
 import { resolveDefaultAuthMethod, ssoPortals, type SsoPortal } from "../utils"
+import { onPortalRemembered, readRememberedPortal, rememberPortal } from "../rememberedPortal"
 import { signInHint } from "@/components/mdx/_shared/lib/signInHint"
 import { AWS_AUTH_ENV_VARS } from "../../../../../../src/domain/exec/authEnv.ts"
 
@@ -118,9 +119,26 @@ export function useAwsAuth({
 
   // A runbook that sets no ssoStartUrl leaves the portal to the user: its start
   // URL, and the region its IAM Identity Center lives in.
-  const [portal, setPortal] = useState<SsoPortal>({ startUrl: "", region: ssoRegion })
+  // It starts as the portal last signed in to on this computer.
+  const [portal, setPortal] = useState<SsoPortal>(
+    () => (!ssoStartUrl && readRememberedPortal()) || { startUrl: "", region: ssoRegion },
+  )
   const startUrl = ssoStartUrl || portal.startUrl.trim()
   const identityCenterRegion = ssoStartUrl ? ssoRegion : portal.region
+  // A portal another block on the page signs in to fills an empty field.
+  useEffect(
+    () =>
+      ssoStartUrl
+        ? undefined
+        : onPortalRemembered((signedIn) =>
+            setPortal((prev) => (prev.startUrl.trim() ? prev : signedIn)),
+          ),
+    [ssoStartUrl],
+  )
+  // Remembers a typed portal once it signs in; the runbook's own needs no remembering.
+  const portalSignedIn = useCallback(() => {
+    if (!ssoStartUrl) rememberPortal({ startUrl, region: identityCenterRegion })
+  }, [ssoStartUrl, startUrl, identityCenterRegion])
 
   // SSO account/role selection state
   const [ssoAccessToken, setSsoAccessToken] = useState<string | null>(null)
@@ -860,6 +878,7 @@ export function useAwsAuth({
             setAuthStatus("select_account")
           } else if (data.status === "success") {
             setAuthStatus("authenticated")
+            portalSignedIn()
             setAccountInfo({
               accountId: data.accountId,
               accountName: data.accountName,
@@ -895,6 +914,7 @@ export function useAwsAuth({
       ssoRoleName,
       selectedDefaultRegion,
       registerCredentials,
+      portalSignedIn,
     ],
   )
 
@@ -1013,6 +1033,7 @@ export function useAwsAuth({
 
       if (data.accessKeyId) {
         setAuthStatus("authenticated")
+        portalSignedIn()
         setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
         void registerCredentials(
           omitUndefined({
@@ -1041,6 +1062,7 @@ export function useAwsAuth({
     identityCenterRegion,
     selectedDefaultRegion,
     registerCredentials,
+    portalSignedIn,
   ])
 
   // Go back to account selection
