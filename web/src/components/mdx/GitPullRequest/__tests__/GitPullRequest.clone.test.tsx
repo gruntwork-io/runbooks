@@ -177,7 +177,13 @@ describe("GitPullRequest clone and merge", () => {
   it("keeps Merge disabled with GitHub's reason while branch protection blocks it", async () => {
     prResult = { prUrl: "https://github.com/acme/infra-live/pull/7", prNumber: 7, branchName: "b" }
     mergeStates = [
-      { state: "open", mergeability: "blocked", method: "squash", reason: "Needs a review." },
+      {
+        state: "open",
+        mergeability: "blocked",
+        headSha: "head1",
+        method: "squash",
+        reason: "Needs a review.",
+      },
     ]
     renderBlock({ allowMerge: true })
     expect(await screen.findByText("Needs a review.")).toBeInTheDocument()
@@ -192,13 +198,34 @@ describe("GitPullRequest clone and merge", () => {
 
   it("merges once GitHub says it can, and stops offering a push", async () => {
     prResult = { prUrl: "https://github.com/acme/infra-live/pull/7", prNumber: 7, branchName: "b" }
-    mergeStates = [{ state: "open", mergeability: "ready", method: "merge" }]
+    mergeStates = [
+      {
+        state: "open",
+        mergeability: "ready",
+        headSha: "head1",
+        method: "merge",
+        warning: "Some checks aren't done.",
+      },
+    ]
     renderBlock({ allowMerge: true })
     const button = await screen.findByRole("button", { name: /^Merge$/ })
     await waitFor(() => expect(button).toBeEnabled())
+    expect(screen.getByText("Some checks aren't done.")).toBeInTheDocument()
     fireEvent.click(button)
     expect(await screen.findByText("0123456")).toBeInTheDocument()
-    expect(calls("git:pr-merge")).toHaveLength(1)
+    expect(screen.queryByText("Some checks aren't done.")).not.toBeInTheDocument()
+    expect(calls("git:pr-merge")).toEqual([
+      [
+        "git:pr-merge",
+        {
+          worktreePath: "/clones/infra-live",
+          owner: "acme",
+          repo: "infra-live",
+          number: 7,
+          headSha: "head1",
+        },
+      ],
+    ])
     expect(screen.getByRole("button", { name: "Git Push" })).toBeDisabled()
   })
 })

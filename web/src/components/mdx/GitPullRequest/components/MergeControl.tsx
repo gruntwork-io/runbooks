@@ -1,4 +1,4 @@
-import { CheckCircle, GitMerge, Loader2, RefreshCw, XCircle } from "lucide-react"
+import { CheckCircle, GitMerge, Loader2, RefreshCw, TriangleAlert, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { MergeMethod } from "../../../../../../src/services/GitHubClient"
 import type { PrMerge } from "../hooks/usePrMerge"
@@ -76,6 +76,12 @@ export function MergeControl({ merge }: MergeControlProps) {
         <p className="text-xs text-muted-foreground m-0">Asking GitHub whether it can merge...</p>
       )}
       {state?.reason && <p className="text-xs text-muted-foreground m-0">{state.reason}</p>}
+      {state?.warning && (
+        <p className="flex items-start gap-1.5 text-xs text-warning-foreground m-0">
+          <TriangleAlert className="size-3.5 mt-0.5 shrink-0" />
+          {state.warning}
+        </p>
+      )}
       {(checkError ?? mergeError) && (
         <div className="flex items-start gap-1.5 text-xs text-destructive">
           <XCircle className="size-3.5 mt-0.5 shrink-0" />

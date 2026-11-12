@@ -450,6 +450,7 @@ const impl: GitHubClientShape = {
           mergeable: boolean | null
           mergeable_state?: string
           merge_commit_sha: string | null
+          head: { sha: string }
         }>(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, { token })
         return {
           state: pr.state,
@@ -458,6 +459,7 @@ const impl: GitHubClientShape = {
           mergeable: pr.mergeable,
           mergeableState: pr.mergeable_state ?? "unknown",
           mergeCommitSha: pr.merge_commit_sha,
+          headSha: pr.head.sha,
         }
       },
       catch: toGitHubApiError,
@@ -489,6 +491,7 @@ const impl: GitHubClientShape = {
     repo: string,
     prNumber: number,
     method: MergeMethod,
+    headSha: string,
     host?: string,
   ) =>
     Effect.tryPromise({
@@ -500,7 +503,7 @@ const impl: GitHubClientShape = {
             method: "PUT",
             token,
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ merge_method: method }),
+            body: JSON.stringify({ merge_method: method, sha: headSha }),
           },
         )
         return { sha: data.sha }

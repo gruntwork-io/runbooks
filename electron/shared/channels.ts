@@ -889,7 +889,7 @@ export interface IpcChannelMap {
   /** Whether a GitHub pull request can merge now, as GitHub says, and with which method. */
   "git:pr-merge-state": { params: GitHubPrRef; result: MergeState }
   /** Merges a GitHub pull request with the method GitHub says it can merge with now. */
-  "git:pr-merge": { params: GitHubPrRef; result: { sha: string } }
+  "git:pr-merge": { params: GitHubPrRef & { headSha: string }; result: { sha: string } }
 
   // Workspace
   "workspace:tree": {
