@@ -118,6 +118,7 @@ const GENERATED = {
   kept: [] as string[],
 }
 let generated = GENERATED
+let generateError: Error | null = null
 
 const json = (body: unknown) =>
   Promise.resolve({ status: 200, contentType: "application/json", body: JSON.stringify(body) })
@@ -131,7 +132,9 @@ const invoke = vi.fn((channel: string, params?: { request?: { url: string } }) =
     }
     return json({ domains: domainRows })
   }
-  if (channel === "tf-module:generate") return Promise.resolve(generated)
+  if (channel === "tf-module:generate") {
+    return generateError ? Promise.reject(generateError) : Promise.resolve(generated)
+  }
   return Promise.reject(new Error(`unexpected channel ${channel}`))
 })
 
@@ -205,6 +208,7 @@ const input = (name: string) => document.getElementById(`group-${name}`) as HTML
 describe("TfModule", () => {
   beforeEach(() => {
     generated = GENERATED
+    generateError = null
     domainRows = DOMAINS
     moduleSpec = spec
     readError = null
@@ -321,6 +325,22 @@ describe("TfModule", () => {
         ),
       { timeout: 2000 },
     )
+  })
+
+  it("tries a failed generate again with the same inputs", async () => {
+    generateError = new Error("The module couldn't be cloned: the network is down.")
+    renderBlock()
+    fireEvent.change(input("domain"), { target: { value: "example.com" } })
+    fireEvent.change(input("group_name"), { target: { value: "platform" } })
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(await screen.findByText(/the network is down/)).toBeInTheDocument()
+
+    generateError = null
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }))
+    expect(await screen.findByText("groups/platform/terragrunt.hcl")).toBeInTheDocument()
+    const generates = invoke.mock.calls.filter(([channel]) => channel === "tf-module:generate")
+    expect(generates).toHaveLength(2)
+    expect(generates[1]?.[1]).toEqual(generates[0]?.[1])
   })
 
   it("lists files it kept because they changed after it wrote them", async () => {

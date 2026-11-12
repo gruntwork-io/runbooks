@@ -4,13 +4,18 @@
  * declares, without the app, so a repository's own CI can catch a
  * declaration that drifted before a runbook does.
  */
+import { existsSync, statSync } from "node:fs"
 import * as path from "node:path"
 import type { Command } from "commander"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import { FileSystem } from "../../src/services/FileSystem.ts"
 import { readFormLookups } from "../../src/domain/boilerplate/lookups.ts"
-import { checkSimulation, readModuleDeclarations } from "../../src/domain/lookups/module.ts"
+import {
+  checkSimulation,
+  METADATA_FILE,
+  readModuleDeclarations,
+} from "../../src/domain/lookups/module.ts"
 import type { Problem } from "../../src/domain/lookups/types.ts"
 
 export function registerValidateCommand(program: Command): void {
@@ -24,9 +29,16 @@ export function registerValidateCommand(program: Command): void {
       const runtime = ManagedRuntime.make(Layer.mergeAll(NodeFileSystemLive))
       let failed = false
       for (const dir of dirs) {
-        const problems = await runtime.runPromise(validateDir(path.resolve(dir)))
+        const absolute = path.resolve(dir)
+        const missing = missingFolder(absolute)
+        const problems = missing
+          ? [formatProblem(missing)]
+          : await runtime.runPromise(validateDir(absolute))
         if (problems.length === 0) {
-          console.log(`ok  ${dir}`)
+          const declares = [METADATA_FILE, "boilerplate.yml"].some((file) =>
+            existsSync(path.join(absolute, file)),
+          )
+          console.log(declares ? `ok  ${dir}` : `ok  ${dir} (nothing to check)`)
           continue
         }
         failed = true
@@ -38,6 +50,14 @@ export function registerValidateCommand(program: Command): void {
       await runtime.dispose()
       if (failed) process.exitCode = 1
     })
+}
+
+/** Why `dir` can't be a module or template folder: it doesn't exist, or isn't a folder. */
+export function missingFolder(dir: string): Problem | undefined {
+  const stat = statSync(dir, { throwIfNoEntry: false })
+  if (!stat) return { source: dir, message: "doesn't exist." }
+  if (!stat.isDirectory()) return { source: dir, message: "isn't a folder." }
+  return undefined
 }
 
 /** Each problem in the folder, as a line to print: a template's when it has a boilerplate.yml, otherwise a module's. */

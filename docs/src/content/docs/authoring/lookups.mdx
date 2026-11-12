@@ -92,7 +92,7 @@ A request's strings may read values with `{{ }}`. The only thing between the bra
 | `.lookups.<group>.<lookup>.<field>` | A field of another lookup's row. That lookup must give exactly one row |
 | `.query` | The text typed in the field. A lookup that reads it runs again as the user types, so the API filters; one that doesn't runs once, and the field filters its rows |
 
-Each value is encoded for where it goes: URL-encoded in a path or query string, and a JSON string in a body, so typed text can't change a URL or the shape of a body. A URL's scheme and host may use only literal text and `.auth`. A GraphQL `query` in a body can't hold templates, since typed text inside it could change the query: pass values in the body's `variables` instead.
+Each value is encoded for where it goes: URL-encoded in a path or query string, and a JSON string in a body, so typed text can't change a URL or the shape of a body. A value in a URL's path must be a segment of its own, so one that's empty, `.` or `..` stops the request with an error instead of changing the path. A URL's scheme and host may use only literal text and `.auth`. A GraphQL `query` in a body can't hold templates, since typed text inside it could change the query: pass values in the body's `variables` instead.
 
 There are no functions, conditions or loops, and a lookup is one request, its pages, and values from one row of another lookup. Anything more stays a typed input.
 
@@ -134,13 +134,13 @@ An include only makes definitions available, as if written inline. It must stay 
 
 ## Checking declarations
 
-Runbooks checks declarations when it loads them, and refuses a file that names a lookup, check, param, field or auth fact that doesn't exist, puts a form value in a URL's host, puts a template in a GraphQL query, or chains lookups in a circle. `runbooks-cli validate` runs the same checks without the app, for a module's or a template's own CI. It takes module folders, and template folders, which it knows by their `boilerplate.yml`:
+Runbooks checks declarations when it loads them, and refuses a file that names a lookup, check, param, field or auth fact that doesn't exist, has a key it doesn't know, requests a URL that isn't https, puts a form value in a URL's host, puts a template in a GraphQL query, chains lookups in a circle, or has an input use a lookup with no `value` field. `runbooks-cli validate` runs the same checks without the app, for a module's or a template's own CI. It takes module folders, and template folders, which it knows by their `boilerplate.yml`:
 
 ```bash
 runbooks-cli validate modules/google-group modules/aws-account runbooks/_includes/templates/unit
 ```
 
-It exits non-zero when it finds a problem. It also checks the recorded answers in each module's `simulation.yml`, so a declaration that no longer reads its API's answers fails the module's pull request.
+It exits non-zero when it finds a problem, or when a folder it's given doesn't exist. It also checks the recorded answers in each module's `simulation.yml`, so a declaration that no longer reads its API's answers fails the module's pull request.
 
 ## Recording real answers
 
