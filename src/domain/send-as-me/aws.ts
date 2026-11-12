@@ -2,8 +2,9 @@
  * What AwsAuth will send as the signed-in user for another block: a read, to
  * an AWS API endpoint. The runbook's author chose the request, and is trusted
  * as they are for a Command, so these rules don't name services or
- * operations. They keep the request on AWS's own endpoints and to reads, so a
- * lookup can't change anything by mistake.
+ * operations. They keep the request on AWS's own endpoints and, by the
+ * operation's name, to reads, so a lookup doesn't change anything by mistake.
+ * The name is AWS's convention, not a guarantee.
  */
 import type { HttpRequest } from "../../services/HttpRequest.ts"
 import { refuse, shapeRequest, isRefused, type Refused } from "./shape.ts"
@@ -34,6 +35,11 @@ export interface AwsSendable {
 }
 
 const ALLOWED_HEADERS = ["accept", "content-type", "x-amz-target"]
+
+/** The body types of the JSON protocols, which name their operation in X-Amz-Target. */
+const JSON_TYPES = ["application/x-amz-json-1.0", "application/x-amz-json-1.1", "application/json"]
+/** The body type of the Query protocol, which names its operation in an Action parameter. */
+const FORM_TYPE = "application/x-www-form-urlencoded"
 
 /**
  * Whether AwsAuth will send `request`, and if so how to sign it: for the
@@ -82,19 +88,27 @@ function signingFor(host: string): AwsSigning | undefined {
 
 /**
  * The operation the request names, from X-Amz-Target or its Action
- * parameters, or nothing when it names none.
+ * parameters, or nothing when it names none. A body must be the type its
+ * protocol reads, JSON with X-Amz-Target and a form otherwise, so no body
+ * can name an operation this doesn't see.
  */
 function operation(request: HttpRequest, url: URL): string | Refused | undefined {
   const target = request.headers["x-amz-target"]
   const actions = url.searchParams.getAll("Action")
-  const type = request.headers["content-type"] ?? ""
-  if (request.body && type.startsWith("application/x-www-form-urlencoded")) {
+  // Media types are case-insensitive, and the server reads the body by its type however it's spelled.
+  const type = (request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase()
+  if (request.body && type === FORM_TYPE) {
     actions.push(...new URLSearchParams(request.body).getAll("Action"))
   }
   if (target !== undefined) {
     if (actions.length > 0) {
       return refuse(
         `A request to ${url.hostname} names its operation in X-Amz-Target or in Action, not both.`,
+      )
+    }
+    if (request.body && !JSON_TYPES.includes(type)) {
+      return refuse(
+        `An X-Amz-Target request to ${url.hostname} carries a JSON body, with a Content-Type such as application/x-amz-json-1.1.`,
       )
     }
     const action = target.split(".").pop()
@@ -107,6 +121,11 @@ function operation(request: HttpRequest, url: URL): string | Refused | undefined
       return refuse(`An X-Amz-Target request goes to the root path, with no query string.`)
     }
     return action
+  }
+  if (request.body && type !== FORM_TYPE) {
+    return refuse(
+      `AwsAuth sends only reads. A request to ${url.hostname} with a body names its operation in X-Amz-Target with a JSON body, or in Action with a ${FORM_TYPE} body.`,
+    )
   }
   if (actions.length === 0) return undefined
   const [action, ...others] = actions
