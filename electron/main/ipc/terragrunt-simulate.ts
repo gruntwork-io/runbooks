@@ -30,10 +30,9 @@ import type { TerragruntApplyRequest, TerragruntPreflight } from "../../shared/c
 
 const fail = (message: string) => new SimulationError({ message })
 
-/** What a run streams to the block, and stops it. */
+/** What a run streams to the block. Interrupting the run stops it. */
 interface SimulatedRun {
   readonly send: (event: RunEvent) => void
-  readonly signal: AbortSignal
 }
 
 /** The active scenario's unit for the block, and its inputs, or an error saying what to add. */
@@ -75,17 +74,7 @@ export const simulatedPreflight = (request: TerragruntApplyRequest) =>
     } satisfies TerragruntPreflight
   })
 
-const pause = (ms: number, signal: AbortSignal) =>
-  Effect.promise(
-    () =>
-      new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, ms)
-        signal.addEventListener("abort", () => {
-          clearTimeout(timer)
-          resolve()
-        })
-      }),
-  ).pipe(Effect.flatMap(() => (signal.aborted ? Effect.fail(fail("Stopped.")) : Effect.void)))
+const pause = (ms: number) => Effect.sleep(ms)
 
 /** OpenTofu's counts of a plan's actions: a replace adds one and destroys one. */
 function countActions(actions: readonly ResourceAction[]) {
@@ -111,7 +100,7 @@ export const simulatePlan = (request: TerragruntApplyRequest, run: SimulatedRun)
     run.send({ kind: "step", step: "init" })
     run.send({ kind: "log", line: "Simulated: nothing runs, and nothing real changes." })
     run.send({ kind: "log", line: "tofu: Initializing provider plugins..." })
-    yield* pause(unit.delayMs, run.signal)
+    yield* pause(unit.delayMs)
     run.send({ kind: "step", step: "plan" })
     const plan = yield* Effect.try({
       try: () => simulatedPlan(unit, inputs),
@@ -120,7 +109,7 @@ export const simulatePlan = (request: TerragruntApplyRequest, run: SimulatedRun)
     for (const resource of plan.resources) {
       run.send({ kind: "log", line: `${resource.address}: Plan to ${resource.action}` })
     }
-    yield* pause(unit.delayMs, run.signal)
+    yield* pause(unit.delayMs)
     const n = countActions(plan.resources.map((r) => r.action))
     run.send({
       kind: "log",
@@ -140,7 +129,7 @@ export const simulateApply = (request: TerragruntApplyRequest, run: SimulatedRun
       const words = APPLY_WORDS[resource.action]
       run.send({ kind: "resource", address, progress: "working" })
       run.send({ kind: "log", line: `${address}: ${words.start}` })
-      yield* pause(unit.delayMs, run.signal)
+      yield* pause(unit.delayMs)
       if (unit.applyError && index === resources.length - 1) {
         run.send({ kind: "resource", address, progress: "failed", message: unit.applyError })
         run.send({ kind: "log", line: unit.applyError, level: "error" })

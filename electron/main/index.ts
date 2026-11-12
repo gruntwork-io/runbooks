@@ -17,7 +17,7 @@ import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
-import { enableSimulation } from "./ipc/simulation.ts"
+import { enableSimulation, simulationEnabled } from "./ipc/simulation.ts"
 import { launchDirContext, requestLaunchLock, secondInstanceLaunchDirectory } from "./launch-dir.ts"
 import { planSecondLaunch, planStartupLaunch } from "./launch-session.ts"
 import { openSessionStorage, type SessionStorage } from "./session-storage.ts"
@@ -36,6 +36,7 @@ import { closeRunbook, stopWatchers } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { cancelAllExecutions } from "./ipc/exec.ts"
+import { removeTerragruntWorkFolders, stopTerragruntRuns } from "./ipc/terragrunt-apply.ts"
 import { resolveRunbookAssetPath, runbookAssetHost } from "./ipc/path-guard.ts"
 import { byteRangeResponse } from "./asset-range.ts"
 import { installClientCertificateHandler, installPermissionHandlers } from "./permissions.ts"
@@ -199,6 +200,20 @@ if (!gotLock) {
     // Electron emits second-instance only after ready, and the ready handler
     // opens session storage first.
     if (!sessionPersistence) throw new Error("session persistence is not initialized")
+    // Simulation is on or off for the whole app, so a launch that asks for the
+    // other mode can't open here: it would run for real, or the reverse.
+    if (secondArgs.simulate !== simulationEnabled()) {
+      void dialog.showMessageBox(win, {
+        type: "warning",
+        message: simulationEnabled()
+          ? "Runbooks is open in simulation mode."
+          : "Runbooks is already open, not in simulation mode.",
+        detail: simulationEnabled()
+          ? "Quit Runbooks, then open the runbook again without --simulate."
+          : "Quit Runbooks, then open the runbook again with --simulate.",
+      })
+      return
+    }
     const plan = planSecondLaunch(
       sessionPersistence,
       secondArgs,
@@ -550,7 +565,7 @@ app
     // it.
     mainWindow.webContents.on("did-start-navigation", (details) => {
       if (!details.isMainFrame || details.isSameDocument) return
-      cancelAllExecutions().catch((err: unknown) => {
+      Promise.all([cancelAllExecutions(), stopTerragruntRuns()]).catch((err: unknown) => {
         log.error("Error cancelling executions:", err)
       })
     })
@@ -621,7 +636,7 @@ app.on("will-quit", (event) => {
   // file disappears. The wait is capped at 1 s so that cleanup still runs
   // inside the safety timeout.
   Promise.race([
-    cancelAllExecutions(),
+    Promise.all([cancelAllExecutions(), stopTerragruntRuns()]),
     new Promise<void>((resolve) => {
       setTimeout(resolve, 1000)
     }),
@@ -635,6 +650,9 @@ app.on("will-quit", (event) => {
 
       // Shred the credential files materialised for Google Cloud auth
       cleanupGoogleCredentialFiles()
+
+      // Saved plans can hold secrets
+      void removeTerragruntWorkFolders()
 
       // Close the runbook and script file watchers (runtime.dispose doesn't reach them)
       void stopWatchers()
