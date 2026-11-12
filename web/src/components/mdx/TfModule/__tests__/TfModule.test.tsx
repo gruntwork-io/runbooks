@@ -525,7 +525,7 @@ describe("TfModule", () => {
     ).toBeInTheDocument()
   })
 
-  it("refuses an auth prop that binds a group to a block that doesn't request its scopes", async () => {
+  it("accepts a bound block that doesn't list its group's scopes, since it's asked for them", async () => {
     render(
       <TestWrapper>
         <FakeGoogleAuth id="workspace" scopes={["openid"]} />
@@ -537,7 +537,8 @@ describe("TfModule", () => {
         />
       </TestWrapper>,
     )
-    expect(await screen.findByText(new RegExp(`doesn't request ${SCOPE}`))).toBeInTheDocument()
+    await waitFor(() => expect(input("domain")).not.toBeNull())
+    expect(screen.queryByText(/auth prop doesn't fit/)).toBeNull()
   })
   describe("with a prefill", () => {
     const customerId = {

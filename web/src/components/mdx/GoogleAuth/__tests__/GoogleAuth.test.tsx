@@ -849,6 +849,22 @@ describe("GoogleAuth — required scopes", () => {
     })
   })
 
+  it("requires only the scopes the page's other blocks need of an ambient credential", async () => {
+    installApi((channel) => (channel === "google:env-credentials" ? { found: false } : {}))
+
+    renderBlock(
+      <>
+        <GoogleAuth id="gcp" detectCredentials={["env"]} />
+        <NeedsScopes scopes={{ gcp: [DIRECTORY] }} />
+      </>,
+    )
+
+    // Looking again once the other blocks have asked sends what they need, without the defaults.
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }))
+    await waitFor(() => expect(callsTo("google:env-credentials")).toHaveLength(2))
+    expect(callsTo("google:env-credentials")[1]?.[1]).toMatchObject({ scopes: [DIRECTORY] })
+  })
+
   it("shows the gcloud --scopes command when Sign-In is unavailable", async () => {
     installApi((channel) => {
       if (channel === "google:oauth-available") return { available: false }
