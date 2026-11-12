@@ -65,7 +65,7 @@ The block's job ends when the code is written. **Generate** checks the values, p
 />
 ```
 
-A value fills its input while the input holds only its default or nothing, so it never overwrites what the user gave. A template fills once every output it reads exists. Each value fills once, so an input the user clears stays clear until the outputs give another value, as after a step is applied again. A sensitive output fills as `<redacted>`, so don't prefill from one. A prefilled input doesn't use the module's own `prefill` lookup. The block refuses a name the module has no input for.
+A value fills its input while the input holds only its default or nothing, so it never overwrites what the user gave. A template fills once every output it reads exists. Each value fills once, so an input the user clears stays clear until the outputs give another value, as after a step is applied again. When the outputs give another value while the input still holds the last one it filled, the new value replaces it. A template gives text, which the block reads as the input's type: `true` or `false` for a bool, a number for a number, and JSON for a list or a map; a value that doesn't fit shows an error and fills nothing. A sensitive output fills as `<redacted>`, so don't prefill from one. A prefilled input doesn't use the module's own `prefill` lookup. The block refuses a name the module has no input for.
 
 ## Module source
 

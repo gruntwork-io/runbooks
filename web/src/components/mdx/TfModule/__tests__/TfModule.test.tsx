@@ -409,6 +409,36 @@ describe("TfModule", () => {
     expect(input("display_name").value).toBe("Ops")
   })
 
+  it("follows its output while the input holds what it filled, and reads text as the input's kind", async () => {
+    renderBlock(undefined, {
+      display_name: "{{ .outputs.apply_group.email }}",
+      allow_external: "{{ .outputs.apply_group.external }}",
+    })
+    await waitFor(() => expect(ctx).toBeDefined())
+    act(() =>
+      ctx!.registerOutputs("apply-group", { email: "aws-dev@example.com", external: "false" }),
+    )
+    await waitFor(() => expect(input("display_name").value).toBe("aws-dev@example.com"))
+    fireEvent.click(screen.getByRole("button", { name: /Advanced options/ }))
+    expect(input("allow_external")).not.toBeChecked()
+
+    act(() =>
+      ctx!.registerOutputs("apply-group", { email: "aws-prod@example.com", external: "true" }),
+    )
+    await waitFor(() => expect(input("display_name").value).toBe("aws-prod@example.com"))
+    expect(input("allow_external")).toBeChecked()
+
+    act(() =>
+      ctx!.registerOutputs("apply-group", { email: "aws-prod@example.com", external: "yes" }),
+    )
+    expect(
+      await screen.findByText(
+        'prefilledVariables.allow_external is "yes", which isn\'t true or false.',
+      ),
+    ).toBeInTheDocument()
+    expect(input("allow_external")).toBeChecked()
+  })
+
   it("refuses prefilled values for inputs the module doesn't have", () => {
     renderBlock(undefined, { display_nme: "Platform team" })
     expect(screen.getByText(/names inputs the module doesn't have/)).toBeInTheDocument()
