@@ -398,16 +398,18 @@ function TfModuleForm({
           Object.hasOwn(prefilledVariables, variable.name) ? (
             <PrefilledVariable
               key={variable.name}
+              variable={variable}
               value={prefilledVariables[variable.name]}
+              current={values[variable.name]}
               fillable={holdsStartingValue(variable, values[variable.name])}
-              onFill={(value) =>
-                update({
-                  [variable.name]: withoutSuffix(
-                    formValue(variable, value),
-                    suffixFor(spec, variable, latest.current),
-                  ),
-                })
-              }
+              onFill={(value) => {
+                const held = withoutSuffix(
+                  formValue(variable, value),
+                  suffixFor(spec, variable, latest.current),
+                )
+                update({ [variable.name]: held })
+                return held
+              }}
             />
           ) : (
             variable.prefill && (
