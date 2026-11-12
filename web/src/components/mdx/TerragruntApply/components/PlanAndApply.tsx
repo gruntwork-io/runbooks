@@ -543,9 +543,19 @@ export function PlanAndApply({
         {label}
       </Button>
     )
+  // A stopped run goes on until Terragrunt exits, so OpenTofu can finish what it's doing.
+  const stopping = (phase.kind === "planning" || phase.kind === "applying") && phase.stopping
   const stopButton = (
-    <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-      <Square className="size-3.5" /> Stop
+    <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={stopping}>
+      {stopping ? (
+        <>
+          <Loader2 className="size-3.5 animate-spin" /> Stopping…
+        </>
+      ) : (
+        <>
+          <Square className="size-3.5" /> Stop
+        </>
+      )}
     </Button>
   )
   const resourceList = (heading: string) => (
@@ -570,11 +580,14 @@ export function PlanAndApply({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <StepRail phase={phase} />
-      </div>
+      {/* A run that hasn't started, or applied, says so in one line instead. */}
+      {phase.kind !== "idle" && phase.kind !== "applied" && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <StepRail phase={phase} />
+        </div>
+      )}
 
-      {preflight}
+      {phase.kind !== "applied" && preflight}
 
       {phase.kind === "idle" && (
         <div className="space-y-3">
@@ -663,7 +676,7 @@ export function PlanAndApply({
               resources={phase.result.resources}
               filter={{ ...filter, hideUnknown: false, onlyChanged: false }}
               layout={layout}
-              progress={() => ({ progress: "done" })}
+              progress={() => undefined}
             />
           </div>
           <OutputList outputs={phase.result.outputs} meta={outputs} />
