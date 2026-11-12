@@ -1,8 +1,9 @@
 /**
  * In simulation mode, exec:run answers a block its scenario names from
  * simulation.yml instead of running the block's script, and runs every other
- * block for real. Drives the real exec:run handler on the real runtime; only
- * electron's `ipcMain` is faked.
+ * block for real; a scenario that runs what it doesn't answer for real
+ * simulates only the units it answers. Drives the real handlers on the real
+ * runtime; only electron's `ipcMain` is faked.
  */
 import { describe, it, expect, beforeAll, afterAll } from "bun:test"
 import * as fs from "node:fs"
@@ -21,7 +22,7 @@ mockElectron({
 })
 
 const { registerExecHandlers } = await import("./exec.ts")
-const { enableSimulation, disableSimulation, registerSimulationHandlers } =
+const { enableSimulation, disableSimulation, registerSimulationHandlers, simulatedUnit } =
   await import("./simulation.ts")
 const { runtime, sessionManager, setExecutableRegistry, setRunbookConfig } =
   await import("./runtime.ts")
@@ -41,6 +42,11 @@ scenarios:
       ready:
         status: fail
         log: The email doesn't match.
+  real-run:
+    runUnanswered: true
+    units:
+      apply-account:
+        outputs: { account_id: "444455556666" }
 `
 
 describe("exec:run in simulation mode", () => {
@@ -120,5 +126,18 @@ describe("exec:run in simulation mode", () => {
     const { result } = await run("ready")
     // Like a real run that fails, it publishes no outputs.
     expect(result).toEqual({ status: { status: "fail", exitCode: 1 }, outputs: {} })
+  }, 20000)
+
+  it("simulates only the units a scenario that runs the rest for real answers", async () => {
+    expect(await runtime.runPromise(simulatedUnit("apply-budget"))).toBe(true)
+    await handlers.get("simulation:set-scenario")!({}, { name: "real-run" })
+    expect(await runtime.runPromise(simulatedUnit("apply-account"))).toBe(true)
+    expect(await runtime.runPromise(simulatedUnit("apply-budget"))).toBe(false)
+    expect(await handlers.get("simulation:state")!({})).toMatchObject({
+      active: "real-run",
+      runUnanswered: true,
+      units: ["apply-account"],
+      responses: [],
+    })
   }, 20000)
 })

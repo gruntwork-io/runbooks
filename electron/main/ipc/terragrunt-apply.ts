@@ -21,7 +21,7 @@ import { runtime, sessionManager } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { moduleDir } from "./tf-module-source.ts"
 import { describeFailure } from "./ipc-error.ts"
-import { simulationEnabled } from "./simulation.ts"
+import { simulatedUnit } from "./simulation.ts"
 import { simulateApply, simulatedPreflight, simulatePlan } from "./terragrunt-simulate.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
 import { isRemoteSource } from "../../../src/remote-source.ts"
@@ -400,9 +400,12 @@ const preflight = (request: TerragruntApplyRequest) =>
 
 export function registerTerragruntApplyHandlers(): void {
   ipcMain.handle("terragrunt-apply:preflight", (_event, params: TerragruntApplyRequest) =>
-    simulationEnabled()
-      ? runtime.runPromise(simulatedPreflight(params))
-      : runtime.runPromise(preflight(params)),
+    runtime.runPromise(
+      Effect.gen(function* () {
+        if (yield* simulatedUnit(params.blockId)) return yield* simulatedPreflight(params)
+        return yield* preflight(params)
+      }),
+    ),
   )
 
   ipcMain.handle("terragrunt-apply:plan", async (event, params: TerragruntRunRequest) => {
@@ -410,7 +413,7 @@ export function registerTerragruntApplyHandlers(): void {
     try {
       return await runtime.runPromise(
         Effect.gen(function* () {
-          if (simulationEnabled()) return yield* simulatePlan(params, run)
+          if (yield* simulatedUnit(params.blockId)) return yield* simulatePlan(params, run)
           // Until this plan finishes, there's no plan to apply.
           yield* forgetPlan(params.blockId)
           const env = yield* runEnv(params)
@@ -455,7 +458,7 @@ export function registerTerragruntApplyHandlers(): void {
     try {
       return await runtime.runPromise(
         Effect.gen(function* () {
-          if (simulationEnabled()) return yield* simulateApply(params, run)
+          if (yield* simulatedUnit(params.blockId)) return yield* simulateApply(params, run)
           const env = yield* runEnv(params)
           const { worktree, unit } = yield* unitOf(params)
           const saved = savedPlans.get(params.blockId)

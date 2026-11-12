@@ -3,6 +3,7 @@ import { useApi } from "@/contexts/ApiContext"
 import { usePageBlocks } from "@/contexts/ComponentIdRegistry"
 import { useAllOutputs } from "@/contexts/useRunbook"
 import { useSimulation } from "@/contexts/useSimulation"
+import { simulatesLookup } from "@/contexts/simulates"
 import { normalizeBlockId } from "@/lib/utils"
 import { revealOutputs } from "../../../../../../src/domain/exec/outputValues"
 import {
@@ -48,6 +49,10 @@ export interface EngineDeps {
   readonly asWritten: (templateId: string) => string
   /** Changes whenever simulated answers may have; undefined when nothing is simulated. */
   readonly simulation: number | undefined
+  /** Whether simulation.yml answers the lookup or check `id` instead of its API. */
+  readonly simulates: (id: string) => boolean
+  /** Whether an auth block nobody signed in to reads as signed in, because nothing runs for real. */
+  readonly simulatedSignIn: boolean
 }
 
 export function useEngineDeps(): EngineDeps {
@@ -57,6 +62,8 @@ export function useEngineDeps(): EngineDeps {
     outputs: useAllOutputs(),
     asWritten: usePageBlocks().asWritten,
     simulation: state.enabled ? revision : undefined,
+    simulates: (id) => simulatesLookup(state, id),
+    simulatedSignIn: state.enabled && !state.runUnanswered,
   }
 }
 
@@ -82,7 +89,7 @@ export function useLookupEngine(
 
 /** The engine over what `deps` read from the page; useLookupEngine for a form. */
 export function lookupEngine(
-  { api, outputs, asWritten, simulation }: EngineDeps,
+  { api, outputs, asWritten, simulation, simulates, simulatedSignIn }: EngineDeps,
   definitions: Definitions,
   binding: Readonly<Record<string, string>>,
   inputs: Readonly<Record<string, unknown>>,
@@ -95,7 +102,7 @@ export function lookupEngine(
   }
 
   const send: RunContext["send"] = async (request, group, kind: AuthKind, about) => {
-    if (simulation !== undefined) {
+    if (simulates(about.id)) {
       return api.invoke("simulation:respond", { id: about.id, with: { ...about.with }, module })
     }
     const blockId = binding[group]
@@ -123,7 +130,7 @@ export function lookupEngine(
     auth: (group) => {
       const kind = definitions.groups[group]?.auth
       const values = boundValues(group)
-      if (kind && simulation !== undefined && !(values && signedIn(kind, values))) {
+      if (kind && simulatedSignIn && !(values && signedIn(kind, values))) {
         return simulatedAuthFacts(kind)
       }
       return kind && values ? authFacts(kind, values) : {}

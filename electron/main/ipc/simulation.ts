@@ -25,6 +25,7 @@ import {
   noResponse,
   parseSimulation,
   simulatedResponse,
+  simulatesUnit,
   type SimulationScenario,
 } from "../../../src/domain/simulation/scenarios.ts"
 import type { SimulationRespondRequest, SimulationState } from "../../shared/channels.ts"
@@ -42,10 +43,6 @@ export function enableSimulation(): void {
 export function disableSimulation(): void {
   enabled = false
   activeScenario = undefined
-}
-
-export function simulationEnabled(): boolean {
-  return enabled
 }
 
 const asSimulationError = (cause: unknown) =>
@@ -112,6 +109,13 @@ export const simulatedScript = (blockId: string) =>
     return script && { script, scenario: scenario.name }
   })
 
+/** Whether the active scenario answers the <TerragruntApply> block `blockId`, rather than leaving it to run for real. */
+export const simulatedUnit = (blockId: string) =>
+  Effect.gen(function* () {
+    if (!enabled) return false
+    return simulatesUnit(yield* activeSimulationScenario, blockId)
+  })
+
 export function registerSimulationHandlers(): void {
   ipcMain.handle("simulation:state", async (): Promise<SimulationState> => {
     if (!enabled) return { enabled: false }
@@ -129,6 +133,13 @@ export function registerSimulationHandlers(): void {
       })),
       active: active.name,
       scripts: Object.keys(active.scripts),
+      ...(active.runUnanswered
+        ? {
+            runUnanswered: true,
+            units: Object.keys(active.units),
+            responses: Object.keys(active.responses),
+          }
+        : {}),
     }
   })
 

@@ -26,6 +26,20 @@
  * preflight, plan and apply, by the block's id (see unit.ts), and `scripts`
  * answers a <Command> or <Check> block's run, by the block's id (see
  * script.ts).
+ *
+ * A <Command> or <Check> block a scenario doesn't name runs for real. A
+ * lookup, check or <TerragruntApply> block it doesn't answer is an error, so
+ * a forgotten answer never reaches a real API, unless the scenario sets
+ * `runUnanswered: true`. Then everything it doesn't answer runs for real, and
+ * a run can stand in for one step, such as creating an account, while every
+ * other step really happens:
+ *
+ *   scenarios:
+ *     real-run:
+ *       runUnanswered: true
+ *       units:
+ *         apply-account:
+ *           outputs: { account_id: "444455556666" }
  */
 import YAML from "yaml"
 import { SimulationError } from "../../errors/index.ts"
@@ -54,6 +68,8 @@ export interface SimulationScenario {
   readonly units: Readonly<Record<string, SimulatedUnit>>
   /** Each <Command> and <Check> block's run, by block id, with what the scenario extends merged in. */
   readonly scripts: Readonly<Record<string, SimulatedScript>>
+  /** Whether a lookup, check or unit the scenario doesn't answer runs for real instead of failing. */
+  readonly runUnanswered: boolean
 }
 
 function readResponses(raw: unknown, where: string): SimulatedResponse[] {
@@ -138,6 +154,11 @@ export function parseSimulation(content: string): SimulationScenario[] {
       scripts[block] = readScript(merged, `${where}.scripts.${block}`)
     }
 
+    const runUnanswered = entry.runUnanswered ?? base?.runUnanswered ?? false
+    if (typeof runUnanswered !== "boolean") {
+      throw simulationError(`${where}.runUnanswered must be true or false.`)
+    }
+
     const scenario: SimulationScenario = {
       name,
       label: typeof entry.label === "string" ? entry.label : name,
@@ -145,11 +166,17 @@ export function parseSimulation(content: string): SimulationScenario[] {
       responses,
       units,
       scripts,
+      runUnanswered,
     }
     resolved.set(name, scenario)
     return scenario
   }
   return Object.keys(scenarios).map((name) => resolve(name, []))
+}
+
+/** Whether the scenario answers the <TerragruntApply> block `blockId`, rather than leaving it to run for real. */
+export function simulatesUnit(scenario: SimulationScenario, blockId: string): boolean {
+  return !scenario.runUnanswered || Object.hasOwn(scenario.units, blockId)
 }
 
 const sameParams = (a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>) =>

@@ -1214,6 +1214,14 @@ export type SimulationState =
       active?: string
       /** The <Command> and <Check> blocks the scenario runs, by id, which need no sign-in. */
       scripts?: string[]
+      /**
+       * Set when the scenario runs what it doesn't answer for real: then only
+       * the <TerragruntApply> blocks in `units` and the lookups and checks in
+       * `responses` are simulated.
+       */
+      runUnanswered?: true
+      units?: string[]
+      responses?: string[]
       /** What's wrong with simulation.yml, fit to show the author. */
       error?: string
     }

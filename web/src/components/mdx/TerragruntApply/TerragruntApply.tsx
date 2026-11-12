@@ -30,6 +30,7 @@ import { useClone } from "../_shared/hooks/useClone"
 import { buildAuthEnvVars, buildGoogleAuthEnvVars } from "../_shared/hooks/useScriptExecution"
 import { authFacts, signedIn } from "../_shared/lib/authFacts"
 import { useSimulation } from "@/contexts/useSimulation"
+import { simulatesUnit } from "@/contexts/simulates"
 import { GITHUB_AUTH_ENV_VARS, GIT_AUTH_ENV_VARS } from "../../../../../src/domain/exec/authEnv"
 import { revealOutputs } from "../../../../../src/domain/exec/outputValues"
 import type { BoundBlock } from "../../../../../src/domain/lookups/validate"
@@ -155,7 +156,7 @@ function TerragruntApply({
   const authBlocks = useAuthBlocks(authList)
   const clone = useClone(gitCloneId, "<TerragruntApply>", "the unit")
   const { workTree } = clone
-  const simulating = useSimulation().state.enabled
+  const simulating = simulatesUnit(useSimulation().state, id)
 
   // The path waits on every output it reads, such as the <TfModule> block's CODE_PATH.
   const deps = useMemo(() => requireAllOutputs(extractTemplateDependenciesFromString(path)), [path])
@@ -304,7 +305,7 @@ function Runner({ id, header, worktreePath, path, auth, simulating }: RunnerProp
       : {}),
   }
   const run = useTerragruntRun(request, `${worktreePath}\0${path}`)
-  const preflight = usePreflight(request, auth)
+  const preflight = usePreflight(request, auth, simulating)
   const moduleOutputs =
     preflight.state.kind === "ready" ? preflight.state.module?.outputs : undefined
 
