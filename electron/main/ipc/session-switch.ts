@@ -9,6 +9,7 @@ import * as fs from "node:fs"
 import { runtime, sessionPersistence } from "./runtime.ts"
 import { expectLaunch, isSessionOpen } from "./runbook.ts"
 import { cancelAllExecutions, isExecutionRunning } from "./exec.ts"
+import { isTerragruntRunning, stopTerragruntRuns } from "./terragrunt-apply.ts"
 import { openRunbookInWindow, type OpenRunbookPayload } from "../open-runbook.ts"
 import { resolveRemoteRunbook } from "../remote.ts"
 import { getMainWindow } from "../window.ts"
@@ -38,7 +39,9 @@ export async function switchToSession(
   if (saved.remoteSource === undefined && !fs.existsSync(saved.path)) {
     return { status: "failed", error: `This session's runbook is gone: ${saved.path}` }
   }
-  if (isExecutionRunning() && !stopRunningScript) return { status: "script-running" }
+  if ((isExecutionRunning() || isTerragruntRunning()) && !stopRunningScript) {
+    return { status: "script-running" }
+  }
 
   let open: OpenRunbookPayload = { path: saved.path }
   if (saved.remoteSource !== undefined) {
@@ -53,7 +56,7 @@ export async function switchToSession(
   const win = getMainWindow()
   if (!win) throw new Error("there is no window to open the session in")
   // A script started while the clone ran is stopped too.
-  await cancelAllExecutions()
+  await Promise.all([cancelAllExecutions(), stopTerragruntRuns()])
   expectLaunch({ source: open.remoteSource ?? open.path, launchDir: undefined, sessionId: id })
   openRunbookInWindow(win, open)
   return { status: "switched" }

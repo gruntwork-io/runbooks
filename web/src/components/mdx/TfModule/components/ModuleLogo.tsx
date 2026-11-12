@@ -1,5 +1,9 @@
 import { Boxes } from "lucide-react"
+import awsLogo from "@/assets/aws-logo.svg"
+import awsLogoLight from "@/assets/aws-logo-light.svg"
 import googleLogo from "@/assets/google-g-logo.svg"
+import openTofuLogo from "@/assets/opentofu-logo.svg"
+import { useTheme } from "@/contexts/useTheme"
 import type { TfModuleSpec } from "../../../../../../src/domain/tf-module/types"
 
 /**
@@ -7,7 +11,7 @@ import type { TfModuleSpec } from "../../../../../../src/domain/tf-module/types"
  * shows its own logo instead when its runbook_block.yml sets one.
  */
 type ProviderMark =
-  | { image: string; label: string }
+  | { image: string; imageOnDark?: string; label: string }
   | { text: string; className: string; label: string }
 
 const GOOGLE: ProviderMark = { image: googleLogo, label: "Google" }
@@ -16,7 +20,7 @@ const PROVIDER_MARKS: Record<string, ProviderMark> = {
   "hashicorp/google": GOOGLE,
   "hashicorp/google-beta": GOOGLE,
   "hashicorp/googleworkspace": GOOGLE,
-  "hashicorp/aws": { text: "aws", className: "bg-[#232F3E] text-[#FF9900]", label: "AWS" },
+  "hashicorp/aws": { image: awsLogo, imageOnDark: awsLogoLight, label: "AWS" },
   "integrations/github": { text: "GH", className: "bg-[#24292F] text-white", label: "GitHub" },
   "cloudflare/cloudflare": {
     text: "CF",
@@ -31,7 +35,26 @@ const address = (source: string | undefined, name: string) => {
   return raw.replace(/^(registry\.(terraform|opentofu)\.(io|org)\/)/, "")
 }
 
+/**
+ * The module's logo, with the OpenTofu mark on its corner so the block reads
+ * as an OpenTofu module whatever provider it uses.
+ */
 export function ModuleLogo({ spec }: { spec: TfModuleSpec }) {
+  return (
+    <div className="relative shrink-0">
+      <Mark spec={spec} />
+      <img
+        src={openTofuLogo}
+        alt="OpenTofu"
+        title="OpenTofu module"
+        className="absolute -right-1.5 -bottom-1.5 size-5"
+      />
+    </div>
+  )
+}
+
+function Mark({ spec }: { spec: TfModuleSpec }) {
+  const dark = useTheme().resolvedTheme === "dark"
   const box = "flex size-10 shrink-0 items-center justify-center rounded-lg"
   if (spec.logo) {
     return <img src={spec.logo} alt="" className={`${box} object-contain`} />
@@ -41,7 +64,11 @@ export function ModuleLogo({ spec }: { spec: TfModuleSpec }) {
     if (mark && "image" in mark) {
       return (
         <div className={`${box} border border-border bg-card p-1.5`} title={mark.label}>
-          <img src={mark.image} alt={mark.label} className="size-full object-contain" />
+          <img
+            src={dark && mark.imageOnDark ? mark.imageOnDark : mark.image}
+            alt={mark.label}
+            className="size-full object-contain"
+          />
         </div>
       )
     }

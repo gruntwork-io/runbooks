@@ -12,8 +12,8 @@ user of a new AWS account, and keep who receives it in code.
 
 ## How
 
-Supply `id`, the group's email address, and exactly one of `domain` or
-`customer_id`. List people in `owners`, `managers`, and `members`; each must
+Supply `id`, the group's email address, and `domain`, `customer_id`, or both;
+`customer_id` names the organization when both are given. List people in `owners`, `managers`, and `members`; each must
 already exist. Set `types` for a security, dynamic, or external group. See
 [inputs](variables.tf) and [outputs](outputs.tf).
 
@@ -28,7 +28,7 @@ Terragrunt unit or a plain OpenTofu configuration, is up to the runbook.
 Adapted from
 [terraform-google-modules/terraform-google-group](https://github.com/terraform-google-modules/terraform-google-group)
 (Apache License 2.0). It uses the `google` provider instead of `google-beta`,
-requires exactly one of `domain` and `customer_id`, validates inputs, and
+takes `domain`, `customer_id`, or both, validates inputs, and
 outputs `email` instead of `id` and `name`.
 
 ## Failure modes
