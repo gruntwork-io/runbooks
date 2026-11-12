@@ -424,7 +424,10 @@ export function registerTerragruntApplyHandlers(): void {
             fingerprint,
             identity: identityOf(params.env),
           })
-          return { resources: plannedResources(JSON.parse(shown)) } satisfies PlanResult
+          const resources = plannedResources(JSON.parse(shown))
+          if (resources.length > 0) return { resources } satisfies PlanResult
+          const outputs = yield* terragrunt(["output", "-json"], where)
+          return { resources, outputs: moduleOutputs(JSON.parse(outputs), []) } satisfies PlanResult
         }).pipe(
           // A plan that isn't saved for an apply mustn't stay on disk, since it can hold secrets.
           Effect.onExit((exit) =>
