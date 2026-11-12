@@ -8,8 +8,9 @@
  * `runbooks-cli lookups record` writes, so a module's recording serves
  * every runbook that uses it.
  *
- * It's on for the whole app when it was launched with `--simulate` (or
- * RUNBOOKS_SIMULATE=1). The file is read on every request, so an edit shows
+ * Anything else that would reach a real system is refused (see
+ * simulation-guard.ts). It's on for the whole app when it was launched with
+ * `--simulate` (or RUNBOOKS_SIMULATE=1). The file is read on every request, so an edit shows
  * on the next lookup without reopening the runbook.
  */
 import * as path from "path"
@@ -28,6 +29,7 @@ import {
   type SimulationScenario,
 } from "../../../src/domain/simulation/scenarios.ts"
 import type { SimulationRespondRequest, SimulationState } from "../../shared/channels.ts"
+import { simulationRefusal, type SimulationCheck } from "./simulation-guard.ts"
 
 let enabled = false
 /** The scenario the author picked; the file's first one until they pick. */
@@ -41,6 +43,13 @@ export function enableSimulation(): void {
 export function simulationEnabled(): boolean {
   return enabled
 }
+
+/**
+ * Whether a call that would reach a real system may run: always outside
+ * simulation mode, and never in it.
+ */
+export const simulationCheck: SimulationCheck = (channel) =>
+  enabled ? simulationRefusal(channel) : undefined
 
 const asSimulationError = (cause: unknown) =>
   cause instanceof SimulationError ? cause : new SimulationError({ message: String(cause), cause })

@@ -17,7 +17,7 @@ import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
-import { enableSimulation } from "./ipc/simulation.ts"
+import { enableSimulation, simulationEnabled } from "./ipc/simulation.ts"
 import { launchDirContext, requestLaunchLock, secondInstanceLaunchDirectory } from "./launch-dir.ts"
 import { planSecondLaunch, planStartupLaunch } from "./launch-session.ts"
 import { openSessionStorage, type SessionStorage } from "./session-storage.ts"
@@ -200,6 +200,20 @@ if (!gotLock) {
     // Electron emits second-instance only after ready, and the ready handler
     // opens session storage first.
     if (!sessionPersistence) throw new Error("session persistence is not initialized")
+    // Simulation is on or off for the whole app, so a launch that asks for the
+    // other mode can't open here: it would run for real, or the reverse.
+    if (secondArgs.simulate !== simulationEnabled()) {
+      void dialog.showMessageBox(win, {
+        type: "warning",
+        message: simulationEnabled()
+          ? "Runbooks is open in simulation mode."
+          : "Runbooks is already open, not in simulation mode.",
+        detail: simulationEnabled()
+          ? "Quit Runbooks, then open the runbook again without --simulate."
+          : "Quit Runbooks, then open the runbook again with --simulate.",
+      })
+      return
+    }
     const plan = planSecondLaunch(
       sessionPersistence,
       secondArgs,
