@@ -36,8 +36,9 @@ export function SimulationBar() {
         ) : (
           <span className="text-muted-foreground">
             Lookups, checks, Terragrunt runs and the scripts the scenario names answer from
-            simulation.yml. Anything else that would reach a real system, such as a sign-in, another
-            script, a clone or a pull request, is refused.
+            simulation.yml. GitHub and GitLab sign-ins and clones are real, since they only read.
+            Anything else that would reach a real system, such as another script, a push or a pull
+            request, is refused.
           </span>
         )}
         {state.scenarios.length > 0 && (
