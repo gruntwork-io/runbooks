@@ -42,7 +42,8 @@ export function useOnePasswordItem(id: string) {
     if (restored) registerOutputs(id, restored.outputs)
   }, [id, registerOutputs, restored])
 
-  // A reply that comes back after the block unmounted changes nothing.
+  // A reply that comes back after the block unmounted updates no state, but a
+  // saved item is still recorded, so it is never saved twice.
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
@@ -61,21 +62,22 @@ export function useOnePasswordItem(id: string) {
       } catch (err) {
         reply = { ok: false as const, error: err instanceof Error ? err.message : String(err) }
       }
-      if (!mountedRef.current) return
       if (!reply.ok) {
+        if (!mountedRef.current) return
         setStatus("fail")
         setError(reply.error)
         return
       }
       const published = itemOutputs(reply)
-      registerOutputs(id, published)
-      setOutputs(published)
-      setStatus("success")
       history.record(id, "resource", {
         status: "created",
         log: [`Saved "${reply.title}" to the ${reply.vaultName} vault`],
         outputs: published,
       } satisfies SavedResource)
+      registerOutputs(id, published)
+      if (!mountedRef.current) return
+      setOutputs(published)
+      setStatus("success")
     },
     [api, history, id, registerOutputs],
   )
