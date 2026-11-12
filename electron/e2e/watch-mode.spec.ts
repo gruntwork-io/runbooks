@@ -29,7 +29,7 @@ import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
 import { fileURLToPath } from "url"
-import { MOCK_KEYCHAIN } from "./launch.ts"
+import { INSECURE_SESSION_KEY, MOCK_KEYCHAIN } from "./launch.ts"
 import { resizeMainWindow } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
@@ -76,6 +76,9 @@ test.describe("Watch mode", () => {
       ],
       env: {
         ...process.env,
+        // Linux has no keychain: let the session history be saved, so a
+        // second launch can resume it (see launch.ts).
+        ...INSECURE_SESSION_KEY,
         ELECTRON_NO_UPDATER: "1",
         RUNBOOKS_TELEMETRY_DISABLE: "1",
       },

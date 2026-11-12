@@ -95,7 +95,7 @@ The notice's reload works like a watch-mode reload. It keeps the [session](/comm
 
 **Security:**
 - A changed runbook is never executed without a click
-- The notice shows no diff, and the click approves whatever is on disk when you click, not a version you reviewed. This is the same trust as closing and reopening the runbook, and weaker than [reloading a changed script file](#reloading-a-changed-script-file), which refuses a script that changed after you saw it
+- The notice shows no diff, and the click approves whatever is on disk when Runbooks reads the file after the click, not a version you reviewed. This is the same trust as closing and reopening the runbook, and weaker than [reloading a changed script file](#reloading-a-changed-script-file), which refuses a script that changed after you saw it
 
 ## How scripts run
 

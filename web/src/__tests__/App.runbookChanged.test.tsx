@@ -301,6 +301,21 @@ describe("App: the open runbook changed on disk", () => {
       expect(screen.getByRole("heading", { name: "Before edit" })).toBeInTheDocument()
     })
 
+    it("forgets a dismissal once a save changes the file to another version", async () => {
+      const { emit, save } = renderApp()
+      await openA(emit)
+      await save(A, "# After edit\n")
+      fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }))
+      expect(screen.queryByText(NOTICE_TITLE)).not.toBeInTheDocument()
+
+      // Back to the version loaded, then the dismissed version again.
+      await save(A, "# Before edit\n")
+      expect(screen.queryByText(NOTICE_TITLE)).not.toBeInTheDocument()
+      await save(A, "# After edit\n")
+
+      expect(await screen.findByText(NOTICE_TITLE)).toBeInTheDocument()
+    })
+
     it("forgets a dismissal once the runbook is reloaded", async () => {
       const { emit, save } = renderApp()
       await openA(emit)
@@ -410,5 +425,16 @@ describe("App: the open runbook changed on disk", () => {
     await waitFor(() => expect(runbookGets(invoke)).toHaveLength(loads + 1))
     expect(runbookGets(invoke).at(-1)?.[1]).toMatchObject({ path: A, reload: true })
     expect(screen.queryByText(NOTICE_TITLE)).not.toBeInTheDocument()
+  })
+
+  it("with --watch, ignores a change to a runbook that is not the one on screen", async () => {
+    const { invoke, emit, save } = renderApp({ watchMode: true })
+    await openA(emit)
+    const loads = runbookGets(invoke).length
+
+    await save(B, "# Runbook B, edited\n")
+
+    expect(runbookGets(invoke)).toHaveLength(loads)
+    expect(screen.getByRole("heading", { name: "Before edit" })).toBeInTheDocument()
   })
 })

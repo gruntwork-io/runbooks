@@ -25,15 +25,25 @@ import { markRunbookClosed } from "./runbook.ts"
 import { getMainWindow } from "../window.ts"
 import { makeLogger } from "../logger.ts"
 import { readFileMetadata } from "../../../src/domain/workspace/file.ts"
+import { makeLatestOnly } from "./latest-only.ts"
 
 const log = makeLogger("ipc:watch")
 
+// Two writes in a row start two reads of the runbook, which can finish in
+// either order. Only the read for the newest write, of the runbook still
+// watched, is reported: an older hash would tell the renderer the file is
+// back to what it loaded while it still differs.
+const runbookRead = makeLatestOnly()
+let watchedRunbookPath: string | undefined
+
 const runbookWatcher = makeRunbookWatcher(runtime, (runbookPath) => {
+  const isLatest = runbookRead.begin()
   // The same hash runbook:get returns. A runbook that can't be read (deleted,
   // or mid-rename by an editor) reports nothing: its next write does.
   runtime
     .runPromise(readFileMetadata(runbookPath))
     .then(({ contentHash }) => {
+      if (!isLatest()) return
       const win = getMainWindow()
       if (!win || win.isDestroyed()) return
       win.webContents.send("watch:file-change", { type: "reload", path: runbookPath, contentHash })
@@ -53,7 +63,12 @@ const scriptWatcher = makeScriptWatcher(runtime, (scriptsWritten) => {
 })
 
 /** Watch the runbook at `runbookPath` (a no-op if it's already watched). */
-export const startWatcher = runbookWatcher.start
+export const startWatcher = (runbookPath: string): void => {
+  // A read still running for the runbook watched before is stale.
+  if (runbookPath !== watchedRunbookPath) runbookRead.invalidate()
+  watchedRunbookPath = runbookPath
+  runbookWatcher.start(runbookPath)
+}
 
 /**
  * Watch the script files at `scriptPaths` (a no-op if exactly those are
@@ -62,8 +77,11 @@ export const startWatcher = runbookWatcher.start
 export const watchScripts = scriptWatcher.watch
 
 /** Stop the watch-mode watcher and the script watcher, whichever are running. */
-export const stopWatchers = (): Promise<void> =>
-  Promise.all([runbookWatcher.stop(), scriptWatcher.stop()]).then(() => undefined)
+export const stopWatchers = (): Promise<void> => {
+  runbookRead.invalidate()
+  watchedRunbookPath = undefined
+  return Promise.all([runbookWatcher.stop(), scriptWatcher.stop()]).then(() => undefined)
+}
 
 /**
  * Close the open runbook: stop watching it and tell the renderer to close it.

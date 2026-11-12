@@ -184,28 +184,30 @@ function App() {
     sessionKey: string
     contentHash: string
   } | null>(null)
+  // The file's hash when the user dismissed the notice. It stays dismissed
+  // while main reports that hash: a save that changes the file to anything
+  // else forgets the dismissal, and so does a load that changed the runbook
+  // on screen.
+  const [dismissedRunbookChange, setDismissedRunbookChange] = useState<string | null>(null)
   const handleRunbookFileChange = (change: RunbookFileChange) => {
-    if (displayedRunbook?.isWatchMode) {
+    // A change to a runbook that is no longer on screen (main stops watching
+    // it, but its last event can still be on the way)
+    if (displayedRunbook?.path !== change.path) return
+    if (displayedRunbook.isWatchMode) {
       // Watch mode: reload at once, even on a save that changed nothing, so
       // the blocks re-read script files that changed since.
-      if (runbookError && displayedRunbook.path === change.path) {
+      if (runbookError) {
         reloadForWatch(displayedRunbook.path, displayedRunbook.remoteSource)
       } else {
         reloadForWatch()
       }
       return
     }
-    // A change to a runbook that is no longer on screen (main stops watching
-    // it, but its last event can still be on the way)
-    if (!loadedSessionKey || displayedRunbook?.path !== change.path) return
+    if (!loadedSessionKey) return
+    if (change.contentHash !== dismissedRunbookChange) setDismissedRunbookChange(null)
     setRunbookOnDisk({ sessionKey: loadedSessionKey, contentHash: change.contentHash })
   }
   useIpcWatchMode(handleRunbookFileChange)
-  // The file's hash when the user dismissed the notice. It stays dismissed
-  // for that hash only: a later save that changes the file again shows it
-  // again, and so does any save after a load that changed the runbook on
-  // screen, which forgets the dismissal.
-  const [dismissedRunbookChange, setDismissedRunbookChange] = useState<string | null>(null)
   const displayedRunbookKey = `${loadedSessionKey ?? ""}\n${displayedRunbook?.contentHash ?? ""}`
   const [prevDisplayedRunbookKey, setPrevDisplayedRunbookKey] = useState(displayedRunbookKey)
   if (displayedRunbookKey !== prevDisplayedRunbookKey) {
