@@ -11,7 +11,7 @@ Simulation mode serves the [lookups and checks](/authoring/lookups/) of experime
 
 ## What doesn't run
 
-Anything `simulation.yml` doesn't answer that would reach a real system is refused, with an error that says so: signing in, calling a cloud or Git host's API, running a `<Command>` or `<Check>` block's script that the scenario doesn't answer, cloning, pushing, and opening a pull request. So a block that simulation mode doesn't serve can't change anything real by mistake. Blocks that stay on your computer, such as `<Inputs>`, `<Template>`, and a `<TfModule>` block's form and code, work as they always do.
+Anything `simulation.yml` doesn't answer that would reach a real system is refused, with an error that says so: signing in, calling a cloud or Git host's API, running a `<Command>` or `<Check>` block's script that the scenario doesn't answer, cloning, pushing, and opening a pull request. So a block that simulation mode doesn't serve can't change anything real by mistake. Blocks that stay on your computer, such as `<Inputs>`, `<Template>`, `<Prerequisites>`, and a `<TfModule>` block's form and code, work as they always do.
 
 ## Turn it on
 
