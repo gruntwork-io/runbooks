@@ -50,6 +50,13 @@ describe("simulationCheck", () => {
     expect(await check("git:push", {})).toContain("push to a repository")
   })
 
+  it("lets a Git host sign-in and a clone through, which only read", async () => {
+    enableSimulation()
+    expect(await check("github:validate", {})).toBeUndefined()
+    expect(await check("git:clone", {})).toBeUndefined()
+    expect(await check("git:pull-request", {})).toContain("open a pull request")
+  })
+
   it("lets a <Prerequisites> block check this computer's tools", async () => {
     enableSimulation()
     expect(await check("exec:run", { executableId: ids.tools })).toBeUndefined()

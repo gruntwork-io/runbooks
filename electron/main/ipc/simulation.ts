@@ -33,7 +33,7 @@ import type {
   SimulationRespondRequest,
   SimulationState,
 } from "../../shared/channels.ts"
-import { simulationRefusal, type SimulationCheck } from "./simulation-guard.ts"
+import { SIMULATION_READS, simulationRefusal, type SimulationCheck } from "./simulation-guard.ts"
 
 let enabled = false
 /** The scenario the author picked; the file's first one until they pick. */
@@ -64,11 +64,12 @@ const executableOf = (args: readonly unknown[]) => {
 
 /**
  * Whether a call that would reach a real system may run: always outside
- * simulation mode. In it, only a <Prerequisites> block's check, which reads
- * the tools on this computer and nothing else.
+ * simulation mode. In it, only a Git host sign-in, read or clone, and a
+ * <Prerequisites> block's check, which reads the tools on this computer and
+ * nothing else.
  */
 export const simulationCheck: SimulationCheck = (channel, args) => {
-  if (!enabled) return undefined
+  if (!enabled || SIMULATION_READS.has(channel)) return undefined
   if (channel === "exec:run" && executableOf(args)?.componentType === "prerequisites") {
     return undefined
   }

@@ -19,8 +19,9 @@ export function SimulationBar() {
         <FlaskConical className="size-4 text-warning" aria-hidden />
         <span className="font-semibold text-foreground">Simulation</span>
         <span className="text-muted-foreground">
-          Lookups, checks and Terragrunt runs answer from simulation.yml. Anything else that would
-          reach a real system, such as a sign-in, a script, a clone or a pull request, is refused.
+          Lookups, checks and Terragrunt runs answer from simulation.yml. GitHub and GitLab sign-ins
+          and clones are real, since they only read. Anything else that would reach a real system,
+          such as a script, a push or a pull request, is refused.
         </span>
         {state.scenarios.length > 0 && (
           <label className="ml-auto flex items-center gap-2">
