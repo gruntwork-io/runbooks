@@ -1,26 +1,7 @@
-import { CircleCheck } from "lucide-react"
 import type { RunbookProgress } from "@/contexts/RunbookProgressContext.types"
-import { cn } from "@/lib/utils"
 
 function progressText({ done, total }: RunbookProgress): string {
   return `${done} of ${total} ${total === 1 ? "step" : "steps"} done`
-}
-
-/** How many of the runbook's steps are done, e.g. "2 of 5 steps done", for the title bar. */
-export function RunbookProgressCount({ progress }: { progress: RunbookProgress }) {
-  const finished = progress.done === progress.total
-  return (
-    <span
-      data-testid="runbook-progress-count"
-      className={cn(
-        "flex flex-shrink-0 items-center gap-1 text-xs font-normal tabular-nums",
-        finished ? "text-success" : "text-muted-foreground",
-      )}
-    >
-      {finished && <CircleCheck aria-hidden className="size-3.5" />}
-      {progressText(progress)}
-    </span>
-  )
 }
 
 /**
