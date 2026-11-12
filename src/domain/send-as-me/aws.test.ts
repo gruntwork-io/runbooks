@@ -117,8 +117,29 @@ describe("awsSendable", () => {
     ).toContain("with a body names its operation")
   })
 
+  it("signs for the service's signing name where the host's label differs", () => {
+    const signedAs = (host: string) => {
+      const result = awsSendable(query(`https://${host}/v1/things`))
+      if ("refused" in result) throw new Error(result.refused)
+      return result.signing
+    }
+    expect(signedAs("email.us-east-1.amazonaws.com")).toEqual({
+      service: "ses",
+      region: "us-east-1",
+    })
+    expect(signedAs("bedrock-runtime.us-west-2.amazonaws.com").service).toBe("bedrock")
+    expect(signedAs("aps-workspaces.eu-west-1.amazonaws.com").service).toBe("aps")
+    expect(signedAs("kms-fips.us-east-1.amazonaws.com").service).toBe("kms")
+    expect(signedAs("api.ecr.us-east-1.amazonaws.com")).toEqual({
+      service: "ecr",
+      region: "us-east-1",
+    })
+    expect(signedAs("api.pricing.us-east-1.amazonaws.com").service).toBe("pricing")
+  })
+
   it("refuses hosts that aren't AWS API endpoints, such as a bucket or API Gateway", () => {
     for (const host of [
+      "api.s3.us-east-1.amazonaws.com",
       "my-bucket.s3.us-east-1.amazonaws.com",
       "abc123.execute-api.us-east-1.amazonaws.com",
       "sso.us-east-1.amazonaws.com.attacker.example",
