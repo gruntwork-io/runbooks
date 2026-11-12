@@ -90,9 +90,12 @@ describe("onepassword:create-item", () => {
         username: "{{ .outputs.iam.ACCESS_KEY_ID }}",
         password: "{{ .outputs.iam.SECRET_ACCESS_KEY }}",
       },
-      templateVarValues: {
-        inputs: {},
-        outputs: { iam: { ACCESS_KEY_ID: "AKIA1", SECRET_ACCESS_KEY: "s3cr3t" } },
+      templateInputs: {},
+      templateOutputs: {
+        iam: {
+          ACCESS_KEY_ID: { value: "AKIA1", sensitive: false },
+          SECRET_ACCESS_KEY: { value: "s3cr3t", sensitive: true },
+        },
       },
     })
     expect(reply).toEqual({
@@ -112,7 +115,8 @@ describe("onepassword:create-item", () => {
   it("fails, saving nothing, when a prop renders empty", async () => {
     const reply = await invoke({
       item: { vault: "Ops", title: "IAM", password: "{{ .outputs.iam.SECRET_ACCESS_KEY }}" },
-      templateVarValues: { inputs: {}, outputs: { iam: { SECRET_ACCESS_KEY: "" } } },
+      templateInputs: {},
+      templateOutputs: { iam: { SECRET_ACCESS_KEY: { value: "", sensitive: true } } },
     })
     expect(reply).toEqual({
       ok: false,
@@ -122,10 +126,30 @@ describe("onepassword:create-item", () => {
     expect(argv).toEqual([])
   })
 
+  it("refuses a sensitive output in a prop that goes on op's command line or into the outputs", async () => {
+    const reply = await invoke({
+      item: {
+        vault: "Ops",
+        title: "IAM {{ .outputs.iam.SECRET_ACCESS_KEY }}",
+        url: "https://{{ .outputs.iam.SECRET_ACCESS_KEY }}.example.com",
+        password: "{{ .outputs.iam.SECRET_ACCESS_KEY }}",
+      },
+      templateInputs: {},
+      templateOutputs: { iam: { SECRET_ACCESS_KEY: { value: "s3cr3t", sensitive: true } } },
+    })
+    expect(reply).toEqual({
+      ok: false,
+      error:
+        "itemTitle, url read a sensitive output, so nothing was saved. Only username, password, notes and field values can.",
+    })
+    expect(argv).toEqual([])
+  })
+
   it("fails, naming the prop, when a template can't render", async () => {
     const reply = await invoke({
       item: { vault: "Ops", title: "IAM", password: "{{ .outputs.iam.MISSING }}" },
-      templateVarValues: { inputs: {}, outputs: {} },
+      templateInputs: {},
+      templateOutputs: {},
     })
     expect(reply).toMatchObject({ ok: false })
     expect((reply as { error: string }).error).toContain("password")

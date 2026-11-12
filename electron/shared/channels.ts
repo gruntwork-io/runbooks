@@ -585,9 +585,9 @@ export interface IpcChannelMap {
   }
 
   // <OnePasswordItem>: save an item to a 1Password vault with the `op` CLI.
-  // The item's strings are templates; MAIN renders them with
-  // `templateVarValues`, as it renders a script, so sensitive outputs arrive
-  // with their real values. The reply never carries what was saved.
+  // The item's strings are templates; MAIN renders them, so it decides which
+  // props get a sensitive output's real value. The reply never carries what
+  // was saved.
   "onepassword:create-item": {
     params: CreateOnePasswordItemParams
     result: CreateOnePasswordItemResult
@@ -1087,8 +1087,10 @@ export interface CreateOnePasswordItemParams {
     fields?: Array<{ label: string; value: string; type?: string }>
     account?: string
   }
-  /** `{ inputs, outputs }` with sensitive outputs revealed, as for exec:run. */
-  templateVarValues?: Record<string, unknown>
+  /** Inputs for `{{ .inputs.<name> }}`. */
+  templateInputs?: Record<string, unknown>
+  /** Block outputs for `{{ .outputs.<block>.<name> }}`, sensitive ones marked. */
+  templateOutputs?: Record<string, EncodedOutputValues>
 }
 
 export type CreateOnePasswordItemResult =

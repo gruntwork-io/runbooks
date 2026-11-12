@@ -18,7 +18,8 @@ import {
   extractTemplateDependenciesFromString,
   requireAllOutputs,
 } from "@/lib/extractTemplateDependencies"
-import { resolveTemplateReferences, revealTemplateOutputs } from "@/lib/templateUtils"
+import { encodeOutputs } from "@/lib/outputValues"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
 import type { AppError } from "@/types/error"
 import { onePasswordItemRequestError } from "../../../../../src/domain/onepassword/item"
 import { OnePasswordItemInstruction } from "./OnePasswordItemInstruction"
@@ -139,7 +140,7 @@ function OnePasswordItemInteractive({
   const canSave = hasAllDependencies && status !== "saving" && !done
 
   // MAIN renders the templates, so the values sent are the raw props plus
-  // what they reference, with sensitive outputs revealed as for a script.
+  // what they reference, each output marked if it's sensitive.
   const handleSave = () =>
     void save({
       item: {
@@ -158,7 +159,10 @@ function OnePasswordItemInteractive({
           ...(field.type ? { type: field.type } : {}),
         })),
       },
-      templateVarValues: { inputs, outputs: revealTemplateOutputs(outputs) },
+      templateInputs: inputs,
+      templateOutputs: Object.fromEntries(
+        Object.entries(outputs).map(([block, values]) => [block, encodeOutputs(values)]),
+      ),
     })
 
   const rows: Array<[string, string, boolean?]> = [

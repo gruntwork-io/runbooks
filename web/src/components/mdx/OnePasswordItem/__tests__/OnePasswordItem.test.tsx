@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from "vitest"
 import { useEffect } from "react"
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
+import { SessionHistoryContext, type SessionHistory } from "@/contexts/SessionHistoryContext.types"
 import { sensitiveOutput } from "@/lib/outputValues"
 import { TestWrapper } from "@/test/test-utils"
 import { OnePasswordItem } from "../OnePasswordItem"
@@ -58,6 +59,16 @@ function renderItem(
   return { invoke }
 }
 
+/** A session history that keeps what blocks record, as a session does. */
+function recordingHistory(): SessionHistory {
+  const saved = new Map<string, unknown>()
+  return {
+    saved: (blockId, kind) => saved.get(`${blockId}/${kind}`),
+    record: (blockId, kind, payload) => saved.set(`${blockId}/${kind}`, payload),
+    finish: () => {},
+  }
+}
+
 describe("OnePasswordItem", () => {
   it("shows what it will save, with secrets masked", () => {
     renderItem()
@@ -72,7 +83,7 @@ describe("OnePasswordItem", () => {
     expect(screen.getByRole("button", { name: "Save to 1Password" })).toBeDisabled()
   })
 
-  it("sends the raw props and the real values for main to render", async () => {
+  it("sends the raw props and the outputs, sensitive ones marked, for main to render", async () => {
     const { invoke } = renderItem()
     await userEvent.click(screen.getByRole("button", { name: "Save to 1Password" }))
     expect(invoke).toHaveBeenCalledWith("onepassword:create-item", {
@@ -85,13 +96,52 @@ describe("OnePasswordItem", () => {
         tags: [],
         fields: [],
       },
-      templateVarValues: {
-        inputs: {},
-        outputs: { iam: { ACCESS_KEY_ID: "AKIA1", SECRET_ACCESS_KEY: "s3cr3t" } },
+      templateInputs: {},
+      templateOutputs: {
+        iam: {
+          ACCESS_KEY_ID: { value: "AKIA1", sensitive: false },
+          SECRET_ACCESS_KEY: { value: "s3cr3t", sensitive: true },
+        },
       },
     })
     expect(await screen.findByText(/Saved “AWS prod” to the Ops vault/)).toBeInTheDocument()
     expect(screen.getByText("OP_ITEM_ID")).toBeInTheDocument()
+  })
+
+  it("records an item saved after the block unmounted, so it isn't saved again", async () => {
+    let reply!: (value: unknown) => void
+    const invoke = vi.fn(
+      (_channel: string) =>
+        new Promise((resolve) => {
+          reply = resolve
+        }),
+    )
+    const api = { invoke, on: vi.fn(() => () => {}) } as unknown as Parameters<
+      typeof ApiProvider
+    >[0]["api"]
+    const history = recordingHistory()
+    const tree = (withItem: boolean) => (
+      <ApiProvider api={api}>
+        <SessionHistoryContext.Provider value={history}>
+          <TestWrapper>
+            <IamUser />
+            {withItem && <OnePasswordItem {...PROPS} />}
+          </TestWrapper>
+        </SessionHistoryContext.Provider>
+      </ApiProvider>
+    )
+    const { rerender } = render(tree(true))
+    await userEvent.click(screen.getByRole("button", { name: "Save to 1Password" }))
+
+    rerender(tree(false))
+    await act(async () => reply(SAVED))
+    rerender(tree(true))
+
+    expect(screen.getByText(/Saved “AWS prod” to the Ops vault/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Save to 1Password" })).toBeNull()
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === "onepassword:create-item"),
+    ).toHaveLength(1)
   })
 
   it("shows a failure inline and offers to try again", async () => {
