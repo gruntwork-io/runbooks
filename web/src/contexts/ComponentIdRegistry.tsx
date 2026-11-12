@@ -11,6 +11,7 @@ import {
 import type { ReactNode, RefObject } from "react"
 import { normalizeBlockId } from "../lib/utils"
 import { useShowChapterOf } from "./useRunbookChapters"
+import { ScopeRequestsProvider } from "./ScopeRequests"
 
 export type BlockComponentType =
   | "Command"
@@ -190,7 +191,9 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
 
   return (
     <ComponentIdRegistryContext.Provider value={value}>
-      <BlockIdsContext.Provider value={blockIds}>{children}</BlockIdsContext.Provider>
+      <BlockIdsContext.Provider value={blockIds}>
+        <ScopeRequestsProvider>{children}</ScopeRequestsProvider>
+      </BlockIdsContext.Provider>
     </ComponentIdRegistryContext.Provider>
   )
 }

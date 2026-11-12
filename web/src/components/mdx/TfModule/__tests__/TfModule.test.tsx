@@ -10,6 +10,7 @@ import { parseDeclarations } from "../../../../../../src/domain/lookups/parse"
 import { mergeDeclarations } from "../../../../../../src/domain/lookups/validate"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import TfModule from "../TfModule"
+import { useRequestedScopes } from "@/contexts/ScopeRequests"
 
 vi.mock("@/contexts/useGitWorkTree", () => ({
   useGitWorkTree: () => ({ activeWorkTree: null, workTrees: [] }),
@@ -387,6 +388,25 @@ describe("TfModule", () => {
     signIn()
     expect(await screen.findByRole("option", { name: /example\.org/ })).toBeInTheDocument()
     expect(sentUrls()).toHaveLength(1)
+  })
+
+  it("asks the bound auth block for the scopes its lookup groups declare", async () => {
+    function Probe() {
+      return <output data-testid="requested">{useRequestedScopes("workspace").join(" ")}</output>
+    }
+    render(
+      <TestWrapper>
+        <Probe />
+        <FakeGoogleAuth id="workspace" scopes={[SCOPE]} />
+        <TfModule
+          id="group"
+          source="google-group"
+          template="templates/google-group-unit"
+          auth={{ google: "workspace" }}
+        />
+      </TestWrapper>,
+    )
+    await waitFor(() => expect(screen.getByTestId("requested")).toHaveTextContent(SCOPE))
   })
 
   it("refuses an auth prop that leaves a group the module uses unbound", async () => {
