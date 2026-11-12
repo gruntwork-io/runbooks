@@ -28,6 +28,7 @@ import { ProgressStep } from "../_shared/components/ProgressStep"
 import { UnmetDependenciesWarning } from "../_shared/components/UnmetDependenciesWarning"
 import { useTemplateDependencies } from "../_shared/hooks/useTemplateDependencies"
 import { buildAuthEnvVars, buildGoogleAuthEnvVars } from "../_shared/hooks/useScriptExecution"
+import type { ModuleOutputValue } from "../../../../../src/domain/terragrunt/run"
 import { authFacts, signedIn } from "../_shared/lib/authFacts"
 import { useSimulation } from "@/contexts/useSimulation"
 import { simulatesUnit } from "@/contexts/simulates"
@@ -351,19 +352,24 @@ function Runner({ id, header, worktreePath, path, auth, simulating }: RunnerProp
   const moduleOutputs =
     preflight.state.kind === "ready" ? preflight.state.module?.outputs : undefined
 
+  const publish = (outputs: readonly ModuleOutputValue[]) =>
+    registerOutputs(
+      id,
+      Object.fromEntries(
+        outputs.map((o) => [o.name, o.sensitive ? sensitiveOutput(o.value) : o.value]),
+      ),
+    )
+
   const plan = async () => {
-    if ((await preflight.run()) === "go") await run.plan()
+    if ((await preflight.run()) !== "go") return
+    // A plan that changes nothing leaves the block done, so its outputs are the state's.
+    const result = await run.plan()
+    if (result?.outputs) publish(result.outputs)
   }
 
   const apply = async () => {
     const result = await run.apply()
-    if (!result) return
-    registerOutputs(
-      id,
-      Object.fromEntries(
-        result.outputs.map((o) => [o.name, o.sensitive ? sensitiveOutput(o.value) : o.value]),
-      ),
-    )
+    if (result) publish(result.outputs)
   }
 
   return (
