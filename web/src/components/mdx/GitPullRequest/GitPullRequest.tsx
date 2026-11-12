@@ -124,7 +124,12 @@ function GitPullRequestInteractive({
     blockRef,
   )
   const { reportError, clearError } = useErrorReporting()
-  const clone = useClone(gitCloneId, `<${__registryType}>`, "the changes")
+  const clone = useClone(gitCloneId, {
+    id,
+    block: `<${__registryType}>`,
+    holds: "the changes",
+    activeWithoutClone: true,
+  })
   const activeWorkTree = clone.workTree
 
   // Runbook context for metadata

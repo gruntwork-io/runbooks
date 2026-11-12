@@ -87,9 +87,12 @@ function Fake({ id, kind }: { id: string; kind: BlockComponentType }) {
   return <div ref={ref} />
 }
 
+type FakeBlock = { id: string; kind: BlockComponentType }
+
 function renderBlock(
   props: Partial<React.ComponentProps<typeof GitPullRequest>> = {},
-  blocks: { id: string; kind: BlockComponentType }[] = [{ id: "live", kind: "GitClone" }],
+  blocks: FakeBlock[] = [{ id: "live", kind: "GitClone" }],
+  below: FakeBlock[] = [],
 ) {
   return render(
     <TestWrapper>
@@ -97,6 +100,9 @@ function renderBlock(
         <Fake key={block.id} {...block} />
       ))}
       <GitPullRequest id="pr" provider="github" {...props} />
+      {below.map((block) => (
+        <Fake key={block.id} {...block} />
+      ))}
     </TestWrapper>,
   )
 }
@@ -111,14 +117,30 @@ describe("GitPullRequest clone and merge", () => {
     changesFor.mockClear()
   })
 
-  it("needs a GitClone block, and a gitCloneId when there are several", async () => {
-    const { unmount } = renderBlock({}, [])
-    expect(await screen.findByText(/needs a <GitClone> block/)).toBeInTheDocument()
-    unmount()
+  it("works in the active repository when the runbook has no GitClone block", async () => {
+    renderBlock({}, [])
+    await waitFor(() => expect(changesFor).toHaveBeenCalledWith("/clones/infra-modules"))
+    expect(screen.queryByText(/needs a <GitClone> block/)).not.toBeInTheDocument()
+  })
+
+  it("works in the nearest clone above it when there are several", async () => {
     renderBlock({}, [
       { id: "modules", kind: "GitClone" },
       { id: "live", kind: "GitClone" },
     ])
+    await waitFor(() => expect(changesFor).toHaveBeenCalledWith("/clones/infra-live"))
+    expect(screen.queryByText(/needs a gitCloneId/)).not.toBeInTheDocument()
+  })
+
+  it("needs a gitCloneId when none of several clones is above it", async () => {
+    renderBlock(
+      {},
+      [],
+      [
+        { id: "modules", kind: "GitClone" },
+        { id: "live", kind: "GitClone" },
+      ],
+    )
     expect(await screen.findByText(/needs a gitCloneId/)).toBeInTheDocument()
   })
 

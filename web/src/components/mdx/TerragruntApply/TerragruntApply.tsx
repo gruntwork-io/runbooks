@@ -155,7 +155,7 @@ function TerragruntApply({
   )
   const authList = Array.isArray(auth) ? auth : NO_AUTH
   const authBlocks = useAuthBlocks(authList)
-  const clone = useClone(gitCloneId, "<TerragruntApply>", "the unit")
+  const clone = useClone(gitCloneId, { id, block: "<TerragruntApply>", holds: "the unit" })
   const { workTree } = clone
   const simulating = simulatesUnit(useSimulation().state, id)
 

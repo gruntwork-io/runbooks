@@ -110,6 +110,7 @@ function renderBlock(
     { id: "repo", kind: "GitClone" },
     { id: "prod", kind: "AwsAuth" },
   ],
+  below: { id: string; kind: BlockComponentType }[] = [],
   simulating: boolean | SimulationContextValue = false,
 ) {
   const simulation =
@@ -127,6 +128,9 @@ function renderBlock(
           auth={["prod"]}
           {...props}
         />
+        {below.map((block) => (
+          <Fake key={block.id} {...block} />
+        ))}
       </SimulationContext.Provider>
     </TestWrapper>,
   )
@@ -166,13 +170,29 @@ describe("TerragruntApply", () => {
     expect(await screen.findByText(/needs a <GitClone> block/)).toBeInTheDocument()
   })
 
-  it("needs a gitCloneId when the runbook has several clones", async () => {
-    renderBlock({}, [
-      { id: "repo", kind: "GitClone" },
-      { id: "other", kind: "GitClone" },
-      { id: "prod", kind: "AwsAuth" },
-    ])
+  it("needs a gitCloneId when none of several clones is above it", async () => {
+    renderBlock(
+      {},
+      [{ id: "prod", kind: "AwsAuth" }],
+      [
+        { id: "repo", kind: "GitClone" },
+        { id: "other", kind: "GitClone" },
+      ],
+    )
     expect(await screen.findByText(/needs a gitCloneId/)).toBeInTheDocument()
+  })
+
+  it("takes the nearest clone above it when there are several", async () => {
+    renderBlock(
+      {},
+      [
+        { id: "repo", kind: "GitClone" },
+        { id: "prod", kind: "AwsAuth" },
+      ],
+      [{ id: "other", kind: "GitClone" }],
+    )
+    expect(await screen.findByTestId("apply-budget")).toBeInTheDocument()
+    expect(screen.queryByText(/needs a gitCloneId/)).not.toBeInTheDocument()
   })
 
   it("refuses an auth list with a block that isn't an auth block, or two of one kind", async () => {
@@ -250,7 +270,7 @@ describe("TerragruntApply", () => {
   it("in simulation, plans with no clone and no sign-in, and answers checks from simulation.yml", async () => {
     workTrees = []
     preflight = { kind: "ready", tools: [], inputs: {}, module: moduleWithCheck }
-    renderBlock({}, undefined, true)
+    renderBlock({}, undefined, undefined, true)
     expect(await screen.findByText(/simulated for/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Plan" }))
 
@@ -274,7 +294,7 @@ describe("TerragruntApply", () => {
           answers: { runUnanswered: true, units, responses, scripts: [] },
         },
       }) as SimulationContextValue
-    renderBlock({}, undefined, realRun(["apply-account"], ["google.domains"]))
+    renderBlock({}, undefined, undefined, realRun(["apply-account"], ["google.domains"]))
     expect(await screen.findByText(/above to plan/)).toBeInTheDocument()
     await signIn()
     fireEvent.click(await screen.findByRole("button", { name: "Plan" }))
@@ -289,7 +309,7 @@ describe("TerragruntApply", () => {
   it("is simulated, checks included, when the scenario answers it, though it runs the rest for real", async () => {
     workTrees = []
     preflight = { kind: "ready", tools: [], inputs: {}, module: moduleWithCheck }
-    renderBlock({}, undefined, {
+    renderBlock({}, undefined, undefined, {
       ...SIMULATING,
       state: {
         ...SIMULATING.state,

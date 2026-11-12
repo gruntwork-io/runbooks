@@ -13,21 +13,31 @@ export interface CloneChoice {
   readonly error: AppError | null
 }
 
+/** Which block asks, for messages and for finding the clone above it. */
+export interface CloneAsker {
+  /** The block's id. */
+  readonly id: string
+  /** The block in messages, such as `<TerragruntApply>`. */
+  readonly block: string
+  /** What the clone holds for it, such as "the unit". */
+  readonly holds: string
+  /**
+   * Without any <GitClone> block, work in the active repository instead of
+   * raising a configuration error, as a pull request block does for a
+   * repository opened another way.
+   */
+  readonly activeWithoutClone?: boolean
+}
+
 /**
- * The <GitClone> block a block works in: the one `gitCloneId` names, or the
- * runbook's only one. A runbook with no clone, or several and no
- * `gitCloneId`, is a configuration error rather than a guess.
- *
- * `block` names the block in messages, such as `<TerragruntApply>`, and
- * `holds` says what the clone holds for it, such as "the unit".
+ * The <GitClone> block a block works in: the one `gitCloneId` names, the
+ * runbook's only one, or the nearest one above the block, as a reader
+ * would take it. Without one above it, several clones need `gitCloneId`.
  */
-export function useClone(
-  gitCloneId: string | undefined,
-  block: string,
-  holds: string,
-): CloneChoice {
-  const { blockOf, blocksOf, registered } = usePageBlocks()
-  const { workTrees } = useGitWorkTree()
+export function useClone(gitCloneId: string | undefined, asker: CloneAsker): CloneChoice {
+  const { block, holds } = asker
+  const { blockOf, blocksOf, blocksAbove, registered } = usePageBlocks()
+  const { workTrees, activeWorkTree } = useGitWorkTree()
   const withTree = (cloneId: string): CloneChoice => {
     const workTree = workTrees.find(
       (tree) => normalizeBlockId(tree.id) === normalizeBlockId(cloneId),
@@ -48,6 +58,8 @@ export function useClone(
   }
   const clones = blocksOf("GitClone")
   if (clones.length === 0) {
+    if (asker.activeWithoutClone)
+      return { ...(activeWorkTree ? { workTree: activeWorkTree } : {}), error: null }
     return {
       error: {
         message: `The ${block} block needs a <GitClone> block in the runbook.`,
@@ -56,9 +68,11 @@ export function useClone(
     }
   }
   if (clones.length > 1) {
+    const nearest = blocksAbove("GitClone", asker.id).at(-1)
+    if (nearest) return withTree(nearest.id)
     return {
       error: {
-        message: `The runbook has ${clones.length} <GitClone> blocks, so the ${block} block needs a gitCloneId.`,
+        message: `The runbook has ${clones.length} <GitClone> blocks and none above the ${block} block, so it needs a gitCloneId.`,
         details: `Set gitCloneId to the one whose clone holds ${holds}: ${clones.map((clone) => `"${clone.id}"`).join(", ")}.`,
       },
     }

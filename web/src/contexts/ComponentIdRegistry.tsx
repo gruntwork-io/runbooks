@@ -82,6 +82,8 @@ export interface PageBlock {
   readonly kind: BlockComponentType
   /** The OAuth scopes it requests, for an auth block that has scopes. */
   readonly scopes?: readonly string[] | undefined
+  /** Its outermost element, for where it is on the page. */
+  readonly element?: RefObject<HTMLElement | null> | undefined
 }
 
 /** Each registered block, keyed by its normalized id. */
@@ -184,7 +186,7 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
       new Map(
         registrations.map((r): [string, PageBlock] => [
           r.normalizedId,
-          { id: r.id, kind: r.componentType, scopes: r.scopes },
+          { id: r.id, kind: r.componentType, scopes: r.scopes, element: r.element },
         ]),
       ),
     [registrations],
@@ -216,6 +218,11 @@ interface PageBlocks {
   blockOf: (templateId: string) => PageBlock | undefined
   /** The blocks of one kind on the page, such as every GitClone. */
   blocksOf: (kind: string) => PageBlock[]
+  /**
+   * The blocks of one kind that come before the block with this id on the
+   * page, in page order, such as the GitClone blocks above a pull request.
+   */
+  blocksAbove: (kind: string, templateId: string) => PageBlock[]
   /** Whether blocks have registered yet, so a block that isn't on the page is missing. */
   registered: boolean
 }
@@ -230,6 +237,23 @@ export function usePageBlocks(): PageBlocks {
         blockIds.size === 0 ? undefined : blockIds.has(normalizeBlockId(templateId)),
       blockOf: (templateId) => blockIds.get(normalizeBlockId(templateId)),
       blocksOf: (kind) => [...blockIds.values()].filter((block) => block.kind === kind),
+      blocksAbove: (kind, templateId) => {
+        const self = blockIds.get(normalizeBlockId(templateId))?.element?.current
+        if (!self) return []
+        const above = [...blockIds.values()].flatMap((block) => {
+          const element = block.kind === kind ? block.element?.current : null
+          return element && element.compareDocumentPosition(self) & Node.DOCUMENT_POSITION_FOLLOWING
+            ? [{ block, element }]
+            : []
+        })
+        return above
+          .sort((a, b) =>
+            a.element.compareDocumentPosition(b.element) & Node.DOCUMENT_POSITION_FOLLOWING
+              ? -1
+              : 1,
+          )
+          .map(({ block }) => block)
+      },
       registered: blockIds.size > 0,
     }),
     [blockIds],
