@@ -1,0 +1,142 @@
+---
+title: Lookups and Checks
+description: Declare the API requests that suggest or fill form fields, and the checks to run before a change.
+---
+
+A **lookup** fetches rows from an API to suggest or fill a form field, such as your Identity Center groups or the people in your Google Workspace directory. A **check** is a read request plus a condition, such as "the Admin SDK API is on in this project".
+
+Both are declared in YAML, beside the form they serve: a module's `runbook_block.yml`. Runbooks knows no API. The declaration says what to request and where the results are in the answer, and the auth block the runbook binds the lookup to signs the request and sends it, only if it reads from that provider's API. The author is trusted as for a `Command`, so no list limits which APIs a lookup reaches. See [what AwsAuth sends](/authoring/blocks/awsauth/#requests-sent-for-other-blocks) and [what GoogleAuth sends](/authoring/blocks/googleauth/#requests-sent-for-other-blocks).
+
+## A lookup
+
+```yaml
+lookups:
+  aws:                        # a group name you pick
+    auth: AwsAuth             # the kind of auth block every lookup in the group needs
+    identityStore:            # the lookup's name, used as aws.identityStore
+      request:
+        method: POST
+        url: https://sso.{{ .auth.ssoRegion }}.amazonaws.com/
+        headers:
+          X-Amz-Target: SWBExternalService.ListInstances
+          Content-Type: application/x-amz-json-1.1
+        body: {}
+      rows: Instances         # where the list is in the answer
+      fields:                 # each field the lookup gives, and its path in a row
+        identityStoreId: IdentityStoreId
+    groups:
+      request:
+        method: POST
+        url: https://identitystore.{{ .auth.ssoRegion }}.amazonaws.com/
+        headers:
+          X-Amz-Target: AWSIdentityStore.ListGroups
+          Content-Type: application/x-amz-json-1.1
+        body:
+          IdentityStoreId: "{{ .lookups.aws.identityStore.identityStoreId }}"
+      rows: Groups
+      next: { from: NextToken, to: body.NextToken }
+      fields:
+        value: DisplayName
+        description: Description
+
+variables:
+  group:
+    lookup: { from: aws.groups }
+```
+
+| Key | Meaning |
+|---|---|
+| `<group>.auth` | The kind of auth block every lookup and check in the group needs: `AwsAuth` or `GoogleAuth` |
+| `<group>.scopes` | OAuth scopes the group's requests need. A bound block that doesn't request them is a configuration error |
+| `params` | Names the lookup or check takes; a use passes their values with `with` |
+| `request` | `method` (`GET` or `POST`), `url`, `headers` and `body`, as the API reference documents them. A body is sent as JSON, or as a form when `Content-Type` is `application/x-www-form-urlencoded` |
+| `rows` | Where the list of results is in the answer. Leave it out when the whole answer is one row |
+| `next` | Paging: the answer's field holding the next page's token (`from`), and where the next request puts it (`to`: `body.<path>` or `query.<name>`) |
+| `maxPages` | How many pages to read at most: 10 by default, and at most 50 |
+| `fields` | The lookup's contract: each field it gives, and its path in a row, such as `name.fullName` |
+
+A path is dot-separated keys, with a number for a list item. A row keeps only its declared fields. An API often leaves an empty field out of a row, so a row may lack any field except `value`, which a pick sets the input to.
+
+### Using a lookup
+
+An input uses a lookup in one of three ways, each `{ from: <group>.<lookup>, with: { ... } }`:
+
+| Use | What it does |
+|---|---|
+| `lookup` | Suggests every row; picking one sets the field to its `value` |
+| `prefill` | Fills the field when the form loads, only if it's empty and the lookup gives exactly one row |
+| `shortcut` | A button, labelled by its `label`, that sets the field from the lookup's one row |
+
+## Templates
+
+A request's strings may read values with `{{ }}`. The only thing between the braces is a value:
+
+| Value | What it is |
+|---|---|
+| `.inputs.<name>` | The form's value for an input |
+| `.auth.<fact>` | What the bound auth block knows. AwsAuth: `region`, `ssoRegion`, `accountId`. GoogleAuth: `email`, `project` |
+| `.params.<name>` | A param the use passes |
+| `.lookups.<group>.<lookup>.<field>` | A field of another lookup's row. That lookup must give exactly one row |
+| `.query` | The text typed in the field. A lookup that reads it runs again as the user types, so the API filters; one that doesn't runs once, and the field filters its rows |
+
+Each value is encoded for where it goes: URL-encoded in a path or query string, and a JSON string in a body, so typed text can't change a URL or the shape of a body. A value in a URL's path must be a segment of its own, so one that's empty, `.` or `..` stops the request with an error instead of changing the path. A URL's scheme and host may use only literal text and `.auth`. A GraphQL `query` in a body can't hold templates, since typed text inside it could change the query: pass values in the body's `variables` instead.
+
+There are no functions, conditions or loops, and a lookup is one request, its pages, and values from one row of another lookup. Anything more stays a typed input.
+
+## A check
+
+```yaml
+checks:
+  google:
+    auth: GoogleAuth
+    apiEnabled:
+      params: [api]
+      request:
+        url: "https://serviceusage.googleapis.com/v1/projects/{{ .auth.project }}/services/{{ .params.api }}"
+      expect: { path: state, equals: ENABLED }
+      message: "{{ .params.api }} is off in {{ .auth.project }}."
+      fix: "https://console.cloud.google.com/apis/library/{{ .params.api }}?project={{ .auth.project }}"
+
+preflight:
+  - check: google.apiEnabled
+    with: { api: admin.googleapis.com }
+```
+
+Defining a check doesn't run it: `preflight` lists the checks to run before the module is planned. `expect` is one of `{ path, equals }`, `{ path, exists }` or `{ path, minRows }`. A check has three outcomes:
+
+- **Passed:** a successful answer that meets `expect`.
+- **Failed:** a successful answer that doesn't. It shows `message` and `fix`.
+- **Couldn't check:** an error answer, a network error, or an answer without the field `expect` reads. It shows what went wrong, never `message`, since a 403 doesn't mean the API is off.
+
+## Shared definitions
+
+Lookups and checks many modules use can live in one file, which a `runbook_block.yml` includes by a path relative to itself:
+
+```yaml
+include:
+  - ../../runbooks/_includes/google.yml
+```
+
+An include only makes definitions available, as if written inline. It must stay inside the same repository, so a module's shared definitions come from the same commit as the module, and it can't include other files. A module can add lookups to an included group by repeating the group with the same `auth`. A lookup or check defined twice is an error.
+
+## Checking declarations
+
+Runbooks checks declarations when it loads them, and refuses a file that names a lookup, check, param, field or auth fact that doesn't exist, has a key it doesn't know, requests a URL that isn't https, puts a form value in a URL's host, puts a template in a GraphQL query, chains lookups in a circle, or has an input use a lookup with no `value` field. `runbooks-cli validate` runs the same checks without the app, for a module's own CI:
+
+```bash
+runbooks-cli validate modules/google-group modules/aws-account
+```
+
+It exits non-zero when it finds a problem, or when a folder it's given doesn't exist. It also checks the recorded answers in each module's `simulation.yml`, so a declaration that no longer reads its API's answers fails the module's pull request.
+
+## Recording real answers
+
+`runbooks-cli lookups record` runs each lookup and check a module uses once against the real APIs, through the same rules the auth blocks apply, and records a sample of each answer as the `recorded` scenario of the module's `simulation.yml`:
+
+```bash
+runbooks-cli lookups record modules/aws-sso-account-access --auth aws.ssoRegion=us-east-2
+```
+
+A sample needs the answer's shape, not real data, so by default it keeps three rows and only the paths the lookup or check reads, and replaces each value with a placeholder of the same type, such as `user-1@example.com`. `--keep-values` keeps the real values of the rows it keeps. The command shows the file and asks before writing it; `--yes` writes it without asking. The file's other scenarios are kept.
+
+Credentials come from the environment: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` with `AWS_REGION`, or `AWS_PROFILE`, for AWS; and Google's application default credentials, from `GOOGLE_APPLICATION_CREDENTIALS` or `gcloud auth application-default login`. `--input name=value` sets a form value the requests read, and `--auth group.fact=value` sets what a group's auth block knows, such as the Identity Center region.
