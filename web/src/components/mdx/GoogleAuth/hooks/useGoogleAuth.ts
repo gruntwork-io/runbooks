@@ -432,10 +432,7 @@ export function useGoogleAuth({
   const withdrawWarning = useCallback((warning: string) => {
     setWarningMessage((prev) => {
       if (!prev) return prev
-      const kept = prev
-        .replace(`; ${warning}`, "")
-        .replace(`${warning}; `, "")
-        .replace(warning, "")
+      const kept = prev.replace(`; ${warning}`, "").replace(`${warning}; `, "").replace(warning, "")
       return kept || null
     })
   }, [])
