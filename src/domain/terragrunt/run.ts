@@ -63,6 +63,12 @@ export interface ModuleOutputValue {
 
 export interface PlanResult {
   readonly resources: readonly PlannedResource[]
+  /**
+   * The unit's outputs as its state holds them, when the plan changes
+   * nothing, so the infrastructure already matches and blocks below can use
+   * them without an apply.
+   */
+  readonly outputs?: readonly ModuleOutputValue[]
 }
 
 export interface ApplyResult {
