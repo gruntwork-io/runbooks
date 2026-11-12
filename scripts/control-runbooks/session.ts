@@ -2,7 +2,9 @@
  * The app instance control-runbooks drives: launching it so later commands,
  * each its own process, can reach it over the Chrome DevTools Protocol, and
  * stopping exactly what was launched. What `up` started is recorded in the
- * instance's session.json; evidence goes to a folder that `down` leaves.
+ * instance's session.json, each process by its id and start time, so a
+ * process that reused an id after a restart is never taken for it; evidence
+ * goes to a folder that `down` leaves.
  */
 import { spawn, spawnSync } from "node:child_process"
 import * as fs from "node:fs"
@@ -19,7 +21,10 @@ export interface Session {
   readonly instance: string
   /** The process group `up` started: xvfb-run or Electron, and everything under it. */
   readonly pid: number
+  /** When `pid` started, as startTime reads it. */
+  readonly pidStarted: string
   readonly recorderPid?: number | undefined
+  readonly recorderStarted?: string | undefined
   readonly port: number
   readonly runbook: string
   readonly simulate: boolean
@@ -52,14 +57,25 @@ export function requireSession(instance: string): Session {
   return session
 }
 
-export const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
+/** When process `pid` started, as ps prints it, or nothing when there's no such process. */
+export function startTime(pid: number): string | undefined {
+  const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" })
+  const started = result.status === 0 ? result.stdout.trim() : ""
+  return started || undefined
 }
+
+/** Whether `pid` is still the process that started at `started`, and not another that reused its id. */
+export const running = (pid: number, started: string | undefined) =>
+  started !== undefined && startTime(pid) === started
+
+/** The processes `up` started that still run, each with when it started. */
+const runningProcesses = (session: Session) =>
+  [
+    { pid: session.pid, started: session.pidStarted },
+    { pid: session.recorderPid, started: session.recorderStarted },
+  ].filter(
+    (p): p is { pid: number; started: string } => p.pid !== undefined && running(p.pid, p.started),
+  )
 
 const freePort = () =>
   new Promise<number>((resolve, reject) => {
@@ -109,7 +125,7 @@ const until = async <T>(what: () => Promise<T | undefined>, timeoutMs: number) =
 
 /** The app's window, over CDP. The caller closes the browser, which leaves the app running. */
 export async function connect(session: Session): Promise<{ browser: Browser; page: Page }> {
-  if (!alive(session.pid)) {
+  if (!running(session.pid, session.pidStarted)) {
     throw new UsageError(
       `The app for instance "${session.instance}" isn't running any more (pid ${session.pid}).`,
       `See why with control-runbooks logs --source main, then control-runbooks down and up again.`,
@@ -137,7 +153,7 @@ export interface UpOptions {
 
 export async function up(options: UpOptions): Promise<Session & { built: boolean }> {
   const existing = readSession(options.instance)
-  if (existing && alive(existing.pid)) {
+  if (existing && running(existing.pid, existing.pidStarted)) {
     throw new UsageError(
       `Instance "${options.instance}" is already running on ${existing.runbook}.`,
       "Drive it, stop it with control-runbooks down, or start another with --instance <name>.",
@@ -203,6 +219,7 @@ export async function up(options: UpOptions): Promise<Session & { built: boolean
   const session: Session = {
     instance: options.instance,
     pid: child.pid!,
+    pidStarted: startTime(child.pid!) ?? "",
     port,
     runbook: path.relative(REPO, runbook),
     simulate: options.simulate,
@@ -232,7 +249,11 @@ export async function up(options: UpOptions): Promise<Session & { built: boolean
     { cwd: REPO, detached: true, stdio: "ignore" },
   )
   recorder.unref()
-  const recorded = { ...session, recorderPid: recorder.pid }
+  const recorded: Session = {
+    ...session,
+    recorderPid: recorder.pid,
+    recorderStarted: recorder.pid === undefined ? undefined : startTime(recorder.pid),
+  }
   fs.writeFileSync(sessionFile(options.instance), JSON.stringify(recorded, null, 2))
   return { ...recorded, built }
 }
@@ -244,9 +265,9 @@ export function down(instance: string, dryRun: boolean) {
   if (!session) {
     return { stopped: [], removed: fs.existsSync(dir) ? [dir] : [], note: "Nothing was running." }
   }
-  const pids = [session.pid, session.recorderPid].filter(
-    (pid): pid is number => pid !== undefined && alive(pid),
-  )
+  const processes = runningProcesses(session)
+  const pids = processes.map((p) => p.pid)
+  const stillRunning = () => processes.filter((p) => running(p.pid, p.started))
   if (dryRun)
     return { dryRun: true, wouldStop: pids, wouldRemove: [dir], keeps: session.evidenceDir }
   // The logs are evidence too, so they move next to the screenshots first.
@@ -261,8 +282,8 @@ export function down(instance: string, dryRun: boolean) {
     }
   }
   const deadline = Date.now() + 5000
-  while (pids.some(alive) && Date.now() < deadline) spawnSync("sleep", ["0.2"])
-  for (const pid of pids.filter(alive)) {
+  while (stillRunning().length > 0 && Date.now() < deadline) spawnSync("sleep", ["0.2"])
+  for (const { pid } of stillRunning()) {
     try {
       process.kill(-pid, "SIGKILL")
     } catch {
@@ -289,10 +310,10 @@ export async function doctor(instance: string) {
     add("session", false, `no instance "${instance}": run control-runbooks up`)
     return { ok: false, checks }
   }
-  add("process", alive(session.pid), `pid ${session.pid}`)
+  add("process", running(session.pid, session.pidStarted), `pid ${session.pid}`)
   add(
     "recorder",
-    session.recorderPid !== undefined && alive(session.recorderPid),
+    session.recorderPid !== undefined && running(session.recorderPid, session.recorderStarted),
     "console messages are being saved to the log",
   )
   try {
