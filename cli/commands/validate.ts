@@ -11,6 +11,7 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import { FileSystem } from "../../src/services/FileSystem.ts"
 import { readFormLookups } from "../../src/domain/boilerplate/lookups.ts"
+import { SIMULATION_FILE } from "../../src/domain/simulation/file.ts"
 import {
   checkSimulation,
   METADATA_FILE,
@@ -24,21 +25,21 @@ export function registerValidateCommand(program: Command): void {
     .description(
       "Check the lookups and checks a module or a template declares, and a module's recorded answers",
     )
-    .argument("<dirs...>", "OpenTofu module folders, or template folders with a boilerplate.yml")
+    .argument(
+      "<dirs...>",
+      "OpenTofu module folders, or template folders with a boilerplate.yml or boilerplate.yaml",
+    )
     .action(async (dirs: string[]) => {
       const runtime = ManagedRuntime.make(Layer.mergeAll(NodeFileSystemLive))
       let failed = false
       for (const dir of dirs) {
         const absolute = path.resolve(dir)
-        const missing = missingFolder(absolute)
-        const problems = missing
-          ? [formatProblem(missing)]
+        const unusable = folderProblem(absolute)
+        const problems = unusable
+          ? [formatProblem(unusable)]
           : await runtime.runPromise(validateDir(absolute))
         if (problems.length === 0) {
-          const declares = [METADATA_FILE, "boilerplate.yml"].some((file) =>
-            existsSync(path.join(absolute, file)),
-          )
-          console.log(declares ? `ok  ${dir}` : `ok  ${dir} (nothing to check)`)
+          console.log(`ok  ${dir}`)
           continue
         }
         failed = true
@@ -52,21 +53,45 @@ export function registerValidateCommand(program: Command): void {
     })
 }
 
-/** Why `dir` can't be a module or template folder: it doesn't exist, or isn't a folder. */
-export function missingFolder(dir: string): Problem | undefined {
+/** The names a template's declarations go by, in the order the app looks for them. */
+const TEMPLATE_FILES = ["boilerplate.yml", "boilerplate.yaml"]
+
+/** The template file in `dir`, if it's a template folder. */
+export function templateFile(dir: string): string | undefined {
+  return TEMPLATE_FILES.map((name) => path.join(dir, name)).find((file) => existsSync(file))
+}
+
+/**
+ * Why `dir` can't be validated: it doesn't exist, isn't a folder, or has
+ * nothing to check, so a mistyped path fails instead of passing.
+ */
+export function folderProblem(dir: string): Problem | undefined {
   const stat = statSync(dir, { throwIfNoEntry: false })
   if (!stat) return { source: dir, message: "doesn't exist." }
   if (!stat.isDirectory()) return { source: dir, message: "isn't a folder." }
+  const declares =
+    templateFile(dir) !== undefined ||
+    [METADATA_FILE, SIMULATION_FILE].some((name) => existsSync(path.join(dir, name)))
+  if (!declares) {
+    const names = [METADATA_FILE, SIMULATION_FILE, ...TEMPLATE_FILES]
+    return {
+      source: dir,
+      message: `has no ${names.slice(0, -1).join(", ")} or ${names.at(-1)}, so there's nothing to check.`,
+    }
+  }
   return undefined
 }
 
-/** Each problem in the folder, as a line to print: a template's when it has a boilerplate.yml, otherwise a module's. */
+/** Each problem in the folder, as a line to print: a template's when it has a template file, otherwise a module's. */
 const validateDir = (dir: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
-    const boilerplate = path.join(dir, "boilerplate.yml")
-    const text = yield* fs.readFile(boilerplate).pipe(Effect.orElseSucceed(() => undefined))
-    if (text !== undefined) {
+    const boilerplate = templateFile(dir)
+    const text =
+      boilerplate === undefined
+        ? undefined
+        : yield* fs.readFile(boilerplate).pipe(Effect.orElseSucceed(() => undefined))
+    if (boilerplate !== undefined && text !== undefined) {
       const lookups = yield* readFormLookups(text, boilerplate, shownPath(boilerplate))
       return [...(lookups?.problems ?? [])]
     }

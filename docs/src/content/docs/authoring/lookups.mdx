@@ -134,13 +134,13 @@ An include only makes definitions available, as if written inline. It must stay 
 
 ## Checking declarations
 
-Runbooks checks declarations when it loads them, and refuses a file that names a lookup, check, param, field or auth fact that doesn't exist, has a key it doesn't know, requests a URL that isn't https, puts a form value in a URL's host, puts a template in a GraphQL query, chains lookups in a circle, or has an input use a lookup with no `value` field. `runbooks-cli validate` runs the same checks without the app, for a module's or a template's own CI. It takes module folders, and template folders, which it knows by their `boilerplate.yml`:
+Runbooks checks declarations when it loads them, and refuses a file that names a lookup, check, param, field or auth fact that doesn't exist, has a key it doesn't know, requests a URL that isn't https, puts a form value in a URL's host, puts a template in a GraphQL query, chains lookups in a circle, or has an input use a lookup with no `value` field. `runbooks-cli validate` runs the same checks without the app, for a module's or a template's own CI. It takes module folders, and template folders, which it knows by their `boilerplate.yml` or `boilerplate.yaml`:
 
 ```bash
 runbooks-cli validate modules/google-group modules/aws-account runbooks/_includes/templates/unit
 ```
 
-It exits non-zero when it finds a problem, or when a folder it's given doesn't exist. It also checks the recorded answers in each module's `simulation.yml`, so a declaration that no longer reads its API's answers fails the module's pull request.
+It exits non-zero when it finds a problem, or when a folder it's given doesn't exist or has nothing to check: no `runbook_block.yml`, `simulation.yml` or template file. It also checks the recorded answers in each module's `simulation.yml`, so a declaration that no longer reads its API's answers fails the module's pull request.
 
 ## Recording real answers
 
