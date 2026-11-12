@@ -29,6 +29,7 @@ import { OAuthFlow } from "./components/OAuthFlow"
 import { GcloudConfigSelector } from "./components/GcloudConfigSelector"
 import { ProjectSelector } from "./components/ProjectSelector"
 import { DetectedCredentialsPrompt } from "./components/DetectedCredentialsPrompt"
+import { MissingScopesNotice } from "./components/MissingScopes"
 import { InsufficientScopesPrompt } from "./components/InsufficientScopesPrompt"
 
 function GoogleAuthInteractive({
@@ -341,7 +342,9 @@ function GoogleAuthInteractive({
             {/* Detection warning (found credentials but they're invalid) */}
             {auth.detectionWarning &&
               auth.detectionStatus === "done" &&
-              auth.authStatus !== "authenticated" && (
+              auth.authStatus !== "authenticated" &&
+              // A sign-in attempted since says more about these credentials than detection did.
+              !(auth.authStatus === "failed" && auth.errorMessage) && (
                 <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
                   <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
                   <div className="min-w-0">
@@ -351,7 +354,18 @@ function GoogleAuthInteractive({
               )}
 
             {/* Error state (for manual auth failures) */}
-            {auth.authStatus === "failed" && auth.errorMessage && (
+            {auth.scopeShortfall && (
+              <MissingScopesNotice
+                principal={auth.scopeShortfall.principal}
+                missing={auth.scopeShortfall.missing}
+                requiredScopes={scopes ?? []}
+                oauthUnavailable={auth.oauthUnavailable}
+                onSignIn={() => {
+                  void auth.handleSignInWithRequiredScopes()
+                }}
+              />
+            )}
+            {auth.authStatus === "failed" && auth.errorMessage && !auth.scopeShortfall && (
               <div className="mb-4 text-destructive text-sm flex items-start gap-2">
                 <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
                 <div className="min-w-0">

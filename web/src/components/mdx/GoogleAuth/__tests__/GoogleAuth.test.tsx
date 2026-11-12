@@ -754,7 +754,8 @@ describe("GoogleAuth — required scopes", () => {
     renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} scopes={requiredScopes} />)
 
     expect(await screen.findByText("Credentials missing required scopes")).toBeInTheDocument()
-    expect(screen.getByText(DIRECTORY)).toBeInTheDocument()
+    expect(screen.getByText("Show the missing scope")).toBeInTheDocument()
+    expect(screen.getByTitle(DIRECTORY)).toHaveTextContent("admin.directory.rolemanagement")
     expect(screen.queryByRole("button", { name: "Use These Credentials" })).toBeNull()
     expect(screen.getByRole("button", { name: "Sign in with required scopes" })).toBeInTheDocument()
   })
@@ -798,6 +799,74 @@ describe("GoogleAuth — required scopes", () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Sign in with required scopes" })).toBeNull()
     expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument()
+  })
+
+  /** The gcloud tab signs in with credentials that lack DIRECTORY, after detection found ADC it couldn't use. */
+  const gcloudShortOfScopes = (oauthAvailable: boolean) =>
+    installApi((channel) => {
+      if (channel === "google:oauth-available") return { available: oauthAvailable }
+      if (channel === "google:oauth-start") {
+        return { flowId: "flow-scopes", authUrl: "https://accounts.google.com/o/oauth2/v2/auth" }
+      }
+      if (channel === "google:oauth-poll") return { status: "pending" }
+      if (channel === "google:env-credentials") return { found: true, valid: false }
+      if (channel === "google:gcloud-configurations") {
+        return {
+          configurations: [
+            { name: "default", isActive: true, project: "proj-a", authType: "adc-user" },
+          ],
+          activeConfiguration: "default",
+          configRoot: "/home/u/.config/gcloud",
+        }
+      }
+      if (channel === "google:gcloud-auth") {
+        return {
+          valid: false,
+          account: { principal: "admin@example.com", accountType: "user" },
+          insufficientScopes: true,
+          missingScopes: [DIRECTORY],
+          grantedScopes: [CLOUD_PLATFORM],
+          error: `These credentials are missing required OAuth scopes: ${DIRECTORY}.`,
+        }
+      }
+      return {}
+    })
+
+  async function signInWithGcloud() {
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} scopes={requiredScopes} />)
+    fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Use Selected Configuration" }))
+    expect(await screen.findByText("Missing permissions this runbook needs")).toBeInTheDocument()
+  }
+
+  it("says who signed in and what they lack when a gcloud sign-in is short of scopes", async () => {
+    gcloudShortOfScopes(true)
+    await signInWithGcloud()
+
+    expect(screen.getByText("admin@example.com")).toBeInTheDocument()
+    expect(screen.getByText(/without a scope this runbook asks for/)).toBeInTheDocument()
+    expect(screen.getByTitle(DIRECTORY)).toBeInTheDocument()
+    // One message: neither the raw error nor the older detection warning.
+    expect(screen.queryByText("Authentication failed:")).toBeNull()
+    expect(screen.queryByText("Invalid credentials detected:")).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with Google" }))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("google:oauth-start", { scopes: requiredScopes }),
+    )
+  })
+
+  it("offers the gcloud command, through your OAuth client, when Sign-In is unavailable", async () => {
+    gcloudShortOfScopes(false)
+    await signInWithGcloud()
+
+    expect(screen.queryByRole("button", { name: "Sign in with Google" })).toBeNull()
+    expect(
+      screen.getByText(
+        `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=${CLOUD_PLATFORM},${DIRECTORY}`,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument()
   })
 
   it("does not enforce default scopes when the author omits the prop", async () => {

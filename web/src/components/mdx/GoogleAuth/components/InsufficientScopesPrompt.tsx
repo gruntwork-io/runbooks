@@ -1,9 +1,8 @@
-import { AlertTriangle, Copy, Loader2, LogIn } from "lucide-react"
-import { useState } from "react"
+import { AlertTriangle, Loader2, LogIn } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { formatGcloudAdcLoginCommand } from "../constants"
 import type { DetectedGoogleCredentials } from "../types"
 import { getSourceLabel } from "../utils"
+import { MissingScopesDetails, ScopesCommand } from "./MissingScopes"
 
 interface InsufficientScopesPromptProps {
   credentials: DetectedGoogleCredentials
@@ -29,19 +28,7 @@ export function InsufficientScopesPrompt({
   onReject,
   onRetryDetection,
 }: InsufficientScopesPromptProps) {
-  const [copied, setCopied] = useState(false)
   const missing = credentials.missingScopes ?? []
-  const command = formatGcloudAdcLoginCommand(requiredScopes)
-
-  const copyCommand = async () => {
-    try {
-      await navigator.clipboard.writeText(command)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard may be denied; the command is still selectable in the UI.
-    }
-  }
 
   return (
     <div className="mb-4">
@@ -67,16 +54,7 @@ export function InsufficientScopesPrompt({
               </span>
             </div>
           )}
-          <div className="flex items-start gap-2">
-            <span className="text-muted-foreground min-w-[80px]">Missing:</span>
-            <ul className="list-disc ml-4 space-y-0.5">
-              {missing.map((scope) => (
-                <li key={scope}>
-                  <code className="bg-accent px-1 rounded break-all text-xs">{scope}</code>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <MissingScopesDetails missing={missing} />
         </div>
 
         {!oauthUnavailable ? (
@@ -101,19 +79,11 @@ export function InsufficientScopesPrompt({
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Google Sign-In is unavailable in this build. Run the command below as the same
-              principal, then check again — or authenticate manually with a credential that already
-              carries these scopes.
+              Google Sign-In needs an OAuth client: start Runbooks with{" "}
+              <code>GOOGLE_OAUTH_CLIENT_CREDENTIALS</code> set to your OAuth client's JSON file, or
+              authenticate manually with credentials that already carry these scopes.
             </p>
-            <div className="flex items-start gap-2">
-              <code className="flex-1 bg-card border border-warning/30 rounded px-2 py-1.5 text-xs font-mono break-all">
-                {command}
-              </code>
-              <Button type="button" variant="outline" size="sm" onClick={() => void copyCommand()}>
-                <Copy className="size-3.5 mr-1" />
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            </div>
+            <ScopesCommand requiredScopes={requiredScopes} />
             <div className="flex items-center gap-3 flex-wrap">
               <Button onClick={onRetryDetection} disabled={recovering} size="sm">
                 Check again
