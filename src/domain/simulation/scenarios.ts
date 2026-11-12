@@ -23,13 +23,16 @@
  * `responses` answers lookups and checks by their id, in the shape a module's
  * own simulation.yml records them, so the engine reads a simulated answer
  * exactly as it reads a real one. `units` answers a <TerragruntApply> block's
- * preflight, plan and apply, by the block's id (see unit.ts).
+ * preflight, plan and apply, by the block's id (see unit.ts), and `scripts`
+ * answers a <Command> or <Check> block's run, by the block's id (see
+ * script.ts).
  */
 import YAML from "yaml"
 import { SimulationError } from "../../errors/index.ts"
 import { errorMessage } from "../../errors/message.ts"
 import type { HttpReply } from "../../services/HttpRequest.ts"
 import { isRecord, SIMULATION_FILE, simulationError } from "./file.ts"
+import { readScript, type SimulatedScript } from "./script.ts"
 import { readUnit, type SimulatedUnit } from "./unit.ts"
 
 /** One canned answer to a lookup or check: for the use's params in `with`, or for any use without it. */
@@ -49,6 +52,8 @@ export interface SimulationScenario {
   readonly responses: Readonly<Record<string, readonly SimulatedResponse[]>>
   /** Each <TerragruntApply> block's unit, by block id, with what the scenario extends merged in. */
   readonly units: Readonly<Record<string, SimulatedUnit>>
+  /** Each <Command> and <Check> block's run, by block id, with what the scenario extends merged in. */
+  readonly scripts: Readonly<Record<string, SimulatedScript>>
 }
 
 function readResponses(raw: unknown, where: string): SimulatedResponse[] {
@@ -124,12 +129,22 @@ export function parseSimulation(content: string): SimulationScenario[] {
       units[block] = readUnit(merged, `${where}.units.${block}`)
     }
 
+    const scripts: Record<string, SimulatedScript> = { ...base?.scripts }
+    const ownScripts = entry.scripts ?? {}
+    if (!isRecord(ownScripts)) throw simulationError(`${where}.scripts must map blocks to runs.`)
+    for (const [block, answer] of Object.entries(ownScripts)) {
+      const inherited = base?.scripts[block]
+      const merged = isRecord(answer) && inherited ? { ...inherited.raw, ...answer } : answer
+      scripts[block] = readScript(merged, `${where}.scripts.${block}`)
+    }
+
     const scenario: SimulationScenario = {
       name,
       label: typeof entry.label === "string" ? entry.label : name,
       ...(typeof entry.description === "string" ? { description: entry.description } : {}),
       responses,
       units,
+      scripts,
     }
     resolved.set(name, scenario)
     return scenario

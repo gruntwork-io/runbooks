@@ -1,7 +1,7 @@
 /**
- * Simulation mode for runbook authors: lookups, checks and <TerragruntApply>
- * blocks answer from the simulation.yml beside the runbook instead of real
- * APIs and tools.
+ * Simulation mode for runbook authors: lookups, checks, <TerragruntApply>
+ * blocks, and the <Command> and <Check> blocks a scenario names answer from
+ * the simulation.yml beside the runbook instead of real APIs and tools.
  *
  * A lookup or check the runbook's scenario doesn't answer answers from the
  * `recorded` scenario of its module's own simulation.yml, which
@@ -36,6 +36,12 @@ let activeScenario: string | undefined
 /** Turns simulation mode on for this run of the app. */
 export function enableSimulation(): void {
   enabled = true
+}
+
+/** Turns simulation mode off and forgets the picked scenario, for a test that turned it on. */
+export function disableSimulation(): void {
+  enabled = false
+  activeScenario = undefined
 }
 
 export function simulationEnabled(): boolean {
@@ -94,6 +100,18 @@ export const activeSimulationScenario: Effect.Effect<
   return scenarios.find((scenario) => scenario.name === activeScenario) ?? scenarios[0]!
 })
 
+/**
+ * The active scenario's run of the <Command> or <Check> block `blockId`, or
+ * none when simulation is off or the scenario leaves the block to run for real.
+ */
+export const simulatedScript = (blockId: string) =>
+  Effect.gen(function* () {
+    if (!enabled) return undefined
+    const scenario = yield* activeSimulationScenario
+    const script = scenario.scripts[blockId]
+    return script && { script, scenario: scenario.name }
+  })
+
 export function registerSimulationHandlers(): void {
   ipcMain.handle("simulation:state", async (): Promise<SimulationState> => {
     if (!enabled) return { enabled: false }
@@ -110,6 +128,7 @@ export function registerSimulationHandlers(): void {
         ...(description ? { description } : {}),
       })),
       active: active.name,
+      scripts: Object.keys(active.scripts),
     }
   })
 

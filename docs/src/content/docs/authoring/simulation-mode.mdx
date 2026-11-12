@@ -3,10 +3,10 @@ title: Simulation mode
 description: Preview a runbook's blocks against canned answers, without signing in to anything or changing anything real.
 ---
 
-Simulation mode lets you shape a runbook's blocks without signing in to anything or changing anything real. Lookups, checks and `<TerragruntApply>` blocks answer from a `simulation.yml` file beside the runbook instead, so you can see each state of each block, such as a lookup that fails or an apply that's refused, without arranging it for real.
+Simulation mode lets you shape a runbook's blocks without signing in to anything or changing anything real. Lookups, checks, `<TerragruntApply>` blocks, and the `<Command>` and `<Check>` blocks you choose answer from a `simulation.yml` file beside the runbook instead, so you can see each state of each block, such as a lookup that fails or an apply that's refused, without arranging it for real.
 
 :::caution[Experimental]
-Simulation mode serves the [lookups and checks](/authoring/lookups/) of experimental blocks such as [`<TfModule>`](/authoring/blocks/tfmodule/), and the experimental [`<TerragruntApply>`](/authoring/blocks/terragruntapply/) block. Other blocks run as they always do. The `simulation.yml` format may change.
+Simulation mode serves the [lookups and checks](/authoring/lookups/) of experimental blocks such as [`<TfModule>`](/authoring/blocks/tfmodule/), and the experimental [`<TerragruntApply>`](/authoring/blocks/terragruntapply/) block. It also answers the [`<Command>`](/authoring/blocks/command/) and [`<Check>`](/authoring/blocks/check/) blocks a scenario names. Other blocks run as they always do. The `simulation.yml` format may change.
 :::
 
 ## Turn it on
@@ -107,3 +107,28 @@ scenarios:
 The unit's inputs are the inputs of the block `inputsFrom` names, such as the `<TfModule>` block that wrote the unit, under any `inputs` the unit gives. Strings are templates over them. With `source`, the preflight runs the module's checks, which answer from `responses`, and the outputs read as the module declares them. `planError` fails the plan instead of `applyError` failing the apply. A scenario that extends another replaces only the keys it gives for a block.
 
 A resource with `before`, its values now, exists already, so the plan updates it and keeps its `computed` values; `action: delete` removes it, and `action: replace` replaces it. That's how a scenario shows a plan that changes resources rather than creating them.
+
+## Commands and checks
+
+`scripts` answers a `<Command>` or `<Check>` block by its id, in place of running its script. That suits a script that calls a real service, such as one that changes a setting through an API, so the blocks after it can run in a simulation too:
+
+```yaml title="simulation.yml"
+scenarios:
+  happy-path:
+    scripts:
+      set-group-settings:
+        log: Let anyone post to the group.   # what the script prints
+      ready-for-account:
+        delayMs: 500                         # optional: how long it runs
+        outputs:                             # what it writes to $RUNBOOK_OUTPUT
+          path: "{{ .outputs.account.CODE_PATH }}"
+
+  not-ready:
+    extends: happy-path
+    scripts:
+      ready-for-account:
+        status: fail                         # success (the default), warn or fail
+        log: The root email isn't the group's.
+```
+
+Outputs are templates rendered like the block's `env` prop, so they read the same inputs and outputs the block does. A block that fails publishes no outputs, as a script that fails doesn't. A block the scenario answers needs no sign-in, so its `awsAuthId`, `googleAuthId` and `githubAuthId` blocks don't hold it up. A block the scenario doesn't name runs its script for real.
