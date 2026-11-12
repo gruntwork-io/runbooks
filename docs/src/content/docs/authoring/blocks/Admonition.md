@@ -22,6 +22,7 @@ The `<Admonition>` block renders a callout box for a note, info, warning, or dan
 
 ### Optional props
 
+- `id` (string): makes the confirmation an output that later blocks can wait on. Needs `confirmationText`. See [Waiting on a confirmation](#waiting-on-a-confirmation).
 - `title` (string): title for the callout box. Defaults based on type. Supports inline markdown (bold, italic, links, code).
 - `description` (string): the message to display. Supports inline markdown.
 - `inputsId` (string | string[]): ID of one or more [Inputs](/authoring/blocks/inputs/) blocks. `title`, `description`, and `confirmationText` resolve `{{ .inputs.VarName }}` expressions against those inputs, so a callout can name the value the user entered.
@@ -136,6 +137,41 @@ Let users hide the admonition permanently:
     storageKey="welcome-message"
 />
 ```
+
+## Waiting on a confirmation
+
+Some steps happen outside the runbook, and a later block should run only once the user says they're done. For example, a runbook maintainer might want the user to check that a test email reached a new mailing list before the runbook goes on. Give the admonition an `id`, and clicking its confirmation button sets its `CONFIRMED` output to `true`:
+
+```mdx
+<Admonition
+    id="mail-arrived"
+    type="info"
+    title="Check your inbox"
+    description="Send a test email to the new list and wait for it to arrive."
+    confirmationText="The test email arrived"
+/>
+
+<Command
+    id="announce"
+    command='echo "The list works (confirmed: $CONFIRMED)"'
+    env={{ CONFIRMED: "{{ .outputs.mail_arrived.CONFIRMED }}" }}
+/>
+```
+
+The `<Command>` stays blocked until the admonition is confirmed, as it would for any [output](/authoring/inputs-and-outputs/) it reads. Templates refer to the admonition by its id with hyphens turned into underscores, so `mail-arrived` becomes `mail_arrived`.
+
+An admonition with an `id`:
+
+- needs `confirmationText`, the label of the button that confirms it;
+- can't be `closable` or use `allowPermanentHide`, since a closed or hidden admonition could never be confirmed;
+- stays shown once confirmed, with a "Confirmed" mark in place of the button, and stays confirmed when the user resumes the session;
+- needs an id no other block on the page has.
+
+### Block outputs
+
+| Output | Value |
+|--------|-------|
+| `CONFIRMED` | `true`, once the confirmation button is clicked. Not set before then. |
 
 :::tip[See it in action]
 The [admonition feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/admonition) shows each type, an admonition written in markdown, and both ways to dismiss one.

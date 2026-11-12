@@ -33,6 +33,7 @@ export type BlockComponentType =
   | "GitLabMergeRequest"
   | "DirPicker"
   | "Iframe"
+  | "Admonition"
 
 interface ComponentRegistration {
   id: string
