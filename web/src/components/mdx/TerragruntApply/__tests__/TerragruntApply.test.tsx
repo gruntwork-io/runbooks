@@ -269,7 +269,10 @@ describe("TerragruntApply", () => {
     const realRun = (units: string[], responses: string[]): SimulationContextValue =>
       ({
         ...SIMULATING,
-        state: { ...SIMULATING.state, runUnanswered: true, units, responses },
+        state: {
+          ...SIMULATING.state,
+          answers: { runUnanswered: true, units, responses, scripts: [] },
+        },
       }) as SimulationContextValue
     renderBlock({}, undefined, realRun(["apply-account"], ["google.domains"]))
     expect(await screen.findByText(/above to plan/)).toBeInTheDocument()
@@ -280,6 +283,7 @@ describe("TerragruntApply", () => {
     expect(calls("aws:send")).toHaveLength(1)
     expect(calls("simulation:respond")).toHaveLength(0)
     expect(screen.queryByText(/simulated for/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Runs for real/)).toBeInTheDocument()
   })
 
   it("is simulated, checks included, when the scenario answers it, though it runs the rest for real", async () => {
@@ -287,9 +291,13 @@ describe("TerragruntApply", () => {
     preflight = { kind: "ready", tools: [], inputs: {}, module: moduleWithCheck }
     renderBlock({}, undefined, {
       ...SIMULATING,
-      state: { ...SIMULATING.state, runUnanswered: true, units: ["apply-budget"], responses: [] },
+      state: {
+        ...SIMULATING.state,
+        answers: { runUnanswered: true, units: ["apply-budget"], responses: [], scripts: [] },
+      },
     } as SimulationContextValue)
     expect(await screen.findByText(/simulated for/)).toBeInTheDocument()
+    expect(screen.queryByText(/Runs for real/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Plan" }))
 
     await waitFor(() => expect(calls("terragrunt-apply:plan")).toHaveLength(1))

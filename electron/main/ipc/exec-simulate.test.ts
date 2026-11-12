@@ -1,9 +1,9 @@
 /**
  * In simulation mode, exec:run answers a block its scenario names from
- * simulation.yml instead of running the block's script, and runs every other
- * block for real; a scenario that runs what it doesn't answer for real
- * simulates only the units it answers. Drives the real handlers on the real
- * runtime; only electron's `ipcMain` is faked.
+ * simulation.yml instead of running the block's script, and refuses every
+ * other block, unless the scenario runs what it doesn't answer for real; such
+ * a scenario simulates only the units it answers. Drives the real handlers on
+ * the real runtime; only electron's `ipcMain` is faked.
  */
 import { describe, it, expect, beforeAll, afterAll } from "bun:test"
 import * as fs from "node:fs"
@@ -36,6 +36,8 @@ scenarios:
         log: The account can be created.
         outputs:
           path: aws/accounts/greenfield-dev
+      set_settings:
+        log: Let anyone post to the group.
   not-ready:
     extends: happy-path
     scripts:
@@ -69,6 +71,7 @@ describe("exec:run in simulation mode", () => {
         [
           `<Check id="ready" command='echo "real run"; exit 1' />`,
           `<Command id="real" command='echo "who=real" >> "$RUNBOOK_OUTPUT"' />`,
+          `<Command id="set-settings" command='echo "real run"; exit 1' />`,
           "",
         ].join("\n"),
       ),
@@ -113,12 +116,14 @@ describe("exec:run in simulation mode", () => {
     ])
   }, 20000)
 
-  it("runs a block the scenario doesn't name for real", async () => {
-    const { result } = await run("real")
-    expect(result).toEqual({
-      status: { status: "success", exitCode: 0 },
-      outputs: { who: { value: "real", sensitive: false } },
-    })
+  it("refuses a block the scenario doesn't name, without running it", async () => {
+    await expect(run("real")).rejects.toThrow("Simulation mode doesn't run a block's script")
+  }, 20000)
+
+  it("answers a block whose id the scenario spells with _ for -", async () => {
+    const { result, lines } = await run("set-settings")
+    expect(result).toMatchObject({ status: { status: "success", exitCode: 0 } })
+    expect(lines).toContain("Let anyone post to the group.")
   }, 20000)
 
   it("ends the way the active scenario says", async () => {
@@ -135,9 +140,12 @@ describe("exec:run in simulation mode", () => {
     expect(await runtime.runPromise(simulatedUnit("apply-budget"))).toBe(false)
     expect(await handlers.get("simulation:state")!({})).toMatchObject({
       active: "real-run",
-      runUnanswered: true,
-      units: ["apply-account"],
-      responses: [],
+      answers: { runUnanswered: true, units: ["apply-account"], responses: [] },
+    })
+    const { result } = await run("real")
+    expect(result).toEqual({
+      status: { status: "success", exitCode: 0 },
+      outputs: { who: { value: "real", sensitive: false } },
     })
   }, 20000)
 })

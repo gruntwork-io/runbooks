@@ -154,7 +154,8 @@ export function registerExecHandlers(): void {
               (params.templateVarValues ?? {}) as Record<string, unknown>,
             )
 
-            // A simulation answers the blocks its scenario names in place of their scripts.
+            // A simulation answers a block's script in place of running it, and
+            // refuses one its scenario doesn't answer.
             const simulated = isPrerequisites
               ? undefined
               : yield* simulatedScript(executable.componentId)

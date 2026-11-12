@@ -8,14 +8,16 @@
  * `runbooks-cli lookups record` writes, so a module's recording serves
  * every runbook that uses it.
  *
- * It's on for the whole app when it was launched with `--simulate` (or
- * RUNBOOKS_SIMULATE=1). The file is read on every request, so an edit shows
+ * Anything else that would reach a real system is refused (see
+ * simulation-guard.ts), unless the scenario runs what it doesn't answer for
+ * real. It's on for the whole app when it was launched with
+ * `--simulate` (or RUNBOOKS_SIMULATE=1). The file is read on every request, so an edit shows
  * on the next lookup without reopening the runbook.
  */
 import * as path from "path"
 import { Effect, Result } from "effect"
 import { ipcMain } from "electron"
-import { runtime, runbookConfig } from "./runtime.ts"
+import { executableRegistry, runtime, runbookConfig } from "./runtime.ts"
 import { moduleDir } from "./tf-module-source.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
 import { SimulationError } from "../../../src/errors/index.ts"
@@ -24,14 +26,22 @@ import { RECORDED_SCENARIO } from "../../../src/domain/lookups/module.ts"
 import {
   noResponse,
   parseSimulation,
+  answersOf,
+  pickScenario,
   simulatedResponse,
-  simulatesUnit,
   type SimulationScenario,
 } from "../../../src/domain/simulation/scenarios.ts"
-import type { SimulationRespondRequest, SimulationState } from "../../shared/channels.ts"
+import { simulatesUnit } from "../../../src/domain/simulation/answers.ts"
+import type {
+  ExecRequest,
+  SimulationRespondRequest,
+  SimulationState,
+} from "../../shared/channels.ts"
+import { scriptKey } from "../../../src/domain/simulation/script.ts"
+import { simulationRefusal, type SimulationCheck } from "./simulation-guard.ts"
 
 let enabled = false
-/** The scenario the author picked; the file's first one until they pick. */
+/** The scenario the author picked, if they have (see pickScenario). */
 let activeScenario: string | undefined
 
 /** Turns simulation mode on for this run of the app. */
@@ -43,6 +53,38 @@ export function enableSimulation(): void {
 export function disableSimulation(): void {
   enabled = false
   activeScenario = undefined
+}
+
+export function simulationEnabled(): boolean {
+  return enabled
+}
+
+/** The runbook block an exec:run call would run, if the call names one. */
+const executableOf = (args: readonly unknown[]) => {
+  const params = args[0] as Partial<ExecRequest> | undefined
+  if (!executableRegistry || typeof params?.executableId !== "string") return undefined
+  const found = Effect.runSync(Effect.result(executableRegistry.getExecutable(params.executableId)))
+  return Result.isSuccess(found) ? found.success : undefined
+}
+
+/**
+ * Whether a call that would reach a real system may run: always outside
+ * simulation mode. In it, a <Prerequisites> block's check, which reads the
+ * tools on this computer and nothing else; a script the active scenario
+ * answers, which exec:run answers in its place; and anything at all when the
+ * scenario runs what it doesn't answer for real.
+ */
+export const simulationCheck: SimulationCheck = async (channel, args) => {
+  if (!enabled) return undefined
+  const executable = channel === "exec:run" ? executableOf(args) : undefined
+  if (executable?.componentType === "prerequisites") return undefined
+  const active = await runtime.runPromise(Effect.result(activeSimulationScenario))
+  if (Result.isSuccess(active)) {
+    const scenario = active.success
+    if (scenario.runUnanswered) return undefined
+    if (executable && scenario.scripts[scriptKey(executable.componentId)]) return undefined
+  }
+  return simulationRefusal(channel)
 }
 
 const asSimulationError = (cause: unknown) =>
@@ -94,27 +136,45 @@ export const activeSimulationScenario: Effect.Effect<
   FileSystem
 > = Effect.gen(function* () {
   const scenarios = yield* readScenarios
-  return scenarios.find((scenario) => scenario.name === activeScenario) ?? scenarios[0]!
+  return yield* Effect.try({
+    try: () => pickScenario(scenarios, activeScenario),
+    catch: asSimulationError,
+  })
 })
 
 /**
  * The active scenario's run of the <Command> or <Check> block `blockId`, or
- * none when simulation is off or the scenario leaves the block to run for real.
+ * none when the script runs for real: when simulation is off, or the scenario
+ * runs what it doesn't answer for real. Otherwise a block the scenario
+ * doesn't answer fails, so it never runs for real.
  */
 export const simulatedScript = (blockId: string) =>
   Effect.gen(function* () {
     if (!enabled) return undefined
     const scenario = yield* activeSimulationScenario
-    const script = scenario.scripts[blockId]
-    return script && { script, scenario: scenario.name }
+    const script = scenario.scripts[scriptKey(blockId)]
+    if (script) return { script, scenario: scenario.name }
+    if (scenario.runUnanswered) return undefined
+    return yield* new SimulationError({ message: simulationRefusal("exec:run") })
   })
 
 /** Whether the active scenario answers the <TerragruntApply> block `blockId`, rather than leaving it to run for real. */
 export const simulatedUnit = (blockId: string) =>
   Effect.gen(function* () {
     if (!enabled) return false
-    return simulatesUnit(yield* activeSimulationScenario, blockId)
+    return simulatesUnit(answersOf(yield* activeSimulationScenario), blockId)
   })
+
+/** The `scripts` keys in `scenario` that no <Command> or <Check> block on the page has. */
+const unmatchedScripts = (scenario: SimulationScenario) => {
+  if (!executableRegistry) return []
+  const blocks = new Set(
+    Object.values(executableRegistry.getAllExecutables()).map((entry) =>
+      scriptKey(entry.componentId),
+    ),
+  )
+  return Object.keys(scenario.scripts).filter((key) => !blocks.has(key))
+}
 
 export function registerSimulationHandlers(): void {
   ipcMain.handle("simulation:state", async (): Promise<SimulationState> => {
@@ -122,30 +182,32 @@ export function registerSimulationHandlers(): void {
     const result = await runtime.runPromise(Effect.result(readScenarios))
     if (Result.isFailure(result))
       return { enabled: true, scenarios: [], error: result.failure.message }
-    const scenarios = result.success
-    const active = scenarios.find((scenario) => scenario.name === activeScenario) ?? scenarios[0]!
+    const scenarios = result.success.map(({ name, label, description }) => ({
+      name,
+      label,
+      ...(description ? { description } : {}),
+    }))
+    const picked = Result.try({
+      try: () => pickScenario(result.success, activeScenario),
+      catch: asSimulationError,
+    })
+    if (Result.isFailure(picked)) {
+      return { enabled: true, scenarios, error: picked.failure.message }
+    }
+    const active = picked.success
     return {
       enabled: true,
-      scenarios: scenarios.map(({ name, label, description }) => ({
-        name,
-        label,
-        ...(description ? { description } : {}),
-      })),
+      scenarios,
       active: active.name,
-      scripts: Object.keys(active.scripts),
-      ...(active.runUnanswered
-        ? {
-            runUnanswered: true,
-            units: Object.keys(active.units),
-            responses: Object.keys(active.responses),
-          }
-        : {}),
+      answers: answersOf(active),
+      unmatchedScripts: unmatchedScripts(active),
     }
   })
 
   ipcMain.handle("simulation:set-scenario", (_event, params: { name: string }) => {
     if (!enabled) throw new Error("Simulation mode is off.")
-    activeScenario = params.name
+    // An empty name picks nothing, so the default applies.
+    activeScenario = params.name || undefined
     return { ok: true as const }
   })
 

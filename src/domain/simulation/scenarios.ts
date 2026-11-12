@@ -27,12 +27,12 @@
  * answers a <Command> or <Check> block's run, by the block's id (see
  * script.ts).
  *
- * A <Command> or <Check> block a scenario doesn't name runs for real. A
- * lookup, check or <TerragruntApply> block it doesn't answer is an error, so
- * a forgotten answer never reaches a real API, unless the scenario sets
+ * Anything a scenario doesn't answer is an error or is refused, so a
+ * forgotten answer never reaches a real system, unless the scenario sets
  * `runUnanswered: true`. Then everything it doesn't answer runs for real, and
  * a run can stand in for one step, such as creating an account, while every
- * other step really happens:
+ * other step really happens. A scenario says so itself, rather than inheriting
+ * it through `extends`, and is never the one picked until the author picks it:
  *
  *   scenarios:
  *     real-run:
@@ -46,7 +46,8 @@ import { SimulationError } from "../../errors/index.ts"
 import { errorMessage } from "../../errors/message.ts"
 import type { HttpReply } from "../../services/HttpRequest.ts"
 import { isRecord, SIMULATION_FILE, simulationError } from "./file.ts"
-import { readScript, type SimulatedScript } from "./script.ts"
+import { readScript, scriptKey, type SimulatedScript } from "./script.ts"
+import type { SimulationAnswers } from "./answers.ts"
 import { readUnit, type SimulatedUnit } from "./unit.ts"
 
 /** One canned answer to a lookup or check: for the use's params in `with`, or for any use without it. */
@@ -66,7 +67,7 @@ export interface SimulationScenario {
   readonly responses: Readonly<Record<string, readonly SimulatedResponse[]>>
   /** Each <TerragruntApply> block's unit, by block id, with what the scenario extends merged in. */
   readonly units: Readonly<Record<string, SimulatedUnit>>
-  /** Each <Command> and <Check> block's run, by block id, with what the scenario extends merged in. */
+  /** Each <Command> and <Check> block's run, by scriptKey of its id, with what the scenario extends merged in. */
   readonly scripts: Readonly<Record<string, SimulatedScript>>
   /** Whether a lookup, check or unit the scenario doesn't answer runs for real instead of failing. */
   readonly runUnanswered: boolean
@@ -148,13 +149,20 @@ export function parseSimulation(content: string): SimulationScenario[] {
     const scripts: Record<string, SimulatedScript> = { ...base?.scripts }
     const ownScripts = entry.scripts ?? {}
     if (!isRecord(ownScripts)) throw simulationError(`${where}.scripts must map blocks to runs.`)
+    const named = new Map<string, string>()
     for (const [block, answer] of Object.entries(ownScripts)) {
-      const inherited = base?.scripts[block]
+      const key = scriptKey(block)
+      const other = named.get(key)
+      if (other !== undefined) {
+        throw simulationError(`${where}.scripts names one block twice: ${other} and ${block}.`)
+      }
+      named.set(key, block)
+      const inherited = base?.scripts[key]
       const merged = isRecord(answer) && inherited ? { ...inherited.raw, ...answer } : answer
-      scripts[block] = readScript(merged, `${where}.scripts.${block}`)
+      scripts[key] = readScript(merged, `${where}.scripts.${block}`)
     }
 
-    const runUnanswered = entry.runUnanswered ?? base?.runUnanswered ?? false
+    const runUnanswered = entry.runUnanswered ?? false
     if (typeof runUnanswered !== "boolean") {
       throw simulationError(`${where}.runUnanswered must be true or false.`)
     }
@@ -174,9 +182,38 @@ export function parseSimulation(content: string): SimulationScenario[] {
   return Object.keys(scenarios).map((name) => resolve(name, []))
 }
 
-/** Whether the scenario answers the <TerragruntApply> block `blockId`, rather than leaving it to run for real. */
-export function simulatesUnit(scenario: SimulationScenario, blockId: string): boolean {
-  return !scenario.runUnanswered || Object.hasOwn(scenario.units, blockId)
+/** What the scenario answers, by key. */
+export const answersOf = (scenario: SimulationScenario): SimulationAnswers => ({
+  runUnanswered: scenario.runUnanswered,
+  units: Object.keys(scenario.units),
+  scripts: Object.keys(scenario.scripts),
+  responses: Object.keys(scenario.responses),
+})
+
+/**
+ * The scenario blocks answer from: the one named `picked`, or before the
+ * author picks one, the file's first that runs nothing for real.
+ */
+export function pickScenario(
+  scenarios: readonly SimulationScenario[],
+  picked: string | undefined,
+): SimulationScenario {
+  if (picked !== undefined) {
+    const scenario = scenarios.find((s) => s.name === picked)
+    if (!scenario) {
+      throw simulationError(
+        `${SIMULATION_FILE} has no scenario named ${picked}. Pick one in the Simulation bar.`,
+      )
+    }
+    return scenario
+  }
+  const safe = scenarios.find((s) => !s.runUnanswered)
+  if (!safe) {
+    throw simulationError(
+      `Every scenario in ${SIMULATION_FILE} runs what it doesn't answer for real. Pick one in the Simulation bar to start.`,
+    )
+  }
+  return safe
 }
 
 const sameParams = (a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>) =>
