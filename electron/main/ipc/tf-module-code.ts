@@ -22,6 +22,8 @@ import {
   remoteModuleSource,
 } from "../../../src/domain/tf-module/pinnedSource.ts"
 import { alignAttributes, isHclFile } from "../../../src/domain/tf-module/hclFormat.ts"
+import { inputsHcl, type InputDefault } from "../../../src/domain/tf-module/inputsHcl.ts"
+import { loadModule } from "../../../src/domain/tf-module/load.ts"
 import {
   ancestorsOf,
   hasRootHcl,
@@ -46,15 +48,18 @@ export const fail = (message: string) => new TfModuleError({ message })
 
 /**
  * What a template renders with: each input by its name, the same inputs as
- * one map in `Inputs`, so one template can write any module's inputs, and
- * `ModuleSource`, where the code finds the module.
+ * one map in `Inputs`, `InputsHcl`, the inputs the code sets written as HCL,
+ * so one template can write any module's inputs without encoding a value,
+ * and `ModuleSource`, where the code finds the module.
  */
 export const templateVariables = (
   values: Record<string, unknown>,
+  inputs: readonly InputDefault[],
   moduleSource: string,
 ): Record<string, unknown> => ({
   ...values,
   Inputs: values,
+  InputsHcl: inputsHcl(values, inputs),
   ModuleSource: moduleSource,
 })
 
@@ -65,6 +70,7 @@ export const templateVariables = (
 export const renderTemplate = (
   template: string,
   values: Record<string, unknown>,
+  inputs: readonly InputDefault[],
   moduleSource: string,
 ) =>
   Effect.gen(function* () {
@@ -90,7 +96,11 @@ export const renderTemplate = (
       Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "runbooks-tf-module-"))),
       (tmp) =>
         Effect.gen(function* () {
-          yield* renderer.renderTemplate(templateDir, tmp, templateVariables(values, moduleSource))
+          yield* renderer.renderTemplate(
+            templateDir,
+            tmp,
+            templateVariables(values, inputs, moduleSource),
+          )
           const files = yield* Effect.promise(() => readTree(tmp))
           return files.map((file) =>
             isHclFile(file.path) ? { ...file, content: alignAttributes(file.content) } : file,
@@ -115,7 +125,8 @@ export const renderUnit = (
 ) =>
   Effect.gen(function* () {
     const dir = yield* moduleDir(ref.source)
-    const files = yield* renderTemplate(ref.template, values, dir)
+    const { variables } = yield* loadModule(dir)
+    const files = yield* renderTemplate(ref.template, values, variables, dir)
     const tool = toolFor(files)
     return { files: inWorkspaceTree(blockId, files, tool), tool }
   })
@@ -158,7 +169,8 @@ export const renderInRepo = (
       try: () => repoFolder(repo.path),
       catch: (cause) => fail(describeFailure(cause)),
     })
-    const rendered = yield* renderTemplate(ref.template, values, source)
+    const { variables } = yield* loadModule(dir)
+    const rendered = yield* renderTemplate(ref.template, values, variables, source)
     const tool = toolFor(rendered)
     const placed = placeUnit(folder, rendered, yield* existingFiles(repo, folder, rendered))
     // The .hcl files above are context only for a Terragrunt unit, which may include them.

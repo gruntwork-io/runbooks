@@ -69,6 +69,23 @@ describe("runReducer", () => {
     })
   })
 
+  it("keeps a run going while it stops, with its progress, until it ends", () => {
+    const stopping = run(
+      { type: "plan-started", inputs: A },
+      { type: "planned", plan: PLAN },
+      { type: "apply-started" },
+      { type: "stop-requested" },
+      { type: "event", event: { kind: "resource", address: "a.b", progress: "done" }, at: AT },
+    )
+    expect(stopping.phase).toMatchObject({ kind: "applying", stopping: true })
+    expect(runStatus(stopping.phase, A)).toBe("running")
+    expect(runReducer(stopping, { type: "stopped" }).phase).toMatchObject({
+      kind: "stopped",
+      progress: { "a.b": { progress: "done" } },
+    })
+    expect(run({ type: "stop-requested" })).toEqual(INITIAL_RUN)
+  })
+
   it("ignores an action that doesn't fit the phase", () => {
     expect(run({ type: "apply-started" })).toBe(INITIAL_RUN)
     const planning = run({ type: "plan-started", inputs: A })
