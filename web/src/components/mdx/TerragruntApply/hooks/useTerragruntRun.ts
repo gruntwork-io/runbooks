@@ -2,7 +2,7 @@ import { useEffect, useReducer, useRef } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import type { TerragruntApplyRequest } from "../../../../../../electron/shared/channels"
-import type { ApplyResult } from "../../../../../../src/domain/terragrunt/run"
+import type { ApplyResult, PlanResult } from "../../../../../../src/domain/terragrunt/run"
 import { INITIAL_RUN, runReducer, runStatus, running } from "../runMachine"
 
 const message = (err: unknown) =>
@@ -50,14 +50,15 @@ export function useTerragruntRun(request: TerragruntApplyRequest, unitKey: strin
     }
   }
 
-  const plan = async () => {
+  const plan = async (): Promise<PlanResult | undefined> => {
     // One run at a time: the main process refuses a second, and so does the block.
-    if (running(state.phase)) return
+    if (running(state.phase)) return undefined
     dispatch({ type: "plan-started", inputs: unitKey })
     const result = await start((runId) =>
       api.invoke("terragrunt-apply:plan", { ...request, runId }),
     )
     if (result) dispatch({ type: "planned", plan: result })
+    return result
   }
 
   const apply = async (): Promise<ApplyResult | undefined> => {

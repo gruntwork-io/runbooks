@@ -93,6 +93,16 @@ lookups:
       request: { url: https://iam.amazonaws.com/ }
       fields: { value: x }
       next: { from: Marker, to: body.Marker }
+    noScheme:
+      request: { url: iam.amazonaws.com/ }
+      fields: { value: x }
+    plainHttp:
+      request: { url: "http://iam.amazonaws.com/" }
+      fields: { value: x }
+    misspelt:
+      request: { url: https://iam.amazonaws.com/, header: { A: b } }
+      fields: { value: x }
+      maxPage: 2
 checks:
   aws:
     auth: AwsAuth
@@ -100,6 +110,11 @@ checks:
       request: { url: https://iam.amazonaws.com/ }
       expect: { path: x, equals: a, exists: true }
       message: m
+    misspelt:
+      request: { url: https://iam.amazonaws.com/ }
+      expect: { path: x, exists: true }
+      message: m
+      fixes: https://example.com
 `).problems.map((p) => p.message)
     expect(messages).toEqual([
       expect.stringContaining("lookups.linear.auth must name the kind of auth block"),
@@ -107,7 +122,12 @@ checks:
       expect.stringContaining("is a GET, which has no body"),
       expect.stringContaining("maxPages must be a whole number from 1 to 50"),
       expect.stringContaining("a GET has no body, so next.to must be query.<name>"),
+      expect.stringContaining("Lookup aws.noScheme.request.url must be an https URL with a host"),
+      expect.stringContaining("Lookup aws.plainHttp.request.url must be an https URL with a host"),
+      expect.stringContaining("Lookup aws.misspelt has maxPage, which isn't one of request,"),
+      expect.stringContaining("Lookup aws.misspelt.request has header, which isn't one of method,"),
       expect.stringContaining("expect must be { path, equals }"),
+      expect.stringContaining("Check aws.misspelt has fixes, which isn't one of request,"),
     ])
   })
 })
