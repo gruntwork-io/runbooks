@@ -4,7 +4,7 @@
  */
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
-import { failedCheck } from "../../../../../src/domain/tf-module/validations"
+import { failedCheck, failedCount } from "../../../../../src/domain/tf-module/validations"
 import { renderRowTemplate, templateFields } from "../../../../../src/domain/tf-module/rowTemplate"
 import type {
   TfModuleInputKind,
@@ -123,10 +123,10 @@ export function fieldError(
     return failedCheck(value, variable.checks)
   }
   if (variable.kind === "list" && Array.isArray(value) && variable.checks) {
-    for (const item of value) {
-      const error = failedCheck(String(item), variable.checks)
-      if (error) return `${String(item)}: ${error}`
-    }
+    return failedCount(value.length, variable.checks)
+  }
+  if (variable.kind === "map" && typeof value === "object" && value !== null && variable.checks) {
+    return failedCount(Object.keys(value).length, variable.checks)
   }
   return undefined
 }

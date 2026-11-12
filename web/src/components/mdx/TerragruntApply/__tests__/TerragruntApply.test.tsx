@@ -6,6 +6,7 @@ import { useRunbookContext } from "@/contexts/useRunbook"
 import { useComponentIdRegistry, type BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import type { TerragruntPreflight } from "../../../../../../electron/shared/channels"
+import type { PlanResult } from "../../../../../../src/domain/terragrunt/run"
 import type { TfModuleSpec } from "../../../../../../src/domain/tf-module/types"
 import TerragruntApply from "../TerragruntApply"
 
@@ -27,13 +28,14 @@ vi.mock("@/contexts/useGitWorkTree", () => ({
 }))
 
 let preflight: TerragruntPreflight
+let planResult: PlanResult = { resources: [] }
 let checkState = "ENABLED"
 const invoke = vi.fn((channel: string, _params?: unknown): Promise<unknown> => {
   switch (channel) {
     case "terragrunt-apply:preflight":
       return Promise.resolve(preflight)
     case "terragrunt-apply:plan":
-      return Promise.resolve({ resources: [] })
+      return Promise.resolve(planResult)
     case "aws:send":
       return Promise.resolve({
         status: 200,
@@ -134,6 +136,7 @@ describe("TerragruntApply", () => {
     workTrees = [CLONE]
     checkState = "ENABLED"
     preflight = { kind: "ready", tools: TOOLS, inputs: {} }
+    planResult = { resources: [] }
     invoke.mockClear()
   })
 
@@ -193,6 +196,22 @@ describe("TerragruntApply", () => {
       },
     })
     expect(await screen.findByText(/Preflight passed/)).toBeInTheDocument()
+  })
+
+  it("publishes the state's outputs when a plan changes nothing", async () => {
+    planResult = {
+      resources: [],
+      outputs: [
+        { name: "budget_name", value: "prod-monthly", sensitive: false },
+        { name: "token", value: "t0k3n", sensitive: true },
+      ],
+    }
+    renderBlock()
+    await signIn()
+    fireEvent.click(await screen.findByRole("button", { name: "Plan" }))
+    await waitFor(() => expect(ctx!.blockOutputs["apply_budget"]).toBeDefined())
+    expect(ctx!.blockOutputs["apply_budget"]!.values.budget_name).toBe("prod-monthly")
+    expect(ctx!.blockOutputs["apply_budget"]!.values.token).not.toBe("t0k3n")
   })
 
   it("doesn't plan while the clone has changes that aren't pushed", async () => {
