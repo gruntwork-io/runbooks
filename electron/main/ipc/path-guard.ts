@@ -81,6 +81,35 @@ export const validateSessionPath = (p: string) =>
     })
   })
 
+/** The nearest folder at or above `dir` that holds a .git, if any. */
+function repositoryRoot(dir: string): string | undefined {
+  for (let current = path.resolve(dir); ; current = path.dirname(current)) {
+    if (fs.existsSync(path.join(current, ".git"))) return current
+    if (path.dirname(current) === current) return undefined
+  }
+}
+
+/**
+ * Validate a folder a <TfModule> block reads, such as its module `source` or
+ * its unit `template`: anywhere validateSessionPath allows, or anywhere in the
+ * runbook's own Git repository, so a runbook can use the modules of the
+ * catalog it's published in, which come from the same ref as the runbook.
+ */
+export const validateRunbookRepoPath = (p: string) =>
+  validateSessionPath(p).pipe(
+    Effect.catchTag("PathTraversalError", (error) =>
+      Effect.gen(function* () {
+        const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
+        const root = runbookDir ? repositoryRoot(runbookDir) : undefined
+        const resolved = resolveAgainstRunbook(p)
+        if (root && (yield* Effect.promise(() => isContainedInReal(resolved, root)))) {
+          return resolved
+        }
+        return yield* Effect.fail(error)
+      }),
+    ),
+  )
+
 /**
  * Validate a git:clone destination. The clone handler may `rm -rf` it (from
  * "Delete & Clone"), so this is stricter than validateSessionPath. The
