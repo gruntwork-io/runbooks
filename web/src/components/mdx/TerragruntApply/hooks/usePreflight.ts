@@ -9,11 +9,17 @@ import { bindByKind, verdictOf, type PreflightState } from "../preflight"
 /**
  * The block's preflight: the main process checks the tools, the push and the
  * unit's module, then the module's checks run here, through the auth blocks
- * `auth` lists, matched by kind.
+ * `auth` lists, matched by kind. A simulated unit's checks answer from
+ * simulation.yml too, since nobody signed in for them.
  */
-export function usePreflight(request: TerragruntApplyRequest, auth: readonly BoundBlock[]) {
+export function usePreflight(
+  request: TerragruntApplyRequest,
+  auth: readonly BoundBlock[],
+  simulated: boolean,
+) {
   const api = useApi()
-  const deps = useEngineDeps()
+  const pageDeps = useEngineDeps()
+  const deps = simulated ? { ...pageDeps, simulates: () => true, simulatedSignIn: true } : pageDeps
   const [state, setState] = useState<PreflightState>({ kind: "idle" })
 
   /** Runs the preflight, and says what its findings mean for the plan. */

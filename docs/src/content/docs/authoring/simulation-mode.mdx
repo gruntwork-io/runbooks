@@ -132,3 +132,20 @@ scenarios:
 ```
 
 Outputs are templates rendered like the block's `env` prop, so they read the same inputs and outputs the block does. A block that fails publishes no outputs, as a script that fails doesn't. A block the scenario answers needs no sign-in, so its `awsAuthId`, `googleAuthId` and `githubAuthId` blocks don't hold it up. A block the scenario doesn't name runs its script for real.
+
+## Simulate one step of a real run
+
+A scenario normally answers every lookup, check and `<TerragruntApply>` block, and a missing answer is an error, so a forgotten one never reaches a real API. With `runUnanswered: true`, everything the scenario doesn't answer runs for real instead. That lets you run a runbook for real while standing in for one step you can't or don't want to repeat, such as creating an account:
+
+```yaml title="simulation.yml"
+scenarios:
+  real-run:
+    label: Real run, account creation simulated
+    runUnanswered: true
+    units:
+      apply-account:
+        outputs:
+          account_id: "444455556666"   # an account that already exists
+```
+
+Here only `apply-account` is simulated. Every other lookup, check, `<TerragruntApply>` block and `<Command>` or `<Check>` block signs in and runs as it would without `--simulate`. A simulated `<TerragruntApply>` block's preflight checks answer from the scenario too, as in any simulation. The **Simulation** bar says when a scenario runs what it doesn't answer for real.

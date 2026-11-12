@@ -18,10 +18,17 @@ export function SimulationBar() {
       <div className="flex flex-wrap items-center gap-3">
         <FlaskConical className="size-4 text-warning" aria-hidden />
         <span className="font-semibold text-foreground">Simulation</span>
-        <span className="text-muted-foreground">
-          Lookups, checks and Terragrunt runs answer from simulation.yml. Nothing real is read or
-          changed.
-        </span>
+        {state.runUnanswered ? (
+          <span className="text-foreground">
+            Only what this scenario answers in simulation.yml is simulated. Every other step reads
+            and changes real systems.
+          </span>
+        ) : (
+          <span className="text-muted-foreground">
+            Lookups, checks and Terragrunt runs answer from simulation.yml. Nothing real is read or
+            changed.
+          </span>
+        )}
         {state.scenarios.length > 0 && (
           <label className="ml-auto flex items-center gap-2">
             <span className="text-muted-foreground">Scenario</span>
