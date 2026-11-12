@@ -34,7 +34,7 @@ import type {
   SimulationState,
 } from "../../shared/channels.ts"
 import { scriptKey } from "../../../src/domain/simulation/script.ts"
-import { simulationRefusal, type SimulationCheck } from "./simulation-guard.ts"
+import { SIMULATION_READS, simulationRefusal, type SimulationCheck } from "./simulation-guard.ts"
 
 let enabled = false
 /** The scenario the author picked; the file's first one until they pick. */
@@ -71,12 +71,13 @@ const answersScript = async (blockId: string) => {
 
 /**
  * Whether a call that would reach a real system may run: always outside
- * simulation mode. In it, only a <Prerequisites> block's check, which reads
- * the tools on this computer and nothing else, and a script the active
- * scenario answers, which exec:run answers in its place.
+ * simulation mode. In it, only a Git host sign-in, read or clone; a
+ * <Prerequisites> block's check, which reads the tools on this computer and
+ * nothing else; and a script the active scenario answers, which exec:run
+ * answers in its place.
  */
 export const simulationCheck: SimulationCheck = async (channel, args) => {
-  if (!enabled) return undefined
+  if (!enabled || SIMULATION_READS.has(channel)) return undefined
   if (channel === "exec:run") {
     const executable = executableOf(args)
     if (executable?.componentType === "prerequisites") return undefined
