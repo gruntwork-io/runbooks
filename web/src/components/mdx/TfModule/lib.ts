@@ -95,6 +95,15 @@ function isGiven(value: unknown): boolean {
   return true
 }
 
+/**
+ * Whether an input holds only what the form started it with, its default or
+ * nothing, so a value the runbook prefills overwrites nothing the user gave.
+ */
+export function holdsStartingValue(variable: TfModuleVariable, value: unknown): boolean {
+  if (!isGiven(value)) return true
+  return JSON.stringify(value) === JSON.stringify(formValue(variable, startingValue(variable)))
+}
+
 /** What's wrong with an input's value, or undefined when nothing is. */
 export function fieldError(
   variable: TfModuleVariable,
