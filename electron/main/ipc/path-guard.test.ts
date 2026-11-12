@@ -9,6 +9,7 @@ import {
   resolveRunbookAssetPath,
   runbookAssetHost,
   validateCloneDestination,
+  validateRunbookRepoPath,
   validateSessionPath,
 } from "./path-guard.ts"
 import { runbookConfig, sessionManager, setRunbookConfig } from "./runtime.ts"
@@ -122,6 +123,64 @@ describe("validateSessionPath", () => {
     expect(result._tag).toBe("Success")
     if (result._tag === "Success")
       expect(result.success).toBe(path.join(work, "Users", "me", ".ssh"))
+  })
+})
+
+describe("validateRunbookRepoPath", () => {
+  // A <TfModule> block's module and unit template can sit elsewhere in the
+  // runbook's repository, such as a catalog's modules/ beside its runbooks/.
+  //   catalog/.git/
+  //   catalog/modules/group/
+  //   catalog/runbooks/new-group/runbook.mdx   <- the open runbook
+  //   catalog/runbooks/new-group/escape -> ../../../outside
+  const savedConfig = runbookConfig
+  let catalog = ""
+  let session = ""
+
+  beforeEach(async () => {
+    catalog = path.join(root, "catalog")
+    session = path.join(root, "session")
+    const runbookDir = path.join(catalog, "runbooks", "new-group")
+    fs.mkdirSync(path.join(catalog, ".git"), { recursive: true })
+    fs.mkdirSync(path.join(catalog, "modules", "group"), { recursive: true })
+    fs.mkdirSync(runbookDir, { recursive: true })
+    fs.mkdirSync(session)
+    fs.writeFileSync(path.join(runbookDir, "runbook.mdx"), "# Runbook")
+    fs.symlinkSync("../../../outside", path.join(runbookDir, "escape"))
+    setRunbookConfig({ ...savedConfig, localPath: path.join(runbookDir, "runbook.mdx") })
+    await Effect.runPromise(
+      sessionManager
+        .createSession(session, path.join(runbookDir, "runbook.mdx"))
+        .pipe(Effect.provide(makeTestEnvironment())),
+    )
+  })
+
+  afterEach(() => {
+    sessionManager.deleteSession()
+    setRunbookConfig(savedConfig)
+  })
+
+  const validate = (p: string) => Effect.runPromise(Effect.result(validateRunbookRepoPath(p)))
+
+  it("accepts a folder elsewhere in the runbook's repository, resolved against the runbook", async () => {
+    const result = await validate("../../modules/group")
+    expect(result._tag).toBe("Success")
+    if (result._tag === "Success")
+      expect(result.success).toBe(path.join(catalog, "modules", "group"))
+  })
+
+  it("rejects a folder outside the repository, directly or through a symlink in it", async () => {
+    for (const p of ["../../../outside", "escape/Documents"]) {
+      const result = await validate(p)
+      expect(result._tag).toBe("Failure")
+      if (result._tag === "Failure") expect(result.failure._tag).toBe("PathTraversalError")
+    }
+  })
+
+  it("accepts only the runbook's folder and the session when the runbook isn't in a repository", async () => {
+    fs.rmSync(path.join(catalog, ".git"), { recursive: true })
+    expect((await validate("../../modules/group"))._tag).toBe("Failure")
+    expect((await validate(path.join(session, "generated")))._tag).toBe("Success")
   })
 })
 
