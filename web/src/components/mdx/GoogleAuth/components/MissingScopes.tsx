@@ -52,14 +52,12 @@ export function ScopesCommand({ requiredScopes }: { requiredScopes: readonly str
   }
 
   return (
-    <div className="space-y-2">
-      <p className="text-sm text-muted-foreground">
-        Or run this command as the same user, with <code>GOOGLE_OAUTH_CLIENT_CREDENTIALS</code> set
-        to your OAuth client's JSON file. Google can refuse gcloud's own client these scopes, which
-        shows as "This app is blocked".
-      </p>
-      <div className="flex items-start gap-2">
-        <code className="max-h-24 flex-1 overflow-y-auto rounded border border-warning/30 bg-card px-2 py-1.5 font-mono text-xs break-all">
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <code
+          className="min-w-0 flex-1 truncate rounded border border-warning/30 bg-card px-2 py-1.5 font-mono text-xs"
+          title={command}
+        >
           {command}
         </code>
         <Button type="button" variant="outline" size="sm" onClick={() => void copyCommand()}>
@@ -67,6 +65,9 @@ export function ScopesCommand({ requiredScopes }: { requiredScopes: readonly str
           {copied ? "Copied" : "Copy"}
         </Button>
       </div>
+      <p className="text-xs text-muted-foreground">
+        If Google answers "This app is blocked", the variable isn't set where you ran it.
+      </p>
     </div>
   )
 }
@@ -117,9 +118,9 @@ export function MissingScopesNotice({
       {oauthUnavailable ? (
         <>
           <p className="text-sm text-muted-foreground">
-            Google Sign-In asks for every scope at once, but it needs an OAuth client: start
-            Runbooks with <code>GOOGLE_OAUTH_CLIENT_CREDENTIALS</code> set to your OAuth client's
-            JSON file.
+            To sign in with all of them, start Runbooks with{" "}
+            <code>GOOGLE_OAUTH_CLIENT_CREDENTIALS</code> set to your OAuth client's JSON file and
+            use Google Sign-In. Or, with that variable set, run:
           </p>
           <ScopesCommand requiredScopes={requiredScopes} />
         </>

@@ -80,8 +80,8 @@ export function InsufficientScopesPrompt({
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
               Google Sign-In needs an OAuth client: start Runbooks with{" "}
-              <code>GOOGLE_OAUTH_CLIENT_CREDENTIALS</code> set to your OAuth client's JSON file, or
-              authenticate manually with credentials that already carry these scopes.
+              <code>GOOGLE_OAUTH_CLIENT_CREDENTIALS</code> set to your OAuth client's JSON file. Or,
+              with that variable set, run this as the same user, then check again:
             </p>
             <ScopesCommand requiredScopes={requiredScopes} />
             <div className="flex items-center gap-3 flex-wrap">
