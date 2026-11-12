@@ -72,9 +72,11 @@ Rendering evaluates the unit as a plan does, including any `run_cmd` and its dep
 2. **Apply** applies that saved plan, so OpenTofu refuses it if the state changed since, and shows each resource as OpenTofu works on it. If a file in the unit's folder, or a `.hcl` file in a folder above it, changed since the plan, the block asks for a new plan instead. A plan with nothing to change counts as applied.
 3. When it's done, the block lists the resources in the state and the unit's outputs, and publishes the outputs as its own, for `{{ .outputs.<id>.<output> }}`, with this block's `id`, its hyphens written as underscores. A sensitive output stays hidden until you show it. The module's [`runbook_block.yml`](/authoring/blocks/tfmodule/#runbook_blockyml) can label an output and show it as a link. Outputs whose names start with `runbooks_` are there for the runbook rather than for the module's callers, such as a link to the new resource in a console. The block shows them apart, above the others.
 
-**Stop** ends a plan or an apply that's running. A stopped plan changes nothing; a stopped or failed apply shows how far each resource got, and **Plan again** shows what's left.
+**Stop** asks Terragrunt and OpenTofu to stop, and the block shows **Stopping…** until they've exited, so OpenTofu can finish the resource it's on and release the state lock. If they haven't exited a few seconds later, they're killed. A stopped plan changes nothing; a stopped or failed apply shows how far each resource got, and **Plan again** shows what's left. Quitting Runbooks, reloading it, or switching to another session stops a running plan or apply the same way.
 
-The unit runs in the clone, under the repository's own `root.hcl`. The saved plan, which can hold secrets, and what Terragrunt downloads stay in a temporary folder outside the clone, and the plan is deleted once it's applied.
+A block runs one plan or apply at a time: nothing else starts in its unit until the running one ends.
+
+The unit runs in the clone, under the repository's own `root.hcl`. The saved plan, which can hold secrets, and what Terragrunt downloads stay in a temporary folder outside the clone. The plan is deleted once it's applied, when a plan fails or stops, and when Runbooks quits.
 
 ## Testing
 
