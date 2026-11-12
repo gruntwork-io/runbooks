@@ -2,6 +2,7 @@ import { Boxes } from "lucide-react"
 import awsLogo from "@/assets/aws-logo.svg"
 import awsLogoLight from "@/assets/aws-logo-light.svg"
 import googleLogo from "@/assets/google-g-logo.svg"
+import openTofuLogo from "@/assets/opentofu-logo.svg"
 import { useTheme } from "@/contexts/useTheme"
 import type { TfModuleSpec } from "../../../../../../src/domain/tf-module/types"
 
@@ -34,7 +35,25 @@ const address = (source: string | undefined, name: string) => {
   return raw.replace(/^(registry\.(terraform|opentofu)\.(io|org)\/)/, "")
 }
 
+/**
+ * The module's logo, with the OpenTofu mark on its corner so the block reads
+ * as an OpenTofu module whatever provider it uses.
+ */
 export function ModuleLogo({ spec }: { spec: TfModuleSpec }) {
+  return (
+    <div className="relative shrink-0">
+      <Mark spec={spec} />
+      <img
+        src={openTofuLogo}
+        alt="OpenTofu"
+        title="OpenTofu module"
+        className="absolute -right-1.5 -bottom-1.5 size-5"
+      />
+    </div>
+  )
+}
+
+function Mark({ spec }: { spec: TfModuleSpec }) {
   const dark = useTheme().resolvedTheme === "dark"
   const box = "flex size-10 shrink-0 items-center justify-center rounded-lg"
   if (spec.logo) {
