@@ -1,6 +1,6 @@
 /**
- * What a <TfModule> block knows about an OpenTofu module: its inputs from
- * variables.tf, shaped for a form by the module's runbook_block.yml.
+ * What a <TfModule> block knows about an OpenTofu module: the inputs its
+ * `variable` blocks declare in any of its files, shaped for a form by the module's runbook_block.yml.
  *
  * Shared by the main process, which builds it, and the renderer, which draws
  * the form from it.
@@ -29,7 +29,7 @@ export interface TfModulePreset {
 
 /**
  * A check the form can run before OpenTofu does, from a validation block in
- * variables.tf whose condition it recognizes.
+ * the module whose condition it recognizes.
  */
 export type TfModuleCheck =
   | { readonly kind: "regex"; readonly pattern: string; readonly message: string }
@@ -41,17 +41,17 @@ export type TfModuleCheck =
     }
   | { readonly kind: "notEmpty"; readonly message: string }
 
-/** The form control an input needs, from its type in variables.tf. */
+/** The form control an input needs, from its declared type. */
 export type TfModuleInputKind = "string" | "number" | "bool" | "list" | "map" | "json"
 
 export interface TfModuleVariable {
   readonly name: string
   readonly label: string
   readonly description: string
-  /** The type as variables.tf writes it, such as `list(string)`. */
+  /** The type as the module writes it, such as `list(string)`. */
   readonly tfType: string
   readonly kind: TfModuleInputKind
-  /** Whether variables.tf gives a default; without one, the input is required. */
+  /** Whether the module gives a default; without one, the input is required. */
   readonly hasDefault: boolean
   readonly default?: unknown
   readonly sensitive: boolean
@@ -111,7 +111,7 @@ export interface TfModuleSpec {
   readonly logo?: string
   /** In the order the module declares them. */
   readonly outputs: readonly TfModuleOutput[]
-  /** In the order runbook_block.yml lists them, then the rest in the order variables.tf declares them. */
+  /** In the order runbook_block.yml lists them, then the rest in the order the module declares them. */
   readonly variables: readonly TfModuleVariable[]
   /** The lookups the inputs use, with the definitions they need. */
   readonly definitions: Definitions

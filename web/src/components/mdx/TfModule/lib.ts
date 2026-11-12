@@ -31,7 +31,7 @@ function emptyValue(kind: TfModuleInputKind): unknown {
 }
 
 /**
- * An input's starting value: its default from variables.tf. A JSON input
+ * An input's starting value: its default from the module. A JSON input
  * holds its text while the user edits it.
  */
 export function startingValue(variable: TfModuleVariable): unknown {
@@ -88,7 +88,7 @@ export function withoutSuffix(value: unknown, suffix: Suffix | undefined): unkno
   return value.endsWith(suffix.value) ? value.slice(0, -suffix.value.length) : value
 }
 
-/** Whether a value counts as given, for an input variables.tf requires. */
+/** Whether a value counts as given, for an input the module requires. */
 function isGiven(value: unknown): boolean {
   if (value === undefined || value === null || value === "") return false
   if (Array.isArray(value)) return value.length > 0

@@ -1,5 +1,5 @@
 # How a Runbooks <TfModule> block presents this module. OpenTofu and Terragrunt never read this file.
-# variables.tf owns each input's name, type, default, and validation; this file only adds presentation,
+# The module's variable blocks own each input's name, type, default, and validation; this file only adds presentation,
 # and every key under `variables` must name an input there.
 version: 0
 
