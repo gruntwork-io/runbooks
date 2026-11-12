@@ -9,6 +9,10 @@
  * <TerragruntApply> block's, isn't listed. So a block nobody taught about
  * simulation can't reach a real system: it gets an error saying why.
  *
+ * Signing in to a Git host, reading its repositories and cloning one only
+ * read, and a runbook that generates code into a clone needs them, so
+ * SIMULATION_READS lets those run for real.
+ *
  * Only `import type` from electron, so this stays unit-testable without an
  * Electron runtime (same approach as ipc-sender.ts).
  */
@@ -55,6 +59,24 @@ export const REAL_CHANNELS: Readonly<Record<string, string>> = {
   "git:pull-request": "open a pull request",
   "git:merge-request": "open a merge request",
 }
+
+/** The channels in REAL_CHANNELS that only read from a Git host, which simulation mode runs for real. */
+export const SIMULATION_READS: ReadonlySet<string> = new Set([
+  "github:validate",
+  "github:oauth-start",
+  "github:oauth-poll",
+  "github:env-credentials",
+  "github:cli-credentials",
+  "github:orgs",
+  "github:repos",
+  "github:refs",
+  "github:labels",
+  "gitlab:validate",
+  "gitlab:env-credentials",
+  "gitlab:cli-credentials",
+  "gitlab:labels",
+  "git:clone",
+])
 
 /**
  * Why a call can't run, or nothing when it can. Called for every call to a
