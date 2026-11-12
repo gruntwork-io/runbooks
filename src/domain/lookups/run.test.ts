@@ -132,6 +132,67 @@ lookups:
     )
   })
 
+  it("refuses a path value that's empty, . or .., which would change the path", async () => {
+    const yaml = `
+lookups:
+  google:
+    auth: GoogleAuth
+    service:
+      request:
+        url: "https://serviceusage.googleapis.com/v1/projects/{{ .inputs.project }}/services?filter={{ .inputs.filter }}"
+      rows: services
+      fields: { value: name }
+`
+    for (const [project, message] of [
+      ["", "The request's path needs the project input, which has no value yet."],
+      ["..", "The project input is \"..\", which a request's path can't hold."],
+      [".", "The project input is \".\", which a request's path can't hold."],
+    ] as const) {
+      const { context, sent } = contextFor(yaml, () => ({ services: [] }))
+      const withProject = { ...context, inputs: { project, filter: "" } }
+      await expect(runLookup(withProject, { from: "google.service", with: {} })).rejects.toThrow(
+        message,
+      )
+      expect(sent).toEqual([])
+    }
+    const { context, sent } = contextFor(yaml, () => ({ services: [] }))
+    await runLookup(
+      { ...context, inputs: { project: "p..q", filter: "" } },
+      {
+        from: "google.service",
+        with: {},
+      },
+    )
+    expect(sent[0]?.url).toBe(
+      "https://serviceusage.googleapis.com/v1/projects/p..q/services?filter=",
+    )
+  })
+
+  it("keeps a body's keys as written, dots and brackets included", async () => {
+    const { context, sent } = contextFor(
+      `
+lookups:
+  aws:
+    auth: AwsAuth
+    search:
+      request:
+        method: POST
+        url: https://identitystore.us-east-2.amazonaws.com/
+        headers: { X-Amz-Target: AWSIdentityStore.ListUsers }
+        body: { "a.b": "{{ .query }}", "c[0]": ["{{ .inputs.domain }}", 2], d: { e: null } }
+      rows: Users
+      fields: { value: UserName }
+`,
+      () => ({ Users: [] }),
+    )
+    await runLookup(context, { from: "aws.search", with: {} }, "typed")
+    expect(JSON.parse(sent[0]?.body ?? "")).toEqual({
+      "a.b": "typed",
+      "c[0]": ["example.com", 2],
+      d: { e: null },
+    })
+  })
+
   it("keeps typed text a string inside a JSON body", async () => {
     const { context, sent } = contextFor(
       `
