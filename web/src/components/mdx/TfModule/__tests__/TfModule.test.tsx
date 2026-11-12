@@ -162,7 +162,10 @@ function FakeGoogleAuth({ id, scopes }: { id: string; scopes: readonly string[] 
   return null
 }
 
-function renderBlock(auth: Record<string, string> = { google: "workspace" }) {
+function renderBlock(
+  auth: Record<string, string> = { google: "workspace" },
+  prefilledVariables?: Record<string, unknown>,
+) {
   return render(
     <TestWrapper>
       <Capture />
@@ -172,6 +175,7 @@ function renderBlock(auth: Record<string, string> = { google: "workspace" }) {
         source="google-group"
         template="templates/google-group-unit"
         auth={auth}
+        {...(prefilledVariables ? { prefilledVariables } : {})}
       />
     </TestWrapper>,
   )
@@ -339,6 +343,40 @@ describe("TfModule", () => {
     fireEvent.change(input("group_name"), { target: { value: "platform" } })
     fireEvent.blur(input("group_name"))
     expect(screen.getByText("Choose Domain first.")).toBeInTheDocument()
+  })
+
+  it("starts an input with a prefilled value in place of the module's default", async () => {
+    renderBlock(undefined, { display_name: "Platform team", allow_external: true })
+    await waitFor(() => expect(input("display_name").value).toBe("Platform team"))
+    fireEvent.click(screen.getByRole("button", { name: /Advanced options/ }))
+    expect(input("allow_external")).toBeChecked()
+  })
+
+  it("fills an input from another block's output once it exists, and once per value", async () => {
+    renderBlock(undefined, { display_name: "Mail to {{ .outputs.apply_group.email }}" })
+    await waitFor(() => expect(ctx).toBeDefined())
+    expect(input("display_name").value).toBe("")
+
+    act(() => ctx!.registerOutputs("apply-group", { email: "aws-dev@example.com" }))
+    await waitFor(() => expect(input("display_name").value).toBe("Mail to aws-dev@example.com"))
+
+    // Cleared, it stays clear while the output keeps its value.
+    fireEvent.change(input("display_name"), { target: { value: "" } })
+    act(() => ctx!.registerOutputs("apply-group", { email: "aws-dev@example.com" }))
+    expect(input("display_name").value).toBe("")
+
+    // A new value fills it again, but never over what the user typed.
+    act(() => ctx!.registerOutputs("apply-group", { email: "aws-prod@example.com" }))
+    await waitFor(() => expect(input("display_name").value).toBe("Mail to aws-prod@example.com"))
+    fireEvent.change(input("display_name"), { target: { value: "Ops" } })
+    act(() => ctx!.registerOutputs("apply-group", { email: "aws-stage@example.com" }))
+    expect(input("display_name").value).toBe("Ops")
+  })
+
+  it("refuses prefilled values for inputs the module doesn't have", () => {
+    renderBlock(undefined, { display_nme: "Platform team" })
+    expect(screen.getByText(/names inputs the module doesn't have/)).toBeInTheDocument()
+    expect(screen.getByText(/Unknown: display_nme\./)).toBeInTheDocument()
   })
 
   it("opens suggestions on typing or Enter, not on focus", async () => {

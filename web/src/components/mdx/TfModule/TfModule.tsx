@@ -17,6 +17,7 @@ import { useBindingError } from "../_shared/hooks/useBindingError"
 import { ModuleField } from "./components/ModuleField"
 import { ModuleLogo } from "./components/ModuleLogo"
 import { Prefill } from "../_shared/components/lookups/Prefill"
+import { PrefilledVariable } from "./components/PrefilledVariable"
 import { useGitSignIns } from "./hooks/useGitSignIns"
 import { LookupEngineContext, useLookupEngine } from "../_shared/hooks/useLookupEngine"
 import type { TfModuleGenerated, TfModuleRepo } from "../../../../../electron/shared/channels"
@@ -25,6 +26,7 @@ import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import {
   formErrors,
   formValue,
+  holdsStartingValue,
   publishedValues,
   registryConfig,
   suffixFor,
@@ -63,6 +65,11 @@ import {
  *   over the inputs such as `groups/{{ .id }}`; the block's id by default
  * @param props.auth - Binds each lookup group the module uses to an auth
  *   block by id, such as `{{ google: "workspace" }}`
+ * @param props.prefilledVariables - Values the form starts inputs with, by
+ *   input name, in place of the module's defaults: literals, or string
+ *   templates over other blocks' outputs such as
+ *   `{{ .outputs.apply_group.email }}`, which fill their input once the
+ *   outputs exist
  */
 interface TfModuleProps {
   id: string
@@ -70,9 +77,11 @@ interface TfModuleProps {
   template: string
   path?: string
   auth?: Readonly<Record<string, string>>
+  prefilledVariables?: Readonly<Record<string, unknown>>
 }
 
 const NO_BINDING: Readonly<Record<string, string>> = {}
+const NO_PREFILLS: Readonly<Record<string, unknown>> = {}
 
 /** How long the inputs must settle before generated code is written again. */
 const REGENERATE_MS = 500
@@ -102,7 +111,14 @@ function propsError(id: string, source: string, template: string): AppError | nu
   return null
 }
 
-function TfModule({ id, source, template, path, auth = NO_BINDING }: TfModuleProps) {
+function TfModule({
+  id,
+  source,
+  template,
+  path,
+  auth = NO_BINDING,
+  prefilledVariables = NO_PREFILLS,
+}: TfModuleProps) {
   const validationError = propsError(id, source, template)
 
   const {
@@ -125,6 +141,7 @@ function TfModule({ id, source, template, path, auth = NO_BINDING }: TfModulePro
     "<TfModule>",
     "the module's",
   )
+  const prefillError = spec ? prefilledVariablesError(spec, prefilledVariables) : null
 
   const blockRef = useRef<HTMLDivElement>(null)
   const {
@@ -156,6 +173,7 @@ function TfModule({ id, source, template, path, auth = NO_BINDING }: TfModulePro
   if (validationError) return <ErrorDisplay error={validationError} />
   if (apiError) return <ErrorDisplay error={apiError} />
   if (bindingError) return <ErrorDisplay error={bindingError} />
+  if (prefillError) return <ErrorDisplay error={prefillError} />
   if (isLoading || !spec || Object.keys(initialData).length === 0) {
     return <LoadingDisplay message="Reading the module..." />
   }
@@ -168,6 +186,7 @@ function TfModule({ id, source, template, path, auth = NO_BINDING }: TfModulePro
         template={template}
         path={path}
         auth={auth}
+        prefilledVariables={prefilledVariables}
         spec={spec}
         initialData={initialData}
         hasSubmitted={hasSubmitted}
@@ -178,12 +197,28 @@ function TfModule({ id, source, template, path, auth = NO_BINDING }: TfModulePro
   )
 }
 
+/** The `prefilledVariables` the module has no input for, if any. */
+function prefilledVariablesError(
+  spec: TfModuleSpec,
+  prefilledVariables: Readonly<Record<string, unknown>>,
+): AppError | null {
+  const unknown = Object.keys(prefilledVariables).filter(
+    (name) => !spec.variables.some((v) => v.name === name),
+  )
+  if (unknown.length === 0) return null
+  return {
+    message: "The <TfModule> block's prefilledVariables prop names inputs the module doesn't have.",
+    details: `Unknown: ${unknown.join(", ")}. The module's inputs are ${spec.variables.map((v) => v.name).join(", ")}.`,
+  }
+}
+
 interface TfModuleFormProps {
   id: string
   source: string
   template: string
   path?: string | undefined
   auth: Readonly<Record<string, string>>
+  prefilledVariables: Readonly<Record<string, unknown>>
   spec: TfModuleSpec
   initialData: FormValues
   hasSubmitted: boolean
@@ -197,6 +232,7 @@ function TfModuleForm({
   template,
   path,
   auth,
+  prefilledVariables,
   spec,
   initialData,
   hasSubmitted,
@@ -342,8 +378,22 @@ function TfModuleForm({
           </div>
         )}
 
-        {spec.variables.map(
-          (variable) =>
+        {spec.variables.map((variable) =>
+          Object.hasOwn(prefilledVariables, variable.name) ? (
+            <PrefilledVariable
+              key={variable.name}
+              value={prefilledVariables[variable.name]}
+              fillable={holdsStartingValue(variable, values[variable.name])}
+              onFill={(value) =>
+                update({
+                  [variable.name]: withoutSuffix(
+                    formValue(variable, value),
+                    suffixFor(spec, variable, latest.current),
+                  ),
+                })
+              }
+            />
+          ) : (
             variable.prefill && (
               <Prefill
                 key={variable.name}
@@ -351,7 +401,8 @@ function TfModuleForm({
                 empty={isEmptyValue(values[variable.name])}
                 onFill={(value) => update({ [variable.name]: value })}
               />
-            ),
+            )
+          ),
         )}
         <form onSubmit={submit} className="space-y-6" noValidate>
           <div className="space-y-5">
