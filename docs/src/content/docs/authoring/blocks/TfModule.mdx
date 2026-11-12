@@ -100,7 +100,7 @@ Every input the module declares appears: those `runbook_block.yml` lists first, 
 - **Primary and advanced inputs.** Inputs `runbook_block.yml` marks `primary` show first; the rest sit under **Advanced options**. Without any `primary` marks, the required inputs show first.
 - **Controls.** A `string` is a text field, a `number` a number field, a `bool` a checkbox, a `list(string)` or `set(string)` a list of chips, and a `map(string)` a key and value list. Any other type, such as an `object`, is a JSON field.
 - **Choices.** An input with options shows each as a card with its description. A `list` input with options lets the user pick several.
-- **Validation.** The form checks the validation idioms modules use most as the user types: `contains([...], var.x)` becomes a choice, `can(regex("...", var.x))` a pattern, `length(var.x) >= N && length(var.x) <= M` a length range, and `var.x != ""` a required value. The form shows the error message of any other condition under the input as a rule, and leaves checking it to OpenTofu.
+- **Validation.** The form checks the validation idioms modules use most as the user types: `contains([...], var.x)` becomes a choice, `can(regex("...", var.x))` a pattern, `length(var.x) >= N && length(var.x) <= M` a length range, and `var.x != ""` a required value. On a list or a map, `length()` counts its items, so the form checks the count. The form shows the error message of any other condition under the input as a rule, and leaves checking it to OpenTofu.
 - **Title.** The block's title is `runbook_block.yml`'s `block.title`, else the README's first heading, else the module's folder name.
 - **Logo.** The block shows the mark of the module's provider, from `required_providers`, unless `runbook_block.yml` sets `block.logo`. The OpenTofu mark sits on its corner.
 - **Link to the module.** When the module is on GitHub, the block links to its folder there, at the ref the block reads: a remote source's `?ref=`, or, for a folder beside the runbook, the tag the runbook's checkout is at, else its commit.
@@ -242,6 +242,8 @@ A plain configuration's outputs are its own, so declare an output for each modul
 
 - **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. The pull request does that. As the values change, it writes them again, and removes the files it wrote before that the new values no longer make, such as the old folder when the group's email changes. A file that changed since the block wrote it, by hand or by another tool, is kept, and the block lists it so you can delete it yourself.
 - **Without one**, it writes nothing, and lists the files the code would have.
+
+When a generate fails for a reason other than the inputs, such as a network error reading the module, **Try again** generates again with the same inputs.
 
 While an input needs a fix, the block keeps the code, and the values it publishes, as they were for the last valid inputs. Once it has written the code, the block counts as done, and publishes these outputs, such as the `CODE_PATH` a [`<TerragruntApply>`](/authoring/blocks/terragruntapply/) block reads for its `path`:
 

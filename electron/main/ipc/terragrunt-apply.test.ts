@@ -7,7 +7,7 @@ import * as path from "node:path"
 import { mockElectron } from "../test-utils/mock-electron.ts"
 
 mockElectron({ ipcMain: { handle: () => {} } })
-const { unpushedChanges, fingerprintOf } = await import("./terragrunt-apply.ts")
+const { unpushedChanges, fingerprintOf, identityOf } = await import("./terragrunt-apply.ts")
 const { runtime } = await import("./runtime.ts")
 
 let root: string
@@ -64,6 +64,17 @@ describe("unpushedChanges", () => {
   it("leaves out the lock file a plan writes", async () => {
     write("aws/prod/budget/.terraform.lock.hcl", "# lock\n")
     expect(await check()).toBeUndefined()
+  })
+})
+
+describe("identityOf", () => {
+  it("changes with the auth blocks' env vars, not their order", () => {
+    const signedIn = { AWS_ACCESS_KEY_ID: "AKIA1", AWS_SECRET_ACCESS_KEY: "s1" }
+    expect(identityOf(signedIn)).toBe(
+      identityOf({ AWS_SECRET_ACCESS_KEY: "s1", AWS_ACCESS_KEY_ID: "AKIA1" }),
+    )
+    expect(identityOf({ ...signedIn, AWS_ACCESS_KEY_ID: "AKIA2" })).not.toBe(identityOf(signedIn))
+    expect(identityOf({ A: "b\0c" })).not.toBe(identityOf({ A: "b", c: "" }))
   })
 })
 

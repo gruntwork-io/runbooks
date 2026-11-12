@@ -94,6 +94,19 @@ const APPLY_WORDS: Record<ResourceAction, { start: string; done: string }> = {
   delete: { start: "Destroying...", done: "Destruction complete" },
 }
 
+/** The unit's outputs as the scenario answers them, in the order the module declares them. */
+const outputsOf = (unit: SimulatedUnit, inputs: Record<string, unknown>) =>
+  Effect.gen(function* () {
+    const found = yield* moduleOf(unit)
+    const declared = "module" in found ? found.module.outputs : []
+    return simulatedOutputs(
+      unit,
+      inputs,
+      declared.map((output) => output.name),
+      new Set(declared.filter((output) => output.sensitive).map((output) => output.name)),
+    )
+  })
+
 export const simulatePlan = (request: TerragruntApplyRequest, run: SimulatedRun) =>
   Effect.gen(function* () {
     const { unit, inputs } = yield* unitFor(request)
@@ -115,14 +128,13 @@ export const simulatePlan = (request: TerragruntApplyRequest, run: SimulatedRun)
       kind: "log",
       line: `Plan: ${n.add} to add, ${n.change} to change, ${n.destroy} to destroy.`,
     })
-    return plan satisfies PlanResult
+    if (plan.resources.length > 0) return plan satisfies PlanResult
+    return { ...plan, outputs: yield* outputsOf(unit, inputs) } satisfies PlanResult
   })
 
 export const simulateApply = (request: TerragruntApplyRequest, run: SimulatedRun) =>
   Effect.gen(function* () {
     const { unit, inputs } = yield* unitFor(request)
-    const found = yield* moduleOf(unit)
-    const declared = "module" in found ? found.module.outputs : []
     run.send({ kind: "step", step: "apply" })
     const resources = simulatedResources(unit, inputs)
     for (const [index, { address, resource }] of resources.entries()) {
@@ -148,11 +160,6 @@ export const simulateApply = (request: TerragruntApplyRequest, run: SimulatedRun
       resources: resources
         .filter(({ resource }) => resource.action !== "delete")
         .map(({ address, row, resource }) => simulatedApplied(address, row, resource)),
-      outputs: simulatedOutputs(
-        unit,
-        inputs,
-        declared.map((output) => output.name),
-        new Set(declared.filter((output) => output.sensitive).map((output) => output.name)),
-      ),
+      outputs: yield* outputsOf(unit, inputs),
     } satisfies ApplyResult
   })

@@ -115,15 +115,24 @@ const workFolder = (blockId: string) => {
 }
 
 /**
- * Each block's saved plan, by block id: the unit it's for, and the unit's
- * files when it was made, so an apply never applies a plan for other code. A
- * new plan replaces it, and an apply uses it up.
+ * Each block's saved plan, by block id: the unit it's for, the unit's files
+ * when it was made, and the credentials it was made with, so an apply never
+ * applies a plan for other code or as someone else. A new plan replaces it,
+ * and an apply uses it up.
  */
 interface SavedPlan {
   readonly unit: string
   readonly planFile: string
   readonly fingerprint: string
+  readonly identity: string
 }
+
+/** Who a run acts as: a hash of the env vars its auth blocks set, in any order. */
+export function identityOf(env: Readonly<Record<string, string>>): string {
+  const entries = Object.entries(env).sort(([a], [b]) => (a < b ? -1 : 1))
+  return createHash("sha256").update(JSON.stringify(entries)).digest("hex")
+}
+
 const savedPlans = new Map<string, SavedPlan>()
 
 const forgetPlan = (blockId: string) =>
@@ -418,8 +427,16 @@ export function registerTerragruntApplyHandlers(): void {
           const shown = yield* terragrunt(["show", "-json", planFile], where)
           // After the plan, so the lock file it writes is part of the unit it's for.
           const fingerprint = yield* fingerprintOf(worktree, unit)
-          savedPlans.set(params.blockId, { unit, planFile, fingerprint })
-          return { resources: plannedResources(JSON.parse(shown)) } satisfies PlanResult
+          savedPlans.set(params.blockId, {
+            unit,
+            planFile,
+            fingerprint,
+            identity: identityOf(params.env),
+          })
+          const resources = plannedResources(JSON.parse(shown))
+          if (resources.length > 0) return { resources } satisfies PlanResult
+          const outputs = yield* terragrunt(["output", "-json"], where)
+          return { resources, outputs: moduleOutputs(JSON.parse(outputs), []) } satisfies PlanResult
         }).pipe(
           // A plan that isn't saved for an apply mustn't stay on disk, since it can hold secrets.
           Effect.onExit((exit) =>
@@ -445,6 +462,12 @@ export function registerTerragruntApplyHandlers(): void {
         if ((yield* fingerprintOf(worktree, unit)) !== saved.fingerprint) {
           yield* forgetPlan(params.blockId)
           return yield* fail("The unit's files changed since the plan. Plan again to apply them.")
+        }
+        if (identityOf(params.env) !== saved.identity) {
+          yield* forgetPlan(params.blockId)
+          return yield* fail(
+            "The sign-in changed since the plan. Plan again, so the plan you review is made as who applies it.",
+          )
         }
         const quiet = {
           cwd: unit,

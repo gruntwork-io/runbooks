@@ -46,6 +46,24 @@ const GROUP_KEYS = new Set(["auth", "scopes"])
 
 const NAME = /^[A-Za-z_][\w-]*$/
 
+const REQUEST_KEYS = ["method", "url", "headers", "body"]
+const LOOKUP_KEYS = ["request", "rows", "fields", "next", "maxPages", "params"]
+const CHECK_KEYS = ["request", "expect", "message", "fix", "params"]
+
+/** Report each key of `raw` that isn't in `allowed`, so a misspelt key isn't silently ignored. */
+function unknownKeys(
+  raw: Obj,
+  allowed: readonly string[],
+  where: string,
+  problem: (message: string) => void,
+) {
+  for (const key of Object.keys(raw)) {
+    if (!allowed.includes(key)) {
+      problem(`${where} has ${key}, which isn't one of ${allowed.join(", ")}.`)
+    }
+  }
+}
+
 /** Read the lookup and check declarations from `doc`, which came from the file `source`. */
 export function parseDeclarations(
   doc: unknown,
@@ -191,13 +209,14 @@ function parseRequest(
     problem(`${where}.request must be a request: its method, url, headers and body.`)
     return undefined
   }
+  unknownKeys(raw, REQUEST_KEYS, `${where}.request`, problem)
   const method = raw.method ?? "GET"
   if (method !== "GET" && method !== "POST") {
     problem(`${where}.request.method must be GET or POST.`)
     return undefined
   }
-  if (typeof raw.url !== "string" || raw.url === "") {
-    problem(`${where}.request.url must be the request's URL.`)
+  if (typeof raw.url !== "string" || !/^https:\/\/[^/?#]/.test(raw.url)) {
+    problem(`${where}.request.url must be an https URL with a host.`)
     return undefined
   }
   const headers: Record<string, string> = {}
@@ -233,6 +252,7 @@ function parseLookup(
     problem(`Lookup ${id} must be a lookup: its request, rows and fields.`)
     return undefined
   }
+  unknownKeys(raw, LOOKUP_KEYS, `Lookup ${id}`, problem)
   const request = parseRequest(raw.request, `Lookup ${id}`, problem)
   if (!request) return undefined
 
@@ -311,6 +331,7 @@ function parseCheck(
     problem(`Check ${id} must be a check: its request, expect and message.`)
     return undefined
   }
+  unknownKeys(raw, CHECK_KEYS, `Check ${id}`, problem)
   const request = parseRequest(raw.request, `Check ${id}`, problem)
   if (!request) return undefined
   const expect = parseExpect(raw.expect, `Check ${id}`, problem)
