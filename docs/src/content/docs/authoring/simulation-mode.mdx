@@ -116,7 +116,7 @@ A resource with `before`, its values now, exists already, so the plan updates it
 
 ## Commands and checks
 
-`scripts` answers a `<Command>` or `<Check>` block by its id, in place of running its script. That suits a script that calls a real service, such as one that changes a setting through an API, so the blocks after it can run in a simulation too:
+`scripts` answers a `<Command>` or `<Check>` block by its id, in place of running its script, so the blocks after it, such as ones that read its outputs, can run in a simulation too:
 
 ```yaml title="simulation.yml"
 scenarios:
@@ -137,4 +137,4 @@ scenarios:
         log: The root email isn't the group's.
 ```
 
-Outputs are templates rendered like the block's `env` prop, so they read the same inputs and outputs the block does. A block that fails publishes no outputs, as a script that fails doesn't. A block the scenario answers needs no sign-in, so its `awsAuthId`, `googleAuthId` and `githubAuthId` blocks don't hold it up. A block the scenario doesn't name runs its script for real.
+Outputs are templates rendered like the block's `env` prop, so they read the same inputs and outputs the block does. A block that fails publishes no outputs, as a script that fails doesn't. A block the scenario answers needs no sign-in, so its `awsAuthId`, `googleAuthId` and `githubAuthId` blocks don't hold it up. A block the scenario doesn't name is refused, so a script that changes something real never runs by mistake. A key matches a block's id with `-` and `_` alike, so `set_group_settings` answers `set-group-settings`. The bar lists any key that no block on the page has, which is usually a typo or a renamed block.

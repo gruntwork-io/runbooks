@@ -1207,8 +1207,10 @@ export type SimulationState =
       scenarios: { name: string; label: string; description?: string }[]
       /** The scenario blocks answer from. Absent while simulation.yml has a problem. */
       active?: string
-      /** The <Command> and <Check> blocks the scenario runs, by id, which need no sign-in. */
+      /** The <Command> and <Check> blocks the scenario answers, by scriptKey of their ids, which need no sign-in. */
       scripts?: string[]
+      /** The scenario's `scripts` keys that no block on the page has, likely a typo or a renamed block. */
+      unmatchedScripts?: string[]
       /** What's wrong with simulation.yml, fit to show the author. */
       error?: string
     }

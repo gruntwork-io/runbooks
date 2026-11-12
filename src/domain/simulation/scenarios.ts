@@ -32,7 +32,7 @@ import { SimulationError } from "../../errors/index.ts"
 import { errorMessage } from "../../errors/message.ts"
 import type { HttpReply } from "../../services/HttpRequest.ts"
 import { isRecord, SIMULATION_FILE, simulationError } from "./file.ts"
-import { readScript, type SimulatedScript } from "./script.ts"
+import { readScript, scriptKey, type SimulatedScript } from "./script.ts"
 import { readUnit, type SimulatedUnit } from "./unit.ts"
 
 /** One canned answer to a lookup or check: for the use's params in `with`, or for any use without it. */
@@ -52,7 +52,7 @@ export interface SimulationScenario {
   readonly responses: Readonly<Record<string, readonly SimulatedResponse[]>>
   /** Each <TerragruntApply> block's unit, by block id, with what the scenario extends merged in. */
   readonly units: Readonly<Record<string, SimulatedUnit>>
-  /** Each <Command> and <Check> block's run, by block id, with what the scenario extends merged in. */
+  /** Each <Command> and <Check> block's run, by scriptKey of its id, with what the scenario extends merged in. */
   readonly scripts: Readonly<Record<string, SimulatedScript>>
 }
 
@@ -132,10 +132,17 @@ export function parseSimulation(content: string): SimulationScenario[] {
     const scripts: Record<string, SimulatedScript> = { ...base?.scripts }
     const ownScripts = entry.scripts ?? {}
     if (!isRecord(ownScripts)) throw simulationError(`${where}.scripts must map blocks to runs.`)
+    const named = new Map<string, string>()
     for (const [block, answer] of Object.entries(ownScripts)) {
-      const inherited = base?.scripts[block]
+      const key = scriptKey(block)
+      const other = named.get(key)
+      if (other !== undefined) {
+        throw simulationError(`${where}.scripts names one block twice: ${other} and ${block}.`)
+      }
+      named.set(key, block)
+      const inherited = base?.scripts[key]
       const merged = isRecord(answer) && inherited ? { ...inherited.raw, ...answer } : answer
-      scripts[block] = readScript(merged, `${where}.scripts.${block}`)
+      scripts[key] = readScript(merged, `${where}.scripts.${block}`)
     }
 
     const scenario: SimulationScenario = {

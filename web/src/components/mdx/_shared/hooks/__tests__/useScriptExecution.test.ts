@@ -239,7 +239,15 @@ describe("useScriptExecution — simulation", () => {
     expect(result.current.hasGitHubAuthDependency).toBe(true)
   })
 
-  it("still needs its sign-ins for a block the scenario leaves to run for real", () => {
+  it("needs no sign-in for a block whose id the scenario spells with _ for -", () => {
+    const { result } = renderHook(
+      () => useScriptExecution({ componentId: "set-settings", componentType: "check", ...props }),
+      { wrapper: simulating(["set_settings"]) },
+    )
+    expect(result.current.hasAwsAuthDependency).toBe(true)
+  })
+
+  it("still needs its sign-ins for a block the scenario doesn't answer", () => {
     const { result } = renderHook(
       () => useScriptExecution({ componentId: "target", componentType: "check", ...props }),
       { wrapper: simulating(["other"]) },

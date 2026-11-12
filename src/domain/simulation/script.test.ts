@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { parseSimulation } from "./scenarios.ts"
-import { simulatedStatus } from "./script.ts"
+import { scriptKey, simulatedStatus } from "./script.ts"
 
 const FILE = `
 scenarios:
@@ -43,6 +43,14 @@ describe("simulated scripts", () => {
     const [happy, notReady] = parseSimulation(FILE)
     expect(simulatedStatus(happy!.scripts["ready"]!)).toEqual({ status: "success", exitCode: 0 })
     expect(simulatedStatus(notReady!.scripts["ready"]!)).toEqual({ status: "fail", exitCode: 1 })
+  })
+
+  it("holds a run under its block's id with _ for -, and refuses two keys for one block", () => {
+    const [scenario] = parseSimulation("scenarios:\n  a:\n    scripts:\n      set-settings: {}\n")
+    expect(Object.keys(scenario!.scripts)).toEqual([scriptKey("set-settings")])
+    expect(() =>
+      parseSimulation("scenarios:\n  a:\n    scripts:\n      x-y: {}\n      x_y: {}\n"),
+    ).toThrow("scenarios.a.scripts names one block twice: x-y and x_y")
   })
 
   it("refuses a status it doesn't know, and outputs that aren't text", () => {

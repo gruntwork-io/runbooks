@@ -52,6 +52,7 @@ import {
   GITHUB_AUTH_ENV_VARS,
   GOOGLE_AUTH_ENV_VARS,
 } from "../../../../../../src/domain/exec/authEnv.ts"
+import { scriptKey } from "../../../../../../src/domain/simulation/script.ts"
 import {
   parseBlockEnv,
   sameBlockEnv,
@@ -540,8 +541,7 @@ export function useScriptExecution({
   // A simulation that answers this block runs no script, so it needs no sign-in.
   const simulation = useSimulation().state
   const simulated =
-    simulation.enabled &&
-    (simulation.scripts ?? []).some((id) => normalizeBlockId(id) === normalizeBlockId(componentId))
+    simulation.enabled && (simulation.scripts ?? []).includes(scriptKey(componentId))
 
   // Get AWS auth credentials from outputs if awsAuthId is specified
   // These will be passed as per-execution env vars (overriding session env)

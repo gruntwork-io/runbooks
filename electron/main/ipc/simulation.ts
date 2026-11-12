@@ -33,6 +33,7 @@ import type {
   SimulationRespondRequest,
   SimulationState,
 } from "../../shared/channels.ts"
+import { scriptKey } from "../../../src/domain/simulation/script.ts"
 import { simulationRefusal, type SimulationCheck } from "./simulation-guard.ts"
 
 let enabled = false
@@ -62,15 +63,24 @@ const executableOf = (args: readonly unknown[]) => {
   return Result.isSuccess(found) ? found.success : undefined
 }
 
+/** Whether the active scenario answers the <Command> or <Check> block `blockId`. */
+const answersScript = async (blockId: string) => {
+  const scenario = await runtime.runPromise(Effect.result(activeSimulationScenario))
+  return Result.isSuccess(scenario) && scenario.success.scripts[scriptKey(blockId)] !== undefined
+}
+
 /**
  * Whether a call that would reach a real system may run: always outside
  * simulation mode. In it, only a <Prerequisites> block's check, which reads
- * the tools on this computer and nothing else.
+ * the tools on this computer and nothing else, and a script the active
+ * scenario answers, which exec:run answers in its place.
  */
-export const simulationCheck: SimulationCheck = (channel, args) => {
+export const simulationCheck: SimulationCheck = async (channel, args) => {
   if (!enabled) return undefined
-  if (channel === "exec:run" && executableOf(args)?.componentType === "prerequisites") {
-    return undefined
+  if (channel === "exec:run") {
+    const executable = executableOf(args)
+    if (executable?.componentType === "prerequisites") return undefined
+    if (executable && (await answersScript(executable.componentId))) return undefined
   }
   return simulationRefusal(channel)
 }
@@ -129,15 +139,28 @@ export const activeSimulationScenario: Effect.Effect<
 
 /**
  * The active scenario's run of the <Command> or <Check> block `blockId`, or
- * none when simulation is off or the scenario leaves the block to run for real.
+ * none when simulation is off. In simulation mode, a block the scenario
+ * doesn't answer fails, so it never runs for real.
  */
 export const simulatedScript = (blockId: string) =>
   Effect.gen(function* () {
     if (!enabled) return undefined
     const scenario = yield* activeSimulationScenario
-    const script = scenario.scripts[blockId]
-    return script && { script, scenario: scenario.name }
+    const script = scenario.scripts[scriptKey(blockId)]
+    if (!script) return yield* new SimulationError({ message: simulationRefusal("exec:run") })
+    return { script, scenario: scenario.name }
   })
+
+/** The `scripts` keys in `scenario` that no <Command> or <Check> block on the page has. */
+const unmatchedScripts = (scenario: SimulationScenario) => {
+  if (!executableRegistry) return []
+  const blocks = new Set(
+    Object.values(executableRegistry.getAllExecutables()).map((entry) =>
+      scriptKey(entry.componentId),
+    ),
+  )
+  return Object.keys(scenario.scripts).filter((key) => !blocks.has(key))
+}
 
 export function registerSimulationHandlers(): void {
   ipcMain.handle("simulation:state", async (): Promise<SimulationState> => {
@@ -156,6 +179,7 @@ export function registerSimulationHandlers(): void {
       })),
       active: active.name,
       scripts: Object.keys(active.scripts),
+      unmatchedScripts: unmatchedScripts(active),
     }
   })
 
