@@ -10,12 +10,11 @@
  * simulation mode, simulation.yml answers instead (see terragrunt-simulate.ts).
  */
 import { createHash } from "node:crypto"
-import { execFile, spawn } from "node:child_process"
+import { execFile } from "node:child_process"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { createInterface } from "node:readline"
-import { Effect } from "effect"
+import { Effect, type ManagedRuntime } from "effect"
 import { ipcMain, type WebContents } from "electron"
 import { runtime, sessionManager } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
@@ -30,11 +29,14 @@ import { gitLines } from "../../../src/domain/tf-module/git.ts"
 import { loadModule } from "../../../src/domain/tf-module/load.ts"
 import { renderedUnit } from "../../../src/domain/terragrunt/render.ts"
 import {
+  runTerragrunt,
+  TERRAGRUNT_INSTALL,
+  type ToolRun,
+} from "../../../src/domain/terragrunt/terragrunt.ts"
+import {
   appliedResources,
-  commandLine,
   moduleOutputs,
   plannedResources,
-  uiEvents,
   type ApplyResult,
   type PlanResult,
   type RunEvent,
@@ -48,7 +50,6 @@ import type {
 
 const fail = (message: string) => new TfModuleError({ message })
 
-const TERRAGRUNT_INSTALL = "https://terragrunt.gruntwork.io/docs/getting-started/install/"
 const TOFU_INSTALL = "https://opentofu.org/docs/intro/install/"
 
 /** The lock file a plan writes beside the unit, which is pushed with the next change. */
@@ -57,8 +58,47 @@ const LOCK_FILE = ".terraform.lock.hcl"
 /** Folders in a unit that Terragrunt and OpenTofu write, which aren't the unit's code. */
 const WORK_FOLDERS = new Set([".terragrunt-cache", ".terraform"])
 
-/** Runs that can be cancelled, by run id. */
-const activeRuns = new Map<string, AbortController>()
+/**
+ * Each block's plan or apply while it runs, by block id. A block runs one at
+ * a time, so a plan never starts in a unit that's being applied, and an
+ * apply never starts while its plan is being replaced. `done` settles once
+ * Terragrunt has exited.
+ */
+interface BlockRun {
+  readonly runId: string
+  readonly kind: "plan" | "apply"
+  readonly controller: AbortController
+  readonly done: Promise<unknown>
+}
+const blockRuns = new Map<string, BlockRun>()
+
+/** Whether a block is planning or applying a unit. */
+export function isTerragruntRunning(): boolean {
+  return blockRuns.size > 0
+}
+
+/**
+ * Stops every plan and apply, and waits until Terragrunt has exited, or
+ * been killed. Called on quit and before switching sessions: Terragrunt runs
+ * in its own process group, so nothing else stops it.
+ */
+export async function stopTerragruntRuns(): Promise<void> {
+  const runs = [...blockRuns.values()]
+  for (const run of runs) run.controller.abort()
+  await Promise.allSettled(runs.map((run) => run.done))
+}
+
+/** Removes every block's folder outside its clone: saved plans and downloads. Called on quit. */
+export async function removeTerragruntWorkFolders(): Promise<void> {
+  const folders = await Promise.allSettled(workFolders.values())
+  workFolders.clear()
+  savedPlans.clear()
+  await Promise.allSettled(
+    folders.flatMap((folder) =>
+      folder.status === "fulfilled" ? [fs.rm(folder.value, { recursive: true, force: true })] : [],
+    ),
+  )
+}
 
 /**
  * Each block's folder outside the clone, by block id, for its saved plan and
@@ -259,111 +299,49 @@ const unitModule = (source: string, unit: string) =>
     ),
   )
 
-/** A Terragrunt or OpenTofu log line without its time, and its level. */
-function toolLog(line: string): RunEvent | undefined {
-  const plain = line.trimEnd()
-  if (!plain.trim()) return undefined
-  const match = /^\d\d:\d\d:\d\d\.\d+\s+(\w+)\s+(.*)$/.exec(plain)
-  // OpenTofu's own errors have no level, only an "Error:" heading.
-  const level = match?.[1] ?? (/^[\s│╷]*Error:/.test(plain) ? "ERROR" : undefined)
-  return {
-    kind: "log",
-    line: match ? match[2]! : plain,
-    ...(level === "ERROR" ? { level: "error" } : level === "WARN" ? { level: "warn" } : {}),
-  }
-}
-
-interface ToolRun {
-  readonly cwd: string
-  /** Where Terragrunt downloads the module and runs OpenTofu. */
-  readonly downloadDir?: string
-  readonly env: Record<string, string>
-  readonly signal: AbortSignal
-  /** Called with each event from OpenTofu's `-json` output; without it, stdout is collected. */
-  readonly onEvent?: (event: RunEvent) => void
-  /** Called with the tool's own log lines. */
-  readonly onLog?: (event: RunEvent) => void
-}
+const terragrunt = (subcommand: readonly string[], run: ToolRun) => runTerragrunt(subcommand, run)
 
 /**
- * Runs Terragrunt for a block's unit, failing with its last error lines when
- * it exits nonzero. Returns stdout. Terragrunt initializes as it goes.
+ * Runs a block's plan or apply, streaming its events to the block, unless
+ * the block is already running one. Settles once Terragrunt has exited, so
+ * a stopped run reports Stopped only when nothing is left running.
  */
-function runTerragrunt(subcommand: readonly string[], run: ToolRun): Promise<string> {
-  const command = "terragrunt"
-  const args = [...subcommand, "--non-interactive", "--no-color"]
-  if (run.downloadDir) args.push("--download-dir", run.downloadDir)
-  // The command first, so a run that prints nothing for a while still shows
-  // what it's waiting on, in a form that can be run again in a terminal.
-  run.onLog?.({ kind: "log", line: commandLine(run.cwd, command, args) })
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: run.cwd,
-      env: run.env,
-      signal: run.signal,
-    })
-    let stdout = ""
-    const errors: string[] = []
-    createInterface({ input: child.stdout }).on("line", (line) => {
-      if (!run.onEvent) {
-        stdout += `${line}\n`
-        return
-      }
-      for (const event of uiEvents(line)) {
-        if (event.kind === "log" && event.level === "error") errors.push(event.line)
-        run.onEvent(event)
-      }
-    })
-    createInterface({ input: child.stderr }).on("line", (line) => {
-      const event = toolLog(line)
-      if (!event) return
-      if (event.kind === "log" && event.level === "error") errors.push(event.line)
-      run.onLog?.(event)
-    })
-    child.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "ENOENT") {
-        reject(
-          fail(
-            `Runbooks runs this Terragrunt unit with Terragrunt, which isn't on your PATH. Install it: ${TERRAGRUNT_INSTALL}`,
-          ),
-        )
-      } else if (err.name === "AbortError") {
-        reject(fail("Stopped."))
-      } else {
-        reject(fail(`Couldn't run Terragrunt: ${describeFailure(err)}`))
-      }
-    })
-    child.on("close", (code) => {
-      if (code === 0) resolve(stdout)
-      else if (code !== null) {
-        reject(fail(errors.slice(-3).join(" ") || `Terragrunt exited with code ${code}.`))
-      }
-    })
-  })
-}
-
-/** Starts a cancellable run that streams its events to the block. */
-function startRun(sender: WebContents, runId: string) {
-  activeRuns.get(runId)?.abort()
+async function blockRun<T, E>(
+  sender: WebContents,
+  request: TerragruntRunRequest,
+  kind: BlockRun["kind"],
+  program: (
+    send: (event: RunEvent) => void,
+  ) => Effect.Effect<T, E, ManagedRuntime.ManagedRuntime.Services<typeof runtime>>,
+): Promise<T> {
+  const busy = blockRuns.get(request.blockId)
+  if (busy) {
+    throw fail(
+      busy.kind === "apply"
+        ? "The unit is being applied. Wait for the apply to finish, or stop it."
+        : "The unit is being planned. Wait for the plan to finish, or stop it.",
+    )
+  }
   const controller = new AbortController()
-  activeRuns.set(runId, controller)
   const send = (event: RunEvent) => {
-    if (!controller.signal.aborted && !sender.isDestroyed()) {
-      sender.send("terragrunt-apply:event", { runId, event, at: new Date().toISOString() })
+    if (!sender.isDestroyed()) {
+      sender.send("terragrunt-apply:event", {
+        runId: request.runId,
+        event,
+        at: new Date().toISOString(),
+      })
     }
   }
-  const finish = () => {
-    if (activeRuns.get(runId) === controller) activeRuns.delete(runId)
+  const done = runtime.runPromise(program(send), { signal: controller.signal })
+  blockRuns.set(request.blockId, { runId: request.runId, kind, controller, done })
+  try {
+    return await done
+  } catch (err) {
+    throw controller.signal.aborted ? fail("Stopped.") : err
+  } finally {
+    blockRuns.delete(request.blockId)
   }
-  return { signal: controller.signal, send, finish }
 }
-
-/** Runs Terragrunt as an Effect, keeping a TfModuleError's message as it is. */
-const terragrunt = (subcommand: readonly string[], run: ToolRun) =>
-  Effect.tryPromise({
-    try: () => runTerragrunt(subcommand, run),
-    catch: (cause) => (cause instanceof TfModuleError ? cause : fail(describeFailure(cause))),
-  })
 
 const preflight = (request: TerragruntApplyRequest) =>
   Effect.gen(function* () {
@@ -380,12 +358,13 @@ const preflight = (request: TerragruntApplyRequest) =>
     // Rendering evaluates the unit as a plan does, run_cmd and dependencies included.
     const rendered = renderedUnit(
       JSON.parse(
-        yield* terragrunt(["render", "--format=json"], {
-          cwd: unit,
-          downloadDir,
-          env,
-          signal: AbortSignal.timeout(5 * 60_000),
-        }),
+        yield* terragrunt(["render", "--format=json"], { cwd: unit, downloadDir, env }).pipe(
+          Effect.timeoutOrElse({
+            duration: "5 minutes",
+            orElse: () =>
+              Effect.fail(fail("Terragrunt took more than 5 minutes to render the unit.")),
+          }),
+        ),
       ),
     )
     const found = rendered.source ? yield* unitModule(rendered.source, unit) : {}
@@ -405,97 +384,92 @@ export function registerTerragruntApplyHandlers(): void {
       : runtime.runPromise(preflight(params)),
   )
 
-  ipcMain.handle("terragrunt-apply:plan", async (event, params: TerragruntRunRequest) => {
-    const run = startRun(event.sender, params.runId)
-    try {
-      return await runtime.runPromise(
-        Effect.gen(function* () {
-          if (simulationEnabled()) return yield* simulatePlan(params, run)
-          // Until this plan finishes, there's no plan to apply.
-          yield* forgetPlan(params.blockId)
-          const env = yield* runEnv(params)
-          const { worktree, unit } = yield* unitOf(params)
-          const unpushed = yield* unpushedChanges(worktree)
-          if (unpushed) return yield* fail(unpushed)
-          const folder = yield* workFolder(params.blockId)
-          const planFile = path.join(folder, `plan-${params.runId}.tfplan`)
-          const where = { cwd: unit, downloadDir: path.join(folder, "download"), env }
-          run.send({ kind: "step", step: "init" })
-          let planning = false
-          const onEvent = (e: RunEvent) => {
-            if (!planning) {
-              planning = true
-              run.send({ kind: "step", step: "plan" })
-            }
-            run.send(e)
+  ipcMain.handle("terragrunt-apply:plan", (event, params: TerragruntRunRequest) =>
+    blockRun(event.sender, params, "plan", (send) =>
+      Effect.gen(function* () {
+        // Until this plan finishes, there's no plan to apply, real or simulated.
+        yield* forgetPlan(params.blockId)
+        if (simulationEnabled()) return yield* simulatePlan(params, { send })
+        const env = yield* runEnv(params)
+        const { worktree, unit } = yield* unitOf(params)
+        const unpushed = yield* unpushedChanges(worktree)
+        if (unpushed) return yield* fail(unpushed)
+        const folder = yield* workFolder(params.blockId)
+        const planFile = path.join(folder, `plan-${params.runId}.tfplan`)
+        const where = { cwd: unit, downloadDir: path.join(folder, "download"), env }
+        send({ kind: "step", step: "init" })
+        let planning = false
+        const onEvent = (e: RunEvent) => {
+          if (!planning) {
+            planning = true
+            send({ kind: "step", step: "plan" })
           }
+          send(e)
+        }
+        return yield* Effect.gen(function* () {
           yield* terragrunt(["plan", `-out=${planFile}`, "-json"], {
             ...where,
-            signal: run.signal,
             onEvent,
-            onLog: run.send,
+            onLog: send,
           })
-          const shown = yield* terragrunt(["show", "-json", planFile], {
-            ...where,
-            signal: run.signal,
-          })
+          const shown = yield* terragrunt(["show", "-json", planFile], where)
           // After the plan, so the lock file it writes is part of the unit it's for.
           const fingerprint = yield* fingerprintOf(worktree, unit)
           savedPlans.set(params.blockId, { unit, planFile, fingerprint })
           return { resources: plannedResources(JSON.parse(shown)) } satisfies PlanResult
-        }),
-      )
-    } finally {
-      run.finish()
-    }
-  })
+        }).pipe(
+          // A plan that isn't saved for an apply mustn't stay on disk, since it can hold secrets.
+          Effect.onExit((exit) =>
+            exit._tag === "Success"
+              ? Effect.void
+              : Effect.promise(() => fs.rm(planFile, { force: true })),
+          ),
+        )
+      }),
+    ),
+  )
 
-  ipcMain.handle("terragrunt-apply:apply", async (event, params: TerragruntRunRequest) => {
-    const run = startRun(event.sender, params.runId)
-    try {
-      return await runtime.runPromise(
-        Effect.gen(function* () {
-          if (simulationEnabled()) return yield* simulateApply(params, run)
-          const env = yield* runEnv(params)
-          const { worktree, unit } = yield* unitOf(params)
-          const saved = savedPlans.get(params.blockId)
-          if (!saved || saved.unit !== unit) {
-            return yield* fail("Plan first, so there's a plan to apply.")
-          }
-          if ((yield* fingerprintOf(worktree, unit)) !== saved.fingerprint) {
-            yield* forgetPlan(params.blockId)
-            return yield* fail("The unit's files changed since the plan. Plan again to apply them.")
-          }
-          const quiet = {
-            cwd: unit,
-            downloadDir: path.join(yield* workFolder(params.blockId), "download"),
-            env,
-            signal: run.signal,
-          }
-          run.send({ kind: "step", step: "apply" })
-          // A plan is used up once it's applied, or once an apply of it fails.
-          yield* terragrunt(["apply", "-json", saved.planFile], {
-            ...quiet,
-            onEvent: run.send,
-            onLog: run.send,
-          }).pipe(Effect.ensuring(forgetPlan(params.blockId)))
-          run.send({ kind: "step", step: "read" })
-          const state = yield* terragrunt(["show", "-json"], quiet)
-          const outputs = yield* terragrunt(["output", "-json"], quiet)
-          return {
-            resources: appliedResources(JSON.parse(state)),
-            outputs: moduleOutputs(JSON.parse(outputs), []),
-          } satisfies ApplyResult
-        }),
-      )
-    } finally {
-      run.finish()
-    }
-  })
+  ipcMain.handle("terragrunt-apply:apply", (event, params: TerragruntRunRequest) =>
+    blockRun(event.sender, params, "apply", (send) =>
+      Effect.gen(function* () {
+        if (simulationEnabled()) return yield* simulateApply(params, { send })
+        const env = yield* runEnv(params)
+        const { worktree, unit } = yield* unitOf(params)
+        const saved = savedPlans.get(params.blockId)
+        if (!saved || saved.unit !== unit) {
+          return yield* fail("Plan first, so there's a plan to apply.")
+        }
+        if ((yield* fingerprintOf(worktree, unit)) !== saved.fingerprint) {
+          yield* forgetPlan(params.blockId)
+          return yield* fail("The unit's files changed since the plan. Plan again to apply them.")
+        }
+        const quiet = {
+          cwd: unit,
+          downloadDir: path.join(yield* workFolder(params.blockId), "download"),
+          env,
+        }
+        send({ kind: "step", step: "apply" })
+        // A plan is used up once it's applied, or once an apply of it fails or stops.
+        yield* terragrunt(["apply", "-json", saved.planFile], {
+          ...quiet,
+          onEvent: send,
+          onLog: send,
+        }).pipe(Effect.ensuring(forgetPlan(params.blockId)))
+        send({ kind: "step", step: "read" })
+        const state = yield* terragrunt(["show", "-json"], quiet)
+        const outputs = yield* terragrunt(["output", "-json"], quiet)
+        return {
+          resources: appliedResources(JSON.parse(state)),
+          outputs: moduleOutputs(JSON.parse(outputs), []),
+        } satisfies ApplyResult
+      }),
+    ),
+  )
 
   ipcMain.handle("terragrunt-apply:cancel", (_event, params: { runId: string }) => {
-    activeRuns.get(params.runId)?.abort()
-    activeRuns.delete(params.runId)
+    for (const run of blockRuns.values()) {
+      if (run.runId === params.runId) run.controller.abort()
+    }
     return { ok: true as const }
   })
 }

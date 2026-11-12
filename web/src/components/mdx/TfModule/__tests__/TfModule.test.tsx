@@ -223,6 +223,24 @@ describe("TfModule", () => {
     expect(ui.getByText("Allow external members")).toBeInTheDocument()
   })
 
+  it("links to the module on GitHub in place of its source, and shows no link without a page", () => {
+    moduleSpec = {
+      ...spec,
+      page: "https://github.com/acme/catalog/tree/v1.4.0/modules/google-group",
+    }
+    const { unmount } = renderBlock()
+    expect(screen.getByRole("link", { name: /View the OpenTofu module/ })).toHaveAttribute(
+      "href",
+      "https://github.com/acme/catalog/tree/v1.4.0/modules/google-group",
+    )
+    expect(screen.queryByText("google-group")).not.toBeInTheDocument()
+    unmount()
+
+    moduleSpec = spec
+    renderBlock()
+    expect(screen.queryByRole("link", { name: /View the OpenTofu module/ })).not.toBeInTheDocument()
+  })
+
   it("flags required inputs and failed checks on Generate, and doesn't generate", () => {
     renderBlock()
     fireEvent.change(input("group_name"), { target: { value: "Not Valid" } })

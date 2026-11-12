@@ -57,7 +57,7 @@ describe("alignAttributes", () => {
     )
   })
 
-  it("ends a run with an attribute whose value goes on, and leaves heredocs alone", () => {
+  it("leaves an attribute that opens a bracket out of any run, and heredoc bodies alone", () => {
     const text = lines(
       "a = 1",
       "tags = {",
@@ -69,10 +69,14 @@ describe("alignAttributes", () => {
       "  yy = 2",
       "  EOT",
       "b = 3",
+      "list = [",
+      "  1,",
+      "]",
+      "c = 4",
     )
     expect(alignAttributes(text)).toBe(
       lines(
-        "a    = 1",
+        "a = 1",
         "tags = {",
         "  k = 1",
         "}",
@@ -81,7 +85,34 @@ describe("alignAttributes", () => {
         "  x = 1",
         "  yy = 2",
         "  EOT",
-        "b = 3",
+        "b         = 3",
+        "list = [",
+        "  1,",
+        "]",
+        "c = 4",
+      ),
+    )
+  })
+
+  it("aligns quoted keys, and leaves a for expression's => alone", () => {
+    const text = lines(
+      "tags = {",
+      '  "kubernetes.io/role" = "x"',
+      '  Team = "ops"',
+      "}",
+      "upper = { for k, v in var.tags :",
+      "  k => upper(v)",
+      "}",
+    )
+    expect(alignAttributes(text)).toBe(
+      lines(
+        "tags = {",
+        '  "kubernetes.io/role" = "x"',
+        '  Team                 = "ops"',
+        "}",
+        "upper = { for k, v in var.tags :",
+        "  k => upper(v)",
+        "}",
       ),
     )
   })
@@ -95,7 +126,12 @@ describe("alignAttributes", () => {
 
 describe("isHclFile", () => {
   it("knows HCL's native-syntax files", () => {
-    expect(["terragrunt.hcl", "main.tf", "x.tfvars"].map(isHclFile)).toEqual([true, true, true])
+    expect(["terragrunt.hcl", "main.tf", "main.tofu", "x.tfvars"].map(isHclFile)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ])
     expect(["README.md", "x.tf.json"].map(isHclFile)).toEqual([false, false])
   })
 })

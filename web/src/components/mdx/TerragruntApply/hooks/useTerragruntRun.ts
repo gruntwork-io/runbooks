@@ -3,7 +3,7 @@ import { useApi } from "@/contexts/ApiContext"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import type { TerragruntApplyRequest } from "../../../../../../electron/shared/channels"
 import type { ApplyResult } from "../../../../../../src/domain/terragrunt/run"
-import { INITIAL_RUN, runReducer, runStatus } from "../runMachine"
+import { INITIAL_RUN, runReducer, runStatus, running } from "../runMachine"
 
 const message = (err: unknown) =>
   cleanIpcErrorMessage(err instanceof Error ? err.message : String(err))
@@ -51,6 +51,8 @@ export function useTerragruntRun(request: TerragruntApplyRequest, unitKey: strin
   }
 
   const plan = async () => {
+    // One run at a time: the main process refuses a second, and so does the block.
+    if (running(state.phase)) return
     dispatch({ type: "plan-started", inputs: unitKey })
     const result = await start((runId) =>
       api.invoke("terragrunt-apply:plan", { ...request, runId }),
@@ -59,6 +61,7 @@ export function useTerragruntRun(request: TerragruntApplyRequest, unitKey: strin
   }
 
   const apply = async (): Promise<ApplyResult | undefined> => {
+    if (state.phase.kind !== "planned") return undefined
     dispatch({ type: "apply-started" })
     const result = await start((runId) =>
       api.invoke("terragrunt-apply:apply", { ...request, runId }),
@@ -71,6 +74,7 @@ export function useTerragruntRun(request: TerragruntApplyRequest, unitKey: strin
     const run = current.current
     if (!run) return
     run.stopping = true
+    dispatch({ type: "stop-requested" })
     void api.invoke("terragrunt-apply:cancel", { runId: run.id })
   }
 
