@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
-import { ChevronDown, ChevronRight, FileCode, Loader2, TriangleAlert } from "lucide-react"
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  FileCode,
+  Loader2,
+  TriangleAlert,
+} from "lucide-react"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useApi } from "@/contexts/ApiContext"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
@@ -342,9 +349,17 @@ function TfModuleForm({
             {spec.description && (
               <div className="text-sm text-muted-foreground">{spec.description}</div>
             )}
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-mono">{source}</span>
-            </div>
+            {spec.page && (
+              <a
+                href={spec.page}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
+              >
+                View the OpenTofu module
+                <ExternalLink className="size-3" />
+              </a>
+            )}
           </div>
         </div>
 
