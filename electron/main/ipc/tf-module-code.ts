@@ -10,7 +10,7 @@ import * as path from "node:path"
 import { Effect } from "effect"
 import { ipcMain } from "electron"
 import { runtime } from "./runtime.ts"
-import { validateSessionPath } from "./path-guard.ts"
+import { validateRunbookRepoPath, validateSessionPath } from "./path-guard.ts"
 import { moduleDir } from "./tf-module-source.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { TfModuleError } from "../../../src/errors/index.ts"
@@ -73,7 +73,7 @@ export const renderTemplate = (
         "Reading a template from a URL isn't supported yet. Use a folder beside the runbook.",
       )
     }
-    const templateDir = yield* validateSessionPath(template)
+    const templateDir = yield* validateRunbookRepoPath(template)
     const hasTemplate = yield* Effect.promise(() =>
       fs.stat(templateDir).then(
         (stat) => stat.isDirectory(),
