@@ -10,6 +10,7 @@ import * as net from "node:net"
 import * as path from "node:path"
 import { chromium, type Browser, type Page } from "@playwright/test"
 import { UsageError } from "./args.ts"
+import { withoutCredentials } from "./env.ts"
 
 export const REPO = path.resolve(import.meta.dir, "../..")
 const ROOT = path.join(REPO, ".verify-runbooks")
@@ -191,8 +192,9 @@ export async function up(options: UpOptions): Promise<Session & { built: boolean
     detached: true,
     stdio: ["ignore", out, out],
     env: {
-      ...process.env,
-      ...(options.realHome ? {} : { HOME: path.join(dir, "home") }),
+      ...(options.realHome
+        ? process.env
+        : { ...withoutCredentials(process.env), HOME: path.join(dir, "home") }),
       ELECTRON_NO_UPDATER: "1",
       RUNBOOKS_TELEMETRY_DISABLE: "1",
     },
