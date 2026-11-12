@@ -40,6 +40,13 @@ export type TfModuleCheck =
       readonly message: string
     }
   | { readonly kind: "notEmpty"; readonly message: string }
+  /** How many items a list or map holds, from `length(var.x)` on a collection. */
+  | {
+      readonly kind: "count"
+      readonly min: number
+      readonly max?: number | undefined
+      readonly message: string
+    }
 
 /** The form control an input needs, from its type in variables.tf. */
 export type TfModuleInputKind = "string" | "number" | "bool" | "list" | "map" | "json"
