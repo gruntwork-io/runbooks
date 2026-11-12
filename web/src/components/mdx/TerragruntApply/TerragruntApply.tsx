@@ -564,7 +564,8 @@ function BlockHeader({
             className="size-full object-contain"
           />
         </div>
-        <div className="min-w-0">
+        {/* As tall as the logo at least, so a title alone sits level with it. */}
+        <div className="flex min-h-10 min-w-0 flex-col justify-center">
           <div className="text-lg font-semibold text-foreground">
             <InlineMarkdown>{title}</InlineMarkdown>
           </div>
