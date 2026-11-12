@@ -498,9 +498,11 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
 
   const variables = ordered.map((variable): TfModuleVariable => {
     const meta = input.metadata.variables[variable.name] ?? {}
+    const kind = inputKind(variable.tfType)
     const { allowedValues, checks, constraints } = interpretValidations(
       variable.name,
       variable.validations,
+      kind,
     )
     const derived = allowedValues?.map((value) => ({ value, label: value }))
     const options = meta.options ?? derived
@@ -510,7 +512,7 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
       label: meta.label ?? labelFromName(variable.name),
       description: meta.description ?? variable.description,
       tfType: variable.tfType,
-      kind: inputKind(variable.tfType),
+      kind,
       hasDefault: variable.hasDefault,
       ...(variable.hasDefault ? { default: variable.default } : {}),
       sensitive: variable.sensitive,

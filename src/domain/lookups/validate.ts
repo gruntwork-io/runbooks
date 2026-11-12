@@ -127,6 +127,12 @@ export function checkDefinitions(definitions: Definitions, uses: Uses): Problem[
       })
       continue
     }
+    if (lookup.fields.value === undefined) {
+      problems.push({
+        source: uses.source,
+        message: `${where} uses ${use.from}, which declares no value field, so its rows have nothing to fill the input with. Add value to its fields.`,
+      })
+    }
     checkUse(use, lookup.params, where, uses, problems)
   }
   uses.preflight.forEach((use, i) => {
