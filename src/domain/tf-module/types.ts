@@ -109,6 +109,8 @@ export interface TfModuleSpec {
    * one, the form shows the mark of the module's first provider it knows.
    */
   readonly logo?: string
+  /** The module's folder on GitHub, at the ref the block reads, when it lives there. */
+  readonly page?: string
   /** In the order the module declares them. */
   readonly outputs: readonly TfModuleOutput[]
   /** In the order runbook_block.yml lists them, then the rest in the order the module declares them. */

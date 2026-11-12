@@ -102,7 +102,8 @@ Every input the module declares appears: those `runbook_block.yml` lists first, 
 - **Choices.** An input with options shows each as a card with its description. A `list` input with options lets the user pick several.
 - **Validation.** The form checks the validation idioms modules use most as the user types: `contains([...], var.x)` becomes a choice, `can(regex("...", var.x))` a pattern, `length(var.x) >= N && length(var.x) <= M` a length range, and `var.x != ""` a required value. The form shows the error message of any other condition under the input as a rule, and leaves checking it to OpenTofu.
 - **Title.** The block's title is `runbook_block.yml`'s `block.title`, else the README's first heading, else the module's folder name.
-- **Logo.** The block shows the mark of the module's provider, from `required_providers`, unless `runbook_block.yml` sets `block.logo`.
+- **Logo.** The block shows the mark of the module's provider, from `required_providers`, unless `runbook_block.yml` sets `block.logo`. The OpenTofu mark sits on its corner.
+- **Link to the module.** When the module is on GitHub, the block links to its folder there, at the ref the block reads: a remote source's `?ref=`, or, for a folder beside the runbook, the tag the runbook's checkout is at, else its commit.
 
 OpenTofu reads a `.tofu` file in place of a `.tf` file with the same name, and so does the block.
 
