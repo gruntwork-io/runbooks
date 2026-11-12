@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { failedCheck, hclStringLiteral, interpretValidations } from "./validations.ts"
+import { failedCheck, failedCount, hclStringLiteral, interpretValidations } from "./validations.ts"
 
 describe("hclStringLiteral", () => {
   it("decodes HCL's escapes", () => {
@@ -12,6 +12,32 @@ describe("hclStringLiteral", () => {
 })
 
 describe("interpretValidations", () => {
+  it("reads length() on a list or map as a count of its items", () => {
+    const validations = [
+      {
+        condition: "length(var.owners) >= 1 && length(var.owners) <= 5",
+        errorMessage: "One to five owners.",
+      },
+      { condition: "length(var.owners) > 0", errorMessage: "At least one." },
+      {
+        condition: 'alltrue([for o in var.owners : can(regex("@", o))])',
+        errorMessage: "Emails.",
+      },
+    ]
+    for (const kind of ["list", "map"] as const) {
+      const result = interpretValidations("owners", validations, kind)
+      expect(result.checks).toEqual([
+        { kind: "count", min: 1, max: 5, message: "One to five owners." },
+        { kind: "count", min: 1, message: "At least one." },
+      ])
+      expect(result.constraints).toEqual(["Emails."])
+    }
+    expect(interpretValidations("owners", validations, "string").checks).toEqual([
+      { kind: "length", min: 1, max: 5, message: "One to five owners." },
+      { kind: "notEmpty", message: "At least one." },
+    ])
+  })
+
   it("only reads conditions about the variable itself", () => {
     const result = interpretValidations("tier", [
       { condition: 'contains(["a", "b"], var.other)', errorMessage: "Other." },
@@ -34,6 +60,18 @@ describe("interpretValidations", () => {
     ])
     expect(result.allowedValues).toBeUndefined()
     expect(result.constraints).toEqual(["Pick one."])
+  })
+})
+
+describe("failedCount", () => {
+  it("gives the first count check a collection's size fails", () => {
+    const checks = [
+      { kind: "count" as const, min: 1, message: "At least one." },
+      { kind: "count" as const, min: 1, max: 2, message: "One or two." },
+    ]
+    expect(failedCount(0, checks)).toBe("At least one.")
+    expect(failedCount(3, checks)).toBe("One or two.")
+    expect(failedCount(2, checks)).toBeUndefined()
   })
 })
 

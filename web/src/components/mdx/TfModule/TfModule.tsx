@@ -5,6 +5,7 @@ import {
   ExternalLink,
   FileCode,
   Loader2,
+  RotateCw,
   TriangleAlert,
 } from "lucide-react"
 import { useRunbookContext } from "@/contexts/useRunbook"
@@ -433,6 +434,7 @@ function TfModuleForm({
               state={generation}
               repository={activeWorkTree?.gitInfo.repoName}
               stale={started && !current}
+              onRetry={() => void generate(request)}
             />
           </div>
         </form>
@@ -501,10 +503,13 @@ function Generation({
   state,
   repository,
   stale,
+  onRetry,
 }: {
   state: GenerationState
   repository: string | undefined
   stale: boolean
+  /** Generates again with the same inputs, for a failure that wasn't about them. */
+  onRetry: () => void
 }) {
   if (state.kind === "idle") return null
   if (state.kind === "failed") {
@@ -512,6 +517,9 @@ function Generation({
       <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
         <p className="m-0 font-medium text-destructive">The code couldn't be generated.</p>
         <p className="m-0 mt-1 whitespace-pre-wrap text-foreground">{state.error}</p>
+        <Button type="button" variant="outline" size="sm" className="mt-2" onClick={onRetry}>
+          <RotateCw className="size-3.5" /> Try again
+        </Button>
       </div>
     )
   }
