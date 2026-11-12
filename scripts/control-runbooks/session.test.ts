@@ -14,7 +14,9 @@ describe("running", () => {
       expect(running(child.pid!, undefined)).toBe(false)
     } finally {
       child.kill()
-      await new Promise((resolve) => child.on("exit", resolve))
+      await new Promise((resolve) => {
+        child.on("exit", resolve)
+      })
     }
     expect(running(child.pid!, "anything")).toBe(false)
   })
