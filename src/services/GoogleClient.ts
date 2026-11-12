@@ -1,5 +1,6 @@
 import { Context, Effect } from "effect"
 import type { GoogleAuthError, GoogleConfigError, GoogleOAuthError } from "../errors/index.ts"
+import type { HttpReply, HttpRequest } from "./HttpRequest.ts"
 
 /**
  * How a credential was obtained. Mirrors the `type` field of a Google
@@ -193,6 +194,18 @@ export interface GoogleClientShape {
     projectId: string,
     creds: GoogleCredentialRef,
   ) => Effect.Effect<GoogleProjectAccess, GoogleAuthError>
+
+  /**
+   * Sends `request` with the credential's access token, refreshing it when it
+   * has expired, and bills it to `quotaProjectId` when given. Returns Google's
+   * answer whatever its status, and fails only when no answer arrives.
+   * Callers check the request first: this sends anything.
+   */
+  readonly sendAuthorized: (
+    creds: GoogleCredentialRef,
+    request: HttpRequest,
+    quotaProjectId?: string,
+  ) => Effect.Effect<HttpReply, GoogleAuthError>
 }
 
 export class GoogleClient extends Context.Service<GoogleClient, GoogleClientShape>()(

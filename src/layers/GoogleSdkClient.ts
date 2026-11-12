@@ -51,6 +51,7 @@ import {
   resolveGcloudConfigPaths,
 } from "../domain/google/gcloud-config.ts"
 import { assertFederatedCredentialAllowed } from "../domain/google/credential-policy.ts"
+import { sendHttp } from "./sendHttp.ts"
 
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 const CRM_BASE = "https://cloudresourcemanager.googleapis.com/v3"
@@ -1146,6 +1147,24 @@ const impl: GoogleClientShape = {
       catch: (err) =>
         new GoogleAuthError({
           message: `Failed to check project: ${errorMessage(err)}`,
+          cause: err,
+        }),
+    }),
+
+  sendAuthorized: (creds: GoogleCredentialRef, request, quotaProjectId?: string) =>
+    Effect.tryPromise({
+      try: async () => {
+        const authClient = await authClientFor(creds)
+        const headers: Record<string, string> = { ...request.headers }
+        for (const [name, value] of await authClient.getRequestHeaders(request.url)) {
+          headers[name] = value
+        }
+        if (quotaProjectId) headers["x-goog-user-project"] = quotaProjectId
+        return sendHttp(request, headers)
+      },
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Couldn't send the request to ${new URL(request.url).hostname}: ${errorMessage(err)}`,
           cause: err,
         }),
     }),
