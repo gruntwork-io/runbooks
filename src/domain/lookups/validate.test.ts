@@ -52,6 +52,18 @@ describe("checkDefinitions", () => {
     ).toEqual([])
   })
 
+  it("rejects an input using a lookup whose rows have no value", () => {
+    expect(
+      problemsOf(AWS, [
+        { where: "variables.store.lookup", use: { from: "aws.identityStore", with: {} } },
+      ]),
+    ).toEqual([
+      expect.stringContaining(
+        "variables.store.lookup uses aws.identityStore, which declares no value field",
+      ),
+    ])
+  })
+
   it("rejects a template in the URL's host that a form value could pick", () => {
     expect(
       problemsOf(`
