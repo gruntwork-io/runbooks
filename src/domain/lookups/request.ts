@@ -5,9 +5,9 @@
  * URL or the shape of a body.
  */
 import type { HttpRequest } from "../../services/HttpRequest.ts"
-import { render, type TemplateValues } from "./template.ts"
+import { render, type Ref, type TemplateValues, type Token } from "./template.ts"
 import type { RequestTemplate } from "./types.ts"
-import { urlHostPart, walkStrings } from "./validate.ts"
+import { urlHostPart } from "./validate.ts"
 
 /** Where a page token goes in the next request. */
 export interface PageToken {
@@ -25,8 +25,15 @@ export function buildRequest(
   if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(host)) {
     throw new Error(`The request's host came out as "${host}", which isn't an https host.`)
   }
+  const rest = template.url.slice(hostPart.length)
+  const query = rest.search(/[?#]/)
+  const pathEnd = query < 0 ? rest.length : query
   const url = new URL(
-    host + render(template.url.slice(hostPart.length), values, encodeURIComponent),
+    host +
+      render(rest, values, (value, token) => {
+        if (token.start < pathEnd) checkPathValue(value, token)
+        return encodeURIComponent(value)
+      }),
   )
 
   const headers: Record<string, string> = {}
@@ -49,26 +56,48 @@ export function buildRequest(
   return { ...request, body: form ? formBody(body) : JSON.stringify(body) }
 }
 
-/** The body with every string in it rendered. The strings stay strings, whatever they read. */
-function renderBody(body: unknown, values: TemplateValues): unknown {
-  if (body === undefined) return undefined
-  const rendered = structuredClone(body) as unknown
-  const replacements: { at: string; text: string }[] = []
-  walkStrings(rendered, "", (text, at) => replacements.push({ at, text: render(text, values) }))
-  if (typeof rendered === "string") return replacements[0]?.text ?? rendered
-  for (const { at, text } of replacements) assign(rendered, at, text)
-  return rendered
+/** What a template reads, as a sentence names it. */
+function describeRef(ref: Ref): string {
+  switch (ref.kind) {
+    case "inputs":
+      return `the ${ref.name} input`
+    case "auth":
+      return `the auth block's ${ref.name}`
+    case "params":
+      return `the ${ref.name} param`
+    case "lookups":
+      return `${ref.lookup}'s ${ref.field}`
+    case "query":
+      return "what's typed"
+  }
 }
 
-/** Set the string at `at`, a path such as `.a.b[0]`, inside `root`. */
-function assign(root: unknown, at: string, text: string) {
-  const steps = [...at.matchAll(/\.([^.[\]]+)|\[(\d+)\]/g)].map((m) => m[1] ?? Number(m[2]))
-  let node = root as Record<string | number, unknown>
-  steps.slice(0, -1).forEach((step) => {
-    node = node[step] as Record<string | number, unknown>
-  })
-  const lastStep = steps.at(-1)
-  if (lastStep !== undefined) node[lastStep] = text
+/**
+ * A value in the URL's path must be a whole segment of its own: an empty one
+ * would collapse the path, and `.` or `..` would move it up, even encoded.
+ */
+function checkPathValue(value: string, token: Token) {
+  if (value === "") {
+    throw new Error(`The request's path needs ${describeRef(token.ref)}, which has no value yet.`)
+  }
+  if (value === "." || value === "..") {
+    const what = describeRef(token.ref)
+    throw new Error(
+      `${what.charAt(0).toUpperCase()}${what.slice(1)} is "${value}", which a request's path can't hold.`,
+    )
+  }
+}
+
+/** The body with every string in it rendered. The strings stay strings, whatever they read. */
+function renderBody(body: unknown, values: TemplateValues): unknown {
+  if (typeof body === "string") return render(body, values)
+  if (Array.isArray(body)) return body.map((item) => renderBody(item, values))
+  if (typeof body === "object" && body !== null) {
+    return Object.fromEntries(
+      Object.entries(body).map(([key, item]) => [key, renderBody(item, values)]),
+    )
+  }
+  return body
 }
 
 function setPath(body: unknown, path: readonly string[], token: string): unknown {
