@@ -159,12 +159,28 @@ export interface UseGoogleAuthOptions {
   defaultTab?: string | undefined
 }
 
+/** A credential that validated but lacks scopes the block's `scopes` prop requires. */
+export interface ScopeShortfall {
+  readonly principal?: string
+  readonly missing: readonly string[]
+}
+
+/** What a sign-in result says about why it failed. */
+interface FailedResult {
+  error?: string
+  account?: { principal?: string }
+  insufficientScopes?: boolean
+  missingScopes?: string[]
+}
+
 export interface UseGoogleAuthReturn {
   // ---- Core state -----------------------------------------------------------
   authMethod: GoogleAuthMethod
   setAuthMethod: (m: GoogleAuthMethod) => void
   authStatus: GoogleAuthStatus
   errorMessage: string | null
+  /** What the credentials behind `errorMessage` lack, when they lack scopes the block requires. */
+  scopeShortfall: ScopeShortfall | null
   /** Project-access warning from google:check-project, or a sessionEnvWarning. */
   warningMessage: string | null
   accountInfo: GoogleAccountInfo | null
@@ -322,6 +338,8 @@ export function useGoogleAuth({
     restored !== undefined && !resumes ? NOT_RESUMABLE_MESSAGE : null,
   )
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
+  // Kept with the message it explains, so any new message drops it.
+  const [shortfall, setShortfall] = useState<(ScopeShortfall & { message: string }) | null>(null)
   const [accountInfo, setAccountInfo] = useState<GoogleAccountInfo | null>(() =>
     resumes && restored
       ? omitUndefined({
@@ -491,6 +509,22 @@ export function useGoogleAuth({
    * With the outputs gone there is no green card left for the project picker's
    * Cancel to return to, so the "Change project" detour ends here too.
    */
+  /** Fails the sign-in with the result's error, keeping what the credentials lack when it's scopes. */
+  const failSignIn = useCallback((data: FailedResult, fallback: string) => {
+    const message = data.error || fallback
+    setAuthStatus("failed")
+    setErrorMessage(message)
+    setShortfall(
+      data.insufficientScopes && data.missingScopes?.length
+        ? {
+            message,
+            missing: data.missingScopes,
+            ...(data.account?.principal ? { principal: data.account.principal } : {}),
+          }
+        : null,
+    )
+  }, [])
+
   const invalidateBlockOutputs = useCallback(() => {
     changingProjectRef.current = false
     registerOutputs(id, { __AUTHENTICATED: "false" })
@@ -1366,8 +1400,7 @@ export function useGoogleAuth({
       })
 
       if (!data.valid) {
-        setAuthStatus("failed")
-        setErrorMessage(data.error || "Failed to validate the service account key")
+        failSignIn(data, "Failed to validate the service account key")
         return
       }
 
@@ -1433,6 +1466,7 @@ export function useGoogleAuth({
       setErrorMessage(error instanceof Error ? error.message : "Failed to connect to server")
     }
   }, [
+    failSignIn,
     api,
     id,
     serviceAccountKey,
@@ -1861,10 +1895,7 @@ export function useGoogleAuth({
       })
 
       if (!data.valid) {
-        setAuthStatus("failed")
-        setErrorMessage(
-          data.error || "Failed to authenticate with the selected gcloud configuration",
-        )
+        failSignIn(data, "Failed to authenticate with the selected gcloud configuration")
         return
       }
 
@@ -1934,6 +1965,7 @@ export function useGoogleAuth({
       setErrorMessage(error instanceof Error ? error.message : "Failed to connect to server")
     }
   }, [
+    failSignIn,
     api,
     id,
     selectedConfig,
@@ -2211,6 +2243,13 @@ export function useGoogleAuth({
     setAuthMethod,
     authStatus,
     errorMessage,
+    scopeShortfall:
+      authStatus === "failed" && shortfall && shortfall.message === errorMessage
+        ? {
+            missing: shortfall.missing,
+            ...(shortfall.principal ? { principal: shortfall.principal } : {}),
+          }
+        : null,
     warningMessage,
     accountInfo,
 
