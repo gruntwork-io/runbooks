@@ -111,6 +111,8 @@ export interface TfModuleSpec {
   readonly logo?: string
   /** In the order the module declares them. */
   readonly outputs: readonly TfModuleOutput[]
+  /** The module's folder on GitHub, at the ref the block reads, when it lives there. */
+  readonly page?: string
   /** In the order runbook_block.yml lists them, then the rest in the order the module declares them. */
   readonly variables: readonly TfModuleVariable[]
   /** The lookups the inputs use, with the definitions they need. */

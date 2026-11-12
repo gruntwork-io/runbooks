@@ -19,7 +19,10 @@ describe("sendAsAws", () => {
     const request: HttpRequest = {
       method: "POST",
       url: "https://organizations.us-east-1.amazonaws.com/",
-      headers: { "X-Amz-Target": "AWSOrganizationsV20161128.ListAccounts" },
+      headers: {
+        "Content-Type": "application/x-amz-json-1.1",
+        "X-Amz-Target": "AWSOrganizationsV20161128.ListAccounts",
+      },
       body: "{}",
     }
     const reply = await Effect.runPromise(sendAsAws(CREDS, request).pipe(Effect.provide(layer)))
@@ -30,7 +33,10 @@ describe("sendAsAws", () => {
         signing: { service: "organizations", region: "us-east-1" },
         request: {
           ...request,
-          headers: { "x-amz-target": "AWSOrganizationsV20161128.ListAccounts" },
+          headers: {
+            "content-type": "application/x-amz-json-1.1",
+            "x-amz-target": "AWSOrganizationsV20161128.ListAccounts",
+          },
         },
       },
     ])

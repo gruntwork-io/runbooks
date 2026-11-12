@@ -36,6 +36,7 @@ import type { TerragruntApplyRequest } from "../../../../../electron/shared/chan
 import { PlanAndApply } from "./components/PlanAndApply"
 import { usePreflight } from "./hooks/usePreflight"
 import { useTerragruntRun } from "./hooks/useTerragruntRun"
+import { running } from "./runMachine"
 import type { PreflightState } from "./preflight"
 
 /**
@@ -396,7 +397,13 @@ function Runner({ id, header, worktreePath, path, auth }: RunnerProps) {
           state={run.state}
           status={run.status}
           outputs={moduleOutputs ?? []}
-          preflight={<Preflight state={preflight.state} onPlanAnyway={() => void run.plan()} />}
+          preflight={
+            <Preflight
+              state={preflight.state}
+              // Only when nothing is running: a plan never starts beside another run.
+              {...(running(run.state.phase) ? {} : { onPlanAnyway: () => void run.plan() })}
+            />
+          }
           holding={preflight.state.kind === "running"}
           onPlan={() => void plan()}
           onApply={() => void apply()}
@@ -408,7 +415,7 @@ function Runner({ id, header, worktreePath, path, auth }: RunnerProps) {
 }
 
 /** What the preflight found, with each problem's fix. */
-function Preflight({ state, onPlanAnyway }: { state: PreflightState; onPlanAnyway: () => void }) {
+function Preflight({ state, onPlanAnyway }: { state: PreflightState; onPlanAnyway?: () => void }) {
   switch (state.kind) {
     case "idle":
       return null
@@ -513,9 +520,11 @@ function Preflight({ state, onPlanAnyway }: { state: PreflightState; onPlanAnywa
                 </li>
               ))}
             </ul>
-            <Button type="button" size="sm" className="mt-2" onClick={onPlanAnyway}>
-              <Play className="size-3.5" /> Plan anyway
-            </Button>
+            {onPlanAnyway && (
+              <Button type="button" size="sm" className="mt-2" onClick={onPlanAnyway}>
+                <Play className="size-3.5" /> Plan anyway
+              </Button>
+            )}
           </Finding>
         )
       }
@@ -583,7 +592,8 @@ function BlockHeader({
             className="size-full object-contain"
           />
         </div>
-        <div className="min-w-0">
+        {/* As tall as the logo at least, so a title alone sits level with it. */}
+        <div className="flex min-h-10 min-w-0 flex-col justify-center">
           <div className="text-lg font-semibold text-foreground">
             <InlineMarkdown>{title}</InlineMarkdown>
           </div>

@@ -82,7 +82,8 @@ Every input the module declares appears: those `runbook_block.yml` lists first, 
 - **Choices.** An input with options shows each as a card with its description. A `list` input with options lets the user pick several.
 - **Validation.** The form checks the validation idioms modules use most as the user types: `contains([...], var.x)` becomes a choice, `can(regex("...", var.x))` a pattern, `length(var.x) >= N && length(var.x) <= M` a length range, and `var.x != ""` a required value. The form shows the error message of any other condition under the input as a rule, and leaves checking it to OpenTofu.
 - **Title.** The block's title is `runbook_block.yml`'s `block.title`, else the README's first heading, else the module's folder name.
-- **Logo.** The block shows the mark of the module's provider, from `required_providers`, unless `runbook_block.yml` sets `block.logo`.
+- **Logo.** The block shows the mark of the module's provider, from `required_providers`, unless `runbook_block.yml` sets `block.logo`. The OpenTofu mark sits on its corner.
+- **Link to the module.** When the module is on GitHub, the block links to its folder there, at the ref the block reads: a remote source's `?ref=`, or, for a folder beside the runbook, the tag the runbook's checkout is at, else its commit.
 
 OpenTofu reads a `.tofu` file in place of a `.tf` file with the same name, and so does the block.
 
@@ -172,26 +173,15 @@ lookups:
 
 ## The template
 
-The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder, relative to the runbook, anywhere in the runbook's repository. The block renders it with each of the form's values by its input's name, the same values as one map in `Inputs`, and `ModuleSource`, where the code finds the module: the release [Versions](#versions) describes when a `<GitClone>` block has cloned a repository, and the module's folder on your computer otherwise. The folder needs a `boilerplate.yml`, which can leave its `variables` empty, since the block passes every value.
+The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder, relative to the runbook, anywhere in the runbook's repository. The block renders it with:
+
+- `InputsHcl`: the inputs the code sets, written as HCL, one attribute per line, indented two spaces. It holds every required input and each other input whose value isn't the module's default, in the module's order, so the code never restates a default. An empty field for an input whose default is `null` leaves the input out, so the module sees `null`.
+- `ModuleSource`: where the code finds the module, the release [Versions](#versions) describes when a `<GitClone>` block has cloned a repository, and the module's folder on your computer otherwise.
+- Each of the form's values by its input's name, and the same values as one map in `Inputs`, for a path or a file name that needs one.
+
+The folder needs a `boilerplate.yml`, which can leave its `variables` empty, since the block passes every value.
 
 What the template renders decides how the code runs. A template that renders a `terragrunt.hcl` makes a Terragrunt unit:
-
-```hcl title="templates/google-group/terragrunt.hcl"
-include "root" {
-  path = find_in_parent_folders("root.hcl")
-}
-
-terraform {
-  source = {{ .ModuleSource | toJson }}
-}
-
-inputs = {
-  id     = {{ .id | toJson }}
-  domain = {{ .domain | toJson }}
-}
-```
-
-A template that writes every input from `Inputs` serves any module, so units that share a shape can share one template:
 
 ```hcl title="templates/unit/terragrunt.hcl"
 include "root" {
@@ -203,21 +193,20 @@ terraform {
 }
 
 inputs = {
-{{- range $name, $value := .Inputs }}
-  {{ $name }} = {{ $value | toJson }}
-{{- end }}
+{{ .InputsHcl }}
 }
 ```
 
-The inputs come out in alphabetical order, each as JSON, which HCL reads as the same value.
+A template that writes `InputsHcl` serves any module, so units that share a shape can share one template. The block writes each value as HCL reads it: text is always a literal string, so a value such as `Costs ${amount}` from a form, a lookup or another block comes out as `"Costs $${amount}"`, never as an interpolation. Lists of plain values stay on one line, maps take a line per key, and the `=` signs line up as `hcl fmt` lines them up, so the code passes `hcl fmt --check` as written.
+
+Write a value into the code yourself only when the template needs it somewhere other than the inputs, and encode it there: `toJson` writes JSON, which doesn't escape HCL's `${` and `%{`.
 
 Any other template makes a plain OpenTofu or Terraform configuration, such as a `main.tf` that calls the module. A `<TerragruntApply>` block applies Terragrunt units only, so a runbook applies a plain configuration some other way, such as a `<Command>` block:
 
 ```hcl title="templates/google-group-tofu/main.tf"
 module "group" {
   source = {{ .ModuleSource | toJson }}
-  id     = {{ .id | toJson }}
-  domain = {{ .domain | toJson }}
+{{ .InputsHcl }}
 }
 
 output "email" {

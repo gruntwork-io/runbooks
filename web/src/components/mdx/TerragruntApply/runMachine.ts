@@ -30,7 +30,12 @@ export type RunKind = "plan" | "apply"
  */
 export type RunPhase =
   | { readonly kind: "idle" }
-  | { readonly kind: "planning"; readonly inputs: string; readonly step?: RunStep | undefined }
+  | {
+      readonly kind: "planning"
+      readonly inputs: string
+      readonly step?: RunStep | undefined
+      readonly stopping?: boolean | undefined
+    }
   | { readonly kind: "planned"; readonly inputs: string; readonly plan: PlanResult }
   | {
       readonly kind: "applying"
@@ -38,6 +43,8 @@ export type RunPhase =
       readonly plan: PlanResult
       readonly progress: Progress
       readonly step?: RunStep | undefined
+      /** Asked to stop, and still running until Terragrunt exits. */
+      readonly stopping?: boolean | undefined
     }
   | {
       readonly kind: "applied"
@@ -72,12 +79,17 @@ export type RunAction =
   | { readonly type: "apply-started" }
   | { readonly type: "applied"; readonly result: ApplyResult }
   | { readonly type: "failed"; readonly error: string }
+  | { readonly type: "stop-requested" }
   | { readonly type: "stopped" }
   | { readonly type: "event"; readonly event: RunEvent; readonly at: string }
 
 export const INITIAL_RUN: RunState = { phase: { kind: "idle" }, log: [] }
 
-const running = (phase: RunPhase) => phase.kind === "planning" || phase.kind === "applying"
+/** Whether a plan or apply is going, so nothing else may start. */
+export const running = (
+  phase: RunPhase,
+): phase is Extract<RunPhase, { kind: "planning" | "applying" }> =>
+  phase.kind === "planning" || phase.kind === "applying"
 
 /**
  * The next state. An action that doesn't fit the phase, such as an apply
@@ -111,6 +123,9 @@ export function runReducer(state: RunState, action: RunAction): RunState {
         ...state,
         phase: { kind: "applied", inputs: phase.inputs, plan: phase.plan, result: action.result },
       }
+    case "stop-requested":
+      if (!running(phase)) return state
+      return { ...state, phase: { ...phase, stopping: true } }
     case "failed":
     case "stopped": {
       if (!running(phase)) return state

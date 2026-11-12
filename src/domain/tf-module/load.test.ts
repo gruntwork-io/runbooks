@@ -295,6 +295,19 @@ describe("loadModule", () => {
     }
   })
 
+  it("reads a default's template escapes as the literal text the module receives", async () => {
+    const dir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "tf-module-"))
+    try {
+      nodeFs.writeFileSync(
+        nodePath.join(dir, "variables.tf"),
+        'variable "note" {\n  type    = string\n  default = "cost $${x} %%{y}"\n}\n',
+      )
+      expect(byName(await loaded(dir), "note").default).toBe("cost ${x} %{y}")
+    } finally {
+      nodeFs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("warns about keys Runbooks doesn't know, and still loads", async () => {
     const dir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "tf-module-"))
     try {
