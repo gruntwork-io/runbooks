@@ -16,7 +16,7 @@
 import * as path from "path"
 import { Effect, Result } from "effect"
 import { ipcMain } from "electron"
-import { runtime, runbookConfig } from "./runtime.ts"
+import { executableRegistry, runtime, runbookConfig } from "./runtime.ts"
 import { moduleDir } from "./tf-module-source.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
 import { SimulationError } from "../../../src/errors/index.ts"
@@ -28,7 +28,11 @@ import {
   simulatedResponse,
   type SimulationScenario,
 } from "../../../src/domain/simulation/scenarios.ts"
-import type { SimulationRespondRequest, SimulationState } from "../../shared/channels.ts"
+import type {
+  ExecRequest,
+  SimulationRespondRequest,
+  SimulationState,
+} from "../../shared/channels.ts"
 import { simulationRefusal, type SimulationCheck } from "./simulation-guard.ts"
 
 let enabled = false
@@ -40,16 +44,36 @@ export function enableSimulation(): void {
   enabled = true
 }
 
+/** Turns simulation mode off and forgets the picked scenario, for a test that turned it on. */
+export function disableSimulation(): void {
+  enabled = false
+  activeScenario = undefined
+}
+
 export function simulationEnabled(): boolean {
   return enabled
 }
 
+/** The runbook block an exec:run call would run, if the call names one. */
+const executableOf = (args: readonly unknown[]) => {
+  const params = args[0] as Partial<ExecRequest> | undefined
+  if (!executableRegistry || typeof params?.executableId !== "string") return undefined
+  const found = Effect.runSync(Effect.result(executableRegistry.getExecutable(params.executableId)))
+  return Result.isSuccess(found) ? found.success : undefined
+}
+
 /**
  * Whether a call that would reach a real system may run: always outside
- * simulation mode, and never in it.
+ * simulation mode. In it, only a <Prerequisites> block's check, which reads
+ * the tools on this computer and nothing else.
  */
-export const simulationCheck: SimulationCheck = (channel) =>
-  enabled ? simulationRefusal(channel) : undefined
+export const simulationCheck: SimulationCheck = (channel, args) => {
+  if (!enabled) return undefined
+  if (channel === "exec:run" && executableOf(args)?.componentType === "prerequisites") {
+    return undefined
+  }
+  return simulationRefusal(channel)
+}
 
 const asSimulationError = (cause: unknown) =>
   cause instanceof SimulationError ? cause : new SimulationError({ message: String(cause), cause })
