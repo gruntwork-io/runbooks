@@ -6,6 +6,7 @@ import type { IpcMain } from "electron"
 import {
   installSimulationGuard,
   REAL_CHANNELS,
+  SIMULATION_READS,
   simulationRefusal,
   type SimulationCheck,
 } from "./simulation-guard.ts"
@@ -70,5 +71,16 @@ describe("REAL_CHANNELS", () => {
       (channel) => !sources.includes(`"${channel}"`),
     )
     expect(missing).toEqual([])
+  })
+})
+
+describe("SIMULATION_READS", () => {
+  it("names only channels in REAL_CHANNELS, and none that pushes or opens a request", () => {
+    for (const channel of SIMULATION_READS) {
+      expect(Object.hasOwn(REAL_CHANNELS, channel)).toBe(true)
+    }
+    for (const channel of ["git:push", "git:pull-request", "git:merge-request", "exec:run"]) {
+      expect(SIMULATION_READS.has(channel)).toBe(false)
+    }
   })
 })

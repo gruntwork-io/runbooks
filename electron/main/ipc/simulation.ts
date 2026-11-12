@@ -38,7 +38,7 @@ import type {
   SimulationState,
 } from "../../shared/channels.ts"
 import { scriptKey } from "../../../src/domain/simulation/script.ts"
-import { simulationRefusal, type SimulationCheck } from "./simulation-guard.ts"
+import { SIMULATION_READS, simulationRefusal, type SimulationCheck } from "./simulation-guard.ts"
 
 let enabled = false
 /** The scenario the author picked, if they have (see pickScenario). */
@@ -69,13 +69,14 @@ const executableOf = (args: readonly unknown[]) => {
 
 /**
  * Whether a call that would reach a real system may run: always outside
- * simulation mode. In it, a <Prerequisites> block's check, which reads the
- * tools on this computer and nothing else; a script the active scenario
- * answers, which exec:run answers in its place; and anything at all when the
- * scenario runs what it doesn't answer for real.
+ * simulation mode. In it, a Git host sign-in, read or clone; a
+ * <Prerequisites> block's check, which reads the tools on this computer and
+ * nothing else; a script the active scenario answers, which exec:run answers
+ * in its place; and anything at all when the scenario runs what it doesn't
+ * answer for real.
  */
 export const simulationCheck: SimulationCheck = async (channel, args) => {
-  if (!enabled) return undefined
+  if (!enabled || SIMULATION_READS.has(channel)) return undefined
   const executable = channel === "exec:run" ? executableOf(args) : undefined
   if (executable?.componentType === "prerequisites") return undefined
   const active = await runtime.runPromise(Effect.result(activeSimulationScenario))
