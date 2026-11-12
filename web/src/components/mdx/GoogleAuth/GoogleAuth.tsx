@@ -3,6 +3,7 @@ import { XCircle, AlertTriangle, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useRequestedScopes } from "@/contexts/ScopeRequests"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -38,7 +39,7 @@ function GoogleAuthInteractive({
   title = "Google Cloud Authentication",
   description,
   project,
-  scopes,
+  scopes: scopesProp,
   oauthClientId,
   oauthClientSecret,
   oauthClientFile,
@@ -50,6 +51,16 @@ function GoogleAuthInteractive({
   inputsId,
   autoCollapse,
 }: GoogleAuthProps) {
+  // The scopes the runbook's other blocks need from this one add to the ones it asks for.
+  const requestedScopes = useRequestedScopes(id)
+  const scopes = useMemo(
+    () =>
+      requestedScopes.length === 0
+        ? scopesProp
+        : [...new Set([...(scopesProp ?? DEFAULT_GOOGLE_SCOPES), ...requestedScopes])],
+    [scopesProp, requestedScopes],
+  )
+
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
