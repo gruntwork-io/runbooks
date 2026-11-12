@@ -28,7 +28,7 @@ import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import type { AppError } from "@/types/error"
 import type { AwsAuthProps } from "./types"
 import { useAwsAuth } from "./hooks/useAwsAuth"
-import { getStatusClasses, StatusIcon, getStatusIconClasses } from "./utils"
+import { getStatusClasses, StatusIcon, getStatusIconClasses, ssoPortals } from "./utils"
 import { AuthTabs } from "./components/AuthTabs"
 import { AuthSuccess } from "./components/AuthSuccess"
 import { CredentialsForm } from "./components/CredentialsForm"
@@ -144,13 +144,15 @@ function AwsAuthInteractive({
     auth.authStatus === "authenticated" ? auth.expiresAt : undefined,
   )
 
-  // Load available profiles when profile tab is selected
+  // Load the local profiles when the Local Profile tab opens, or the SSO tab
+  // opens with no start URL from the runbook: their portals are suggestions.
   const { authMethod, profiles, loadAwsProfiles } = auth
   useEffect(() => {
-    if (authMethod === "profile" && profiles.length === 0) {
+    const wanted = authMethod === "profile" || (authMethod === "sso" && !resolvedStartUrl)
+    if (wanted && profiles.length === 0) {
       void loadAwsProfiles()
     }
-  }, [authMethod, profiles.length, loadAwsProfiles])
+  }, [authMethod, resolvedStartUrl, profiles.length, loadAwsProfiles])
 
   // Report configuration errors only
   useEffect(() => {
@@ -381,7 +383,16 @@ function AwsAuthInteractive({
                   {auth.authMethod === "sso" && showTabs && (
                     <SsoForm
                       authStatus={auth.authStatus}
-                      ssoStartUrl={resolvedStartUrl}
+                      ssoStartUrl={auth.ssoStartUrl}
+                      portalInput={
+                        resolvedStartUrl
+                          ? undefined
+                          : {
+                              portal: auth.portal,
+                              setPortal: auth.setPortal,
+                              configured: ssoPortals(auth.profiles),
+                            }
+                      }
                       selectedDefaultRegion={auth.selectedDefaultRegion}
                       setSelectedDefaultRegion={auth.setSelectedDefaultRegion}
                       onSsoAuth={auth.handleSsoAuth}

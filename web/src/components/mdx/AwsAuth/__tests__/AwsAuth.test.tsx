@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import type { ReactNode } from "react"
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react"
 import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
@@ -76,6 +76,7 @@ function OutputsBlock({ id, outputs }: { id: string; outputs: Record<string, str
 }
 
 beforeEach(() => {
+  localStorage.clear()
   installApi(() => {
     throw new Error("no IPC expected")
   })
@@ -137,6 +138,193 @@ describe("AwsAuth — rendering", () => {
       expect(screen.getByRole("button", { name: "Sign in with SSO" })).toBeInTheDocument(),
     )
     expect(screen.queryByText(/Waiting for outputs from/)).toBeNull()
+  })
+
+  it("asks for the portal when the runbook sets no start URL, filling it from the AWS config", async () => {
+    installApi((channel) => {
+      if (channel === "aws:profiles") {
+        return {
+          profiles: [
+            { name: "keys", authType: "static" },
+            {
+              name: "prod",
+              authType: "sso",
+              ssoStartUrl: "https://acme.awsapps.com/start",
+              ssoRegion: "us-east-2",
+            },
+            {
+              name: "other",
+              authType: "sso",
+              ssoStartUrl: "https://other.awsapps.com/start",
+              ssoRegion: "eu-west-1",
+            },
+          ],
+        }
+      }
+      if (channel === "aws:sso-start") return { verificationUri: "", error: "stop here" }
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    vi.spyOn(window, "open").mockImplementation(() => null)
+    renderBlock(<AwsAuth id="test-aws" detectCredentials={false} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "AWS SSO" }))
+
+    const startUrl = await screen.findByDisplayValue("https://acme.awsapps.com/start")
+    expect(startUrl).toHaveAccessibleName(/SSO start URL/)
+    expect(screen.getByText("us-east-2")).toBeInTheDocument()
+
+    // The config's other portal is one click away.
+    fireEvent.click(
+      screen.getByRole("button", { name: "https://other.awsapps.com/start (eu-west-1)" }),
+    )
+    expect(startUrl).toHaveValue("https://other.awsapps.com/start")
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with SSO" }))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("aws:sso-start", {
+        startUrl: "https://other.awsapps.com/start",
+        region: "eu-west-1",
+      }),
+    )
+  })
+
+  it("signs in to a typed portal only once its start URL is a URL", async () => {
+    installApi((channel) => {
+      if (channel === "aws:profiles") return { profiles: [] }
+      if (channel === "aws:sso-start") return { verificationUri: "", error: "stop here" }
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    renderBlock(<AwsAuth id="test-aws" detectCredentials={false} ssoRegion="us-west-2" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "AWS SSO" }))
+    const startUrl = screen.getByLabelText(/SSO start URL/)
+    const signIn = screen.getByRole("button", { name: "Sign in with SSO" })
+    expect(signIn).toBeDisabled()
+
+    fireEvent.change(startUrl, { target: { value: "acme.awsapps.com/start" } })
+    expect(signIn).toBeDisabled()
+    expect(screen.getByText(/The start URL begins with https:\/\//)).toBeInTheDocument()
+
+    fireEvent.change(startUrl, { target: { value: " https://acme.awsapps.com/start " } })
+    fireEvent.click(signIn)
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("aws:sso-start", {
+        startUrl: "https://acme.awsapps.com/start",
+        region: "us-west-2",
+      }),
+    )
+  })
+
+  it("takes an empty start URL from the runbook as none, and signs in to the typed portal", async () => {
+    installApi((channel) => {
+      if (channel === "aws:profiles") return { profiles: [] }
+      if (channel === "aws:sso-start") return { verificationUri: "", error: "stop here" }
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    renderBlock(
+      <AwsAuth id="test-aws" detectCredentials={false} ssoStartUrl="" ssoRegion="us-west-2" />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "AWS SSO" }))
+    fireEvent.change(screen.getByLabelText(/SSO start URL/), {
+      target: { value: "https://acme.awsapps.com/start" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with SSO" }))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("aws:sso-start", {
+        startUrl: "https://acme.awsapps.com/start",
+        region: "us-west-2",
+      }),
+    )
+  })
+
+  it("starts with the portal last signed in to on this computer, ahead of the AWS config", async () => {
+    localStorage.setItem(
+      "runbooks:aws-sso-portal",
+      JSON.stringify({ startUrl: "https://last.awsapps.com/start", region: "us-east-2" }),
+    )
+    installApi((channel) => {
+      if (channel === "aws:profiles") {
+        return {
+          profiles: [
+            {
+              name: "prod",
+              authType: "sso",
+              ssoStartUrl: "https://acme.awsapps.com/start",
+              ssoRegion: "eu-west-1",
+            },
+          ],
+        }
+      }
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    renderBlock(<AwsAuth id="test-aws" detectCredentials={false} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "AWS SSO" }))
+    expect(screen.getByLabelText(/SSO start URL/)).toHaveValue("https://last.awsapps.com/start")
+    // The config's portal stays one click away.
+    expect(
+      await screen.findByRole("button", { name: "https://acme.awsapps.com/start (eu-west-1)" }),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText(/SSO start URL/)).toHaveValue("https://last.awsapps.com/start")
+  })
+
+  it("remembers a typed portal once it signs in, and fills the page's other empty portal fields", async () => {
+    installApi((channel) => {
+      if (channel === "aws:profiles") return { profiles: [] }
+      if (channel === "aws:sso-start") {
+        return {
+          verificationUri: "https://device.example",
+          deviceCode: "d",
+          clientId: "c",
+          clientSecret: "s",
+        }
+      }
+      if (channel === "aws:sso-poll") {
+        return {
+          status: "success",
+          ...IDENTITY,
+          accessKeyId: "ASIA_A",
+          secretAccessKey: "secret-a",
+        }
+      }
+      return {}
+    })
+    vi.spyOn(window, "open").mockImplementation(() => null)
+    renderBlock(
+      <>
+        <AwsAuth id="first" detectCredentials={false} ssoRegion="us-west-2" />
+        <AwsAuth id="second" detectCredentials={false} />
+      </>,
+    )
+    const first = within(screen.getByTestId("first"))
+    const second = within(screen.getByTestId("second"))
+    fireEvent.click(first.getByRole("button", { name: "AWS SSO" }))
+    fireEvent.click(second.getByRole("button", { name: "AWS SSO" }))
+    expect(second.getByLabelText(/SSO start URL/)).toHaveValue("")
+
+    fireEvent.change(first.getByLabelText(/SSO start URL/), {
+      target: { value: "https://acme.awsapps.com/start" },
+    })
+    fireEvent.click(first.getByRole("button", { name: "Sign in with SSO" }))
+
+    await waitFor(() =>
+      expect(second.getByLabelText(/SSO start URL/)).toHaveValue("https://acme.awsapps.com/start"),
+    )
+    expect(JSON.parse(localStorage.getItem("runbooks:aws-sso-portal") ?? "null")).toEqual({
+      startUrl: "https://acme.awsapps.com/start",
+      region: "us-west-2",
+    })
+  })
+
+  it("signs in to the runbook's own start URL as written", () => {
+    renderBlock(
+      <AwsAuth id="test-aws" detectCredentials={false} ssoStartUrl="http://sso.internal/start" />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "AWS SSO" }))
+
+    expect(screen.getByRole("button", { name: "Sign in with SSO" })).toBeEnabled()
   })
 
   it("renders custom title", () => {

@@ -129,7 +129,7 @@ const impl: AwsClientShape = {
         const profiles = await readProfiles()
         return Object.entries(profiles)
           .filter(([name]) => !NON_PROFILE_SECTIONS.some((prefix) => name.startsWith(prefix)))
-          .map(([name, block]) => classifyProfile(name, block))
+          .map(([name, block]) => classifyProfile(name, block, profiles))
       },
       catch: (err) =>
         new AwsConfigError({ message: `Failed to list AWS profiles: ${errorMessage(err)}` }),
@@ -382,17 +382,22 @@ function queryOf(url: URL): Record<string, string | string[]> {
   return query
 }
 
-function classifyProfile(name: string, block: Record<string, string | undefined>): ProfileInfo {
+function classifyProfile(
+  name: string,
+  block: Record<string, string | undefined>,
+  sections: Record<string, Record<string, string | undefined>>,
+): ProfileInfo {
   const base = { name, region: block.region }
 
   // Legacy SSO profiles carry sso_start_url; `aws configure sso` (CLI v2.9+)
   // writes sso_session, pointing at an [sso-session ...] section instead.
   if (block.sso_start_url || block.sso_session) {
+    const session = block.sso_session ? sections[`sso-session.${block.sso_session}`] : undefined
     return {
       ...base,
       authType: "sso" as const,
-      ssoStartUrl: block.sso_start_url,
-      ssoRegion: block.sso_region,
+      ssoStartUrl: session?.sso_start_url ?? block.sso_start_url,
+      ssoRegion: session?.sso_region ?? block.sso_region,
     }
   }
   if (block.aws_access_key_id) {

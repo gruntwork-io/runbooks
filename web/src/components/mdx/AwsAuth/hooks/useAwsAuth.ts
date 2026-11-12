@@ -19,7 +19,8 @@ import type {
   AwsCredentialSource,
   DetectedAwsCredentials,
 } from "../types"
-import { resolveDefaultAuthMethod } from "../utils"
+import { resolveDefaultAuthMethod, ssoPortals, type SsoPortal } from "../utils"
+import { onPortalRemembered, readRememberedPortal, rememberPortal } from "../rememberedPortal"
 import { signInHint } from "@/components/mdx/_shared/lib/signInHint"
 import { AWS_AUTH_ENV_VARS } from "../../../../../../src/domain/exec/authEnv.ts"
 
@@ -115,6 +116,29 @@ export function useAwsAuth({
   const [selectedProfile, setSelectedProfile] = useState<ProfileInfo | null>(null)
   const [loadingProfiles, setLoadingProfiles] = useState(false)
   const [profileSearch, setProfileSearch] = useState("")
+
+  // A runbook that sets no ssoStartUrl leaves the portal to the user: its start
+  // URL, and the region its IAM Identity Center lives in.
+  // It starts as the portal last signed in to on this computer.
+  const [portal, setPortal] = useState<SsoPortal>(
+    () => (!ssoStartUrl && readRememberedPortal()) || { startUrl: "", region: ssoRegion },
+  )
+  const startUrl = ssoStartUrl || portal.startUrl.trim()
+  const identityCenterRegion = ssoStartUrl ? ssoRegion : portal.region
+  // A portal another block on the page signs in to fills an empty field.
+  useEffect(
+    () =>
+      ssoStartUrl
+        ? undefined
+        : onPortalRemembered((signedIn) =>
+            setPortal((prev) => (prev.startUrl.trim() ? prev : signedIn)),
+          ),
+    [ssoStartUrl],
+  )
+  // Remembers a typed portal once it signs in; the runbook's own needs no remembering.
+  const portalSignedIn = useCallback(() => {
+    if (!ssoStartUrl) rememberPortal({ startUrl, region: identityCenterRegion })
+  }, [ssoStartUrl, startUrl, identityCenterRegion])
 
   // SSO account/role selection state
   const [ssoAccessToken, setSsoAccessToken] = useState<string | null>(null)
@@ -745,6 +769,10 @@ export function useAwsAuth({
       const data = await api.invoke("aws:profiles", {} as Record<string, never>)
       const profileList: ProfileInfo[] = data.profiles ?? []
       setProfiles(profileList)
+      // A start URL from the AWS config fills an empty portal field, so a
+      // machine set up with `aws configure sso` needs nothing typed.
+      const [configured] = ssoPortals(profileList)
+      if (configured && !ssoStartUrl) setPortal((prev) => (prev.startUrl ? prev : configured))
       // Keep the user's pick across a refresh while it is still listed and
       // usable (taking the fresh entry, whose type may have changed); otherwise
       // the first usable profile, or nothing, so a stale pick can't be used.
@@ -762,7 +790,7 @@ export function useAwsAuth({
     } finally {
       setLoadingProfiles(false)
     }
-  }, [api])
+  }, [api, ssoStartUrl])
 
   // Validate credentials by calling STS GetCallerIdentity
   const validateCredentials = useCallback(
@@ -836,7 +864,7 @@ export function useAwsAuth({
               deviceCode,
               clientId,
               clientSecret,
-              region: ssoRegion,
+              region: identityCenterRegion,
               accountId: ssoAccountId,
               roleName: ssoRoleName,
             }),
@@ -855,6 +883,7 @@ export function useAwsAuth({
             setAuthStatus("select_account")
           } else if (data.status === "success") {
             setAuthStatus("authenticated")
+            portalSignedIn()
             setAccountInfo({
               accountId: data.accountId,
               accountName: data.accountName,
@@ -883,12 +912,20 @@ export function useAwsAuth({
 
       void poll()
     },
-    [api, ssoRegion, ssoAccountId, ssoRoleName, selectedDefaultRegion, registerCredentials],
+    [
+      api,
+      identityCenterRegion,
+      ssoAccountId,
+      ssoRoleName,
+      selectedDefaultRegion,
+      registerCredentials,
+      portalSignedIn,
+    ],
   )
 
   // Handle SSO authentication
   const handleSsoAuth = useCallback(async () => {
-    if (!ssoStartUrl) {
+    if (!startUrl) {
       setErrorMessage("SSO Start URL is required for SSO authentication")
       return
     }
@@ -903,8 +940,8 @@ export function useAwsAuth({
       const data = await api.invoke(
         "aws:sso-start",
         omitUndefined({
-          startUrl: ssoStartUrl,
-          region: ssoRegion,
+          startUrl,
+          region: identityCenterRegion,
           accountId: ssoAccountId,
           roleName: ssoRoleName,
         }),
@@ -926,7 +963,15 @@ export function useAwsAuth({
       setAuthStatus("failed")
       setErrorMessage(error instanceof Error ? error.message : "Failed to connect to server")
     }
-  }, [api, ssoStartUrl, ssoRegion, ssoAccountId, ssoRoleName, pollSsoCompletion, stopSsoPolling])
+  }, [
+    api,
+    startUrl,
+    identityCenterRegion,
+    ssoAccountId,
+    ssoRoleName,
+    pollSsoCompletion,
+    stopSsoPolling,
+  ])
 
   // Handle SSO account selection - load roles for selected account
   const handleSsoAccountSelect = useCallback(
@@ -943,7 +988,7 @@ export function useAwsAuth({
         const data = await api.invoke("aws:sso-roles", {
           accessToken: ssoAccessToken!,
           accountId: account.accountId,
-          region: ssoRegion,
+          region: identityCenterRegion,
         })
 
         if (authFlowRef.current !== flow) return
@@ -966,7 +1011,7 @@ export function useAwsAuth({
         setLoadingRoles(false)
       }
     },
-    [api, ssoAccessToken, ssoRegion],
+    [api, ssoAccessToken, identityCenterRegion],
   )
 
   // Complete SSO authentication with selected account and role
@@ -986,13 +1031,14 @@ export function useAwsAuth({
         accessToken: ssoAccessToken!,
         accountId: selectedSsoAccount.accountId,
         roleName: selectedSsoRole,
-        region: ssoRegion,
+        region: identityCenterRegion,
       })
 
       if (authFlowRef.current !== flow) return
 
       if (data.accessKeyId) {
         setAuthStatus("authenticated")
+        portalSignedIn()
         setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
         void registerCredentials(
           omitUndefined({
@@ -1018,9 +1064,10 @@ export function useAwsAuth({
     selectedSsoAccount,
     selectedSsoRole,
     ssoAccessToken,
-    ssoRegion,
+    identityCenterRegion,
     selectedDefaultRegion,
     registerCredentials,
+    portalSignedIn,
   ])
 
   // Go back to account selection
@@ -1163,6 +1210,9 @@ export function useAwsAuth({
     loadAwsProfiles,
 
     // SSO state
+    ssoStartUrl: startUrl,
+    portal,
+    setPortal,
     ssoAccounts,
     ssoRoles,
     selectedSsoAccount,
