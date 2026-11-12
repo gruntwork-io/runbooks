@@ -33,6 +33,7 @@ import {
   type CreatePullRequestParams,
 } from "../../../src/domain/git/operations.ts"
 import { inspectLocalRepo } from "../../../src/domain/git/local-repo.ts"
+import { mergeGitHubPullRequest, pullRequestMergeState } from "../../../src/domain/git/merge.ts"
 import { buildCloneSteps, normalizeRepoPath } from "../../../src/domain/git/cloneSteps.ts"
 import { getRepo } from "../../../src/domain/github/auth.ts"
 import {
@@ -52,7 +53,7 @@ import { validateCloneDestination, validateSessionPath } from "./path-guard.ts"
 import { describeCause } from "./ipc-error.ts"
 import { isLocalBranchConflict, prBlockOutputs } from "./git-pr-result.ts"
 import { makeLogger } from "../logger.ts"
-import type { GitCloneRequest, GitLocalRepoResponse } from "../../shared/channels.ts"
+import type { GitCloneRequest, GitHubPrRef, GitLocalRepoResponse } from "../../shared/channels.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 
 const log = makeLogger("ipc:git")
@@ -917,5 +918,33 @@ export function registerGitHandlers(): void {
         }),
       )
     },
+  )
+
+  ipcMain.handle("git:pr-merge-state", async (_event, params: GitHubPrRef) =>
+    runAndUnwrap(
+      Effect.gen(function* () {
+        const repoPath = yield* validateSessionPath(params.worktreePath)
+        const { token, host } = yield* resolveGitHubTokenForRepo(
+          repoPath,
+          "checking whether the pull request can merge",
+          { callsApi: true },
+        )
+        return yield* pullRequestMergeState(token, { ...params, host })
+      }),
+    ),
+  )
+
+  ipcMain.handle("git:pr-merge", async (_event, params: GitHubPrRef) =>
+    runAndUnwrap(
+      Effect.gen(function* () {
+        const repoPath = yield* validateSessionPath(params.worktreePath)
+        const { token, host } = yield* resolveGitHubTokenForRepo(
+          repoPath,
+          "merging the pull request",
+          { callsApi: true },
+        )
+        return yield* mergeGitHubPullRequest(token, { ...params, host })
+      }),
+    ),
   )
 }

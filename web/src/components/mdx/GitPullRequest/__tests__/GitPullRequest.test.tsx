@@ -13,7 +13,13 @@ vi.mock("@/contexts/useGitWorkTree", () => ({
   }),
 }))
 
+// The runbook's one clone, not cloned yet.
+vi.mock("@/components/mdx/_shared/hooks/useClone", () => ({
+  useClone: () => ({ cloneId: "repo", error: null }),
+}))
+
 vi.mock("@/hooks/useGitFileChanges", () => ({
+  useCloneChanges: () => ({ changes: [], isLoading: false, error: null, refetch: vi.fn() }),
   useGitFileChanges: () => ({ changes: [], isLoading: false, error: null, refetch: vi.fn() }),
 }))
 

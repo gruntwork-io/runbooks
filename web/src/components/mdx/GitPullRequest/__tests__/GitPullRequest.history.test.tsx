@@ -14,9 +14,10 @@ import type { SavedBlockState } from "../../../../../../src/domain/session/histo
 // events main sends before resolving the create invoke, and
 // session:record-event is where the block's history leaves the renderer.
 
-vi.mock("@/contexts/useGitWorkTree", () => ({
-  useGitWorkTree: () => ({
-    activeWorkTree: {
+vi.mock("@/components/mdx/_shared/hooks/useClone", () => ({
+  useClone: () => ({
+    cloneId: "wt",
+    workTree: {
       id: "wt",
       localPath: "/work/infra",
       gitInfo: {
@@ -26,13 +27,12 @@ vi.mock("@/contexts/useGitWorkTree", () => ({
         ref: "main",
       },
     },
-    workTrees: [],
-    registerWorkTree: vi.fn(),
-    unregisterWorkTree: vi.fn(),
+    error: null,
   }),
 }))
 
 vi.mock("@/hooks/useGitFileChanges", () => ({
+  useCloneChanges: () => ({ changes: [], isLoading: false, error: null, refetch: vi.fn() }),
   useGitFileChanges: () => ({ changes: [], isLoading: false, error: null, refetch: vi.fn() }),
 }))
 

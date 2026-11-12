@@ -17,7 +17,6 @@ import {
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useRunbookContext, useAllOutputs, useOutputs } from "@/contexts/useRunbook"
 import { resolveTemplateReferences, type TemplateContext } from "@/lib/templateUtils"
 import {
@@ -30,7 +29,8 @@ import {
   deriveProviderFromRepoUrl,
   hostFromRepoUrl,
 } from "@/components/mdx/_shared/lib/gitProvider"
-import { useGitFileChanges } from "@/hooks/useGitFileChanges"
+import { useCloneChanges } from "@/hooks/useGitFileChanges"
+import { useClone } from "@/components/mdx/_shared/hooks/useClone"
 import { useSessionHistory } from "@/contexts/useSessionHistory"
 import {
   parseSavedForm,
@@ -40,6 +40,7 @@ import {
 } from "@/lib/sessionHistory"
 import { PR_PROVIDERS } from "./providers"
 import { useGitPullRequest } from "./hooks/useGitPullRequest"
+import { usePrMerge } from "./hooks/usePrMerge"
 import { PRForm } from "./components/PRForm"
 import { PRResultDisplay } from "./components/PRResult"
 import { WrongProviderError } from "./components/WrongProviderError"
@@ -100,6 +101,8 @@ function GitPullRequestInteractive({
   githubAuthId,
   gitAuthId,
   provider: propProvider,
+  gitCloneId,
+  allowMerge = false,
   __registryType = "GitPullRequest",
   autoCollapse,
 }: GitPullRequestInternalProps) {
@@ -121,7 +124,8 @@ function GitPullRequestInteractive({
     blockRef,
   )
   const { reportError, clearError } = useErrorReporting()
-  const { activeWorkTree } = useGitWorkTree()
+  const clone = useClone(gitCloneId, `<${__registryType}>`, "the changes")
+  const activeWorkTree = clone.workTree
 
   // Runbook context for metadata
   const { runbookName } = useRunbookContext()
@@ -232,8 +236,9 @@ function GitPullRequestInteractive({
     history.record(id, "pull-request", saved)
   }, [history, id, status, prResult, prOutputs])
 
-  // Workspace changes for diff summary
-  const { changes: workspaceChanges } = useGitFileChanges()
+  // The clone's changes against the base branch, for the summary and the file list
+  const cloneChanges = useCloneChanges(activeWorkTree?.localPath)
+  const workspaceChanges = cloneChanges.changes
 
   const changeSummary = useMemo(() => {
     if (!workspaceChanges || workspaceChanges.length === 0) return null
@@ -499,15 +504,41 @@ function GitPullRequestInteractive({
   // Block outputs for ViewOutputs: what MAIN actually registered (git:outputs),
   // so the panel can't show names downstream blocks can't reference. Gated on
   // prResult so "create another" hides the previous PR's outputs.
+  // The Merge button asks GitHub about the block's pull request once it's open.
+  const mergeEnabled = allowMerge && effectiveProvider === "github"
+  const prRef = useMemo(
+    () =>
+      mergeEnabled && prResult && activeWorkTree
+        ? {
+            worktreePath: activeWorkTree.localPath,
+            owner: activeWorkTree.gitInfo.repoOwner,
+            repo: activeWorkTree.gitInfo.repoName,
+            number: prResult.prNumber,
+          }
+        : undefined,
+    [mergeEnabled, prResult, activeWorkTree],
+  )
+  const prMerge = usePrMerge(prRef)
+
   const registeredOutputs = useOutputs(id)
   const outputValues = useMemo(() => {
     if (!prResult || !registeredOutputs?.length) return null
     return Object.fromEntries(registeredOutputs.map((o) => [o.name, o.value]))
   }, [prResult, registeredOutputs])
 
-  // Early return for validation errors (e.g. missing id prop)
-  if (validationError) {
-    return <ErrorDisplay error={validationError} />
+  const configError: AppError | null =
+    validationError ??
+    clone.error ??
+    (allowMerge && effectiveProvider !== "github"
+      ? {
+          message: `The <${__registryType}> block's allowMerge works with GitHub only.`,
+          details: `Remove allowMerge, and merge the ${cfg.noun.lower} on ${cfg.label}.`,
+        }
+      : null)
+
+  // Early return for configuration errors (e.g. missing id prop)
+  if (configError) {
+    return <ErrorDisplay error={configError} />
   }
 
   // If configuration error, don't render
@@ -582,10 +613,12 @@ function GitPullRequestInteractive({
                 <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
                 <div>
                   <p className="text-sm font-medium text-warning-foreground m-0">
-                    No repository available
+                    Waiting for the clone
                   </p>
                   <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                    Clone a repository using a GitClone block first.
+                    Clone the repository in the{" "}
+                    {clone.cloneId ? <BlockLink blockId={clone.cloneId} /> : "GitClone"} block
+                    above.
                   </p>
                 </div>
               </div>
@@ -637,6 +670,8 @@ function GitPullRequestInteractive({
                 status={effectiveStatus}
                 pushError={pushError}
                 changeSummary={changeSummary}
+                changes={cloneChanges}
+                {...(prRef ? { merge: prMerge } : {})}
                 onPush={handlePush}
                 onCreateAnother={handleCreateAnother}
               />
@@ -680,6 +715,7 @@ function GitPullRequestInteractive({
                 status={effectiveStatus}
                 disabled={isFormDisabled}
                 changeSummary={changeSummary}
+                changes={cloneChanges}
                 onSubmit={handleCreatePR}
                 onCancel={cancel}
               />
