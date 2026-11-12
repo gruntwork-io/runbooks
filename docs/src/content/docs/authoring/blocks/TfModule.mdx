@@ -160,7 +160,7 @@ lookups:
 
 ## The template
 
-The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder beside the runbook. The block renders it with each of the form's values by its input's name, the same values as one map in `Inputs`, and `ModuleSource`, where the code finds the module: the release [Versions](#versions) describes when a `<GitClone>` block has cloned a repository, and the module's folder on your computer otherwise. The folder needs a `boilerplate.yml`, which can leave its `variables` empty, since the block passes every value.
+The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder, relative to the runbook, anywhere in the runbook's repository. The block renders it with each of the form's values by its input's name, the same values as one map in `Inputs`, and `ModuleSource`, where the code finds the module: the release [Versions](#versions) describes when a `<GitClone>` block has cloned a repository, and the module's folder on your computer otherwise. The folder needs a `boilerplate.yml`, which can leave its `variables` empty, since the block passes every value.
 
 What the template renders decides how the code runs. A template that renders a `terragrunt.hcl` makes a Terragrunt unit:
 
