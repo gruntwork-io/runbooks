@@ -12,9 +12,25 @@ import { refuse, shapeRequest, isRefused, type Refused } from "./shape.ts"
 /**
  * A regional endpoint, `<service>.<region>.amazonaws.com`, of exactly three
  * labels under amazonaws.com, so a bucket's or an API Gateway's host, which
- * has another label in front, never matches.
+ * has another label in front, never matches. The one label allowed in front
+ * is `api.`, for the services in API_PREFIXED.
  */
-const REGIONAL_HOST = /^([a-z0-9-]+)\.([a-z]{2}(?:-gov)?-[a-z]+-\d+)\.amazonaws\.com$/
+const REGIONAL_HOST = /^(api\.)?([a-z0-9-]+)\.([a-z]{2}(?:-gov)?-[a-z]+-\d+)\.amazonaws\.com$/
+
+/** Services whose regional API endpoint is `api.<service>.<region>.amazonaws.com`. */
+const API_PREFIXED = new Set(["ecr", "sagemaker", "pricing"])
+
+/**
+ * Endpoints whose SigV4 signing name isn't the host's service label, by that
+ * label. A request signed for the wrong name gets a 403 that doesn't say why,
+ * so each endpoint that differs belongs here.
+ */
+const SIGNING_NAMES: Readonly<Record<string, string>> = {
+  email: "ses",
+  "bedrock-runtime": "bedrock",
+  "bedrock-agent-runtime": "bedrock",
+  "aps-workspaces": "aps",
+}
 
 /** A global endpoint, `<service>.amazonaws.com`, which SigV4 signs for us-east-1. */
 const GLOBAL_HOST = /^([a-z0-9-]+)\.amazonaws\.com$/
@@ -80,10 +96,20 @@ export function awsSendable(request: HttpRequest): AwsSendable | Refused {
 
 function signingFor(host: string): AwsSigning | undefined {
   const regional = REGIONAL_HOST.exec(host)
-  if (regional?.[1] && regional[2]) return { service: regional[1], region: regional[2] }
+  if (regional?.[2] && regional[3]) {
+    const [, api, label, region] = regional
+    if (api && !API_PREFIXED.has(label)) return undefined
+    return { service: signingName(label), region }
+  }
   const global = GLOBAL_HOST.exec(host)
-  if (global?.[1]) return { service: global[1], region: GLOBAL_REGION }
+  if (global?.[1]) return { service: signingName(global[1]), region: GLOBAL_REGION }
   return undefined
+}
+
+/** The name SigV4 signs for at the endpoint whose service label is `label`: a FIPS endpoint's is its service's. */
+function signingName(label: string): string {
+  const service = label.endsWith("-fips") ? label.slice(0, -"-fips".length) : label
+  return SIGNING_NAMES[service] ?? service
 }
 
 /**
