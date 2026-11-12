@@ -2,11 +2,12 @@
  * Reads a variable's validation blocks the way a form can use them.
  *
  * A form can check the idioms modules use most as the user types: a fixed set
- * of values, a regex, a length range, and not empty. Any other condition only
- * OpenTofu can evaluate, so the form shows its error message as a rule to
- * follow instead of guessing at it.
+ * of values, a regex, a length range, and not empty. On a list or a map,
+ * `length()` counts its items, so only those checks apply, to the count. Any
+ * other condition only OpenTofu can evaluate, so the form shows its error
+ * message as a rule to follow instead of guessing at it.
  */
-import type { TfModuleCheck } from "./types.ts"
+import type { TfModuleCheck, TfModuleInputKind } from "./types.ts"
 
 /** A validation block as variables.tf writes it. */
 export interface TfValidation {
@@ -57,6 +58,7 @@ function compiles(pattern: string): boolean {
 export function interpretValidations(
   name: string,
   validations: readonly TfValidation[],
+  kind: TfModuleInputKind = "string",
 ): InterpretedValidations {
   const v = String.raw`var\.${escapeRegExp(name)}`
   const contains = new RegExp(String.raw`^contains\(\s*\[([^\]]*)\]\s*,\s*${v}\s*\)$`)
@@ -67,12 +69,31 @@ export function interpretValidations(
   const notEmpty = new RegExp(
     String.raw`^(?:${v}\s*!=\s*""|length\(\s*${v}\s*\)\s*>\s*0|trimspace\(\s*${v}\s*\)\s*!=\s*"")$`,
   )
+  const notEmptyCollection = new RegExp(String.raw`^length\(\s*${v}\s*\)\s*(?:>\s*0|>=\s*1)$`)
+  const collection = kind === "list" || kind === "map"
 
   let allowedValues: string[] | undefined
   const checks: TfModuleCheck[] = []
   const constraints: string[] = []
   for (const { condition, errorMessage: message } of validations) {
     const cond = condition.trim()
+
+    if (collection) {
+      const lengthMatch = length.exec(cond)
+      if (lengthMatch) {
+        checks.push({
+          kind: "count",
+          min: Number(lengthMatch[1]),
+          max: Number(lengthMatch[2]),
+          message,
+        })
+      } else if (notEmptyCollection.test(cond)) {
+        checks.push({ kind: "count", min: 1, message })
+      } else if (message) {
+        constraints.push(message)
+      }
+      continue
+    }
 
     const containsMatch = contains.exec(cond)
     if (containsMatch) {
@@ -115,10 +136,21 @@ export function interpretValidations(
   return { ...(allowedValues ? { allowedValues } : {}), checks, constraints }
 }
 
+/** The first count check a list's or map's items fail, as its message. */
+export function failedCount(count: number, checks: readonly TfModuleCheck[]): string | undefined {
+  for (const check of checks) {
+    if (check.kind !== "count") continue
+    if (count < check.min || (check.max !== undefined && count > check.max)) return check.message
+  }
+  return undefined
+}
+
 /** The first check a value fails, as its message, or undefined when it passes them all. */
 export function failedCheck(value: string, checks: readonly TfModuleCheck[]): string | undefined {
   for (const check of checks) {
     switch (check.kind) {
+      case "count":
+        break
       case "regex":
         if (!new RegExp(check.pattern, "u").test(value)) return check.message
         break
