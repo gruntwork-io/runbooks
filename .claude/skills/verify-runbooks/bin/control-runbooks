@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Runs control-runbooks from the repository, wherever it's called from.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec bun "$here/../../../../scripts/control-runbooks/cli.ts" "$@"

@@ -33,8 +33,9 @@ TODO/
 # Ignore local cursor directories
 .cursor*/
 
-# Ignore .claude directory
-.claude/
+# Ignore .claude directory, except the project's skills
+.claude/*
+!.claude/skills/
 
 # Ignore downloaded dependencies
 node_modules/*
@@ -48,3 +49,6 @@ resources/.boilerplate-version
 
 # Ignore electron-vite build-time scratch configs
 electron.vite.config.*.mjs
+
+# control-runbooks instances and the evidence they leave
+.verify-runbooks/
