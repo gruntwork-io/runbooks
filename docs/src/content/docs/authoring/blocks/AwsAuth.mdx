@@ -44,14 +44,14 @@ The user can still switch tabs. `defaultTab` only chooses the starting one.
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
 | `id` | string | required | Unique identifier for this component |
-| `inputsId` | string or string[] | - | ID of one or more [Inputs](/authoring/blocks/inputs/) blocks. `title` and `description` resolve `{{ .inputs.VarName }}` expressions against them |
+| `inputsId` | string or string[] | - | ID of one or more [Inputs](/authoring/blocks/inputs/) blocks. `title`, `description` and the [sign-in props](#values-from-other-blocks) resolve `{{ .inputs.VarName }}` expressions against them |
 | `title` | string | "AWS Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
 | `autoCollapse` | boolean | `false` | Folds the block down to its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks) |
 | `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable. GovCloud regions (`us-gov-east-1`, `us-gov-west-1`) are supported. When the credentials don't name a region themselves, this region also decides which partition (commercial or GovCloud) they are validated in |
 | `defaultTab` | `'credentials'`, `'sso'`, or `'profile'` | `'credentials'` | Which authentication tab the block opens on. An unrecognized value falls back to `'credentials'` |
 | `detectCredentials` | `false` or `CredentialSource[]` | `['env']` | Whether and how to detect existing credentials. See [Credential detection](#credential-detection) |
-| `ssoStartUrl` | string | - | AWS SSO start URL (for example `https://my-company.awsapps.com/start`). Required for SSO |
+| `ssoStartUrl` | string | - | AWS SSO start URL (for example `https://my-company.awsapps.com/start`). Required for SSO. This and the other `sso*` props and `defaultRegion` can read [values from other blocks](#values-from-other-blocks) |
 | `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured. Every SSO call goes to this region. For a GovCloud Identity Center this is `us-gov-east-1` or `us-gov-west-1` |
 | `ssoAccountId` | string | - | Pre-select a specific AWS account after SSO authentication. Takes effect only together with `ssoRoleName` |
 | `ssoRoleName` | string | - | Pre-select a specific IAM role to assume. Takes effect only together with `ssoAccountId` |
@@ -138,6 +138,25 @@ To skip the account and role selection, set both `ssoAccountId` and `ssoRoleName
   ssoAccountId="123456789012"
   ssoRoleName="AdministratorAccess"
   defaultRegion="us-west-2"
+/>
+```
+
+## Values from other blocks
+
+`ssoStartUrl`, `ssoRegion`, `ssoAccountId`, `ssoRoleName` and `defaultRegion` can read the form values of the blocks `inputsId` names, as `{{ .inputs.name }}`, and other blocks' outputs, as `{{ .outputs.block_id.name }}`. Until every value they read exists, the block says which ones it's waiting for and offers no sign-in. For example, a runbook that creates an account can sign in to it once the account exists, and can ask each user for their organization's start URL instead of writing it into the runbook:
+
+```mdx
+<Inputs id="org" path="inputs/org" />
+
+<AwsAuth
+  id="new-account"
+  title="Sign in to the new account"
+  inputsId="org"
+  ssoStartUrl="{{ .inputs.sso_start_url }}"
+  ssoRegion="{{ .inputs.sso_region }}"
+  ssoAccountId="{{ .outputs.apply_account.account_id }}"
+  ssoRoleName="AdministratorAccess"
+  detectCredentials={false}
 />
 ```
 
