@@ -73,7 +73,48 @@ describe("awsSendable", () => {
         headers: { "content-type": "application/json" },
         body: "{}",
       }),
-    ).toContain("must be a GET")
+    ).toContain("only reads")
+  })
+
+  it("reads a form body's Action however its Content-Type is spelled", () => {
+    expect(
+      refusal({
+        method: "POST",
+        url: "https://iam.amazonaws.com/",
+        headers: { "content-type": "Application/X-WWW-Form-Urlencoded ; charset=UTF-8" },
+        body: "Action=DeleteUser&UserName=bob&Version=2010-05-08",
+      }),
+    ).toContain("DeleteUser")
+  })
+
+  it("refuses a body its protocol wouldn't read, which could name an operation unseen", () => {
+    expect(
+      refusal({
+        method: "POST",
+        url: "https://iam.amazonaws.com/",
+        headers: {
+          "content-type": "Application/x-www-form-urlencoded",
+          "x-amz-target": "X.ListUsers",
+        },
+        body: "Action=DeleteUser&UserName=bob&Version=2010-05-08",
+      }),
+    ).toContain("not both")
+    expect(
+      refusal(
+        json("iam.amazonaws.com", "X.ListUsers", {
+          headers: { "content-type": "text/plain", "x-amz-target": "X.ListUsers" },
+          body: "Action=DeleteUser",
+        }),
+      ),
+    ).toContain("carries a JSON body")
+    expect(
+      refusal({
+        method: "POST",
+        url: "https://iam.amazonaws.com/?Action=ListUsers",
+        headers: {},
+        body: "Action=DeleteUser",
+      }),
+    ).toContain("with a body names its operation")
   })
 
   it("refuses hosts that aren't AWS API endpoints, such as a bucket or API Gateway", () => {

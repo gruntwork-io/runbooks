@@ -389,10 +389,11 @@ AWS operations often take effect immediately and can't be undone. They create re
 
 ### Requests sent for other blocks
 
-Other blocks can ask AwsAuth to send a request to AWS as you, for example to suggest values in a form. The runbook's author writes that request, and is trusted as they are for a [Command](/authoring/blocks/command/), so AwsAuth doesn't limit which services or operations it reaches. It checks only that the request goes to AWS and reads, so a form can't change anything by mistake:
+Other blocks can ask AwsAuth to send a request to AWS as you, for example to suggest values in a form. The runbook's author writes that request, and is trusted as they are for a [Command](/authoring/blocks/command/), so AwsAuth doesn't limit which services or operations it reaches. It checks only that the request goes to AWS and, by its operation's name, reads, so a form doesn't change anything by mistake:
 
 - The host must be an AWS API endpoint: `<service>.<region>.amazonaws.com`, such as `sso.us-east-2.amazonaws.com`, or a global one such as `iam.amazonaws.com`. A host with another label in front, such as a bucket's or an API Gateway's, doesn't match. AwsAuth signs the request for the service and region the host names, and a global endpoint for `us-east-1`.
-- The request must read. When it names an operation, in its `X-Amz-Target` header or its `Action` parameter, the operation must start with `List`, `Describe` or `Get`. A request that names none, to a REST API, must be a `GET`.
+- The request must read. When it names an operation, in its `X-Amz-Target` header or its `Action` parameter, the operation must start with `List`, `Describe` or `Get`. A request that names none, to a REST API, must be a `GET`. The name is AWS's convention, not a guarantee: a few `Get` operations, such as `sts:GetFederationToken`, create credentials, and reads named otherwise, such as `BatchGetItem`, are refused.
+- A body must be the type its protocol reads: JSON, such as `application/x-amz-json-1.1`, with `X-Amz-Target`, and `application/x-www-form-urlencoded` with an `Action` parameter. So no part of the request names an operation that AwsAuth doesn't check.
 - AwsAuth signs the request itself, so a request can set only its `Accept`, `Content-Type` and `X-Amz-Target` headers, and AwsAuth never follows a redirect.
 
 Anything that changes AWS stays in a [Command](/authoring/blocks/command/) or a plan you review.
