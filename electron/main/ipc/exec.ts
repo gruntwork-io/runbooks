@@ -173,6 +173,7 @@ export function registerExecHandlers(): void {
                   outputPath,
                   logsDir,
                   blockEnv,
+                  executableRegistry.getRunbookDir(),
                 )
 
             // Surface the on-disk log path up front so the UI can offer it

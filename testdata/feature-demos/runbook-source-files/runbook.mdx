@@ -1,0 +1,9 @@
+# Runbook Source Files Demo
+
+Scripts start in the session's directory, not in the runbook's folder. `$RUNBOOK_SOURCE_FILES` is the absolute path of the runbook's folder, so a script can read the files that ship with the runbook, such as a helper library it shares with other scripts.
+
+<Command
+  id="greet"
+  title="Source a shared helper"
+  path="scripts/greet.sh"
+/>

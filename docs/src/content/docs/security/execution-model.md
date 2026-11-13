@@ -84,6 +84,7 @@ Runbooks watches the script files that `<Check>`, `<Command>` and `<Finish>` blo
 - A changed script is never executed without a click on a notice that shows what changed
 - The reload approves the content you saw. A write that lands between the diff and the click is rejected
 - Only script files are covered. A changed inline `command` is part of `runbook.mdx`, so it needs the runbook to be reloaded
+- Only the file a block's `path` names is covered. A file that script reads when it runs, such as a helper it sources from `$RUNBOOK_SOURCE_FILES`, is read from disk at that moment, with no notice when it changes
 
 ## How scripts run
 

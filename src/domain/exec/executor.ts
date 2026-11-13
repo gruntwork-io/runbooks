@@ -60,6 +60,7 @@ function setupExecEnvVars(
   outputFile: string,
   filesDir: string,
   workTreePath: string,
+  runbookDir: string,
   logFiles: ReadonlyArray<{ readonly envVar: string; readonly path: string }>,
 ): Record<string, string> {
   const result = { ...env }
@@ -67,6 +68,9 @@ function setupExecEnvVars(
   result["GENERATED_FILES"] = filesDir
   if (workTreePath) {
     result["REPO_FILES"] = workTreePath
+  }
+  if (runbookDir) {
+    result["RUNBOOK_SOURCE_FILES"] = runbookDir
   }
   for (const { envVar, path } of logFiles) {
     result[envVar] = path
@@ -132,6 +136,8 @@ function determineExitStatus(exitCode: number, timedOut: boolean): ExecStatusEve
  * The script's env is the session's, then the request's overrides (auth
  * blocks' credentials), then `blockEnv` (the block's rendered `env` prop),
  * then the variables Runbooks sets for every run (RUNBOOK_OUTPUT, ...).
+ * `runbookDir` becomes RUNBOOK_SOURCE_FILES, the folder the runbook file is
+ * in; an empty one sets nothing.
  *
  * The caller is responsible for:
  *  - Resolving the Executable and rendering template variables before calling this
@@ -151,6 +157,7 @@ export const executeScript = (
   outputPath: string,
   logsDir: string,
   blockEnv: Readonly<Record<string, string>> = {},
+  runbookDir = "",
 ) =>
   Effect.gen(function* () {
     // The overrides are an auth block's vars for this run only (see
@@ -249,8 +256,16 @@ export const executeScript = (
     }
 
     // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES,
-    // REPO_FILES, and the log files: RUNBOOK_LOG and RUNBOOK_<LEVEL>_LOG)
-    execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath, logFiles)
+    // REPO_FILES, RUNBOOK_SOURCE_FILES, and the log files: RUNBOOK_LOG and
+    // RUNBOOK_<LEVEL>_LOG)
+    execEnv = setupExecEnvVars(
+      execEnv,
+      outputFilePath,
+      filesDir,
+      workTreePath,
+      runbookDir,
+      logFiles,
+    )
 
     const cmdArgs = [...scriptSetup.args, scriptSetup.scriptPath]
 
