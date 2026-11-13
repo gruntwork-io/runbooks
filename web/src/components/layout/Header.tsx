@@ -25,6 +25,7 @@ import { CopyIconButton } from "./CopyIconButton"
 import { SessionName } from "./SessionName"
 import { ThemeToggle } from "./ThemeToggle"
 import { InstructionModeToggle } from "./InstructionModeToggle"
+import { RunbookLayoutToggle } from "./RunbookLayoutToggle"
 import { RunbookProgressBar, RunbookProgressCount } from "./RunbookProgress"
 import { useDownloadLogs } from "@/hooks/useDownloadLogs"
 import { useApi } from "@/contexts/ApiContext"
@@ -96,7 +97,7 @@ export function Header({
   const isDark = resolvedTheme === "dark"
 
   // The native "Preferences…" menu item (Cmd+,) opens the Header menu, which
-  // is where the theme picker lives.
+  // is where the theme and runbook width pickers live.
   useEffect(() => {
     const cleanup = api.on("menu:preferences", () => setIsMenuOpen(true))
     return cleanup
@@ -294,6 +295,8 @@ export function Header({
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <ThemeToggle />
+              <DropdownMenuSeparator />
+              <RunbookLayoutToggle />
               <DropdownMenuSeparator />
               <InstructionModeToggle />
             </DropdownMenuContent>

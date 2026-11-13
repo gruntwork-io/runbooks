@@ -4,6 +4,7 @@ import "./css/index.css"
 import App from "./App.tsx"
 import { ThemeProvider } from "./contexts/ThemeContext"
 import { InstructionModeProvider } from "./contexts/InstructionModeContext"
+import { RunbookLayoutProvider } from "./contexts/RunbookLayoutContext"
 import { ApiProvider } from "./contexts/ApiContext"
 import { GeneratedFilesProvider } from "./contexts/GeneratedFilesContext"
 import { IpcGitWorkTreeProvider } from "./contexts/IpcGitWorkTreeContext"
@@ -40,25 +41,27 @@ if (!window.api) {
       <ApiProvider api={window.api}>
         <ThemeProvider>
           <InstructionModeProvider>
-            <IpcSessionProvider>
-              <ErrorReportingProvider>
-                <IpcExecutableRegistryProvider>
-                  <GeneratedFilesProvider>
-                    <IpcGitWorkTreeProvider>
-                      <WorkspaceGitDataProvider>
-                        <LogsProvider>
-                          <RunbookProgressProvider>
-                            <RunbookChaptersProvider>
-                              <App />
-                            </RunbookChaptersProvider>
-                          </RunbookProgressProvider>
-                        </LogsProvider>
-                      </WorkspaceGitDataProvider>
-                    </IpcGitWorkTreeProvider>
-                  </GeneratedFilesProvider>
-                </IpcExecutableRegistryProvider>
-              </ErrorReportingProvider>
-            </IpcSessionProvider>
+            <RunbookLayoutProvider>
+              <IpcSessionProvider>
+                <ErrorReportingProvider>
+                  <IpcExecutableRegistryProvider>
+                    <GeneratedFilesProvider>
+                      <IpcGitWorkTreeProvider>
+                        <WorkspaceGitDataProvider>
+                          <LogsProvider>
+                            <RunbookProgressProvider>
+                              <RunbookChaptersProvider>
+                                <App />
+                              </RunbookChaptersProvider>
+                            </RunbookProgressProvider>
+                          </LogsProvider>
+                        </WorkspaceGitDataProvider>
+                      </IpcGitWorkTreeProvider>
+                    </GeneratedFilesProvider>
+                  </IpcExecutableRegistryProvider>
+                </ErrorReportingProvider>
+              </IpcSessionProvider>
+            </RunbookLayoutProvider>
           </InstructionModeProvider>
         </ThemeProvider>
       </ApiProvider>

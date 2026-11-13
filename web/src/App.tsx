@@ -1,6 +1,6 @@
 import "./css/App.css"
 import "./css/github-markdown.css"
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, type TransitionEvent } from "react"
 import { BookOpen, Code } from "lucide-react"
 import { Header } from "./components/layout/Header"
 import { WelcomeScreen } from "./components/layout/WelcomeScreen"
@@ -32,6 +32,7 @@ import { useResizableSplit } from "./hooks/useResizableSplit"
 import { DESKTOP_LAYOUT_QUERY, useMediaQuery } from "./hooks/useMediaQuery"
 import { useErrorReporting } from "./contexts/useErrorReporting"
 import { useLogs } from "./contexts/useLogs"
+import { useRunbookLayout } from "./contexts/useRunbookLayout"
 import { useApi } from "./contexts/ApiContext"
 import { IpcSessionHistoryProvider } from "./contexts/IpcSessionHistoryContext"
 import { DisplayPathProvider } from "./contexts/DisplayPathContext"
@@ -101,6 +102,8 @@ function App() {
     reservedWidth: RUNBOOK_RESERVED_WIDTH,
   })
   const isRunbookDragged = runbookWidth !== null
+  const { layout: runbookLayout } = useRunbookLayout()
+  const fillWindow = runbookLayout === "fill"
 
   const handleOpenRunbook = useCallback(async () => {
     await api.invoke("native:open-runbook-dialog")
@@ -190,6 +193,26 @@ function App() {
 
   // Show artifacts panel unless user has manually hidden it
   const showArtifacts = !isArtifactsHidden
+
+  // While the desktop panel slides in or out, the runbook beside it changes
+  // width with it rather than at once. Only then: an arrow key or a
+  // double-click on the handle sets the runbook's width at once.
+  const [isPanelSliding, setIsPanelSliding] = useState(false)
+  const [prevShowArtifacts, setPrevShowArtifacts] = useState(showArtifacts)
+  if (showArtifacts !== prevShowArtifacts) {
+    setPrevShowArtifacts(showArtifacts)
+    setIsPanelSliding(isDesktopLayout)
+  }
+  const endPanelSlide = (e: TransitionEvent<HTMLDivElement>) => {
+    // React leaves propertyName off a transitioncancel: the DOM event has it.
+    if (e.target !== e.currentTarget || e.nativeEvent.propertyName !== "flex-grow") return
+    // Showing or hiding the panel mid-slide cancels the slide for one that
+    // slides it back, so the panel still slides.
+    const slidesOn = e.currentTarget
+      .getAnimations()
+      .some((a) => a instanceof CSSTransition && a.transitionProperty === "flex-grow")
+    if (!slidesOn) setIsPanelSliding(false)
+  }
 
   // Hides the "show code" button along with showing the panel, so the button
   // waits out its delay again the next time the panel is hidden.
@@ -498,28 +521,41 @@ function App() {
 
             {/* Single MDXContainer that adapts to screen size - used by both mobile and desktop views */}
             <div className="lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20 pt-20 lg:pt-0">
-              {/* Desktop: capped at the widest the runbook (48rem), the handle
-                  (2rem) and the artifacts panel (80rem) grow to side by side,
-                  so a runbook dragged for the first time keeps its place. */}
+              {/* Fixed caps the row at runbook + handle + panel (130rem) so a first
+                  drag keeps its place; Fill window leaves it uncapped. */}
               <div
                 ref={splitRef}
+                data-runbook-layout={runbookLayout}
                 className={cn(
-                  "flex flex-col lg:flex-row gap-0 lg:h-[calc(100vh-5rem)] lg:max-w-[130rem] lg:mx-auto lg:overflow-hidden justify-start lg:justify-center",
+                  "flex flex-col lg:flex-row gap-0 lg:h-[calc(100vh-5rem)] lg:mx-auto lg:overflow-hidden justify-start lg:justify-center",
+                  !fillWindow && "lg:max-w-[130rem]",
                   isResizingRunbook && "select-none",
                 )}
               >
                 {/* MDX Container - Single instance with responsive visibility
                     Desktop: always visible, sizing depends on artifacts panel
                     and on the width the runbook was dragged to beside it
-                    Mobile: visible only when 'markdown' tab is active */}
+                    Mobile: visible only when 'markdown' tab is active
+                    flex-1 with min- and max-width as its width, not w-full, so it
+                    slides with the panel instead of jumping when the panel opens or closes. */}
                 <div
                   ref={runbookPaneRef}
                   style={runbookPaneStyle}
                   className={cn("relative w-full px-4 lg:px-0 lg:block", {
-                    "lg:flex-1 lg:max-w-3xl lg:min-w-xl": showArtifacts && !isRunbookDragged,
-                    "lg:flex-none lg:w-(--pane-width) lg:max-w-[calc(100%-27rem)]":
+                    "lg:flex-1 lg:max-w-3xl lg:min-w-xl":
+                      showArtifacts && !isRunbookDragged && !fillWindow,
+                    "lg:flex-1 lg:max-w-full lg:min-w-xl":
+                      showArtifacts && !isRunbookDragged && fillWindow,
+                    // The min- and max-width are the width, as above.
+                    "lg:flex-none lg:w-(--pane-width) lg:max-w-[min(var(--pane-width),calc(100%-27rem))] lg:min-w-[min(var(--pane-width),calc(100%-27rem))]":
                       showArtifacts && isRunbookDragged,
-                    "lg:w-full lg:max-w-4xl": !showArtifacts,
+                    "lg:flex-1 lg:max-w-4xl lg:min-w-4xl": !showArtifacts && !fillWindow,
+                    // Leaves the handle's 2rem, and 3rem for the show button
+                    // beside the runbook and a margin past it.
+                    "lg:flex-1 lg:max-w-[calc(100%-5rem)] lg:min-w-[calc(100%-5rem)]":
+                      !showArtifacts && fillWindow,
+                    "lg:transition-[flex-grow,min-width,max-width] lg:duration-700 lg:ease-in-out":
+                      isPanelSliding && !isResizingRunbook,
                     hidden: activeMobileSection !== "markdown",
                   })}
                 >
@@ -595,14 +631,19 @@ function App() {
                 {/* Artifacts - Desktop layout (grows/shrinks width smoothly).
                     Inert while hidden: it stays mounted at zero width, and
                     find in page and the keyboard must skip its content.
-                    Beside a dragged runbook, it takes all the width left. */}
+                    Beside a dragged runbook, or with Runbook width Fill
+                    window, it takes all the width left. */}
                 <div
                   className={cn(
                     "hidden lg:block relative transition-all duration-700 ease-in-out overflow-hidden",
                     showArtifacts ? "flex-2" : "w-0",
-                    !isRunbookDragged && "max-w-7xl",
+                    !isRunbookDragged && !fillWindow && "max-w-7xl",
                   )}
                   inert={!showArtifacts}
+                  // Cancelled too, as when the window gets too narrow for
+                  // the panel mid-slide.
+                  onTransitionEnd={endPanelSlide}
+                  onTransitionCancel={endPanelSlide}
                 >
                   <ArtifactsContainer
                     className="absolute top-0 left-0 right-0 h-full"
