@@ -21,6 +21,8 @@ vi.mock("@/contexts/useSession", () => ({
 }))
 
 import GoogleAuth from "../GoogleAuth"
+import { DEFAULT_GOOGLE_SCOPES } from "../constants"
+import { useScopeRequests } from "@/contexts/ScopeRequests"
 
 type InvokeImpl = (channel: string, args?: Record<string, unknown>) => unknown
 
@@ -779,6 +781,54 @@ describe("GoogleAuth — required scopes", () => {
     await waitFor(() => expect(callsTo("google:oauth-start")).toHaveLength(1))
     expect(invoke).toHaveBeenCalledWith("google:oauth-start", { scopes: requiredScopes })
     expect(await screen.findByText(/Waiting for browser sign-in/i)).toBeInTheDocument()
+  })
+
+  /** Stands in for a block whose lookups need scopes from the GoogleAuth block it binds. */
+  function NeedsScopes({ scopes }: { scopes: Record<string, readonly string[]> }) {
+    useScopeRequests(scopes)
+    return null
+  }
+
+  it("signs in with the scopes the page's other blocks need, on top of its own", async () => {
+    installApi((channel) => {
+      if (channel === "google:oauth-available") return { available: true }
+      if (channel === "google:oauth-start") {
+        return { flowId: "flow-derived", authUrl: "https://accounts.google.com/o/oauth2/v2/auth" }
+      }
+      if (channel === "google:oauth-poll") return { status: "pending" }
+      return {}
+    })
+
+    renderBlock(
+      <>
+        <GoogleAuth id="gcp" detectCredentials={false} defaultTab="oauth" />
+        <NeedsScopes scopes={{ gcp: [DIRECTORY] }} />
+        <NeedsScopes scopes={{ gcp: [DIRECTORY, CLOUD_PLATFORM], other: ["openid"] }} />
+      </>,
+    )
+
+    fireEvent.click(await screen.findByRole("button", { name: /Sign in with Google/ }))
+
+    await waitFor(() => expect(callsTo("google:oauth-start")).toHaveLength(1))
+    expect(invoke).toHaveBeenCalledWith("google:oauth-start", {
+      scopes: [...new Set([...DEFAULT_GOOGLE_SCOPES, DIRECTORY])],
+    })
+  })
+
+  it("requires only the scopes the page's other blocks need of an ambient credential", async () => {
+    installApi((channel) => (channel === "google:env-credentials" ? { found: false } : {}))
+
+    renderBlock(
+      <>
+        <GoogleAuth id="gcp" detectCredentials={["env"]} />
+        <NeedsScopes scopes={{ gcp: [DIRECTORY] }} />
+      </>,
+    )
+
+    // Looking again once the other blocks have asked sends what they need, without the defaults.
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }))
+    await waitFor(() => expect(callsTo("google:env-credentials")).toHaveLength(2))
+    expect(callsTo("google:env-credentials")[1]?.[1]).toMatchObject({ scopes: [DIRECTORY] })
   })
 
   it("shows the gcloud --scopes command when Sign-In is unavailable", async () => {

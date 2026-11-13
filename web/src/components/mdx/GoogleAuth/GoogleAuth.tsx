@@ -3,6 +3,7 @@ import { XCircle, AlertTriangle, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useRequestedScopes } from "@/contexts/ScopeRequests"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -37,7 +38,7 @@ function GoogleAuthInteractive({
   title = "Google Cloud Authentication",
   description,
   project,
-  scopes,
+  scopes: scopesProp,
   oauthClientId,
   oauthClientSecret,
   oauthClientFile,
@@ -49,6 +50,19 @@ function GoogleAuthInteractive({
   inputsId,
   autoCollapse,
 }: GoogleAuthProps) {
+  // The scopes the runbook's other blocks need from this one add to what it asks for at sign-in
+  // and to what it requires of any credential. The default scopes are asked for at sign-in but
+  // never required, so a credential that has the scopes the runbook needs serves it.
+  const requestedScopes = useRequestedScopes(id)
+  const { scopes, signInScopes } = useMemo(() => {
+    if (requestedScopes.length === 0) return { scopes: scopesProp, signInScopes: scopesProp }
+    const withRequested = (base: readonly string[]) => [...new Set([...base, ...requestedScopes])]
+    return {
+      scopes: withRequested(scopesProp ?? []),
+      signInScopes: withRequested(scopesProp ?? DEFAULT_GOOGLE_SCOPES),
+    }
+  }, [scopesProp, requestedScopes])
+
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
@@ -96,7 +110,7 @@ function GoogleAuthInteractive({
     id,
     "GoogleAuth",
     blockRef,
-    scopes ?? DEFAULT_GOOGLE_SCOPES,
+    signInScopes ?? DEFAULT_GOOGLE_SCOPES,
   )
 
   // Validate detectCredentials configuration: only one { block: string } source allowed.
@@ -116,6 +130,7 @@ function GoogleAuthInteractive({
     id,
     ...(resolvedProject ? { project: resolvedProject } : {}),
     ...(scopes ? { scopes } : {}),
+    ...(signInScopes ? { signInScopes } : {}),
     ...(oauthClientId ? { oauthClientId } : {}),
     ...(oauthClientSecret ? { oauthClientSecret } : {}),
     ...(resolvedOauthClientFile ? { oauthClientFile: resolvedOauthClientFile } : {}),
@@ -303,7 +318,7 @@ function GoogleAuthInteractive({
               scopes.length > 0 ? (
                 <InsufficientScopesPrompt
                   credentials={auth.detectedCredentials}
-                  requiredScopes={scopes}
+                  requiredScopes={signInScopes ?? scopes}
                   oauthUnavailable={auth.oauthUnavailable}
                   recovering={auth.authStatus === "authenticating"}
                   onSignIn={() => {
@@ -412,7 +427,7 @@ function GoogleAuthInteractive({
                       void auth.loadOAuthClientFromFile()
                     }}
                     onClearOAuthClientFile={auth.clearOAuthClientFile}
-                    {...(scopes ? { scopes } : {})}
+                    {...(signInScopes ? { scopes: signInScopes } : {})}
                     selectedRegion={auth.selectedRegion}
                     setSelectedRegion={auth.setSelectedRegion}
                     onStartOAuth={auth.handleOAuthLogin}

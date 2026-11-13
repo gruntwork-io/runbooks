@@ -145,9 +145,10 @@ describe("Inputs lookups", () => {
     ).toBeInTheDocument()
   })
 
-  it("needs the bound block to request the group's scopes", async () => {
+  it("accepts a bound block that doesn't list the group's scopes, since it's asked for them", async () => {
     renderInputs({ google: "workspace" }, ["openid"])
-    expect(await screen.findByText(new RegExp(`doesn't request ${SCOPE}`))).toBeInTheDocument()
+    expect(await screen.findByLabelText("Owner")).toBeInTheDocument()
+    expect(screen.queryByText(/auth prop doesn't fit/)).toBeNull()
   })
 
   it("prefills, suggests and offers a shortcut once signed in", async () => {

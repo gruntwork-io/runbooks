@@ -56,7 +56,7 @@ Runbooks never shells out to the `gcloud` binary. Service account keys are valid
 | `defaultZone` | `string` | - | Default compute zone for subsequent commands. Sets `CLOUDSDK_COMPUTE_ZONE` and `GOOGLE_ZONE` |
 | `gcloudConfiguration` | `string` | - | Pre-select a named gcloud configuration in the gcloud Config tab. It doesn't change which configuration detection reads. See [gcloud Config](#gcloud-config) (supports template expressions) |
 | `defaultTab` | `'service_account'`, `'oauth'`, or `'gcloud'` | `'service_account'` | Which authentication tab the block opens on. An unrecognized value falls back to `'service_account'` |
-| `scopes` | `string[]` | `cloud-platform`, `userinfo.email`, `openid` | OAuth scopes requested by Google Sign-In. When set, also required of any auto-detected or gcloud user ADC this block will accept (service account keys and impersonated service accounts are exempt) |
+| `scopes` | `string[]` | `cloud-platform`, `userinfo.email`, `openid` | OAuth scopes requested by Google Sign-In, along with the scopes the lookups bound to this block declare. When set, also required of any auto-detected or gcloud user ADC this block will accept (service account keys and impersonated service accounts are exempt) |
 | `oauthClientId` | `string` | - | Client ID of a Google Cloud "Desktop app" OAuth client. Must be paired with `oauthClientSecret`. Mutually exclusive with `oauthClientFile`. See [Using your own OAuth client](#using-your-own-oauth-client) |
 | `oauthClientSecret` | `string` | - | Client secret issued alongside the Desktop OAuth client. Required whenever `oauthClientId` is set. Per RFC 8252 this value is not confidential. Google issues one with every Desktop client |
 | `oauthClientFile` | `string` | - | Path to a Google Cloud Console Desktop-app client JSON download (`client_secret_*.json` with an `installed` object). `~` is expanded, and template expressions are resolved. Mutually exclusive with `oauthClientId` / `oauthClientSecret`. Read in the main process only |
@@ -252,6 +252,8 @@ The requested scopes default to:
 - `openid`
 
 Override them with the `scopes` prop. The tab's **What permissions does this grant?** disclosure lists what will be requested.
+
+The block also requests the scopes the runbook's other blocks need from it, so the runbook needn't list them. A [TfModule](/authoring/blocks/tfmodule/#lookups), Inputs or Template block whose `auth` prop binds a lookup group to this block adds the scopes the group declares to the ones Sign-In asks for, on top of `scopes` or the defaults. The block also requires them of any credential it accepts, along with `scopes` when it's set, but never the defaults, so a credential that has the scopes the runbook needs serves it. Scopes a block needs for something other than its lookups, such as a script's own API calls, still go in `scopes`.
 
 When `scopes` is set, existing credentials must grant them too. Auto-detected env/ADC credentials and the gcloud Config tab refuse a user credential whose tokeninfo grant is missing any listed scope. The block shows the missing scopes and offers **Sign in with required scopes**, or a copyable `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=...` command when Sign-In has no Desktop client. The default scopes apply to Sign-In requests only and are not enforced on existing ADC.
 

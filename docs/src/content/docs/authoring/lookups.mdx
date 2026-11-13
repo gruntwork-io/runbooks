@@ -47,7 +47,7 @@ variables:
 | Key | Meaning |
 |---|---|
 | `<group>.auth` | The kind of auth block every lookup and check in the group needs: `AwsAuth` or `GoogleAuth` |
-| `<group>.scopes` | OAuth scopes the group's requests need. A bound block that doesn't request them is a configuration error |
+| `<group>.scopes` | OAuth scopes the group's requests need. A form's bound block requests them itself. A `TerragruntApply` block's bound block that doesn't request them is a configuration error |
 | `params` | Names the lookup or check takes; a use passes their values with `with` |
 | `request` | `method` (`GET` or `POST`), `url`, `headers` and `body`, as the API reference documents them. A body is sent as JSON, or as a form when `Content-Type` is `application/x-www-form-urlencoded` |
 | `rows` | Where the list of results is in the answer. Leave it out when the whole answer is one row |
