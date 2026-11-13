@@ -15,6 +15,7 @@ import {
   Monitor,
   Moon,
   Search,
+  ShieldCheck,
   SquareTerminal,
   Sun,
   Trash2,
@@ -61,6 +62,8 @@ export interface CommandPaletteContext {
   onRevealRunbook: () => void
   /** Open the find bar, on `text` when given. */
   onFind: (text?: string) => void
+  /** Open the Custom CA Certificate dialog. */
+  onOpenCustomCa: () => void
 }
 
 interface CommandPaletteProps {
@@ -365,6 +368,18 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
           icon: ListChecks,
           keywords: ["mode", "interactive", "copy"],
           run: () => setInstructionMode(!instructionMode),
+        },
+      ],
+    },
+    {
+      heading: "Certificates",
+      commands: [
+        {
+          id: "custom-ca",
+          label: "Custom CA Certificate…",
+          icon: ShieldCheck,
+          keywords: ["tls", "ssl", "https", "trust", "pem", "root", "authority"],
+          run: ctx.onOpenCustomCa,
         },
       ],
     },

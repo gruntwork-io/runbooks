@@ -49,6 +49,7 @@ import { getContentType } from "../../src/domain/workspace/file.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
 import { initSystemTrust } from "./system-trust.ts"
+import { initCustomCa } from "./custom-ca.ts"
 import { eagerLoadInBackground as eagerLoadBoilerplateWasm } from "../../src/layers/NodeWasmRuntime.ts"
 import { registerSecret, VCS_TOKEN_ENV_VARS } from "../../src/domain/vcs/redact.ts"
 
@@ -73,7 +74,9 @@ for (const tokenVar of VCS_TOKEN_ENV_VARS) {
 
 // ---------------------------------------------------------------------------
 // System-trust TLS: honor the OS trust store in addition to Node's bundled
-// roots (see system-trust.ts). Must run before any TLS connection.
+// roots (see system-trust.ts), plus the custom CA file chosen from the menu
+// (custom-ca.ts, loaded once the single-instance lock is held, below). Must
+// run before any TLS connection.
 // ---------------------------------------------------------------------------
 
 initSystemTrust()
@@ -213,6 +216,11 @@ if (!gotLock) {
       openRunbookInWindow(win, { path: plan.open.path })
     }
   })
+
+  // Only here: the bundle file it writes in userData is the running
+  // instance's, and a second instance that is about to quit must not rewrite
+  // it under the running one's scripts. Still before any TLS connection.
+  initCustomCa({ dataDir: app.getPath("userData") })
 }
 
 /**

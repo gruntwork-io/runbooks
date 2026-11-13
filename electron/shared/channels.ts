@@ -13,6 +13,8 @@ export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
 import type { ListedSession } from "../../src/domain/session/store.ts"
+import type { CustomCaStatus } from "../../src/domain/tls/customCa.ts"
+export type { CustomCaStatus }
 
 /** What session:switch did. */
 export type SessionSwitchResult =
@@ -950,6 +952,26 @@ export interface IpcChannelMap {
     params: { theme: "light" | "dark" | "system" }
     result: { ok: true }
   }
+
+  // Custom CA certificate (electron/main/custom-ca.ts): a certificate file
+  // whose certificates Runbooks trusts besides the OS trust store's and Node's.
+  "tls:custom-ca-status": { params: void; result: CustomCaStatus }
+  /**
+   * Main shows a file dialog and trusts the certificates in the file picked,
+   * in place of any custom CA set before. `canceled`: no file was picked.
+   * `rejected`: the file picked has no usable certificate, or couldn't be
+   * handed on to spawned processes or saved, as a sentence fit to show the
+   * user; nothing changed.
+   */
+  "tls:choose-custom-ca": {
+    params: void
+    result: { status: CustomCaStatus; canceled?: true; rejected?: string }
+  }
+  /**
+   * Stops trusting the custom CA, and forgets it. `rejected`: it couldn't be
+   * removed everywhere, as a sentence fit to show the user; nothing changed.
+   */
+  "tls:clear-custom-ca": { params: void; result: { status: CustomCaStatus; rejected?: string } }
 }
 
 // ---------------------------------------------------------------------------
@@ -997,6 +1019,8 @@ export interface IpcEventMap {
   /** File > Switch Session…: the renderer shows the saved sessions. */
   "menu:switch-session": void
   "menu:preferences": void
+  /** Custom CA Certificate…: the renderer shows the custom CA dialog. */
+  "menu:custom-ca": void
   "menu:find": { action: FindAction }
   "menu:open-command-palette": void
   "registry:updated": void

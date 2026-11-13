@@ -8,7 +8,8 @@
  *
  * index.ts calls initSystemTrust() once at startup, before any TLS
  * connection; the IPC handlers call refreshSystemTrust() and
- * registerExtraCaPems(). This lives outside the entry module so those
+ * registerExtraCaPems(), and custom-ca.ts calls setCustomCaPems() for the
+ * certificate file picked from the menu. This lives outside the entry module so those
  * handlers can import it without an import cycle. Nothing touches node:tls
  * until initSystemTrust() runs, and the tls calls are injectable: Bun (the
  * unit-test runtime) has no tls.setDefaultCACertificates.
@@ -47,9 +48,24 @@ interface TrustState {
   // Extra PEMs beyond the OS store (glab per-host ca_cert contents — the
   // harvest, wired in during host enumeration). Re-installs always include them.
   harvestedCaPems: string[]
+  // The certificates of the custom CA file picked from the menu (custom-ca.ts).
+  customCaPems: string[]
+  // What the last install installed: the deduped union.
+  installed: readonly string[]
 }
 
 let state: TrustState | undefined
+
+const installListeners: Array<(installed: readonly string[]) => void> = []
+
+/**
+ * Call `listener` with the installed CA list after every install, so trust
+ * that is handed on to spawned processes (custom-ca.ts's bundle file) keeps
+ * up with refreshes and harvests.
+ */
+export function onTrustInstalled(listener: (installed: readonly string[]) => void): void {
+  installListeners.push(listener)
+}
 
 // Dev/test-only extraPems seam: RUNBOOKS_TEST_EXTRA_CA points at a PEM
 // file read FRESH on every install/refresh, so an e2e can inject a CA
@@ -67,12 +83,19 @@ function testSeamPems(): string[] {
   }
 }
 
-const extraPemsForInstall = (s: TrustState): string[] => [...s.harvestedCaPems, ...testSeamPems()]
+const extraPemsForInstall = (s: TrustState): string[] => [
+  ...s.harvestedCaPems,
+  ...s.customCaPems,
+  ...testSeamPems(),
+]
 
 const caSources = (s: TrustState, systemPems: string[]): CaSources => ({
   bundledDefaults: () => [...s.bundledCaDefaults],
   systemPems: () => Effect.succeed(systemPems),
-  setCAs: (certs) => s.tls.setDefaultCACertificates(certs),
+  setCAs: (certs) => {
+    s.tls.setDefaultCACertificates(certs)
+    s.installed = [...certs]
+  },
 })
 
 // The count log line doubles as the e2e trust canary (asserts system > 0
@@ -84,6 +107,14 @@ function installAndLog(s: TrustState, systemPems: string[], note?: string): void
   log.info(
     `installSystemTrust: defaults=${counts.defaults} system=${counts.system} extra=${counts.extra}${note ? ` (${note})` : ""}`,
   )
+  for (const listener of installListeners) {
+    try {
+      listener(s.installed)
+    } catch (err) {
+      // A listener only hands trust on; it must never undo or block the install.
+      log.error("trust install listener failed:", err)
+    }
+  }
 }
 
 // Every install must include the bundled snapshot: setDefaultCACertificates
@@ -108,6 +139,8 @@ export function initSystemTrust(io: { tls?: TrustTls } = {}): void {
     bundledCaDefaults: [...trustTls.getCACertificates("default")],
     lastKnownSystemPems: [...trustTls.getCACertificates("system")],
     harvestedCaPems: [],
+    customCaPems: [],
+    installed: [],
   }
   installAndLog(state, state.lastKnownSystemPems)
 }
@@ -147,4 +180,23 @@ export function registerExtraCaPems(pems: string[]): void {
   if (unchanged) return
   s.harvestedCaPems = [...pems]
   installAndLog(s, s.lastKnownSystemPems, "glab ca_cert harvest")
+}
+
+/**
+ * Trust the certificates of the custom CA file picked from the menu, in
+ * addition to everything else, and re-install the union. `[]` drops them.
+ * Strictly additive; idempotent.
+ */
+export function setCustomCaPems(pems: string[]): void {
+  const s = ensureInit()
+  const unchanged =
+    pems.length === s.customCaPems.length && pems.every((pem, i) => pem === s.customCaPems[i])
+  if (unchanged) return
+  s.customCaPems = [...pems]
+  installAndLog(s, s.lastKnownSystemPems, "custom CA")
+}
+
+/** The CA list the last install installed: what the main process trusts. */
+export function installedCaPems(): readonly string[] {
+  return ensureInit().installed
 }

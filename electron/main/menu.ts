@@ -62,6 +62,17 @@ function buildCliMenuItems(): MenuItemConstructorOptions[] {
   ]
 }
 
+/** App settings that live outside the in-app Menu's theme and mode pickers. */
+function buildSettingsMenuItems(): MenuItemConstructorOptions[] {
+  return [
+    {
+      id: "custom-ca",
+      label: "Custom CA Certificate…",
+      click: () => getMainWindow()?.webContents.send("menu:custom-ca"),
+    },
+  ]
+}
+
 /** Open the renderer's find bar, or move it to the next or previous match. */
 function sendFind(action: FindAction): void {
   getMainWindow()?.webContents.send("menu:find", { action })
@@ -84,6 +95,7 @@ function buildTemplate(): MenuItemConstructorOptions[] {
             getMainWindow()?.webContents.send("menu:preferences")
           },
         },
+        ...buildSettingsMenuItems(),
         { type: "separator" },
         ...buildCliMenuItems(),
         { type: "separator" },
@@ -226,8 +238,15 @@ function buildTemplate(): MenuItemConstructorOptions[] {
         label: "Report Issue",
         click: () => openExternal(ISSUES_URL),
       },
-      // On non-macOS, CLI items go in the Help menu
-      ...(!isMac ? [{ type: "separator" as const }, ...buildCliMenuItems()] : []),
+      // On non-macOS, the settings and CLI items go in the Help menu
+      ...(!isMac
+        ? [
+            { type: "separator" as const },
+            ...buildSettingsMenuItems(),
+            { type: "separator" as const },
+            ...buildCliMenuItems(),
+          ]
+        : []),
     ],
   })
 

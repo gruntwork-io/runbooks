@@ -26,6 +26,7 @@ function renderHeader(steps: boolean[]) {
             onSessionRenamed={vi.fn()}
             onOpenCommandPalette={vi.fn()}
             onOpenSessions={vi.fn()}
+            onOpenCustomCa={vi.fn()}
             onCloseRunbook={vi.fn()}
           />
           {steps.map((done, i) => (

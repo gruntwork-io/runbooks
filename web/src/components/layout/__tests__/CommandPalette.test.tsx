@@ -54,6 +54,7 @@ function makeCtx(overrides: Partial<CommandPaletteContext> = {}): CommandPalette
     onToggleGeneratedFiles: vi.fn(),
     onRevealRunbook: vi.fn(),
     onFind: vi.fn(),
+    onOpenCustomCa: vi.fn(),
     ...overrides,
   }
 }
@@ -171,6 +172,7 @@ describe("CommandPalette", () => {
       "Navigate",
       "Logs",
       "Appearance",
+      "Certificates",
       "Command line",
       "Help",
     ])
@@ -186,6 +188,7 @@ describe("CommandPalette", () => {
       "Theme: Dark",
       "Theme: Systemcurrent",
       "Turn on Instruction mode",
+      "Custom CA Certificate…",
       "Install 'runbooks' command in PATH",
       "Uninstall 'runbooks' command from PATH",
       "Open documentation",
@@ -200,14 +203,20 @@ describe("CommandPalette", () => {
 
   it("leaves out what needs a runbook when none is open", async () => {
     await renderPalette({ ctx: { hasRunbookOpen: false } })
-    expect(groupNames()).toEqual(["Runbook", "Appearance", "Command line", "Help"])
+    expect(groupNames()).toEqual(["Runbook", "Appearance", "Certificates", "Command line", "Help"])
     expect(within(dialog()).queryByRole("option", { name: /Close Runbook/ })).toBeNull()
   })
 
   it("filters by label and by keyword", async () => {
     await renderPalette()
     fireEvent.change(input(), { target: { value: "artifacts" } })
-    expect(optionNames()).toEqual(["Show generated files", 'Find "artifacts" in page'])
+    // Custom CA Certificate… scores barely above zero: cmdk matches "artifacts"
+    // across its label and keywords with a transposition. It sorts last.
+    expect(optionNames()).toEqual([
+      "Show generated files",
+      "Custom CA Certificate…",
+      'Find "artifacts" in page',
+    ])
 
     // "dark" finds the dark theme alone, not every theme through a shared keyword.
     fireEvent.change(input(), { target: { value: "dark" } })
@@ -281,6 +290,16 @@ describe("CommandPalette", () => {
       ["native:open-external", { url: "https://docs.gruntwork.io/runbooks" }],
       ["native:open-external", { url: "https://github.com/gruntwork-io/runbooks/issues" }],
     ])
+  })
+
+  it("opens the Custom CA Certificate dialog, also found as TLS or a PEM file", async () => {
+    const { ctx } = await renderPalette()
+    for (const search of ["tls", "pem"]) {
+      fireEvent.change(input(), { target: { value: search } })
+      expect(optionNames()).toContain("Custom CA Certificate…")
+    }
+    await select(/^Custom CA Certificate/)
+    expect(ctx.onOpenCustomCa).toHaveBeenCalledOnce()
   })
 
   it("installs and uninstalls the CLI through main, which reports in its own dialog", async () => {
@@ -525,6 +544,7 @@ describe("CommandPalette", () => {
         "Navigate",
         "Logs",
         "Appearance",
+        "Certificates",
         "Command line",
         "Help",
       ])

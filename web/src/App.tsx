@@ -12,6 +12,7 @@ import { RunbookOpenError } from "./components/layout/RunbookOpenError"
 import { SessionResumedNotice } from "./components/layout/SessionResumedNotice"
 import { FinishedSessionNotice } from "./components/layout/FinishedSessionNotice"
 import { SessionsDialog } from "./components/layout/SessionsDialog"
+import { CustomCaDialog } from "./components/layout/CustomCaDialog"
 import MDXContainer from "./components/MDXContainer"
 import { ArtifactsContainer } from "./components/layout/ArtifactsContainer"
 import { GeneratedFilesHistory } from "./components/layout/GeneratedFilesHistory"
@@ -81,6 +82,7 @@ function App() {
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false)
   const [isPaletteOpen, setIsPaletteOpen] = useState(false)
   const [isSessionsOpen, setIsSessionsOpen] = useState(false)
+  const [isCustomCaOpen, setIsCustomCaOpen] = useState(false)
   // The failed-open error the user dismissed from the inline banner. A new
   // failure is a new error object, so it shows the banner again.
   const [dismissedOpenError, setDismissedOpenError] = useState<AppError | null>(null)
@@ -123,6 +125,10 @@ function App() {
   // The native "Switch Session…" menu item. The header menu's item and the
   // notice that a finished runbook opened in a new session open it too.
   useEffect(() => api.on("menu:switch-session", () => setIsSessionsOpen(true)), [api])
+
+  // The native "Custom CA Certificate…" menu item. The header menu and the
+  // command palette open it too.
+  useEffect(() => api.on("menu:custom-ca", () => setIsCustomCaOpen(true)), [api])
 
   // View > Command Palette… (Cmd/Ctrl+K). The native accelerator is the only
   // binding, as with Find…, so the shortcut toggles the palette the same way
@@ -422,6 +428,7 @@ function App() {
           onSessionRenamed={(name) => setRenamed({ sessionId: loadedSessionId, name })}
           onOpenCommandPalette={() => setIsPaletteOpen(true)}
           onOpenSessions={() => setIsSessionsOpen(true)}
+          onOpenCustomCa={() => setIsCustomCaOpen(true)}
           onCloseRunbook={handleCloseRunbook}
         />
 
@@ -659,6 +666,9 @@ function App() {
       {/* File > Switch Session… */}
       <SessionsDialog open={isSessionsOpen} onOpenChange={setIsSessionsOpen} />
 
+      {/* Custom CA Certificate… */}
+      <CustomCaDialog open={isCustomCaOpen} onOpenChange={setIsCustomCaOpen} />
+
       {/* View > Command Palette… (Cmd/Ctrl+K) */}
       <CommandPalette
         open={isPaletteOpen}
@@ -672,6 +682,7 @@ function App() {
           onToggleGeneratedFiles: toggleGeneratedFiles,
           onRevealRunbook: () => setActiveMobileSection("markdown"),
           onFind: (text) => findBarRef.current?.open(text),
+          onOpenCustomCa: () => setIsCustomCaOpen(true),
         }}
       />
     </DisplayPathProvider>

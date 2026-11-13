@@ -129,3 +129,17 @@ describe("View menu", () => {
     expect(sent).toEqual([{ channel: "menu:open-command-palette", payload: undefined }])
   })
 })
+
+describe("Custom CA Certificate…", () => {
+  it("is in the menus on every platform and opens the renderer's custom CA dialog", () => {
+    // The macOS app menu, or the Help menu elsewhere: whichever this runs on.
+    setupApplicationMenu()
+    const items = allItems(template).filter((item) => item.id === "custom-ca")
+    expect(items).toHaveLength(1)
+    expect(items[0]!.label).toBe("Custom CA Certificate…")
+
+    sent.length = 0
+    ;(items[0]!.click as () => void)()
+    expect(sent).toEqual([{ channel: "menu:custom-ca", payload: undefined }])
+  })
+})
