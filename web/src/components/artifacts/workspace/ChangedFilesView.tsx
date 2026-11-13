@@ -6,7 +6,7 @@
  */
 
 import type React from "react"
-import { useState, useMemo, forwardRef } from "react"
+import { useState, useMemo, useEffect, useRef, forwardRef } from "react"
 import { useCollapsibleFileList } from "@/hooks/useCollapsibleFileList"
 import {
   ChevronDown,
@@ -28,6 +28,7 @@ import { Loader2, Download } from "lucide-react"
 import { useResizablePanel } from "@/hooks/useResizablePanel"
 import { ResizeHandle } from "@/components/ui/ResizeHandle"
 import type { WorkspaceFileChange } from "@/hooks/useGitFileChanges"
+import type { FileReveal } from "@/contexts/WorkspaceRevealContext"
 import { ChangeProportionBar } from "./ChangeProportionBar"
 import { generateUnifiedDiff } from "@/lib/unifiedDiff"
 import { DiffTable } from "@/components/artifacts/code/DiffTable"
@@ -60,9 +61,14 @@ interface ChangedFilesViewProps {
   isLoading?: boolean
   /** Callback to load the full diff for a truncated file */
   onLoadDiff?: (filePath: string) => Promise<void>
+  /** Files a block asks to show: the first changed one is selected, and each flashes. */
+  reveal?: Pick<FileReveal, "id" | "paths"> | null | undefined
   /** Additional CSS classes */
   className?: string
 }
+
+/** How long revealed files stay highlighted, matching the flash animation. */
+const FLASH_MS = 2400
 
 export const ChangedFilesView = ({
   changes,
@@ -70,9 +76,11 @@ export const ChangedFilesView = ({
   totalChanges,
   isLoading = false,
   onLoadDiff,
+  reveal,
   className = "",
 }: ChangedFilesViewProps) => {
   const [focusedPath, setFocusedPath] = useState<string | null>(null)
+  const [flashing, setFlashing] = useState<ReadonlySet<string>>(() => new Set())
   const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel()
   const {
     collapsedFiles,
@@ -97,6 +105,29 @@ export const ChangedFilesView = ({
       changes.findIndex((c) => c.path === filePath),
     )
   }
+
+  // Shows a block's files once they're among the changes, which can take a
+  // refresh after the block writes them. Each request is shown once.
+  const shownRevealId = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (!reveal || shownRevealId.current === reveal.id) return
+    const shown = reveal.paths.filter((p) => changes.some((c) => c.path === p))
+    if (shown.length === 0) return
+    // On the next frame, once the files' rows are drawn.
+    const frame = requestAnimationFrame(() => {
+      shownRevealId.current = reveal.id
+      handleFileSelect(shown[0]!)
+      setFlashing(new Set(shown))
+    })
+    return () => cancelAnimationFrame(frame)
+    // Selects the file when the request or the changes do, not when the handler does.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal, changes])
+  useEffect(() => {
+    if (flashing.size === 0) return
+    const timer = setTimeout(() => setFlashing(new Set()), FLASH_MS)
+    return () => clearTimeout(timer)
+  }, [flashing])
 
   // Loading state
   if (isLoading && changes.length === 0) {
@@ -159,6 +190,7 @@ export const ChangedFilesView = ({
           <ChangedFileTree
             tree={fileTree}
             focusedPath={focusedPath}
+            flashing={flashing}
             onFileSelect={handleFileSelect}
           />
         </div>
@@ -174,6 +206,7 @@ export const ChangedFilesView = ({
                 change={change}
                 isCollapsed={collapsedFiles.has(change.path)}
                 isFocused={focusedPath === change.path}
+                isFlashing={flashing.has(change.path)}
                 onToggleCollapse={() => toggleFileCollapse(change.path)}
                 onLoadDiff={onLoadDiff}
                 ref={(el) => setFileRef(change.path, el)}
@@ -254,19 +287,29 @@ function buildFileTree(changes: WorkspaceFileChange[]): TreeNode[] {
 interface ChangedFileTreeProps {
   tree: TreeNode[]
   focusedPath: string | null
+  /** Files to highlight for a moment, whose folders open. */
+  flashing: ReadonlySet<string>
   onFileSelect: (filePath: string) => void
 }
 
 /** Max tree nodes to render before collapsing all folders by default */
 const MAX_TREE_NODES_EXPANDED = 200
 
-const ChangedFileTree = ({ tree, focusedPath, onFileSelect }: ChangedFileTreeProps) => {
+const ChangedFileTree = ({ tree, focusedPath, flashing, onFileSelect }: ChangedFileTreeProps) => {
   // For large trees, start with all folders collapsed to avoid rendering
   // thousands of nodes which can lock up the browser.
   const totalFileCount = useMemo(() => countTreeFiles(tree), [tree])
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() =>
     totalFileCount > MAX_TREE_NODES_EXPANDED ? new Set<string>() : new Set(getAllFolderPaths(tree)),
   )
+
+  // A highlighted file's folders open, so it can be seen.
+  const [prevFlashing, setPrevFlashing] = useState(flashing)
+  if (flashing !== prevFlashing) {
+    setPrevFlashing(flashing)
+    const folders = [...flashing].flatMap(foldersOf).filter((f) => !expandedFolders.has(f))
+    if (folders.length > 0) setExpandedFolders(new Set([...expandedFolders, ...folders]))
+  }
 
   const toggleFolder = (path: string) => {
     setExpandedFolders((prev) => {
@@ -331,6 +374,7 @@ const ChangedFileTree = ({ tree, focusedPath, onFileSelect }: ChangedFileTreePro
         className={cn(
           "w-full flex items-center gap-0.5 py-px text-left text-sm transition-colors cursor-pointer",
           isSelected ? "bg-info-muted text-primary" : "hover:bg-accent text-foreground",
+          flashing.has(change.path) && "animate-reveal-flash",
         )}
         style={{ paddingLeft: `${8 + level * INDENT}px` }}
       >
@@ -343,6 +387,12 @@ const ChangedFileTree = ({ tree, focusedPath, onFileSelect }: ChangedFileTreePro
   }
 
   return <div className="py-1">{tree.map((node) => renderNode(node))}</div>
+}
+
+/** The folders a path is in, outermost first: "a/b/c.txt" is in "a" and "a/b". */
+function foldersOf(path: string): string[] {
+  const parts = path.split("/").slice(0, -1)
+  return parts.map((_, i) => parts.slice(0, i + 1).join("/"))
 }
 
 function countTreeFiles(nodes: TreeNode[]): number {
@@ -380,12 +430,14 @@ interface CollapsibleFileDiffProps {
   change: WorkspaceFileChange
   isCollapsed: boolean
   isFocused: boolean
+  /** Highlighted for a moment, as a block's file it just showed. */
+  isFlashing: boolean
   onToggleCollapse: () => void
   onLoadDiff?: ((filePath: string) => Promise<void>) | undefined
 }
 
 const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>(
-  ({ change, isCollapsed, isFocused, onToggleCollapse, onLoadDiff }, ref) => {
+  ({ change, isCollapsed, isFocused, isFlashing, onToggleCollapse, onLoadDiff }, ref) => {
     const [isLoadingDiff, setIsLoadingDiff] = useState(false)
 
     return (
@@ -395,6 +447,7 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
         className={cn(
           "border border-border rounded-md overflow-hidden bg-card",
           isFocused && "ring-2 ring-ring",
+          isFlashing && "animate-reveal-glow",
         )}
       >
         {/* File Header Bar */}

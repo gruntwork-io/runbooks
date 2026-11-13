@@ -24,6 +24,7 @@ import { RepositoryFileBrowser } from "./RepositoryFileBrowser"
 import { ChangedFilesView } from "./ChangedFilesView"
 import { CodeFileCollection } from "../code/CodeFileCollection"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
+import { useWorkspaceReveal } from "@/contexts/WorkspaceRevealContext"
 import { useGitFileTree } from "@/hooks/useGitFileTree"
 import { useGitFileChanges } from "@/hooks/useGitFileChanges"
 import type { FileTreeNode } from "../code/FileTree"
@@ -112,6 +113,23 @@ export const Workspace = ({
     }
     prevTotalChanges.current = totalChanges
   }, [totalChanges, hasWorkTree])
+
+  // A block that shows its files brings up their clone's changed files.
+  const { reveal } = useWorkspaceReveal()
+  const revealed = reveal && workTrees.find((wt) => wt.localPath === reveal.worktreePath)
+  const [prevRevealId, setPrevRevealId] = useState(reveal?.id)
+  if (reveal?.id !== prevRevealId) {
+    setPrevRevealId(reveal?.id)
+    if (revealed) {
+      setActiveContext("repository")
+      setActiveTab("changed")
+    }
+  }
+  useEffect(() => {
+    if (revealed && revealed.id !== activeWorkTreeId) setActiveWorkTree(revealed.id)
+    // Switches once for each request, so the user can switch away again.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal?.id])
 
   // Ensure active context is valid. Adjusted during render; each branch's
   // update makes its own condition false, so this settles in one pass.
@@ -287,6 +305,7 @@ export const Workspace = ({
           <div data-testid="filetree-changed" className="h-full">
             <ChangedFilesView
               changes={changes}
+              reveal={reveal?.worktreePath === activeWorkTree?.localPath ? reveal : null}
               tooManyChanges={tooManyChanges}
               totalChanges={totalChanges}
               isLoading={changesLoading}

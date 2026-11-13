@@ -7,6 +7,22 @@
 
 @theme {
   --breakpoint-lg: 1250px;
+
+  /* Draw the eye to files a block just wrote, then fade back: a row's color, a card's outline. */
+  --animate-reveal-flash: reveal-flash 2.4s ease-out;
+  --animate-reveal-glow: reveal-glow 2.4s ease-out;
+  @keyframes reveal-flash {
+    0%,
+    35% {
+      background-color: color-mix(in oklch, var(--warning) 30%, transparent);
+    }
+  }
+  @keyframes reveal-glow {
+    0%,
+    35% {
+      box-shadow: 0 0 0 4px color-mix(in oklch, var(--warning) 55%, transparent);
+    }
+  }
 }
 
 /* Added by shadcn/ui install script */
