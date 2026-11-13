@@ -1,8 +1,8 @@
 import { useId, useRef, useState, type KeyboardEvent } from "react"
 import { Loader2, X } from "lucide-react"
-import type { Row, Use } from "../../../../../../src/domain/lookups/types"
-import { useLookup } from "../hooks/useLookup"
-import { suggestionFor, type Suggestion } from "../lookupRows"
+import type { Row, Use } from "../../../../../../../src/domain/lookups/types"
+import { useLookup } from "../../hooks/useLookup"
+import { suggestionFor, type Suggestion } from "../../lib/lookupRows"
 
 const inputClasses = (error?: string) =>
   `px-3 py-2 border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring ${
@@ -27,7 +27,7 @@ interface CommonProps {
   lookup: Use | undefined
   error?: string | undefined
   placeholder?: string
-  onBlur?: () => void
+  onBlur?: (() => void) | undefined
 }
 
 type SuggestInputProps = CommonProps &
@@ -39,7 +39,7 @@ type SuggestInputProps = CommonProps &
 /**
  * A text input, or a list of chips, that suggests values from a lookup as the
  * user types. Typed text is kept as it is: a suggestion helps, it doesn't
- * limit what the module can take.
+ * limit what the input can take.
  *
  * Focusing the input doesn't open the list, so moving through the form stays
  * quiet: typing opens it, and so do Enter and the down arrow in an empty input.

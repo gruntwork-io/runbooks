@@ -1,0 +1,41 @@
+# Answers this runbook's lookups get in simulation mode (runbooks open --simulate), by lookup id.
+scenarios:
+  happy-path:
+    label: Happy path
+    description: Two domains and a small directory.
+    responses:
+      google.me:
+        - status: 200
+          body:
+            primaryEmail: sam@example.com
+            name: { fullName: Sam Rivera }
+      google.domains:
+        - status: 200
+          body:
+            domains:
+              - { domainName: example.com }
+              - { domainName: example.org }
+      google.people:
+        - delayMs: 300
+          status: 200
+          body:
+            users:
+              - primaryEmail: ana@example.com
+                name: { fullName: Ana Lima }
+                organizations: [{ title: Platform team }]
+              - primaryEmail: bo@example.com
+                name: { fullName: Bo Chen }
+                organizations: [{ title: Security }]
+  no-directory-access:
+    label: No directory access
+    description: Google refuses the directory lookups.
+    responses:
+      google.me:
+        - status: 403
+          body: { error: { code: 403, message: Not Authorized to access this resource/api } }
+      google.domains:
+        - status: 403
+          body: { error: { code: 403, message: Not Authorized to access this resource/api } }
+      google.people:
+        - status: 403
+          body: { error: { code: 403, message: Not Authorized to access this resource/api } }

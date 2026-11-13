@@ -1,5 +1,5 @@
-import { renderRowTemplate } from "../../../../../src/domain/tf-module/rowTemplate"
-import type { Row } from "../../../../../src/domain/lookups/types"
+import { renderRowTemplate } from "../../../../../../src/domain/tf-module/rowTemplate"
+import type { Row } from "../../../../../../src/domain/lookups/types"
 
 /** A lookup row as a suggestion: the value it puts in the input, and what the list shows. */
 export interface Suggestion {

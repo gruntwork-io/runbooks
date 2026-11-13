@@ -10,6 +10,8 @@ import { useApiGetBoilerplateConfig } from "@/hooks/useApiGetBoilerplateConfig"
 import { extractYamlFromChildren } from "../_shared/lib/extractYamlFromChildren"
 import { useInputRegistration } from "../_shared/hooks/useInputRegistration"
 import { untouchedValue } from "../_shared/lib/untouchedValue"
+import { useBindingError } from "../_shared/hooks/useBindingError"
+import { lookupsError } from "../_shared/lib/lookupsError"
 
 /**
  * Inputs component - collects user input via a web form.
@@ -25,6 +27,8 @@ import { untouchedValue } from "../_shared/lib/untouchedValue"
  * @param props.id - Unique identifier for this component (required)
  * @param props.path - Path to a boilerplate.yml file (relative to runbook)
  * @param props.children - Inline boilerplate.yml content as YAML code block
+ * @param props.auth - Binds each lookup group the boilerplate.yml uses to an
+ *   auth block by id, such as `{{ google: "workspace" }}`
  *
  * (Use one of path or children, but not both)
  */
@@ -34,7 +38,10 @@ interface InputsProps {
   prefilledVariables?: Record<string, unknown>
   children?: ReactNode // For inline boilerplate.yml content
   variant?: "standard" | "embedded" // 'embedded' means the Inputs are used inside Command or Check blocks
+  auth?: Readonly<Record<string, string>>
 }
+
+const NO_BINDING: Readonly<Record<string, string>> = {}
 
 function Inputs({
   id,
@@ -42,6 +49,7 @@ function Inputs({
   prefilledVariables = {},
   children,
   variant = "standard",
+  auth = NO_BINDING,
 }: InputsProps) {
   // Extract boolean to avoid React element in dependency array
   const hasChildren = Boolean(children)
@@ -133,6 +141,14 @@ function Inputs({
     ]),
   )
 
+  const declarationsError = lookupsError("<Inputs>", boilerplateConfig?.lookups)
+  const bindingError = useBindingError(
+    boilerplateConfig?.lookups,
+    auth,
+    "<Inputs>",
+    "its boilerplate.yml's",
+  )
+
   // Shared registration logic (ID registry, error reporting, form state, debouncing)
   const blockRef = useRef<HTMLDivElement>(null)
   const {
@@ -190,6 +206,9 @@ function Inputs({
   if (apiError) {
     return <ErrorDisplay error={apiError} />
   }
+  if (declarationsError ?? bindingError) {
+    return <ErrorDisplay error={(declarationsError ?? bindingError)!} />
+  }
 
   return (
     <div ref={blockRef} data-testid={id}>
@@ -207,6 +226,7 @@ function Inputs({
         variant={variant}
         isInlineMode={true}
         defaults={defaults}
+        auth={auth}
       />
     </div>
   )

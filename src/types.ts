@@ -1,5 +1,6 @@
 import type { BlockEnv } from "./domain/exec/blockEnv.ts"
 import type { OutputValues } from "./domain/exec/outputValues.ts"
+import type { FormLookups } from "./domain/boilerplate/lookups.ts"
 
 // ---------------------------------------------------------------------------
 // File types
@@ -124,6 +125,8 @@ export interface BoilerplateConfig {
   skipFiles: SkipFileRule[]
   /** A hash of the template directory's files, when the config came from one (see hashTemplateDir) */
   contentHash?: string
+  /** The lookups the file declares with x- keys, when it declares any. */
+  lookups?: FormLookups
 }
 
 // ---------------------------------------------------------------------------

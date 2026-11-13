@@ -38,6 +38,7 @@ Template and [TemplateInline](/authoring/blocks/templateinline/) both render Boi
 
 - `inputsId` (string | string[]). ID of Inputs or Template block(s) to import variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones).
 - `target` (`"generated"` | `"worktree"`). Where template output is written. Defaults to `"generated"`, which writes to the generated files directory (`$GENERATED_FILES`). `"worktree"` writes into the active git worktree and requires a `<GitClone>` block to have run first. The active worktree is the one selected in the workspace's repository dropdown, which is the first repository added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until the user selects another.
+- `auth` (object). Binds each [lookup](#lookups) group the `boilerplate.yml` uses to an auth block, by id, such as `{{ google: "workspace" }}`.
 
 <Aside type="tip">
 Use `target="worktree"` to generate files into a cloned repository, for example to add new modules or configuration files to an existing repo.
@@ -166,6 +167,18 @@ account_id = "{{ .outputs.create_account.account_id }}"
 Runbooks scans template files for output references and disables the Generate button until all upstream blocks have run.
 
 For producing outputs, consuming them, dependency behavior, and ID naming rules, see [Block outputs](/authoring/inputs-and-outputs/#block-outputs).
+
+## Lookups
+
+A field can suggest values from an API, fill itself from one, or offer a button that does. Declare the lookups in the `boilerplate.yml` with [`x-` keys](/authoring/boilerplate/#lookups), and bind their groups to the runbook's auth blocks with `auth`:
+
+`````mdx
+<GoogleAuth id="workspace" scopes={["openid", "https://www.googleapis.com/auth/admin.directory.user.readonly"]} />
+
+<Template id="team" path="templates/team" auth={{ google: "workspace" }} />
+`````
+
+Until someone signs in at the bound block, the fields say so, and take typed values. In [simulation mode](/authoring/simulation-mode/), the runbook's `simulation.yml` answers the lookups.
 
 ## Complete example
 

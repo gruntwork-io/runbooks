@@ -21,9 +21,25 @@ import { ProgressStep } from "./ProgressStep"
 import type { BlockOutput } from "@/lib/templateUtils"
 import { ErrorReportingContext } from "@/contexts/ErrorReportingContext.types"
 import { useSensitiveInputNames } from "@/contexts/useRunbook"
+import type { Definitions, InputLookups } from "../../../../../../src/domain/lookups/types"
+import { LookupEngineContext, useLookupEngine } from "../hooks/useLookupEngine"
+import { Prefill } from "./lookups/Prefill"
+import { ShortcutButton } from "./lookups/ShortcutButton"
+import { SuggestInput } from "./lookups/SuggestInput"
 
 const NO_VARIABLES: BoilerplateVariable[] = []
 const NO_VALUES: Record<string, unknown> = {}
+const NO_BINDING: Readonly<Record<string, string>> = {}
+const NO_DEFINITIONS: Definitions = { groups: {}, lookups: {}, checks: {} }
+
+/** A string or number value as a text control shows it; anything else shows as empty. */
+const asText = (value: unknown): string =>
+  typeof value === "string" ? value : typeof value === "number" ? String(value) : ""
+
+const asStrings = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : [])
+
+const isEmpty = (value: unknown): boolean =>
+  value === undefined || value === null || value === "" || (Array.isArray(value) && !value.length)
 
 const quoted = (blockIds: string[]) => blockIds.map((blockId) => `"${blockId}"`).join(", ")
 
@@ -114,6 +130,11 @@ interface BoilerplateInputsFormProps {
    * the runbook's own.
    */
   defaults?: Record<string, unknown>
+  /**
+   * Binds each lookup group the form's boilerplate.yml uses to an auth block
+   * by id, such as `{ google: "workspace" }`.
+   */
+  auth?: Readonly<Record<string, string>>
 }
 
 /**
@@ -138,6 +159,8 @@ interface VariableFieldProps {
   links: FieldLinks
   /** Puts the runbook's value back. Undefined while the field has it, or can't be changed. */
   onReset?: (() => void) | undefined
+  /** The lookups that suggest the field's values, or set it from a button. */
+  lookups?: InputLookups | undefined
 }
 
 const VariableField: React.FC<VariableFieldProps> = ({
@@ -151,6 +174,7 @@ const VariableField: React.FC<VariableFieldProps> = ({
   readOnly,
   links,
   onReset,
+  lookups,
 }) => {
   const isBooleanType = variable.type === "bool"
   const disabled = readOnly !== undefined
@@ -192,18 +216,53 @@ const VariableField: React.FC<VariableFieldProps> = ({
           )}
         </div>
 
-        <FormControl
-          variable={variable}
-          value={value}
-          resolvedValue={resolvedValue}
-          error={error}
-          onChange={disabled ? () => {} : onChange}
-          onBlur={onBlur}
-          id={id}
-          disabled={disabled}
-          readOnlyLabel={readOnly}
-          links={links}
-        />
+        {lookups?.lookup && !disabled && !containsTemplateValue(value) ? (
+          variable.type === "list" ? (
+            <SuggestInput
+              id={`${id}-${variable.name}`}
+              multiple
+              lookup={lookups.lookup}
+              value={asStrings(value)}
+              onChange={onChange}
+              onBlur={onBlur}
+              error={error}
+              placeholder="Type to search, or enter a value"
+            />
+          ) : (
+            <SuggestInput
+              id={`${id}-${variable.name}`}
+              lookup={lookups.lookup}
+              value={asText(value)}
+              onChange={onChange}
+              onBlur={onBlur}
+              error={error}
+              placeholder="Type to search"
+            />
+          )
+        ) : (
+          <FormControl
+            variable={variable}
+            value={value}
+            resolvedValue={resolvedValue}
+            error={error}
+            onChange={disabled ? () => {} : onChange}
+            onBlur={onBlur}
+            id={id}
+            disabled={disabled}
+            readOnlyLabel={readOnly}
+            links={links}
+          />
+        )}
+
+        {lookups?.shortcut && !disabled && (
+          <ShortcutButton
+            shortcut={lookups.shortcut}
+            current={variable.type === "list" ? asStrings(value) : [asText(value)]}
+            onAdd={(added) =>
+              onChange(variable.type === "list" ? [...asStrings(value), added] : added)
+            }
+          />
+        )}
 
         {variable.description && (
           <p className={`text-sm text-muted-foreground ${isBooleanType ? "w-full" : ""}`}>
@@ -242,6 +301,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   unmetOutputDependencies = [],
   importedValues = NO_VALUES,
   defaults,
+  auth = NO_BINDING,
 }) => {
   // Default button text depends on mode
   const effectiveButtonText = submitButtonText ?? (isInlineMode ? "Submit" : "Generate")
@@ -268,6 +328,14 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     onAutoRender,
     enableAutoRender,
   )
+
+  // The form's lookups, sent through the auth blocks `auth` binds their groups to
+  const lookups = boilerplateConfig?.lookups
+  // A request reads the form's values, over those it imports.
+  const engine = useLookupEngine(lookups?.definitions ?? NO_DEFINITIONS, auth, {
+    ...importedValues,
+    ...formData,
+  })
 
   // What each linked (template) value comes to, shown in place of its tokens
   const resolvedValues = useResolvedTemplateValues(
@@ -467,6 +535,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           enter: (key, value) => enteredValues.enter(variable.name, key, value),
           reset: (key) => enteredValues.reset(variable.name, key),
         }}
+        lookups={lookups?.inputs[variable.name]}
         onReset={
           readOnly === undefined && changed
             ? () => enteredValues.replace(variable.name, defaultValue(variable))
@@ -551,73 +620,87 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         }`
 
   return (
-    <div className={containerClasses}>
-      {/* A form with its own Generate or Submit button is a step of the
+    <LookupEngineContext.Provider value={engine}>
+      <div className={containerClasses}>
+        {/* A form with its own Generate or Submit button is a step of the
           runbook, done while it shows its success styling */}
-      {shouldShowSubmitButton && <ProgressStep done={showSuccess} />}
+        {shouldShowSubmitButton && <ProgressStep done={showSuccess} />}
 
-      {/* ID label in top-right corner for standard variant */}
-      {variant === "standard" && (
-        <div className="absolute top-2 right-3">
-          <BlockIdLabel id={id} size="large" />
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="space-y-5">{sections.map(renderSection)}</div>
-
-        {shouldShowSubmitButton && (
-          <div className="pt-4 border-t border-border">
-            {!hasGenerated ? (
-              // Until the parent reports a successful generation: show the Generate button
-              <>
-                <Button
-                  type="submit"
-                  variant="default"
-                  disabled={isGenerating || isAutoRendering || unmetOutputDependencies.length > 0}
-                >
-                  {effectiveButtonText}
-                </Button>
-                {/* Show validation error summary near the button after a failed submit */}
-                {submitAttempted && Object.keys(shownErrors).length > 0 && (
-                  <p className="mt-3 text-sm text-destructive">
-                    {Object.keys(shownErrors).length === 1 ? (
-                      <>
-                        There is <strong>1 validation error</strong> above. Please fix it before
-                        generating.
-                      </>
-                    ) : (
-                      <>
-                        There are{" "}
-                        <strong>{Object.keys(shownErrors).length} validation errors</strong> above.
-                        Please fix them before generating.
-                      </>
-                    )}
-                  </p>
-                )}
-                {/* Show warning for unmet output dependencies below the button */}
-                {unmetOutputDependencies.length > 0 && (
-                  <div className="mt-3 -mb-3">
-                    <UnmetDependenciesWarning
-                      blockType="template"
-                      unmetInputDeps={[]}
-                      unmetOutputDeps={unmetOutputDependencies}
-                    />
-                  </div>
-                )}
-              </>
-            ) : (
-              // After first generation: show FormStatus instead of button
-              <FormStatus
-                isValid={formIsValid}
-                isUpdating={isAutoRendering}
-                isInlineMode={isInlineMode}
-                hasRenderError={hasRenderError}
-              />
-            )}
+        {/* ID label in top-right corner for standard variant */}
+        {variant === "standard" && (
+          <div className="absolute top-2 right-3">
+            <BlockIdLabel id={id} size="large" />
           </div>
         )}
-      </form>
-    </div>
+
+        {Object.entries(lookups?.inputs ?? {}).map(([name, uses]) => {
+          const variable = variablesByName.get(name)
+          if (!uses.prefill || !variable || variable.locked || sharedVarNames.has(name)) return null
+          return (
+            <Prefill
+              key={name}
+              prefill={uses.prefill}
+              empty={isEmpty(formData[name])}
+              onFill={(value) => handleInputChange(name, value)}
+            />
+          )
+        })}
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-5">{sections.map(renderSection)}</div>
+
+          {shouldShowSubmitButton && (
+            <div className="pt-4 border-t border-border">
+              {!hasGenerated ? (
+                // Until the parent reports a successful generation: show the Generate button
+                <>
+                  <Button
+                    type="submit"
+                    variant="default"
+                    disabled={isGenerating || isAutoRendering || unmetOutputDependencies.length > 0}
+                  >
+                    {effectiveButtonText}
+                  </Button>
+                  {/* Show validation error summary near the button after a failed submit */}
+                  {submitAttempted && Object.keys(shownErrors).length > 0 && (
+                    <p className="mt-3 text-sm text-destructive">
+                      {Object.keys(shownErrors).length === 1 ? (
+                        <>
+                          There is <strong>1 validation error</strong> above. Please fix it before
+                          generating.
+                        </>
+                      ) : (
+                        <>
+                          There are{" "}
+                          <strong>{Object.keys(shownErrors).length} validation errors</strong>{" "}
+                          above. Please fix them before generating.
+                        </>
+                      )}
+                    </p>
+                  )}
+                  {/* Show warning for unmet output dependencies below the button */}
+                  {unmetOutputDependencies.length > 0 && (
+                    <div className="mt-3 -mb-3">
+                      <UnmetDependenciesWarning
+                        blockType="template"
+                        unmetInputDeps={[]}
+                        unmetOutputDeps={unmetOutputDependencies}
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                // After first generation: show FormStatus instead of button
+                <FormStatus
+                  isValid={formIsValid}
+                  isUpdating={isAutoRendering}
+                  isInlineMode={isInlineMode}
+                  hasRenderError={hasRenderError}
+                />
+              )}
+            </div>
+          )}
+        </form>
+      </div>
+    </LookupEngineContext.Provider>
   )
 }

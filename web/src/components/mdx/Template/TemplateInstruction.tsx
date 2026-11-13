@@ -18,6 +18,7 @@ interface TemplateInstructionProps {
   path: string
   inputsId?: string | string[]
   target?: "generated" | "worktree"
+  auth?: Readonly<Record<string, string>>
 }
 
 /**
@@ -28,7 +29,13 @@ interface TemplateInstructionProps {
  * (`useApiBoilerplateRender`) is never invoked because this is a separate
  * component from the interactive Template.
  */
-export function TemplateInstruction({ id, path, inputsId, target }: TemplateInstructionProps) {
+export function TemplateInstruction({
+  id,
+  path,
+  inputsId,
+  target,
+  auth,
+}: TemplateInstructionProps) {
   const { registerInputs } = useRunbookContext()
   const inputs = useInputs(inputsId)
   const inputValues = useMemo(() => flattenInputs(inputs), [inputs])
@@ -136,6 +143,7 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
             sharedVarNames={sharedVarNames}
             liveVarValues={liveVarValues}
             importedValues={inputValues}
+            {...(auth ? { auth } : {})}
           />
 
           <CodeBlock>

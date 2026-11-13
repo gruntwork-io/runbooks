@@ -1,0 +1,22 @@
+# Test configuration for form-lookups
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  - name: happy-path
+    description: Values typed in place of lookups render the template
+    inputs:
+      owner.Owner: sam@example.com
+      owner.Reviewers: [ana@example.com]
+      team.TeamName: Platform
+      team.Domain: example.com
+      team.Lead: sam@example.com
+      team.Members: [ana@example.com, bo@example.com]
+    steps:
+      - block: owner
+      - block: team
