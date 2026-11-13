@@ -14,6 +14,7 @@ import { FinishedSessionNotice } from "./components/layout/FinishedSessionNotice
 import { SessionsDialog } from "./components/layout/SessionsDialog"
 import MDXContainer from "./components/MDXContainer"
 import { ArtifactsContainer } from "./components/layout/ArtifactsContainer"
+import { useWorkspaceReveal } from "./contexts/WorkspaceRevealContext"
 import { GeneratedFilesHistory } from "./components/layout/GeneratedFilesHistory"
 import { ViewContainerToggle } from "./components/layout/ViewContainerToggle"
 import { ResizeHandle } from "./components/ui/ResizeHandle"
@@ -226,6 +227,15 @@ function App() {
         setActiveMobileSection("code")
       }
     }
+  }
+
+  // A block that shows its files opens the panel beside the runbook. When the
+  // layout is narrow, the panel would take the runbook's place, so it stays put.
+  const { reveal } = useWorkspaceReveal()
+  const [prevRevealId, setPrevRevealId] = useState(reveal?.id)
+  if (reveal?.id !== prevRevealId) {
+    setPrevRevealId(reveal?.id)
+    if (reveal && isDesktopLayout) revealArtifacts()
   }
 
   // Delay showing the "show code" button to avoid awkward appearance during closing animation
