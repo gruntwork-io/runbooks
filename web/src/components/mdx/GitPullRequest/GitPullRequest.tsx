@@ -121,11 +121,6 @@ function GitPullRequestInteractive({
   }, [id, __registryType])
 
   const blockRef = useRef<HTMLDivElement>(null)
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
-    id,
-    __registryType,
-    blockRef,
-  )
   const { reportError, clearError } = useErrorReporting()
   const clone = useClone(gitCloneId, {
     id,
@@ -149,6 +144,15 @@ function GitPullRequestInteractive({
   const effectiveProvider =
     propProvider ?? authDerivedProvider ?? repoUrlDerivedProvider ?? "github"
   const cfg = PR_PROVIDERS[effectiveProvider]
+
+  // Registered with its clone and provider, so a block below can work on its pull request.
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    __registryType,
+    blockRef,
+    undefined,
+    { cloneId: clone.cloneId, provider: effectiveProvider },
+  )
 
   // Provider-aware display defaults
   const titleText = title ?? cfg.defaultTitle
@@ -557,8 +561,13 @@ function GitPullRequestInteractive({
     mergeConditionsError(__registryType, allowPullRequestMerge, allowPullRequestMergeConditions)
 
   // Early return for configuration errors (e.g. missing id prop)
+  // Kept on the page in the block's place, so the clones above it can still be found.
   if (configError) {
-    return <ErrorDisplay error={configError} />
+    return (
+      <div ref={blockRef}>
+        <ErrorDisplay error={configError} />
+      </div>
+    )
   }
 
   // If configuration error, don't render

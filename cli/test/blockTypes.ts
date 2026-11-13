@@ -27,6 +27,7 @@ export const BLOCK_TYPES = [
   "GitPullRequest",
   "GitHubPullRequest",
   "GitLabMergeRequest",
+  "GitCommitPush",
   "DirPicker",
   "Admonition",
   "Chapter",

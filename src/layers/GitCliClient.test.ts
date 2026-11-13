@@ -59,6 +59,19 @@ const runStageAll = (repoPath: string, excludePaths: string[] = []) =>
     }).pipe(Effect.provide(layer)),
   )
 
+// Stages the paths and commits only them, as Commit and push does.
+const runCommitPaths = (repoPath: string, paths: string[]) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const client = yield* GitClient
+      yield* client.stagePaths(repoPath, paths)
+      yield* client.commit(repoPath, "Chosen files", {
+        paths,
+        author: { name: "Runbooks", email: "runbooks@example.com" },
+      })
+    }).pipe(Effect.provide(layer)),
+  )
+
 const runInfo = (repoPath: string) =>
   Effect.runPromise(
     Effect.gen(function* () {
@@ -497,6 +510,47 @@ describe("GitCliClientLive.stageAll (real repo)", () => {
   })
 })
 
+describe("GitCliClientLive commit of chosen paths (real repo)", () => {
+  let repoPath: string
+
+  beforeEach(() => {
+    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitpaths-"))
+    git(repoPath, "init")
+    fs.writeFileSync(path.join(repoPath, "keep.txt"), "keep\n")
+    fs.writeFileSync(path.join(repoPath, "gone.txt"), "gone\n")
+    fs.writeFileSync(path.join(repoPath, "edited.txt"), "before\n")
+    git(repoPath, "add", ".")
+    git(repoPath, "commit", "-m", "initial")
+
+    fs.rmSync(path.join(repoPath, "gone.txt"))
+    fs.writeFileSync(path.join(repoPath, "edited.txt"), "after\n")
+    fs.mkdirSync(path.join(repoPath, "unit"))
+    fs.writeFileSync(path.join(repoPath, "unit", "[x]*.hcl"), "new\n")
+    fs.writeFileSync(path.join(repoPath, "unit", "x.hcl"), "left out\n")
+    fs.writeFileSync(path.join(repoPath, "staged.txt"), "staged\n")
+    git(repoPath, "add", "staged.txt")
+  })
+
+  afterEach(() => {
+    fs.rmSync(repoPath, { recursive: true, force: true })
+  })
+
+  it("commits a deletion and a new file, and leaves everything else as it was", async () => {
+    // "[x]*.hcl" is a glob that also matches x.hcl, so the path must be literal.
+    await runCommitPaths(repoPath, ["gone.txt", "unit/[x]*.hcl"])
+
+    expect(
+      gitOut(repoPath, "show", "--name-status", "--format=", "HEAD").trim().split("\n"),
+    ).toEqual(["D\tgone.txt", "A\tunit/[x]*.hcl"])
+    // What someone else staged is still staged, and the rest still unstaged.
+    expect(gitOut(repoPath, "status", "--porcelain").split("\n").filter(Boolean).sort()).toEqual([
+      " M edited.txt",
+      "?? unit/x.hcl",
+      "A  staged.txt",
+    ])
+  })
+})
+
 describe("GitCliClientLive.stageAll in a sparse checkout (real repo)", () => {
   // A GitClone with a repo path: a cone-mode sparse checkout of modules/vpc.
   // The blocks that run after it may still write anywhere in the checkout.
@@ -559,6 +613,15 @@ describe("GitCliClientLive.stageAll in a sparse checkout (real repo)", () => {
   it("stages every file a block wrote, inside the sparse checkout or not", async () => {
     await runStageAll(work)
     expect(staged()).toEqual(EVERY_CHANGE)
+  })
+
+  it("commits a chosen file outside the cone and only that file", async () => {
+    await runCommitPaths(work, ["modules/eks/main.tf"])
+
+    expect(gitOut(work, "show", "--name-status", "--format=", "HEAD").trim()).toBe(
+      "M\tmodules/eks/main.tf",
+    )
+    expect(staged()).toEqual([""])
   })
 
   it("stages them all when embedded repos are excluded too", async () => {

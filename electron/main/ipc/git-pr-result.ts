@@ -11,8 +11,12 @@
  * `{{ .outputs.<id>.PR_URL }}`. Output lookup is case-sensitive, so these must
  * not drift. For GitLab, `PR_ID` is the merge request iid.
  */
-export function prBlockOutputs(pr: { url: string; number: number }): Record<string, string> {
-  return { PR_ID: String(pr.number), PR_URL: pr.url }
+export function prBlockOutputs(pr: {
+  url: string
+  number: number
+  branch: string
+}): Record<string, string> {
+  return { PR_ID: String(pr.number), PR_URL: pr.url, BRANCH: pr.branch }
 }
 
 /**

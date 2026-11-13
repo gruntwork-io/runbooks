@@ -5,10 +5,13 @@ describe("prBlockOutputs", () => {
   // The names are what runbooks reference ({{ .outputs.<id>.PR_URL }}), and
   // output lookup is case-sensitive. Only MAIN picks them, so only a MAIN-side
   // test can catch a rename; a renderer test's mocked event supplies its own.
-  it("emits exactly the documented PR_ID and PR_URL outputs", () => {
-    expect(prBlockOutputs({ url: "https://github.com/o/r/pull/42", number: 42 })).toEqual({
+  it("emits exactly the documented PR_ID, PR_URL and BRANCH outputs", () => {
+    expect(
+      prBlockOutputs({ url: "https://github.com/o/r/pull/42", number: 42, branch: "runbook/1" }),
+    ).toEqual({
       PR_ID: "42",
       PR_URL: "https://github.com/o/r/pull/42",
+      BRANCH: "runbook/1",
     })
   })
 })

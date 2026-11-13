@@ -25,7 +25,7 @@ import {
   deleteBranch,
   createPullRequest,
   createMergeRequest,
-  pushPullRequestChanges,
+  commitAndPush,
   seedDefaultBranch,
   gitlabInstanceForRemoteUrl,
   unbornBranchName,
@@ -800,13 +800,14 @@ export function registerGitHandlers(): void {
           ? yield* resolveGitHubPushCredential(repoPath)
           : { token: yield* resolveGitLabTokenForRepo(repoPath, "pushing"), host: undefined }
 
-      yield* pushPullRequestChanges(
+      return yield* commitAndPush(
         token,
         provider,
         {
           repoPath,
           branch: params.branchName,
           commitMessage: params.commitMessage,
+          paths: params.paths,
           host,
         },
         sendLog,
@@ -817,7 +818,13 @@ export function registerGitHandlers(): void {
 
     if (Exit.isSuccess(exit)) {
       event.sender.send("git:status", { status: "success", exitCode: 0 })
-      return { ok: true as const }
+      const { branch, commitSha, committed } = exit.value
+      return {
+        ok: true as const,
+        branch,
+        committed,
+        ...(commitSha !== undefined ? { commitSha } : {}),
+      }
     }
 
     const message = failureMessage(exit.cause)
