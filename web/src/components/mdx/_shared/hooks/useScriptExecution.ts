@@ -11,6 +11,7 @@ import { useExecutableRegistry } from "@/hooks/useExecutableRegistry"
 import { useGeneratedFiles } from "@/hooks/useGeneratedFiles"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useLogs } from "@/contexts/useLogs"
+import { useSimulation } from "@/contexts/useSimulation"
 import { extractInlineInputsId } from "../lib/extractInlineInputsId"
 import { extractTemplateDependenciesFromString } from "@/lib/extractTemplateDependencies"
 import { computeSha256Hash } from "@/lib/hash"
@@ -51,6 +52,7 @@ import {
   GITHUB_AUTH_ENV_VARS,
   GOOGLE_AUTH_ENV_VARS,
 } from "../../../../../../src/domain/exec/authEnv.ts"
+import { scriptKey } from "../../../../../../src/domain/simulation/script.ts"
 import {
   parseBlockEnv,
   sameBlockEnv,
@@ -536,6 +538,11 @@ export function useScriptExecution({
   // Get all block outputs from context for auth credentials and sensitive outputs
   const allOutputs = useAllOutputs()
 
+  // A simulation that answers this block runs no script, so it needs no sign-in.
+  const simulation = useSimulation().state
+  const simulated =
+    simulation.enabled && (simulation.scripts ?? []).includes(scriptKey(componentId))
+
   // Get AWS auth credentials from outputs if awsAuthId is specified
   // These will be passed as per-execution env vars (overriding session env)
   const awsAuthEnvVars = useMemo((): Record<string, string> | undefined => {
@@ -570,8 +577,8 @@ export function useScriptExecution({
   }, [awsAuthId, allOutputs])
 
   const unmetAwsAuthDependency = useMemo(
-    () => checkAuthDependency(awsAuthId, awsAuthEnvVars, allOutputs),
-    [awsAuthId, awsAuthEnvVars, allOutputs],
+    () => (simulated ? null : checkAuthDependency(awsAuthId, awsAuthEnvVars, allOutputs)),
+    [simulated, awsAuthId, awsAuthEnvVars, allOutputs],
   )
   const hasAwsAuthDependency = unmetAwsAuthDependency === null
 
@@ -597,9 +604,11 @@ export function useScriptExecution({
   // result drives the existing UnmetGitHubAuthDependency UI.
   const unmetGitHubAuthDependency = useMemo(
     () =>
-      checkAuthDependency(githubAuthId, githubAuthEnvVars, allOutputs) ??
-      checkAuthDependency(gitAuthId, gitAuthEnvVars, allOutputs),
-    [githubAuthId, githubAuthEnvVars, gitAuthId, gitAuthEnvVars, allOutputs],
+      simulated
+        ? null
+        : (checkAuthDependency(githubAuthId, githubAuthEnvVars, allOutputs) ??
+          checkAuthDependency(gitAuthId, gitAuthEnvVars, allOutputs)),
+    [simulated, githubAuthId, githubAuthEnvVars, gitAuthId, gitAuthEnvVars, allOutputs],
   )
   const hasGitHubAuthDependency = unmetGitHubAuthDependency === null
 
@@ -610,8 +619,9 @@ export function useScriptExecution({
   )
 
   const unmetGoogleAuthDependency = useMemo(
-    () => checkAuthDependency(googleAuthId, googleAuthEnvVars, allOutputs, true),
-    [googleAuthId, googleAuthEnvVars, allOutputs],
+    () =>
+      simulated ? null : checkAuthDependency(googleAuthId, googleAuthEnvVars, allOutputs, true),
+    [simulated, googleAuthId, googleAuthEnvVars, allOutputs],
   )
   const hasGoogleAuthDependency = unmetGoogleAuthDependency === null
 

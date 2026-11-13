@@ -4,6 +4,7 @@ import { renderHook, act, cleanup } from "@testing-library/react"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import { RunbookContextProvider } from "@/contexts/RunbookContext"
 import { useRunbookContext, type TemplateValue } from "@/contexts/useRunbook"
+import { SimulationContext } from "@/contexts/SimulationContext.types"
 import { SENSITIVE_DISPLAY_RENDER_NOTE, useScriptExecution } from "../useScriptExecution"
 import {
   isSensitiveOutput,
@@ -203,6 +204,57 @@ describe("useScriptExecution — auth gates", () => {
     )
     expect(result.current.exec.hasGitHubAuthDependency).toBe(false)
     expect(result.current.exec.unmetGitHubAuthDependency).toEqual({ blockId: "git" })
+  })
+})
+
+describe("useScriptExecution — simulation", () => {
+  const simulating = (scripts: string[]) =>
+    function SimulatingProviders({ children }: { children: ReactNode }) {
+      return createElement(
+        SimulationContext.Provider,
+        {
+          value: {
+            state: { enabled: true, scenarios: [], active: "happy-path", scripts },
+            setScenario: () => {},
+            revision: 0,
+          },
+        },
+        createElement(Providers, null, children),
+      )
+    }
+  const props: Props = {
+    command: "aws sts get-caller-identity",
+    awsAuthId: "aws",
+    googleAuthId: "gcp",
+    githubAuthId: "gh",
+  }
+
+  it("needs no sign-in for a block the scenario runs", () => {
+    const { result } = renderHook(
+      () => useScriptExecution({ componentId: "target", componentType: "check", ...props }),
+      { wrapper: simulating(["target"]) },
+    )
+    expect(result.current.hasAwsAuthDependency).toBe(true)
+    expect(result.current.hasGoogleAuthDependency).toBe(true)
+    expect(result.current.hasGitHubAuthDependency).toBe(true)
+  })
+
+  it("needs no sign-in for a block whose id the scenario spells with _ for -", () => {
+    const { result } = renderHook(
+      () => useScriptExecution({ componentId: "set-settings", componentType: "check", ...props }),
+      { wrapper: simulating(["set_settings"]) },
+    )
+    expect(result.current.hasAwsAuthDependency).toBe(true)
+  })
+
+  it("still needs its sign-ins for a block the scenario doesn't answer", () => {
+    const { result } = renderHook(
+      () => useScriptExecution({ componentId: "target", componentType: "check", ...props }),
+      { wrapper: simulating(["other"]) },
+    )
+    expect(result.current.unmetAwsAuthDependency).toEqual({ blockId: "aws" })
+    expect(result.current.hasGoogleAuthDependency).toBe(false)
+    expect(result.current.hasGitHubAuthDependency).toBe(false)
   })
 })
 

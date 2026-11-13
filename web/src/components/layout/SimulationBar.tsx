@@ -19,9 +19,10 @@ export function SimulationBar() {
         <FlaskConical className="size-4 text-warning" aria-hidden />
         <span className="font-semibold text-foreground">Simulation</span>
         <span className="text-muted-foreground">
-          Lookups, checks and Terragrunt runs answer from simulation.yml. GitHub and GitLab sign-ins
-          and clones are real, since they only read. Anything else that would reach a real system,
-          such as a script, a push or a pull request, is refused.
+          Lookups, checks, Terragrunt runs and the scripts the scenario names answer from
+          simulation.yml. GitHub and GitLab sign-ins and clones are real, since they only read.
+          Anything else that would reach a real system, such as another script, a push or a pull
+          request, is refused.
         </span>
         {state.scenarios.length > 0 && (
           <label className="ml-auto flex items-center gap-2">
@@ -51,6 +52,12 @@ export function SimulationBar() {
         )}
       </div>
       {active?.description && <p className="mt-1 text-muted-foreground">{active.description}</p>}
+      {state.unmatchedScripts && state.unmatchedScripts.length > 0 && (
+        <p className="mt-1 text-destructive">
+          The scenario answers scripts no block on this page has:{" "}
+          {state.unmatchedScripts.join(", ")}. Check each id against the runbook.
+        </p>
+      )}
       {state.error && <p className="mt-1 text-destructive">{state.error}</p>}
     </div>
   )

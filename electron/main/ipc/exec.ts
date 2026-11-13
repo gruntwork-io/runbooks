@@ -23,6 +23,9 @@ import { PathRefreshError } from "../../../src/errors/index.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 import type { IpcEventMap } from "../../shared/channels.ts"
 import { readLoginShellPath } from "../shell-env.ts"
+import { simulatedScript } from "./simulation.ts"
+import { simulatedStatus } from "../../../src/domain/simulation/script.ts"
+import { SIMULATION_FILE } from "../../../src/domain/simulation/file.ts"
 import { makeLogger } from "../logger.ts"
 
 const log = makeLogger("ipc:exec")
@@ -150,6 +153,31 @@ export function registerExecHandlers(): void {
               executable.env,
               (params.templateVarValues ?? {}) as Record<string, unknown>,
             )
+
+            // A simulation answers a block's script in place of running it, and
+            // refuses one its scenario doesn't answer.
+            const simulated = isPrerequisites
+              ? undefined
+              : yield* simulatedScript(executable.componentId)
+            if (simulated) {
+              const { script, scenario } = simulated
+              const outputs = yield* renderBlockEnv(
+                script.outputs,
+                (params.templateVarValues ?? {}) as Record<string, unknown>,
+              )
+              if (script.delayMs > 0) yield* Effect.sleep(script.delayMs)
+              const lines = [
+                `Simulated by scenario "${scenario}" in ${SIMULATION_FILE}.`,
+                ...script.log,
+              ]
+              for (const line of lines) {
+                send("exec:log", { line, timestamp: new Date().toISOString() })
+              }
+              const status = simulatedStatus(script)
+              // Like a script that fails, a simulated failure publishes no outputs.
+              const published = status.status === "fail" ? {} : outputs
+              return { status, outputs: encodeOutputs(published) }
+            }
 
             const workTreePath = sessionManager.getActiveWorkTreePath()
             const outputPath = (yield* resolveGeneratedDir()).absolutePath
