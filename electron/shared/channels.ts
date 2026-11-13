@@ -1171,20 +1171,16 @@ export type TfModuleCode =
 
 export interface TfModuleGenerateRequest extends TfModuleRenderRequest {
   /**
-   * The files the last generate wrote, by path relative to the checkout, with
-   * the SHA-256 of what it wrote, to remove when this one doesn't write them.
+   * The files the last generate wrote, by path relative to the checkout. They
+   * are removed before this one writes, so the checkout holds only its code.
    */
-  replaces?: Record<string, string> | undefined
+  replaces?: string[] | undefined
 }
 
 export interface TfModuleGenerated {
   code: TfModuleCode
   /** Paths, relative to the checkout, that it wrote; none without a checkout. */
   written: string[]
-  /** The SHA-256 of each file it wrote, by path. */
-  fingerprints: Record<string, string>
-  /** Files an earlier generate wrote that this one doesn't, kept because they changed since. */
-  kept: string[]
 }
 
 /** The unit a <TerragruntApply> block runs, and the credentials it runs with. */
