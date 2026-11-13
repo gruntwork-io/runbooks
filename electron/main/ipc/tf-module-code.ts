@@ -3,7 +3,6 @@
  * renders with the block's inputs to use the module, written to the
  * repository's checkout when the block generates it.
  */
-import { createHash } from "node:crypto"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
@@ -194,70 +193,84 @@ export const renderCode = (request: TfModuleRenderRequest) =>
         ...code,
       }))
 
-const sha256 = (content: string | Buffer) => createHash("sha256").update(content).digest("hex")
-
 /**
  * Writes the block's unit to its folder in the repository's checkout: the
- * code the Code tab shows there, pointing at the module's pinned source.
- * Removes the files in `replaces`, ones written before for other inputs, that
- * it doesn't write now, unless they changed since, which it keeps. Returns
- * the code, the paths it wrote, relative to the checkout, with what it wrote
- * in each, and the files it kept.
+ * code the Code tab shows there, pointing at the module's pinned source, in
+ * place of what the last generate wrote (see replaceFiles). Returns the code
+ * and the paths it wrote, relative to the checkout.
  */
 export const writeUnit = (
   ref: TfModuleCodeRef,
   values: Record<string, unknown>,
   repo: TfModuleRepo,
   worktree: string,
-  replaces: Readonly<Record<string, string>> = {},
+  replaces: readonly string[] = [],
 ) =>
   Effect.gen(function* () {
     const code = yield* renderInRepo(ref, values, { ...repo, worktreePath: worktree })
-    const files = unitFilesOf(code)
-    yield* writeFiles(path.join(worktree, code.folder), files)
-    const written = files.map((file) => `${code.folder}/${file.path}`)
-    const fingerprints = Object.fromEntries(
-      files.map((file) => [`${code.folder}/${file.path}`, sha256(file.content)]),
-    )
-    const stale = Object.entries(replaces).filter(([file]) => !written.includes(file))
-    const kept = yield* Effect.tryPromise({
-      try: () => removeStaleFiles(worktree, stale),
-      catch: (cause) => fail(`Couldn't remove the old code: ${describeFailure(cause)}`),
-    })
-    return { code, written, fingerprints, kept }
+    const written = yield* replaceFiles(worktree, code.folder, unitFilesOf(code), replaces)
+    return { code, written }
   })
 
 /**
- * Removes files under `root`, by their paths relative to it, and the folders
- * they leave empty. A file whose content no longer has the SHA-256 it was
- * written with was changed since, by hand or by another tool, so it's kept.
- * Returns the paths it kept.
+ * Writes `files` to `folder` in the checkout after removing the files in
+ * `replaces`, the ones the last generate wrote, so the checkout holds only
+ * the new code: an edit to a generated file is replaced too, and a rename
+ * that changes only letter case takes effect on a case-insensitive disk,
+ * where the old and new paths name the same file. Returns the paths written,
+ * relative to the checkout.
  */
-export async function removeStaleFiles(
+export const replaceFiles = (
+  worktree: string,
+  folder: string,
+  files: readonly UnitFile[],
+  replaces: readonly string[],
+) =>
+  Effect.gen(function* () {
+    const written = files.map((file) => `${folder}/${file.path}`)
+    yield* Effect.tryPromise({
+      try: () => removeWrittenFiles(worktree, replaces, foldersOf(written)),
+      catch: (cause) => fail(`Couldn't remove the old code: ${describeFailure(cause)}`),
+    })
+    yield* writeFiles(path.join(worktree, folder), files)
+    return written
+  })
+
+/** Every folder that holds one of `files`, by its path relative to the checkout, ancestors included. */
+const foldersOf = (files: readonly string[]) =>
+  new Set(
+    files.flatMap((file) => {
+      const parts = file.split("/").slice(0, -1)
+      return parts.map((_, i) => parts.slice(0, i + 1).join("/"))
+    }),
+  )
+
+/** What a plan leaves in a unit's folder, removed with the unit when it moves. */
+const PLAN_LEFTOVERS = new Set([".terraform.lock.hcl", ".terraform", ".terragrunt-cache"])
+
+/**
+ * Removes files under `root`, by their paths relative to it, then each folder
+ * they leave holding nothing but what a plan leaves there. A folder in
+ * `keep`, one the new code goes to, stays with what's in it.
+ */
+export async function removeWrittenFiles(
   root: string,
-  files: readonly (readonly [string, string])[],
-): Promise<string[]> {
+  files: readonly string[],
+  keep: ReadonlySet<string> = new Set(),
+): Promise<void> {
   const base = path.resolve(root)
-  const kept: string[] = []
-  for (const [file, fingerprint] of files) {
+  for (const file of files) {
     const target = path.resolve(base, file)
     if (!target.startsWith(base + path.sep)) continue
-    const content = await fs.readFile(target).catch(() => undefined)
-    if (content === undefined) continue
-    if (sha256(content) !== fingerprint) {
-      kept.push(file)
-      continue
-    }
     await fs.rm(target, { force: true })
     let dir = path.dirname(target)
-    while (dir !== base) {
-      const left = await fs.readdir(dir).catch(() => ["unreadable"])
-      if (left.length > 0) break
-      await fs.rmdir(dir)
+    while (dir !== base && !keep.has(path.relative(base, dir).split(path.sep).join("/"))) {
+      const left = await fs.readdir(dir).catch(() => undefined)
+      if (left === undefined || !left.every((name) => PLAN_LEFTOVERS.has(name))) break
+      await fs.rm(dir, { recursive: true, force: true })
       dir = path.dirname(dir)
     }
   }
-  return kept
 }
 
 /**
@@ -270,8 +283,6 @@ const generateCode = (request: TfModuleGenerateRequest) =>
       return {
         code: yield* renderCode(request),
         written: [],
-        fingerprints: {},
-        kept: [],
       } satisfies TfModuleGenerated
     }
     const worktree = yield* validateSessionPath(request.repo.worktreePath)
