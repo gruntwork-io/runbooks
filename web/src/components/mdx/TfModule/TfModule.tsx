@@ -494,8 +494,8 @@ type GenerationState =
  */
 function useGenerator(api: ReturnType<typeof useApi>) {
   const [state, setState] = useState<GenerationState>({ kind: "idle" })
-  // What the last generate wrote in each file, so the next one removes only files left as they were.
-  const written = useRef<Record<string, string>>({})
+  // The files the last generate wrote, which the next one removes before writing its own.
+  const written = useRef<string[]>([])
   const seq = useRef(0)
   // The request the last generate was for, so the same one isn't written twice.
   const [lastKey, setLastKey] = useState<string | undefined>(undefined)
@@ -517,7 +517,7 @@ function useGenerator(api: ReturnType<typeof useApi>) {
         ...request,
         replaces: written.current,
       })
-      if (result.written.length > 0) written.current = result.fingerprints
+      if (result.written.length > 0) written.current = result.written
       if (mine !== seq.current) return undefined
       setState({ kind: "generated", result, inputs: inputsKey(request.values) })
       return result
@@ -565,7 +565,7 @@ function Generation({
       </p>
     )
   }
-  const { code, kept } = result
+  const { code } = result
   const paths =
     result.written.length > 0
       ? result.written
@@ -589,25 +589,6 @@ function Generation({
           <li key={p}>{p}</li>
         ))}
       </ul>
-      {kept.length > 0 && (
-        <div
-          className="mt-2 rounded-md border border-warning/30 bg-warning-muted p-3 text-warning-foreground"
-          role="status"
-        >
-          <p className="m-0 flex items-center gap-1.5 font-medium">
-            <TriangleAlert className="size-4" />
-            Kept {kept.length === 1 ? "a file" : "files"} the code no longer needs, since{" "}
-            {kept.length === 1 ? "it" : "they"} changed after the block wrote{" "}
-            {kept.length === 1 ? "it" : "them"}. Delete {kept.length === 1 ? "it" : "them"} if you
-            don't need {kept.length === 1 ? "it" : "them"}:
-          </p>
-          <ul className="m-0 mt-1 list-none pl-0 font-mono text-xs">
-            {kept.map((p) => (
-              <li key={p}>{p}</li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   )
 }

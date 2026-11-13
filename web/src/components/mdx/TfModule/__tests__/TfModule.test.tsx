@@ -114,8 +114,6 @@ const GENERATED = {
     rootHcl: true,
   },
   written: ["groups/platform/terragrunt.hcl"],
-  fingerprints: { "groups/platform/terragrunt.hcl": "abc123" },
-  kept: [] as string[],
 }
 let generated = GENERATED
 let generateError: Error | null = null
@@ -324,7 +322,7 @@ describe("TfModule", () => {
           "tf-module:generate",
           expect.objectContaining({
             values: expect.objectContaining({ display_name: "Platform" }),
-            replaces: { "groups/platform/terragrunt.hcl": "abc123" },
+            replaces: ["groups/platform/terragrunt.hcl"],
           }),
         ),
       { timeout: 2000 },
@@ -345,16 +343,6 @@ describe("TfModule", () => {
     const generates = invoke.mock.calls.filter(([channel]) => channel === "tf-module:generate")
     expect(generates).toHaveLength(2)
     expect(generates[1]?.[1]).toEqual(generates[0]?.[1])
-  })
-
-  it("lists files it kept because they changed after it wrote them", async () => {
-    generated = { ...GENERATED, kept: ["groups/old/terragrunt.hcl"] }
-    renderBlock()
-    fireEvent.change(input("domain"), { target: { value: "example.com" } })
-    fireEvent.change(input("group_name"), { target: { value: "platform" } })
-    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
-    expect(await screen.findByText("groups/old/terragrunt.hcl")).toBeInTheDocument()
-    expect(screen.getByRole("status")).toHaveTextContent(/changed after the block wrote it/)
   })
 
   it("keeps the last valid inputs published while one needs a fix", async () => {
