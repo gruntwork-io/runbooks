@@ -65,6 +65,16 @@ function SourceBlock({ id }: { id: string }) {
   )
 }
 
+/** Stands in for a block that produces outputs, such as one that creates an account. */
+function OutputsBlock({ id, outputs }: { id: string; outputs: Record<string, string> }) {
+  const { registerOutputs } = useRunbookContext()
+  return (
+    <button type="button" onClick={() => registerOutputs(id, outputs)}>
+      Run {id}
+    </button>
+  )
+}
+
 beforeEach(() => {
   installApi(() => {
     throw new Error("no IPC expected")
@@ -103,6 +113,53 @@ describe("AwsAuth — rendering", () => {
     expect(screen.queryByPlaceholderText("AKIAIOSFODNN7EXAMPLE")).toBeNull()
   })
 
+  it("waits for the outputs its SSO props read, then signs in to the account they name", async () => {
+    renderBlock(
+      <>
+        <OutputsBlock id="account" outputs={{ account_id: "222222222222" }} />
+        <AwsAuth
+          id="new-account"
+          detectCredentials={false}
+          defaultTab="sso"
+          ssoStartUrl="https://acme.awsapps.com/start"
+          ssoAccountId="{{ .outputs.account.account_id }}"
+          ssoRoleName="AdministratorAccess"
+        />
+      </>,
+    )
+
+    expect(screen.getByText(/Waiting for outputs from/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Sign in with SSO" })).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Run account" }))
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Sign in with SSO" })).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/Waiting for outputs from/)).toBeNull()
+  })
+
+  it("refuses a sign-in prop it can't resolve to a value, once its outputs are there", async () => {
+    renderBlock(
+      <>
+        <OutputsBlock id="account" outputs={{ account_id: "222222222222" }} />
+        <AwsAuth
+          id="new-account"
+          detectCredentials={false}
+          defaultTab="sso"
+          ssoStartUrl="https://acme.awsapps.com/start"
+          ssoAccountId="{{ .outputs.account.account_id | trim }}"
+        />
+      </>,
+    )
+    expect(screen.queryByText(/can't be resolved/)).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Run account" }))
+
+    expect(await screen.findByText(/ssoAccountId prop can't be resolved/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Sign in with SSO" })).toBeNull()
+  })
+
   it("renders custom title", () => {
     renderBlock(<AwsAuth id="test-aws" detectCredentials={false} title="Connect to AWS" />)
     expect(screen.getByText("Connect to AWS")).toBeInTheDocument()
@@ -132,6 +189,36 @@ describe("AwsAuth — rendering", () => {
 })
 
 describe("AwsAuth — detection", () => {
+  it("checks for credentials once the outputs its props read are there, in its own region", async () => {
+    installApi((channel) => {
+      if (channel === "aws:env-credentials") return { found: false }
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    renderBlock(
+      <>
+        <OutputsBlock id="account" outputs={{ account_id: "222222222222" }} />
+        <AwsAuth
+          id="new-account"
+          defaultRegion="us-gov-west-1"
+          ssoAccountId="{{ .outputs.account.account_id }}"
+        />
+      </>,
+    )
+
+    expect(screen.getByText(/Waiting for outputs from/)).toBeInTheDocument()
+    expect(screen.queryByText("Checking for existing credentials...")).toBeNull()
+    expect(invoke).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Run account" }))
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "aws:env-credentials",
+        expect.objectContaining({ defaultRegion: "us-gov-west-1" }),
+      ),
+    )
+  })
+
   it("waits for a block source that has not run, then prompts once it has", async () => {
     installApi((channel) => {
       if (channel === "aws:validate") return { valid: true, ...IDENTITY }
