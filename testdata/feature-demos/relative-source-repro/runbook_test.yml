@@ -1,0 +1,16 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  - name: happy-path
+    description: A script sources a helper from the runbook's folder by relative path
+
+    assertions:
+      - type: output_equals
+        block: greet
+        output: message
+        value: hello from lib.sh
