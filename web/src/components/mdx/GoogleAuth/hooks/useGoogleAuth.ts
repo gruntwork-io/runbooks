@@ -2222,7 +2222,11 @@ export function useGoogleAuth({
     manualHint:
       detectCredentials === false
         ? null
-        : signInHint({ invalidDetected: detectionWarning !== null, nothingDetected }),
+        : signInHint({
+            invalidDetected: detectionWarning !== null,
+            nothingDetected,
+            signInFailed: authStatus === "failed",
+          }),
 
     // Service-account tab
     serviceAccountKey,

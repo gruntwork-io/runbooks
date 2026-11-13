@@ -582,6 +582,27 @@ describe("useGoogleAuth — detection", () => {
   })
 })
 
+describe("useGoogleAuth — the hint after a failed sign-in", () => {
+  it("asks to fix the credentials rather than saying none were found", async () => {
+    installApi((channel) =>
+      channel === "google:validate-credentials"
+        ? { valid: false, error: "These credentials are missing required OAuth scopes: x." }
+        : { found: false },
+    )
+
+    const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: ["env"] })
+    await waitFor(() => expect(result.current.detectionStatus).toBe("done"))
+    expect(result.current.manualHint).toBe("No existing credentials found. Sign in below.")
+
+    act(() => result.current.setServiceAccountKey('{"type":"service_account"}'))
+    await act(async () => {
+      result.current.handleServiceAccountSubmit()
+    })
+    await waitFor(() => expect(result.current.authStatus).toBe("failed"))
+    expect(result.current.manualHint).toBe("Fix the credentials, or sign in below.")
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Tab 1 — service account key
 // ---------------------------------------------------------------------------

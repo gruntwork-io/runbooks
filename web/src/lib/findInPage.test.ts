@@ -199,7 +199,12 @@ describe("scrollRangeIntoView", () => {
       clientWidth: { value: 1000 },
       scrollHeight: { value: 3000 },
       scrollWidth: { value: 1000 },
-      scrollTop: { get: () => scrollTop, set: (value: number) => (scrollTop = value) },
+      scrollTop: {
+        get: () => scrollTop,
+        set: (value: number) => {
+          scrollTop = value
+        },
+      },
     })
     scroller.getBoundingClientRect = () => box(76, 0, 1000, 400)
     const range = findTextRanges(root, "needle")[0]!
