@@ -1,5 +1,5 @@
 /**
- * Whether a <GitHubPullRequest> block with `allowMerge` can merge its pull
+ * Whether a <GitHubPullRequest> block with `allowPullRequestMerge` can merge its pull
  * request, and with which method, from what GitHub says about the pull
  * request and the repository. GitHub's own rules, branch protection
  * included, decide; this only says what they decided, in words.

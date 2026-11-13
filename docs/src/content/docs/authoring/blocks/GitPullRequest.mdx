@@ -102,7 +102,9 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) block (either provider). The block waits for authentication to complete and uses its token/provider for this execution. |
 | `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. GitHub only. Prefer `gitAuthId`. |
 | `gitCloneId` | `string` | No | The [`<GitClone>`](/authoring/blocks/gitclone) block whose clone holds the changes. Without it, the block uses the runbook's only `<GitClone>` block, or the nearest one above it. See [Prerequisites](#prerequisites). |
-| `allowMerge` | `boolean` | No | Shows a **Merge** button once GitHub says the pull request can merge. GitHub only. Defaults to `false`. See [Merging](#merging). |
+| `allowPullRequestMerge` | `boolean` | No | Shows a **Merge** button once GitHub says the pull request can merge. GitHub only. Defaults to `false`. See [Merging](#merging). |
+| `allowPullRequestMergeConditions` | `string[]` | No | Conditions that must also hold before **Merge** is enabled, by keyword. Needs `allowPullRequestMerge`. See [Merge conditions](#merge-conditions). |
+| `changedFilesExpanded` | `boolean` | No | Whether the list of changed files starts open. Defaults to `false`, so it starts as a one-line toggle. |
 | `prefilledPullRequestTitle` | `string` | No | Pre-fills the title field. Supports template expressions. |
 | `prefilledPullRequestDescription` | `string` | No | Pre-fills the description field. Supports template expressions, markdown, and `\n` for newlines. |
 | `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
@@ -139,19 +141,37 @@ Under the form, the block lists every file that changed in the clone, as a tree 
 
 ### Merging
 
-With `allowMerge`, the block shows a **Merge** button under the pull request once it's open. The block asks GitHub whether the pull request can merge when it opens and every 15 seconds after, and **Check again** asks right away. The button merges with the first method the repository allows, in GitHub's order: a merge commit, then squash, then rebase. It reads **Merge**, **Squash and merge** or **Rebase and merge** to match.
+With `allowPullRequestMerge`, the block shows a **Merge** button under the pull request once it's open. The block asks GitHub whether the pull request can merge when it opens and every 15 seconds after, and **Check again** asks right away. The button merges with the first method the repository allows, in GitHub's order: a merge commit, then squash, then rebase. It reads **Merge**, **Squash and merge** or **Rebase and merge** to match.
 
 GitHub's rules decide, branch protection included. While a required review or check is missing, the base branch has moved on and must be merged in first, the pull request conflicts with its base, or it's a draft, the button stays disabled and the block says why. Once merged, it shows the merge commit, and **Git Push** is disabled.
 
-Without `allowMerge`, the block links to the pull request, and it's merged on GitHub. On GitLab, `allowMerge` is a configuration error.
+Without `allowPullRequestMerge`, the block links to the pull request, and it's merged on GitHub. On GitLab, `allowPullRequestMerge` is a configuration error.
 
 ```mdx
 <GitHubPullRequest
   id="open-pr"
   gitAuthId="git-auth"
-  allowMerge
+  allowPullRequestMerge
 />
 ```
+
+#### Merge conditions
+
+`allowPullRequestMergeConditions` adds conditions of the runbook's own, on top of GitHub's. Each is a keyword for a check built into the block. While one doesn't hold, **Merge** stays disabled and the block says why.
+
+| Condition | Holds when |
+|-----------|------------|
+| `no-uncommitted-changes` | The clone has no changes left to commit, so everything the runbook wrote is in the pull request. |
+
+```mdx
+<GitHubPullRequest
+  id="open-pr"
+  allowPullRequestMerge
+  allowPullRequestMergeConditions={["no-uncommitted-changes"]}
+/>
+```
+
+A keyword the block doesn't know, or conditions without `allowPullRequestMerge`, is a configuration error.
 
 ### Git Push
 

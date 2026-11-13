@@ -114,7 +114,7 @@ describe("GitPullRequest clone and merge", () => {
     prResult = null
     mergeStates = []
     invoke.mockClear()
-    changesFor.mockClear()
+    changesFor.mockReset()
   })
 
   it("works in the active repository when the runbook has no GitClone block", async () => {
@@ -161,12 +161,14 @@ describe("GitPullRequest clone and merge", () => {
     expect(changesFor).not.toHaveBeenCalledWith("/clones/infra-modules")
   })
 
-  it("refuses allowMerge on GitLab", async () => {
-    renderBlock({ provider: "gitlab", allowMerge: true })
-    expect(await screen.findByText(/allowMerge works with GitHub only/)).toBeInTheDocument()
+  it("refuses allowPullRequestMerge on GitLab", async () => {
+    renderBlock({ provider: "gitlab", allowPullRequestMerge: true })
+    expect(
+      await screen.findByText(/allowPullRequestMerge works with GitHub only/),
+    ).toBeInTheDocument()
   })
 
-  it("shows no Merge button without allowMerge", async () => {
+  it("shows no Merge button without allowPullRequestMerge", async () => {
     prResult = { prUrl: "https://github.com/acme/infra-live/pull/7", prNumber: 7, branchName: "b" }
     renderBlock()
     expect(await screen.findByText(/opened successfully/)).toBeInTheDocument()
@@ -185,7 +187,7 @@ describe("GitPullRequest clone and merge", () => {
         reason: "Needs a review.",
       },
     ]
-    renderBlock({ allowMerge: true })
+    renderBlock({ allowPullRequestMerge: true })
     expect(await screen.findByText("Needs a review.")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Squash and merge/ })).toBeDisabled()
     expect(calls("git:pr-merge-state")[0]![1]).toEqual({
@@ -207,7 +209,7 @@ describe("GitPullRequest clone and merge", () => {
         warning: "Some checks aren't done.",
       },
     ]
-    renderBlock({ allowMerge: true })
+    renderBlock({ allowPullRequestMerge: true })
     const button = await screen.findByRole("button", { name: /^Merge$/ })
     await waitFor(() => expect(button).toBeEnabled())
     expect(screen.getByText("Some checks aren't done.")).toBeInTheDocument()
@@ -227,5 +229,64 @@ describe("GitPullRequest clone and merge", () => {
       ],
     ])
     expect(screen.getByRole("button", { name: "Git Push" })).toBeDisabled()
+  })
+
+  it("refuses a merge condition it doesn't know", async () => {
+    renderBlock({
+      allowPullRequestMerge: true,
+      allowPullRequestMergeConditions: ["checks-green"],
+    })
+    expect(
+      await screen.findByText(/names "checks-green", which isn't a condition it knows/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/The conditions are: no-uncommitted-changes/)).toBeInTheDocument()
+  })
+
+  it("refuses merge conditions without allowPullRequestMerge", async () => {
+    renderBlock({ allowPullRequestMergeConditions: ["no-uncommitted-changes"] })
+    expect(
+      await screen.findByText(/allowPullRequestMergeConditions needs allowPullRequestMerge/),
+    ).toBeInTheDocument()
+  })
+
+  it("keeps Merge disabled while no-uncommitted-changes doesn't hold, though GitHub says it can merge", async () => {
+    prResult = { prUrl: "https://github.com/acme/infra-live/pull/7", prNumber: 7, branchName: "b" }
+    mergeStates = [{ state: "open", mergeability: "ready", headSha: "head1", method: "merge" }]
+    changesFor.mockReturnValue({ ...changesFor(undefined), totalChanges: 2 })
+    renderBlock({
+      allowPullRequestMerge: true,
+      allowPullRequestMergeConditions: ["no-uncommitted-changes"],
+    })
+    expect(
+      await screen.findByText(
+        "2 files aren't committed yet. Push them to the pull request before merging.",
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /^Merge$/ })).toBeDisabled()
+  })
+
+  it("enables Merge once no-uncommitted-changes holds", async () => {
+    prResult = { prUrl: "https://github.com/acme/infra-live/pull/7", prNumber: 7, branchName: "b" }
+    mergeStates = [{ state: "open", mergeability: "ready", headSha: "head1", method: "merge" }]
+    renderBlock({
+      allowPullRequestMerge: true,
+      allowPullRequestMergeConditions: ["no-uncommitted-changes"],
+    })
+    const button = await screen.findByRole("button", { name: /^Merge$/ })
+    await waitFor(() => expect(button).toBeEnabled())
+    expect(screen.queryByText(/committed yet/)).not.toBeInTheDocument()
+  })
+
+  it("starts the changed files closed, or open with changedFilesExpanded", () => {
+    changesFor.mockReturnValue({
+      ...changesFor(undefined),
+      totalChanges: 1,
+      changes: [{ path: "a.tf", changeType: "added", additions: 1, deletions: 0 }] as never[],
+    })
+    const { unmount } = renderBlock()
+    expect(screen.queryByTestId("pr-changed-files")).not.toBeInTheDocument()
+    unmount()
+    renderBlock({ changedFilesExpanded: true })
+    expect(screen.getByTestId("pr-changed-files")).toBeInTheDocument()
   })
 })

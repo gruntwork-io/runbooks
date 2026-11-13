@@ -20,8 +20,12 @@ interface PRResultDisplayProps {
   changeSummary: ChangeSummary | null
   /** The clone's uncommitted changes. */
   changes: GitFileChangesContextType
-  /** The Merge button's state, when the block has `allowMerge`. */
+  /** Whether the list of changed files starts open. */
+  changedFilesExpanded: boolean
+  /** The Merge button's state, when the block has `allowPullRequestMerge`. */
   merge?: PrMerge
+  /** Why one of the block's merge conditions keeps Merge disabled. */
+  mergeBlockedBy?: string
   onPush: () => void
   onCreateAnother: () => void
 }
@@ -34,14 +38,16 @@ export function PRResultDisplay({
   pushError,
   changeSummary,
   changes,
+  changedFilesExpanded,
   merge,
+  mergeBlockedBy,
   onPush,
   onCreateAnother,
 }: PRResultDisplayProps) {
   const isPushing = status === "pushing"
   // A merged branch takes no more pushes.
   const merged = merge?.state?.state === "merged"
-  const [whatFilesExpanded, setWhatFilesExpanded] = useState(false)
+  const [whatFilesExpanded, setWhatFilesExpanded] = useState(changedFilesExpanded)
 
   return (
     <div className="space-y-3">
@@ -73,7 +79,10 @@ export function PRResultDisplay({
         </div>
         {merge && (
           <div className="pt-2">
-            <MergeControl merge={merge} />
+            <MergeControl
+              merge={merge}
+              {...(mergeBlockedBy ? { blockedBy: mergeBlockedBy } : {})}
+            />
           </div>
         )}
       </div>

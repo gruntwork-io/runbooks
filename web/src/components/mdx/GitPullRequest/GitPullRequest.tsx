@@ -52,6 +52,7 @@ import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { GitPullRequestInstruction } from "./GitPullRequestInstruction"
 import type { AppError } from "@/types/error"
 import type { GitPullRequestProps, PRBlockStatus } from "./types"
+import { knownMergeConditions, mergeConditionsError, unmetMergeCondition } from "./mergeConditions"
 
 type GitPullRequestInternalProps = GitPullRequestProps & { __registryType?: BlockComponentType }
 
@@ -102,7 +103,9 @@ function GitPullRequestInteractive({
   gitAuthId,
   provider: propProvider,
   gitCloneId,
-  allowMerge = false,
+  allowPullRequestMerge = false,
+  allowPullRequestMergeConditions = [],
+  changedFilesExpanded = false,
   __registryType = "GitPullRequest",
   autoCollapse,
 }: GitPullRequestInternalProps) {
@@ -514,7 +517,7 @@ function GitPullRequestInteractive({
   // so the panel can't show names downstream blocks can't reference. Gated on
   // prResult so "create another" hides the previous PR's outputs.
   // The Merge button asks GitHub about the block's pull request once it's open.
-  const mergeEnabled = allowMerge && effectiveProvider === "github"
+  const mergeEnabled = allowPullRequestMerge && effectiveProvider === "github"
   const prRef = useMemo(
     () =>
       mergeEnabled && prResult && activeWorkTree
@@ -528,6 +531,13 @@ function GitPullRequestInteractive({
     [mergeEnabled, prResult, activeWorkTree],
   )
   const prMerge = usePrMerge(prRef)
+  const mergeBlockedBy = unmetMergeCondition(
+    knownMergeConditions(allowPullRequestMergeConditions),
+    {
+      uncommittedFiles: cloneChanges.totalChanges,
+      checking: cloneChanges.isLoading,
+    },
+  )
 
   const registeredOutputs = useOutputs(id)
   const outputValues = useMemo(() => {
@@ -538,12 +548,13 @@ function GitPullRequestInteractive({
   const configError: AppError | null =
     validationError ??
     clone.error ??
-    (allowMerge && effectiveProvider !== "github"
+    (allowPullRequestMerge && effectiveProvider !== "github"
       ? {
-          message: `The <${__registryType}> block's allowMerge works with GitHub only.`,
-          details: `Remove allowMerge, and merge the ${cfg.noun.lower} on ${cfg.label}.`,
+          message: `The <${__registryType}> block's allowPullRequestMerge works with GitHub only.`,
+          details: `Remove allowPullRequestMerge, and merge the ${cfg.noun.lower} on ${cfg.label}.`,
         }
-      : null)
+      : null) ??
+    mergeConditionsError(__registryType, allowPullRequestMerge, allowPullRequestMergeConditions)
 
   // Early return for configuration errors (e.g. missing id prop)
   if (configError) {
@@ -681,6 +692,8 @@ function GitPullRequestInteractive({
                 changeSummary={changeSummary}
                 changes={cloneChanges}
                 {...(prRef ? { merge: prMerge } : {})}
+                {...(mergeBlockedBy ? { mergeBlockedBy } : {})}
+                changedFilesExpanded={changedFilesExpanded}
                 onPush={handlePush}
                 onCreateAnother={handleCreateAnother}
               />
@@ -725,6 +738,7 @@ function GitPullRequestInteractive({
                 disabled={isFormDisabled}
                 changeSummary={changeSummary}
                 changes={cloneChanges}
+                changedFilesExpanded={changedFilesExpanded}
                 onSubmit={handleCreatePR}
                 onCancel={cancel}
               />

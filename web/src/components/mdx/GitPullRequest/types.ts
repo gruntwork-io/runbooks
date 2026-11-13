@@ -29,7 +29,14 @@ export interface GitPullRequestProps {
    * Show a Merge button once GitHub says the pull request can merge, using the
    * first merge method the repository allows. GitHub only.
    */
-  allowMerge?: boolean
+  allowPullRequestMerge?: boolean
+  /**
+   * Conditions, by keyword, that must also hold before Merge is enabled, such
+   * as "no-uncommitted-changes". Needs `allowPullRequestMerge`.
+   */
+  allowPullRequestMergeConditions?: string[]
+  /** Whether the list of changed files starts open. */
+  changedFilesExpanded?: boolean
   /** Reference to one or more Inputs by ID for template expressions in props */
   inputsId?: string | string[]
   /**
