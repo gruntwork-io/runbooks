@@ -197,7 +197,43 @@ function clearSkipWorktreeOfPresentFiles(spawner: ProcessSpawnerShape, repoPath:
 /** A full or abbreviated commit id (SHA-1 or SHA-256). */
 const COMMIT_SHA = /^[0-9a-f]{7,64}$/i
 
+// Paths name files exactly, even ones with glob characters such as `*` or `[`.
+const literalPathspec = (file: string) => `:(literal)${file}`
+
 function makeGitClient(spawner: ProcessSpawnerShape): GitClientShape {
+  // Stages with `add -A`, limited to `pathspec` when it isn't empty.
+  const stage = (repoPath: string, pathspec: readonly string[]) =>
+    Effect.gen(function* () {
+      // In a sparse checkout (a GitClone with a repo path), plain `add -A`
+      // leaves out what a block wrote outside the sparse-checkout cone: it
+      // skips edits to tracked files there without a word and fails on new
+      // files. `--sparse` stages them like any other change, once no file
+      // on disk is still flagged skip-worktree (which git 2.34 and 2.35
+      // leave to us).
+      const sparse = yield* isSparseCheckout(spawner, repoPath)
+      if (sparse) yield* clearSkipWorktreeOfPresentFiles(spawner, repoPath)
+      const add = sparse ? ["add", "-A", "--sparse"] : ["add", "-A"]
+      const args = pathspec.length === 0 ? add : [...add, "--", ...pathspec]
+      yield* runGit(spawner, args, repoPath).pipe(
+        // git before 2.34 has no `--sparse`. How a git that old stages a
+        // sparse checkout without it is not tested here, so say what is
+        // needed rather than risk committing only part of what the blocks
+        // wrote.
+        Effect.mapError((e) =>
+          sparse && e._tag === "GitError" && /unknown option [`']sparse'/.test(e.stderr)
+            ? new GitError({
+                command: e.command,
+                stderr:
+                  "This checkout is a sparse checkout (cloned with a repo path), and staging the files " +
+                  "written outside it needs `git add --sparse`, from git 2.34 or later. Upgrade git, " +
+                  "or clone the repository without a repo path.",
+                exitCode: e.exitCode,
+              })
+            : e,
+        ),
+      )
+    })
+
   return {
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
@@ -491,46 +527,29 @@ function makeGitClient(spawner: ProcessSpawnerShape): GitClientShape {
       Effect.asVoid(runGit(spawner, ["checkout", "-b", branch], repoPath)),
 
     stageAll: (repoPath: string, excludePaths: string[] = []) =>
-      Effect.gen(function* () {
-        // In a sparse checkout (a GitClone with a repo path), plain `add -A`
-        // leaves out what a block wrote outside the sparse-checkout cone: it
-        // skips edits to tracked files there without a word and fails on new
-        // files. `--sparse` stages them like any other change, once no file
-        // on disk is still flagged skip-worktree (which git 2.34 and 2.35
-        // leave to us).
-        const sparse = yield* isSparseCheckout(spawner, repoPath)
-        if (sparse) yield* clearSkipWorktreeOfPresentFiles(spawner, repoPath)
-        const add = sparse ? ["add", "-A", "--sparse"] : ["add", "-A"]
-        // The `:(exclude)` magic pathspec needs a positive pathspec ('.')
-        // alongside it. Used to keep embedded git repos out of the commit so
-        // they aren't staged as broken submodule gitlinks.
-        const excludes = excludePaths.map((p) => `:(exclude)${p.replace(/\/+$/, "")}`)
-        const args = excludes.length === 0 ? add : [...add, "--", ".", ...excludes]
-        yield* runGit(spawner, args, repoPath).pipe(
-          // git before 2.34 has no `--sparse`. How a git that old stages a
-          // sparse checkout without it is not tested here, so say what is
-          // needed rather than risk committing only part of what the blocks
-          // wrote.
-          Effect.mapError((e) =>
-            sparse && e._tag === "GitError" && /unknown option [`']sparse'/.test(e.stderr)
-              ? new GitError({
-                  command: e.command,
-                  stderr:
-                    "This checkout is a sparse checkout (cloned with a repo path), and staging the files " +
-                    "written outside it needs `git add --sparse`, from git 2.34 or later. Upgrade git, " +
-                    "or clone the repository without a repo path.",
-                  exitCode: e.exitCode,
-                })
-              : e,
-          ),
-        )
-      }),
+      // The `:(exclude)` magic pathspec needs a positive pathspec ('.')
+      // alongside it. Used to keep embedded git repos out of the commit so
+      // they aren't staged as broken submodule gitlinks.
+      stage(
+        repoPath,
+        excludePaths.length === 0
+          ? []
+          : [".", ...excludePaths.map((p) => `:(exclude)${p.replace(/\/+$/, "")}`)],
+      ),
+
+    stagePaths: (repoPath: string, paths: readonly string[]) =>
+      paths.length === 0 ? Effect.void : stage(repoPath, paths.map(literalPathspec)),
 
     commit: (repoPath: string, message: string, options?: CommitOptions) =>
       Effect.gen(function* () {
         const args = ["commit", "-m", message]
         if (options?.allowEmpty) {
           args.push("--allow-empty")
+        }
+        // With paths, git commits only those paths and leaves anything else
+        // in the index staged for a later commit.
+        if (options?.paths !== undefined) {
+          args.push("--", ...options.paths.map(literalPathspec))
         }
 
         // Respect the user's own git identity when one is configured. Only when

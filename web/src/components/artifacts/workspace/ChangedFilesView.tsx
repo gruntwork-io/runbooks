@@ -65,8 +65,19 @@ interface ChangedFilesViewProps {
   onLoadDiff?: (filePath: string) => Promise<void>
   /** Mark each file in the tree with git's letter for its change: A, M or D. */
   letters?: boolean
+  /** Checkboxes in the tree to choose files, such as the ones to commit. */
+  selection?: FileSelection
   /** Additional CSS classes */
   className?: string
+}
+
+/** Which changed files are chosen, and how a checkbox changes that. */
+export interface FileSelection {
+  readonly isSelected: (path: string) => boolean
+  /** Choose or drop these files, all of a folder's at once for its checkbox. */
+  readonly setSelected: (paths: readonly string[], selected: boolean) => void
+  /** While set, the checkboxes can't change. */
+  readonly disabled?: boolean
 }
 
 export const ChangedFilesView = ({
@@ -76,6 +87,7 @@ export const ChangedFilesView = ({
   isLoading = false,
   onLoadDiff,
   letters = false,
+  selection,
   className = "",
 }: ChangedFilesViewProps) => {
   const [focusedPath, setFocusedPath] = useState<string | null>(null)
@@ -167,6 +179,7 @@ export const ChangedFilesView = ({
             focusedPath={focusedPath}
             onFileSelect={handleFileSelect}
             letters={letters}
+            {...(selection ? { selection } : {})}
           />
         </div>
 
@@ -263,12 +276,19 @@ interface ChangedFileTreeProps {
   focusedPath: string | null
   onFileSelect: (filePath: string) => void
   letters: boolean
+  selection?: FileSelection
 }
 
 /** Max tree nodes to render before collapsing all folders by default */
 const MAX_TREE_NODES_EXPANDED = 200
 
-const ChangedFileTree = ({ tree, focusedPath, onFileSelect, letters }: ChangedFileTreeProps) => {
+const ChangedFileTree = ({
+  tree,
+  focusedPath,
+  onFileSelect,
+  letters,
+  selection,
+}: ChangedFileTreeProps) => {
   // For large trees, start with all folders collapsed to avoid rendering
   // thousands of nodes which can lock up the browser.
   const totalFileCount = useMemo(() => countTreeFiles(tree), [tree])
@@ -297,29 +317,44 @@ const ChangedFileTree = ({ tree, focusedPath, onFileSelect, letters }: ChangedFi
     const isSelected = node.change?.path === focusedPath
 
     if (node.type === "folder") {
+      const files = selection ? filePathsUnder(node) : []
+      const chosen = files.filter((path) => selection?.isSelected(path)).length
       return (
         <div key={node.path}>
-          <button
-            role="treeitem"
-            onClick={() => toggleFolder(node.path)}
-            className={cn(
-              "w-full flex items-center gap-0.5 py-px text-left text-sm transition-colors cursor-pointer",
-              "hover:bg-accent text-foreground",
-            )}
+          <div
+            className="flex items-center hover:bg-accent"
             style={{ paddingLeft: `${8 + level * INDENT}px` }}
           >
-            {isExpanded ? (
-              <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-            ) : (
-              <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            {selection && (
+              <SelectionBox
+                label={`Choose every file in ${node.path}`}
+                checked={chosen === files.length}
+                indeterminate={chosen > 0 && chosen < files.length}
+                disabled={selection.disabled}
+                onChange={(next) => selection.setSelected(files, next)}
+              />
             )}
-            {isExpanded ? (
-              <FolderOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-            ) : (
-              <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-            )}
-            <span className="truncate ml-1">{node.name}</span>
-          </button>
+            <button
+              role="treeitem"
+              onClick={() => toggleFolder(node.path)}
+              className={cn(
+                "w-full flex items-center gap-0.5 py-px text-left text-sm transition-colors cursor-pointer",
+                "text-foreground",
+              )}
+            >
+              {isExpanded ? (
+                <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              )}
+              {isExpanded ? (
+                <FolderOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              ) : (
+                <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              )}
+              <span className="truncate ml-1">{node.name}</span>
+            </button>
+          </div>
           {isExpanded && node.children && (
             <div>{node.children.map((child) => renderNode(child, level + 1))}</div>
           )}
@@ -332,36 +367,81 @@ const ChangedFileTree = ({ tree, focusedPath, onFileSelect, letters }: ChangedFi
     if (!change) return null
 
     return (
-      <button
+      <div
         key={node.path}
-        role="treeitem"
-        onClick={() => onFileSelect(change.path)}
         className={cn(
-          "w-full flex items-center gap-0.5 py-px text-left text-sm transition-colors cursor-pointer",
+          "flex items-center",
           isSelected ? "bg-info-muted text-primary" : "hover:bg-accent text-foreground",
         )}
         style={{ paddingLeft: `${8 + level * INDENT}px` }}
       >
-        {/* Spacer (same width as chevron) to align file icons with folder icons */}
-        <span className="w-4 flex-shrink-0" />
-        <ChangeTypeIcon changeType={change.changeType} />
-        <span className="truncate flex-1 ml-1">{node.name}</span>
-        {letters && (
-          <span
-            className={cn(
-              "w-4 flex-shrink-0 pr-1 text-center font-mono text-xs font-semibold",
-              (changeTypeConfig[change.changeType] ?? defaultChangeConfig).color,
-            )}
-            title={change.changeType}
-          >
-            {CHANGE_LETTERS[change.changeType]}
-          </span>
+        {selection && (
+          <SelectionBox
+            label={`Choose ${change.path}`}
+            checked={selection.isSelected(change.path)}
+            disabled={selection.disabled}
+            onChange={(next) => selection.setSelected([change.path], next)}
+          />
         )}
-      </button>
+        <button
+          role="treeitem"
+          onClick={() => onFileSelect(change.path)}
+          className="w-full flex items-center gap-0.5 py-px text-left text-sm transition-colors cursor-pointer"
+        >
+          {/* Spacer (same width as chevron) to align file icons with folder icons */}
+          <span className="w-4 flex-shrink-0" />
+          <ChangeTypeIcon changeType={change.changeType} />
+          <span className="truncate flex-1 ml-1">{node.name}</span>
+          {letters && (
+            <span
+              className={cn(
+                "w-4 flex-shrink-0 pr-1 text-center font-mono text-xs font-semibold",
+                (changeTypeConfig[change.changeType] ?? defaultChangeConfig).color,
+              )}
+              title={change.changeType}
+            >
+              {CHANGE_LETTERS[change.changeType]}
+            </span>
+          )}
+        </button>
+      </div>
     )
   }
 
   return <div className="py-1">{tree.map((node) => renderNode(node))}</div>
+}
+
+/** A checkbox in a tree row, mixed when a folder's files are partly chosen. */
+const SelectionBox = ({
+  label,
+  checked,
+  indeterminate = false,
+  disabled = false,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  indeterminate?: boolean
+  disabled?: boolean | undefined
+  onChange: (checked: boolean) => void
+}) => (
+  <input
+    type="checkbox"
+    aria-label={label}
+    checked={checked}
+    disabled={disabled}
+    ref={(el) => {
+      if (el) el.indeterminate = indeterminate
+    }}
+    onChange={(e) => onChange(e.target.checked)}
+    className="size-3.5 mr-1 flex-shrink-0 cursor-pointer accent-primary disabled:cursor-not-allowed"
+  />
+)
+
+/** The paths of every changed file under a folder. */
+function filePathsUnder(node: TreeNode): string[] {
+  if (node.type === "file") return node.change ? [node.change.path] : []
+  return (node.children ?? []).flatMap(filePathsUnder)
 }
 
 function countTreeFiles(nodes: TreeNode[]): number {

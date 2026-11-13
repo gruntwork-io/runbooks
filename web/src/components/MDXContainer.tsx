@@ -37,6 +37,7 @@ import { GitHubAuth } from "@/components/mdx/GitHubAuth"
 import { GitLabAuth } from "@/components/mdx/GitLabAuth"
 import { GitClone } from "@/components/mdx/GitClone"
 import { GitPullRequest } from "@/components/mdx/GitPullRequest"
+import { GitCommitPush } from "@/components/mdx/GitCommitPush"
 import { GitHubPullRequest } from "@/components/mdx/GitHubPullRequest"
 import { GitLabMergeRequest } from "@/components/mdx/GitLabMergeRequest"
 import { DirPicker } from "@/components/mdx/DirPicker"
@@ -377,6 +378,7 @@ export const MDX_COMPONENTS = {
   // Git operations
   GitClone,
   GitPullRequest,
+  GitCommitPush,
   GitHubPullRequest,
   GitLabMergeRequest,
   // Utility components

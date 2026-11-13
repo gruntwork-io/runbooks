@@ -32,6 +32,7 @@ export type BlockComponentType =
   | "GitPullRequest"
   | "GitHubPullRequest"
   | "GitLabMergeRequest"
+  | "GitCommitPush"
   | "DirPicker"
   | "Iframe"
   | "Admonition"
@@ -45,6 +46,15 @@ interface ComponentRegistration {
   element: RefObject<HTMLElement | null> | undefined
   /** The OAuth scopes an auth block requests, for blocks that check a binding to it. */
   scopes?: readonly string[] | undefined
+  /** Where a pull request block works, for blocks that work on its pull request. */
+  pullRequest?: PullRequestPlace | undefined
+}
+
+/** The clone and provider a pull request block works with. */
+export interface PullRequestPlace {
+  /** The <GitClone> block whose clone it opens the pull request from. */
+  readonly cloneId?: string | undefined
+  readonly provider: "github" | "gitlab"
 }
 
 interface DuplicateInfo {
@@ -66,6 +76,8 @@ interface ComponentIdRegistryContextValue {
     scopes?: readonly string[],
   ) => string // Returns instanceId
   unregisterComponent: (instanceId: string) => void
+  /** Records where a registered pull request block works, without registering it again. */
+  setPullRequestPlace: (instanceId: string, place: PullRequestPlace | undefined) => void
   getDuplicateInfo: (id: string, instanceId: string) => DuplicateInfo
   /** The element of the block with this id, if one is rendered. */
   elementOf: (templateId: string) => HTMLElement | null
@@ -84,6 +96,8 @@ export interface PageBlock {
   readonly scopes?: readonly string[] | undefined
   /** Its outermost element, for where it is on the page. */
   readonly element?: RefObject<HTMLElement | null> | undefined
+  /** For a pull request block, the clone and provider it works with. */
+  readonly pullRequest?: PullRequestPlace | undefined
 }
 
 /** Each registered block, keyed by its normalized id. */
@@ -131,6 +145,15 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
     setRegistrations((prev) => prev.filter((r) => r.instanceId !== instanceId))
   }, [])
 
+  const setPullRequestPlace = useCallback(
+    (instanceId: string, place: PullRequestPlace | undefined) => {
+      setRegistrations((prev) =>
+        prev.map((r) => (r.instanceId === instanceId ? { ...r, pullRequest: place } : r)),
+      )
+    },
+    [],
+  )
+
   // Get detailed duplicate/collision info for a component
   const getDuplicateInfo = useCallback((id: string, instanceId: string): DuplicateInfo => {
     const normalizedId = normalizeBlockId(id)
@@ -173,10 +196,11 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
     () => ({
       registerComponent,
       unregisterComponent,
+      setPullRequestPlace,
       getDuplicateInfo,
       elementOf,
     }),
-    [registerComponent, unregisterComponent, getDuplicateInfo, elementOf],
+    [registerComponent, unregisterComponent, setPullRequestPlace, getDuplicateInfo, elementOf],
   )
 
   // Separate from `value`, which stays stable, so only the components that
@@ -186,7 +210,13 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
       new Map(
         registrations.map((r): [string, PageBlock] => [
           r.normalizedId,
-          { id: r.id, kind: r.componentType, scopes: r.scopes, element: r.element },
+          {
+            id: r.id,
+            kind: r.componentType,
+            scopes: r.scopes,
+            element: r.element,
+            pullRequest: r.pullRequest,
+          },
         ]),
       ),
     [registrations],
@@ -285,6 +315,7 @@ export function useComponentIdRegistry(
   componentType: ComponentRegistration["componentType"],
   element?: RefObject<HTMLElement | null>,
   scopes?: readonly string[],
+  pullRequest?: PullRequestPlace,
 ) {
   const context = useContext(ComponentIdRegistryContext)
   const instanceIdRef = useRef<string | null>(null)
@@ -318,6 +349,19 @@ export function useComponentIdRegistry(
       }
     }
   }, [registerComponent, unregisterComponent, id, componentType, element, registeredScopes])
+
+  // The place changes once the block finds its clone. Updated in place, since
+  // registering again would leave a render without the block on the page.
+  const setPlace = context?.setPullRequestPlace
+  const placeCloneId = pullRequest?.cloneId
+  const placeProvider = pullRequest?.provider
+  useEffect(() => {
+    if (!setPlace || !instanceIdRef.current) return
+    setPlace(
+      instanceIdRef.current,
+      placeProvider === undefined ? undefined : { cloneId: placeCloneId, provider: placeProvider },
+    )
+  }, [setPlace, placeCloneId, placeProvider, registerComponent, id, componentType, element])
 
   // Check for duplicates after registration - use a small delay to allow all components to register
   useEffect(() => {

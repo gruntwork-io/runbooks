@@ -1,0 +1,112 @@
+---
+title: <GitCommitPush>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="Experimental">
+`<GitCommitPush>` is an experiment. Its name and props may change.
+</Aside>
+
+The `<GitCommitPush>` block commits the files the user chooses from a clone's changes, then pushes them. It commits onto an open pull request's branch, or onto the branch a clone is on.
+
+Use it when a runbook keeps changing files after it opens a pull request. For example, a runbook might open a pull request, generate a second unit with a [`<TfModule>`](/authoring/blocks/tfmodule/) block, and then apply it with [`<TerragruntApply>`](/authoring/blocks/terragruntapply/), which wants the unit pushed first. A `<GitCommitPush>` block between the two lets the user commit and push the new unit there, without going back up to the pull request block.
+
+## Basic usage
+
+```mdx
+<GitHubAuth id="github-auth" />
+
+<GitClone id="infra-live" githubAuthId="github-auth" prefilledUrl="https://github.com/acme/infra-live" />
+
+<GitHubPullRequest id="pr" githubAuthId="github-auth" />
+
+<TfModule id="bucket" source="../../modules/s3-bucket" template="templates/unit" path="buckets/{{ .name }}" />
+
+<GitCommitPush
+  id="push-bucket"
+  pullRequestId="pr"
+  selectedPaths={["{{ .outputs.bucket.CODE_PATH }}"]}
+/>
+
+<TerragruntApply id="apply-bucket" path="{{ .outputs.bucket.CODE_PATH }}" />
+```
+
+Here the block shows the pull request, starts with only the bucket's unit chosen, and commits it onto the pull request's branch.
+
+## Where it commits
+
+The block works in one of two ways:
+
+- **With `pullRequestId`**, it commits onto the branch of the pull request that block opened, in the clone that block works in. It shows the pull request with a link to it, and waits until the pull request is open. The pull request block can be a [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/), [`<GitHubPullRequest>`](/authoring/blocks/githubpullrequest/) or [`<GitLabMergeRequest>`](/authoring/blocks/gitlabmergerequest/).
+- **Without it**, it commits onto the branch a [`<GitClone>`](/authoring/blocks/gitclone/) block's clone is on: the one `gitCloneId` names, or else the runbook's only one or the nearest one above the block, as for the pull request blocks.
+
+Either way, it refuses when the clone isn't where it should be: on the pull request's branch with `pullRequestId`, or on any branch at all without it. Nothing is committed then.
+
+## Choosing files
+
+The block lists the clone's changed files as a tree, each marked **A** (added), **M** (modified) or **D** (deleted), with a checkbox. A folder's checkbox chooses or drops every file in it. Select a file to see its diff. The list starts as a one-line toggle that says how many files are chosen, such as "1 of 3 changed files chosen"; `changedFilesExpanded` starts it open.
+
+Every file starts chosen. With `selectedPaths`, only the files they match do:
+
+- A path names a file, or a folder and every file under it: `buckets/logs`.
+- `*` stands for any part of one file or folder name: `buckets/*/terragrunt.hcl`.
+- `**` stands for any number of folders: `**/*.hcl`.
+
+Paths are relative to the root of the clone. Each one supports template expressions, so a block can choose the files another block wrote, such as a `<TfModule>` block's `CODE_PATH`.
+
+The commit holds the chosen files only. The others stay as they are, for a later commit.
+
+## Commit message
+
+Without `commitMessage`, the message says what the chosen files are, such as "Add buckets/logs/terragrunt.hcl" for one file or "Add 2 files in buckets" for several, and follows the choice until the user edits it. With `commitMessage`, which supports template expressions, the message starts as that.
+
+## Pushing
+
+The button says what it will do, such as **Commit and push 2 files**. With no files chosen, it reads **Push**, and pushes only the commits already made, such as ones a `<Command>` block made with `git commit`.
+
+After a push, the block shows the branch and the commit it pushed, and the file list starts again from the files that change next. The block can commit and push as many times as the user needs.
+
+## Merging
+
+With `pullRequestId` and `allowPullRequestMerge`, the block shows a **Merge** button under the pull request, which works as on the [pull request block](/authoring/blocks/githubpullrequest/#merging), with the same [merge conditions](/authoring/blocks/gitpullrequest/#merge-conditions). Once the pull request is merged, the block takes no more pushes.
+
+```mdx
+<GitCommitPush
+  id="push-and-merge"
+  pullRequestId="pr"
+  allowPullRequestMerge
+  allowPullRequestMergeConditions={["no-uncommitted-changes"]}
+/>
+```
+
+`allowPullRequestMerge` without `pullRequestId`, or for a GitLab merge request, is a configuration error.
+
+## Props
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | Yes | Unique block identifier. |
+| `title` | `string` | No | Display title. Supports inline markdown. Defaults to `Commit and push`. |
+| `description` | `string` | No | Description text below the title. Supports inline markdown. |
+| `pullRequestId` | `string` | No | The pull request block whose pull request the commit goes to. Not with `gitCloneId`. See [Where it commits](#where-it-commits). |
+| `gitCloneId` | `string` | No | The `<GitClone>` block whose clone holds the changes, without a pull request. Not with `pullRequestId`. |
+| `commitMessage` | `string` | No | The commit message. Supports template expressions. Without it, the message follows the chosen files. |
+| `selectedPaths` | `string[]` | No | The changed files that start chosen, by path, folder or pattern. Supports template expressions. Without it, every file. See [Choosing files](#choosing-files). |
+| `changedFilesExpanded` | `boolean` | No | Whether the list of changed files starts open. Defaults to `false`. |
+| `allowPullRequestMerge` | `boolean` | No | Shows a **Merge** button for the pull request. Needs `pullRequestId`. GitHub only. Defaults to `false`. |
+| `allowPullRequestMergeConditions` | `string[]` | No | Conditions that must also hold before **Merge** is enabled, by keyword. Needs `allowPullRequestMerge`. |
+
+## Block outputs
+
+After a push, the block produces these outputs:
+
+| Output | Description | Example |
+|--------|-------------|---------|
+| `BRANCH` | The branch it pushed | `runbook/1731500000` |
+| `COMMIT_SHA` | The commit the branch is at after the push | `3f9c2a1e…` |
+| `PR_URL` | The pull request's URL, with `pullRequestId` | `https://github.com/acme/infra-live/pull/42` |
+
+## Instruction mode and tests
+
+The block looks the same in [instruction mode](/intro/instruction-mode/), as it has no instructions to show in its place yet. [`runbooks test`](/authoring/testing/) passes over it, since it would push a commit.

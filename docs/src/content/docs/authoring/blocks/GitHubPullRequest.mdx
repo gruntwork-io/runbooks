@@ -95,6 +95,7 @@ After a successful PR creation, the block produces outputs that can be reference
 |--------|-------------|---------|
 | `PR_ID` | The pull request number | `42` |
 | `PR_URL` | The full URL of the created pull request | `https://github.com/org/repo/pull/42` |
+| `BRANCH` | The pull request's branch | `runbook/1731500000` |
 
 Pass an output to a later block's script with its [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) prop:
 
@@ -153,7 +154,7 @@ A keyword the block doesn't know, or conditions without `allowPullRequestMerge`,
 
 After creating a PR, the block shows a **Git Push** button. It brings the PR up to date with the clone: it commits every change made since, with the block's commit message, onto the PR's branch, then pushes the branch with the authenticated token. With nothing new to commit, it pushes the commits already made, such as ones a `<Command>` block made with `git commit`.
 
-**Git Push** refuses when the clone isn't on the PR's branch, so nothing is committed onto another branch, such as the base.
+**Git Push** refuses when the clone isn't on the PR's branch, so nothing is committed onto another branch, such as the base. To choose which files go into the commit, or to commit from further down the runbook, use [`<GitCommitPush>`](/authoring/blocks/gitcommitpush/).
 
 ### Retrying after a failure
 

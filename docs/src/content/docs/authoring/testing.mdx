@@ -660,6 +660,8 @@ tests:
 
 `<GitPullRequest>`, `<GitHubPullRequest>`, and `<GitLabMergeRequest>` blocks never run in tests, since they would push a branch and open a real pull request. A step that names one must use `expect: skip`, or `expect: blocked` when the auth block it references hasn't run or was skipped. A test with no `steps` expects them to skip.
 
+A [`<GitCommitPush>`](/authoring/blocks/gitcommitpush/) block isn't a step in tests at all, since it would push a commit, so a step can't name it.
+
 ```yaml
 # runbook_test.yml
 tests:
