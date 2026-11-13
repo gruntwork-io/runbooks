@@ -412,7 +412,7 @@ describe("commitAndPush", () => {
     expect(result.committed).toBe(false)
   })
 
-  it("counts a chosen path renamed from another as changed", async () => {
+  it("commits a chosen path staged as a rename together with the path it came from", async () => {
     const steps: string[] = []
     const layer = makeTestLayer({
       git: recordingGit(steps, "runbook/123", [
@@ -421,12 +421,12 @@ describe("commitAndPush", () => {
     })
 
     await Effect.runPromise(
-      commitAndPush("tok", "github", { ...pushParams, paths: ["old-name.tf"] }).pipe(
+      commitAndPush("tok", "github", { ...pushParams, paths: ["new-name.tf"] }).pipe(
         Effect.provide(layer),
       ),
     )
 
-    expect(steps).toContain("commit More changes -- old-name.tf")
+    expect(steps).toContain("commit More changes -- new-name.tf,old-name.tf")
   })
 })
 

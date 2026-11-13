@@ -198,7 +198,7 @@ function clearSkipWorktreeOfPresentFiles(spawner: ProcessSpawnerShape, repoPath:
 const COMMIT_SHA = /^[0-9a-f]{7,64}$/i
 
 // Paths name files exactly, even ones with glob characters such as `*` or `[`.
-const literalPathspec = (path: string) => `:(literal)${path}`
+const literalPathspec = (file: string) => `:(literal)${file}`
 
 function makeGitClient(spawner: ProcessSpawnerShape): GitClientShape {
   // Stages with `add -A`, limited to `pathspec` when it isn't empty.

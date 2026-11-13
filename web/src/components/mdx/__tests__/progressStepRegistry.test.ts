@@ -32,6 +32,7 @@ const STEP_BLOCKS = [
   "GitPullRequest",
   "GitHubPullRequest",
   "GitLabMergeRequest",
+  "GitCommitPush",
   "DirPicker",
 ] as const
 

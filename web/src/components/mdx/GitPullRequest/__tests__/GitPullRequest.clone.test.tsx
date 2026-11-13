@@ -78,7 +78,9 @@ const invoke = vi.fn((channel: string, _params?: unknown): Promise<unknown> => {
       return Promise.resolve(undefined)
   }
 })
-vi.mock("@/contexts/ApiContext", () => ({ useApi: () => ({ invoke, on: () => () => {} }) }))
+// One object, as the app's API is, so effects that depend on it don't run again each render.
+const api = { invoke, on: () => () => {} }
+vi.mock("@/contexts/ApiContext", () => ({ useApi: () => api }))
 
 /** Stands in for another block, registered under its kind. */
 function Fake({ id, kind }: { id: string; kind: BlockComponentType }) {
@@ -163,6 +165,16 @@ describe("GitPullRequest clone and merge", () => {
 
   it("refuses allowPullRequestMerge on GitLab", async () => {
     renderBlock({ provider: "gitlab", allowPullRequestMerge: true })
+    expect(
+      await screen.findByText(/allowPullRequestMerge works with GitHub only/),
+    ).toBeInTheDocument()
+  })
+
+  it("shows its own configuration error with several clones above it", async () => {
+    renderBlock({ provider: "gitlab", allowPullRequestMerge: true }, [
+      { id: "modules", kind: "GitClone" },
+      { id: "live", kind: "GitClone" },
+    ])
     expect(
       await screen.findByText(/allowPullRequestMerge works with GitHub only/),
     ).toBeInTheDocument()

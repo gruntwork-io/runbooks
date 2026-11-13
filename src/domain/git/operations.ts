@@ -474,14 +474,19 @@ export const commitAndPush = (
       yield* gitClient.stagePaths(params.repoPath, params.paths)
     }
 
+    // The chosen paths that now differ from HEAD, with the old path of each
+    // one staged as a rename, so the commit takes the rename whole.
+    const staged = (yield* gitClient.status(params.repoPath)).filter((e) => e.status !== "??")
     const chosen = params.paths === undefined ? undefined : new Set(params.paths)
-    const hasStaged = (yield* gitClient.status(params.repoPath)).some(
-      (e) =>
-        e.status !== "??" &&
-        (chosen === undefined ||
-          chosen.has(e.path) ||
-          (e.origPath !== undefined && chosen.has(e.origPath))),
-    )
+    const toCommit =
+      chosen === undefined
+        ? undefined
+        : staged.flatMap((e) =>
+            chosen.has(e.path) || (e.origPath !== undefined && chosen.has(e.origPath))
+              ? [e.path, ...(e.origPath !== undefined ? [e.origPath] : [])]
+              : [],
+          )
+    const hasStaged = toCommit === undefined ? staged.length > 0 : toCommit.length > 0
     if (hasStaged) {
       // The authenticated user's identity is the fallback author when the
       // machine has no git identity configured, as for the PR/MR's first commit.
@@ -499,7 +504,7 @@ export const commitAndPush = (
       yield* report("Committing changes…")
       yield* gitClient.commit(params.repoPath, params.commitMessage, {
         author,
-        paths: params.paths,
+        paths: toCommit,
       })
     } else {
       yield* report("No new changes to commit; pushing the existing commits…")

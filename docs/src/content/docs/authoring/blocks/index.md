@@ -39,6 +39,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 - [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) commits the changes in a cloned repository and opens a GitHub pull request or a GitLab merge request.
 - [`<GitHubPullRequest>`](/authoring/blocks/githubpullrequest) is `<GitPullRequest>` locked to GitHub.
 - [`<GitLabMergeRequest>`](/authoring/blocks/gitlabmergerequest) is `<GitPullRequest>` locked to GitLab.
+- [`<GitCommitPush>`](/authoring/blocks/gitcommitpush) commits the changed files the user chooses and pushes them, to an open pull request or the branch a clone is on. Experimental.
 - [`<TerragruntApply>`](/authoring/blocks/terragruntapply) plans and applies a Terragrunt unit in a cloned repository, after a preflight. Experimental.
 
 ### Show content
@@ -55,6 +56,7 @@ Interactive blocks take an `id` prop, a unique identifier for the block. When on
 - `awsAuthId`, `googleAuthId`, `gitAuthId` and `githubAuthId` choose which auth block's credentials a block uses.
 - `dependsOn` names the `<Command>` or `<Check>` blocks that must succeed before a `<Command>`, `<Check>` or `<Finish>` can run. A `<Check>` that ends with a warning counts too. See [Run order](/authoring/blocks/command/#run-order).
 - `gitCloneId` roots a `<DirPicker>` in the repository a `<GitClone>` block cloned, and names the clone a `<TerragruntApply>` or pull request block works in when it isn't the nearest one above it.
+- `pullRequestId` names the pull request block whose pull request a `<GitCommitPush>` block commits to.
 - `auth` lists the auth blocks a `<TerragruntApply>` block runs Terragrunt with.
 - `{{ .outputs.<block_id>.<output_name> }}` reads the outputs of a block that has already run. In template syntax, write any hyphens in the ID as underscores. See [Block outputs](/authoring/inputs-and-outputs/#block-outputs).
 
@@ -82,6 +84,7 @@ Each block the user acts on is a step. It is done once the block shows it's done
 | `<AwsAuth>`, `<GoogleAuth>`, `<GitAuth>`, `<GitHubAuth>` and `<GitLabAuth>` | It is signed in, and green: credentials that expire within five minutes turn it red. |
 | `<GitClone>` | It cloned or found its repository, which is still on the session's branch. |
 | `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>` | It opened its pull or merge request. |
+| `<GitCommitPush>` | It committed and pushed, or pushed, at least once. |
 | `<TerragruntApply>` | The unit is applied, or planned with nothing to change. |
 | `<DirPicker>` | It has a path. |
 
