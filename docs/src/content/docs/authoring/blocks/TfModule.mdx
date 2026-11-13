@@ -243,6 +243,8 @@ A plain configuration's outputs are its own, so declare an output for each modul
 - **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. The pull request does that. As the values change, it writes them again: it first removes every file it wrote before, so the clone holds only the code for the current values. When the folder moves, such as when the group's email changes, the old folder goes too, with anything a plan left in it, such as `.terraform.lock.hcl`. A change you made by hand to a file the block wrote is replaced as well, so make lasting changes in the template or the inputs.
 - **Without one**, it writes nothing, and lists the files the code would have.
 
+Each time it writes to a clone, the block shows the code in the files panel: it opens the panel, switches to the clone's changed files, selects the first file it wrote, and highlights each one for a moment. Each path the block lists is a link that shows that file again.
+
 When a generate fails for a reason other than the inputs, such as a network error reading the module, **Try again** generates again with the same inputs.
 
 While an input needs a fix, the block keeps the code, and the values it publishes, as they were for the last valid inputs. Once it has written the code, the block counts as done, and publishes these outputs, such as the `CODE_PATH` a [`<TerragruntApply>`](/authoring/blocks/terragruntapply/) block reads for its `path`:

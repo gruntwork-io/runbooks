@@ -31,6 +31,7 @@ import { LookupEngineContext, useLookupEngine } from "../_shared/hooks/useLookup
 import type { TfModuleGenerated, TfModuleRepo } from "../../../../../electron/shared/channels"
 import { inputsKey } from "../../../../../src/domain/tf-module/inputsKey"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
+import { useWorkspaceReveal } from "@/contexts/WorkspaceRevealContext"
 import {
   formErrors,
   formValue,
@@ -248,7 +249,8 @@ function TfModuleForm({
   onSubmit,
 }: TfModuleFormProps) {
   const api = useApi()
-  const { activeWorkTree } = useGitWorkTree()
+  const { activeWorkTree, invalidateGitFileTree } = useGitWorkTree()
+  const { revealFiles } = useWorkspaceReveal()
   const { registerOutputs } = useRunbookContext()
   const [values, setValues] = useState<FormValues>(() => {
     const saved = Object.fromEntries(
@@ -299,6 +301,12 @@ function TfModuleForm({
   const generate = async (req: typeof request) => {
     const generated = await generator.run(req)
     if (!generated) return
+    const worktreePath = req.repo?.worktreePath
+    if (worktreePath && generated.written.length > 0) {
+      // Shows what was just written, in the files panel.
+      invalidateGitFileTree()
+      revealFiles(worktreePath, generated.written)
+    }
     const { code } = generated
     registerOutputs(id, {
       MODULE_SOURCE: source,
@@ -469,6 +477,9 @@ function TfModuleForm({
               repository={activeWorkTree?.gitInfo.repoName}
               stale={started && !current}
               onRetry={() => void generate(request)}
+              {...(activeWorkTree
+                ? { onShow: (file: string) => revealFiles(activeWorkTree.localPath, [file]) }
+                : {})}
             />
           </div>
         </form>
@@ -538,12 +549,15 @@ function Generation({
   repository,
   stale,
   onRetry,
+  onShow,
 }: {
   state: GenerationState
   repository: string | undefined
   stale: boolean
   /** Generates again with the same inputs, for a failure that wasn't about them. */
   onRetry: () => void
+  /** Shows a file written to the clone in the files panel. */
+  onShow?: ((path: string) => void) | undefined
 }) {
   if (state.kind === "idle") return null
   if (state.kind === "failed") {
@@ -586,7 +600,20 @@ function Generation({
       </p>
       <ul className="m-0 mt-1 list-none pl-0 font-mono text-xs text-foreground">
         {paths.map((p) => (
-          <li key={p}>{p}</li>
+          <li key={p}>
+            {onShow && result.written.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => onShow(p)}
+                title="Show in the files panel"
+                className="cursor-pointer text-left text-primary hover:underline"
+              >
+                {p}
+              </button>
+            ) : (
+              p
+            )}
+          </li>
         ))}
       </ul>
     </div>

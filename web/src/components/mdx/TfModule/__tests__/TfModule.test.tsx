@@ -11,9 +11,22 @@ import { mergeDeclarations } from "../../../../../../src/domain/lookups/validate
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import TfModule from "../TfModule"
 import { useRequestedScopes } from "@/contexts/ScopeRequests"
+import {
+  WorkspaceRevealProvider,
+  useWorkspaceReveal,
+  type FileReveal,
+} from "@/contexts/WorkspaceRevealContext"
 
+// The clone a <GitClone> block registered, when a test has one.
+let workTree: { id: string; localPath: string; gitInfo: { ref: string; repoName: string } } | null =
+  null
+const invalidateGitFileTree = vi.fn()
 vi.mock("@/contexts/useGitWorkTree", () => ({
-  useGitWorkTree: () => ({ activeWorkTree: null, workTrees: [] }),
+  useGitWorkTree: () => ({
+    activeWorkTree: workTree,
+    workTrees: workTree ? [workTree] : [],
+    invalidateGitFileTree,
+  }),
 }))
 
 const DIRECTORY = "https://admin.googleapis.com/admin/directory/v1"
@@ -158,6 +171,16 @@ function Capture() {
   return null
 }
 
+let shown: FileReveal | null = null
+/** Records what the block asks the files panel to show. */
+function CaptureReveal() {
+  const { reveal } = useWorkspaceReveal()
+  useEffect(() => {
+    shown = reveal
+  }, [reveal])
+  return null
+}
+
 /** Stands in for a <GoogleAuth> block on the page, which registers its id, kind and scopes. */
 function FakeGoogleAuth({ id, scopes }: { id: string; scopes: readonly string[] }) {
   useComponentIdRegistry(id, "GoogleAuth", undefined, scopes)
@@ -170,15 +193,18 @@ function renderBlock(
 ) {
   return render(
     <TestWrapper>
-      <Capture />
-      <FakeGoogleAuth id="workspace" scopes={[SCOPE]} />
-      <TfModule
-        id="group"
-        source="google-group"
-        template="templates/google-group-unit"
-        auth={auth}
-        {...(prefilledVariables ? { prefilledVariables } : {})}
-      />
+      <WorkspaceRevealProvider>
+        <Capture />
+        <CaptureReveal />
+        <FakeGoogleAuth id="workspace" scopes={[SCOPE]} />
+        <TfModule
+          id="group"
+          source="google-group"
+          template="templates/google-group-unit"
+          auth={auth}
+          {...(prefilledVariables ? { prefilledVariables } : {})}
+        />
+      </WorkspaceRevealProvider>
     </TestWrapper>,
   )
 }
@@ -217,6 +243,9 @@ describe("TfModule", () => {
     refetch.mockClear()
     ctx = undefined
     invoke.mockClear()
+    workTree = null
+    shown = null
+    invalidateGitFileTree.mockClear()
   })
 
   it("shows the primary inputs and keeps the rest under Advanced options", () => {
@@ -327,6 +356,45 @@ describe("TfModule", () => {
         ),
       { timeout: 2000 },
     )
+  })
+
+  it("shows the files it wrote to the clone in the files panel, and each one again on a click", async () => {
+    workTree = {
+      id: "live",
+      localPath: "/clones/infra-live",
+      gitInfo: { ref: "main", repoName: "infra-live" },
+    }
+    renderBlock()
+    fireEvent.change(input("domain"), { target: { value: "example.com" } })
+    fireEvent.change(input("group_name"), { target: { value: "platform" } })
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+
+    const file = await screen.findByRole("button", { name: "groups/platform/terragrunt.hcl" })
+    await waitFor(() =>
+      expect(shown).toEqual({
+        id: 1,
+        worktreePath: "/clones/infra-live",
+        paths: ["groups/platform/terragrunt.hcl"],
+      }),
+    )
+    expect(invalidateGitFileTree).toHaveBeenCalled()
+
+    fireEvent.click(file)
+    await waitFor(() => expect(shown?.id).toBe(2))
+    expect(shown?.paths).toEqual(["groups/platform/terragrunt.hcl"])
+  })
+
+  it("asks the files panel to show nothing when there's no clone to write to", async () => {
+    generated = { ...GENERATED, written: [] }
+    renderBlock()
+    fireEvent.change(input("domain"), { target: { value: "example.com" } })
+    fireEvent.change(input("group_name"), { target: { value: "platform" } })
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+
+    expect(await screen.findByText("groups/platform/terragrunt.hcl")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "groups/platform/terragrunt.hcl" })).toBeNull()
+    expect(shown).toBeNull()
+    expect(invalidateGitFileTree).not.toHaveBeenCalled()
   })
 
   it("tries a failed generate again with the same inputs", async () => {
