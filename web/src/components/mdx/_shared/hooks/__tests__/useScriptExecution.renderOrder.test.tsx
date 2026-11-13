@@ -92,6 +92,40 @@ afterEach(() => {
 })
 
 describe("useScriptExecution render ordering", () => {
+  it("counts as rendering from the moment its values change until the render ends", async () => {
+    const { result } = renderCommand("echo {{ .outputs.build.version }}")
+    expect(result.current.exec.isRendering).toBe(false)
+
+    // Before the debounced render starts, Run must not be offered and then taken back
+    await act(async () => {
+      result.current.runbook.registerOutputs("build", { version: "1.2.3" })
+    })
+    expect(renders).toHaveLength(0)
+    expect(result.current.exec.isRendering).toBe(true)
+
+    await act(async () => {
+      vi.advanceTimersByTime(300)
+    })
+    expect(renders).toHaveLength(1)
+    expect(result.current.exec.isRendering).toBe(true)
+
+    await act(async () => {
+      renders[0]!.resolve(rendered("echo 1.2.3"))
+    })
+    expect(result.current.exec.isRendering).toBe(false)
+  })
+
+  it("stops rendering when a render fails", async () => {
+    const { result } = renderCommand()
+
+    await typeName(result, "first")
+    await act(async () => {
+      renders[0]!.reject(new Error("template: missing value for name"))
+    })
+    expect(result.current.exec.renderError).not.toBeNull()
+    expect(result.current.exec.isRendering).toBe(false)
+  })
+
   it("shows the latest render when an earlier one lands after it", async () => {
     const { result } = renderCommand()
 

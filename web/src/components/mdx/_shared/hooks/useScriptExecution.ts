@@ -627,6 +627,10 @@ export function useScriptExecution({
   const [renderedEnv, setRenderedEnv] = useState<Record<string, string> | null>(null)
   const [renderError, setRenderError] = useState<AppError | null>(null)
   const [isRendering, setIsRendering] = useState(false)
+  // The key of the last render that ended, rendered or failed. A pending render
+  // whose key differs is still to come, so the block counts as rendering from
+  // the moment its values change, not only once the debounced render starts.
+  const [settledRenderKey, setSettledRenderKey] = useState<string | null>(null)
 
   // A referenced block that hasn't produced its outputs yet puts the script in
   // 'awaiting-outputs'. Rendering then would fail on the missing
@@ -754,6 +758,7 @@ export function useScriptExecution({
   const renderScript = useCallback(
     async (
       renderInputs: TemplateValue[],
+      key: string,
       errorDetails = "Failed to render script with variables",
     ) => {
       // Supersede any pending render request
@@ -796,6 +801,7 @@ export function useScriptExecution({
             ),
           )
           setIsRendering(false)
+          setSettledRenderKey(key)
           return
         }
 
@@ -809,6 +815,7 @@ export function useScriptExecution({
           ),
         )
         setIsRendering(false)
+        setSettledRenderKey(key)
       } catch (err) {
         // Check if component is still mounted and this is still the latest render
         if (!isMountedRef.current || seq !== renderSeqRef.current) return
@@ -816,6 +823,7 @@ export function useScriptExecution({
         const errorMessage = err instanceof Error ? err.message : "Unknown error"
         setRenderError(createAppError(errorMessage, errorDetails))
         setIsRendering(false)
+        setSettledRenderKey(key)
       }
     },
     [api, rawScriptContent, envTemplates],
@@ -867,6 +875,7 @@ export function useScriptExecution({
       setRenderedScript(null)
       setRenderedEnv(null)
       setPrevRenderKey(null)
+      setSettledRenderKey(null)
       if (renderMode === "awaiting-outputs") {
         setRenderError(null)
       }
@@ -904,7 +913,7 @@ export function useScriptExecution({
     const { payload, key, errorDetails } = pendingRender
     autoUpdateTimerRef.current = setTimeout(() => {
       lastRenderedVariablesRef.current = key
-      void renderScript(payload, errorDetails)
+      void renderScript(payload, key, errorDetails)
     }, 300)
 
     // Cleanup: clear timer when effect re-runs or on unmount
@@ -1032,7 +1041,7 @@ export function useScriptExecution({
     hasGoogleAuthDependency,
 
     // Rendering
-    isRendering,
+    isRendering: isRendering || (pendingRender !== null && pendingRender.key !== settledRenderKey),
     renderError,
 
     // Execution
