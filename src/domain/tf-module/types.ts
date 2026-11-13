@@ -97,6 +97,16 @@ export interface TfModuleProvider {
   readonly version?: string
 }
 
+/** An output of the module, which the block publishes as its own output after an apply. */
+export interface TfModuleOutput {
+  readonly name: string
+  readonly label: string
+  readonly description: string
+  readonly sensitive: boolean
+  /** Show the value, an https: URL, as a link with this text. */
+  readonly link?: string
+}
+
 export interface TfModuleSpec {
   readonly title: string
   readonly description?: string
@@ -106,12 +116,16 @@ export interface TfModuleSpec {
    * one, the form shows the mark of the module's first provider it knows.
    */
   readonly logo?: string
+  /** In the order the module declares them. */
+  readonly outputs: readonly TfModuleOutput[]
   /** The module's folder on GitHub, at the ref the block reads, when it lives there. */
   readonly page?: string
   /** In the order runbook_block.yml lists them, then the rest in the order variables.tf declares them. */
   readonly variables: readonly TfModuleVariable[]
   /** The lookups the inputs use, with the definitions they need. */
   readonly definitions: Definitions
+  /** The checks to run before the module is planned, which a <TerragruntApply> block runs. */
+  readonly preflight: readonly Use[]
   /** The lookup groups the inputs use, which the block's `auth` prop binds to auth blocks. */
   readonly authGroups: readonly string[]
   /** Problems in runbook_block.yml that don't stop the form, such as a key Runbooks doesn't know. */

@@ -34,6 +34,7 @@ import { registerWatchHandlers } from "./watch.ts"
 import { registerThemeHandlers } from "./theme.ts"
 import { registerTfModuleHandlers } from "./tf-module.ts"
 import { registerTfModuleCodeHandlers } from "./tf-module-code.ts"
+import { registerTerragruntApplyHandlers } from "./terragrunt-apply.ts"
 import { withVcs } from "./vcs-tristate.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 
@@ -91,5 +92,6 @@ export function registerAllIpcHandlers(): void {
   registerThemeHandlers()
   registerTfModuleHandlers()
   registerTfModuleCodeHandlers()
+  registerTerragruntApplyHandlers()
   registerVcsStatusHandler()
 }

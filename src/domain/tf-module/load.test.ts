@@ -73,6 +73,16 @@ describe("loadModule", () => {
       "managers",
       "types",
     ])
+    expect(spec.outputs.map((o) => o.name)).toEqual([
+      "email",
+      "resource_name",
+      "customer_id",
+      "runbooks_console_url",
+    ])
+    expect(spec.outputs.find((o) => o.name === "runbooks_console_url")).toMatchObject({
+      label: "Admin console",
+      link: "View the Google Group",
+    })
 
     const id = byName(spec, "id")
     expect(id).toMatchObject({
@@ -215,6 +225,11 @@ describe("loadModule", () => {
       expect(await failure(dir)).toContain(
         "prefill fills a string input, and names is list(string)",
       )
+    })
+
+    it("whose runbook_block.yml describes an output the module doesn't declare", async () => {
+      write("runbook_block.yml", "outputs:\n  url:\n    link: Open it\n")
+      expect(await failure(dir)).toContain(`the outputs "url", which the module doesn't declare`)
     })
 
     it("whose input uses a lookup it doesn't define or include", async () => {

@@ -4,7 +4,7 @@ title: TfModule Demo
 
 # TfModule
 
-A `<TfModule>` block draws its form from an OpenTofu module and generates the code that uses it. The module's `variables.tf` gives each input's name, type, default and validation; its `runbook_block.yml` says how to present them.
+A `<TfModule>` block draws its form from an OpenTofu module and generates the code that uses it. The module's `variables.tf` gives each input's name, type, default and validation; its `runbook_block.yml` says how to present them. A `<GitHubPullRequest>` block then pushes that code, and a `<TerragruntApply>` block applies it.
 
 This runbook uses a copy of the `google-group` module from the catalog. The module's `runbook_block.yml` declares the lookups behind the organization dropdown and the people suggestions, and the `auth` prop binds them to the `<GoogleAuth>` block below, which sends them as the person who signs in. Until someone does, those fields say so, and take typed values.
 
@@ -22,6 +22,12 @@ This runbook uses a copy of the `google-group` module from the catalog. The modu
   ]}
 />
 
+## Clone your infrastructure repository
+
+<GitHubAuth id="github" />
+
+<GitClone id="infra-live" githubAuthId="github" title="Clone your infrastructure repository" />
+
 ## Describe the group
 
 <TfModule
@@ -32,7 +38,24 @@ This runbook uses a copy of the `google-group` module from the catalog. The modu
   auth={{ google: "workspace" }}
 />
 
-The runbook decides how to use the module: [its template](./templates/google-group-unit) renders a Terragrunt unit. **Generate** writes it under `google-groups/` in the repository a `<GitClone>` block cloned; without one, it lists the files without writing them.
+The runbook decides how to use the module: [its template](./templates/google-group-unit) renders a Terragrunt unit. **Generate** writes it under `google-groups/` in the clone.
+
+## Push it
+
+Nothing is applied that isn't pushed, so the pull request comes first.
+
+<GitHubPullRequest
+  id="pr"
+  githubAuthId="github"
+  prefilledPullRequestTitle="Add the {{ .inputs.id }} Google group"
+  inputsId="group"
+/>
+
+## Apply it
+
+<TerragruntApply id="apply-group" path="{{ .outputs.group.CODE_PATH }}" auth={["workspace"]} />
+
+Plan first runs the module's preflight checks through the `workspace` block, then shows what the plan would create. Once it applies, the module's outputs are this block's outputs, such as `{{ .outputs.apply_group.runbooks_console_url }}`.
 
 ## Use the values
 

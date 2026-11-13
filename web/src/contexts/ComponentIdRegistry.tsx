@@ -19,6 +19,7 @@ export type BlockComponentType =
   | "Prerequisites"
   | "Inputs"
   | "TfModule"
+  | "TerragruntApply"
   | "Template"
   | "TemplateInline"
   | "AwsAuth"
@@ -209,6 +210,8 @@ interface PageBlocks {
   isOnPage: (templateId: string) => boolean | undefined
   /** The block with this id, if one is on the page. */
   blockOf: (templateId: string) => PageBlock | undefined
+  /** The blocks of one kind on the page, such as every GitClone. */
+  blocksOf: (kind: string) => PageBlock[]
   /** Whether blocks have registered yet, so a block that isn't on the page is missing. */
   registered: boolean
 }
@@ -222,6 +225,7 @@ export function usePageBlocks(): PageBlocks {
       isOnPage: (templateId) =>
         blockIds.size === 0 ? undefined : blockIds.has(normalizeBlockId(templateId)),
       blockOf: (templateId) => blockIds.get(normalizeBlockId(templateId)),
+      blocksOf: (kind) => [...blockIds.values()].filter((block) => block.kind === kind),
       registered: blockIds.size > 0,
     }),
     [blockIds],

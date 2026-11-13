@@ -46,7 +46,9 @@ const spec: TfModuleSpec = {
   title: "Google group",
   description: "A Google Workspace group.",
   providers: [{ name: "google" }],
+  outputs: [{ name: "group_email", label: "Group email", description: "", sensitive: false }],
   definitions,
+  preflight: [],
   authGroups: ["google"],
   warnings: [],
   variables: [

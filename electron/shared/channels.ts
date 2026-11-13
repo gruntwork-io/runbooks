@@ -14,6 +14,7 @@ import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
 import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { TfModuleSpec } from "../../src/domain/tf-module/types.ts"
+import type { ApplyResult, PlanResult, RunEvent } from "../../src/domain/terragrunt/run.ts"
 import type { CodeTool, RepoFile, UnitFile } from "../../src/domain/tf-module/unit.ts"
 import type { HttpReply, HttpRequest } from "../../src/services/HttpRequest.ts"
 
@@ -203,6 +204,19 @@ export interface IpcChannelMap {
 
   /** Writes the block's code to its folder in the repository's checkout. */
   "tf-module:generate": { params: TfModuleGenerateRequest; result: TfModuleGenerated }
+  /**
+   * Checks what a <TerragruntApply> block needs before it plans: the tools,
+   * that the clone's changes are pushed, and the module the unit renders to.
+   */
+  "terragrunt-apply:preflight": {
+    params: TerragruntApplyRequest
+    result: TerragruntPreflight
+  }
+  /** Plans the unit, streaming `terragrunt-apply:event` as it goes. */
+  "terragrunt-apply:plan": { params: TerragruntRunRequest; result: PlanResult }
+  /** Applies the plan the last `terragrunt-apply:plan` saved, streaming `terragrunt-apply:event`. */
+  "terragrunt-apply:apply": { params: TerragruntRunRequest; result: ApplyResult }
+  "terragrunt-apply:cancel": { params: { runId: string }; result: { ok: true } }
 
   // AWS Authentication
   "aws:validate": {
@@ -1035,6 +1049,8 @@ export interface IpcEventMap {
   // first block's credential — its AuthSuccess card renders a stale-session
   // warning off this event instead of implying its credential is still active.
   "vcs:session-changed": { provider: "github" | "gitlab"; host: string; source?: string }
+  /** Progress of a <TfModule> plan or apply; `runId` echoes the request's, `at` is when it happened. */
+  "terragrunt-apply:event": { runId: string; event: RunEvent; at: string }
 }
 
 // ---------------------------------------------------------------------------
@@ -1139,7 +1155,7 @@ export type TfModuleCode =
       /** The unit's folder in the repository. */
       folder: string
       files: RepoFile[]
-      /** Whether the repository has a root.hcl above a Terragrunt unit, for the unit to include. */
+      /** Whether the repository has a root.hcl above a Terragrunt unit, so Apply runs it there. */
       rootHcl: boolean
       /** The release of the module the code points at, as a Git source pinned to a tag. */
       source: string
@@ -1158,6 +1174,50 @@ export interface TfModuleGenerated {
   /** Paths, relative to the checkout, that it wrote; none without a checkout. */
   written: string[]
 }
+
+/** The unit a <TerragruntApply> block runs, and the credentials it runs with. */
+export interface TerragruntApplyRequest {
+  blockId: string
+  /** The clone's checkout in the session. */
+  worktreePath: string
+  /** The unit's folder, relative to the clone's root. */
+  path: string
+  /** The bound auth blocks' env vars, which Terragrunt runs with on top of the session's. */
+  env: Record<string, string>
+}
+
+export interface TerragruntRunRequest extends TerragruntApplyRequest {
+  /** Names the run, for its events and for `terragrunt-apply:cancel`. */
+  runId: string
+}
+
+/** A command the unit runs with, and whether it's on the PATH. */
+export interface ToolStatus {
+  command: string
+  found: boolean
+  version?: string
+  install: string
+}
+
+/**
+ * What a <TerragruntApply> block found before planning. It stops at the
+ * first thing that's missing: a tool, then a push.
+ */
+export type TerragruntPreflight =
+  | { kind: "missing-tools"; tools: ToolStatus[] }
+  | { kind: "unpushed"; tools: ToolStatus[]; message: string }
+  | {
+      kind: "ready"
+      tools: ToolStatus[]
+      /** The unit's `terraform.source`, when it sets one. */
+      source?: string
+      /** The unit's inputs, which the module's checks read as `.inputs`. */
+      inputs: Record<string, unknown>
+      /** The module, with its checks; none when there's no source or it can't be read. */
+      module?: TfModuleSpec
+      /** Why the module's checks can't run, when the source names one Runbooks can't read. */
+      moduleNote?: string
+    }
 
 export interface ProfileInfo {
   name: string

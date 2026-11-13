@@ -30,6 +30,10 @@ const INVOKE_CHANNELS = {
   "boilerplate:resolve-inputs": true,
   "tf-module:read": true,
   "tf-module:generate": true,
+  "terragrunt-apply:preflight": true,
+  "terragrunt-apply:plan": true,
+  "terragrunt-apply:apply": true,
+  "terragrunt-apply:cancel": true,
   "aws:validate": true,
   "aws:profiles": true,
   "aws:sso-start": true,
@@ -110,6 +114,7 @@ const INVOKE_CHANNELS = {
 
 const EVENT_CHANNELS = {
   "exec:log": true,
+  "terragrunt-apply:event": true,
   "exec:log-file": true,
   "exec:files-captured": true,
   "watch:file-change": true,

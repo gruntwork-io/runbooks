@@ -61,6 +61,15 @@ variables:
         label: External group
         description: Its members come from an identity provider outside your directory.
 
+outputs:
+  email:
+    label: Group email
+  customer_id:
+    label: Customer ID
+  runbooks_console_url:
+    label: Admin console
+    link: View the Google Group
+
 # What the form asks Google for, sent by the GoogleAuth block the runbook binds
 # the google group to. Each row's `value` is what a pick puts in the input.
 lookups:

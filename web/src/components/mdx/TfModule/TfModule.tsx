@@ -27,7 +27,7 @@ import { ModuleField } from "./components/ModuleField"
 import { ModuleLogo } from "./components/ModuleLogo"
 import { Prefill } from "./components/Prefill"
 import { useGitSignIns } from "./hooks/useGitSignIns"
-import { LookupEngineContext, useLookupEngine } from "./hooks/useLookupEngine"
+import { LookupEngineContext, useLookupEngine } from "../_shared/hooks/useLookupEngine"
 import type { TfModuleGenerated, TfModuleRepo } from "../../../../../electron/shared/channels"
 import { inputsKey } from "../../../../../src/domain/tf-module/inputsKey"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
@@ -59,7 +59,8 @@ import {
  * Generate renders the runbook's template with those values and writes the
  * code to its folder in the repository a <GitClone> block cloned, and writes
  * it again as the inputs change. The runbook, not the module, decides how the
- * module is used: a Terragrunt unit, or plain OpenTofu or Terraform code.
+ * module is used: a Terragrunt unit, or plain OpenTofu or Terraform code. A
+ * <TerragruntApply> block applies a unit from there.
  *
  * @param props.id - Unique identifier for this block (required)
  * @param props.source - The module: a Git source such as

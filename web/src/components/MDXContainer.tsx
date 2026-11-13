@@ -15,6 +15,7 @@ import {
 // Support MDX components
 import { Inputs } from "@/components/mdx/Inputs"
 import { TfModule } from "@/components/mdx/TfModule"
+import { TerragruntApply } from "@/components/mdx/TerragruntApply"
 import { Template } from "@/components/mdx/Template"
 import { TemplateInline } from "@/components/mdx/TemplateInline"
 import { ComponentIdRegistryProvider } from "@/contexts/ComponentIdRegistry"
@@ -356,6 +357,7 @@ export const MDX_COMPONENTS = {
   // Form and template components
   Inputs,
   TfModule,
+  TerragruntApply,
   Template,
   TemplateInline,
   DirPicker,

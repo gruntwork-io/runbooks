@@ -13,6 +13,7 @@ import { checkDefinitions } from "../lookups/validate.ts"
 import {
   METADATA_FILE,
   buildSpec,
+  tfOutputs,
   parseHcl,
   parseMetadata,
   parsePresets,
@@ -136,7 +137,7 @@ const moduleDefinitions = (moduleDir: string, doc: unknown, inputs: readonly str
         message: `${METADATA_FILE}: ${problems.map((problem) => problem.message).join(" ")}`,
       })
     }
-    return loaded.definitions
+    return { definitions: loaded.definitions, preflight: loaded.preflight }
   })
 
 /** Reads the module in `moduleDir`. Fails with a message fit to show the user. */
@@ -205,7 +206,7 @@ export const loadModule = (moduleDir: string) =>
     }
 
     const variables = tfVariables(parsed, files)
-    const definitions = yield* moduleDefinitions(
+    const { definitions, preflight } = yield* moduleDefinitions(
       moduleDir,
       metadata.doc,
       variables.map((variable) => variable.name),
@@ -224,11 +225,13 @@ export const loadModule = (moduleDir: string) =>
         buildSpec({
           moduleName: path.basename(moduleDir),
           ...(title ? { readmeTitle: title } : {}),
+          outputs: tfOutputs(parsed, files),
           variables,
           providers: requiredProviders(parsed),
           metadata,
           presets,
           definitions,
+          preflight,
           ...(logo ? { logo } : {}),
         }),
       catch: (cause) =>

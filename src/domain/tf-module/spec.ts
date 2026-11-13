@@ -17,6 +17,7 @@ import { usedGroups } from "../lookups/validate.ts"
 import type {
   TfModuleInputKind,
   TfModuleOption,
+  TfModuleOutput,
   TfModulePreset,
   TfModuleProvider,
   TfModuleSpec,
@@ -304,9 +305,17 @@ export interface ModuleMetadata {
   /** The logo's path in the module, or an https: URL. */
   readonly logo?: string
   readonly variables: Readonly<Record<string, VariableMetadata>>
+  readonly outputs: Readonly<Record<string, OutputMetadata>>
   readonly warnings: readonly string[]
   /** The parsed file, whose lookups, checks and includes the lookup engine reads. */
   readonly doc: unknown
+}
+
+export interface OutputMetadata {
+  readonly label?: string
+  readonly description?: string
+  /** The text of a link to the output's value, which must be an https: URL. */
+  readonly link?: string
 }
 
 export interface VariableMetadata {
@@ -325,7 +334,7 @@ export interface VariableMetadata {
 
 /** Reads runbook_block.yml. Fails on anything that would make the form wrong. */
 export function parseMetadata(content: string | undefined): ModuleMetadata {
-  if (content === undefined) return { variables: {}, warnings: [], doc: undefined }
+  if (content === undefined) return { variables: {}, outputs: {}, warnings: [], doc: undefined }
   let raw: unknown
   try {
     raw = YAML.parse(content)
@@ -336,7 +345,7 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     })
   }
   if (raw === null || raw === undefined) {
-    return { variables: {}, warnings: [], doc: raw }
+    return { variables: {}, outputs: {}, warnings: [], doc: raw }
   }
   if (!isRecord(raw)) throw new TfModuleError({ message: `${METADATA_FILE} must be a map.` })
 
@@ -345,6 +354,7 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     "version",
     "block",
     "variables",
+    "outputs",
     "include",
     "lookups",
     "checks",
@@ -410,6 +420,26 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     }
   }
 
+  const outputs: Record<string, OutputMetadata> = {}
+  const rawOutputs = raw.outputs ?? {}
+  if (!isRecord(rawOutputs)) {
+    problems.errors.push("outputs must be a map from each output's name to how to present it.")
+  } else {
+    for (const [name, entry] of Object.entries(rawOutputs)) {
+      const where = `outputs.${name}`
+      const fields = isRecord(entry) ? entry : {}
+      problems.unknownKeys(where, fields, ["label", "description", "link"])
+      const label = optionalString(fields.label, `${where}.label`, problems)
+      const outDescription = optionalString(fields.description, `${where}.description`, problems)
+      const link = optionalString(fields.link, `${where}.link`, problems)
+      outputs[name] = {
+        ...(label ? { label } : {}),
+        ...(outDescription ? { description: outDescription } : {}),
+        ...(link ? { link } : {}),
+      }
+    }
+  }
+
   if (problems.errors.length > 0) {
     throw new TfModuleError({ message: `${METADATA_FILE}: ${problems.errors.join(" ")}` })
   }
@@ -418,6 +448,7 @@ export function parseMetadata(content: string | undefined): ModuleMetadata {
     ...(description ? { description } : {}),
     ...(logo ? { logo } : {}),
     variables,
+    outputs,
     warnings: problems.warnings,
     doc: raw,
   }
@@ -433,11 +464,41 @@ export function readmeTitle(readme: string | undefined): string | undefined {
   return match ? match[1] : undefined
 }
 
+/** An output as outputs.tf declares it. */
+export interface TfOutput {
+  readonly name: string
+  readonly description: string
+  readonly sensitive: boolean
+}
+
+/** The outputs the parsed files declare, in declaration order. */
+export function tfOutputs(parsed: readonly HclJson[], files: readonly ModuleFile[]): TfOutput[] {
+  const order = new Map<string, number>()
+  for (const file of files) {
+    for (const match of file.content.matchAll(/^\s*output\s+"([^"]+)"/gm)) {
+      if (!order.has(match[1]!)) order.set(match[1]!, order.size)
+    }
+  }
+  const position = (name: string) => order.get(name) ?? Number.MAX_SAFE_INTEGER
+  return parsed
+    .flatMap((json) => (isRecord(json.output) ? Object.entries(json.output) : []))
+    .map(([name, value]) => {
+      const body = blockBody(value) ?? {}
+      return {
+        name,
+        description: typeof body.description === "string" ? body.description : "",
+        sensitive: body.sensitive === true,
+      }
+    })
+    .sort((a, b) => position(a.name) - position(b.name))
+}
+
 export interface BuildSpecInput {
   /** The module's folder name, the title when neither runbook_block.yml nor the README gives one. */
   readonly moduleName: string
   /** The title the module's README gives, the title when runbook_block.yml gives none. */
   readonly readmeTitle?: string
+  readonly outputs: readonly TfOutput[]
   readonly variables: readonly TfVariable[]
   readonly providers: readonly TfModuleProvider[]
   readonly metadata: ModuleMetadata
@@ -447,6 +508,8 @@ export interface BuildSpecInput {
   readonly logo?: string
   /** The lookups and checks runbook_block.yml defines and includes, already checked. */
   readonly definitions?: Definitions
+  /** The checks runbook_block.yml lists to run before the module is planned. */
+  readonly preflight?: readonly Use[]
 }
 
 /** Joins variables.tf and runbook_block.yml into the spec the form draws. */
@@ -466,6 +529,14 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
         message: `${METADATA_FILE}: variables.${name}.prefill fills a string input, and ${name} is ${tfType}.`,
       })
     }
+  }
+
+  const outputs = new Set(input.outputs.map((output) => output.name))
+  const unknownOutputs = Object.keys(input.metadata.outputs).filter((name) => !outputs.has(name))
+  if (unknownOutputs.length > 0) {
+    throw new TfModuleError({
+      message: `${METADATA_FILE} describes the outputs ${unknownOutputs.map((name) => `"${name}"`).join(", ")}, which the module doesn't declare.`,
+    })
   }
 
   for (const [name, meta] of Object.entries(input.metadata.variables)) {
@@ -536,8 +607,19 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
     ...(input.metadata.description ? { description: input.metadata.description } : {}),
     providers: input.providers,
     ...(input.logo ? { logo: input.logo } : {}),
+    outputs: input.outputs.map((output): TfModuleOutput => {
+      const meta = input.metadata.outputs[output.name] ?? {}
+      return {
+        name: output.name,
+        label: meta.label ?? labelFromName(output.name),
+        description: meta.description ?? output.description,
+        sensitive: output.sensitive,
+        ...(meta.link ? { link: meta.link } : {}),
+      }
+    }),
     variables,
     definitions,
+    preflight: input.preflight ?? [],
     authGroups: usedGroups(
       definitions,
       variables.flatMap((v) =>

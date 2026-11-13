@@ -7,17 +7,20 @@ import { revealOutputs } from "../../../../../../src/domain/exec/outputValues"
 import {
   inputsRead,
   readsQuery,
+  runCheck,
   runLookup,
+  type CheckOutcome,
   type LookupResult,
   type RunContext,
 } from "../../../../../../src/domain/lookups/run"
 import type { AuthKind, Definitions, Use } from "../../../../../../src/domain/lookups/types"
 import { usedGroups } from "../../../../../../src/domain/lookups/validate"
-import { authFacts, signedIn } from "../authFacts"
+import { authFacts, signedIn } from "../lib/authFacts"
 
-/** Runs a form's lookups, through the auth blocks its `auth` prop binds their groups to. */
+/** Runs a block's lookups and checks, through the auth blocks it binds their groups to. */
 export interface LookupEngine {
   run: (use: Use, query: string) => Promise<LookupResult>
+  check: (use: Use) => Promise<CheckOutcome>
   /** Whether the use's lookup asks the API with what's typed, rather than the form filtering its rows. */
   readsQuery: (use: Use) => boolean
   /**
@@ -34,6 +37,17 @@ export function useLookupEngineContext(): LookupEngine | undefined {
   return useContext(LookupEngineContext)
 }
 
+/** What an engine reads from the page: the API, every block's outputs, and the blocks' ids. */
+export interface EngineDeps {
+  readonly api: ReturnType<typeof useApi>
+  readonly outputs: ReturnType<typeof useAllOutputs>
+  readonly asWritten: (templateId: string) => string
+}
+
+export function useEngineDeps(): EngineDeps {
+  return { api: useApi(), outputs: useAllOutputs(), asWritten: usePageBlocks().asWritten }
+}
+
 /**
  * The engine for a form whose inputs hold `inputs`, binding each lookup group
  * to an auth block by `binding`, such as `{ google: "workspace" }`.
@@ -43,9 +57,18 @@ export function useLookupEngine(
   binding: Readonly<Record<string, string>>,
   inputs: Readonly<Record<string, unknown>>,
 ): LookupEngine {
-  const api = useApi()
-  const outputs = useAllOutputs()
-  const { asWritten } = usePageBlocks()
+  return lookupEngine(useEngineDeps(), definitions, binding, inputs)
+}
+
+/** The engine over what `deps` read from the page; useLookupEngine for a form. */
+export function lookupEngine(
+  { api, outputs, asWritten }: EngineDeps,
+  definitions: Definitions,
+  binding: Readonly<Record<string, string>>,
+  inputs: Readonly<Record<string, unknown>>,
+  /** What a sign-in is for, to end the message that asks for one. */
+  signInFor = "for suggestions here",
+): LookupEngine {
   const boundValues = (group: string): Record<string, string> | undefined => {
     const blockId = binding[group]
     const values = blockId ? outputs[normalizeBlockId(blockId)]?.values : undefined
@@ -57,7 +80,7 @@ export function useLookupEngine(
     if (!blockId) throw new Error(`The ${group} lookups aren't bound to an auth block.`)
     const values = boundValues(group)
     if (!values || !signedIn(kind, values)) {
-      throw new Error(`Sign in with the ${asWritten(blockId)} block above for suggestions here.`)
+      throw new Error(`Sign in with the ${asWritten(blockId)} block above ${signInFor}.`)
     }
     if (kind === "GoogleAuth") {
       return api.invoke("google:send", { blockId: asWritten(blockId), request })
@@ -94,6 +117,7 @@ export function useLookupEngine(
   // their requests by keyOf, not by the engine.
   return {
     run: (use, query) => runLookup(context, use, query),
+    check: (use) => runCheck(context, use),
     readsQuery: (use) => {
       const def = definitions.lookups[use.from]
       return def ? readsQuery(def) : false
