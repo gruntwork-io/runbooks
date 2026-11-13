@@ -127,9 +127,11 @@ describe("CodeFileCollection highlighting the files changed since they were revi
     const main = card("infra/main.tf")
     expect(main).toHaveAttribute("data-change", "modified")
     expect(within(main).getByText("Modified")).toHaveTextContent("Modified +1 -1")
-    expect(main.querySelector('[data-line="3"]')).toHaveStyle({
-      backgroundColor: "color-mix(in oklch, var(--success) 20%, transparent)",
-    })
+    // The inline style, not toHaveStyle's computed one: no stylesheet defines
+    // --success here, so jsdom computes the tint as transparent.
+    expect((main.querySelector('[data-line="3"]') as HTMLElement).style.backgroundColor).toBe(
+      "color-mix(in oklch, var(--success) 20%, transparent)",
+    )
     expect((main.querySelector('[data-line="2"]') as HTMLElement).style.backgroundColor).toBe("")
     expect(card("README.md")).not.toHaveAttribute("data-change")
 
@@ -172,9 +174,9 @@ describe("CodeFileCollection highlighting the files changed since they were revi
     await generate("A\nb\nC\nd\n")
     const main = card("infra/main.tf")
     expect(within(main).getByText("Modified")).toHaveTextContent("Modified +2 -2")
-    expect(main.querySelector('[data-line="1"]')).toHaveStyle({
-      backgroundColor: "color-mix(in oklch, var(--success) 20%, transparent)",
-    })
+    expect((main.querySelector('[data-line="1"]') as HTMLElement).style.backgroundColor).toBe(
+      "color-mix(in oklch, var(--success) 20%, transparent)",
+    )
 
     await user.click(treeItem("README.md"))
     expect(card("infra/main.tf")).not.toHaveAttribute("data-change")

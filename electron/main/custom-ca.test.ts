@@ -4,7 +4,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect } from "effect"
-import { CA_BUNDLE_ENV_VARS } from "../../src/domain/tls/custom-ca.ts"
+import { CA_BUNDLE_ENV_VARS } from "../../src/domain/tls/customCa.ts"
 import { makeTestEnvironment } from "../../src/test-utils/TestEnvironment.ts"
 import { clearCustomCa, getCustomCaStatus, initCustomCa, setCustomCaFile } from "./custom-ca.ts"
 import { sessionManager } from "./ipc/runtime.ts"
@@ -44,6 +44,13 @@ let savedEnv: Record<string, string | undefined>
 
 const bundlePath = () => path.join(dataDir, "custom-ca-bundle.pem")
 const settingPath = () => path.join(dataDir, "custom-ca.json")
+const bundleOf = (pems: string[]) => `${pems.map((p) => p.trim()).join("\n")}\n`
+/** Make writing the bundle fail: a file can't be renamed over a folder. */
+const blockBundle = () => {
+  fs.rmSync(bundlePath(), { force: true })
+  fs.mkdirSync(bundlePath())
+}
+const leftoverTempFiles = () => fs.readdirSync(dataDir).filter((name) => name.endsWith(".tmp"))
 const caEnv = () => Object.fromEntries(CA_BUNDLE_ENV_VARS.map((name) => [name, process.env[name]]))
 const sessionEnv = async () => (await Effect.runPromise(sessionManager.getExecContext())).env
 
@@ -57,6 +64,7 @@ function launch(): void {
 beforeEach(() => {
   spyOn(console, "log").mockImplementation(() => {})
   spyOn(console, "warn").mockImplementation(() => {})
+  spyOn(console, "error").mockImplementation(() => {})
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-custom-ca-"))
   // Start every test from an env without the vars, whatever the machine's has.
   savedEnv = caEnv()
@@ -86,10 +94,26 @@ describe("without a custom CA", () => {
     expect(fs.existsSync(bundlePath())).toBe(false)
   })
 
-  it("deletes a bundle left over from an earlier run", () => {
-    fs.writeFileSync(bundlePath(), "stale")
+  it("takes the custom CA out of a bundle left over from an earlier run, for its scripts", () => {
+    fs.writeFileSync(bundlePath(), bundleOf([BUNDLED, SYSTEM, CA]))
     launch()
-    expect(fs.existsSync(bundlePath())).toBe(false)
+    expect(fs.readFileSync(bundlePath(), "utf8")).toBe(bundleOf([BUNDLED, SYSTEM]))
+  })
+
+  it("doesn't hand on env vars naming the bundle, inherited from a script of an earlier run", async () => {
+    fs.writeFileSync(bundlePath(), bundleOf([BUNDLED, SYSTEM, CA]))
+    process.env.SSL_CERT_FILE = bundlePath()
+    process.env.GIT_SSL_CAINFO = bundlePath()
+    process.env.CURL_CA_BUNDLE = "/etc/corp.pem"
+    launch()
+
+    expect(process.env.SSL_CERT_FILE).toBeUndefined()
+    expect(process.env.GIT_SSL_CAINFO).toBeUndefined()
+    expect(process.env.CURL_CA_BUNDLE).toBe("/etc/corp.pem")
+    await Effect.runPromise(
+      sessionManager.createSession("/work").pipe(Effect.provide(makeTestEnvironment({}))),
+    )
+    expect((await sessionEnv()).SSL_CERT_FILE).toBeUndefined()
   })
 })
 
@@ -183,6 +207,42 @@ describe("setCustomCaFile", () => {
 
     expect(fs.readFileSync(bundlePath(), "utf8")).toContain(EXTRA)
   })
+
+  it("trusts nothing and saves nothing when the bundle for spawned processes can't be written", () => {
+    launch()
+    blockBundle()
+
+    const { status, rejected } = setCustomCaFile(CA_FILE)
+
+    expect(rejected).toStartWith("The certificate bundle for scripts can't be written: ")
+    expect(status).toEqual({ certificates: [] })
+    expect(getCustomCaStatus()).toEqual({ certificates: [] })
+    expect(fake.lastInstall()).toEqual([BUNDLED, SYSTEM])
+    expect(Object.values(caEnv()).every((value) => value === undefined)).toBe(true)
+    expect(fs.existsSync(settingPath())).toBe(false)
+    expect(leftoverTempFiles()).toEqual([])
+  })
+
+  it("keeps the current custom CA when the bundle for a new one can't be written", () => {
+    const corpFile = path.join(dataDir, "corp.pem")
+    fs.writeFileSync(corpFile, CORP)
+    launch()
+    setCustomCaFile(CA_FILE)
+    blockBundle()
+
+    expect(setCustomCaFile(corpFile).rejected).toStartWith(
+      "The certificate bundle for scripts can't be written: ",
+    )
+
+    expect(getCustomCaStatus().path).toBe(CA_FILE)
+    expect(fake.lastInstall()).toEqual([BUNDLED, SYSTEM, CA])
+    expect(JSON.parse(fs.readFileSync(settingPath(), "utf8"))).toEqual({ path: CA_FILE })
+    expect(process.env.SSL_CERT_FILE).toBe(bundlePath())
+    // Retrying writes what it must.
+    fs.rmdirSync(bundlePath())
+    registerExtraCaPems([EXTRA])
+    expect(fs.readFileSync(bundlePath(), "utf8")).toBe(bundleOf([BUNDLED, SYSTEM, EXTRA, CA]))
+  })
 })
 
 describe("a saved file that can't be used at launch", () => {
@@ -214,8 +274,18 @@ describe("clearCustomCa", () => {
     expect(fake.lastInstall()).toEqual([BUNDLED, SYSTEM])
     expect(process.env.SSL_CERT_FILE).toBe("/etc/corp.pem")
     expect(process.env.GIT_SSL_CAINFO).toBeUndefined()
-    expect(fs.existsSync(bundlePath())).toBe(false)
     expect(fs.existsSync(settingPath())).toBe(false)
+  })
+
+  it("keeps the bundle for scripts that are running, without the custom CA", () => {
+    launch()
+    setCustomCaFile(CA_FILE)
+
+    clearCustomCa()
+
+    // Their env names it, and nothing can change that: deleted, it would fail
+    // them even for public servers.
+    expect(fs.readFileSync(bundlePath(), "utf8")).toBe(bundleOf([BUNDLED, SYSTEM]))
   })
 
   it("doesn't put back the bundle itself, inherited by an app a script of this one launched", () => {

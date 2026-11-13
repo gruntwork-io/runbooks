@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { CustomCaDialog } from "../CustomCaDialog"
-import type { CaCertificateSummary, CustomCaStatus } from "../../../../../src/domain/tls/custom-ca"
+import type { CaCertificateSummary, CustomCaStatus } from "../../../../../src/domain/tls/customCa"
 
 // The IPC boundary is the only thing mocked: main reads, saves and installs the file.
 const invoke = vi.fn()

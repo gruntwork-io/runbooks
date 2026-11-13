@@ -13,7 +13,7 @@ import {
   caBundleEnv,
   caBundleText,
   parseCustomCa,
-} from "../../src/domain/tls/custom-ca.ts"
+} from "../../src/domain/tls/customCa.ts"
 import { installSystemTrust } from "../../src/domain/tls/system-ca.ts"
 
 // The custom CA certificate setting (electron/main/custom-ca.ts) against real

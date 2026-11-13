@@ -12,6 +12,8 @@
  *    CA_BUNDLE_ENV_VARS. They point at a bundle file of everything main
  *    trusts, kept up to date on every install, and go on process.env (which
  *    git spawns and new sessions start from) and on the open session's env.
+ *    The bundle is never deleted: a process started while a custom CA was in
+ *    use keeps naming it, so removing the custom CA rewrites it without.
  *
  * Not Chromium's network stack (pages and frames), which keeps using the OS
  * trust store alone.
@@ -31,12 +33,12 @@ import {
   caBundleText,
   parseCustomCa,
   pemCertificateBlocks,
-} from "../../src/domain/tls/custom-ca.ts"
+} from "../../src/domain/tls/customCa.ts"
 import type {
   CaBundleEnvVar,
   CustomCaStatus,
   ParsedCustomCa,
-} from "../../src/domain/tls/custom-ca.ts"
+} from "../../src/domain/tls/customCa.ts"
 import { errorMessage } from "../../src/errors/message.ts"
 import { sessionManager } from "./ipc/runtime.ts"
 import { makeLogger } from "./logger.ts"
@@ -56,6 +58,8 @@ interface CustomCaState {
   /** The CA_BUNDLE_ENV_VARS values the app started with, restored when the custom CA is removed. */
   readonly originalEnv: Partial<Record<CaBundleEnvVar, string>>
   status: CustomCaStatus
+  /** The PEMs of `status`'s certificates, as main trusts them. */
+  pems: readonly string[]
   /** Whether CA_BUNDLE_ENV_VARS point at the bundle now. */
   envPointsAtBundle: boolean
   /** The bundle as last written, so an install that changes nothing doesn't rewrite it. */
@@ -133,9 +137,9 @@ function originalFilePems(s: CustomCaState): string[] {
 /**
  * Hand the main process's trust on to spawned processes while a custom CA is
  * in use: write the bundle, and point CA_BUNDLE_ENV_VARS at it. Otherwise put
- * the vars back and delete the bundle. Runs after every trust install, so the
- * bundle keeps up with OS-store refreshes and glab harvests. Never throws:
- * main's own trust is already installed by then, and stays.
+ * the vars back. Runs after every trust install, so the bundle keeps up with
+ * OS-store refreshes and glab harvests. Never throws: main's own trust is
+ * already installed by then, and stays.
  */
 function syncChildTrust(): void {
   const s = state
@@ -148,64 +152,82 @@ function syncChildTrust(): void {
 }
 
 function syncChildTrustOrThrow(s: CustomCaState): void {
-  const inUse = s.status.certificates.length > 0
-
-  if (!inUse) {
-    if (s.envPointsAtBundle) {
-      setChildEnv(caBundleEnv(undefined, s.originalEnv))
-      s.envPointsAtBundle = false
-    }
-    if (s.writtenBundle !== undefined || fs.existsSync(bundlePath(s))) {
-      fs.rmSync(bundlePath(s), { force: true })
-      s.writtenBundle = undefined
+  if (s.status.certificates.length > 0) {
+    writeBundle(s)
+    if (!s.envPointsAtBundle) {
+      setChildEnv(caBundleEnv(bundlePath(s), s.originalEnv))
+      s.envPointsAtBundle = true
     }
     return
   }
 
-  const bundle = caBundleText([...installedCaPems(), ...originalFilePems(s)])
-  if (bundle !== s.writtenBundle) {
-    // Through a temporary file, so a script that is running never reads half of it.
-    const tmp = `${bundlePath(s)}.${process.pid}.tmp`
-    fs.writeFileSync(tmp, bundle, { mode: 0o644 })
-    fs.renameSync(tmp, bundlePath(s))
-    s.writtenBundle = bundle
+  if (s.envPointsAtBundle) {
+    setChildEnv(caBundleEnv(undefined, s.originalEnv))
+    s.envPointsAtBundle = false
   }
-  if (!s.envPointsAtBundle) {
-    setChildEnv(caBundleEnv(bundlePath(s), s.originalEnv))
-    s.envPointsAtBundle = true
-  }
+  // A process started while a custom CA was in use, in this run or an earlier
+  // one, still names the bundle and can't be told otherwise. Deleting it would
+  // leave that process with a missing CA file, failing even for public
+  // servers: it holds what main trusts without the custom CA instead.
+  if (s.writtenBundle !== undefined || fs.existsSync(bundlePath(s))) writeBundle(s)
 }
 
-/** Trust `parsed`'s certificates as the custom CA from `file`. */
-function trust(
-  s: CustomCaState,
-  file: string,
-  parsed: Extract<ParsedCustomCa, { ok: true }>,
-): void {
-  s.status = { path: file, certificates: parsed.certificates }
-  setCustomCaPems(parsed.pems)
-  syncChildTrust()
-  log.info(`custom CA: ${parsed.certificates.length} certificate(s) from ${file}`)
+/** Write the bundle: everything main trusts, and the certificates of the files the vars named at launch. */
+function writeBundle(s: CustomCaState): void {
+  const bundle = caBundleText([...installedCaPems(), ...originalFilePems(s)])
+  if (bundle === s.writtenBundle) return
+  // Through a temporary file, so a script that is running never reads half of it.
+  const tmp = `${bundlePath(s)}.${process.pid}.tmp`
+  try {
+    fs.writeFileSync(tmp, bundle, { mode: 0o644 })
+    fs.renameSync(tmp, bundlePath(s))
+  } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true })
+    } catch {
+      // The error to report is the write's.
+    }
+    throw err
+  }
+  s.writtenBundle = bundle
+}
+
+/**
+ * Make `status` the custom CA setting, and trust `pems`, its certificates, in
+ * main. The install hands them on to spawned processes, but only as far as
+ * syncChildTrust can: a caller that must know runs syncChildTrustOrThrow.
+ */
+function trust(s: CustomCaState, status: CustomCaStatus, pems: readonly string[]): void {
+  s.status = status
+  s.pems = pems
+  setCustomCaPems([...pems])
 }
 
 /**
  * Load the saved custom CA, if any, and trust it. Call once at startup, after
  * populateShellEnv() (so the env vars it may replace are the user's) and
- * initSystemTrust(), before any TLS connection.
+ * initSystemTrust(), before any TLS connection, and only in the instance that
+ * holds the single-instance lock: the bundle is that instance's.
  */
 export function initCustomCa(io: { dataDir: string }): void {
   const bundle = path.join(io.dataDir, BUNDLE_FILE)
   const originalEnv: Partial<Record<CaBundleEnvVar, string>> = {}
+  const inherited: Partial<Record<CaBundleEnvVar, undefined>> = {}
   for (const name of CA_BUNDLE_ENV_VARS) {
     const value = process.env[name]
-    // The bundle itself is inherited by an app launched from a script this
-    // app ran: what it stood in for is unknown, so it's not restored.
-    if (value && path.resolve(value) !== bundle) originalEnv[name] = value
+    if (!value) continue
+    // The bundle itself, inherited by an app launched from a script an
+    // earlier run ran: what it stood in for is unknown, so it's neither
+    // restored nor handed on. With a custom CA in use it's set again below.
+    if (path.resolve(value) === bundle) inherited[name] = undefined
+    else originalEnv[name] = value
   }
+  setChildEnv(inherited)
   state = {
     dataDir: io.dataDir,
     originalEnv,
     status: { certificates: [] },
+    pems: [],
     envPointsAtBundle: false,
     writtenBundle: undefined,
   }
@@ -216,19 +238,19 @@ export function initCustomCa(io: { dataDir: string }): void {
   }
 
   const file = readSetting(s)
-  if (file === undefined) {
-    // Left over from a run that didn't remove it, e.g. one that crashed.
-    syncChildTrust()
-    return
+  if (file !== undefined) {
+    const parsed = readCertificateFile(file)
+    if (parsed.ok) {
+      trust(s, { path: file, certificates: parsed.certificates }, parsed.pems)
+      log.info(`custom CA: ${parsed.certificates.length} certificate(s) from ${file}`)
+    } else {
+      log.warn(`custom CA ${file} not trusted: ${parsed.error}`)
+      s.status = { path: file, certificates: [], error: parsed.error }
+    }
   }
-  const parsed = readCertificateFile(file)
-  if (!parsed.ok) {
-    log.warn(`custom CA ${file} not trusted: ${parsed.error}`)
-    s.status = { path: file, certificates: [], error: parsed.error }
-    syncChildTrust()
-    return
-  }
-  trust(s, file, parsed)
+  // Without a custom CA in use, this takes it out of a bundle left over from
+  // an earlier run.
+  syncChildTrust()
 }
 
 /** The custom CA setting, for the Custom CA Certificate dialog. */
@@ -238,19 +260,35 @@ export function getCustomCaStatus(): CustomCaStatus {
 
 /**
  * Trust the certificates in `file` as the custom CA, in place of any set
- * before, and save the choice. A file without a usable certificate changes
- * nothing: `rejected` says why.
+ * before, in main and in spawned processes, and save the choice. A file
+ * without a usable certificate, or one that can't be handed on to spawned
+ * processes or saved, changes nothing: `rejected` says why.
  */
 export function setCustomCaFile(file: string): { status: CustomCaStatus; rejected?: string } {
   const s = ensureInit()
   const parsed = readCertificateFile(file)
   if (!parsed.ok) return { status: s.status, rejected: parsed.error }
+
+  const before = { status: s.status, pems: s.pems }
+  const undo = (rejected: string) => {
+    trust(s, before.status, before.pems)
+    syncChildTrust()
+    return { status: s.status, rejected }
+  }
+
+  trust(s, { path: file, certificates: parsed.certificates }, parsed.pems)
+  try {
+    syncChildTrustOrThrow(s)
+  } catch (err) {
+    log.error("couldn't hand the custom CA on to spawned processes:", err)
+    return undo(`The certificate bundle for scripts can't be written: ${errorMessage(err)}`)
+  }
   try {
     fs.writeFileSync(settingPath(s), JSON.stringify({ path: file }), "utf8")
   } catch (err) {
-    return { status: s.status, rejected: `The setting can't be saved: ${errorMessage(err)}` }
+    return undo(`The setting can't be saved: ${errorMessage(err)}`)
   }
-  trust(s, file, parsed)
+  log.info(`custom CA: ${parsed.certificates.length} certificate(s) from ${file}`)
   return { status: s.status }
 }
 
@@ -258,8 +296,7 @@ export function setCustomCaFile(file: string): { status: CustomCaStatus; rejecte
 export function clearCustomCa(): CustomCaStatus {
   const s = ensureInit()
   fs.rmSync(settingPath(s), { force: true })
-  s.status = { certificates: [] }
-  setCustomCaPems([])
+  trust(s, { certificates: [] }, [])
   syncChildTrust()
   log.info("custom CA removed")
   return s.status

@@ -127,7 +127,8 @@ test("trusts a custom CA chosen from the menu, keeps it across a relaunch, and r
 
     // Back to the env it started with, where an empty value counts as unset.
     expect(await mainTrust(app2)).toEqual({ trusted: false, gitCaInfo: null })
-    expect(fs.existsSync(bundle)).toBe(false)
+    // Kept for scripts that are still running, without the custom CA.
+    expect(fs.readFileSync(bundle, "utf8")).not.toContain(CA_PEM)
   } finally {
     await app2.close()
   }

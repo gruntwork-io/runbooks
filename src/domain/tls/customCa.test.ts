@@ -8,7 +8,7 @@ import {
   caBundleText,
   parseCustomCa,
   pemCertificateBlocks,
-} from "./custom-ca.ts"
+} from "./customCa.ts"
 
 // The committed TLS fixtures: a root CA, and a localhost server certificate it issued.
 const FIXTURES = path.join(import.meta.dir, "../../../test/fixtures/tls")

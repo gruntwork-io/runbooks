@@ -13,7 +13,7 @@ export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
 import type { ListedSession } from "../../src/domain/session/store.ts"
-import type { CustomCaStatus } from "../../src/domain/tls/custom-ca.ts"
+import type { CustomCaStatus } from "../../src/domain/tls/customCa.ts"
 export type { CustomCaStatus }
 
 /** What session:switch did. */

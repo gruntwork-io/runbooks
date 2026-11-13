@@ -50,6 +50,8 @@ Most of these variables replace a tool's own list of trusted CAs, which is why t
 
 A script that sets one of these variables itself keeps its own value.
 
+When you remove the custom CA, scripts started after that get your environment's values again. Runbooks takes your certificate out of the bundle but keeps the file, because scripts that are already running still point at it.
+
 ## Older Go programs on macOS and Windows
 
 Go programs built with Go 1.26 or earlier, such as OpenTofu 1.12 and earlier, ignore `SSL_CERT_FILE` on macOS and Windows. To check which Go a binary was built with, run `go version <path-to-binary>` or look in its release notes.

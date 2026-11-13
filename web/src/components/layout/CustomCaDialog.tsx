@@ -11,7 +11,7 @@ import {
 import { useApi } from "@/contexts/ApiContext"
 import { useDisplayPath } from "@/contexts/useDisplayPath"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
-import type { CaCertificateSummary, CustomCaStatus } from "../../../../src/domain/tls/custom-ca"
+import type { CaCertificateSummary, CustomCaStatus } from "../../../../src/domain/tls/customCa"
 
 interface CustomCaDialogProps {
   open: boolean
