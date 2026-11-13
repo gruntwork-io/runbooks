@@ -8,7 +8,7 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTheme } from "@/contexts/useTheme"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
-import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { resolveTemplateReferences, resolveTemplateValue } from "@/lib/templateUtils"
 import {
   extractTemplateDependenciesFromString,
   requireAllOutputs,
@@ -35,6 +35,10 @@ import { CredentialsForm } from "./components/CredentialsForm"
 import { SsoForm, SsoAccountSelector, SsoRoleSelector } from "./components/SsoFlow"
 import { ProfileSelector } from "./components/ProfileSelector"
 import { DetectedCredentialsPrompt } from "./components/DetectedCredentialsPrompt"
+
+function unresolvablePropMessage(prop: string): string {
+  return `The <AwsAuth> ${prop} prop can't be resolved to a value to sign in with.`
+}
 
 function AwsAuthInteractive({
   id,
@@ -83,8 +87,20 @@ function AwsAuthInteractive({
     outputs,
   } = useTemplateDependencies(signInDeps, inputsId)
   const templateCtx = useMemo(() => ({ inputs, outputs }), [inputs, outputs])
-  const resolve = (value: string | undefined) =>
-    value && signInReady ? resolveTemplateReferences(value, templateCtx) : undefined
+  // A prop without references is used as it is. One with references waits for
+  // them, then gets their values themselves, a sensitive output's included.
+  const resolve = (value: string | undefined) => {
+    if (value === undefined || !value.includes("{{")) return value
+    return signInReady ? resolveTemplateValue(value, templateCtx) : undefined
+  }
+  // A sign-in prop whose references are all there but which still doesn't
+  // resolve, such as one that pipes a value: it can't be signed in with.
+  const unresolvableProp = signInReady
+    ? Object.entries({ ssoStartUrl, ssoRegion, ssoAccountId, ssoRoleName, defaultRegion }).find(
+        ([, value]) =>
+          value?.includes("{{") && resolveTemplateValue(value, templateCtx) === undefined,
+      )?.[0]
+    : undefined
   const resolvedStartUrl = resolve(ssoStartUrl)
   const resolvedSsoRegion = resolve(ssoRegion) ?? "us-east-1"
   const resolvedAccountId = resolve(ssoAccountId)
@@ -130,6 +146,7 @@ function AwsAuthInteractive({
     defaultRegion: resolvedDefaultRegion,
     detectCredentials,
     defaultTab,
+    ready: signInReady,
   })
 
   // A templated default region resolves after the region picker has started,
@@ -170,10 +187,17 @@ function AwsAuthInteractive({
         severity: "error",
         message: `Multiple block sources in detectCredentials: only one { block: string } is allowed`,
       })
+    } else if (unresolvableProp) {
+      reportError({
+        componentId: id,
+        componentType: "AwsAuth",
+        severity: "error",
+        message: unresolvablePropMessage(unresolvableProp),
+      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, hasMultipleBlockSources, reportError, clearError])
+  }, [id, isDuplicate, hasMultipleBlockSources, unresolvableProp, reportError, clearError])
 
   if (validationError) {
     return <ErrorDisplay error={validationError} />
@@ -206,6 +230,18 @@ function AwsAuthInteractive({
           </div>
         </div>
       </div>
+    )
+  }
+
+  if (unresolvableProp) {
+    return (
+      <ErrorDisplay
+        error={{
+          message: unresolvablePropMessage(unresolvableProp),
+          details:
+            "A sign-in prop can read plain {{ .inputs.name }} and {{ .outputs.block.name }} references, but not pipes or template logic.",
+        }}
+      />
     )
   }
 
@@ -264,7 +300,7 @@ function AwsAuthInteractive({
             )}
 
             {/* Detection pending state - waiting for block or checking credentials */}
-            {auth.detectionStatus === "pending" && (
+            {auth.detectionStatus === "pending" && signInReady && (
               <div className="mb-4 text-info text-sm flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin" />
                 <span>

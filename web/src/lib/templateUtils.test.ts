@@ -8,6 +8,7 @@ import {
   extractInputValueReferences,
   maskTemplateOutputs,
   resolveTemplateReferences,
+  resolveTemplateValue,
   revealTemplateOutputs,
   type TemplateOutputs,
 } from "./templateUtils"
@@ -136,6 +137,38 @@ describe("computeUnmetInputDependencies", () => {
         list: ["a"],
       }),
     ).toEqual(["tags.constructor", "list.length"])
+  })
+})
+
+describe("resolveTemplateValue", () => {
+  const ctx: TemplateContext = {
+    inputs: { region: "us-gov-west-1", port: 443, tags: { env: "prod" }, empty: "" },
+    outputs: {
+      create_account: { account_id: "222222222222", url: sensitiveOutput("https://s3cr3t") },
+    },
+  }
+
+  it("leaves text without references as it is", () => {
+    expect(resolveTemplateValue("us-east-1", ctx)).toBe("us-east-1")
+  })
+
+  it("resolves inputs and outputs, revealing a sensitive output", () => {
+    expect(resolveTemplateValue("{{ .inputs.region }}", ctx)).toBe("us-gov-west-1")
+    expect(resolveTemplateValue("{{ .inputs.port }}", ctx)).toBe("443")
+    expect(resolveTemplateValue("{{ .inputs.tags.env }}", ctx)).toBe("prod")
+    expect(resolveTemplateValue("{{ .inputs.empty }}", ctx)).toBe("")
+    expect(resolveTemplateValue("{{.outputs.create_account.account_id}}", ctx)).toBe("222222222222")
+    expect(resolveTemplateValue("{{ .outputs.create_account.url }}/start", ctx)).toBe(
+      "https://s3cr3t/start",
+    )
+  })
+
+  it("can't resolve a missing value, a whole Map input, a pipe or template logic", () => {
+    expect(resolveTemplateValue("{{ .inputs.missing }}", ctx)).toBeUndefined()
+    expect(resolveTemplateValue("{{ .outputs.create_account.missing }}", ctx)).toBeUndefined()
+    expect(resolveTemplateValue("{{ .inputs.tags }}", ctx)).toBeUndefined()
+    expect(resolveTemplateValue("{{ .inputs.region | upper }}", ctx)).toBeUndefined()
+    expect(resolveTemplateValue("{{ if .inputs.region }}x{{ end }}", ctx)).toBeUndefined()
   })
 })
 

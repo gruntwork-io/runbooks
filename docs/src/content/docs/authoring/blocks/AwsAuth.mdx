@@ -143,7 +143,7 @@ To skip the account and role selection, set both `ssoAccountId` and `ssoRoleName
 
 ## Values from other blocks
 
-`ssoStartUrl`, `ssoRegion`, `ssoAccountId`, `ssoRoleName` and `defaultRegion` can read the form values of the blocks `inputsId` names, as `{{ .inputs.name }}`, and other blocks' outputs, as `{{ .outputs.block_id.name }}`. Until every value they read exists, the block says which ones it's waiting for and offers no sign-in. For example, a runbook that creates an account can sign in to it once the account exists, and can ask each user for their organization's start URL instead of writing it into the runbook:
+`ssoStartUrl`, `ssoRegion`, `ssoAccountId`, `ssoRoleName` and `defaultRegion` can read the form values of the blocks `inputsId` names, as `{{ .inputs.name }}`, and other blocks' outputs, as `{{ .outputs.block_id.name }}`. Until every value they read exists, the block says which ones it's waiting for, and neither checks for existing credentials nor offers a sign-in. A sensitive output gives its real value. The props take plain references only: one that uses a pipe or template logic is a configuration error. For example, a runbook that creates an account can sign in to it once the account exists, and can ask each user for their organization's start URL instead of writing it into the runbook:
 
 ```mdx
 <Inputs id="org" path="inputs/org" />

@@ -11,6 +11,7 @@ import {
   isSensitiveOutput,
   maskOutputs,
   maskOutput,
+  revealOutput,
   revealOutputs,
   type OutputValue,
   type OutputValues,
@@ -329,7 +330,45 @@ export function resolveTemplateReferences(text: string, ctx: TemplateContext): s
   })
 }
 
+/** A `{{ .inputs.X }}` or `{{ .outputs.block.name }}` reference with no pipe or logic. */
+const PLAIN_REFERENCE_PATTERN =
+  /\{\{-?\s*\.(inputs|outputs)\.([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*)\s*-?\}\}/g
+
+/**
+ * Resolve a prop whose value drives an action, such as the account a sign-in
+ * targets. A sensitive output resolves to its real value. The result is
+ * undefined when `text` holds anything but plain references, or a reference
+ * that has no value yet, or one to a List or Map input, as no value would be
+ * right to act on.
+ */
+export function resolveTemplateValue(text: string, ctx: TemplateContext): string | undefined {
+  let resolvable = !text.replace(PLAIN_REFERENCE_PATTERN, "").includes("{{")
+  const resolved = text.replace(
+    PLAIN_REFERENCE_PATTERN,
+    (_match, namespace: string, path: string) => {
+      const value = namespace === "inputs" ? scalarInput(ctx, path) : outputValue(ctx, path)
+      if (value === undefined) resolvable = false
+      return value ?? ""
+    },
+  )
+  return resolvable ? resolved : undefined
+}
+
 // --- Internal helpers ---
+
+function scalarInput(ctx: TemplateContext, path: InputName): string | undefined {
+  const value = resolveInputPath(ctx.inputs, path)
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  return undefined
+}
+
+function outputValue(ctx: TemplateContext, path: string): string | undefined {
+  const dotIdx = path.indexOf(".")
+  if (dotIdx <= 0) return undefined
+  const value = ctx.outputs[normalizeBlockId(path.slice(0, dotIdx))]?.[path.slice(dotIdx + 1)]
+  return revealOutput(value)
+}
 
 /**
  * Group output dependencies by block ID, mapping each output name to whether

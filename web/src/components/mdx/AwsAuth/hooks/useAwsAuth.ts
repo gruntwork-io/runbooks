@@ -32,6 +32,8 @@ interface UseAwsAuthOptions {
   ssoRoleName?: string | undefined
   defaultRegion: string
   detectCredentials?: false | AwsCredentialSource[] | undefined
+  /** Whether the other options are final. Detection waits for them. */
+  ready?: boolean | undefined
   /** Tab to open on; validated by resolveDefaultAuthMethod. */
   defaultTab?: string | undefined
 }
@@ -54,6 +56,7 @@ export function useAwsAuth({
   ssoRoleName,
   defaultRegion,
   detectCredentials = ["env"], // Default: auto-detect from env vars
+  ready = true,
   defaultTab,
 }: UseAwsAuthOptions) {
   const api = useApi()
@@ -548,8 +551,9 @@ export function useAwsAuth({
       return
     }
 
-    // Wait for session to be ready before making API calls
-    if (!sessionReady) {
+    // Wait for session to be ready before making API calls, and for the
+    // options, such as the region to check credentials in.
+    if (!sessionReady || !ready) {
       return
     }
 
@@ -557,7 +561,14 @@ export function useAwsAuth({
 
     void trySourcesInOrder(detectCredentials).then(applyDetectionOutcome)
     // detectionAttempt is unread: bumping it is what re-runs this effect.
-  }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt, applyDetectionOutcome])
+  }, [
+    detectCredentials,
+    sessionReady,
+    ready,
+    trySourcesInOrder,
+    detectionAttempt,
+    applyDetectionOutcome,
+  ])
 
   // Watch for block outputs when waiting for a block
   useEffect(() => {
