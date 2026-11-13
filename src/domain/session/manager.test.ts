@@ -660,6 +660,49 @@ describe("SessionManager", () => {
     })
   })
 
+  describe("setStartingEnv", () => {
+    it("sets and unsets vars as if the session had started with them, out of its saved changes", async () => {
+      await run(mgr.createSession("/work"), { SSL_CERT_FILE: "/etc/corp.pem", KEEP: "1" })
+      const states: SessionState[] = []
+      mgr.setChangeListener((state) => states.push(state))
+
+      await run(
+        mgr.setStartingEnv({ SSL_CERT_FILE: undefined, GIT_SSL_CAINFO: "/data/bundle.pem" }),
+      )
+
+      const { env } = await run(mgr.getExecContext())
+      expect(env).toEqual({ KEEP: "1", GIT_SSL_CAINFO: "/data/bundle.pem" })
+      expect(states.at(-1)?.env).toEqual({ set: {}, unset: [] })
+      // Resetting goes back to the env the session started from, which has them.
+      await run(mgr.resetSession())
+      expect((await run(mgr.getExecContext())).env).toEqual(env)
+    })
+
+    it("keeps a value a script set, as a saved change", async () => {
+      await run(mgr.createSession("/work"), {})
+      await run(
+        mgr.applyCapturedEnv({
+          before: {},
+          after: { SSL_CERT_FILE: "/script/own.pem" },
+          startWorkDir: "/work",
+          pwd: "/work",
+          generation: mgr.getGeneration(),
+        }),
+      )
+      const states: SessionState[] = []
+      mgr.setChangeListener((state) => states.push(state))
+
+      await run(mgr.setStartingEnv({ SSL_CERT_FILE: "/data/bundle.pem" }))
+
+      expect((await run(mgr.getExecContext())).env.SSL_CERT_FILE).toBe("/script/own.pem")
+      expect(states.at(-1)?.env).toEqual({ set: { SSL_CERT_FILE: "/script/own.pem" }, unset: [] })
+    })
+
+    it("fails when no session", async () => {
+      await expect(run(mgr.setStartingEnv({ X: "1" }))).rejects.toThrow()
+    })
+  })
+
   describe("removeFromEnv", () => {
     it("deletes the given keys, leaving others untouched", async () => {
       await run(mgr.createSession("/work"), { A: "1", B: "2" })

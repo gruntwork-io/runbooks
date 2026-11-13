@@ -512,6 +512,34 @@ export class SessionManager {
     })
   }
 
+  /**
+   * Set `vars` (undefined: unset) as if the session had started with them:
+   * in the env it started from, and in its live env wherever a script hasn't
+   * changed them. For a setting the app hands to every process it runs, such
+   * as the custom CA's bundle vars, changed mid-session. As for appendToPath,
+   * changing the starting env too keeps them out of the session's saved
+   * changes; a value a script set stays.
+   */
+  setStartingEnv(vars: Readonly<Record<string, string | undefined>>) {
+    return Effect.gen({ self: this }, function* () {
+      if (this.session === null) {
+        return yield* new SessionError({ message: "no active session" })
+      }
+
+      const { initialEnv, env } = this.session
+      const put = (map: Map<string, string>, key: string, value: string | undefined) => {
+        if (value === undefined) map.delete(key)
+        else map.set(key, value)
+      }
+      for (const [key, value] of Object.entries(vars)) {
+        const scriptChanged = env.get(key) !== initialEnv.get(key)
+        put(initialEnv, key, value)
+        if (!scriptChanged) put(env, key, value)
+      }
+      this.notifyChange(this.session)
+    })
+  }
+
   // -------------------------------------------------------------------------
   // Metadata
   // -------------------------------------------------------------------------

@@ -102,6 +102,9 @@ const INVOKE_CHANNELS = {
   "native:get-home-dir": true,
   "native:get-cli-config": true,
   "native:set-theme": true,
+  "tls:custom-ca-status": true,
+  "tls:choose-custom-ca": true,
+  "tls:clear-custom-ca": true,
 } satisfies Record<InvokeChannel, true>
 
 const EVENT_CHANNELS = {
@@ -122,6 +125,7 @@ const EVENT_CHANNELS = {
   "menu:rename-session": true,
   "menu:switch-session": true,
   "menu:preferences": true,
+  "menu:custom-ca": true,
   "menu:find": true,
   "menu:open-command-palette": true,
   "registry:updated": true,

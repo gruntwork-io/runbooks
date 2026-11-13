@@ -49,6 +49,7 @@ import { getContentType } from "../../src/domain/workspace/file.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
 import { initSystemTrust } from "./system-trust.ts"
+import { initCustomCa } from "./custom-ca.ts"
 import { eagerLoadInBackground as eagerLoadBoilerplateWasm } from "../../src/layers/NodeWasmRuntime.ts"
 import { registerSecret, VCS_TOKEN_ENV_VARS } from "../../src/domain/vcs/redact.ts"
 
@@ -73,10 +74,12 @@ for (const tokenVar of VCS_TOKEN_ENV_VARS) {
 
 // ---------------------------------------------------------------------------
 // System-trust TLS: honor the OS trust store in addition to Node's bundled
-// roots (see system-trust.ts). Must run before any TLS connection.
+// roots (see system-trust.ts), plus the custom CA file chosen from the menu
+// (custom-ca.ts). Must run before any TLS connection.
 // ---------------------------------------------------------------------------
 
 initSystemTrust()
+initCustomCa({ dataDir: app.getPath("userData") })
 
 // Point the boilerplate renderer at the vendored CLI + WASM artifacts the
 // `just fetch-boilerplate` recipe drops under resources/. In packaged

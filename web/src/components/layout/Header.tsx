@@ -8,6 +8,7 @@ import {
   Link,
   Pencil,
   RotateCcw,
+  ShieldCheck,
   SquareTerminal,
   X,
 } from "lucide-react"
@@ -48,6 +49,8 @@ interface HeaderProps {
   onOpenCommandPalette: () => void
   /** Called by the menu's Switch Session… item, once the menu has closed */
   onOpenSessions: () => void
+  /** Called by the menu's Custom CA Certificate… item, once the menu has closed */
+  onOpenCustomCa: () => void
   onCloseRunbook: () => void
 }
 
@@ -71,6 +74,7 @@ interface HeaderProps {
  * @param props.onSessionRenamed - Called with the new name after a rename
  * @param props.onOpenCommandPalette - Called by the menu's Command Palette… item
  * @param props.onOpenSessions - Called by the menu's Switch Session… item
+ * @param props.onOpenCustomCa - Called by the menu's Custom CA Certificate… item
  * @param props.onCloseRunbook - Called by the menu's Close Runbook item
  */
 export function Header({
@@ -82,14 +86,16 @@ export function Header({
   onSessionRenamed,
   onOpenCommandPalette,
   onOpenSessions,
+  onOpenCustomCa,
   onCloseRunbook,
 }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
-  // Set by the menu's Rename Session and Switch Session items. What they open
-  // opens once the menu has closed: opened sooner, it would lose the focus to
-  // the closing menu, and a name field that loses focus cancels the rename.
-  const afterMenuClose = useRef<"rename" | "sessions" | null>(null)
+  // Set by the menu's Rename Session, Switch Session and Custom CA Certificate
+  // items. What they open opens once the menu has closed: opened sooner, it
+  // would lose the focus to the closing menu, and a name field that loses
+  // focus cancels the rename.
+  const afterMenuClose = useRef<"rename" | "sessions" | "custom-ca" | null>(null)
   const { hasLogs, downloadRaw, downloadJson } = useDownloadLogs()
   const api = useApi()
   const { resolvedTheme } = useTheme()
@@ -229,7 +235,8 @@ export function Header({
                 // Keep the focus off the Menu button: what opens takes it.
                 event.preventDefault()
                 if (open === "rename") setIsRenaming(true)
-                else onOpenSessions()
+                else if (open === "sessions") onOpenSessions()
+                else onOpenCustomCa()
               }}
             >
               {/* First, as the visible way to learn the shortcut: on Windows
@@ -291,6 +298,15 @@ export function Header({
               >
                 <X className="size-4" />
                 Close Runbook
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  afterMenuClose.current = "custom-ca"
+                }}
+              >
+                <ShieldCheck className="size-4" />
+                Custom CA Certificate…
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <ThemeToggle />
