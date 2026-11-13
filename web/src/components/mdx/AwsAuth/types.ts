@@ -64,6 +64,8 @@ export interface SSORole {
 export interface ProfileInfo {
   name: string
   authType: "sso" | "static" | "assume_role" | "unsupported"
+  ssoStartUrl?: string | undefined
+  ssoRegion?: string | undefined
 }
 
 export interface AwsAuthProps {
