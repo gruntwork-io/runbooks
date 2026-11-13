@@ -152,6 +152,9 @@ const detectEmbeddedRepos = (repoPath: string) =>
  */
 const FALLBACK_COMMIT_EMAIL = "runbooks-noreply@gruntwork.io"
 
+/** The fallback author when no provider account can name one. */
+const RUNBOOKS_IDENTITY: GitIdentity = { name: "Runbooks", email: FALLBACK_COMMIT_EMAIL }
+
 /** Build a commit identity from a validated provider user, with safe fallbacks. */
 const toCommitIdentity = (user: {
   readonly login: string
@@ -445,10 +448,12 @@ export const pushPullRequestChanges = (
     if (hasStaged) {
       // The authenticated user's identity is the fallback author when the
       // machine has no git identity configured, as for the PR/MR's first commit.
+      // With no GitHub host to ask, Runbooks is the fallback, so the commit
+      // still succeeds without sending the token anywhere.
       const author =
         provider === "github"
           ? params.host === undefined
-            ? undefined
+            ? RUNBOOKS_IDENTITY
             : yield* resolveGitHubAuthor(token, params.host)
           : yield* resolveGitLabAuthor(
               token,

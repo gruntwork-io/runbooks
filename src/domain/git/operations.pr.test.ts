@@ -271,11 +271,7 @@ describe("runGitSteps", () => {
 describe("pushPullRequestChanges", () => {
   const pushParams = { repoPath: "/repo", branch: "runbook/123", commitMessage: "More changes" }
 
-  const recordingGit = (
-    steps: string[],
-    current: string,
-    status: StatusEntry[],
-  ) => ({
+  const recordingGit = (steps: string[], current: string, status: StatusEntry[]) => ({
     getRemoteUrl: () => Effect.succeed("https://gitlab.com/acme/infra.git"),
     getCurrentBranch: () => Effect.succeed(current),
     status: () => Effect.succeed(status),
