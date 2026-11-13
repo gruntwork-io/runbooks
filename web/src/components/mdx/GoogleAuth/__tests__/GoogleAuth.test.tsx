@@ -348,6 +348,39 @@ describe("GoogleAuth — service account tab", () => {
 describe("GoogleAuth — change project", () => {
   const LIST_ERROR = "Cloud Resource Manager API has not been used in project 123"
 
+  it("drops the no-project warning once a project is picked", async () => {
+    installApi((channel) => {
+      if (channel === "google:env-credentials") return { found: false }
+      if (channel === "google:validate-credentials") {
+        return {
+          valid: true,
+          account: { principal: "dev@example.com", accountType: "user" },
+          credentialType: "authorized_user",
+          credentialsPath: "/tmp/runbooks-gcp-np/adc.json",
+        }
+      }
+      if (channel === "google:projects") {
+        return { projects: [{ projectId: "proj-y", displayName: "Project Y" }] }
+      }
+      if (channel === "google:set-project") return { ok: true, projectName: "Project Y" }
+      if (channel === "google:check-project") return { enabled: true }
+      return {}
+    })
+
+    renderBlock(<GoogleAuth id="gcp" />)
+
+    const keyField = await screen.findByLabelText("Service account key JSON")
+    fireEvent.change(keyField, { target: { value: SA_KEY } })
+    fireEvent.click(screen.getByRole("button", { name: "Authenticate" }))
+    expect(await screen.findByText(/no Google Cloud project is set/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Change Project" }))
+    fireEvent.click(await screen.findByRole("button", { name: /Project Y/ }))
+
+    expect(await screen.findByText("proj-y")).toBeInTheDocument()
+    expect(screen.queryByText(/no Google Cloud project is set/)).toBeNull()
+  })
+
   it("shows a project-list failure in the picker, and Cancel keeps the authentication", async () => {
     installApi((channel) => {
       if (channel === "google:env-credentials") return { found: false }

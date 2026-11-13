@@ -428,6 +428,15 @@ export function useGoogleAuth({
     setWarningMessage((prev) => (prev && prev !== warning ? `${prev}; ${warning}` : warning))
   }, [])
 
+  /** Take back one warning that no longer holds, keeping the others. */
+  const withdrawWarning = useCallback((warning: string) => {
+    setWarningMessage((prev) => {
+      if (!prev) return prev
+      const kept = prev.replace(`; ${warning}`, "").replace(`${warning}; `, "").replace(warning, "")
+      return kept || null
+    })
+  }, [])
+
   /**
    * Stop the OAuth poll loop and release MAIN's loopback listener. Every exit
    * path (cancel, re-auth, unmount) goes through here — an abandoned flow
@@ -608,13 +617,15 @@ export function useGoogleAuth({
       // are still published — the credential is real — but the success card has
       // to say the project is missing, or every later `gcloud`/`terraform` call
       // fails on "The project property must be set" with nothing to point at.
-      if (!result.projectId) {
+      if (result.projectId) {
+        withdrawWarning(NO_PROJECT_WARNING)
+      } else {
         appendWarning(NO_PROJECT_WARNING)
       }
 
       await checkProjectStatus(result.projectId)
     },
-    [registerBlockOutputs, recordAuth, appendWarning, checkProjectStatus],
+    [registerBlockOutputs, recordAuth, appendWarning, withdrawWarning, checkProjectStatus],
   )
 
   /**
