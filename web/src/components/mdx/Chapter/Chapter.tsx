@@ -3,6 +3,7 @@ import { AlertCircle } from "lucide-react"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { ProgressRegistryContext } from "@/contexts/RunbookProgressContext.types"
 import { CHAPTER_INDEX_ATTRIBUTE } from "@/contexts/RunbookChaptersContext.types"
+import { ChapterNoticeContext } from "@/contexts/ChapterNoticeContext.types"
 import { useChaptersControl, useRunbookChapters } from "@/contexts/useRunbookChapters"
 import { useStepCounter } from "@/contexts/useStepCounter"
 import { ChapterBar, ChapterPager } from "./ChapterNav"
@@ -29,6 +30,7 @@ export function Chapter({ title, chapterIndex, children }: ChapterProps) {
   const { chapters, current, navigation } = useRunbookChapters()
   const { reportProgress } = useChaptersControl()
   const { reportError, clearError } = useErrorReporting()
+  const notice = useContext(ChapterNoticeContext)
   const index = chapterIndex === undefined ? undefined : Number(chapterIndex)
   const isCurrent = index === current
   const errorId = useId()
@@ -110,6 +112,8 @@ export function Chapter({ title, chapterIndex, children }: ChapterProps) {
     >
       {/* One chapter is a runbook in one piece, with nowhere to move to. */}
       {isCurrent && chapters.length > 1 && <ChapterBar />}
+      {/* At the chapter's top, where moving to it lands, on every chapter. */}
+      {isCurrent && notice && <div className="mb-4">{notice}</div>}
       {errorBox}
       <ProgressRegistryContext.Provider value={registry}>
         {children}

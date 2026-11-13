@@ -139,7 +139,7 @@ Runbooks adds an entry to the session's history each time you act on a block:
 
 The history keeps every entry in order. The app reads only the latest entry of each block, which is what a resumed session shows.
 
-A block also resumes from its latest entry when the runbook is reloaded in [watch mode](/commands/watch/), or closed and opened again without quitting the app.
+A block also resumes from its latest entry when the runbook is closed and opened again without quitting the app, and when it is reloaded, which keeps the session. A reload happens in [watch mode](/commands/watch/), when you click **Reload runbook** in the "Runbook changed" notice, and when you choose **View > Reload**.
 
 A resumed session's **Generated** panel lists the files its blocks wrote, and highlights the ones you had yet to review. Runbooks doesn't offer to delete them when the runbook opens: they are the session's own.
 

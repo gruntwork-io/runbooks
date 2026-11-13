@@ -19,62 +19,56 @@ function createWatchApi() {
     api,
     on,
     listeners,
-    fileChanged: (path: string) => listeners.forEach((cb) => cb({ type: "reload", path })),
+    fileChanged: (path: string, contentHash: string) =>
+      listeners.forEach((cb) => cb({ type: "reload", path, contentHash })),
   }
 }
 
-function renderWatchHook(
-  api: RunbooksAPI,
-  initial: { onFileChange: () => void; isWatchMode: boolean },
-) {
+function renderWatchHook(api: RunbooksAPI, initial: { onFileChange: () => void }) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <ApiProvider api={api}>{children}</ApiProvider>
   )
-  return renderHook(({ onFileChange, isWatchMode }) => useIpcWatchMode(onFileChange, isWatchMode), {
+  return renderHook(({ onFileChange }) => useIpcWatchMode(onFileChange), {
     wrapper,
     initialProps: initial,
   })
 }
 
 describe("useIpcWatchMode", () => {
-  it("does not listen when watch mode is off", () => {
+  it("listens with or without watch mode: main reports every change to the open runbook", () => {
     const watch = createWatchApi()
-    renderWatchHook(watch.api, { onFileChange: vi.fn(), isWatchMode: false })
+    renderWatchHook(watch.api, { onFileChange: vi.fn() })
 
-    expect(watch.on).not.toHaveBeenCalled()
+    expect(watch.on).toHaveBeenCalledWith("watch:file-change", expect.any(Function))
+    expect(watch.listeners.size).toBe(1)
   })
 
-  it("subscribes once across re-renders with a new callback and calls the latest one with the runbook path", () => {
+  it("subscribes once across re-renders with a new callback and calls the latest one with the change", () => {
     const watch = createWatchApi()
     const first = vi.fn()
-    const { rerender } = renderWatchHook(watch.api, { onFileChange: first, isWatchMode: true })
+    const { rerender } = renderWatchHook(watch.api, { onFileChange: first })
 
     // A parent that passes a fresh callback identity on every render.
     const latest = vi.fn()
-    rerender({ onFileChange: vi.fn(), isWatchMode: true })
-    rerender({ onFileChange: latest, isWatchMode: true })
+    rerender({ onFileChange: vi.fn() })
+    rerender({ onFileChange: latest })
 
     expect(watch.on).toHaveBeenCalledTimes(1)
     expect(watch.listeners.size).toBe(1)
 
-    watch.fileChanged("/work/a/runbook.mdx")
+    watch.fileChanged("/work/a/runbook.mdx", "hash-2")
     expect(latest).toHaveBeenCalledTimes(1)
-    expect(latest).toHaveBeenCalledWith("/work/a/runbook.mdx")
+    expect(latest).toHaveBeenCalledWith({
+      type: "reload",
+      path: "/work/a/runbook.mdx",
+      contentHash: "hash-2",
+    })
     expect(first).not.toHaveBeenCalled()
   })
 
-  it("unsubscribes when watch mode turns off and on unmount", () => {
+  it("unsubscribes on unmount", () => {
     const watch = createWatchApi()
-    const { rerender, unmount } = renderWatchHook(watch.api, {
-      onFileChange: vi.fn(),
-      isWatchMode: true,
-    })
-    expect(watch.listeners.size).toBe(1)
-
-    rerender({ onFileChange: vi.fn(), isWatchMode: false })
-    expect(watch.listeners.size).toBe(0)
-
-    rerender({ onFileChange: vi.fn(), isWatchMode: true })
+    const { unmount } = renderWatchHook(watch.api, { onFileChange: vi.fn() })
     expect(watch.listeners.size).toBe(1)
 
     unmount()

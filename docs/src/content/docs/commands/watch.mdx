@@ -6,6 +6,8 @@ import { Aside } from '@astrojs/starlight/components';
 
 Watch mode reloads the runbook in the app each time you save `runbook.mdx`. It is meant for runbook authors.
 
+Runbooks watches `runbook.mdx` in every mode. Without `--watch`, a save shows a "Runbook changed" notice at the top of the runbook, or at the top of each chapter in a runbook with [chapters](/authoring/blocks/chapter/), and nothing reloads until you click **Reload runbook** in it, or choose **View > Reload** (Cmd/Ctrl+R). `--watch` makes the reload automatic. See [Reloading a changed runbook](/security/execution-model/#reloading-a-changed-runbook).
+
 <Aside type="caution">
 Each reload rebuilds the [executable registry](/security/execution-model/#executable-registry) from the files on disk, so after a reload the app executes the current version of your commands and scripts. Pass `--disable-live-file-reload` to keep executing the versions that were present when the runbook was opened in this app session (opening another runbook and coming back rebuilds the registry).
 
@@ -46,11 +48,12 @@ For a remote runbook, Runbooks watches the local copy it downloaded. It does not
 - It does not watch subdirectories, such as cloned repositories or generated output.
 - It reacts only to write and create events for the runbook file. Changes to other files in the directory are ignored.
 - It waits 300ms after the last event, so an editor that saves a file several times triggers one reload.
+- The runbook file is watched with or without `--watch`. Without it, a change shows the "Runbook changed" notice instead of reloading.
 - Script files that blocks run are watched separately, with or without `--watch`. A change to one never reloads the runbook: its block shows the "Script changed" notice.
 
 ### Reloading
 
-- When the file changes, the main process sends a `watch:file-change` IPC event to the renderer.
-- The renderer reloads the runbook, which re-reads the file and rebuilds the executable registry unless `--disable-live-file-reload` is set.
+- When the file changes, the main process sends a `watch:file-change` IPC event to the renderer, with a hash of the file's new content.
+- In watch mode the renderer reloads the runbook, which re-reads the file and rebuilds the executable registry unless `--disable-live-file-reload` is set.
 - A reload keeps the [session](/commands/sessions/). Environment variables that blocks exported, and the directory a block moved to with `cd`, stay as they were.
 - The blocks resume from the [session's history](/commands/sessions/#the-sessions-history), so a reload keeps the values you typed, each script's last run, cloned repositories and sign-ins. A reload that changes the runbook stops a script that is running, and its block then says the run did not finish.

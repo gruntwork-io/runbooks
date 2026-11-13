@@ -11,6 +11,8 @@ export interface GetFileReturn {
   language: string
   size: number
   isWatchMode?: boolean
+  /** Launched with --disable-live-file-reload: a reload keeps the commands approved at open (runbook:get only) */
+  disableLiveFileReload?: boolean
   warnings?: string[]
   /** The original remote URL when the runbook was opened from a remote source */
   remoteSource?: string

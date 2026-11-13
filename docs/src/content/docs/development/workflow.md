@@ -36,7 +36,7 @@ To test a custom Boilerplate build, set `RUNBOOKS_BOILERPLATE_BIN` (path to the 
 |----------|--------------|
 | `web/src/` | The renderer picks up the change through HMR. No restart. |
 | `src/` or `electron/` | The main process rebuilds and restarts. |
-| The runbook you're testing with | Nothing, until you reload the window with **View > Reload**. |
+| The runbook you're testing with | A "Runbook changed" notice. Click **Reload runbook** in it, or reload the window with **View > Reload**. |
 
 ## Testing
 

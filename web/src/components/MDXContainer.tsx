@@ -19,7 +19,8 @@ import { TemplateInline } from "@/components/mdx/TemplateInline"
 import { ComponentIdRegistryProvider } from "@/contexts/ComponentIdRegistry"
 import { RunbookContextProvider } from "@/contexts/RunbookContext"
 import type { ChapterInfo } from "@/contexts/RunbookChaptersContext.types"
-import { useChaptersControl } from "@/contexts/useRunbookChapters"
+import { useChaptersControl, useRunbookChapters } from "@/contexts/useRunbookChapters"
+import { ChapterNoticeContext } from "@/contexts/ChapterNoticeContext.types"
 import { Check } from "@/components/mdx/Check"
 import { Command } from "@/components/mdx/Command"
 import { Finish } from "@/components/mdx/Finish"
@@ -67,6 +68,12 @@ interface MDXContainerProps {
   assetHost?: string | undefined
   /** Shown at the top of the runbook, where it scrolls away with it and covers nothing */
   banner?: ReactNode
+  /**
+   * Shown above `banner`, where it scrolls away with it, or in a runbook with
+   * chapters at the top of the chapter on screen instead (ChapterNoticeContext).
+   * Also shown above the error of a runbook that fails to compile.
+   */
+  notice?: ReactNode
   ref?: Ref<HTMLDivElement> | undefined
 }
 
@@ -77,12 +84,16 @@ function MDXContainer({
   remoteSource,
   assetHost,
   banner,
+  notice,
   className,
   ref,
 }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
   const { setChapters } = useChaptersControl()
+  // A runbook with chapters shows the notice on each of them, not up here,
+  // where it would show twice on the first.
+  const hasChapters = useRunbookChapters().chapters.length > 0
 
   // The same name the title bar shows, e.g. "github-pull-request"
   const runbookName = getRunbookName(runbookPath)
@@ -120,6 +131,8 @@ function MDXContainer({
       <div
         className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}
       >
+        {/* Saving a fix offers to reload the runbook that failed. */}
+        {notice && <div className="mb-4">{notice}</div>}
         <div
           data-testid="mdx-error"
           className="text-destructive p-4 border border-destructive/30 rounded-lg"
@@ -156,6 +169,7 @@ function MDXContainer({
           assetHost={assetHost}
         >
           <CustomMDXComponentErrorBoundary onError={setError}>
+            {notice && !hasChapters && <div className="mb-4">{notice}</div>}
             {banner && <div className="mb-4">{banner}</div>}
             {/* Security banner displayed at the top of every runbook */}
             <div className="mb-4">
@@ -178,7 +192,9 @@ function MDXContainer({
             <div className="mb-4 empty:mb-0">
               <InstructionModeBanner />
             </div>
-            <CustomMDXComponent />
+            <ChapterNoticeContext.Provider value={hasChapters ? notice : null}>
+              <CustomMDXComponent />
+            </ChapterNoticeContext.Provider>
           </CustomMDXComponentErrorBoundary>
         </RunbookContextProvider>
       </ComponentIdRegistryProvider>
