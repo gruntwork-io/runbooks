@@ -25,6 +25,7 @@ import { ChangedFilesView } from "./ChangedFilesView"
 import { CodeFileCollection } from "../code/CodeFileCollection"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useWorkspaceReveal } from "@/contexts/WorkspaceRevealContext"
+import { useBlockWrites, type BlockWrite } from "@/contexts/BlockWritesContext"
 import { useGitFileTree } from "@/hooks/useGitFileTree"
 import { useGitFileChanges } from "@/hooks/useGitFileChanges"
 import type { FileTreeNode } from "../code/FileTree"
@@ -114,6 +115,22 @@ export const Workspace = ({
     prevTotalChanges.current = totalChanges
   }, [totalChanges, hasWorkTree])
 
+  // The blocks that wrote files still changed in this clone, and the one the
+  // Changed files tab shows the files of, when the user picked one.
+  const { writes } = useBlockWrites()
+  const writers = useMemo(() => {
+    const changed = new Set(changes.map((c) => c.path))
+    return writes.filter(
+      (w) => w.worktreePath === activeWorkTree?.localPath && w.paths.some((p) => changed.has(p)),
+    )
+  }, [writes, changes, activeWorkTree?.localPath])
+  const [writtenBy, setWrittenBy] = useState<string | null>(null)
+  const writer = writers.find((w) => w.blockId === writtenBy)
+  const shownChanges = useMemo(
+    () => (writer ? changes.filter((c) => writer.paths.includes(c.path)) : changes),
+    [changes, writer],
+  )
+
   // A block that shows its files brings up their clone's changed files.
   const { reveal } = useWorkspaceReveal()
   const revealed = reveal && workTrees.find((wt) => wt.localPath === reveal.worktreePath)
@@ -123,6 +140,8 @@ export const Workspace = ({
     if (revealed) {
       setActiveContext("repository")
       setActiveTab("changed")
+      // Another block's files are left out, so show every block's.
+      if (writtenBy !== null && writtenBy !== reveal?.blockId) setWrittenBy(null)
     }
   }
   useEffect(() => {
@@ -154,13 +173,13 @@ export const Workspace = ({
 
   // Change stats for the metadata bar
   const changeStats = useMemo(() => {
-    const added = changes.filter((c) => c.changeType === "added").length
-    const modified = changes.filter((c) => c.changeType === "modified").length
-    const deleted = changes.filter((c) => c.changeType === "deleted").length
-    const totalAdditions = changes.reduce((sum, c) => sum + c.additions, 0)
-    const totalDeletions = changes.reduce((sum, c) => sum + c.deletions, 0)
-    return { added, modified, deleted, totalAdditions, totalDeletions, total: changes.length }
-  }, [changes])
+    const added = shownChanges.filter((c) => c.changeType === "added").length
+    const modified = shownChanges.filter((c) => c.changeType === "modified").length
+    const deleted = shownChanges.filter((c) => c.changeType === "deleted").length
+    const totalAdditions = shownChanges.reduce((sum, c) => sum + c.additions, 0)
+    const totalDeletions = shownChanges.reduce((sum, c) => sum + c.deletions, 0)
+    return { added, modified, deleted, totalAdditions, totalDeletions, total: shownChanges.length }
+  }, [shownChanges])
 
   // Git info for metadata bar
   const gitInfo = activeWorkTree?.gitInfo ?? null
@@ -257,6 +276,23 @@ export const Workspace = ({
                 additions={changeStats.totalAdditions}
                 deletions={changeStats.totalDeletions}
               />
+              {writers.length > 0 && (
+                <label className="ml-auto flex items-center gap-1.5 text-muted-foreground">
+                  Written by
+                  <select
+                    value={writer?.blockId ?? ""}
+                    onChange={(e) => setWrittenBy(e.target.value || null)}
+                    className="max-w-72 truncate rounded border border-border bg-background px-1.5 py-0.5 text-foreground cursor-pointer"
+                  >
+                    <option value="">Any block</option>
+                    {writers.map((w) => (
+                      <option key={w.blockId} value={w.blockId}>
+                        {writerName(w, writers)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           )}
         </>
@@ -304,7 +340,7 @@ export const Workspace = ({
         {isRepositoryView && activeTab === "changed" && (
           <div data-testid="filetree-changed" className="h-full">
             <ChangedFilesView
-              changes={changes}
+              changes={shownChanges}
               reveal={reveal?.worktreePath === activeWorkTree?.localPath ? reveal : null}
               tooManyChanges={tooManyChanges}
               totalChanges={totalChanges}
@@ -317,6 +353,12 @@ export const Workspace = ({
       </div>
     </div>
   )
+}
+
+/** A block's label, with its id when another block has the same label, such as two blocks of one module. */
+function writerName(write: BlockWrite, writers: readonly BlockWrite[]): string {
+  const shared = writers.some((w) => w.blockId !== write.blockId && w.label === write.label)
+  return shared ? `${write.label} (${write.blockId})` : write.label
 }
 
 /**
