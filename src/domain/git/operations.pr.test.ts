@@ -13,11 +13,11 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect, Layer } from "effect"
-import { createPullRequest, createMergeRequest, pushPullRequestChanges } from "./operations.ts"
+import { createPullRequest, createMergeRequest, commitAndPush } from "./operations.ts"
 import type { CreatePullRequestParams } from "./operations.ts"
 import { makeTestLayer, makeTestGitHubClient } from "../../test-utils/TestLayer.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
-import type { StatusEntry } from "../../services/GitClient.ts"
+import type { CommitOptions, StatusEntry } from "../../services/GitClient.ts"
 import { GitError, GitHubApiError, GitLabApiError } from "../../errors/index.ts"
 import { GitCliClientLive } from "../../layers/GitCliClient.ts"
 import { ChildProcessSpawnerLive } from "../../layers/ChildProcessSpawner.ts"
@@ -265,10 +265,10 @@ describe("runGitSteps", () => {
 })
 
 // ---------------------------------------------------------------------------
-// pushPullRequestChanges: bring an open PR/MR up to date
+// commitAndPush: commit the clone's changes onto a branch, then push it
 // ---------------------------------------------------------------------------
 
-describe("pushPullRequestChanges", () => {
+describe("commitAndPush", () => {
   const pushParams = { repoPath: "/repo", branch: "runbook/123", commitMessage: "More changes" }
 
   const recordingGit = (steps: string[], current: string, status: StatusEntry[]) => ({
@@ -276,10 +276,21 @@ describe("pushPullRequestChanges", () => {
     getCurrentBranch: () => Effect.succeed(current),
     status: () => Effect.succeed(status),
     stageAll: () => Effect.sync(() => void steps.push("stageAll")),
-    commit: (_repo: string, message: string) =>
-      Effect.sync(() => void steps.push(`commit ${message}`)),
+    stagePaths: (_repo: string, paths: readonly string[]) =>
+      Effect.sync(() => void steps.push(`stagePaths ${paths.join(",")}`)),
+    commit: (_repo: string, message: string, options?: CommitOptions) =>
+      Effect.sync(
+        () =>
+          void steps.push(
+            options?.paths === undefined
+              ? `commit ${message}`
+              : `commit ${message} -- ${options.paths.join(",")}`,
+          ),
+      ),
     push: (_repo: string, _remote: string, branch: string) =>
       Effect.sync(() => void steps.push(`push ${branch}`)),
+    getInfo: () =>
+      Effect.succeed({ branch: current, refType: "branch" as const, commitSha: "abc1234" }),
   })
 
   it.each(["github", "gitlab"] as const)(
@@ -292,9 +303,7 @@ describe("pushPullRequestChanges", () => {
       })
 
       await Effect.runPromise(
-        pushPullRequestChanges("tok", provider, pushParams, (l) => logs.push(l)).pipe(
-          Effect.provide(layer),
-        ),
+        commitAndPush("tok", provider, pushParams, (l) => logs.push(l)).pipe(Effect.provide(layer)),
       )
 
       expect(steps).toEqual(["stageAll", "commit More changes", "push runbook/123"])
@@ -310,9 +319,7 @@ describe("pushPullRequestChanges", () => {
     })
 
     await Effect.runPromise(
-      pushPullRequestChanges("tok", "github", pushParams, (l) => logs.push(l)).pipe(
-        Effect.provide(layer),
-      ),
+      commitAndPush("tok", "github", pushParams, (l) => logs.push(l)).pipe(Effect.provide(layer)),
     )
 
     expect(steps).toEqual(["stageAll", "push runbook/123"])
@@ -326,11 +333,100 @@ describe("pushPullRequestChanges", () => {
     })
 
     const error = await Effect.runPromise(
-      pushPullRequestChanges("tok", "github", pushParams).pipe(Effect.flip, Effect.provide(layer)),
+      commitAndPush("tok", "github", pushParams).pipe(Effect.flip, Effect.provide(layer)),
     )
 
     expect(steps).toEqual([])
     expect((error as GitError).stderr).toContain("The clone is on main, not runbook/123")
+  })
+
+  it("without a branch, commits on the branch the clone is on and reports the commit", async () => {
+    const steps: string[] = []
+    const layer = makeTestLayer({
+      git: recordingGit(steps, "feature", [{ path: "new.tf", status: "A" }]),
+    })
+
+    const result = await Effect.runPromise(
+      commitAndPush("tok", "github", { repoPath: "/repo", commitMessage: "Add unit" }).pipe(
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(steps).toEqual(["stageAll", "commit Add unit", "push feature"])
+    expect(result).toEqual({ branch: "feature", commitSha: "abc1234", committed: true })
+  })
+
+  it("refuses a detached HEAD, before staging anything", async () => {
+    const steps: string[] = []
+    const layer = makeTestLayer({
+      git: recordingGit(steps, "HEAD", [{ path: "new.tf", status: "A" }]),
+    })
+
+    const error = await Effect.runPromise(
+      commitAndPush("tok", "github", { repoPath: "/repo", commitMessage: "Add unit" }).pipe(
+        Effect.flip,
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(steps).toEqual([])
+    expect((error as GitError).stderr).toContain("isn't on a branch")
+  })
+
+  it("with paths, stages and commits only those paths", async () => {
+    const steps: string[] = []
+    const layer = makeTestLayer({
+      git: recordingGit(steps, "runbook/123", [
+        { path: "a.tf", status: "A" },
+        { path: "b.tf", status: "M" },
+        { path: "c.tf", status: "??" },
+      ]),
+    })
+
+    const result = await Effect.runPromise(
+      commitAndPush("tok", "github", { ...pushParams, paths: ["a.tf", "b.tf"] }).pipe(
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(steps).toEqual([
+      "stagePaths a.tf,b.tf",
+      "commit More changes -- a.tf,b.tf",
+      "push runbook/123",
+    ])
+    expect(result.committed).toBe(true)
+  })
+
+  it("with paths none of which changed, pushes without committing what else is staged", async () => {
+    const steps: string[] = []
+    const layer = makeTestLayer({
+      // Staged by someone else, and not among the chosen paths.
+      git: recordingGit(steps, "runbook/123", [{ path: "other.tf", status: "M" }]),
+    })
+
+    const result = await Effect.runPromise(
+      commitAndPush("tok", "github", { ...pushParams, paths: [] }).pipe(Effect.provide(layer)),
+    )
+
+    expect(steps).toEqual(["stagePaths ", "push runbook/123"])
+    expect(result.committed).toBe(false)
+  })
+
+  it("counts a chosen path renamed from another as changed", async () => {
+    const steps: string[] = []
+    const layer = makeTestLayer({
+      git: recordingGit(steps, "runbook/123", [
+        { path: "new-name.tf", status: "R", origPath: "old-name.tf" },
+      ]),
+    })
+
+    await Effect.runPromise(
+      commitAndPush("tok", "github", { ...pushParams, paths: ["old-name.tf"] }).pipe(
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(steps).toContain("commit More changes -- old-name.tf")
   })
 })
 

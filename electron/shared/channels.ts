@@ -864,12 +864,27 @@ export interface IpcChannelMap {
   "git:push": {
     params: {
       worktreePath: string
-      branchName: string
-      /** The message for the commit of the changes made since the PR/MR opened. */
+      /** The branch to commit on and push. Left out, the branch the clone is on. */
+      branchName?: string
+      /** The message for the commit of the clone's changes. */
       commitMessage: string
+      /**
+       * Repo-relative paths to commit. Left out, every change in the clone; an
+       * empty list pushes the commits already made.
+       */
+      paths?: string[]
       provider?: "github" | "gitlab"
     }
-    result: { ok: true } | { error: string }
+    result:
+      | {
+          ok: true
+          branch: string
+          /** The commit the pushed branch is at. */
+          commitSha?: string
+          /** Whether a new commit was made, not only existing ones pushed. */
+          committed: boolean
+        }
+      | { error: string }
   }
   "git:init-default-branch": {
     params: { worktreePath: string; branch: string; provider?: "github" | "gitlab" }

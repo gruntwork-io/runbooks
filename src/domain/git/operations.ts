@@ -397,11 +397,20 @@ const runGitSteps = (
     })
   })
 
-/** What {@link pushPullRequestChanges} needs: the PR/MR's branch and the message for a new commit. */
-export interface PushPullRequestChangesParams {
+/** What {@link commitAndPush} needs. */
+export interface CommitAndPushParams {
   readonly repoPath: string
-  readonly branch: string
+  /**
+   * The branch to commit on and push, such as a PR/MR's branch. Left out, the
+   * branch the clone is on.
+   */
+  readonly branch?: string | undefined
   readonly commitMessage: string
+  /**
+   * Repo-relative paths to commit. Left out, every change in the clone. An
+   * empty list commits nothing and pushes the commits already made.
+   */
+  readonly paths?: readonly string[] | undefined
   /**
    * The GitHub host whose API names the commit's fallback author. Left out
    * when origin's GitHub host isn't known, so the token goes to no API.
@@ -410,28 +419,37 @@ export interface PushPullRequestChangesParams {
   readonly host?: string | undefined
 }
 
+export interface CommitAndPushResult {
+  readonly branch: string
+  /** The commit the branch is at after the push. */
+  readonly commitSha: string | undefined
+  /** Whether a new commit was made, as opposed to pushing existing ones. */
+  readonly committed: boolean
+}
+
 /**
- * Bring an open PR/MR up to date with the clone: commit every change made
- * since it opened onto its branch, then push. The changes are why a push is
- * asked for, so pushing only the commits already made would leave them out.
+ * Commit the clone's changes, or the chosen paths among them, onto a branch,
+ * then push it. With nothing new to commit, push the commits already made.
  *
- * Refuses when HEAD isn't the PR/MR's branch, so the commit can't land on
- * another branch, such as the base.
+ * Refuses when HEAD isn't the named branch, or isn't on any branch, so the
+ * commit can't land somewhere the caller didn't mean, such as the base.
  */
-export const pushPullRequestChanges = (
+export const commitAndPush = (
   token: string,
   provider: "github" | "gitlab",
-  params: PushPullRequestChangesParams,
+  params: CommitAndPushParams,
   onProgress?: (line: string) => void,
 ) =>
   Effect.gen(function* () {
     const gitClient = yield* GitClient
     const report = makeReport(onProgress)
 
-    const current = yield* gitClient
+    // A detached HEAD reads as "HEAD", which is no branch to push.
+    const head = yield* gitClient
       .getCurrentBranch(params.repoPath)
       .pipe(Effect.orElseSucceed(() => ""))
-    if (current !== params.branch) {
+    const current = head === "HEAD" ? "" : head
+    if (params.branch !== undefined && current !== params.branch) {
       const noun = provider === "github" ? "pull request" : "merge request"
       return yield* new GitError({
         command: "push",
@@ -439,12 +457,31 @@ export const pushPullRequestChanges = (
         exitCode: 1,
       })
     }
+    if (current === "") {
+      return yield* new GitError({
+        command: "push",
+        stderr:
+          "The clone isn't on a branch, so there's nowhere to commit and push. Check out a branch first.",
+        exitCode: 1,
+      })
+    }
+    const branch = current
 
-    const embedded = yield* detectEmbeddedRepos(params.repoPath)
     yield* report("Staging changes…")
-    yield* gitClient.stageAll(params.repoPath, embedded)
+    if (params.paths === undefined) {
+      yield* gitClient.stageAll(params.repoPath, yield* detectEmbeddedRepos(params.repoPath))
+    } else {
+      yield* gitClient.stagePaths(params.repoPath, params.paths)
+    }
 
-    const hasStaged = (yield* gitClient.status(params.repoPath)).some((e) => e.status !== "??")
+    const chosen = params.paths === undefined ? undefined : new Set(params.paths)
+    const hasStaged = (yield* gitClient.status(params.repoPath)).some(
+      (e) =>
+        e.status !== "??" &&
+        (chosen === undefined ||
+          chosen.has(e.path) ||
+          (e.origPath !== undefined && chosen.has(e.origPath))),
+    )
     if (hasStaged) {
       // The authenticated user's identity is the fallback author when the
       // machine has no git identity configured, as for the PR/MR's first commit.
@@ -460,18 +497,30 @@ export const pushPullRequestChanges = (
               yield* gitlabInstanceForRepo(params.repoPath, "pushing to the merge request"),
             )
       yield* report("Committing changes…")
-      yield* gitClient.commit(params.repoPath, params.commitMessage, { author })
+      yield* gitClient.commit(params.repoPath, params.commitMessage, {
+        author,
+        paths: params.paths,
+      })
     } else {
       yield* report("No new changes to commit; pushing the existing commits…")
     }
 
-    yield* report(`Pushing ${params.branch} to origin…`)
-    yield* gitClient.push(params.repoPath, "origin", params.branch, {
+    yield* report(`Pushing ${branch} to origin…`)
+    yield* gitClient.push(params.repoPath, "origin", branch, {
       token,
       username: gitCredentialUsername(provider),
       setUpstream: true,
     })
     yield* report("Push complete.")
+
+    const after = yield* gitClient
+      .getInfo(params.repoPath)
+      .pipe(Effect.orElseSucceed(() => undefined))
+    return {
+      branch,
+      commitSha: after?.commitSha,
+      committed: hasStaged,
+    } satisfies CommitAndPushResult
   })
 
 /**

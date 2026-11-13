@@ -250,6 +250,14 @@ const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientSh
     Effect.fail(
       new GitError({ command: "add", stderr: notConfigured("GitClient", "stageAll"), exitCode: 1 }),
     ),
+  stagePaths: (_repoPath, _paths) =>
+    Effect.fail(
+      new GitError({
+        command: "add",
+        stderr: notConfigured("GitClient", "stagePaths"),
+        exitCode: 1,
+      }),
+    ),
   commit: (_repoPath, _message, _options) =>
     Effect.fail(
       new GitError({

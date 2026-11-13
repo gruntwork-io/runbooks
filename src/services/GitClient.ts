@@ -67,6 +67,11 @@ export interface CommitOptions {
    * ignored.
    */
   readonly author?: GitIdentity | undefined
+  /**
+   * Repo-relative paths to commit. Anything else in the index stays staged
+   * and out of this commit. Left out, the commit takes the whole index.
+   */
+  readonly paths?: readonly string[] | undefined
 }
 
 export interface GitClientShape {
@@ -134,6 +139,11 @@ export interface GitClientShape {
   readonly stageAll: (
     repoPath: string,
     excludePaths?: string[],
+  ) => Effect.Effect<void, GitError | SpawnError>
+  /** Stages these repo-relative paths (adds, edits and deletions) and nothing else. */
+  readonly stagePaths: (
+    repoPath: string,
+    paths: readonly string[],
   ) => Effect.Effect<void, GitError | SpawnError>
   readonly commit: (
     repoPath: string,
