@@ -25,6 +25,7 @@ import {
 } from "../../src/domain/prerequisites/spec.ts"
 import type { BoilerplateConfig, BoilerplateVariable } from "../../src/types.ts"
 import { AUTH_BLOCK_TYPES, BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
+import { gateProblem } from "../../src/domain/admonition/gate.ts"
 import { errorMessage } from "../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
@@ -117,6 +118,7 @@ export class InputValidator {
     }
     // Only an Iframe with an id can set outputs, so only those are steps.
     components.push(...findComponents(elements, "Iframe").filter((comp) => comp.hasExplicitId))
+    components.push(...this.parseGatedAdmonitions(elements))
 
     // Sort by document position (each component's own offset in the source)
     components.sort((a, b) => a.index - b.index)
@@ -307,6 +309,17 @@ export class InputValidator {
     }
 
     return results
+  }
+
+  /** Only an Admonition with an id sets an output when it's confirmed, so only those are steps. */
+  private parseGatedAdmonitions(elements: readonly MdxElement[]): ParsedComponent[] {
+    const components = findComponents(elements, "Admonition").filter(
+      (comp) => comp.props.id !== undefined,
+    )
+    for (const comp of components) {
+      this.configErrors.push(...validateComponent(comp))
+    }
+    return components
   }
 
   private parseTemplateInlineBlocks(elements: readonly MdxElement[]): ParsedComponent[] {
@@ -574,6 +587,12 @@ function validateComponent(comp: ParsedComponent): ConfigError[] {
         })
       }
       break
+
+    case "Admonition": {
+      const problem = gateProblem({ ...comp.props, id: stringProp(comp.props, "id") })
+      if (problem) errors.push({ componentType: comp.type, componentId: comp.id, message: problem })
+      break
+    }
 
     case "Prerequisites": {
       if (!comp.hasExplicitId) {

@@ -133,6 +133,19 @@ export function parseSavedPullRequest(payload: unknown): SavedPullRequest | unde
 }
 
 // ---------------------------------------------------------------------------
+// Confirmations (`confirmation` events)
+// ---------------------------------------------------------------------------
+
+const SavedConfirmationSchema = z.object({ confirmed: z.literal(true) })
+
+export type SavedConfirmation = z.infer<typeof SavedConfirmationSchema>
+
+export function parseSavedConfirmation(payload: unknown): SavedConfirmation | undefined {
+  const parsed = SavedConfirmationSchema.safeParse(payload)
+  return parsed.success ? parsed.data : undefined
+}
+
+// ---------------------------------------------------------------------------
 // Sign-ins (`auth` events)
 //
 // Each auth block keeps its own payload, tagged with the block type: a

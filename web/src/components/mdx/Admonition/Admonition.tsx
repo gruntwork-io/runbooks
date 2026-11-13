@@ -1,16 +1,33 @@
-import { useState, useEffect, useId, useMemo } from "react"
-import { X, Info, AlertTriangle, AlertCircle, CheckCircle } from "lucide-react"
+import { useState, useEffect, useId, useMemo, useRef, type RefObject } from "react"
+import { X, Info, AlertTriangle, AlertCircle, CheckCircle, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { MarkdownChildren } from "@/components/mdx/_shared/components/MarkdownChildren"
 import { shouldShowAlert, setDontShowAgain as saveHidePreference } from "@/lib/localStorage"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTemplateContext } from "@/contexts/useRunbook"
+import { useRunbookContext, useTemplateContext } from "@/contexts/useRunbook"
+import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { parseSavedConfirmation, type SavedConfirmation } from "@/lib/sessionHistory"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
+import type { AppError } from "@/types/error"
+import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
+import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
+import {
+  CONFIRMED_OUTPUT,
+  GATE_PURPOSE,
+  gateProblem,
+} from "../../../../../src/domain/admonition/gate"
 
 export type AdmonitionType = "note" | "info" | "warning" | "danger"
 
 interface AdmonitionProps {
+  /**
+   * Makes the confirmation an output, `CONFIRMED`, that later blocks can wait
+   * on. Needs `confirmationText`.
+   */
+  id?: string
   type: AdmonitionType
   title?: string
   description?: string
@@ -77,7 +94,77 @@ const admonitionConfig: Record<
 
 const VALID_ADMONITION_TYPES = Object.keys(admonitionConfig) as AdmonitionType[]
 
-export function Admonition({
+/**
+ * A callout: a note, info, warning or danger message. With `confirmationText`
+ * it has a button the user clicks to confirm they read it or did what it asks.
+ * With an `id` too, the confirmation is an output later blocks can wait on.
+ */
+export function Admonition(props: AdmonitionProps) {
+  return props.id === undefined ? (
+    <Callout {...props} />
+  ) : (
+    <GatedAdmonition {...props} id={props.id} />
+  )
+}
+
+/** What's wrong with a gated Admonition's props, if anything. */
+function gateError(props: AdmonitionProps & { id: string }): AppError | null {
+  const problem = gateProblem(props)
+  return problem
+    ? { message: `The <Admonition id="${props.id}"> block ${problem}`, details: GATE_PURPOSE }
+    : null
+}
+
+/** An Admonition whose confirmation sets an output, and stays confirmed when the session resumes. */
+function GatedAdmonition(props: AdmonitionProps & { id: string }) {
+  const { id } = props
+  const blockRef = useRef<HTMLDivElement>(null)
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    "Admonition",
+    blockRef,
+  )
+  const history = useSessionHistory()
+  const { registerOutputs } = useRunbookContext()
+  const [confirmed, setConfirmed] = useState(
+    () => parseSavedConfirmation(history.saved(id, "confirmation")) !== undefined,
+  )
+
+  useEffect(() => {
+    if (confirmed && id) registerOutputs(id, { [CONFIRMED_OUTPUT]: "true" })
+  }, [confirmed, id, registerOutputs])
+
+  const error = gateError(props)
+  if (error) return <ErrorDisplay error={error} />
+  if (isDuplicate) {
+    return (
+      <DuplicateIdError
+        id={id}
+        isNormalizedCollision={isNormalizedCollision}
+        collidingId={collidingId}
+      />
+    )
+  }
+
+  const confirm = () => {
+    setConfirmed(true)
+    history.record(id, "confirmation", { confirmed: true } satisfies SavedConfirmation)
+  }
+  return (
+    <>
+      <ProgressStep done={confirmed} />
+      <Callout {...props} gate={{ confirmed, confirm, blockRef }} />
+    </>
+  )
+}
+
+interface CalloutProps extends AdmonitionProps {
+  /** A gated Admonition's confirmation, which stays shown once given rather than fading out. */
+  gate?: { confirmed: boolean; confirm: () => void; blockRef: RefObject<HTMLDivElement | null> }
+}
+
+function Callout({
+  id,
   type,
   title,
   description,
@@ -88,7 +175,8 @@ export function Admonition({
   allowPermanentHide = false,
   storageKey,
   className,
-}: AdmonitionProps) {
+  gate,
+}: CalloutProps) {
   // Resolve template expressions in display props
   const templateCtx = useTemplateContext(inputsId)
   const resolvedTitle = useMemo(
@@ -133,6 +221,10 @@ export function Admonition({
 
   // Handle the confirmation button click with delayed fade-out
   const handleConfirm = () => {
+    if (gate) {
+      gate.confirm()
+      return
+    }
     setIsConfirmed(true)
 
     // If "don't show again" is checked, store in localStorage
@@ -183,6 +275,8 @@ export function Admonition({
 
   return (
     <div
+      ref={gate?.blockRef}
+      data-testid={id}
       className={cn(
         "runbook-block rounded-md border p-3 text-sm flex items-start gap-2 transition-opacity duration-1000 mb-5",
         config.bgColor,
@@ -205,35 +299,42 @@ export function Admonition({
           )}
         </div>
 
-        {resolvedConfirmationText && (
-          <div className="mt-3">
-            <button
-              onClick={handleConfirm}
-              disabled={isConfirmed}
-              className={cn(
-                "px-4 py-2 text-sm font-medium rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
-                config.buttonColor,
-              )}
-            >
-              <InlineMarkdown>{resolvedConfirmationText}</InlineMarkdown>
-            </button>
-
-            {allowPermanentHide && storageKey && (
-              <div className="mt-3">
-                <label
-                  className={`flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity opacity-80`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={dontShowAgain}
-                    onChange={(e) => setDontShowAgain(e.target.checked)}
-                    className="cursor-pointer"
-                  />
-                  <span className="text-sm text-muted-foreground">Don't show me this again</span>
-                </label>
-              </div>
-            )}
+        {gate?.confirmed ? (
+          <div className="mt-3 flex items-center gap-1.5 font-medium">
+            <Check className="size-4" />
+            Confirmed
           </div>
+        ) : (
+          resolvedConfirmationText && (
+            <div className="mt-3">
+              <button
+                onClick={handleConfirm}
+                disabled={isConfirmed}
+                className={cn(
+                  "px-4 py-2 text-sm font-medium rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+                  config.buttonColor,
+                )}
+              >
+                <InlineMarkdown>{resolvedConfirmationText}</InlineMarkdown>
+              </button>
+
+              {allowPermanentHide && storageKey && (
+                <div className="mt-3">
+                  <label
+                    className={`flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity opacity-80`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={dontShowAgain}
+                      onChange={(e) => setDontShowAgain(e.target.checked)}
+                      className="cursor-pointer"
+                    />
+                    <span className="text-sm text-muted-foreground">Don't show me this again</span>
+                  </label>
+                </div>
+              )}
+            </div>
+          )
         )}
       </div>
       {closable && (

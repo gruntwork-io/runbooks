@@ -509,6 +509,86 @@ describe("TestExecutor — Iframe outputs", () => {
   })
 })
 
+describe("TestExecutor — Admonition confirmation", () => {
+  let tmp: string
+
+  const makeExecutor = async (mdx: string) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, mdx)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  const MAIL_RUNBOOK = [
+    "# Mail",
+    "",
+    `<Admonition id="mail-arrived" type="info" confirmationText="The test mail arrived" />`,
+    "",
+    `<Command id="next" command='echo "confirmed=$CONFIRMED"' env={{ CONFIRMED: "{{ .outputs.mail_arrived.CONFIRMED }}" }} />`,
+    "",
+  ].join("\n")
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-admonition-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("confirms the Admonition, so the block that waits on it runs", async () => {
+    const executor = await makeExecutor(MAIL_RUNBOOK)
+
+    const result = executor.runTest({ name: "default" })
+
+    expect(result.status).toBe("passed")
+    expect(result.stepResults.map((s) => s.block)).toEqual([
+      "admonition:mail-arrived",
+      "command:next",
+    ])
+    expect(result.stepResults[0]?.outputs).toEqual({ CONFIRMED: "true" })
+    expect(result.stepResults[1]?.logs).toContain("confirmed=true")
+  })
+
+  it("leaves the waiting block blocked when the Admonition is skipped", async () => {
+    const executor = await makeExecutor(MAIL_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "not-confirmed",
+      steps: [
+        { block: "mail-arrived", expect: "skip" },
+        { block: "next", expect: "blocked", missing_outputs: ["outputs.mail_arrived.CONFIRMED"] },
+      ],
+    })
+
+    expect(result.status).toBe("passed")
+  })
+
+  it("reports a gated Admonition the app refuses as a config error", async () => {
+    const executor = await makeExecutor(
+      `# Mail\n\n<Admonition id="mail" type="info" confirmationText="Ok" closable />\n`,
+    )
+
+    const result = executor.runTest({
+      name: "closable",
+      steps: [{ block: "mail", expect: "config_error", error_contains: "can't be closable" }],
+    })
+
+    expect(result.status).toBe("passed")
+  })
+
+  it("isn't a step without an id", async () => {
+    const executor = await makeExecutor(
+      `# Mail\n\n<Admonition type="info" confirmationText="Ok" />\n`,
+    )
+
+    const result = executor.runTest({ name: "default" })
+
+    expect(result.status).toBe("passed")
+    expect(result.stepResults).toEqual([])
+  })
+})
+
 describe("TestExecutor — explicit steps", () => {
   let tmp: string
 

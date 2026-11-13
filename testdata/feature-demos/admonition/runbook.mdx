@@ -44,3 +44,22 @@ Read the [`<Admonition>` docs](https://runbooks.gruntwork.io/authoring/blocks/ad
     description="Click the button to acknowledge this callout and dismiss it."
     confirmationText="I understand"
 />
+
+## 4. Waiting on a confirmation
+
+Give an admonition an `id`, and its confirmation becomes an output. The command below stays blocked until you confirm.
+
+<Admonition
+    id="mail-arrived"
+    type="info"
+    title="Check your inbox"
+    description="Pretend you sent a test email, and confirm once it arrives."
+    confirmationText="The test email arrived"
+/>
+
+<Command
+    id="after-mail"
+    title="Runs after the confirmation"
+    command='echo "Confirmed: $CONFIRMED"'
+    env={{ CONFIRMED: "{{ .outputs.mail_arrived.CONFIRMED }}" }}
+/>
