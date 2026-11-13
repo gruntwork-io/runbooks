@@ -277,6 +277,7 @@ function GitCommitPush({
           }
         : undefined
   const ready = !waitingFor && hasAllDependencies && !merged
+  const nothingChanged = !changes.isLoading && !changes.tooManyChanges && changes.totalChanges === 0
   const count = chosen.length
   const buttonLabel =
     count === 0 ? "Push" : `Commit and push ${count} ${count === 1 ? "file" : "files"}`
@@ -378,43 +379,52 @@ function GitCommitPush({
 
           {!waitingFor && (
             <>
-              <CollapsibleToggle
-                expanded={filesExpanded}
-                onToggle={() => setFilesExpanded(!filesExpanded)}
-                label={
-                  changes.isLoading && changes.changes.length === 0
-                    ? "Checking for changes..."
-                    : `${count} of ${changes.totalChanges} changed ${changes.totalChanges === 1 ? "file" : "files"} chosen`
-                }
-                icon={<ListChecks className="size-3.5" />}
-              >
-                <div
-                  className="mt-2 h-80 overflow-hidden rounded-md border border-border bg-card"
-                  data-testid="commit-push-files"
-                >
-                  <ChangedFilesView
-                    changes={changes.changes}
-                    tooManyChanges={changes.tooManyChanges}
-                    totalChanges={changes.totalChanges}
-                    isLoading={changes.isLoading}
-                    onLoadDiff={changes.fetchFileDiff}
-                    letters
-                    selection={selection}
-                  />
-                </div>
-              </CollapsibleToggle>
+              {nothingChanged ? (
+                <p className="text-sm text-muted-foreground m-0">
+                  No files have changed since the last commit, so Push sends only the commits
+                  already made.
+                </p>
+              ) : (
+                <>
+                  <CollapsibleToggle
+                    expanded={filesExpanded}
+                    onToggle={() => setFilesExpanded(!filesExpanded)}
+                    label={
+                      changes.isLoading && changes.changes.length === 0
+                        ? "Checking for changes..."
+                        : `${count} of ${changes.totalChanges} changed ${changes.totalChanges === 1 ? "file" : "files"} chosen`
+                    }
+                    icon={<ListChecks className="size-3.5" />}
+                  >
+                    <div
+                      className="mt-2 h-80 overflow-hidden rounded-md border border-border bg-card"
+                      data-testid="commit-push-files"
+                    >
+                      <ChangedFilesView
+                        changes={changes.changes}
+                        tooManyChanges={changes.tooManyChanges}
+                        totalChanges={changes.totalChanges}
+                        isLoading={changes.isLoading}
+                        onLoadDiff={changes.fetchFileDiff}
+                        letters
+                        selection={selection}
+                      />
+                    </div>
+                  </CollapsibleToggle>
 
-              <label className="block space-y-1">
-                <span className="text-sm font-medium text-foreground">Commit message</span>
-                <input
-                  type="text"
-                  value={message}
-                  onChange={(e) => setTypedMessage(e.target.value)}
-                  disabled={commitPush.running || count === 0}
-                  placeholder={count === 0 ? "Choose files to commit" : undefined}
-                  className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                />
-              </label>
+                  <label className="block space-y-1">
+                    <span className="text-sm font-medium text-foreground">Commit message</span>
+                    <input
+                      type="text"
+                      value={message}
+                      onChange={(e) => setTypedMessage(e.target.value)}
+                      disabled={commitPush.running || count === 0}
+                      placeholder={count === 0 ? "Choose files to commit" : undefined}
+                      className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                    />
+                  </label>
+                </>
+              )}
 
               <div className="flex items-center gap-3">
                 <Button
@@ -437,7 +447,7 @@ function GitCommitPush({
                   </span>
                 )}
               </div>
-              {count === 0 && !merged && (
+              {count === 0 && !merged && !nothingChanged && (
                 <p className="text-xs text-muted-foreground m-0">
                   No files chosen, so Push sends only the commits already made.
                 </p>

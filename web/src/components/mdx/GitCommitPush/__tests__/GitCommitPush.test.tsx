@@ -214,6 +214,18 @@ describe("GitCommitPush", () => {
     expect(pushCalls()[0]?.[1]).toMatchObject({ paths: [] })
   })
 
+  it("says when nothing has changed, and still offers to push the commits already made", async () => {
+    changes = []
+    renderBlock({ pullRequestId: "pr" })
+
+    expect(
+      await screen.findByText(/No files have changed since the last commit/),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId("commit-push-files")).not.toBeInTheDocument()
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Push" })).toBeEnabled()
+  })
+
   it("with gitCloneId, pushes the branch that clone is on", async () => {
     pushResult = { ok: true, branch: "main", commitSha: "fedcba9", committed: true }
     renderBlock({ gitCloneId: "modules", commitMessage: "Bump modules" })
