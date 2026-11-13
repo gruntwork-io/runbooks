@@ -112,9 +112,10 @@ function renderBlock(
     { id: "repo", kind: "GitClone" },
     { id: "prod", kind: "AwsAuth" },
   ],
-  simulating = false,
+  simulating: boolean | SimulationContextValue = false,
 ) {
-  const simulation = simulating ? SIMULATING : NOT_SIMULATING
+  const simulation =
+    typeof simulating === "object" ? simulating : simulating ? SIMULATING : NOT_SIMULATING
   return render(
     <TestWrapper>
       <SimulationContext.Provider value={simulation}>
@@ -280,5 +281,46 @@ describe("TerragruntApply", () => {
       worktreePath: "",
       blockInputs: {},
     })
+  })
+
+  it("runs for real, sign-in and checks included, when the scenario runs what it doesn't answer", async () => {
+    preflight = { kind: "ready", tools: TOOLS, inputs: {}, module: moduleWithCheck }
+    const realRun = (units: string[], responses: string[]): SimulationContextValue =>
+      ({
+        ...SIMULATING,
+        state: {
+          ...SIMULATING.state,
+          answers: { runUnanswered: true, units, responses, scripts: [] },
+        },
+      }) as SimulationContextValue
+    renderBlock({}, undefined, realRun(["apply-account"], ["google.domains"]))
+    expect(await screen.findByText(/above to plan/)).toBeInTheDocument()
+    await signIn()
+    fireEvent.click(await screen.findByRole("button", { name: "Plan" }))
+
+    await waitFor(() => expect(calls("terragrunt-apply:plan")).toHaveLength(1))
+    expect(calls("aws:send")).toHaveLength(1)
+    expect(calls("simulation:respond")).toHaveLength(0)
+    expect(screen.queryByText(/simulated for/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Runs for real/)).toBeInTheDocument()
+  })
+
+  it("is simulated, checks included, when the scenario answers it, though it runs the rest for real", async () => {
+    workTrees = []
+    preflight = { kind: "ready", tools: [], inputs: {}, module: moduleWithCheck }
+    renderBlock({}, undefined, {
+      ...SIMULATING,
+      state: {
+        ...SIMULATING.state,
+        answers: { runUnanswered: true, units: ["apply-budget"], responses: [], scripts: [] },
+      },
+    } as SimulationContextValue)
+    expect(await screen.findByText(/simulated for/)).toBeInTheDocument()
+    expect(screen.queryByText(/Runs for real/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }))
+
+    await waitFor(() => expect(calls("terragrunt-apply:plan")).toHaveLength(1))
+    expect(calls("simulation:respond")[0]![1]).toMatchObject({ id: "aws.enabled" })
+    expect(calls("aws:send")).toHaveLength(0)
   })
 })

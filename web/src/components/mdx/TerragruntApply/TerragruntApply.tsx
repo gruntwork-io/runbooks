@@ -31,6 +31,7 @@ import { buildAuthEnvVars, buildGoogleAuthEnvVars } from "../_shared/hooks/useSc
 import type { ModuleOutputValue } from "../../../../../src/domain/terragrunt/run"
 import { authFacts, signedIn } from "../_shared/lib/authFacts"
 import { useSimulation } from "@/contexts/useSimulation"
+import { simulatesUnit } from "@/contexts/simulates"
 import { GITHUB_AUTH_ENV_VARS, GIT_AUTH_ENV_VARS } from "../../../../../src/domain/exec/authEnv"
 import { revealOutputs } from "../../../../../src/domain/exec/outputValues"
 import type { BoundBlock } from "../../../../../src/domain/lookups/validate"
@@ -191,7 +192,7 @@ function TerragruntApply({
   const authList = Array.isArray(auth) ? auth : NO_AUTH
   const authBlocks = useAuthBlocks(authList)
   const clone = useCloneId(gitCloneId)
-  const simulating = useSimulation().state.enabled
+  const simulating = simulatesUnit(useSimulation().state, id)
   const { workTrees } = useGitWorkTree()
   const workTree = clone.cloneId
     ? workTrees.find((tree) => normalizeBlockId(tree.id) === normalizeBlockId(clone.cloneId!))
@@ -343,8 +344,11 @@ function Runner({ id, header, worktreePath, path, auth, simulating }: RunnerProp
         }
       : {}),
   }
-  const run = useTerragruntRun(request, `${worktreePath}\0${path}`)
-  const preflight = usePreflight(request, auth)
+  const simulation = useSimulation().state
+  // A plan from another scenario isn't this one's to apply.
+  const scenario = simulation.enabled ? (simulation.active ?? "") : ""
+  const run = useTerragruntRun(request, `${worktreePath}\0${path}\0${scenario}`)
+  const preflight = usePreflight(request, auth, simulating)
   const moduleOutputs =
     preflight.state.kind === "ready" ? preflight.state.module?.outputs : undefined
 
@@ -402,6 +406,16 @@ function Runner({ id, header, worktreePath, path, auth, simulating }: RunnerProp
                 </div>
               ))}
         </dd>
+        {simulation.enabled && !simulating && (
+          <>
+            <dt className="text-xs font-medium uppercase leading-5 tracking-wide text-muted-foreground">
+              Simulation
+            </dt>
+            <dd className="m-0 text-[13px] font-medium leading-5 text-destructive">
+              Runs for real: the scenario doesn&apos;t answer this block.
+            </dd>
+          </>
+        )}
       </dl>
       {signedOut.length > 0 ? (
         <Waiting>

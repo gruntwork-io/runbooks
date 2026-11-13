@@ -214,7 +214,12 @@ describe("useScriptExecution — simulation", () => {
         SimulationContext.Provider,
         {
           value: {
-            state: { enabled: true, scenarios: [], active: "happy-path", scripts },
+            state: {
+              enabled: true,
+              scenarios: [],
+              active: "happy-path",
+              answers: { runUnanswered: false, units: [], responses: [], scripts },
+            },
             setScenario: () => {},
             revision: 0,
           },

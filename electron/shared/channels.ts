@@ -17,6 +17,7 @@ import type { TfModuleSpec } from "../../src/domain/tf-module/types.ts"
 import type { ApplyResult, PlanResult, RunEvent } from "../../src/domain/terragrunt/run.ts"
 import type { CodeTool, RepoFile, UnitFile } from "../../src/domain/tf-module/unit.ts"
 import type { HttpReply, HttpRequest } from "../../src/services/HttpRequest.ts"
+import type { SimulationAnswers } from "../../src/domain/simulation/answers.ts"
 
 /** What session:switch did. */
 export type SessionSwitchResult =
@@ -1203,8 +1204,8 @@ export type SimulationState =
       scenarios: { name: string; label: string; description?: string }[]
       /** The scenario blocks answer from. Absent while simulation.yml has a problem. */
       active?: string
-      /** The <Command> and <Check> blocks the scenario answers, by scriptKey of their ids, which need no sign-in. */
-      scripts?: string[]
+      /** What the active scenario answers. Absent while simulation.yml has a problem or no scenario is picked. */
+      answers?: SimulationAnswers
       /** The scenario's `scripts` keys that no block on the page has, likely a typo or a renamed block. */
       unmatchedScripts?: string[]
       /** What's wrong with simulation.yml, fit to show the author. */

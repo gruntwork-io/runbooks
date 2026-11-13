@@ -1,5 +1,12 @@
 import { describe, it, expect } from "bun:test"
-import { noResponse, parseSimulation, simulatedResponse } from "./scenarios.ts"
+import {
+  answersOf,
+  noResponse,
+  parseSimulation,
+  pickScenario,
+  simulatedResponse,
+} from "./scenarios.ts"
+import { simulatesUnit } from "./answers.ts"
 
 const FILE = `
 scenarios:
@@ -45,6 +52,52 @@ describe("parseSimulation", () => {
     expect(() =>
       parseSimulation("scenarios:\n  a:\n    responses:\n      x.y: [{ body: {} }]\n"),
     ).toThrow("scenarios.a.responses.x.y[0] needs a status and a body")
+  })
+})
+
+describe("runUnanswered", () => {
+  const MIXED = `
+scenarios:
+  simulated:
+    units:
+      apply-account: { outputs: { account_id: "444455556666" } }
+  real-run:
+    extends: simulated
+    runUnanswered: true
+  real-run-again:
+    extends: real-run
+`
+
+  it("simulates every unit unless the scenario runs what it doesn't answer for real", () => {
+    const [simulated, realRun, again] = parseSimulation(MIXED)
+    expect(simulated!.runUnanswered).toBe(false)
+    expect(simulatesUnit(answersOf(simulated!), "apply-budget")).toBe(true)
+    expect(simulatesUnit(answersOf(realRun!), "apply-account")).toBe(true)
+    expect(simulatesUnit(answersOf(realRun!), "apply-budget")).toBe(false)
+    // A scenario that extends one runs nothing for real unless it says so itself.
+    expect(again!.runUnanswered).toBe(false)
+  })
+
+  it("never picks a scenario that runs things for real before the author does", () => {
+    const [simulated, realRun] = parseSimulation(MIXED)
+    const realFirst = [realRun!, simulated!]
+    expect(pickScenario(realFirst, undefined).name).toBe("simulated")
+    expect(pickScenario(realFirst, "real-run").name).toBe("real-run")
+    expect(() => pickScenario([realRun!], undefined)).toThrow(
+      "Every scenario in simulation.yml runs what it doesn't answer for real",
+    )
+  })
+
+  it("refuses a picked scenario the file no longer has, rather than picking another", () => {
+    expect(() => pickScenario(parseSimulation(MIXED), "renamed")).toThrow(
+      "simulation.yml has no scenario named renamed",
+    )
+  })
+
+  it("refuses anything but true or false", () => {
+    expect(() => parseSimulation("scenarios:\n  a: { runUnanswered: yes please }\n")).toThrow(
+      "scenarios.a.runUnanswered must be true or false",
+    )
   })
 })
 

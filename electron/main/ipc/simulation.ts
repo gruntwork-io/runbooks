@@ -9,7 +9,8 @@
  * every runbook that uses it.
  *
  * Anything else that would reach a real system is refused (see
- * simulation-guard.ts). It's on for the whole app when it was launched with
+ * simulation-guard.ts), unless the scenario runs what it doesn't answer for
+ * real. It's on for the whole app when it was launched with
  * `--simulate` (or RUNBOOKS_SIMULATE=1). The file is read on every request, so an edit shows
  * on the next lookup without reopening the runbook.
  */
@@ -25,9 +26,12 @@ import { RECORDED_SCENARIO } from "../../../src/domain/lookups/module.ts"
 import {
   noResponse,
   parseSimulation,
+  answersOf,
+  pickScenario,
   simulatedResponse,
   type SimulationScenario,
 } from "../../../src/domain/simulation/scenarios.ts"
+import { simulatesUnit } from "../../../src/domain/simulation/answers.ts"
 import type {
   ExecRequest,
   SimulationRespondRequest,
@@ -37,7 +41,7 @@ import { scriptKey } from "../../../src/domain/simulation/script.ts"
 import { SIMULATION_READS, simulationRefusal, type SimulationCheck } from "./simulation-guard.ts"
 
 let enabled = false
-/** The scenario the author picked; the file's first one until they pick. */
+/** The scenario the author picked, if they have (see pickScenario). */
 let activeScenario: string | undefined
 
 /** Turns simulation mode on for this run of the app. */
@@ -63,25 +67,23 @@ const executableOf = (args: readonly unknown[]) => {
   return Result.isSuccess(found) ? found.success : undefined
 }
 
-/** Whether the active scenario answers the <Command> or <Check> block `blockId`. */
-const answersScript = async (blockId: string) => {
-  const scenario = await runtime.runPromise(Effect.result(activeSimulationScenario))
-  return Result.isSuccess(scenario) && scenario.success.scripts[scriptKey(blockId)] !== undefined
-}
-
 /**
  * Whether a call that would reach a real system may run: always outside
- * simulation mode. In it, only a Git host sign-in, read or clone; a
+ * simulation mode. In it, a Git host sign-in, read or clone; a
  * <Prerequisites> block's check, which reads the tools on this computer and
- * nothing else; and a script the active scenario answers, which exec:run
- * answers in its place.
+ * nothing else; a script the active scenario answers, which exec:run answers
+ * in its place; and anything at all when the scenario runs what it doesn't
+ * answer for real.
  */
 export const simulationCheck: SimulationCheck = async (channel, args) => {
   if (!enabled || SIMULATION_READS.has(channel)) return undefined
-  if (channel === "exec:run") {
-    const executable = executableOf(args)
-    if (executable?.componentType === "prerequisites") return undefined
-    if (executable && (await answersScript(executable.componentId))) return undefined
+  const executable = channel === "exec:run" ? executableOf(args) : undefined
+  if (executable?.componentType === "prerequisites") return undefined
+  const active = await runtime.runPromise(Effect.result(activeSimulationScenario))
+  if (Result.isSuccess(active)) {
+    const scenario = active.success
+    if (scenario.runUnanswered) return undefined
+    if (executable && scenario.scripts[scriptKey(executable.componentId)]) return undefined
   }
   return simulationRefusal(channel)
 }
@@ -147,12 +149,16 @@ export const activeSimulationScenario: Effect.Effect<
   FileSystem
 > = Effect.gen(function* () {
   const scenarios = yield* readScenarios
-  return scenarios.find((scenario) => scenario.name === activeScenario) ?? scenarios[0]!
+  return yield* Effect.try({
+    try: () => pickScenario(scenarios, activeScenario),
+    catch: asSimulationError,
+  })
 })
 
 /**
  * The active scenario's run of the <Command> or <Check> block `blockId`, or
- * none when simulation is off. In simulation mode, a block the scenario
+ * none when the script runs for real: when simulation is off, or the scenario
+ * runs what it doesn't answer for real. Otherwise a block the scenario
  * doesn't answer fails, so it never runs for real.
  */
 export const simulatedScript = (blockId: string) =>
@@ -160,8 +166,16 @@ export const simulatedScript = (blockId: string) =>
     if (!enabled) return undefined
     const scenario = yield* activeSimulationScenario
     const script = scenario.scripts[scriptKey(blockId)]
-    if (!script) return yield* new SimulationError({ message: simulationRefusal("exec:run") })
-    return { script, scenario: scenario.name }
+    if (script) return { script, scenario: scenario.name }
+    if (scenario.runUnanswered) return undefined
+    return yield* new SimulationError({ message: simulationRefusal("exec:run") })
+  })
+
+/** Whether the active scenario answers the <TerragruntApply> block `blockId`, rather than leaving it to run for real. */
+export const simulatedUnit = (blockId: string) =>
+  Effect.gen(function* () {
+    if (!enabled) return false
+    return simulatesUnit(answersOf(yield* activeSimulationScenario), blockId)
   })
 
 /** The `scripts` keys in `scenario` that no <Command> or <Check> block on the page has. */
@@ -181,24 +195,32 @@ export function registerSimulationHandlers(): void {
     const result = await runtime.runPromise(Effect.result(readScenarios))
     if (Result.isFailure(result))
       return { enabled: true, scenarios: [], error: result.failure.message }
-    const scenarios = result.success
-    const active = scenarios.find((scenario) => scenario.name === activeScenario) ?? scenarios[0]!
+    const scenarios = result.success.map(({ name, label, description }) => ({
+      name,
+      label,
+      ...(description ? { description } : {}),
+    }))
+    const picked = Result.try({
+      try: () => pickScenario(result.success, activeScenario),
+      catch: asSimulationError,
+    })
+    if (Result.isFailure(picked)) {
+      return { enabled: true, scenarios, error: picked.failure.message }
+    }
+    const active = picked.success
     return {
       enabled: true,
-      scenarios: scenarios.map(({ name, label, description }) => ({
-        name,
-        label,
-        ...(description ? { description } : {}),
-      })),
+      scenarios,
       active: active.name,
-      scripts: Object.keys(active.scripts),
+      answers: answersOf(active),
       unmatchedScripts: unmatchedScripts(active),
     }
   })
 
   ipcMain.handle("simulation:set-scenario", (_event, params: { name: string }) => {
     if (!enabled) throw new Error("Simulation mode is off.")
-    activeScenario = params.name
+    // An empty name picks nothing, so the default applies.
+    activeScenario = params.name || undefined
     return { ok: true as const }
   })
 

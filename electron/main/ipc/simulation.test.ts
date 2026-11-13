@@ -41,6 +41,8 @@ scenarios:
         log: Let anyone post to the group.
       set-setings:
         log: A typo.
+  real-run:
+    runUnanswered: true
 `
 
 const ids: Record<string, string> = {}
@@ -108,8 +110,30 @@ describe("simulation:state", () => {
     enableSimulation()
     const state = await handlers.get("simulation:state")!({})
     expect(state).toMatchObject({
-      scripts: ["set_settings", "set_setings"],
+      active: "happy-path",
+      answers: { runUnanswered: false, scripts: ["set_settings", "set_setings"] },
       unmatchedScripts: ["set_setings"],
     })
+  })
+
+  it("says what's wrong, and lists the scenarios to pick from, when the picked one is gone", async () => {
+    enableSimulation()
+    await handlers.get("simulation:set-scenario")!({}, { name: "renamed" })
+    const state = await handlers.get("simulation:state")!({})
+    expect(state).toMatchObject({ scenarios: [{ name: "happy-path" }, { name: "real-run" }] })
+    expect(state).not.toHaveProperty("active")
+    expect((state as { error: string }).error).toContain("no scenario named renamed")
+    expect(await check("exec:run", { executableId: ids["set-settings"] })).toContain(
+      "run a block's script",
+    )
+  })
+})
+
+describe("a scenario that runs what it doesn't answer for real", () => {
+  it("lets anything through, once the author picks it", async () => {
+    enableSimulation()
+    await handlers.get("simulation:set-scenario")!({}, { name: "real-run" })
+    expect(await check("exec:run", { executableId: ids.hello })).toBeUndefined()
+    expect(await check("git:push", {})).toBeUndefined()
   })
 })
