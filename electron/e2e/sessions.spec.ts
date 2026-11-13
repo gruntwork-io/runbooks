@@ -181,9 +181,9 @@ test.describe("Saved sessions", () => {
     return name.innerText()
   }
 
-  /** Open the Sessions dialog from the header's menu. */
+  /** Open the Sessions dialog from the header's Session menu. */
   async function openSessions(page: Page) {
-    await page.getByRole("button", { name: "Menu" }).click()
+    await page.getByRole("button", { name: /^Session/ }).click()
     await page.getByRole("menuitem", { name: "Switch Session…" }).click()
     const dialog = page.getByRole("dialog", { name: "Sessions" })
     await expect(dialog).toBeVisible()
@@ -206,9 +206,13 @@ test.describe("Saved sessions", () => {
       await expect(first.page.getByText(/^Resumed session/)).toHaveCount(0)
       sessionDir = await showSession(first.page, "unset")
       expect(path.dirname(sessionDir)).toBe(sessionDirs)
-      // The folder button next to the name copies that directory.
-      await first.page.getByRole("button", { name: "Copy session directory" }).click()
-      await expect(first.page.getByRole("tooltip")).toHaveText("Session directory copied")
+      // The Session menu copies that directory.
+      await first.page.getByRole("button", { name: /^Session/ }).click()
+      await first.page.getByRole("menuitem", { name: "Copy session directory" }).click()
+      await expect(
+        first.page.getByRole("menuitem", { name: "Session directory copied" }),
+      ).toBeVisible()
+      await first.page.keyboard.press("Escape")
       expect(await first.app.evaluate(({ clipboard }) => clipboard.readText())).toBe(sessionDir)
       // The directory is named after the session's id, a version 7 UUID.
       expect(path.basename(sessionDir)).toMatch(
@@ -287,7 +291,8 @@ test.describe("Saved sessions", () => {
       sessionDir = await showSession(first.page, "unset")
       const field = first.page.getByRole("textbox", { name: "Session name" })
 
-      await first.page.getByTestId("session-name").click()
+      await first.page.getByRole("button", { name: /^Session/ }).click()
+      await first.page.getByRole("menuitem", { name: "Rename Session" }).click()
       await expect(field).toBeFocused()
       // Typed over the selected name, and lowercased as it is typed.
       await first.page.keyboard.type("Prod Deploy")
@@ -302,9 +307,8 @@ test.describe("Saved sessions", () => {
       await expect(first.page.getByTestId("session-name")).toHaveText("prod-deploy")
       await expect(first.page).toHaveTitle("prod-deploy - Gruntwork Runbooks")
 
-      // The header menu's item opens the field too, and the field gets the
-      // focus the closing menu would otherwise take back.
-      await first.page.getByText("Menu", { exact: true }).click()
+      // Escape leaves the new name as it is.
+      await first.page.getByRole("button", { name: /^Session/ }).click()
       await first.page.getByRole("menuitem", { name: "Rename Session" }).click()
       await expect(field).toBeFocused()
       await first.page.keyboard.press("Escape")

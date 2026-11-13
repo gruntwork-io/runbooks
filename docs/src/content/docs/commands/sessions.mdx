@@ -16,11 +16,11 @@ Runbooks saves the session after every change, so quitting the app keeps it.
 
 ## Session names
 
-Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows it after the runbook's name, labelled **Session**, along with [how far through the runbook you are](/authoring/blocks/#progress). The window title starts with the session's name too.
+Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows it on the **Session** menu, to the left of the app's **Menu**. The window title starts with the session's name too.
 
 A runbook's name is the name of the folder its `runbook.mdx` is in. A remote runbook at the root of its repository is named after the repository. The button before the runbook's name copies the full path of its file, or for a remote runbook the URL you opened it from.
 
-The copy button before the session's name copies it. The folder button after the name copies the path of the session's directory. It is the session's directory for every runbook, including a remote one, whose temporary clone it does not point to.
+**Copy session directory** in the **Session** menu copies the path of the session's directory. It is the session's directory for every runbook, including a remote one, whose temporary clone it does not point to.
 
 Paths on screen are shortened: a path in the session's directory starts with `session/`, as in `session/generated`, and any other path in your home directory starts with `~/`. Hover over one to see it in full. Copy buttons copy the full path, and scripts and other blocks get the full path too.
 
@@ -28,7 +28,7 @@ Runbooks picks the name when it creates the session, and the session keeps it un
 
 ### Renaming a session
 
-Click the name in the title bar, or choose **File > Rename Session…** or **Rename Session** in the app's menu. Type the new name and press <kbd>Enter</kbd>. Press <kbd>Esc</kbd> or click elsewhere to keep the name as it was.
+Choose **Rename Session** in the title bar's **Session** menu, or **File > Rename Session…**. Type the new name and press <kbd>Enter</kbd>. Press <kbd>Esc</kbd> or click elsewhere to keep the name as it was.
 
 A name follows these rules:
 
@@ -98,7 +98,7 @@ If a resumed session's working directory or one of its cloned repositories has b
 
 ## Resetting a session
 
-Choose **File > Reset Session**, or **Reset Session** in the app's menu, to start the open runbook over. Its blocks go back to their initial state, and scripts run in an empty directory with the environment Runbooks was launched with.
+Choose **Reset Session** in the title bar's **Session** menu, or **File > Reset Session**, to start the open runbook over. Its blocks go back to their initial state, and scripts run in an empty directory with the environment Runbooks was launched with.
 
 A reset replaces the session with a new one, so the name in the title bar changes. The runbook resumes the new session from then on.
 
@@ -116,7 +116,7 @@ Switching to a finished session doesn't make it the one the runbook opens in: it
 
 ## Switching sessions
 
-Choose **File > Switch Session…**, or **Switch Session…** in the app's menu, to see the saved sessions. They are grouped by runbook, the open runbook first, and each shows when it was last used and how many scripts it ran. A session you [finished the runbook in](#finishing-a-session) has a **Finished** label. Type in the filter box to narrow the list by session name or runbook.
+Choose **Switch Session…** in the title bar's **Session** menu, or **File > Switch Session…**, to see the saved sessions. They are grouped by runbook, the open runbook first, and each shows when it was last used and how many scripts it ran. A session you [finished the runbook in](#finishing-a-session) has a **Finished** label. Type in the filter box to narrow the list by session name or runbook.
 
 Click a session to open its runbook in it. Its blocks, environment and working directory come back as [Resuming a session](#resuming-a-session) describes. A remote runbook is cloned again first. A session whose local runbook file has been deleted is listed but can't be opened.
 
@@ -169,7 +169,7 @@ Sessions live in the `v0/sessions` folder of the app's data directory:
 
 Every \<Command\> and \<Check\> run, and every final check of a \<Finish\> block, writes its full log to `.runbooks/logs` in the session's directory, in a directory named after the block's `id`. **Copy log file path** on a block copies the path of its last run's log, in a resumed session too. Runbooks keeps the logs as long as the session.
 
-The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, the host each of its git tokens belongs to, when you finished its runbook, its environment, and its history. A session's directory is named after its id, a UUID that never changes, not after its name. To get the directory of the open session, click the folder button next to its name in the title bar. For any other session, look its name up:
+The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, the host each of its git tokens belongs to, when you finished its runbook, its environment, and its history. A session's directory is named after its id, a UUID that never changes, not after its name. To get the directory of the open session, choose **Copy session directory** in the title bar's **Session** menu. For any other session, look its name up:
 
 ```bash
 sqlite3 sessions/db/sessions.db "SELECT dir FROM sessions WHERE name = 'elegant-elephant'"

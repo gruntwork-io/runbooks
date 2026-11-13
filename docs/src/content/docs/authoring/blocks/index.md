@@ -63,7 +63,7 @@ In Runbooks, most blocks show a small **ID** badge in their top-right corner. `<
 
 ## Progress
 
-The title bar shows how far through the runbook the user is: a bar along its bottom edge fills in, and a count next to the session name, such as "2 of 5 steps done", says how many steps are done. A window narrower than 1024 pixels shows only the bar.
+The title bar shows how far through the runbook the user is: a bar along its bottom edge fills in as steps are done.
 
 Each block the user acts on is a step. It is done once the block shows it's done, and stops being done if the block goes back:
 
