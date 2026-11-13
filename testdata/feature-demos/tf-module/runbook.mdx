@@ -4,7 +4,7 @@ title: TfModule Demo
 
 # TfModule
 
-A `<TfModule>` block draws its form from an OpenTofu module and generates the code that uses it. The module's `variables.tf` gives each input's name, type, default and validation; its `runbook_block.yml` says how to present them. A `<GitHubPullRequest>` block then pushes that code, and a `<TerragruntApply>` block applies it.
+A `<TfModule>` block draws its form from an OpenTofu module and generates the code that uses it. The module's `variable` blocks give each input's name, type, default and validation; its `runbook_block.yml` says how to present them. A `<GitHubPullRequest>` block then pushes that code, and a `<TerragruntApply>` block applies it.
 
 This runbook uses a copy of the `google-group` module from the catalog. The module's `runbook_block.yml` declares the lookups behind the organization dropdown and the people suggestions, and the `auth` prop binds them to the `<GoogleAuth>` block below, which sends them as the person who signs in. Until someone does, those fields say so, and take typed values.
 

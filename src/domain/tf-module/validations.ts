@@ -9,7 +9,7 @@
  */
 import type { TfModuleCheck, TfModuleInputKind } from "./types.ts"
 
-/** A validation block as variables.tf writes it. */
+/** A validation block as a variable declares it. */
 export interface TfValidation {
   /** The condition's source text, such as `contains(["a", "b"], var.x)`. */
   readonly condition: string

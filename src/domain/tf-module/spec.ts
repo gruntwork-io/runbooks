@@ -1,9 +1,10 @@
 /**
- * Builds a TfModuleSpec from a module's files: the inputs variables.tf
- * declares, presented the way the module's runbook_block.yml says.
+ * Builds a TfModuleSpec from a module's files: the inputs its `variable`
+ * blocks declare, in any of the .tf and .tofu files OpenTofu reads, presented
+ * the way the module's runbook_block.yml says.
  *
- * variables.tf owns each input's name, type, default and validation, so a
- * runbook_block.yml entry for an input variables.tf doesn't declare is an error:
+ * The `variable` blocks own each input's name, type, default and validation,
+ * so a runbook_block.yml entry for an input the module doesn't declare is an error:
  * the form would otherwise drift from the module without anyone noticing.
  */
 import { Effect } from "effect"
@@ -73,10 +74,10 @@ export const parseHcl = (file: ModuleFile) =>
   })
 
 // ---------------------------------------------------------------------------
-// variables.tf
+// The module's variables
 // ---------------------------------------------------------------------------
 
-/** An input as variables.tf declares it. */
+/** An input as a `variable` block in one of the module's files declares it. */
 export interface TfVariable {
   readonly name: string
   readonly tfType: string
@@ -185,7 +186,7 @@ export function requiredProviders(parsed: readonly HclJson[]): TfModuleProvider[
   return providers
 }
 
-/** The form control a variables.tf type needs. */
+/** The form control a variable's type needs. */
 export function inputKind(tfType: string): TfModuleInputKind {
   const type = tfType.replace(/\s+/g, "")
   if (type === "string") return "string"
@@ -298,7 +299,7 @@ export function parsePresets(content: string, where: string): TfModulePreset[] {
   return presets
 }
 
-/** What runbook_block.yml says about the module, before it's checked against variables.tf. */
+/** What runbook_block.yml says about the module, before it's checked against the module's variables. */
 export interface ModuleMetadata {
   readonly title?: string
   readonly description?: string
@@ -512,13 +513,13 @@ export interface BuildSpecInput {
   readonly preflight?: readonly Use[]
 }
 
-/** Joins variables.tf and runbook_block.yml into the spec the form draws. */
+/** Joins the module's variables and runbook_block.yml into the spec the form draws. */
 export function buildSpec(input: BuildSpecInput): TfModuleSpec {
   const declared = new Set(input.variables.map((variable) => variable.name))
   const unknown = Object.keys(input.metadata.variables).filter((name) => !declared.has(name))
   if (unknown.length > 0) {
     throw new TfModuleError({
-      message: `${METADATA_FILE} describes ${unknown.map((name) => `"${name}"`).join(", ")}, which variables.tf doesn't declare.`,
+      message: `${METADATA_FILE} describes ${unknown.map((name) => `"${name}"`).join(", ")}, which the module doesn't declare.`,
     })
   }
 
@@ -544,7 +545,7 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
     const missing = templateFields(meta.suffix).filter((field) => !declared.has(field))
     if (missing.length > 0) {
       throw new TfModuleError({
-        message: `${METADATA_FILE}: variables.${name}.suffix reads ${missing.map((field) => `"${field}"`).join(", ")}, which variables.tf doesn't declare.`,
+        message: `${METADATA_FILE}: variables.${name}.suffix reads ${missing.map((field) => `"${field}"`).join(", ")}, which the module doesn't declare.`,
       })
     }
     if (inputKind(input.variables.find((v) => v.name === name)!.tfType) !== "string") {
@@ -559,7 +560,7 @@ export function buildSpec(input: BuildSpecInput): TfModuleSpec {
   const anyPrimary = Object.values(input.metadata.variables).some((meta) => meta.primary)
 
   // runbook_block.yml orders the inputs it lists, since it says how to present
-  // them; the rest follow in the order variables.tf declares them.
+  // them; the rest follow in the order the module declares them.
   const listed = Object.keys(input.metadata.variables)
   const rank = (name: string) => {
     const index = listed.indexOf(name)

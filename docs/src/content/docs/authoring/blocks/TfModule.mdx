@@ -10,7 +10,7 @@ import { Aside } from '@astrojs/starlight/components';
 
 The `<TfModule>` block renders a form for an OpenTofu module's inputs. The form comes from the module itself, so a runbook doesn't restate what the module already says:
 
-- The module's `variables.tf` gives each input's name, type, default, and validation.
+- The module's `variable` blocks give each input's name, type, default, and validation. They can be in any of the module's `.tf` and `.tofu` files, the same files OpenTofu reads; `variables.tf` is only a convention.
 - An optional `runbook_block.yml` beside it says how to present them: labels, which inputs come first, what each option means, presets, and lookups that suggest values.
 
 How the module is used is the runbook's choice, not the module's: one runbook may write a Terragrunt unit for an infrastructure repository, another a plain OpenTofu or Terraform configuration. So the runbook gives the block a [template](#the-template) for that code.
@@ -74,7 +74,7 @@ Otherwise you can fill in the form, but **Generate** refuses to write the code, 
 
 ## How the form is built
 
-Every input `variables.tf` declares appears: those `runbook_block.yml` lists first, in its order, then the rest in the order `variables.tf` declares them.
+Every input the module declares appears: those `runbook_block.yml` lists first, in its order, then the rest in the order the module declares them.
 
 - **Required inputs.** An input without a default is required, and is marked with `*`.
 - **Primary and advanced inputs.** Inputs `runbook_block.yml` marks `primary` show first; the rest sit under **Advanced options**. Without any `primary` marks, the required inputs show first.
@@ -89,7 +89,7 @@ OpenTofu reads a `.tofu` file in place of a `.tf` file with the same name, and s
 
 ## runbook_block.yml
 
-OpenTofu and Terragrunt never read `runbook_block.yml`, so it can sit in the module's folder without changing what the module does. Every key under `variables` must name an input `variables.tf` declares; the block refuses a module whose `runbook_block.yml` names one it doesn't.
+OpenTofu and Terragrunt never read `runbook_block.yml`, so it can sit in the module's folder without changing what the module does. Every key under `variables` must name an input the module declares; the block refuses a module whose `runbook_block.yml` names one it doesn't.
 
 ```yaml title="runbook_block.yml"
 version: 0
@@ -158,7 +158,7 @@ lookups:
 | `block.title`, `block.description` | The block's heading and the line under it |
 | `block.logo` | The block's logo, a file in the module or an `https:` URL |
 | `variables.<name>.label` | The input's label. Without it, the name with its first letter capitalized |
-| `variables.<name>.description` | Replaces the input's description from `variables.tf` |
+| `variables.<name>.description` | Replaces the input's description from its `variable` block |
 | `variables.<name>.primary` | `true` to show the input before **Advanced options** |
 | `variables.<name>.options` | A map from each value to its `label` and `description`, or a list of values |
 | `variables.<name>.lookup` | The lookup whose rows the input suggests, as `{ from, with }`. See [Lookups](#lookups) |

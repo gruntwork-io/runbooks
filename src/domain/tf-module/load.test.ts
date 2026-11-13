@@ -195,12 +195,12 @@ describe("loadModule", () => {
     const write = (name: string, content: string) =>
       nodeFs.writeFileSync(nodePath.join(dir, name), content)
 
-    it("whose runbook_block.yml describes an input variables.tf doesn't declare", async () => {
+    it("whose runbook_block.yml describes an input the module doesn't declare", async () => {
       write("runbook_block.yml", "variables:\n  nmae:\n    primary: true\n")
-      expect(await failure(dir)).toContain(`describes "nmae", which variables.tf doesn't declare`)
+      expect(await failure(dir)).toContain(`describes "nmae", which the module doesn't declare`)
     })
 
-    it("whose suffix reads an input variables.tf doesn't declare", async () => {
+    it("whose suffix reads an input the module doesn't declare", async () => {
       write("runbook_block.yml", 'variables:\n  name:\n    suffix: "@{{ .domain }}"\n')
       expect(await failure(dir)).toContain(`suffix reads "domain"`)
     })
@@ -239,7 +239,7 @@ describe("loadModule", () => {
       )
     })
 
-    it("whose lookup reads an input variables.tf doesn't declare", async () => {
+    it("whose lookup reads an input the module doesn't declare", async () => {
       write(
         "runbook_block.yml",
         [
@@ -274,6 +274,25 @@ describe("loadModule", () => {
       nodeFs.rmSync(nodePath.join(dir, "variables.tf"))
       expect(await failure(dir)).toContain("isn't an OpenTofu module")
     })
+  })
+
+  it("reads inputs from every file OpenTofu reads, not only variables.tf", async () => {
+    const dir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "tf-module-"))
+    const write = (name: string, content: string) =>
+      nodeFs.writeFileSync(nodePath.join(dir, name), content)
+    try {
+      write("main.tf", 'variable "name" {\n  type = string\n}\nresource "null_resource" "x" {}\n')
+      write("network.tf", 'variable "cidr" {\n  type    = string\n  default = "10.0.0.0/16"\n}\n')
+      // OpenTofu reads a .tofu file in place of its .tf twin.
+      write("extra.tf", 'variable "ignored" {\n  type = string\n}\n')
+      write("extra.tofu", 'variable "region" {\n  type = string\n}\n')
+      write("runbook_block.yml", "variables:\n  cidr:\n    label: CIDR block\n")
+      const spec = await loaded(dir)
+      expect(spec.variables.map((v) => v.name).sort()).toEqual(["cidr", "name", "region"])
+      expect(byName(spec, "cidr").label).toBe("CIDR block")
+    } finally {
+      nodeFs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it("reads a default's template escapes as the literal text the module receives", async () => {
