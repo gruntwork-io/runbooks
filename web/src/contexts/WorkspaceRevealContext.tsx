@@ -8,12 +8,14 @@ export interface FileReveal {
   readonly worktreePath: string
   /** The files, from the clone's root. The first one that has changed is selected. */
   readonly paths: readonly string[]
+  /** The block that wrote them. */
+  readonly blockId?: string | undefined
 }
 
 interface WorkspaceRevealContextType {
   /** The latest request, or null before the first. */
   readonly reveal: FileReveal | null
-  readonly revealFiles: (worktreePath: string, paths: readonly string[]) => void
+  readonly revealFiles: (worktreePath: string, paths: readonly string[], blockId?: string) => void
 }
 
 const NO_REVEAL: WorkspaceRevealContextType = { reveal: null, revealFiles: () => {} }
@@ -24,10 +26,13 @@ const WorkspaceRevealContext = createContext<WorkspaceRevealContextType>(NO_REVE
 /** Holds the latest request to show a block's files in the files panel. */
 export function WorkspaceRevealProvider({ children }: { children: ReactNode }) {
   const [reveal, setReveal] = useState<FileReveal | null>(null)
-  const revealFiles = useCallback((worktreePath: string, paths: readonly string[]) => {
-    if (paths.length === 0) return
-    setReveal((prev) => ({ id: (prev?.id ?? 0) + 1, worktreePath, paths }))
-  }, [])
+  const revealFiles = useCallback(
+    (worktreePath: string, paths: readonly string[], blockId?: string) => {
+      if (paths.length === 0) return
+      setReveal((prev) => ({ id: (prev?.id ?? 0) + 1, worktreePath, paths, blockId }))
+    },
+    [],
+  )
   const value = useMemo(() => ({ reveal, revealFiles }), [reveal, revealFiles])
   return <WorkspaceRevealContext.Provider value={value}>{children}</WorkspaceRevealContext.Provider>
 }

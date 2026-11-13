@@ -9,6 +9,7 @@ import { GeneratedFilesProvider } from "./contexts/GeneratedFilesContext"
 import { IpcGitWorkTreeProvider } from "./contexts/IpcGitWorkTreeContext"
 import { WorkspaceGitDataProvider } from "./contexts/WorkspaceGitDataContext"
 import { WorkspaceRevealProvider } from "./contexts/WorkspaceRevealContext"
+import { BlockWritesProvider } from "./contexts/BlockWritesContext"
 import { IpcExecutableRegistryProvider } from "./contexts/IpcExecutableRegistryContext"
 import { ErrorReportingProvider } from "./contexts/ErrorReportingContext"
 import { LogsProvider } from "./contexts/LogsContext"
@@ -48,13 +49,15 @@ if (!window.api) {
                     <IpcGitWorkTreeProvider>
                       <WorkspaceGitDataProvider>
                         <WorkspaceRevealProvider>
-                          <LogsProvider>
-                            <RunbookProgressProvider>
-                              <RunbookChaptersProvider>
-                                <App />
-                              </RunbookChaptersProvider>
-                            </RunbookProgressProvider>
-                          </LogsProvider>
+                          <BlockWritesProvider>
+                            <LogsProvider>
+                              <RunbookProgressProvider>
+                                <RunbookChaptersProvider>
+                                  <App />
+                                </RunbookChaptersProvider>
+                              </RunbookProgressProvider>
+                            </LogsProvider>
+                          </BlockWritesProvider>
                         </WorkspaceRevealProvider>
                       </WorkspaceGitDataProvider>
                     </IpcGitWorkTreeProvider>

@@ -32,6 +32,7 @@ import type { TfModuleGenerated, TfModuleRepo } from "../../../../../electron/sh
 import { inputsKey } from "../../../../../src/domain/tf-module/inputsKey"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useWorkspaceReveal } from "@/contexts/WorkspaceRevealContext"
+import { useBlockWrites } from "@/contexts/BlockWritesContext"
 import {
   formErrors,
   formValue,
@@ -233,6 +234,7 @@ function TfModuleForm({
   const api = useApi()
   const { activeWorkTree, invalidateGitFileTree } = useGitWorkTree()
   const { revealFiles } = useWorkspaceReveal()
+  const { recordWrite } = useBlockWrites()
   const { registerOutputs } = useRunbookContext()
   const [values, setValues] = useState<FormValues>(() => {
     const saved = Object.fromEntries(
@@ -287,7 +289,13 @@ function TfModuleForm({
     if (worktreePath && generated.written.length > 0) {
       // Shows what was just written, in the files panel.
       invalidateGitFileTree()
-      revealFiles(worktreePath, generated.written)
+      recordWrite({
+        blockId: id,
+        label: spec.title || id,
+        worktreePath,
+        paths: generated.written,
+      })
+      revealFiles(worktreePath, generated.written, id)
     }
     const { code } = generated
     registerOutputs(id, {
@@ -443,7 +451,7 @@ function TfModuleForm({
               stale={started && !current}
               onRetry={() => void generate(request)}
               {...(activeWorkTree
-                ? { onShow: (file: string) => revealFiles(activeWorkTree.localPath, [file]) }
+                ? { onShow: (file: string) => revealFiles(activeWorkTree.localPath, [file], id) }
                 : {})}
             />
           </div>

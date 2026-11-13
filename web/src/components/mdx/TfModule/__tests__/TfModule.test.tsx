@@ -15,6 +15,7 @@ import {
   useWorkspaceReveal,
   type FileReveal,
 } from "@/contexts/WorkspaceRevealContext"
+import { BlockWritesProvider, useBlockWrites, type BlockWrite } from "@/contexts/BlockWritesContext"
 
 // The clone a <GitClone> block registered, when a test has one.
 let workTree: { id: string; localPath: string; gitInfo: { ref: string; repoName: string } } | null =
@@ -169,12 +170,15 @@ function Capture() {
 }
 
 let shown: FileReveal | null = null
-/** Records what the block asks the files panel to show. */
+let recorded: readonly BlockWrite[] = []
+/** Records what the block asks the files panel to show, and the writes it records. */
 function CaptureReveal() {
   const { reveal } = useWorkspaceReveal()
+  const { writes } = useBlockWrites()
   useEffect(() => {
     shown = reveal
-  }, [reveal])
+    recorded = writes
+  }, [reveal, writes])
   return null
 }
 
@@ -188,15 +192,17 @@ function renderBlock(auth: Record<string, string> = { google: "workspace" }) {
   return render(
     <TestWrapper>
       <WorkspaceRevealProvider>
-        <Capture />
-        <CaptureReveal />
-        <FakeGoogleAuth id="workspace" scopes={[SCOPE]} />
-        <TfModule
-          id="group"
-          source="google-group"
-          template="templates/google-group-unit"
-          auth={auth}
-        />
+        <BlockWritesProvider>
+          <Capture />
+          <CaptureReveal />
+          <FakeGoogleAuth id="workspace" scopes={[SCOPE]} />
+          <TfModule
+            id="group"
+            source="google-group"
+            template="templates/google-group-unit"
+            auth={auth}
+          />
+        </BlockWritesProvider>
       </WorkspaceRevealProvider>
     </TestWrapper>,
   )
@@ -238,6 +244,7 @@ describe("TfModule", () => {
     invoke.mockClear()
     workTree = null
     shown = null
+    recorded = []
     invalidateGitFileTree.mockClear()
   })
 
@@ -368,9 +375,19 @@ describe("TfModule", () => {
         id: 1,
         worktreePath: "/clones/infra-live",
         paths: ["groups/platform/terragrunt.hcl"],
+        blockId: "group",
       }),
     )
     expect(invalidateGitFileTree).toHaveBeenCalled()
+    // So the files panel can show this block's files alone.
+    expect(recorded).toEqual([
+      {
+        blockId: "group",
+        label: spec.title,
+        worktreePath: "/clones/infra-live",
+        paths: ["groups/platform/terragrunt.hcl"],
+      },
+    ])
 
     fireEvent.click(file)
     await waitFor(() => expect(shown?.id).toBe(2))
@@ -387,6 +404,7 @@ describe("TfModule", () => {
     expect(await screen.findByText("groups/platform/terragrunt.hcl")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "groups/platform/terragrunt.hcl" })).toBeNull()
     expect(shown).toBeNull()
+    expect(recorded).toEqual([])
     expect(invalidateGitFileTree).not.toHaveBeenCalled()
   })
 
