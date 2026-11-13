@@ -15,9 +15,9 @@
     "linkcheck:external": "linkinator ./dist --recurse"
   },
   "dependencies": {
-    "@astrojs/starlight": "0.42.8",
+    "@astrojs/starlight": "0.42.9",
     "@vercel/analytics": "2.0.1",
-    "astro": "7.4.4",
+    "astro": "7.4.7",
     "sharp": "0.35.5"
   },
   "devDependencies": {
