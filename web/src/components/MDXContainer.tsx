@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react"
-import type { ReactNode, Ref } from "react"
+import type { ReactNode } from "react"
 import { evaluate } from "@mdx-js/mdx"
 import * as runtime from "react/jsx-runtime"
 import type { AppError } from "@/types/error"
@@ -56,7 +56,6 @@ import { TaskListCheckbox } from "@/components/mdx/_shared/components/TaskListCh
  * @param props.runbookFilePath - The path to the runbook's .mdx file
  * @param props.assetHost - The host of the runbook's runbook-asset:// URLs, from runbook:get
  * @param props.className - Optional additional CSS classes for styling the container
- * @param props.ref - Receives the scroll container that wraps the rendered document
  */
 interface MDXContainerProps {
   content: string
@@ -67,7 +66,6 @@ interface MDXContainerProps {
   assetHost?: string | undefined
   /** Shown at the top of the runbook, where it scrolls away with it and covers nothing */
   banner?: ReactNode
-  ref?: Ref<HTMLDivElement> | undefined
 }
 
 function MDXContainer({
@@ -78,7 +76,6 @@ function MDXContainer({
   assetHost,
   banner,
   className,
-  ref,
 }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
@@ -117,9 +114,7 @@ function MDXContainer({
 
   if (error) {
     return (
-      <div
-        className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}
-      >
+      <div className={`markdown-body border border-border rounded-lg shadow-md ${className}`}>
         <div
           data-testid="mdx-error"
           className="text-destructive p-4 border border-destructive/30 rounded-lg"
@@ -133,9 +128,7 @@ function MDXContainer({
 
   if (!CustomMDXComponent) {
     return (
-      <div
-        className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}
-      >
+      <div className={`markdown-body border border-border rounded-lg shadow-md ${className}`}>
         <div className="p-4 text-muted-foreground">Loading MDX content...</div>
       </div>
     )
@@ -143,9 +136,8 @@ function MDXContainer({
 
   return (
     <div
-      ref={ref}
       data-testid="runbook-content"
-      className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}
+      className={`markdown-body border border-border rounded-lg shadow-md ${className}`}
     >
       <ComponentIdRegistryProvider>
         <RunbookContextProvider

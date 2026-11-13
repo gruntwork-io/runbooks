@@ -14,7 +14,8 @@ test.describe("runbook resize handle", () => {
     consoleMessages,
   }) => {
     const page = await launchRunbook("testdata/sample-runbooks/my-first-runbook")
-    const runbook = page.getByTestId("runbook-content")
+    // The pane, which scrolls: the width the handle drags, scrollbar included.
+    const runbook = page.getByTestId("runbook-scroller")
     const handle = page.getByRole("separator", { name: "Resize the runbook" })
     const width = async () => (await runbook.boundingBox())?.width
 
