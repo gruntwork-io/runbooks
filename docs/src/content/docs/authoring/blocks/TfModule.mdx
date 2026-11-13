@@ -46,6 +46,26 @@ The block's job ends when the code is written. **Generate** checks the values, p
 | `template` | `string` | required | The [template](#the-template) for the code that uses the module: a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder, relative to the runbook |
 | `path` | `string` | the block's `id` | Where the code goes in the cloned repository: a folder, as a template over the form's values, such as `google-groups/{{ .id }}` |
 | `auth` | `object` | none | Binds each [lookup](#lookups) group the module uses to an auth block, by id, such as `{{ google: "workspace" }}` |
+| `prefilledVariables` | `object` | none | Values the form starts inputs with, by input name, in place of the module's defaults. See [Prefilled variables](#prefilled-variables) |
+
+## Prefilled variables
+
+`prefilledVariables` gives inputs values that come from the runbook, not the module. A value is a literal, such as a list, or a string template over other blocks' outputs, such as `{{ .outputs.apply_account.account_id }}`:
+
+```mdx
+<TfModule
+  id="access"
+  source="../../modules/aws-sso-account-access"
+  template="templates/aws-unit"
+  prefilledVariables={{
+    account_id: "{{ .outputs.apply_account.account_id }}",
+    groups: ["admins"],
+    permission_sets: ["AdministratorAccess"],
+  }}
+/>
+```
+
+A value fills its input while the input holds only its default or nothing, so it never overwrites what the user gave. A template fills once every output it reads exists. Each value fills once, so an input the user clears stays clear until the outputs give another value, as after a step is applied again. When the outputs give another value while the input still holds the last one it filled, the new value replaces it. A template gives text, which the block reads as the input's type: `true` or `false` for a bool, a number for a number, and JSON for a list or a map; a value that doesn't fit shows an error and fills nothing. A sensitive output fills as `<redacted>`, so don't prefill from one. A prefilled input doesn't use the module's own `prefill` lookup. The block refuses a name the module has no input for.
 
 ## Module source
 

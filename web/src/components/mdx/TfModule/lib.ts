@@ -95,6 +95,70 @@ function isGiven(value: unknown): boolean {
   return true
 }
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+/** A string read as JSON of the kind `fits` accepts, or undefined when it isn't. */
+const parsedAs = (text: string, fits: (value: unknown) => boolean): unknown => {
+  try {
+    const value: unknown = JSON.parse(text)
+    return fits(value) ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * A `prefilledVariables` value as the input holds it. A template always
+ * resolves to text, so text is read as the input's kind: `true` or `false`
+ * for a bool, a number for a number, and JSON for a list or a map. A value
+ * that doesn't fit says why, since filling it would hand the module the
+ * wrong type.
+ */
+export function prefilledValue(
+  variable: TfModuleVariable,
+  value: unknown,
+): { readonly value: unknown } | { readonly error: string } {
+  const unfit = (kind: string) => ({
+    error: `prefilledVariables.${variable.name} is ${JSON.stringify(value)}, which isn't ${kind}.`,
+  })
+  switch (variable.kind) {
+    case "bool":
+      if (typeof value === "boolean") return { value }
+      if (value === "true" || value === "false") return { value: value === "true" }
+      return unfit("true or false")
+    case "number":
+      if (typeof value === "number") return { value: String(value) }
+      if (typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value))) {
+        return { value }
+      }
+      return unfit("a number")
+    case "list": {
+      const list = typeof value === "string" ? parsedAs(value, Array.isArray) : value
+      return Array.isArray(list) ? { value: list } : unfit('a list, such as ["a", "b"]')
+    }
+    case "map": {
+      const map = typeof value === "string" ? parsedAs(value, isPlainObject) : value
+      return isPlainObject(map) ? { value: map } : unfit('a map, such as {"a": "b"}')
+    }
+    case "string":
+      if (typeof value === "string") return { value }
+      if (typeof value === "number" || typeof value === "boolean") return { value: String(value) }
+      return unfit("text")
+    case "json":
+      return { value: formValue(variable, value) }
+  }
+}
+
+/**
+ * Whether an input holds only what the form started it with, its default or
+ * nothing, so a value the runbook prefills overwrites nothing the user gave.
+ */
+export function holdsStartingValue(variable: TfModuleVariable, value: unknown): boolean {
+  if (!isGiven(value)) return true
+  return JSON.stringify(value) === JSON.stringify(formValue(variable, startingValue(variable)))
+}
+
 /** What's wrong with an input's value, or undefined when nothing is. */
 export function fieldError(
   variable: TfModuleVariable,
