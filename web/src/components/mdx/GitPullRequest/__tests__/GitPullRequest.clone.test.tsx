@@ -229,6 +229,7 @@ describe("GitPullRequest clone and merge", () => {
       ],
     ])
     expect(screen.getByRole("button", { name: "Git Push" })).toBeDisabled()
+    expect(screen.queryByText("What will Git Push commit?")).not.toBeInTheDocument()
   })
 
   it("refuses a merge condition it doesn't know", async () => {

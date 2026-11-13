@@ -121,51 +121,55 @@ export function PRResultDisplay({
       </div>
 
       {/* What will Git Push commit? (collapsible) */}
-      <CollapsibleToggle
-        expanded={whatFilesExpanded}
-        onToggle={() => setWhatFilesExpanded(!whatFilesExpanded)}
-        label="What will Git Push commit?"
-        icon={<CircleHelp className="size-3.5" />}
-      >
-        <div className="mt-1.5 ml-5 text-xs text-muted-foreground leading-relaxed">
-          {changeSummary && changeSummary.fileCount > 0 ? (
-            <>
+      {!merged && (
+        <CollapsibleToggle
+          expanded={whatFilesExpanded}
+          onToggle={() => setWhatFilesExpanded(!whatFilesExpanded)}
+          label="What will Git Push commit?"
+          icon={<CircleHelp className="size-3.5" />}
+        >
+          <div className="mt-1.5 ml-5 text-xs text-muted-foreground leading-relaxed">
+            {changeSummary && changeSummary.fileCount > 0 ? (
+              <>
+                <p className="m-0">
+                  Git Push will commit and push{" "}
+                  <span className="font-medium">{changeSummary.fileCount}</span>{" "}
+                  {changeSummary.fileCount === 1 ? "file" : "files"}
+                  {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
+                    <>
+                      {" "}
+                      (
+                      {changeSummary.additions > 0 && (
+                        <span className="text-success font-medium">+{changeSummary.additions}</span>
+                      )}
+                      {changeSummary.additions > 0 && changeSummary.deletions > 0 && ", "}
+                      {changeSummary.deletions > 0 && (
+                        <span className="text-destructive font-medium">
+                          &minus;{changeSummary.deletions}
+                        </span>
+                      )}
+                      )
+                    </>
+                  )}{" "}
+                  to the{" "}
+                  <code className="bg-muted px-1 py-0.5 rounded font-mono">
+                    {result.branchName}
+                  </code>{" "}
+                  branch:
+                </p>
+                <ChangedFiles changes={changes} />
+              </>
+            ) : (
               <p className="m-0">
-                Git Push will commit and push{" "}
-                <span className="font-medium">{changeSummary.fileCount}</span>{" "}
-                {changeSummary.fileCount === 1 ? "file" : "files"}
-                {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
-                  <>
-                    {" "}
-                    (
-                    {changeSummary.additions > 0 && (
-                      <span className="text-success font-medium">+{changeSummary.additions}</span>
-                    )}
-                    {changeSummary.additions > 0 && changeSummary.deletions > 0 && ", "}
-                    {changeSummary.deletions > 0 && (
-                      <span className="text-destructive font-medium">
-                        &minus;{changeSummary.deletions}
-                      </span>
-                    )}
-                    )
-                  </>
-                )}{" "}
-                to the{" "}
+                No new file changes detected. If you make additional changes to the cloned
+                repository, use Git Push to add them to the existing {noun.lower} on the{" "}
                 <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>{" "}
-                branch:
+                branch.
               </p>
-              <ChangedFiles changes={changes} />
-            </>
-          ) : (
-            <p className="m-0">
-              No new file changes detected. If you make additional changes to the cloned repository,
-              use Git Push to add them to the existing {noun.lower} on the{" "}
-              <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>{" "}
-              branch.
-            </p>
-          )}
-        </div>
-      </CollapsibleToggle>
+            )}
+          </div>
+        </CollapsibleToggle>
+      )}
     </div>
   )
 }
