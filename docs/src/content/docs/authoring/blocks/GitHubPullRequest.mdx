@@ -151,7 +151,9 @@ A keyword the block doesn't know, or conditions without `allowPullRequestMerge`,
 
 ### Git Push
 
-After creating a PR, the block shows a **Git Push** button. It runs `git push -u origin <branch>` for the PR's branch with the authenticated token. It does not stage or commit anything, so use it to push commits made since the PR was created, for example by a Command block that ran `git commit`. To commit uncommitted changes onto the open PR, choose "create another PR" and enter the open PR's branch name. See [Creating another PR](#creating-another-pr).
+After creating a PR, the block shows a **Git Push** button. It brings the PR up to date with the clone: it commits every change made since, with the block's commit message, onto the PR's branch, then pushes the branch with the authenticated token. With nothing new to commit, it pushes the commits already made, such as ones a `<Command>` block made with `git commit`.
+
+**Git Push** refuses when the clone isn't on the PR's branch, so nothing is committed onto another branch, such as the base.
 
 ### Retrying after a failure
 
