@@ -228,7 +228,7 @@ A plain configuration's outputs are its own, so declare an output for each modul
 
 **Generate** renders the template with the form's values and writes the code:
 
-- **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. As the values change, it writes them again, and removes the files it wrote before that the new values no longer make, such as the old folder when the group's email changes. A file that changed since the block wrote it, by hand or by another tool, is kept, and the block lists it so you can delete it yourself.
+- **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. As the values change, it writes them again: it first removes every file it wrote before, so the clone holds only the code for the current values. When the folder moves, such as when the group's email changes, the old folder goes too, with anything a plan left in it, such as `.terraform.lock.hcl`. A change you made by hand to a file the block wrote is replaced as well, so make lasting changes in the template or the inputs.
 - **Without one**, it writes nothing, and lists the files the code would have.
 
 When a generate fails for a reason other than the inputs, such as a network error reading the module, **Try again** generates again with the same inputs.
