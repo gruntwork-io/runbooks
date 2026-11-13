@@ -51,6 +51,7 @@ const INVOKE_CHANNELS = {
   "google:set-project": true,
   "google:check-project": true,
   "google:credential-committed": true,
+  "onepassword:create-item": true,
   "github:validate": true,
   "github:oauth-start": true,
   "github:oauth-poll": true,

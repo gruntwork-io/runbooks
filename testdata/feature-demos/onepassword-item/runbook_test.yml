@@ -1,0 +1,28 @@
+# Test mode never saves to 1Password, so the save step skips and the block
+# that reads its outputs is blocked. The credential script still runs.
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  - name: save-skips-in-tests
+    description: The credential is created, the save to 1Password skips, and
+      the block that reads the saved item's outputs is blocked.
+    steps:
+      - block: item
+        expect: success
+      - block: make-credential
+        expect: success
+        outputs:
+          - ACCESS_KEY_ID
+          - SECRET_ACCESS_KEY
+      - block: save-credential
+        expect: skip
+      - block: show-item
+        expect: blocked
+        missing_outputs:
+          - outputs.save_credential.OP_VAULT
+          - outputs.save_credential.OP_ITEM_ID

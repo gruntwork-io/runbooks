@@ -39,6 +39,10 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 - [`<GitHubPullRequest>`](/authoring/blocks/githubpullrequest) is `<GitPullRequest>` locked to GitHub.
 - [`<GitLabMergeRequest>`](/authoring/blocks/gitlabmergerequest) is `<GitPullRequest>` locked to GitLab.
 
+### Store secrets
+
+- [`<OnePasswordItem>`](/authoring/blocks/onepassworditem) saves an item, such as credentials an earlier block created, to a 1Password vault.
+
 ### Show content
 
 - [`<Admonition>`](/authoring/blocks/admonition) renders a note, info, warning, or danger callout.

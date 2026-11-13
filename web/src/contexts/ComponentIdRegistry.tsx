@@ -30,6 +30,7 @@ export type BlockComponentType =
   | "GitHubPullRequest"
   | "GitLabMergeRequest"
   | "DirPicker"
+  | "OnePasswordItem"
   | "Iframe"
 
 interface ComponentRegistration {

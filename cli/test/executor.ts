@@ -92,7 +92,7 @@ import {
   type TemplateBlock,
   type AuthDependency,
 } from "./validation.ts"
-import { AUTH_BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
+import { AUTH_BLOCK_TYPES, EXTERNAL_BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
 import { unknownBlocksError } from "../../src/runbooks-version.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 import { errorMessage } from "../../src/errors/message.ts"
@@ -108,6 +108,7 @@ type GitProvider = "github" | "gitlab"
 
 const AUTH_BLOCK_SET = new Set<string>(AUTH_BLOCK_TYPES)
 const PR_BLOCK_SET = new Set<string>(PR_BLOCK_TYPES)
+const EXTERNAL_BLOCK_SET = new Set<string>(EXTERNAL_BLOCK_TYPES)
 // Block names by the lowercase componentType the registry gives script entries
 const SCRIPT_BLOCK_NAMES = new Map([
   ["command", "Command"],
@@ -541,7 +542,8 @@ export class TestExecutor {
     // 4. Pair each block to run with its step. Explicit steps run in the order
     // listed, so a block can run more than once with a different expectation
     // each time; without steps, every block runs once in document order,
-    // expected to succeed, except PR blocks, which never run in test mode.
+    // expected to succeed, except PR blocks and blocks that create something
+    // outside the machine, which never run in test mode.
     const plan: Array<{ block: ParsedComponent; step: TestStep }> = []
     if (tc.steps && tc.steps.length > 0) {
       for (const [i, step] of tc.steps.entries()) {
@@ -556,7 +558,8 @@ export class TestExecutor {
       }
     } else {
       for (const block of allBlocks) {
-        const expect = PR_BLOCK_SET.has(block.type) ? "skip" : "success"
+        const expect =
+          PR_BLOCK_SET.has(block.type) || EXTERNAL_BLOCK_SET.has(block.type) ? "skip" : "success"
         plan.push({ block, step: { block: block.id, expect } })
       }
     }
@@ -884,6 +887,14 @@ export class TestExecutor {
         result.actualStatus = "error"
         result.error =
           "PR blocks can only be tested with expect: skip (test mode never opens a pull request)"
+        result.duration = Date.now() - start
+        return result
+
+      // Likewise: test mode never creates anything outside the machine.
+      case "OnePasswordItem":
+        result.passed = false
+        result.actualStatus = "error"
+        result.error = `${block.type} blocks can only be tested with expect: skip (test mode never creates anything outside your machine)`
         result.duration = Date.now() - start
         return result
 

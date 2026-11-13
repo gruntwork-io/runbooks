@@ -27,6 +27,7 @@ import { registerAwsHandlers } from "./aws.ts"
 import { registerGoogleHandlers } from "./google.ts"
 import { registerGitHubHandlers } from "./github.ts"
 import { registerGitLabHandlers } from "./gitlab.ts"
+import { registerOnePasswordHandlers } from "./onepassword.ts"
 import { registerGitHandlers } from "./git.ts"
 import { registerWorkspaceHandlers } from "./workspace.ts"
 import { registerFileHandlers } from "./files.ts"
@@ -82,6 +83,7 @@ export function registerAllIpcHandlers(): void {
   registerGoogleHandlers()
   registerGitHubHandlers()
   registerGitLabHandlers()
+  registerOnePasswordHandlers()
   registerGitHandlers()
   registerWorkspaceHandlers()
   registerFileHandlers()

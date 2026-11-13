@@ -68,6 +68,10 @@ export class GoogleOAuthError extends Data.TaggedError("GoogleOAuthError")<{
   readonly cause?: unknown
 }> {}
 
+export class OnePasswordError extends Data.TaggedError("OnePasswordError")<{
+  readonly message: string
+}> {}
+
 /**
  * Transport-failure classification for VCS API errors, set by
  * classifyTlsError (src/domain/tls/system-ca.ts). Present only
