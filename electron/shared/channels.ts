@@ -218,6 +218,14 @@ export interface IpcChannelMap {
   "terragrunt-apply:apply": { params: TerragruntRunRequest; result: ApplyResult }
   "terragrunt-apply:cancel": { params: { runId: string }; result: { ok: true } }
 
+  // Simulation mode
+  /** Whether the app answers from simulation.yml, and its scenarios. */
+  "simulation:state": { params: void; result: SimulationState }
+  /** Picks the scenario blocks answer from. */
+  "simulation:set-scenario": { params: { name: string }; result: { ok: true } }
+  /** The active scenario's answer to a lookup or check, as the API would send it. */
+  "simulation:respond": { params: SimulationRespondRequest; result: HttpReply }
+
   // AWS Authentication
   "aws:validate": {
     params: {
@@ -1184,6 +1192,28 @@ export interface TerragruntApplyRequest {
   path: string
   /** The bound auth blocks' env vars, which Terragrunt runs with on top of the session's. */
   env: Record<string, string>
+  /** In simulation mode, every block's inputs, by block id, for the simulated unit to read. */
+  blockInputs?: Record<string, Record<string, unknown>> | undefined
+}
+
+export type SimulationState =
+  | { enabled: false }
+  | {
+      enabled: true
+      scenarios: { name: string; label: string; description?: string }[]
+      /** The scenario blocks answer from. Absent while simulation.yml has a problem. */
+      active?: string
+      /** What's wrong with simulation.yml, fit to show the author. */
+      error?: string
+    }
+
+export interface SimulationRespondRequest {
+  /** The lookup or check, such as `google.domains`. */
+  id: string
+  /** The use's params, as the runbook gives them. */
+  with: Record<string, string>
+  /** The module that declares it, as a <TfModule> block names one, whose recorded answers fill in. */
+  module?: string | undefined
 }
 
 export interface TerragruntRunRequest extends TerragruntApplyRequest {

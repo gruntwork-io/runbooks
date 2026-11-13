@@ -63,6 +63,7 @@ export default defineConfig({
 					'authoring/boilerplate',
 					'authoring/lookups',
 					'authoring/testing',
+					'authoring/simulation-mode',
 					{
 						label: 'Blocks',
 						items: [{ autogenerate: { directory: 'authoring/blocks' } }],

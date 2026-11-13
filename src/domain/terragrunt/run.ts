@@ -5,8 +5,8 @@
  *
  * It reads OpenTofu's machine-readable output (`show -json`, `output -json`
  * and the `-json` UI stream), so the shapes here are OpenTofu's, narrowed to
- * what the block draws. Shared by the main process, which runs Terragrunt,
- * and the renderer.
+ * what the block draws. Shared by the main process, which runs Terragrunt or
+ * simulates it, and the renderer.
  */
 
 /** A value OpenTofu can't show: not known until apply, or marked sensitive. */

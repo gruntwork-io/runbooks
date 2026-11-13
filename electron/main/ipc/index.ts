@@ -8,8 +8,9 @@
  * Handlers may let `runtime.runPromise(...)` reject: importing this module
  * installs installIpcErrorNormalization() (ipc-error.ts), which turns every
  * rejection into a clean message for the renderer, and installIpcSenderCheck()
- * (ipc-sender.ts), which rejects calls from anywhere but the app's page.
- * Installing them here, at import time, means they run before any handler is
+ * (ipc-sender.ts), which rejects calls from anywhere but the app's page, and
+ * installSimulationGuard() (simulation-guard.ts), which in simulation mode
+ * refuses calls that would reach a real system. Installing them here, at import time, means they run before any handler is
  * registered: before registerAllIpcHandlers() and before main/index.ts, which
  * imports this module, registers its native handlers.
  */
@@ -35,11 +36,14 @@ import { registerThemeHandlers } from "./theme.ts"
 import { registerTfModuleHandlers } from "./tf-module.ts"
 import { registerTfModuleCodeHandlers } from "./tf-module-code.ts"
 import { registerTerragruntApplyHandlers } from "./terragrunt-apply.ts"
+import { registerSimulationHandlers, simulationCheck } from "./simulation.ts"
+import { installSimulationGuard } from "./simulation-guard.ts"
 import { withVcs } from "./vcs-tristate.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 
 installIpcErrorNormalization(ipcMain)
 installIpcSenderCheck(ipcMain)
+installSimulationGuard(ipcMain, simulationCheck)
 
 // Channel contracts documented in electron/shared/channels.ts.
 function registerVcsStatusHandler(): void {
@@ -93,5 +97,6 @@ export function registerAllIpcHandlers(): void {
   registerTfModuleHandlers()
   registerTfModuleCodeHandlers()
   registerTerragruntApplyHandlers()
+  registerSimulationHandlers()
   registerVcsStatusHandler()
 }

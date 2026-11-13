@@ -18,6 +18,13 @@ export function authFacts(
   }
 }
 
+/** What a lookup reads as `.auth` in simulation mode, from an auth block nobody signed in to. */
+export function simulatedAuthFacts(kind: AuthKind): Record<string, string> {
+  return kind === "AwsAuth"
+    ? { region: "us-east-1", ssoRegion: "us-east-1", accountId: "111122223333" }
+    : { email: "you@example.com", project: "simulated-project" }
+}
+
 /** Whether an auth block's outputs say it's signed in. */
 export function signedIn(kind: AuthKind, outputs: Readonly<Record<string, string>>): boolean {
   return kind === "AwsAuth"

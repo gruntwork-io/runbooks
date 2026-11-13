@@ -1,0 +1,115 @@
+---
+title: Simulation mode
+description: Preview a runbook's blocks against canned answers, without signing in to anything or changing anything real.
+---
+
+Simulation mode lets you shape a runbook's blocks without signing in to anything or changing anything real. Lookups, checks and `<TerragruntApply>` blocks answer from a `simulation.yml` file beside the runbook instead, so you can see each state of each block, such as a lookup that fails or an apply that's refused, without arranging it for real.
+
+:::caution[Experimental]
+Simulation mode serves the [lookups and checks](/authoring/lookups/) of experimental blocks such as [`<TfModule>`](/authoring/blocks/tfmodule/), and the experimental [`<TerragruntApply>`](/authoring/blocks/terragruntapply/) block. The `simulation.yml` format may change.
+:::
+
+## What doesn't run
+
+Anything `simulation.yml` doesn't answer that would reach a real system is refused, with an error that says so: signing in to AWS or Google Cloud, calling a cloud's API, running a `<Command>` or `<Check>` block's script, pushing, and opening a pull request. So a block that simulation mode doesn't serve can't change anything real by mistake. Signing in to GitHub or GitLab, reading its repositories and cloning one only read, so they run for real, and a `<TfModule>` block can generate code into the clone. Blocks that stay on your computer, such as `<Inputs>`, `<Template>`, `<Prerequisites>`, and a `<TfModule>` block's form and code, work as they always do.
+
+## Turn it on
+
+Open the runbook with `--simulate`:
+
+```bash
+runbooks open --simulate path/to/runbook
+```
+
+A **Simulation** bar marks the runbook, so nobody mistakes its answers for real ones, and switches between the file's scenarios.
+
+Simulation mode is on or off for the whole app. If Runbooks is already open in the other mode, the launch shows a warning and opens nothing: quit Runbooks first.
+
+## Scenarios
+
+`simulation.yml` holds named scenarios. Each is one state of the world: what the APIs answer, and how a plan and apply go. A scenario can extend another and replace only some of its answers, so a failure is the happy path with one answer changed:
+
+```yaml title="simulation.yml"
+scenarios:
+  happy-path:
+    label: Happy path
+    description: Everything works.   # optional: shown under the bar
+    responses:
+      google.domains:
+        - status: 200
+          body:
+            domains:
+              - { domainName: example.com }
+
+  no-directory-access:
+    label: Can't read the directory
+    extends: happy-path         # start from another scenario's answers
+    responses:
+      google.domains:
+        - status: 403
+          body: Not Authorized to access this resource/api
+```
+
+The file is read each time a block asks, so an edit shows the next time a field looks something up or a block plans.
+
+## Lookups and checks
+
+`responses` answers lookups and checks by their id, such as `google.domains`, with what the API would send: a `status` and a `body`. The block reads a simulated answer exactly as it reads a real one, so its rows, fields and expectations work as they would, and an answer with an error status fails the way the API's error would. `delayMs` answers after a pause, to see the loading state.
+
+A check used with different params can have an answer for each, by its `with`. The first answer whose `with` matches the use's params answers, and otherwise the first without one:
+
+```yaml title="simulation.yml"
+scenarios:
+  api-off:
+    extends: happy-path
+    responses:
+      google.apiEnabled:
+        - with: { api: cloudidentity.googleapis.com }
+          status: 200
+          body: { state: DISABLED }
+        - status: 200            # every other API is on
+          body: { state: ENABLED }
+```
+
+A lookup or check the scenario doesn't answer answers from the `recorded` scenario of its module's own `simulation.yml`, which [`runbooks-cli lookups record`](/authoring/lookups/#recording-real-answers) writes from the real APIs. So a module's recording serves every runbook that uses it, and a runbook's scenarios only give the answers that make them different.
+
+Nobody signs in during a simulation. A lookup that reads what an auth block knows, such as `{{ .auth.accountId }}`, reads `111122223333` in `us-east-1` for AWS, and `you@example.com` in `simulated-project` for Google, unless the block is signed in. A lookup that searches with what's typed gets the same answer whatever is typed.
+
+## Plan and apply
+
+`units` answers a `<TerragruntApply>` block's preflight, plan and apply, by the block's id, so it runs without Terragrunt, OpenTofu, a clone or a sign-in:
+
+```yaml title="simulation.yml"
+scenarios:
+  happy-path:
+    units:
+      apply-group:
+        inputsFrom: group       # a block whose inputs stand for the unit's
+        source: google-group    # the unit's module, as a <TfModule> block names it
+        delayMs: 700            # optional: how long each step and resource takes
+        resources:
+          - address: google_cloud_identity_group.group
+            values:
+              group_key:
+                - { id: "{{ .id }}" }
+            computed:           # what the plan shows as known after apply
+              name: groups/03x5example
+          - address: google_cloud_identity_group_membership.owners["{{ .each }}"]
+            forEach: owners     # one resource for each owner, read as {{ .each }}
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+        outputs:
+          email: "{{ .id }}"
+          runbooks_console_url: https://admin.google.com/ac/groups/03x5example
+
+  apply-fails:
+    extends: happy-path
+    units:
+      apply-group:
+        applyError: "Error 403: The caller does not have permission."
+```
+
+The unit's inputs are the inputs of the block `inputsFrom` names, such as the `<TfModule>` block that wrote the unit, under any `inputs` the unit gives. Strings are templates over them. With `source`, the preflight runs the module's checks, which answer from `responses`, and the outputs read as the module declares them. `planError` fails the plan instead of `applyError` failing the apply. A scenario that extends another replaces only the keys it gives for a block.
+
+A resource with `before`, its values now, exists already, so the plan updates it and keeps its `computed` values; `action: delete` removes it, and `action: replace` replaces it. That's how a scenario shows a plan that changes resources rather than creating them.

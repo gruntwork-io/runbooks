@@ -44,6 +44,7 @@ import { SmartLink } from "@/components/mdx/_shared/components/SmartLink"
 import { CodeBlock } from "@/components/mdx/_shared/components/CodeBlock"
 import { InstructionModeBanner } from "@/components/mdx/_shared/components/InstructionModeBanner"
 import { TaskListCheckbox } from "@/components/mdx/_shared/components/TaskListCheckbox"
+import { SimulationBar } from "@/components/layout/SimulationBar"
 
 /**
  * This component renders a markdown/MDX document.
@@ -158,6 +159,7 @@ function MDXContainer({
           assetHost={assetHost}
         >
           <CustomMDXComponentErrorBoundary onError={setError}>
+            <SimulationBar />
             {banner && <div className="mb-4">{banner}</div>}
             {/* Security banner displayed at the top of every runbook */}
             <div className="mb-4">

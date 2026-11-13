@@ -1,0 +1,130 @@
+# Answers this runbook's blocks get in simulation mode (runbooks open --simulate).
+# `responses` answers lookups and checks by id, as the APIs would. Anything a scenario
+# doesn't answer comes from the recorded scenario in the module's own simulation.yml.
+# `units` answers each <TerragruntApply> block's plan and apply, by block id.
+scenarios:
+  happy-path:
+    label: Happy path
+    description: Two domains, a small directory, and every API on.
+    responses:
+      google.me:
+        - status: 200
+          body:
+            primaryEmail: sam@example.com
+            name: { fullName: Sam Rivera }
+      google.customer:
+        - status: 200
+          body: { id: C03example, customerDomain: example.com }
+      google.domains:
+        - status: 200
+          body:
+            domains:
+              - { domainName: example.com }
+              - { domainName: example.org }
+      google.people:
+        - delayMs: 300
+          status: 200
+          body:
+            users:
+              - primaryEmail: ana@example.com
+                name: { fullName: Ana Lima }
+                organizations: [{ title: Platform team }]
+              - primaryEmail: bo@example.com
+                name: { fullName: Bo Chen }
+                organizations: [{ title: Security }]
+              - primaryEmail: cy@example.com
+                name: { fullName: Cy Okafor }
+                organizations: [{ title: Finance }]
+    units:
+      apply-group:
+        # The <TfModule> block's inputs stand for the unit's, and its module declares the checks.
+        inputsFrom: group
+        source: google-group
+        delayMs: 700
+        resources:
+          - address: google_cloud_identity_group.group
+            values:
+              display_name: "{{ .display_name }}"
+              description: "{{ .description }}"
+              parent: customers/C03example
+              group_key:
+                - { id: "{{ .id }}", namespace: "" }
+            computed:
+              id: groups/03x5example
+              name: groups/03x5example
+          - address: google_cloud_identity_group_membership.owners["{{ .each }}"]
+            forEach: owners
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+              roles:
+                - { name: OWNER }
+                - { name: MEMBER }
+            computed:
+              group: groups/03x5example
+          - address: google_cloud_identity_group_membership.members["{{ .each }}"]
+            forEach: members
+            values:
+              preferred_member_key:
+                - { id: "{{ .each }}" }
+              roles:
+                - { name: MEMBER }
+            computed:
+              group: groups/03x5example
+        outputs:
+          email: "{{ .id }}"
+          customer_id: C03example
+          runbooks_console_url: https://admin.google.com/ac/groups/03x5example
+
+  no-directory-access:
+    label: Can't read the directory
+    description: The signed-in account lacks the directory scope.
+    extends: happy-path
+    responses:
+      google.people:
+        - status: 403
+          body: "Not Authorized to access this resource/api"
+
+  api-off:
+    label: Cloud Identity API off
+    description: The preflight finds the Cloud Identity API off, so the block stops before it plans.
+    extends: happy-path
+    responses:
+      google.apiEnabled:
+        - with: { api: cloudidentity.googleapis.com }
+          status: 200
+          body: { state: DISABLED }
+        - status: 200
+          body: { state: ENABLED }
+
+  apply-fails:
+    label: Apply fails
+    description: Google refuses to create the group, so the apply stops with an error.
+    extends: happy-path
+    units:
+      apply-group:
+        applyError: "Error creating Group: googleapi: Error 403: The caller does not have permission."
+
+  group-exists:
+    label: Group exists already
+    description: The group exists, so the plan renames it and removes a member who's no longer listed.
+    extends: happy-path
+    units:
+      apply-group:
+        resources:
+          - address: google_cloud_identity_group.group
+            before:
+              display_name: Platform
+              group_key:
+                - { id: "{{ .id }}", namespace: "" }
+            values:
+              display_name: "{{ .display_name }}"
+              group_key:
+                - { id: "{{ .id }}", namespace: "" }
+            computed:
+              name: groups/03x5example
+          - address: google_cloud_identity_group_membership.members["bo@example.com"]
+            action: delete
+            before:
+              preferred_member_key:
+                - { id: bo@example.com }

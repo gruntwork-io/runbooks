@@ -11,8 +11,22 @@ import { render, tokens, valueText, type TemplateValues } from "./template.ts"
 import type { AuthKind, CheckDef, Definitions, LookupDef, Row, Use } from "./types.ts"
 import { chainedLookups, walkStrings } from "./validate.ts"
 
-/** Send a request as the auth block bound to `group`, which is of kind `auth`. */
-export type Send = (request: HttpRequest, group: string, auth: AuthKind) => Promise<HttpReply>
+/** The lookup or check a request is for, and the params its use gives, as the runbook writes them. */
+export interface SendFor {
+  readonly id: string
+  readonly with: Readonly<Record<string, string>>
+}
+
+/**
+ * Send a request as the auth block bound to `group`, which is of kind `auth`.
+ * `about` names what it's for, so a simulation can answer without sending it.
+ */
+export type Send = (
+  request: HttpRequest,
+  group: string,
+  auth: AuthKind,
+  about: SendFor,
+) => Promise<HttpReply>
 
 export interface RunContext {
   readonly definitions: Definitions
@@ -64,7 +78,7 @@ export async function runLookup(
       values,
       token && def.next ? { to: def.next.to, token } : undefined,
     )
-    const response = await sendForJson(context, def, request)
+    const response = await sendForJson(context, def, request, use.with)
     rows.push(...rowsOf(def, response))
     const next = def.next ? readPath(response, def.next.from) : undefined
     lastToken = token
@@ -88,7 +102,7 @@ export async function runCheck(context: RunContext, use: Use): Promise<CheckOutc
   let response: unknown
   try {
     values = await valuesFor(context, def, use, "", new Map())
-    response = await sendForJson(context, def, buildRequest(def.request, values))
+    response = await sendForJson(context, def, buildRequest(def.request, values), use.with)
   } catch (err) {
     return { outcome: "unknown", detail: (err as Error).message }
   }
@@ -131,7 +145,7 @@ export async function firstResponse(
     kind === "lookup" ? context.definitions.lookups[use.from] : context.definitions.checks[use.from]
   if (!def) throw new LookupFailure(`${use.from} isn't a defined or included ${kind}.`)
   const values = await valuesFor(context, def, use, "", new Map())
-  return sendForJson(context, def, buildRequest(def.request, values))
+  return sendForJson(context, def, buildRequest(def.request, values), use.with)
 }
 
 /** The values a definition's templates read: its params from the use, and each chained lookup's one row. */
@@ -199,10 +213,11 @@ async function sendForJson(
   context: RunContext,
   def: LookupDef | CheckDef,
   request: HttpRequest,
+  params: Readonly<Record<string, string>>,
 ): Promise<unknown> {
   const group = context.definitions.groups[def.group]
   if (!group) throw new LookupFailure(`${def.id} is in group ${def.group}, which isn't defined.`)
-  const reply = await context.send(request, def.group, group.auth)
+  const reply = await context.send(request, def.group, group.auth, { id: def.id, with: params })
   if (reply.status < 200 || reply.status >= 300) {
     const body = reply.body.trim()
     throw new LookupFailure(

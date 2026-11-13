@@ -267,7 +267,7 @@ function TfModuleForm({
   const isValid = Object.keys(errors).length === 0
   const errorCount = Object.keys(errors).length
   const published = publishedValues(spec, values)
-  const engine = useLookupEngine(spec.definitions, auth, published)
+  const engine = useLookupEngine(spec.definitions, auth, published, { module: source })
   const repoPath = unitPath(path, id, published)
   const repo: TfModuleRepo | undefined = activeWorkTree
     ? {

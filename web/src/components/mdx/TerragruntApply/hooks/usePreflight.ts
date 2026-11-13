@@ -29,7 +29,10 @@ export function usePreflight(request: TerragruntApplyRequest, auth: readonly Bou
           ? bindByKind(module.definitions, module.preflight, auth)
           : { binding: {}, problems: [] }
         const engine = module
-          ? lookupEngine(deps, module.definitions, binding, result.inputs, "to run the checks")
+          ? lookupEngine(deps, module.definitions, binding, result.inputs, {
+              signInFor: "to run the checks",
+              module: result.source,
+            })
           : undefined
         const results =
           engine && problems.length === 0

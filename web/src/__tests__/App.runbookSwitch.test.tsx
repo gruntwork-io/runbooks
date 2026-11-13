@@ -96,6 +96,8 @@ function makeApi({
   const invoke = vi.fn(
     async (channel: string, params?: { path?: string; remoteSource?: string; name?: string }) => {
       switch (channel) {
+        case "simulation:state":
+          return { enabled: false }
         case "native:get-cli-config":
           return pageRunbook ?? {}
         case "session:rename":

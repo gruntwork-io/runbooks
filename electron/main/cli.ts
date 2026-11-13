@@ -26,6 +26,8 @@ export interface CliConfig {
   noTelemetry: boolean
   /** Freeze the executable registry in watch mode (don't rebuild on file changes). */
   disableLiveFileReload: boolean
+  /** Answer lookups from the runbook's simulation.yml instead of real APIs. */
+  simulate: boolean
 }
 
 /**
@@ -71,6 +73,7 @@ export function parseCliArgs(
     watch: false,
     noTelemetry: false,
     disableLiveFileReload: false,
+    simulate: false,
   }
   // Whether a positional (a source, or the `open` subcommand) has been seen.
   let sawPositional = false
@@ -93,6 +96,8 @@ export function parseCliArgs(
       config.noTelemetry = true
     } else if (arg === "--disable-live-file-reload") {
       config.disableLiveFileReload = true
+    } else if (arg === "--simulate") {
+      config.simulate = true
     } else if (UNSUPPORTED_VALUE_FLAGS.has(flagName)) {
       // `--flag value` form: skip the value too (the `--flag=value` form is one arg).
       if (arg === flagName && next !== undefined && !next.startsWith("-")) i++
