@@ -90,7 +90,9 @@ export function CustomCaDialog({ open, onOpenChange }: CustomCaDialogProps) {
     request(async () => {
       const opened = openCountRef.current
       const result = await api.invoke("tls:clear-custom-ca")
-      if (opened === openCountRef.current) setStatus(result)
+      if (opened !== openCountRef.current) return
+      setStatus(result.status)
+      if (result.rejected) setProblem(result.rejected)
     })
 
   const isSet = status?.path !== undefined

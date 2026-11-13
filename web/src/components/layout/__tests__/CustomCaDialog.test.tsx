@@ -39,7 +39,7 @@ beforeEach(() => {
   answers = {
     "tls:custom-ca-status": () => NONE,
     "tls:choose-custom-ca": () => ({ status: SET }),
-    "tls:clear-custom-ca": () => NONE,
+    "tls:clear-custom-ca": () => ({ status: NONE }),
   }
   invoke.mockImplementation(async (channel: string) => answers[channel]!())
 })
@@ -129,6 +129,22 @@ describe("CustomCaDialog", () => {
 
     expect(await screen.findByText("No custom CA certificate is set.")).toBeInTheDocument()
     expect(callsTo("tls:clear-custom-ca")).toHaveLength(1)
+  })
+
+  it("keeps the custom CA and says why when it can't be removed", async () => {
+    const user = userEvent.setup()
+    answers["tls:custom-ca-status"] = () => SET
+    answers["tls:clear-custom-ca"] = () => ({
+      status: SET,
+      rejected:
+        "The certificate bundle for scripts can't be written: ENOSPC: no space left on device",
+    })
+    render(<CustomCaDialog open onOpenChange={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "Remove" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("ENOSPC")
+    expect(screen.getByText("Acme Root CA")).toBeInTheDocument()
   })
 
   it("shows a failed request's error", async () => {

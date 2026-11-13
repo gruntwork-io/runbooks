@@ -959,14 +959,19 @@ export interface IpcChannelMap {
   /**
    * Main shows a file dialog and trusts the certificates in the file picked,
    * in place of any custom CA set before. `canceled`: no file was picked.
-   * `rejected`: the file picked has no usable certificate, as a sentence fit
-   * to show the user; nothing changed.
+   * `rejected`: the file picked has no usable certificate, or couldn't be
+   * handed on to spawned processes or saved, as a sentence fit to show the
+   * user; nothing changed.
    */
   "tls:choose-custom-ca": {
     params: void
     result: { status: CustomCaStatus; canceled?: true; rejected?: string }
   }
-  "tls:clear-custom-ca": { params: void; result: CustomCaStatus }
+  /**
+   * Stops trusting the custom CA, and forgets it. `rejected`: it couldn't be
+   * removed everywhere, as a sentence fit to show the user; nothing changed.
+   */
+  "tls:clear-custom-ca": { params: void; result: { status: CustomCaStatus; rejected?: string } }
 }
 
 // ---------------------------------------------------------------------------

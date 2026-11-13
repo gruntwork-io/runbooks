@@ -176,11 +176,19 @@ function syncChildTrustOrThrow(s: CustomCaState): void {
 function writeBundle(s: CustomCaState): void {
   const bundle = caBundleText([...installedCaPems(), ...originalFilePems(s)])
   if (bundle === s.writtenBundle) return
-  // Through a temporary file, so a script that is running never reads half of it.
-  const tmp = `${bundlePath(s)}.${process.pid}.tmp`
+  replaceFile(bundlePath(s), bundle)
+  s.writtenBundle = bundle
+}
+
+/**
+ * Write `file` through a temporary file beside it: a script that is running
+ * never reads half of it, and a write that fails leaves the old one whole.
+ */
+function replaceFile(file: string, contents: string): void {
+  const tmp = `${file}.${process.pid}.tmp`
   try {
-    fs.writeFileSync(tmp, bundle, { mode: 0o644 })
-    fs.renameSync(tmp, bundlePath(s))
+    fs.writeFileSync(tmp, contents, { mode: 0o644 })
+    fs.renameSync(tmp, file)
   } catch (err) {
     try {
       fs.rmSync(tmp, { force: true })
@@ -189,7 +197,6 @@ function writeBundle(s: CustomCaState): void {
     }
     throw err
   }
-  s.writtenBundle = bundle
 }
 
 /**
@@ -258,25 +265,33 @@ export function getCustomCaStatus(): CustomCaStatus {
   return ensureInit().status
 }
 
-/**
- * Trust the certificates in `file` as the custom CA, in place of any set
- * before, in main and in spawned processes, and save the choice. A file
- * without a usable certificate, or one that can't be handed on to spawned
- * processes or saved, changes nothing: `rejected` says why.
- */
-export function setCustomCaFile(file: string): { status: CustomCaStatus; rejected?: string } {
-  const s = ensureInit()
-  const parsed = readCertificateFile(file)
-  if (!parsed.ok) return { status: s.status, rejected: parsed.error }
+/** A change to the setting, and why it wasn't made. */
+interface CustomCaChange {
+  readonly status: CustomCaStatus
+  /** Why nothing changed, as a sentence fit to show the user. */
+  readonly rejected?: string
+}
 
+/**
+ * Make `status`, whose certificates are `pems`, the custom CA setting, in
+ * main and in spawned processes, then `save` it. When spawned processes
+ * can't be given it or it can't be saved, everything set before is put back:
+ * `rejected` says why.
+ */
+function changeSetting(
+  s: CustomCaState,
+  status: CustomCaStatus,
+  pems: readonly string[],
+  save: () => void,
+): CustomCaChange {
   const before = { status: s.status, pems: s.pems }
-  const undo = (rejected: string) => {
+  const undo = (rejected: string): CustomCaChange => {
     trust(s, before.status, before.pems)
     syncChildTrust()
     return { status: s.status, rejected }
   }
 
-  trust(s, { path: file, certificates: parsed.certificates }, parsed.pems)
+  trust(s, status, pems)
   try {
     syncChildTrustOrThrow(s)
   } catch (err) {
@@ -284,20 +299,46 @@ export function setCustomCaFile(file: string): { status: CustomCaStatus; rejecte
     return undo(`The certificate bundle for scripts can't be written: ${errorMessage(err)}`)
   }
   try {
-    fs.writeFileSync(settingPath(s), JSON.stringify({ path: file }), "utf8")
+    save()
   } catch (err) {
     return undo(`The setting can't be saved: ${errorMessage(err)}`)
   }
-  log.info(`custom CA: ${parsed.certificates.length} certificate(s) from ${file}`)
   return { status: s.status }
 }
 
-/** Stop trusting the custom CA, and forget it. */
-export function clearCustomCa(): CustomCaStatus {
+/**
+ * Trust the certificates in `file` as the custom CA, in place of any set
+ * before, in main and in spawned processes, and save the choice. A file
+ * without a usable certificate, or one that can't be handed on to spawned
+ * processes or saved, changes nothing: `rejected` says why.
+ */
+export function setCustomCaFile(file: string): CustomCaChange {
   const s = ensureInit()
-  fs.rmSync(settingPath(s), { force: true })
-  trust(s, { certificates: [] }, [])
-  syncChildTrust()
-  log.info("custom CA removed")
-  return s.status
+  const parsed = readCertificateFile(file)
+  if (!parsed.ok) return { status: s.status, rejected: parsed.error }
+
+  const change = changeSetting(
+    s,
+    { path: file, certificates: parsed.certificates },
+    parsed.pems,
+    () => replaceFile(settingPath(s), JSON.stringify({ path: file })),
+  )
+  if (!change.rejected) {
+    log.info(`custom CA: ${parsed.certificates.length} certificate(s) from ${file}`)
+  }
+  return change
+}
+
+/**
+ * Stop trusting the custom CA, and forget it. When the bundle, which running
+ * scripts may still use, can't be rewritten without it, nothing changes:
+ * `rejected` says why.
+ */
+export function clearCustomCa(): CustomCaChange {
+  const s = ensureInit()
+  const change = changeSetting(s, { certificates: [] }, [], () =>
+    fs.rmSync(settingPath(s), { force: true }),
+  )
+  if (!change.rejected) log.info("custom CA removed")
+  return change
 }

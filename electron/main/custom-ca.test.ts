@@ -243,6 +243,22 @@ describe("setCustomCaFile", () => {
     registerExtraCaPems([EXTRA])
     expect(fs.readFileSync(bundlePath(), "utf8")).toBe(bundleOf([BUNDLED, SYSTEM, EXTRA, CA]))
   })
+
+  it("keeps the current custom CA, saved, when the new one can't be saved", () => {
+    const corpFile = path.join(dataDir, "corp.pem")
+    fs.writeFileSync(corpFile, CORP)
+    launch()
+    setCustomCaFile(CA_FILE)
+    // The setting is written through this temporary file: as a folder, the write fails.
+    fs.mkdirSync(`${settingPath()}.${process.pid}.tmp`)
+
+    expect(setCustomCaFile(corpFile).rejected).toStartWith("The setting can't be saved: ")
+
+    expect(JSON.parse(fs.readFileSync(settingPath(), "utf8"))).toEqual({ path: CA_FILE })
+    expect(getCustomCaStatus().path).toBe(CA_FILE)
+    expect(fake.lastInstall()).toEqual([BUNDLED, SYSTEM, CA])
+    expect(fs.readFileSync(bundlePath(), "utf8")).toBe(bundleOf([BUNDLED, SYSTEM, CA]))
+  })
 })
 
 describe("a saved file that can't be used at launch", () => {
@@ -269,7 +285,7 @@ describe("clearCustomCa", () => {
     setCustomCaFile(CA_FILE)
     expect(process.env.SSL_CERT_FILE).toBe(bundlePath())
 
-    expect(clearCustomCa()).toEqual({ certificates: [] })
+    expect(clearCustomCa()).toEqual({ status: { certificates: [] } })
 
     expect(fake.lastInstall()).toEqual([BUNDLED, SYSTEM])
     expect(process.env.SSL_CERT_FILE).toBe("/etc/corp.pem")
@@ -286,6 +302,22 @@ describe("clearCustomCa", () => {
     // Their env names it, and nothing can change that: deleted, it would fail
     // them even for public servers.
     expect(fs.readFileSync(bundlePath(), "utf8")).toBe(bundleOf([BUNDLED, SYSTEM]))
+  })
+
+  it("keeps the custom CA, and says why, when the bundle can't be rewritten without it", () => {
+    launch()
+    setCustomCaFile(CA_FILE)
+    blockBundle()
+
+    const { status, rejected } = clearCustomCa()
+
+    expect(rejected).toStartWith("The certificate bundle for scripts can't be written: ")
+    expect(status.path).toBe(CA_FILE)
+    expect(getCustomCaStatus().path).toBe(CA_FILE)
+    expect(fake.lastInstall()).toEqual([BUNDLED, SYSTEM, CA])
+    expect(process.env.SSL_CERT_FILE).toBe(bundlePath())
+    expect(JSON.parse(fs.readFileSync(settingPath(), "utf8"))).toEqual({ path: CA_FILE })
+    fs.rmdirSync(bundlePath())
   })
 
   it("doesn't put back the bundle itself, inherited by an app a script of this one launched", () => {
