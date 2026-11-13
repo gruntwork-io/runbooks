@@ -25,6 +25,7 @@ import {
   deleteBranch,
   createPullRequest,
   createMergeRequest,
+  pushPullRequestChanges,
   seedDefaultBranch,
   gitlabInstanceForRemoteUrl,
   unbornBranchName,
@@ -33,6 +34,7 @@ import {
   type CreatePullRequestParams,
 } from "../../../src/domain/git/operations.ts"
 import { inspectLocalRepo } from "../../../src/domain/git/local-repo.ts"
+import { mergeGitHubPullRequest, pullRequestMergeState } from "../../../src/domain/git/merge.ts"
 import { buildCloneSteps, normalizeRepoPath } from "../../../src/domain/git/cloneSteps.ts"
 import { getRepo } from "../../../src/domain/github/auth.ts"
 import {
@@ -46,13 +48,18 @@ import { parseGitRemoteUrl } from "../../../src/domain/git/remote-url.ts"
 import { isGitHubHost, tryNormalizeGitHubHost } from "../../../src/domain/git/github-host.ts"
 import { gitSpawnEnv, resolveSshCommand } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
-import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
+import type { CloneOptions } from "../../../src/services/GitClient.ts"
 import { GitError } from "../../../src/errors/index.ts"
 import { validateCloneDestination, validateSessionPath } from "./path-guard.ts"
 import { describeCause } from "./ipc-error.ts"
 import { isLocalBranchConflict, prBlockOutputs } from "./git-pr-result.ts"
 import { makeLogger } from "../logger.ts"
-import type { GitCloneRequest, GitLocalRepoResponse } from "../../shared/channels.ts"
+import type {
+  GitCloneRequest,
+  GitHubPrRef,
+  GitLocalRepoResponse,
+  IpcChannelMap,
+} from "../../shared/channels.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 
 const log = makeLogger("ipc:git")
@@ -156,6 +163,24 @@ const resolveGitHubTokenForRepo = (
           `Authenticate a GitHub Auth block for ${origin} before ${purpose}.`,
       ),
     )
+  })
+
+/**
+ * The GitHub token for a push, and the host whose API may name the commit's
+ * fallback author: origin's GitHub host, or none when origin's host can't be
+ * told, so a push to such an origin still goes ahead with the token sent to no
+ * API.
+ */
+const resolveGitHubPushCredential = (repoPath: string) =>
+  Effect.gen(function* () {
+    const { token, host } = yield* resolveGitHubTokenForRepo(repoPath, "pushing", {
+      callsApi: false,
+    })
+    const remoteUrl = yield* (yield* GitClient)
+      .getRemoteUrl(repoPath)
+      .pipe(Effect.orElseSucceed(() => ""))
+    const originKnown = tryNormalizeGitHubHost(gitHostFromRemoteUrl(remoteUrl)) !== undefined
+    return { token, host: originKnown ? host : undefined }
   })
 
 /**
@@ -756,59 +781,50 @@ export function registerGitHandlers(): void {
     },
   )
 
-  ipcMain.handle(
-    "git:push",
-    async (
-      event,
-      params: {
-        worktreePath: string
-        branchName: string
-        provider?: "github" | "gitlab"
-      },
-    ) => {
-      const sendLog = makeSendLog(event)
+  ipcMain.handle("git:push", async (event, params: IpcChannelMap["git:push"]["params"]) => {
+    const sendLog = makeSendLog(event)
 
-      const program = Effect.gen(function* () {
-        const repoPath = yield* validateSessionPath(params.worktreePath)
-        const gitClient = yield* GitClient
+    const program = Effect.gen(function* () {
+      const repoPath = yield* validateSessionPath(params.worktreePath)
 
-        // Resolve the token by PROVIDER (passed by the PR/MR block from its
-        // linked auth block), so a GitLab push uses the GitLab token and a
-        // GitHub push the GitHub token — never inferred from the remote host,
-        // which would break self-hosted instances. Defaults to github for older
-        // callers that don't pass a provider. Either token is also bound to
-        // origin's host, and never sent over plain http
-        // (resolveGitHubTokenForRepo / resolveGitLabTokenForRepo).
-        const provider = params.provider ?? "github"
-        const token =
-          provider === "github"
-            ? (yield* resolveGitHubTokenForRepo(repoPath, "pushing", { callsApi: false })).token
-            : yield* resolveGitLabTokenForRepo(repoPath, "pushing")
+      // Resolve the token by PROVIDER (passed by the PR/MR block from its
+      // linked auth block), so a GitLab push uses the GitLab token and a
+      // GitHub push the GitHub token — never inferred from the remote host,
+      // which would break self-hosted instances. Defaults to github for older
+      // callers that don't pass a provider. Either token is also bound to
+      // origin's host, and never sent over plain http
+      // (resolveGitHubTokenForRepo / resolveGitLabTokenForRepo).
+      const provider = params.provider ?? "github"
+      const { token, host } =
+        provider === "github"
+          ? yield* resolveGitHubPushCredential(repoPath)
+          : { token: yield* resolveGitLabTokenForRepo(repoPath, "pushing"), host: undefined }
 
-        const options: PushOptions = {
-          token,
-          username: gitCredentialUsername(provider),
-          setUpstream: true,
-        }
+      yield* pushPullRequestChanges(
+        token,
+        provider,
+        {
+          repoPath,
+          branch: params.branchName,
+          commitMessage: params.commitMessage,
+          host,
+        },
+        sendLog,
+      )
+    })
 
-        sendLog(`Pushing ${params.branchName} to origin…`)
-        yield* gitClient.push(repoPath, "origin", params.branchName, options)
-        sendLog("Push complete.")
-      })
+    const exit = await runtime.runPromiseExit(program)
 
-      const exit = await runtime.runPromiseExit(program)
+    if (Exit.isSuccess(exit)) {
+      event.sender.send("git:status", { status: "success", exitCode: 0 })
+      return { ok: true as const }
+    }
 
-      if (Exit.isSuccess(exit)) {
-        event.sender.send("git:status", { status: "success", exitCode: 0 })
-        return { ok: true as const }
-      }
-
-      const message = failureMessage(exit.cause)
-      event.sender.send("git:error", { message })
-      event.sender.send("git:status", { status: "fail", exitCode: 1 })
-      return { error: message }
-    },
-  )
+    const message = failureMessage(exit.cause)
+    event.sender.send("git:error", { message })
+    event.sender.send("git:status", { status: "fail", exitCode: 1 })
+    return { error: message }
+  })
 
   // Seed an empty repository with its default branch. Offered by <GitClone>
   // when it clones (or is pointed at) a repo that has no commits: without a
@@ -917,5 +933,34 @@ export function registerGitHandlers(): void {
         }),
       )
     },
+  )
+
+  ipcMain.handle("git:pr-merge-state", async (_event, params: GitHubPrRef) =>
+    runAndUnwrap(
+      Effect.gen(function* () {
+        const repoPath = yield* validateSessionPath(params.worktreePath)
+        const { token, host } = yield* resolveGitHubTokenForRepo(
+          repoPath,
+          "checking whether the pull request can merge",
+          { callsApi: true },
+        )
+        return yield* pullRequestMergeState(token, { ...params, host })
+      }),
+    ),
+  )
+
+  ipcMain.handle("git:pr-merge", async (_event, params: GitHubPrRef & { headSha: string }) =>
+    runAndUnwrap(
+      Effect.gen(function* () {
+        const repoPath = yield* validateSessionPath(params.worktreePath)
+        const { token, host } = yield* resolveGitHubTokenForRepo(
+          repoPath,
+          "merging the pull request",
+          { callsApi: true },
+        )
+        const { headSha, ...ref } = params
+        return yield* mergeGitHubPullRequest(token, { ...ref, host }, headSha)
+      }),
+    ),
   )
 }

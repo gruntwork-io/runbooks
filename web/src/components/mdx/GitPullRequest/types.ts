@@ -20,6 +20,23 @@ export interface GitPullRequestProps {
   prefilledBranchName?: string
   /** Pre-populated commit message (supports template expressions) */
   prefilledCommitMessage?: string
+  /**
+   * The <GitClone> block whose clone holds the changes. Needed only when the
+   * runbook has more than one; with one, the block uses it.
+   */
+  gitCloneId?: string
+  /**
+   * Show a Merge button once GitHub says the pull request can merge, using the
+   * first merge method the repository allows. GitHub only.
+   */
+  allowPullRequestMerge?: boolean
+  /**
+   * Conditions, by keyword, that must also hold before Merge is enabled, such
+   * as "no-uncommitted-changes". Needs `allowPullRequestMerge`.
+   */
+  allowPullRequestMergeConditions?: string[]
+  /** Whether the list of changed files starts open. */
+  changedFilesExpanded?: boolean
   /** Reference to one or more Inputs by ID for template expressions in props */
   inputsId?: string | string[]
   /**

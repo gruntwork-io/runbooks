@@ -17,6 +17,7 @@ import type { TfModuleSpec } from "../../src/domain/tf-module/types.ts"
 import type { ApplyResult, PlanResult, RunEvent } from "../../src/domain/terragrunt/run.ts"
 import type { CodeTool, RepoFile, UnitFile } from "../../src/domain/tf-module/unit.ts"
 import type { HttpReply, HttpRequest } from "../../src/services/HttpRequest.ts"
+import type { MergeState } from "../../src/domain/git/merge.ts"
 
 /** What session:switch did. */
 export type SessionSwitchResult =
@@ -859,8 +860,15 @@ export interface IpcChannelMap {
     params: GitLocalRepoRequest
     result: GitLocalRepoResponse
   }
+  // Commit the clone's changes onto an open PR/MR's branch, then push it.
   "git:push": {
-    params: { worktreePath: string; branchName: string; provider?: "github" | "gitlab" }
+    params: {
+      worktreePath: string
+      branchName: string
+      /** The message for the commit of the changes made since the PR/MR opened. */
+      commitMessage: string
+      provider?: "github" | "gitlab"
+    }
     result: { ok: true } | { error: string }
   }
   "git:init-default-branch": {
@@ -876,6 +884,10 @@ export interface IpcChannelMap {
     result: { url: string; number: number } | { error: string }
   }
   "git:delete-branch": { params: { worktreePath: string; branch: string }; result: { ok: true } }
+  /** Whether a GitHub pull request can merge now, as GitHub says, and with which method. */
+  "git:pr-merge-state": { params: GitHubPrRef; result: MergeState }
+  /** Merges a GitHub pull request with the method GitHub says it can merge with now. */
+  "git:pr-merge": { params: GitHubPrRef & { headSha: string }; result: { sha: string } }
 
   // Workspace
   "workspace:tree": {
@@ -1218,6 +1230,15 @@ export type TerragruntPreflight =
       /** Why the module's checks can't run, when the source names one Runbooks can't read. */
       moduleNote?: string
     }
+
+/** A GitHub pull request on a clone's repository. */
+export interface GitHubPrRef {
+  /** The clone's checkout in the session, whose origin names the GitHub host. */
+  worktreePath: string
+  owner: string
+  repo: string
+  number: number
+}
 
 export interface ProfileInfo {
   name: string

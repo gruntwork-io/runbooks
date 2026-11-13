@@ -76,6 +76,30 @@ export interface PullRequestResult {
   readonly branch: string
 }
 
+/** How GitHub merges a pull request's commits into its base branch. */
+export type MergeMethod = "merge" | "squash" | "rebase"
+
+/** What GitHub says about whether a pull request can merge, as its API names it. */
+export interface PullRequestMergeFacts {
+  readonly state: "open" | "closed"
+  readonly merged: boolean
+  readonly draft: boolean
+  /** Null while GitHub is still working it out. */
+  readonly mergeable: boolean | null
+  /** Such as `clean`, `blocked`, `behind`, `dirty`, `unstable` or `unknown`. */
+  readonly mergeableState: string
+  readonly mergeCommitSha: string | null
+  /** The commit at the head of the pull request's branch, which the facts are about. */
+  readonly headSha: string
+}
+
+/** The merge methods a repository allows. */
+export interface RepoMergeMethods {
+  readonly merge: boolean
+  readonly squash: boolean
+  readonly rebase: boolean
+}
+
 export type GitHubTokenType =
   | "classic_pat"
   | "fine_grained_pat"
@@ -144,6 +168,34 @@ export interface GitHubClientShape {
     labels: string[],
     host?: string,
   ) => Effect.Effect<void, GitHubApiError>
+  /** Whether a pull request can merge, and whether it has. */
+  readonly getPullRequestMergeFacts: (
+    token: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    host?: string,
+  ) => Effect.Effect<PullRequestMergeFacts, GitHubApiError>
+  /** The merge methods the repository allows. */
+  readonly getRepoMergeMethods: (
+    token: string,
+    owner: string,
+    repo: string,
+    host?: string,
+  ) => Effect.Effect<RepoMergeMethods, GitHubApiError>
+  /**
+   * Merges a pull request whose head is still `headSha`; GitHub refuses when
+   * the branch has moved. Resolves to the merge commit's sha.
+   */
+  readonly mergePullRequest: (
+    token: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    method: MergeMethod,
+    headSha: string,
+    host?: string,
+  ) => Effect.Effect<{ readonly sha: string }, GitHubApiError>
 }
 
 export class GitHubClient extends Context.Service<GitHubClient, GitHubClientShape>()(

@@ -152,6 +152,9 @@ const detectEmbeddedRepos = (repoPath: string) =>
  */
 const FALLBACK_COMMIT_EMAIL = "runbooks-noreply@gruntwork.io"
 
+/** The fallback author when no provider account can name one. */
+const RUNBOOKS_IDENTITY: GitIdentity = { name: "Runbooks", email: FALLBACK_COMMIT_EMAIL }
+
 /** Build a commit identity from a validated provider user, with safe fallbacks. */
 const toCommitIdentity = (user: {
   readonly login: string
@@ -392,6 +395,83 @@ const runGitSteps = (
       username: gitCredentialUsername(provider),
       setUpstream: true,
     })
+  })
+
+/** What {@link pushPullRequestChanges} needs: the PR/MR's branch and the message for a new commit. */
+export interface PushPullRequestChangesParams {
+  readonly repoPath: string
+  readonly branch: string
+  readonly commitMessage: string
+  /**
+   * The GitHub host whose API names the commit's fallback author. Left out
+   * when origin's GitHub host isn't known, so the token goes to no API.
+   * Unused for GitLab.
+   */
+  readonly host?: string | undefined
+}
+
+/**
+ * Bring an open PR/MR up to date with the clone: commit every change made
+ * since it opened onto its branch, then push. The changes are why a push is
+ * asked for, so pushing only the commits already made would leave them out.
+ *
+ * Refuses when HEAD isn't the PR/MR's branch, so the commit can't land on
+ * another branch, such as the base.
+ */
+export const pushPullRequestChanges = (
+  token: string,
+  provider: "github" | "gitlab",
+  params: PushPullRequestChangesParams,
+  onProgress?: (line: string) => void,
+) =>
+  Effect.gen(function* () {
+    const gitClient = yield* GitClient
+    const report = makeReport(onProgress)
+
+    const current = yield* gitClient
+      .getCurrentBranch(params.repoPath)
+      .pipe(Effect.orElseSucceed(() => ""))
+    if (current !== params.branch) {
+      const noun = provider === "github" ? "pull request" : "merge request"
+      return yield* new GitError({
+        command: "push",
+        stderr: `The clone is on ${current || "no branch"}, not ${params.branch}, the ${noun}'s branch, so nothing was committed or pushed. Check out ${params.branch} to push to it.`,
+        exitCode: 1,
+      })
+    }
+
+    const embedded = yield* detectEmbeddedRepos(params.repoPath)
+    yield* report("Staging changes…")
+    yield* gitClient.stageAll(params.repoPath, embedded)
+
+    const hasStaged = (yield* gitClient.status(params.repoPath)).some((e) => e.status !== "??")
+    if (hasStaged) {
+      // The authenticated user's identity is the fallback author when the
+      // machine has no git identity configured, as for the PR/MR's first commit.
+      // With no GitHub host to ask, Runbooks is the fallback, so the commit
+      // still succeeds without sending the token anywhere.
+      const author =
+        provider === "github"
+          ? params.host === undefined
+            ? RUNBOOKS_IDENTITY
+            : yield* resolveGitHubAuthor(token, params.host)
+          : yield* resolveGitLabAuthor(
+              token,
+              yield* gitlabInstanceForRepo(params.repoPath, "pushing to the merge request"),
+            )
+      yield* report("Committing changes…")
+      yield* gitClient.commit(params.repoPath, params.commitMessage, { author })
+    } else {
+      yield* report("No new changes to commit; pushing the existing commits…")
+    }
+
+    yield* report(`Pushing ${params.branch} to origin…`)
+    yield* gitClient.push(params.repoPath, "origin", params.branch, {
+      token,
+      username: gitCredentialUsername(provider),
+      setUpstream: true,
+    })
+    yield* report("Push complete.")
   })
 
 /**

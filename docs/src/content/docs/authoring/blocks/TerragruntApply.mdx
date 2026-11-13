@@ -45,12 +45,12 @@ Here Terragrunt runs with Google's credentials for the group, and the `prod` AWS
 |------|------|---------|-------------|
 | `id` | `string` | required | Unique identifier for this block. Its outputs, after an apply, are the unit's outputs |
 | `path` | `string` | required | The unit's folder, relative to the clone's root. A template, so it can read another block's output, such as a `<TfModule>` block's `CODE_PATH`, or be written out, such as `aws/prod/global/budget` |
-| `gitCloneId` | `string` | none | The `<GitClone>` block whose clone holds the unit. Needed only when the runbook has more than one |
+| `gitCloneId` | `string` | none | The `<GitClone>` block whose clone holds the unit. Without it, the block uses the runbook's only `<GitClone>` block, or the nearest one above it |
 | `auth` | `string[]` | none | The auth blocks Terragrunt runs with, at most one of each kind: `<AwsAuth>`, `<GoogleAuth>`, `<GitHubAuth>`, `<GitLabAuth>` or `<GitAuth>`. Their credentials go on top of the session's environment |
 | `title` | `string` | `Apply with Terragrunt` | The block's heading. Supports inline markdown |
 | `description` | `string` | none | A line under the heading. Supports inline markdown |
 
-A runbook with no `<GitClone>` block, several and no `gitCloneId`, or an `auth` list that names something other than an auth block, or two of one kind, shows an error in place of the block.
+A runbook with no `<GitClone>` block, several and none above the block without a `gitCloneId`, or an `auth` list that names something other than an auth block, or two of one kind, shows an error in place of the block.
 
 The block waits for every output `path` reads, so it stays disabled until, for example, the `<TfModule>` block has generated its code. It also waits until each block in `auth` is signed in. Above the plan, it shows who the run uses: for AWS, the account and region, and for Google, the account and project.
 

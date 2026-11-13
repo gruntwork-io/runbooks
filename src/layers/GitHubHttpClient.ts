@@ -13,6 +13,9 @@ import type {
   GitHubRef,
   CreatePRParams,
   PullRequestResult,
+  MergeMethod,
+  PullRequestMergeFacts,
+  RepoMergeMethods,
 } from "../services/GitHubClient.ts"
 import { GitHubApiError } from "../errors/index.ts"
 import { errorMessage } from "../errors/message.ts"
@@ -426,6 +429,84 @@ const impl: GitHubClientShape = {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ labels }),
         })
+      },
+      catch: toGitHubApiError,
+    }),
+
+  getPullRequestMergeFacts: (
+    token: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    host?: string,
+  ) =>
+    Effect.tryPromise({
+      try: async (): Promise<PullRequestMergeFacts> => {
+        const API_BASE = apiBaseFor(host)
+        const pr = await githubJson<{
+          state: "open" | "closed"
+          merged: boolean
+          draft?: boolean
+          mergeable: boolean | null
+          mergeable_state?: string
+          merge_commit_sha: string | null
+          head: { sha: string }
+        }>(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, { token })
+        return {
+          state: pr.state,
+          merged: pr.merged,
+          draft: pr.draft ?? false,
+          mergeable: pr.mergeable,
+          mergeableState: pr.mergeable_state ?? "unknown",
+          mergeCommitSha: pr.merge_commit_sha,
+          headSha: pr.head.sha,
+        }
+      },
+      catch: toGitHubApiError,
+    }),
+
+  getRepoMergeMethods: (token: string, owner: string, repo: string, host?: string) =>
+    Effect.tryPromise({
+      try: async (): Promise<RepoMergeMethods> => {
+        const API_BASE = apiBaseFor(host)
+        const data = await githubJson<{
+          allow_merge_commit?: boolean
+          allow_squash_merge?: boolean
+          allow_rebase_merge?: boolean
+        }>(`${API_BASE}/repos/${owner}/${repo}`, { token })
+        // GitHub leaves the fields out for a token that can't administer the
+        // repository; each method is on unless the repository turned it off.
+        return {
+          merge: data.allow_merge_commit ?? true,
+          squash: data.allow_squash_merge ?? true,
+          rebase: data.allow_rebase_merge ?? true,
+        }
+      },
+      catch: toGitHubApiError,
+    }),
+
+  mergePullRequest: (
+    token: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    method: MergeMethod,
+    headSha: string,
+    host?: string,
+  ) =>
+    Effect.tryPromise({
+      try: async () => {
+        const API_BASE = apiBaseFor(host)
+        const data = await githubJson<{ sha: string }>(
+          `${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}/merge`,
+          {
+            method: "PUT",
+            token,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ merge_method: method, sha: headSha }),
+          },
+        )
+        return { sha: data.sha }
       },
       catch: toGitHubApiError,
     }),

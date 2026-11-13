@@ -79,3 +79,23 @@ describe("ChangedFilesView diff body", () => {
     expect(diffRows("terraform.tfvars")).toEqual(["Expand 2 hidden lines"])
   })
 })
+
+describe("ChangedFilesView letters", () => {
+  const changes = [
+    change({ path: "added.tf", changeType: "added" }),
+    change({ path: "modified.tf", changeType: "modified" }),
+    change({ path: "deleted.tf", changeType: "deleted" }),
+  ]
+
+  it("marks each file in the tree with git's letter for its change", () => {
+    render(<ChangedFilesView changes={changes} letters />)
+    expect(screen.getByTitle("added")).toHaveTextContent("A")
+    expect(screen.getByTitle("modified")).toHaveTextContent("M")
+    expect(screen.getByTitle("deleted")).toHaveTextContent("D")
+  })
+
+  it("shows no letters unless asked", () => {
+    render(<ChangedFilesView changes={changes} />)
+    expect(screen.queryByTitle("added")).not.toBeInTheDocument()
+  })
+})

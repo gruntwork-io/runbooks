@@ -2,6 +2,10 @@ import { useState } from "react"
 import { CheckCircle, ExternalLink, Loader2, XCircle, CircleHelp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CollapsibleToggle } from "./CollapsibleToggle"
+import { ChangedFiles } from "./ChangedFiles"
+import { MergeControl } from "./MergeControl"
+import type { PrMerge } from "../hooks/usePrMerge"
+import type { GitFileChangesContextType } from "@/contexts/WorkspaceGitDataContext.types"
 import type { PRProviderConfig } from "../providers"
 import type { PRResult, PRBlockStatus, ChangeSummary } from "../types"
 
@@ -14,6 +18,14 @@ interface PRResultDisplayProps {
   status: PRBlockStatus
   pushError: string | null
   changeSummary: ChangeSummary | null
+  /** The clone's uncommitted changes. */
+  changes: GitFileChangesContextType
+  /** Whether the list of changed files starts open. */
+  changedFilesExpanded: boolean
+  /** The Merge button's state, when the block has `allowPullRequestMerge`. */
+  merge?: PrMerge
+  /** Why one of the block's merge conditions keeps Merge disabled. */
+  mergeBlockedBy?: string
   onPush: () => void
   onCreateAnother: () => void
 }
@@ -25,11 +37,17 @@ export function PRResultDisplay({
   status,
   pushError,
   changeSummary,
+  changes,
+  changedFilesExpanded,
+  merge,
+  mergeBlockedBy,
   onPush,
   onCreateAnother,
 }: PRResultDisplayProps) {
   const isPushing = status === "pushing"
-  const [whatFilesExpanded, setWhatFilesExpanded] = useState(false)
+  // A merged branch takes no more pushes.
+  const merged = merge?.state?.state === "merged"
+  const [whatFilesExpanded, setWhatFilesExpanded] = useState(changedFilesExpanded)
 
   return (
     <div className="space-y-3">
@@ -59,6 +77,14 @@ export function PRResultDisplay({
             </code>
           </div>
         </div>
+        {merge && (
+          <div className="pt-2">
+            <MergeControl
+              merge={merge}
+              {...(mergeBlockedBy ? { blockedBy: mergeBlockedBy } : {})}
+            />
+          </div>
+        )}
       </div>
 
       {/* Push error */}
@@ -74,7 +100,7 @@ export function PRResultDisplay({
 
       {/* Git Push button + "create another" link */}
       <div className="flex items-center gap-3">
-        <Button size="sm" variant="outline" onClick={onPush} disabled={isPushing}>
+        <Button size="sm" variant="outline" onClick={onPush} disabled={isPushing || merged}>
           {isPushing ? (
             <>
               <Loader2 className="size-4 mr-1 animate-spin" />
@@ -95,49 +121,55 @@ export function PRResultDisplay({
       </div>
 
       {/* What will Git Push commit? (collapsible) */}
-      <CollapsibleToggle
-        expanded={whatFilesExpanded}
-        onToggle={() => setWhatFilesExpanded(!whatFilesExpanded)}
-        label="What will Git Push commit?"
-        icon={<CircleHelp className="size-3.5" />}
-      >
-        <div className="mt-1.5 ml-5 text-xs text-muted-foreground leading-relaxed">
-          {changeSummary && changeSummary.fileCount > 0 ? (
-            <p className="m-0">
-              Git Push will commit and push{" "}
-              <span className="font-medium">{changeSummary.fileCount}</span>{" "}
-              {changeSummary.fileCount === 1 ? "file" : "files"}
-              {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
-                <>
-                  {" "}
-                  (
-                  {changeSummary.additions > 0 && (
-                    <span className="text-success font-medium">+{changeSummary.additions}</span>
-                  )}
-                  {changeSummary.additions > 0 && changeSummary.deletions > 0 && ", "}
-                  {changeSummary.deletions > 0 && (
-                    <span className="text-destructive font-medium">
-                      &minus;{changeSummary.deletions}
-                    </span>
-                  )}
-                  )
-                </>
-              )}{" "}
-              to the{" "}
-              <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>{" "}
-              branch. Review your changes in the{" "}
-              <span className="font-semibold">Changed files</span> tab of the workspace panel.
-            </p>
-          ) : (
-            <p className="m-0">
-              No new file changes detected. If you make additional changes to the cloned repository,
-              use Git Push to add them to the existing {noun.lower} on the{" "}
-              <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>{" "}
-              branch.
-            </p>
-          )}
-        </div>
-      </CollapsibleToggle>
+      {!merged && (
+        <CollapsibleToggle
+          expanded={whatFilesExpanded}
+          onToggle={() => setWhatFilesExpanded(!whatFilesExpanded)}
+          label="What will Git Push commit?"
+          icon={<CircleHelp className="size-3.5" />}
+        >
+          <div className="mt-1.5 ml-5 text-xs text-muted-foreground leading-relaxed">
+            {changeSummary && changeSummary.fileCount > 0 ? (
+              <>
+                <p className="m-0">
+                  Git Push will commit and push{" "}
+                  <span className="font-medium">{changeSummary.fileCount}</span>{" "}
+                  {changeSummary.fileCount === 1 ? "file" : "files"}
+                  {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
+                    <>
+                      {" "}
+                      (
+                      {changeSummary.additions > 0 && (
+                        <span className="text-success font-medium">+{changeSummary.additions}</span>
+                      )}
+                      {changeSummary.additions > 0 && changeSummary.deletions > 0 && ", "}
+                      {changeSummary.deletions > 0 && (
+                        <span className="text-destructive font-medium">
+                          &minus;{changeSummary.deletions}
+                        </span>
+                      )}
+                      )
+                    </>
+                  )}{" "}
+                  to the{" "}
+                  <code className="bg-muted px-1 py-0.5 rounded font-mono">
+                    {result.branchName}
+                  </code>{" "}
+                  branch:
+                </p>
+                <ChangedFiles changes={changes} />
+              </>
+            ) : (
+              <p className="m-0">
+                No new file changes detected. If you make additional changes to the cloned
+                repository, use Git Push to add them to the existing {noun.lower} on the{" "}
+                <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>{" "}
+                branch.
+              </p>
+            )}
+          </div>
+        </CollapsibleToggle>
+      )}
     </div>
   )
 }
