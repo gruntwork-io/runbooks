@@ -28,6 +28,8 @@ const INVOKE_CHANNELS = {
   "boilerplate:render": true,
   "boilerplate:render-inline": true,
   "boilerplate:resolve-inputs": true,
+  "tf-module:read": true,
+  "tf-module:generate": true,
   "aws:validate": true,
   "aws:profiles": true,
   "aws:sso-start": true,

@@ -13,6 +13,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 ### Collect input and generate files
 
 - [`<Inputs>`](/authoring/blocks/inputs) renders a form whose values other blocks use in their scripts, templates and props.
+- [`<TfModule>`](/authoring/blocks/tfmodule) renders a form for an OpenTofu module's inputs, built from the module's own `variables.tf`, and generates the code that uses the module. Experimental.
 - [`<Template>`](/authoring/blocks/template) generates files from a Boilerplate template directory, with a form for the template's variables.
 - [`<TemplateInline>`](/authoring/blocks/templateinline) renders a Boilerplate template written in the runbook itself and shows the result inline.
 - [`<DirPicker>`](/authoring/blocks/dirpicker) selects a directory path with a cascading set of dropdowns.
@@ -75,6 +76,7 @@ Each block the user acts on is a step. It is done once the block shows it's done
 | `<Finish>` | The runbook is finished. A final check that ends with a warning leaves it unfinished. |
 | `<Inputs>` | Its form was submitted, and is green. |
 | `<Template>` | Its files were generated, and its form is green. |
+| `<TfModule>` | Its code was generated for its inputs as they are now. |
 | `<AwsAuth>`, `<GoogleAuth>`, `<GitAuth>`, `<GitHubAuth>` and `<GitLabAuth>` | It is signed in, and green: credentials that expire within five minutes turn it red. |
 | `<GitClone>` | It cloned or found its repository, which is still on the session's branch. |
 | `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>` | It opened its pull or merge request. |

@@ -211,6 +211,8 @@ describe("useAwsAuth — env credential confirm", () => {
       ...env,
       AWS_SECRET_ACCESS_KEY: sensitiveOutput("prod-secret"),
       AWS_SESSION_TOKEN: sensitiveOutput(""),
+      AWS_ACCOUNT_ID: "111122223333",
+      AWS_SSO_REGION: "us-east-1",
     })
     // The renderer, not MAIN's confirm handler, writes the session env, with the real values.
     expect(invoke).toHaveBeenCalledWith("session:set-env", { env })

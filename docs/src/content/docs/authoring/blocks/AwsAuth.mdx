@@ -83,6 +83,8 @@ The block also publishes its credentials as block outputs, so a specific AwsAuth
 | `AWS_SECRET_ACCESS_KEY` | The AWS secret key, as a [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) |
 | `AWS_SESSION_TOKEN` | The session token, as a sensitive output. Empty for credentials without one |
 | `AWS_REGION` | The selected region |
+| `AWS_ACCOUNT_ID` | The ID of the account the credentials belong to |
+| `AWS_SSO_REGION` | The block's IAM Identity Center region, its `ssoRegion` prop, whichever way the user signed in |
 
 Clicking **Re-authenticate** replaces them with a single output, `__AUTHENTICATED`, set to `false`, until the user signs in again.
 

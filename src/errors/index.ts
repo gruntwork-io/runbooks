@@ -152,6 +152,13 @@ export class WasmError extends Data.TaggedError("WasmError")<{
   readonly cause?: unknown
 }> {}
 
+// TfModule
+/** A module a <TfModule> block reads is missing, or its files are wrong. The message is fit to show the user. */
+export class TfModuleError extends Data.TaggedError("TfModuleError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
 // Session
 export class SessionError extends Data.TaggedError("SessionError")<{
   readonly message: string

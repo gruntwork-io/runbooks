@@ -189,6 +189,8 @@ describe("useAwsAuth — SSO sign-in", () => {
       AWS_SECRET_ACCESS_KEY: sensitiveOutput("role-secret"),
       AWS_REGION: "us-west-2",
       AWS_SESSION_TOKEN: sensitiveOutput("role-token"),
+      AWS_ACCOUNT_ID: "111111111111",
+      AWS_SSO_REGION: SSO_REGION,
     })
     // The loop ended at select_account.
     expect(polledDeviceCodes()).toHaveLength(3)
@@ -217,6 +219,8 @@ describe("useAwsAuth — SSO sign-in", () => {
       AWS_SECRET_ACCESS_KEY: sensitiveOutput("role-secret"),
       AWS_REGION: "us-west-2",
       AWS_SESSION_TOKEN: sensitiveOutput("role-token"),
+      AWS_ACCOUNT_ID: "111111111111",
+      AWS_SSO_REGION: SSO_REGION,
     })
   })
 

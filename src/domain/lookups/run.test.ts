@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test"
 import YAML from "yaml"
 import { parseDeclarations } from "./parse.ts"
 import { mergeDeclarations } from "./validate.ts"
-import { readsQuery, runCheck, runLookup, type RunContext } from "./run.ts"
+import { inputsRead, readsQuery, runCheck, runLookup, type RunContext } from "./run.ts"
 import type { HttpReply, HttpRequest } from "../../services/HttpRequest.ts"
 
 const definitionsOf = (yaml: string) =>
@@ -303,5 +303,31 @@ checks:
       outcome: "unknown",
       detail: "The response has no state.",
     })
+  })
+})
+
+describe("inputsRead", () => {
+  it("names the inputs a use reads through its params, its request and its chain", () => {
+    const definitions = definitionsOf(`
+lookups:
+  aws:
+    auth: AwsAuth
+    store:
+      request:
+        url: "https://sso.{{ .auth.ssoRegion }}.amazonaws.com/?Action=ListInstances&Owner={{ .inputs.owner }}"
+      fields: { value: IdentityStoreId }
+    groups:
+      params: [prefix]
+      request:
+        method: POST
+        url: https://identitystore.us-east-1.amazonaws.com/
+        body:
+          IdentityStoreId: "{{ .lookups.aws.store.value }}"
+          Filter: "{{ .inputs.team }}"
+      fields: { value: DisplayName }
+`)
+    expect(
+      inputsRead(definitions, { from: "aws.groups", with: { prefix: "{{ .inputs.name }}" } }),
+    ).toEqual(["name", "owner", "team"])
   })
 })

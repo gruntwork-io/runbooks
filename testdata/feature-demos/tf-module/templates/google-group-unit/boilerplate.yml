@@ -1,0 +1,7 @@
+# This runbook's way to use the google-group module: a Terragrunt unit that includes the repository's root.hcl.
+# The <TfModule> block renders it with ModuleSource and InputsHcl, the inputs the unit sets.
+variables:
+  - name: ModuleSource
+    description: Where the code finds the module, such as git::https://github.com/fabricahq/infra-catalog.git//modules/google-group?ref=v0.14.0
+  - name: InputsHcl
+    description: The inputs the unit sets, written as HCL attributes

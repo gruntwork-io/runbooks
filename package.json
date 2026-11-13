@@ -36,6 +36,7 @@
     "@aws-sdk/client-sts": "^3.1160.0",
     "@aws-sdk/credential-providers": "^3.1160.0",
     "@aws-sdk/util-endpoints": "^3.996.52",
+    "@cdktf/hcl2json": "0.21.0",
     "@smithy/core": "^3.36.0",
     "@smithy/signature-v4": "^5.7.5",
     "chokidar": "^6.0.0",

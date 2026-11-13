@@ -201,6 +201,8 @@ describe("useAwsAuth — confirming { block } credentials", () => {
       AWS_SECRET_ACCESS_KEY: sensitiveOutput("secret-a"),
       AWS_REGION: "eu-west-1",
       AWS_SESSION_TOKEN: sensitiveOutput("token-a"),
+      AWS_ACCOUNT_ID: "111111111111",
+      AWS_SSO_REGION: "us-east-1",
     })
   })
 
@@ -226,6 +228,8 @@ describe("useAwsAuth — confirming { block } credentials", () => {
       AWS_SECRET_ACCESS_KEY: sensitiveOutput("secret-a"),
       AWS_REGION: "eu-west-1",
       AWS_SESSION_TOKEN: sensitiveOutput("token-a"),
+      AWS_ACCOUNT_ID: "111111111111",
+      AWS_SSO_REGION: "us-east-1",
     })
     expect(JSON.stringify(published)).not.toMatch(/secret-a|token-a/)
     // The session env is what scripts run with, so it gets the real values
@@ -299,6 +303,8 @@ describe("useAwsAuth — confirming { block } credentials", () => {
       AWS_SECRET_ACCESS_KEY: sensitiveOutput("secret-a2"),
       AWS_REGION: "eu-west-1",
       AWS_SESSION_TOKEN: sensitiveOutput("token-a2"),
+      AWS_ACCOUNT_ID: "111111111111",
+      AWS_SSO_REGION: "us-east-1",
     })
   })
 

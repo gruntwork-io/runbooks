@@ -14,6 +14,7 @@ import {
 
 // Support MDX components
 import { Inputs } from "@/components/mdx/Inputs"
+import { TfModule } from "@/components/mdx/TfModule"
 import { Template } from "@/components/mdx/Template"
 import { TemplateInline } from "@/components/mdx/TemplateInline"
 import { ComponentIdRegistryProvider } from "@/contexts/ComponentIdRegistry"
@@ -354,6 +355,7 @@ function rehypeTaskListIds() {
 export const MDX_COMPONENTS = {
   // Form and template components
   Inputs,
+  TfModule,
   Template,
   TemplateInline,
   DirPicker,

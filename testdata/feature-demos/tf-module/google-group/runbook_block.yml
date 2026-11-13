@@ -1,0 +1,120 @@
+# How a Runbooks <TfModule> block presents this module. OpenTofu and Terragrunt never read this file.
+# variables.tf owns each input's name, type, default, and validation; this file only adds presentation,
+# and every key under `variables` must name an input there.
+version: 0
+
+block:
+  title: Create a Google Group
+  description: Creates a Google group and adds its owners, managers, and members.
+
+variables:
+  # The organization comes first: the group's email ends with its domain.
+  domain:
+    label: Organization
+    description: The Google Workspace or Cloud Identity organization to create the group in, by its primary domain.
+    primary: true
+    lookup:
+      from: google.domains
+  id:
+    label: Group email
+    description: "The group's address. It's also the group's ID: changing it later replaces the group."
+    primary: true
+    suffix: "@{{ .domain }}"
+  display_name:
+    label: Name
+    primary: true
+  description:
+    primary: true
+  owners:
+    primary: true
+    lookup:
+      from: google.people
+    shortcut:
+      from: google.me
+      label: 'Add "{{ .label }}" as an owner'
+  members:
+    primary: true
+    lookup:
+      from: google.people
+  customer_id:
+    label: Customer ID
+    description: The organization's customer ID, filled from your Google sign-in.
+    # The signed-in organization's, so the module needn't find it from the domain.
+    prefill:
+      from: google.customer
+  managers:
+    lookup:
+      from: google.people
+  types:
+    label: Group type
+    options:
+      default:
+        label: Email group
+        description: People email the group, and members read its conversations.
+      security:
+        label: Security group
+        description: Can grant access in IAM and other access policies. Once set, it can't be removed.
+      dynamic:
+        label: Dynamic group
+        description: Google keeps the membership in sync with a query on user attributes. Needs a premium edition.
+      external:
+        label: External group
+        description: Its members come from an identity provider outside your directory.
+
+# What the form asks Google for, sent by the GoogleAuth block the runbook binds
+# the google group to. Each row's `value` is what a pick puts in the input.
+lookups:
+  google:
+    auth: GoogleAuth
+    scopes:
+      - https://www.googleapis.com/auth/admin.directory.customer.readonly
+      - https://www.googleapis.com/auth/admin.directory.domain.readonly
+      - https://www.googleapis.com/auth/admin.directory.user.readonly
+    # The signed-in person.
+    me:
+      request:
+        url: "https://admin.googleapis.com/admin/directory/v1/users/{{ .auth.email }}?viewType=domain_public"
+      fields:
+        value: primaryEmail
+        label: name.fullName
+    # The signed-in organization.
+    customer:
+      request:
+        url: https://admin.googleapis.com/admin/directory/v1/customers/my_customer
+      fields:
+        value: id
+        description: customerDomain
+    domains:
+      request:
+        url: https://admin.googleapis.com/admin/directory/v1/customer/my_customer/domains
+      rows: domains
+      fields:
+        value: domainName
+    # People whose name or email matches what's typed: one page, since typing narrows it.
+    people:
+      request:
+        url: "https://admin.googleapis.com/admin/directory/v1/users?customer=my_customer&viewType=domain_public&orderBy=email&maxResults=50&query={{ .query }}"
+      rows: users
+      maxPages: 1
+      fields:
+        value: primaryEmail
+        label: name.fullName
+        description: organizations.0.title
+
+# Checked before the module is planned.
+checks:
+  google:
+    auth: GoogleAuth
+    apiEnabled:
+      params: [api]
+      request:
+        url: "https://serviceusage.googleapis.com/v1/projects/{{ .auth.project }}/services/{{ .params.api }}"
+      expect: { path: state, equals: ENABLED }
+      message: "{{ .params.api }} is off in {{ .auth.project }}."
+      fix: "https://console.cloud.google.com/apis/library/{{ .params.api }}?project={{ .auth.project }}"
+
+preflight:
+  - check: google.apiEnabled
+    with: { api: cloudidentity.googleapis.com }
+  - check: google.apiEnabled
+    with: { api: cloudresourcemanager.googleapis.com }

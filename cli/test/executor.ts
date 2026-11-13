@@ -660,8 +660,8 @@ export class TestExecutor {
       return result
     }
 
-    // 2. Inputs blocks: validation-only
-    if (block.type === "Inputs") {
+    // 2. Blocks that only collect values: validation-only
+    if (block.type === "Inputs" || block.type === "TfModule") {
       result.actualStatus = "valid"
       result.passed = true
       if (this.options.verbose) {

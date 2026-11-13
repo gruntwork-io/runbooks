@@ -257,14 +257,27 @@ export interface RemoteRunbookResult {
   remoteSource: string
 }
 
+/** A remote source cloned to a temp folder, and where in the clone its path points. */
+export interface ClonedSource {
+  /** The clone's root. */
+  readonly dest: string
+  /** The path after the source's `//`, if it has one. */
+  readonly path?: string | undefined
+  /** The repository as host/owner/repo, for messages. */
+  readonly repoLabel: string
+  /** " at <ref>" when the source names a ref, for messages. */
+  readonly at: string
+  /** The source without any credentials typed into it. */
+  readonly source: string
+}
+
 /**
- * Parse a remote source, clone the whole repo, and resolve the runbook file
- * within the clone. The whole repo, not just the runbook's directory: as with
- * go-getter's `//` subdirectory, a runbook may use files elsewhere in its
- * repository, such as templates it wraps. Typed failures carry a message fit
- * to show the user.
+ * Parse a remote source and clone the whole repo to a temp folder the app
+ * removes when it quits. The whole repo, not just the source's path: as with
+ * go-getter's `//` subdirectory, what's there may use files elsewhere in its
+ * repository. Typed failures carry a message fit to show the user.
  */
-export const openRemoteRunbook = (rawUrl: string) =>
+export const cloneRemoteSource = (rawUrl: string) =>
   Effect.gen(function* () {
     // What leaves this Effect (logs, errors, the header's remoteSource)
     // carries the source without any credentials typed into it.
@@ -377,15 +390,31 @@ export const openRemoteRunbook = (rawUrl: string) =>
       .pipe(Effect.catch(failWithCloneHint))
     log.info("Clone complete")
 
+    return {
+      dest,
+      path: parsed.path,
+      repoLabel: [host, owner, repo].filter(Boolean).join("/"),
+      at: ref ? ` at ${ref}` : "",
+      source,
+    } satisfies ClonedSource
+  })
+
+/**
+ * Clone a remote source and resolve the runbook file within the clone. Typed
+ * failures carry a message fit to show the user.
+ */
+export const openRemoteRunbook = (rawUrl: string) =>
+  Effect.gen(function* () {
+    const cloned = yield* cloneRemoteSource(rawUrl)
+    const { dest, repoLabel, at, source } = cloned
+
     // Resolve the runbook within the clone: a directory opens its
     // runbook.mdx, a file opens as-is.
-    const repoLabel = [host, owner, repo].filter(Boolean).join("/")
-    const at = ref ? ` at ${ref}` : ""
-    const target = parsed.path ? path.join(dest, parsed.path) : dest
+    const target = cloned.path ? path.join(dest, cloned.path) : dest
     if (!fs.existsSync(target)) {
       return yield* new RemoteSourceError({
         url: source,
-        message: `"${parsed.path}" was not found in ${repoLabel}${at}`,
+        message: `"${cloned.path}" was not found in ${repoLabel}${at}`,
       })
     }
     log.info("Resolving runbook in:", target)
@@ -394,7 +423,7 @@ export const openRemoteRunbook = (rawUrl: string) =>
         () =>
           new RemoteSourceError({
             url: source,
-            message: `no runbook.mdx in ${parsed.path ? `"${parsed.path}"` : "the root"} of ${repoLabel}${at}`,
+            message: `no runbook.mdx in ${cloned.path ? `"${cloned.path}"` : "the root"} of ${repoLabel}${at}`,
           }),
       ),
     )
@@ -403,7 +432,7 @@ export const openRemoteRunbook = (rawUrl: string) =>
     if (!(yield* Effect.promise(() => isContainedInReal(localPath, dest)))) {
       return yield* new RemoteSourceError({
         url: source,
-        message: `"${parsed.path}" in ${repoLabel} points outside the repository`,
+        message: `"${cloned.path}" in ${repoLabel} points outside the repository`,
       })
     }
     log.info("Resolved runbook path:", localPath)

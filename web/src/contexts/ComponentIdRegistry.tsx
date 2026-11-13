@@ -18,6 +18,7 @@ export type BlockComponentType =
   | "Finish"
   | "Prerequisites"
   | "Inputs"
+  | "TfModule"
   | "Template"
   | "TemplateInline"
   | "AwsAuth"
@@ -39,6 +40,8 @@ interface ComponentRegistration {
   instanceId: string // Unique per-render instance to track unmounts
   /** The block's outermost element, for links that scroll to it. */
   element: RefObject<HTMLElement | null> | undefined
+  /** The OAuth scopes an auth block requests, for blocks that check a binding to it. */
+  scopes?: readonly string[] | undefined
 }
 
 interface DuplicateInfo {
@@ -57,6 +60,7 @@ interface ComponentIdRegistryContextValue {
     id: string,
     componentType: ComponentRegistration["componentType"],
     element: ComponentRegistration["element"],
+    scopes?: readonly string[],
   ) => string // Returns instanceId
   unregisterComponent: (instanceId: string) => void
   getDuplicateInfo: (id: string, instanceId: string) => DuplicateInfo
@@ -68,8 +72,17 @@ const ComponentIdRegistryContext = createContext<ComponentIdRegistryContextValue
   undefined,
 )
 
-/** Each registered block's id as written, keyed by its normalized id. */
-const BlockIdsContext = createContext<ReadonlyMap<string, string>>(new Map())
+/** A block on the page, as other blocks look it up. */
+export interface PageBlock {
+  /** Its id as the runbook writes it. */
+  readonly id: string
+  readonly kind: BlockComponentType
+  /** The OAuth scopes it requests, for an auth block that has scopes. */
+  readonly scopes?: readonly string[] | undefined
+}
+
+/** Each registered block, keyed by its normalized id. */
+const BlockIdsContext = createContext<ReadonlyMap<string, PageBlock>>(new Map())
 
 /**
  * Provider that tracks all component IDs to detect duplicates.
@@ -94,13 +107,14 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
       id: string,
       componentType: ComponentRegistration["componentType"],
       element: ComponentRegistration["element"],
+      scopes?: readonly string[],
     ): string => {
       const instanceId = `${componentType}-${id}-${++instanceCounter.current}`
       const normalizedId = normalizeBlockId(id)
 
       setRegistrations((prev) => [
         ...prev,
-        { id, normalizedId, componentType, instanceId, element },
+        { id, normalizedId, componentType, instanceId, element, scopes },
       ])
 
       return instanceId
@@ -163,7 +177,13 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
   // Separate from `value`, which stays stable, so only the components that
   // name blocks re-render when one registers.
   const blockIds = useMemo(
-    () => new Map(registrations.map((r) => [r.normalizedId, r.id])),
+    () =>
+      new Map(
+        registrations.map((r): [string, PageBlock] => [
+          r.normalizedId,
+          { id: r.id, kind: r.componentType, scopes: r.scopes },
+        ]),
+      ),
     [registrations],
   )
 
@@ -187,6 +207,10 @@ interface PageBlocks {
    * register in their effects.
    */
   isOnPage: (templateId: string) => boolean | undefined
+  /** The block with this id, if one is on the page. */
+  blockOf: (templateId: string) => PageBlock | undefined
+  /** Whether blocks have registered yet, so a block that isn't on the page is missing. */
+  registered: boolean
 }
 
 /** Looks up the blocks on the page by the id a template refers to them by. */
@@ -194,9 +218,11 @@ export function usePageBlocks(): PageBlocks {
   const blockIds = useContext(BlockIdsContext)
   return useMemo(
     () => ({
-      asWritten: (templateId) => blockIds.get(normalizeBlockId(templateId)) ?? templateId,
+      asWritten: (templateId) => blockIds.get(normalizeBlockId(templateId))?.id ?? templateId,
       isOnPage: (templateId) =>
         blockIds.size === 0 ? undefined : blockIds.has(normalizeBlockId(templateId)),
+      blockOf: (templateId) => blockIds.get(normalizeBlockId(templateId)),
+      registered: blockIds.size > 0,
     }),
     [blockIds],
   )
@@ -226,6 +252,7 @@ export function useComponentIdRegistry(
   id: string,
   componentType: ComponentRegistration["componentType"],
   element?: RefObject<HTMLElement | null>,
+  scopes?: readonly string[],
 ) {
   const context = useContext(ComponentIdRegistryContext)
   const instanceIdRef = useRef<string | null>(null)
@@ -239,20 +266,26 @@ export function useComponentIdRegistry(
   const registerComponent = context?.registerComponent
   const unregisterComponent = context?.unregisterComponent
   const getDuplicateInfoFn = context?.getDuplicateInfo
+  // Registers again when the scopes change, not when a new array holds the same ones.
+  const scopesKey = scopes?.join(" ")
+  const registeredScopes = useMemo(
+    () => (scopesKey === undefined ? undefined : scopesKey.split(" ").filter(Boolean)),
+    [scopesKey],
+  )
 
   // Register on mount, unregister on unmount
   useEffect(() => {
     if (!registerComponent || !unregisterComponent) return
 
     // Register this component
-    instanceIdRef.current = registerComponent(id, componentType, element)
+    instanceIdRef.current = registerComponent(id, componentType, element, registeredScopes)
 
     return () => {
       if (instanceIdRef.current) {
         unregisterComponent(instanceIdRef.current)
       }
     }
-  }, [registerComponent, unregisterComponent, id, componentType, element])
+  }, [registerComponent, unregisterComponent, id, componentType, element, registeredScopes])
 
   // Check for duplicates after registration - use a small delay to allow all components to register
   useEffect(() => {

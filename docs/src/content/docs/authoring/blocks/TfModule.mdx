@@ -1,0 +1,251 @@
+---
+title: <TfModule>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="Experimental">
+`<TfModule>` is an experiment. Its props and the `runbook_block.yml` format may change.
+</Aside>
+
+The `<TfModule>` block renders a form for an OpenTofu module's inputs. The form comes from the module itself, so a runbook doesn't restate what the module already says:
+
+- The module's `variables.tf` gives each input's name, type, default, and validation.
+- An optional `runbook_block.yml` beside it says how to present them: labels, which inputs come first, what each option means, presets, and lookups that suggest values.
+
+How the module is used is the runbook's choice, not the module's: one runbook may write a Terragrunt unit for an infrastructure repository, another a plain OpenTofu or Terraform configuration. So the runbook gives the block a [template](#the-template) for that code.
+
+The block's job ends when the code is written. **Generate** checks the values, publishes them like an [`<Inputs>`](/authoring/blocks/inputs/) block's, so a `<Command>`, `<Check>`, or `<Template>` uses them through `inputsId`, and writes the code. See [Generate](#generate).
+
+## Basic usage
+
+```mdx
+<GoogleAuth id="workspace" />
+
+<TfModule
+  id="group"
+  source="git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0"
+  template="templates/google-group"
+  auth={{ google: "workspace" }}
+/>
+
+<Command
+  id="show-group"
+  inputsId="group"
+  env={{ GROUP_EMAIL: "{{ .inputs.id }}" }}
+  command={`echo "Creating $GROUP_EMAIL"`}
+/>
+```
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `id` | `string` | required | Unique identifier for this block. Other blocks name it in `inputsId` |
+| `source` | `string` | required | The module. See [Module source](#module-source) |
+| `template` | `string` | required | The [template](#the-template) for the code that uses the module: a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder, relative to the runbook |
+| `path` | `string` | the block's `id` | Where the code goes in the cloned repository: a folder, as a template over the form's values, such as `google-groups/{{ .id }}` |
+| `auth` | `object` | none | Binds each [lookup](#lookups) group the module uses to an auth block, by id, such as `{{ google: "workspace" }}` |
+
+## Module source
+
+`source` names the module as OpenTofu's own [module sources](https://opentofu.org/docs/language/modules/sources/) do, with a Git repository, `//` and the module's folder in it, and `?ref=` for the tag or commit to read:
+
+```text
+git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0
+github.com/acme/infra-catalog//modules/google-group?ref=v1.4.0
+git@github.com:acme/infra-catalog.git//modules/google-group?ref=v1.4.0
+```
+
+The block clones the repository once while Runbooks runs, and reads the module from the clone. A private repository needs a sign-in: a [`<GitHubAuth>`](/authoring/blocks/githubauth/) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth/) block above, a token in the environment such as `GITHUB_TOKEN`, the `gh` or `glab` CLI's sign-in, or your own Git credentials, as when Runbooks opens a remote runbook. See [Authentication for private repos](/commands/open/#authentication-for-private-repos). If the clone fails for want of one, the block says so, and reads the module again after a sign-in. Pin the source to a tag with `?ref=`: without one, the block reads the default branch and warns.
+
+`source` can instead be a folder relative to the runbook, for a module in the runbook's own repository, such as `../../modules/google-group`.
+
+### Versions
+
+A runbook and the modules it uses should come from the same release, so the form, the template and the module always match. So the code the block writes into a repository always points at a tag:
+
+- **A remote `source`** is written as given, and its `?ref=` must be a tag.
+- **A folder `source`** is written as the runbook's repository at the tag the runbook was opened at, such as `git::https://github.com/acme/infra-catalog.git//modules/google-group?ref=v1.4.0`. Open a remote runbook with `?ref=` set to a tag, or a local checkout that's exactly at one, with no uncommitted changes to the module.
+
+Otherwise you can fill in the form, but **Generate** refuses to write the code, and says which ref it found. A runbook on a branch therefore can't write code that points at a module by accident: you open the runbook at the release you mean to use.
+
+## How the form is built
+
+Every input `variables.tf` declares appears: those `runbook_block.yml` lists first, in its order, then the rest in the order `variables.tf` declares them.
+
+- **Required inputs.** An input without a default is required, and is marked with `*`.
+- **Primary and advanced inputs.** Inputs `runbook_block.yml` marks `primary` show first; the rest sit under **Advanced options**. Without any `primary` marks, the required inputs show first.
+- **Controls.** A `string` is a text field, a `number` a number field, a `bool` a checkbox, a `list(string)` or `set(string)` a list of chips, and a `map(string)` a key and value list. Any other type, such as an `object`, is a JSON field.
+- **Choices.** An input with options shows each as a card with its description. A `list` input with options lets the user pick several.
+- **Validation.** The form checks the validation idioms modules use most as the user types: `contains([...], var.x)` becomes a choice, `can(regex("...", var.x))` a pattern, `length(var.x) >= N && length(var.x) <= M` a length range, and `var.x != ""` a required value. On a list or a map, `length()` counts its items, so the form checks the count. The form shows the error message of any other condition under the input as a rule, and leaves checking it to OpenTofu.
+- **Title.** The block's title is `runbook_block.yml`'s `block.title`, else the README's first heading, else the module's folder name.
+- **Logo.** The block shows the mark of the module's provider, from `required_providers`, unless `runbook_block.yml` sets `block.logo`. The OpenTofu mark sits on its corner.
+- **Link to the module.** When the module is on GitHub, the block links to its folder there, at the ref the block reads: a remote source's `?ref=`, or, for a folder beside the runbook, the tag the runbook's checkout is at, else its commit.
+
+OpenTofu reads a `.tofu` file in place of a `.tf` file with the same name, and so does the block.
+
+## runbook_block.yml
+
+OpenTofu and Terragrunt never read `runbook_block.yml`, so it can sit in the module's folder without changing what the module does. Every key under `variables` must name an input `variables.tf` declares; the block refuses a module whose `runbook_block.yml` names one it doesn't.
+
+```yaml title="runbook_block.yml"
+version: 0
+
+block:
+  title: Create a Google Group
+  description: Creates a Google group and adds its owners, managers, and members.
+  logo: logo.svg              # optional: an SVG, PNG, JPEG, or WebP in the module, or an https: URL
+
+variables:
+  domain:
+    label: Organization
+    primary: true
+    lookup:
+      from: google.domains
+  id:
+    label: Group email
+    primary: true
+    suffix: "@{{ .domain }}"     # the user types the part before the @
+  customer_id:
+    label: Customer ID
+    prefill:
+      from: google.customer      # the signed-in organization's, so nobody looks it up
+  owners:
+    primary: true
+    lookup:
+      from: google.people
+    shortcut:
+      from: google.me
+      label: 'Add "{{ .label }}" as an owner'
+  types:
+    label: Group type
+    options:
+      default:
+        label: Email group
+        description: People email the group, and members read its conversations.
+      security:
+        label: Security group
+        description: Can grant access in IAM and other access policies.
+  access:
+    primary: true
+    presets: presets.yaml
+
+lookups:
+  google:
+    auth: GoogleAuth
+    domains:
+      request:
+        url: https://admin.googleapis.com/admin/directory/v1/customer/my_customer/domains
+      rows: domains
+      fields:
+        value: domainName
+    # customer, people and me are declared the same way
+```
+
+| Key | Description |
+|-----|-------------|
+| `version` | The format's version, `0` |
+| `block.title`, `block.description` | The block's heading and the line under it |
+| `block.logo` | The block's logo, a file in the module or an `https:` URL |
+| `variables.<name>.label` | The input's label. Without it, the name with its first letter capitalized |
+| `variables.<name>.description` | Replaces the input's description from `variables.tf` |
+| `variables.<name>.primary` | `true` to show the input before **Advanced options** |
+| `variables.<name>.options` | A map from each value to its `label` and `description`, or a list of values |
+| `variables.<name>.lookup` | The lookup whose rows the input suggests, as `{ from, with }`. See [Lookups](#lookups) |
+| `variables.<name>.presets` | A file in the module of named settings for an object or map input. See [Presets](#presets) |
+| `variables.<name>.suffix` | A template over the form's values that ends a string input's value, such as `@{{ .domain }}`. The form shows it fixed after the field, so the user types only the rest |
+| `variables.<name>.prefill` | Fills an empty string input from a lookup that gives one row, such as the signed-in organization's customer ID, so the user needn't look it up. It takes `from` and `with`, like a [lookup](#lookups) |
+| `variables.<name>.shortcut` | A button under the input that adds a lookup's one row, such as the signed-in person. It takes `from` and `with`, and `label`, a template over the row's fields such as `Add "{{ .label }}" as an owner` |
+| `lookups`, `checks`, `preflight`, `include` | The module's lookups and checks, the checks to run before it's planned, and files of shared ones. See [Lookups and Checks](/authoring/lookups/) |
+
+## The template
+
+The `template` prop names a [Boilerplate](https://github.com/gruntwork-io/boilerplate) template folder, relative to the runbook, anywhere in the runbook's repository. The block renders it with:
+
+- `InputsHcl`: the inputs the code sets, written as HCL, one attribute per line, indented two spaces. It holds every required input and each other input whose value isn't the module's default, in the module's order, so the code never restates a default. An empty field for an input whose default is `null` leaves the input out, so the module sees `null`.
+- `ModuleSource`: where the code finds the module, the release [Versions](#versions) describes when a `<GitClone>` block has cloned a repository, and the module's folder on your computer otherwise.
+- Each of the form's values by its input's name, and the same values as one map in `Inputs`, for a path or a file name that needs one.
+
+The folder needs a `boilerplate.yml`, which can leave its `variables` empty, since the block passes every value.
+
+What the template renders decides how the code runs. A template that renders a `terragrunt.hcl` makes a Terragrunt unit:
+
+```hcl title="templates/unit/terragrunt.hcl"
+include "root" {
+  path = find_in_parent_folders("root.hcl")
+}
+
+terraform {
+  source = {{ .ModuleSource | toJson }}
+}
+
+inputs = {
+{{ .InputsHcl }}
+}
+```
+
+A template that writes `InputsHcl` serves any module, so units that share a shape can share one template. The block writes each value as HCL reads it: text is always a literal string, so a value such as `Costs ${amount}` from a form, a lookup or another block comes out as `"Costs $${amount}"`, never as an interpolation. Lists of plain values stay on one line, maps take a line per key, and the `=` signs line up as `hcl fmt` lines them up, so the code passes `hcl fmt --check` as written.
+
+Write a value into the code yourself only when the template needs it somewhere other than the inputs, and encode it there: `toJson` writes JSON, which doesn't escape HCL's `${` and `%{`.
+
+Any other template makes a plain OpenTofu or Terraform configuration, such as a `main.tf` that calls the module:
+
+```hcl title="templates/google-group-tofu/main.tf"
+module "group" {
+  source = {{ .ModuleSource | toJson }}
+{{ .InputsHcl }}
+}
+
+output "email" {
+  value = module.group.email
+}
+```
+
+A plain configuration's outputs are its own, so declare an output for each module output the runbook uses.
+
+## Generate
+
+**Generate** renders the template with the form's values and writes the code:
+
+- **With a cloned repository**, it writes the code's files into the clone, in the folder `path` names, and lists them. That's a local write: it doesn't commit or push anything. As the values change, it writes them again: it first removes every file it wrote before, so the clone holds only the code for the current values. When the folder moves, such as when the group's email changes, the old folder goes too, with anything a plan left in it, such as `.terraform.lock.hcl`. A change you made by hand to a file the block wrote is replaced as well, so make lasting changes in the template or the inputs.
+- **Without one**, it writes nothing, and lists the files the code would have.
+
+When a generate fails for a reason other than the inputs, such as a network error reading the module, **Try again** generates again with the same inputs.
+
+While an input needs a fix, the block keeps the code, and the values it publishes, as they were for the last valid inputs. Once it has written the code, the block counts as done, and publishes these outputs:
+
+| Output | Description |
+|--------|-------------|
+| `MODULE_SOURCE` | The block's `source` prop |
+| `TEMPLATE` | The block's `template` prop |
+| `CODE_PATH` | The code's folder in the repository, `path` rendered with the inputs |
+
+## Lookups
+
+A lookup suggests values as the user types, such as the people in a directory. The module declares its lookups in `runbook_block.yml`, as [Lookups and Checks](/authoring/lookups/) describes: the request to send, where the rows are in the answer, and each row's fields. An input uses one by name, with `from`, and passes its params with `with`. A row's `value` field is what a pick puts in the input, its `label` field what the suggestion shows, and its `description` field a second line under it. A suggestion helps the user; it doesn't limit what they can type.
+
+The module's lookups sit in groups, each needing a kind of auth block, such as `google: { auth: GoogleAuth, ... }`. The runbook binds each group the form uses to one of its auth blocks with the `auth` prop, and that block sends the group's requests as its signed-in user, under [its own rules](/authoring/blocks/googleauth/#requests-sent-for-other-blocks). The block refuses a binding that leaves a group unbound, names a block of the wrong kind, or names a block that doesn't request the scopes the group declares.
+
+When the bound block hasn't signed in, or the API refuses, the field says why, and the user can still type a value. A lookup that sends what's typed, through `{{ .query }}`, asks again as the user types; any other lookup asks once, and the field filters its rows. A `shortcut` reads its lookup when the form opens and again after each sign-in, and shows only when the lookup gives exactly one row. A `prefill` reads it the same way, and fills its input with the row's value while the input is empty. It fills each value once, so an input the user clears stays clear until a sign-in gives another value.
+
+The block doesn't run the module's `preflight` checks: the block that plans the code does.
+
+## Presets
+
+A preset is a named set of settings for an object or map input, such as "Public group". The user picks a preset instead of filling in each setting, and the info icon beside it lists every setting it makes.
+
+```yaml title="presets.yaml"
+public:
+  label: Public
+  description: Anyone, including people outside your organization, can email the group.
+  settings:
+    who_can_post_message: ANYONE_CAN_POST
+    who_can_view_group: ALL_MEMBERS_CAN_VIEW
+```
+
+The module can read the same file with `yamldecode(file("${path.module}/presets.yaml"))`, so what the info icon shows is what OpenTofu applies.
+
+## Testing
+
+`runbooks test` treats a `<TfModule>` block as it treats an `<Inputs>` block: it checks the block and moves on. It doesn't read the module yet, so a test sets the inputs the runbook uses under `inputs`, named `<id>.<input>`, such as `group.id`. It doesn't write the code either, so the block publishes no outputs in a test.
