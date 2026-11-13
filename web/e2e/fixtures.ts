@@ -108,6 +108,11 @@ export const test = base.extend<RunbookAppFixture>({
       proc.stderr?.on("data", (chunk) => mainLog.push(`[stderr] ${chunk.toString()}`))
 
       const page = await app.firstWindow()
+      // The tests' pointer is the only one the window sees: the OS pointer,
+      // wherever it rests, would otherwise end a drag the test is making.
+      await app.evaluate(({ BrowserWindow }) => {
+        for (const w of BrowserWindow.getAllWindows()) w.setIgnoreMouseEvents(true)
+      })
       page.on("console", (msg) => consoleMessages.push(msg))
       await page.waitForLoadState("domcontentloaded")
       return page
