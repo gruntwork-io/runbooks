@@ -105,7 +105,9 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
   const push = (worktreePath: string, branchName: string) => {
     const handler = handlers.get("git:push")
     if (!handler) throw new Error("no handler for git:push")
-    return Promise.resolve(handler(event, { worktreePath, branchName })) as Promise<PushResult>
+    return Promise.resolve(
+      handler(event, { worktreePath, branchName, commitMessage: "Update" }),
+    ) as Promise<PushResult>
   }
 
   const ENV_KEYS = [
@@ -572,6 +574,7 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       const result = await invoke("git:push", {
         worktreePath: repo,
         branchName: "feature",
+        commitMessage: "Update",
         provider: "gitlab",
       })
 
@@ -978,11 +981,16 @@ describe("session token binding (local http and https remotes)", () => {
   })
 
   describe("git:push / git:init-default-branch / git:merge-request — GitLab token bound to origin", () => {
+    // The push commits the checkout's change first, and the bound instance's
+    // API names that commit's fallback author.
     it("push: origin on the bound host over https gets the token (unchanged)", async () => {
       await authGitLab(httpsHost)
       const repo = checkout(`https://${httpsHost}/acme/infra.git`)
       await invoke("git:push", { worktreePath: repo, branchName: "main", provider: "gitlab" })
-      expect(sinksOf(GITLAB_TOKEN)).toEqual([`git https://${httpsHost}`])
+      expect(sinksOf(GITLAB_TOKEN)).toEqual([
+        `git https://${httpsHost}`,
+        `api https://${httpsHost}`,
+      ])
     })
 
     it("an origin on another host is refused: the token reaches neither its API nor the remote", async () => {
@@ -1113,7 +1121,10 @@ describe("session token binding (local http and https remotes)", () => {
       await scriptExportsGitLabHost(`https://${httpsHost}/`)
       const repo = checkout(`https://${httpsHost}/acme/infra.git`)
       await invoke("git:push", { worktreePath: repo, branchName: "main", provider: "gitlab" })
-      expect(sinksOf(GITLAB_TOKEN)).toEqual([`git https://${httpsHost}`])
+      expect(sinksOf(GITLAB_TOKEN)).toEqual([
+        `git https://${httpsHost}`,
+        `api https://${httpsHost}`,
+      ])
     })
 
     it("an inherited GITLAB_HOST in URL form, or GL_HOST, binds the inherited token to that host", async () => {
@@ -1131,7 +1142,10 @@ describe("session token binding (local http and https remotes)", () => {
           provider: "gitlab",
         })
         expect(push.error ?? "").not.toContain("credential")
-        expect(sinksOf(GITLAB_TOKEN)).toEqual([`git https://${httpsHost}`])
+        expect(sinksOf(GITLAB_TOKEN)).toEqual([
+          `git https://${httpsHost}`,
+          `api https://${httpsHost}`,
+        ])
       }
     })
 

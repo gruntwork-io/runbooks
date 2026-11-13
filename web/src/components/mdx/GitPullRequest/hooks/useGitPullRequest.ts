@@ -28,6 +28,7 @@ interface CreateRequestBody {
 interface PushRequestBody {
   worktreePath: string
   branchName: string
+  commitMessage: string
   provider?: GitProvider
 }
 
@@ -413,17 +414,18 @@ export function useGitPullRequest({
     [executeIPCRequest, cfg],
   )
 
-  // Push additional changes. The provider is passed so the main process resolves
-  // the matching host token (works for self-hosted instances too).
+  // Commit and push the changes made since the PR/MR opened. The provider is
+  // passed so the main process resolves the matching host token (works for
+  // self-hosted instances too).
   const pushChanges = useCallback(
-    async (localPath: string, branchName: string) => {
+    async (localPath: string, branchName: string, commitMessage: string) => {
       setStatus("pushing")
       setPushError(null)
       setLogs((prev) => [...prev, createLogEntry("─────────────────────────────────")])
 
       await executeIPCRequest({
         channel: cfg.channels.push,
-        body: { worktreePath: localPath, branchName, provider: cfg.id },
+        body: { worktreePath: localPath, branchName, commitMessage, provider: cfg.id },
         onError: setPushError,
         // The PR/MR already exists: keep showing it, with the push error inline.
         errorStatus: "success",
