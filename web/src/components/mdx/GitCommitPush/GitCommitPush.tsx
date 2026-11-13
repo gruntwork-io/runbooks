@@ -380,10 +380,12 @@ function GitCommitPush({
           {!waitingFor && (
             <>
               {nothingChanged ? (
-                <p className="text-sm text-muted-foreground m-0">
-                  No files have changed since the last commit, so Push sends only the commits
-                  already made.
-                </p>
+                !merged && (
+                  <p className="text-sm text-muted-foreground m-0">
+                    No files have changed since the last commit, so Push sends only the commits
+                    already made.
+                  </p>
+                )
               ) : (
                 <>
                   <CollapsibleToggle
