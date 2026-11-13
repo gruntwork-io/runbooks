@@ -12,14 +12,16 @@ const METHOD_LABELS: Record<MergeMethod, string> = {
 
 interface MergeControlProps {
   readonly merge: PrMerge
+  /** Why one of the block's own merge conditions doesn't hold, which keeps Merge disabled. */
+  readonly blockedBy?: string
 }
 
 /**
- * The Merge button a <GitHubPullRequest> block with `allowMerge` shows under
- * its pull request: enabled once GitHub says it can merge, and otherwise
- * disabled with GitHub's reason.
+ * The Merge button a block with `allowPullRequestMerge` shows under its pull
+ * request: enabled once GitHub says it can merge and the block's own merge
+ * conditions hold, and otherwise disabled with the reason.
  */
-export function MergeControl({ merge }: MergeControlProps) {
+export function MergeControl({ merge, blockedBy }: MergeControlProps) {
   const { state, checkError, merging, mergeError, refresh } = merge
 
   if (state?.state === "merged") {
@@ -43,7 +45,7 @@ export function MergeControl({ merge }: MergeControlProps) {
     )
   }
 
-  const ready = state?.mergeability === "ready"
+  const ready = state?.mergeability === "ready" && blockedBy === undefined
   const label = state?.method ? METHOD_LABELS[state.method] : "Merge"
 
   return (
@@ -76,6 +78,7 @@ export function MergeControl({ merge }: MergeControlProps) {
         <p className="text-xs text-muted-foreground m-0">Asking GitHub whether it can merge...</p>
       )}
       {state?.reason && <p className="text-xs text-muted-foreground m-0">{state.reason}</p>}
+      {blockedBy && <p className="text-xs text-muted-foreground m-0">{blockedBy}</p>}
       {state?.warning && (
         <p className="flex items-start gap-1.5 text-xs text-warning-foreground m-0">
           <TriangleAlert className="size-3.5 mt-0.5 shrink-0" />

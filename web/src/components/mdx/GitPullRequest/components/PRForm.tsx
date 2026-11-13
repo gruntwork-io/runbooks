@@ -44,6 +44,8 @@ interface PRFormProps {
   changeSummary: ChangeSummary | null
   /** The clone's changes, which the pull request commits. */
   changes: GitFileChangesContextType
+  /** Whether the list of changed files starts open. */
+  changedFilesExpanded: boolean
   status: PRBlockStatus
   disabled: boolean
   onSubmit: () => void
@@ -68,13 +70,14 @@ export function PRForm({
   labelsLoading,
   changeSummary,
   changes,
+  changedFilesExpanded,
   status,
   disabled,
   onSubmit,
   onCancel,
 }: PRFormProps) {
   const [commitMessageExpanded, setCommitMessageExpanded] = useState(false)
-  const [whatFilesExpanded, setWhatFilesExpanded] = useState(false)
+  const [whatFilesExpanded, setWhatFilesExpanded] = useState(changedFilesExpanded)
   const [showNoChangesConfirm, setShowNoChangesConfirm] = useState(false)
 
   const isCreating = status === "creating"
