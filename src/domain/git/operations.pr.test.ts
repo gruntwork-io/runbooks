@@ -13,10 +13,11 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect, Layer } from "effect"
-import { createPullRequest, createMergeRequest } from "./operations.ts"
+import { createPullRequest, createMergeRequest, pushPullRequestChanges } from "./operations.ts"
 import type { CreatePullRequestParams } from "./operations.ts"
 import { makeTestLayer, makeTestGitHubClient } from "../../test-utils/TestLayer.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
+import type { StatusEntry } from "../../services/GitClient.ts"
 import { GitError, GitHubApiError, GitLabApiError } from "../../errors/index.ts"
 import { GitCliClientLive } from "../../layers/GitCliClient.ts"
 import { ChildProcessSpawnerLive } from "../../layers/ChildProcessSpawner.ts"
@@ -260,6 +261,80 @@ describe("runGitSteps", () => {
     await Effect.runPromise(createMergeRequest("tok", params).pipe(Effect.provide(layer)))
 
     expect(steps).toEqual(["stageAll", "push"])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// pushPullRequestChanges: bring an open PR/MR up to date
+// ---------------------------------------------------------------------------
+
+describe("pushPullRequestChanges", () => {
+  const pushParams = { repoPath: "/repo", branch: "runbook/123", commitMessage: "More changes" }
+
+  const recordingGit = (
+    steps: string[],
+    current: string,
+    status: StatusEntry[],
+  ) => ({
+    getRemoteUrl: () => Effect.succeed("https://gitlab.com/acme/infra.git"),
+    getCurrentBranch: () => Effect.succeed(current),
+    status: () => Effect.succeed(status),
+    stageAll: () => Effect.sync(() => void steps.push("stageAll")),
+    commit: (_repo: string, message: string) =>
+      Effect.sync(() => void steps.push(`commit ${message}`)),
+    push: (_repo: string, _remote: string, branch: string) =>
+      Effect.sync(() => void steps.push(`push ${branch}`)),
+  })
+
+  it.each(["github", "gitlab"] as const)(
+    "%s: commits the changes made since the PR/MR opened, then pushes its branch",
+    async (provider) => {
+      const steps: string[] = []
+      const logs: string[] = []
+      const layer = makeTestLayer({
+        git: recordingGit(steps, "runbook/123", [{ path: "new.tf", status: "A" }]),
+      })
+
+      await Effect.runPromise(
+        pushPullRequestChanges("tok", provider, pushParams, (l) => logs.push(l)).pipe(
+          Effect.provide(layer),
+        ),
+      )
+
+      expect(steps).toEqual(["stageAll", "commit More changes", "push runbook/123"])
+      expect(logs).toContain("Committing changes…")
+    },
+  )
+
+  it("with nothing to commit, pushes the commits already made", async () => {
+    const steps: string[] = []
+    const logs: string[] = []
+    const layer = makeTestLayer({
+      git: recordingGit(steps, "runbook/123", [{ path: "sub/", status: "??" }]),
+    })
+
+    await Effect.runPromise(
+      pushPullRequestChanges("tok", "github", pushParams, (l) => logs.push(l)).pipe(
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(steps).toEqual(["stageAll", "push runbook/123"])
+    expect(logs).toContain("No new changes to commit; pushing the existing commits…")
+  })
+
+  it("refuses when the clone is on another branch, before staging anything", async () => {
+    const steps: string[] = []
+    const layer = makeTestLayer({
+      git: recordingGit(steps, "main", [{ path: "new.tf", status: "A" }]),
+    })
+
+    const error = await Effect.runPromise(
+      pushPullRequestChanges("tok", "github", pushParams).pipe(Effect.flip, Effect.provide(layer)),
+    )
+
+    expect(steps).toEqual([])
+    expect((error as GitError).stderr).toContain("The clone is on main, not runbook/123")
   })
 })
 

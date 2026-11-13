@@ -860,8 +860,15 @@ export interface IpcChannelMap {
     params: GitLocalRepoRequest
     result: GitLocalRepoResponse
   }
+  // Commit the clone's changes onto an open PR/MR's branch, then push it.
   "git:push": {
-    params: { worktreePath: string; branchName: string; provider?: "github" | "gitlab" }
+    params: {
+      worktreePath: string
+      branchName: string
+      /** The message for the commit of the changes made since the PR/MR opened. */
+      commitMessage: string
+      provider?: "github" | "gitlab"
+    }
     result: { ok: true } | { error: string }
   }
   "git:init-default-branch": {

@@ -451,8 +451,12 @@ function GitPullRequestInteractive({
 
   const handlePush = useCallback(() => {
     if (!activeWorkTree || !prResult) return
-    void pushChanges(activeWorkTree.localPath, prResult.branchName)
-  }, [activeWorkTree, prResult, pushChanges])
+    void pushChanges(
+      activeWorkTree.localPath,
+      prResult.branchName,
+      commitMessage.trim() || defaultCommitMessage,
+    )
+  }, [activeWorkTree, prResult, pushChanges, commitMessage, defaultCommitMessage])
 
   const handleCreateAnother = useCallback(() => {
     reset()

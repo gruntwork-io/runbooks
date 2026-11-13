@@ -158,7 +158,7 @@ function renderPR(cfg: PRProviderConfig) {
   const push = () => {
     let done!: Promise<void>
     act(() => {
-      done = state().pushChanges(WORKTREE, CREATE_PARAMS.headBranch)
+      done = state().pushChanges(WORKTREE, CREATE_PARAMS.headBranch, "Update the account")
     })
     return done
   }
@@ -263,6 +263,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
       expect(fake.invoke).toHaveBeenLastCalledWith("git:push", {
         worktreePath: WORKTREE,
         branchName: CREATE_PARAMS.headBranch,
+        commitMessage: "Update the account",
         provider: cfg.id,
       })
 
