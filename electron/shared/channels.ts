@@ -14,6 +14,7 @@ import type {
   FileTreeNode,
   FilesCapturedEvent,
   HeavyDir,
+  RenderInlineRequest,
   RenderRequest,
   ScriptFileChange,
   Section,
@@ -190,22 +191,35 @@ export interface IpcChannelMap {
   /** A render that a newer one of the same template overtook resolves to Superseded. */
   "boilerplate:render": { params: RenderRequest; result: RenderResponse | Superseded }
   "boilerplate:render-inline": {
-    params: RenderInlineRequest
+    /**
+     * Main reads only each input's name and value, so `type` is any string,
+     * as the renderer's TemplateValue has it, not src/types.ts's narrower one.
+     */
+    params: Omit<RenderInlineRequest, "inputs"> & {
+      inputs: { name: string; type: string; value: unknown }[]
+    }
+    /**
+     * Each template file, rendered, by its name. With generateFile it was also
+     * written, and `fileTree` is the output dir's tree with the truncation
+     * fields, or empty for the worktree target; a preview has neither.
+     */
     result: {
+      message: string
       renderedFiles: Record<
         string,
         {
+          name: string
+          path: string
           content: string
-          name?: string
-          path?: string
-          language?: string
-          size?: number
-          isTruncated?: boolean
+          language: string
+          size: number
+          isTruncated: boolean
         }
       >
-      message?: string
-      fileTree?: unknown
-      meta?: unknown
+      fileTree?: FileTreeNode[]
+      totalFiles?: number
+      truncatedTree?: boolean
+      heavyDirs?: HeavyDir[]
     }
   }
   /**
@@ -1087,15 +1101,6 @@ export interface RenderResponse {
   modifiedFiles: string[]
   /** Unchanged files, which the render didn't write. */
   skippedFiles: string[]
-}
-
-export interface RenderInlineRequest {
-  template?: string
-  templateFiles?: Record<string, string>
-  variables?: Record<string, unknown>
-  inputs?: Array<{ name: string; value: unknown }>
-  generateFile?: boolean
-  outputPath?: string
 }
 
 export interface ResolveInputsRequest {

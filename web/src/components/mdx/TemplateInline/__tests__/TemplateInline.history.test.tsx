@@ -3,6 +3,7 @@ import { act, render, screen } from "@testing-library/react"
 import { useEffect } from "react"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { makeTestApi, type TestApi } from "@/test/test-api"
+import { renderedInline } from "@/test/render-inline"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
@@ -34,23 +35,23 @@ const DEBOUNCE_SETTLE_MS = 450
 function makeTestApiRenderingInline() {
   return makeTestApi({
     "boilerplate:render-inline": (params) => {
-      const inputs = params.inputs?.find((input) => input.name === "inputs")?.value
+      const inputs = params.inputs.find((input) => input.name === "inputs")?.value
       const name =
         typeof inputs === "object" && inputs !== null && "name" in inputs ? inputs.name : undefined
-      const renderedFiles = Object.fromEntries(
-        Object.entries(params.templateFiles ?? {}).map(([file, content]) => [
+      const contents = Object.fromEntries(
+        Object.entries(params.templateFiles).map(([file, content]) => [
           file,
-          {
-            name: file,
-            path: file,
-            content: content.replace("{{ .inputs.name }}", String(name)),
-            language: "",
-          },
+          content.replace("{{ .inputs.name }}", String(name)),
         ]),
       )
       return params.generateFile
-        ? { renderedFiles, fileTree: [], totalFiles: 1, truncatedTree: false, heavyDirs: [] }
-        : { renderedFiles }
+        ? renderedInline(contents, {
+            fileTree: [],
+            totalFiles: 1,
+            truncatedTree: false,
+            heavyDirs: [],
+          })
+        : renderedInline(contents)
     },
     "session:record-event": () => ({ ok: true }),
     "native:set-theme": () => ({ ok: true }),

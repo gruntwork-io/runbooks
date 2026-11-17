@@ -15,6 +15,7 @@ import { isSensitiveOutput, revealOutput, sensitiveOutput } from "@/lib/outputVa
 import { TestWrapper } from "@/test/test-utils"
 import { makeTestApi, type HeldCall, type TestApi } from "@/test/test-api"
 import { makeConfig } from "@/test/make-config"
+import { renderedInline } from "@/test/render-inline"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
 import type { Executable } from "@/types/executable"
 import { useScriptExecution } from "../useScriptExecution"
@@ -116,12 +117,7 @@ describe("useScriptExecution — env prop", () => {
     })
 
     await act(async () => {
-      renders[0]!.resolve({
-        renderedFiles: {
-          "script.sh": { content: COMMAND },
-          "env:BUCKET": { content: "my-bucket" },
-        },
-      })
+      renders[0]!.resolve(renderedInline({ "script.sh": COMMAND, "env:BUCKET": "my-bucket" }))
     })
     expect(result.current.exec.envVars).toEqual([
       { name: "BUCKET", value: "my-bucket" },

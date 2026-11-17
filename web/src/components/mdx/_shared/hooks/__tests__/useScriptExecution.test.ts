@@ -5,6 +5,7 @@ import { ApiProvider } from "@/contexts/ApiContext"
 import { RunbookContextProvider } from "@/contexts/RunbookContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { makeTestApi, type HeldCall, type Params, type TestApi } from "@/test/test-api"
+import { renderedInline } from "@/test/render-inline"
 import { SENSITIVE_DISPLAY_RENDER_NOTE, useScriptExecution } from "../useScriptExecution"
 import {
   isSensitiveOutput,
@@ -44,10 +45,7 @@ vi.mock("@/contexts/useLogs", () => {
  * Stands in for the boilerplate engine: substitutes each `{{ .inputs.x }}` /
  * `{{ .outputs.block.key }}` from the payload the hook sends.
  */
-function fakeRenderInline({
-  templateFiles = {},
-  inputs = [],
-}: Params<"boilerplate:render-inline">) {
+function fakeRenderInline({ templateFiles, inputs }: Params<"boilerplate:render-inline">) {
   const ctx = Object.fromEntries(inputs.map((v) => [v.name, v.value]))
   const content = templateFiles["script.sh"]!.replace(
     /\{\{\s*\.([\w.]+)\s*\}\}/g,
@@ -56,7 +54,7 @@ function fakeRenderInline({
         path.split(".").reduce<unknown>((obj, key) => (obj as Record<string, unknown>)[key], ctx),
       ),
   )
-  return { renderedFiles: { "script.sh": { content } } }
+  return renderedInline({ "script.sh": content })
 }
 
 let testApi: TestApi

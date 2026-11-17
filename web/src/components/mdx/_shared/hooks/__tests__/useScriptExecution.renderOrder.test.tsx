@@ -13,6 +13,7 @@ import { useRunbookContext } from "@/contexts/useRunbook"
 import { TestWrapper } from "@/test/test-utils"
 import { makeTestApi, type HeldCall, type TestApi } from "@/test/test-api"
 import { makeConfig } from "@/test/make-config"
+import { renderedInline } from "@/test/render-inline"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
 import { useScriptExecution } from "../useScriptExecution"
 
@@ -43,7 +44,7 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 const config = makeConfig([{ name: "name", type: BoilerplateVariableType.String }])
-const rendered = (content: string) => ({ renderedFiles: { "script.sh": { content } } })
+const rendered = (content: string) => renderedInline({ "script.sh": content })
 
 function renderCommand(command = "echo {{ .inputs.name }}") {
   return renderHook(

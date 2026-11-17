@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react"
 import { useEffect } from "react"
 import { ApiProvider } from "@/contexts/ApiContext"
-import { makeTestApi, type TestApi } from "@/test/test-api"
+import { makeTestApi, type Result, type TestApi } from "@/test/test-api"
+import { renderedInline } from "@/test/render-inline"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -36,7 +37,9 @@ import TemplateInline from "../TemplateInline"
 const TEMPLATE = "Hello {{ .inputs.name }}"
 const DEBOUNCE_SETTLE_MS = 450
 
-const GENERATED_TREE = [{ id: "out.txt", name: "out.txt", type: "file", children: [] }]
+const GENERATED_TREE: NonNullable<Result<"boilerplate:render-inline">["fileTree"]> = [
+  { id: "out.txt", name: "out.txt", type: "file", children: [] },
+]
 
 /**
  * A fake API that answers boilerplate:render-inline the way main does: the
@@ -46,29 +49,23 @@ const GENERATED_TREE = [{ id: "out.txt", name: "out.txt", type: "file", children
 function makeTestApiRenderingInline() {
   return makeTestApi({
     "boilerplate:render-inline": (params) => {
-      const inputs = params.inputs?.find((input) => input.name === "inputs")?.value
+      const inputs = params.inputs.find((input) => input.name === "inputs")?.value
       const name =
         typeof inputs === "object" && inputs !== null && "name" in inputs ? inputs.name : undefined
-      const renderedFiles = Object.fromEntries(
-        Object.entries(params.templateFiles ?? {}).map(([file, content]) => [
+      const contents = Object.fromEntries(
+        Object.entries(params.templateFiles).map(([file, content]) => [
           file,
-          {
-            name: file,
-            path: file,
-            content: content.replace("{{ .inputs.name }}", String(name)),
-            language: "",
-          },
+          content.replace("{{ .inputs.name }}", String(name)),
         ]),
       )
       return params.generateFile
-        ? {
-            renderedFiles,
+        ? renderedInline(contents, {
             fileTree: GENERATED_TREE,
             totalFiles: 1,
             truncatedTree: false,
             heavyDirs: [],
-          }
-        : { renderedFiles }
+          })
+        : renderedInline(contents)
     },
     "native:set-theme": () => ({ ok: true }),
   })
@@ -220,9 +217,7 @@ describe("TemplateInline", () => {
 
       await waitFor(() => expect(renderInlineCalls(testApi)).toHaveLength(1))
       expect(screen.queryByText("Waiting for outputs from:")).not.toBeInTheDocument()
-      const outputs = renderInlineCalls(testApi)[0]!.inputs?.find(
-        (i) => i.name === "outputs",
-      )?.value
+      const outputs = renderInlineCalls(testApi)[0]!.inputs.find((i) => i.name === "outputs")?.value
       expect(outputs).toEqual({ mint: { account_id: "123" } })
     })
 
@@ -287,7 +282,7 @@ describe("TemplateInline", () => {
     expect(call).not.toHaveProperty("target")
     // Main keys what each block last wrote by this id, to remove a file left
     // at an old outputPath.
-    expect(call).toHaveProperty("blockId", "tpl")
+    expect(call.blockId).toBe("tpl")
     expect(applyFileTreeUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ fileTree: GENERATED_TREE, totalFiles: 1, truncatedTree: false }),
     )
@@ -302,7 +297,7 @@ describe("TemplateInline", () => {
     })
 
     await waitFor(() => expect(renderInlineCalls(testApi)).toHaveLength(1))
-    const outputs = renderInlineCalls(testApi)[0]!.inputs?.find((i) => i.name === "outputs")?.value
+    const outputs = renderInlineCalls(testApi)[0]!.inputs.find((i) => i.name === "outputs")?.value
     expect(outputs).toEqual({ mint: { token: "<redacted>", user: "alice" } })
   })
 
@@ -350,7 +345,7 @@ describe("TemplateInline", () => {
     })
 
     await waitFor(() => expect(renderInlineCalls(testApi)).toHaveLength(1))
-    const outputs = renderInlineCalls(testApi)[0]!.inputs?.find((i) => i.name === "outputs")?.value
+    const outputs = renderInlineCalls(testApi)[0]!.inputs.find((i) => i.name === "outputs")?.value
     expect(outputs).toEqual({ mint: { token: "s3cr3t", user: "alice" } })
   })
 

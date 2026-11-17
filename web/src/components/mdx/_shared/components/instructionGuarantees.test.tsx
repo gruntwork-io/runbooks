@@ -6,6 +6,7 @@ import { Instruction } from "./Instruction"
 import type { TemplateContext } from "@/lib/templateUtils"
 import { sensitiveOutput } from "@/lib/outputValues"
 import { makeTestApi, type Handler, type Params, type TestApi } from "@/test/test-api"
+import { renderedInline } from "@/test/render-inline"
 
 /**
  * Cross-cutting instruction-mode guarantees that live in the shared resolution
@@ -48,7 +49,7 @@ const offline = () => Promise.reject(new Error("engine offline"))
 
 /** The `inputs` map a render request renders with. */
 function inputsOf(params: Params<"boilerplate:render-inline">): Record<string, unknown> {
-  const value = params.inputs?.find((v) => v.name === "inputs")?.value
+  const value = params.inputs.find((v) => v.name === "inputs")?.value
   return value !== null && typeof value === "object"
     ? Object.fromEntries(Object.entries(value))
     : {}
@@ -64,7 +65,7 @@ describe("instruction mode — nothing runs", () => {
         command="aws s3 ls {{ .inputs.bucket }}"
         templateContext={ctx}
       />,
-      () => ({ renderedFiles: { "cmd-0": { content: "aws s3 ls my-bucket" } } }),
+      () => renderedInline({ "cmd-0": "aws s3 ls my-bucket" }),
     )
 
     await waitFor(() => expect(testApi.invoke).toHaveBeenCalled())
@@ -133,7 +134,7 @@ describe("instruction mode — no unresolved template references", () => {
         command="aws s3 ls {{ .inputs.bucket }}"
         templateContext={{ inputs: { bucket: undefined }, outputs: {} }}
       />,
-      () => ({ renderedFiles: { "cmd-0": { content: "aws s3 ls <bucket>" } } }),
+      () => renderedInline({ "cmd-0": "aws s3 ls <bucket>" }),
     )
 
     await waitFor(() => expect(testApi.invoke).toHaveBeenCalled())
@@ -152,15 +153,12 @@ describe("instruction mode — no unresolved template references", () => {
         command={["aws s3 ls {{ .inputs.bucket }}", "echo {{ .inputs.region }}"]}
         templateContext={{ inputs: { region: "us-east-1" }, outputs: {} }}
       />,
-      () => ({
-        renderedFiles: {
-          "cmd-0": {
-            content:
-              '[template error: template: cmd-0:1:12: executing "cmd-0" at <.inputs.bucket>: map has no entry for key "bucket"]',
-          },
+      () =>
+        renderedInline({
+          "cmd-0":
+            '[template error: template: cmd-0:1:12: executing "cmd-0" at <.inputs.bucket>: map has no entry for key "bucket"]',
           // No 'cmd-1' in the response.
-        },
-      }),
+        }),
     )
 
     await screen.findByText(/simplified resolver/)
@@ -179,11 +177,7 @@ describe("instruction mode — no unresolved template references", () => {
         command={"docker ps --format '{{`{{.Names}}`}}' --filter name={{ .inputs.name }}"}
         templateContext={{ inputs: { name: "web" }, outputs: {} }}
       />,
-      () => ({
-        renderedFiles: {
-          "cmd-0": { content: "docker ps --format '{{.Names}}' --filter name=web" },
-        },
-      }),
+      () => renderedInline({ "cmd-0": "docker ps --format '{{.Names}}' --filter name=web" }),
     )
 
     expect(
@@ -203,7 +197,7 @@ describe("instruction mode — no unresolved template references", () => {
         : inputs.auto_approve
           ? "terraform destroy -auto-approve"
           : "terraform destroy "
-      return { renderedFiles: { "cmd-0": { content } } }
+      return renderedInline({ "cmd-0": content })
     }
     const command = "terraform destroy {{ if .inputs.auto_approve }}-auto-approve{{ end }}"
 
@@ -237,7 +231,7 @@ describe("instruction mode — no unresolved template references", () => {
         : typeof varFile === "string" && varFile
           ? `terraform apply -var-file=${varFile}`
           : "terraform apply "
-      return { renderedFiles: { "cmd-0": { content } } }
+      return renderedInline({ "cmd-0": content })
     }
 
     const testApi = renderWithEngine(
@@ -275,12 +269,12 @@ describe("instruction mode — sensitive outputs", () => {
   const sentOutputs = (testApi: TestApi) =>
     testApi
       .callsTo("boilerplate:render-inline")
-      .map((params) => params.inputs?.find((v) => v.name === "outputs")?.value)
+      .map((params) => params.inputs.find((v) => v.name === "outputs")?.value)
 
   it("prompts for the value and sends the engine a placeholder, then the pasted value", async () => {
     const testApi = renderWithEngine(
       <Instruction title="Run this:" command={command} templateContext={ctx} />,
-      () => ({ renderedFiles: {} }),
+      () => renderedInline({}),
     )
 
     const field = screen.getByPlaceholderText(/paste the api_token value/i)
