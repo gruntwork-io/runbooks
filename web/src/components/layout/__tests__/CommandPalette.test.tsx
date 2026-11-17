@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent, within, act } from "@testing-library/react"
-import { ApiProvider } from "@/contexts/ApiContext"
+import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { makeTestApi } from "@/test/test-api"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { InstructionModeProvider } from "@/contexts/InstructionModeContext"
 import { LogsProvider } from "@/contexts/LogsContext"
@@ -70,24 +71,18 @@ interface RenderOptions {
 
 const APP_VERSION = "1.2.3"
 
-/** A preload api that answers every channel with ok, and the version lookup with APP_VERSION. */
+/** A preload api that answers the palette's channels with ok, and the version lookup with APP_VERSION. */
 function makeApi() {
-  const invoke = vi.fn((channel: string) =>
-    Promise.resolve(channel === "native:app-version" ? { version: APP_VERSION } : { ok: true }),
-  )
-  const api = { invoke, on: vi.fn(() => () => {}) } as unknown as Parameters<
-    typeof ApiProvider
-  >[0]["api"]
-  return { api, invoke }
+  return makeTestApi({
+    "native:app-version": () => ({ version: APP_VERSION }),
+    "native:set-theme": () => ({ ok: true }),
+    "native:open-external": () => ({ ok: true }),
+    "cli:install-with-dialog": () => ({ ok: true }),
+    "cli:uninstall-with-dialog": () => ({ ok: true }),
+  })
 }
 
-function Providers({
-  api,
-  children,
-}: {
-  api: ReturnType<typeof makeApi>["api"]
-  children: ReactNode
-}) {
+function Providers({ api, children }: { api: RunbooksAPI; children: ReactNode }) {
   return (
     <ApiProvider api={api}>
       <ThemeProvider>
@@ -158,6 +153,7 @@ const select = async (name: string | RegExp) => {
 // Every heading is on screen: jsdom gives nothing a layout.
 beforeEach(() => {
   localStorage.clear()
+  // jsdom has no DOMRectList constructor, so a plain array stands in for one.
   vi.spyOn(Element.prototype, "getClientRects").mockReturnValue([
     {} as DOMRect,
   ] as unknown as DOMRectList)
@@ -413,6 +409,7 @@ describe("CommandPalette", () => {
 
     it("leaves out a heading the runbook doesn't show, such as one in a collapsed block", async () => {
       vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function (this: Element) {
+        // jsdom has no DOMRectList constructor, so a plain array stands in for one.
         return (this.closest(".collapsed") ? [] : [{}]) as unknown as DOMRectList
       })
       await renderPalette({
@@ -430,6 +427,7 @@ describe("CommandPalette", () => {
     })
 
     it("lists every heading while the narrow layout's Code tab hides the whole runbook", async () => {
+      // jsdom has no DOMRectList constructor, so a plain array stands in for one.
       vi.spyOn(Element.prototype, "getClientRects").mockReturnValue([] as unknown as DOMRectList)
       await renderPalette({ runbook })
       await select(/Jump to section/)

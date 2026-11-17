@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi } from "@/test/test-api"
 import { RunbookProgressProvider } from "@/contexts/RunbookProgressContext"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
@@ -12,13 +13,12 @@ vi.mock("@/hooks/useDownloadLogs", () => ({
   useDownloadLogs: () => ({ hasLogs: false, downloadRaw: vi.fn(), downloadJson: vi.fn() }),
 }))
 
-type Api = Parameters<typeof ApiProvider>[0]["api"]
-const api = { invoke: vi.fn(async () => undefined), on: () => () => {} } as unknown as Api
+const testApi = makeTestApi({ "native:set-theme": () => ({ ok: true }) })
 
 /** The header of an open runbook whose steps are done or not, as `steps` says. */
 function renderHeader(steps: boolean[]) {
   return render(
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <ThemeProvider>
         <RunbookProgressProvider>
           <Header

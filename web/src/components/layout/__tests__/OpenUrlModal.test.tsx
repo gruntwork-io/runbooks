@@ -2,33 +2,14 @@ import { describe, it, expect, vi } from "vitest"
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { useState } from "react"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi } from "@/test/test-api"
 import { OpenUrlModal } from "../OpenUrlModal"
-
-type OpenRemoteResult = { path: string; remoteSource: string }
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (reason: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
-}
 
 /** Mock api whose runbook:open-remote calls resolve only when the test says so. */
 function makeApi() {
-  const pending: ReturnType<typeof deferred<OpenRemoteResult>>[] = []
-  const invoke = vi.fn((channel: string) => {
-    if (channel !== "runbook:open-remote") return Promise.reject(new Error(`unexpected ${channel}`))
-    const d = deferred<OpenRemoteResult>()
-    pending.push(d)
-    return d.promise
-  })
-  const api = { invoke, on: vi.fn(() => () => {}) } as unknown as Parameters<
-    typeof ApiProvider
-  >[0]["api"]
-  return { api, invoke, pending }
+  const testApi = makeTestApi()
+  const pending = testApi.hold("runbook:open-remote")
+  return { api: testApi.api, invoke: testApi.invoke, pending }
 }
 
 function Harness({ onOpened }: { onOpened: (path: string, remoteSource: string) => void }) {

@@ -1,27 +1,26 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Handler } from "@/test/test-api"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { WelcomeScreen } from "../WelcomeScreen"
 
 /** Render the welcome screen with the CLI not installed and `install` answering `cli:install`. */
-function renderWelcome(install: () => Promise<unknown>) {
-  const invoke = vi.fn(async (channel: string) => {
-    if (channel === "cli:check-install") return { installed: false, platform: "darwin" }
-    if (channel === "cli:install") return install()
-    if (channel === "native:set-theme") return { ok: true }
-    if (channel === "native:app-version") return { version: "1.2.3" }
-    throw new Error(`No mock response for channel: ${channel}`)
+function renderWelcome(install: Handler<"cli:install">) {
+  const testApi = makeTestApi({
+    "cli:check-install": () => ({ installed: false, platform: "darwin" }),
+    "cli:install": install,
+    "native:set-theme": () => ({ ok: true }),
+    "native:app-version": () => ({ version: "1.2.3" }),
   })
-  const api = { invoke, on: () => () => {} } as unknown as RunbooksAPI
   render(
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <ThemeProvider>
         <WelcomeScreen />
       </ThemeProvider>
     </ApiProvider>,
   )
-  return invoke
+  return testApi
 }
 
 async function clickInstall() {
@@ -58,7 +57,7 @@ describe("WelcomeScreen CLI install", () => {
   })
 
   it("stays quiet when the user dismisses the administrator prompt", async () => {
-    const invoke = renderWelcome(() =>
+    const testApi = renderWelcome(() =>
       Promise.reject(
         new Error(
           "Error invoking remote method 'cli:install': Error: Command failed: osascript -e do shell script \"...\" with administrator privileges\n0:120: execution error: User canceled. (-128)",
@@ -67,7 +66,7 @@ describe("WelcomeScreen CLI install", () => {
     )
     const button = await clickInstall()
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("cli:install"))
+    await waitFor(() => expect(testApi.invoke).toHaveBeenCalledWith("cli:install"))
     await waitFor(() => expect(button).toBeEnabled())
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   })
