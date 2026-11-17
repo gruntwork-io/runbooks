@@ -4,9 +4,10 @@ import type { ComponentProps, ReactNode } from "react"
 import { BoilerplateInputsForm } from "../BoilerplateInputsForm"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import { BoilerplateValidationType, type BoilerplateVariable } from "@/types/boilerplateVariable"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import { RunbookProgressProbe, RunbookStateStub } from "@/test/test-utils"
+import { makeTestApi, type Params } from "@/test/test-api"
 import { RunbookProgressProvider } from "@/contexts/RunbookProgressContext"
 import { ComponentIdRegistryProvider, useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
@@ -679,12 +680,10 @@ describe("BoilerplateInputsForm collapsed sections", () => {
 // this stand-in substitutes `{{ .Name }}` and `{{ .outputs.block.name }}`, and
 // leaves a value whose reference is missing as it was, as main does.
 describe("BoilerplateInputsForm resolved linked values", () => {
-  type ResolveRequest = {
-    inputs: Record<string, unknown>
-    outputs: Record<string, Record<string, string>>
-  }
-
-  function fakeResolve({ inputs, outputs }: ResolveRequest): Record<string, unknown> {
+  function fakeResolve({
+    inputs,
+    outputs = {},
+  }: Params<"boilerplate:resolve-inputs">): Record<string, unknown> {
     const resolveString = (text: string): string => {
       let missing = false
       const out = text.replace(/\{\{\s*\.([\w.]+)\s*\}\}/g, (_m, path: string) => {
@@ -721,13 +720,11 @@ describe("BoilerplateInputsForm resolved linked values", () => {
       importedValues?: Record<string, unknown>
     } = {},
   ) {
-    const invoke = vi.fn(async (channel: string, request: ResolveRequest) => {
-      if (channel !== "boilerplate:resolve-inputs") throw new Error(`unexpected ${channel}`)
-      return { inputs: fakeResolve(request) }
+    const testApi = makeTestApi({
+      "boilerplate:resolve-inputs": (request) => ({ inputs: fakeResolve(request) }),
     })
-    const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
     const utils = render(
-      <ApiProvider api={api}>
+      <ApiProvider api={testApi.api}>
         <RunbookStateStub blockOutputs={blockOutputs} blockInputs={blockInputs}>
           <BoilerplateInputsForm
             id="tpl"
@@ -740,8 +737,8 @@ describe("BoilerplateInputsForm resolved linked values", () => {
         </RunbookStateStub>
       </ApiProvider>,
     )
-    const requests = () => invoke.mock.calls.map(([, request]) => request)
-    return { ...utils, invoke, requests }
+    const requests = () => testApi.callsTo("boilerplate:resolve-inputs")
+    return { ...utils, invoke: testApi.invoke, requests }
   }
 
   const linkedConfig: BoilerplateConfig = {

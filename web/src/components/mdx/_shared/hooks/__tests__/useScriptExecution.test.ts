@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { createElement, type ReactNode } from "react"
 import { renderHook, act, cleanup } from "@testing-library/react"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
 import { RunbookContextProvider } from "@/contexts/RunbookContext"
-import { useRunbookContext, type TemplateValue } from "@/contexts/useRunbook"
+import { useRunbookContext } from "@/contexts/useRunbook"
+import { makeTestApi, type HeldCall, type Params, type TestApi } from "@/test/test-api"
 import { SENSITIVE_DISPLAY_RENDER_NOTE, useScriptExecution } from "../useScriptExecution"
 import {
   isSensitiveOutput,
@@ -15,8 +16,7 @@ import {
 // The hook runs inside the real RunbookContextProvider, so inputs and block
 // outputs reach it through registerInputs/registerOutputs exactly as they do in
 // the app. Only the contexts that would need their own providers, and the IPC
-// bridge, are stubbed. The bridge is both handed to ApiProvider (renders) and
-// set as window.api (useApiExec runs and cancels through it directly).
+// bridge (handed to ApiProvider), are stubbed.
 vi.mock("@/hooks/useExecutableRegistry", () => {
   const registry = {
     getExecutableByComponentId: (componentId: string) => ({
@@ -44,11 +44,10 @@ vi.mock("@/contexts/useLogs", () => {
  * Stands in for the boilerplate engine: substitutes each `{{ .inputs.x }}` /
  * `{{ .outputs.block.key }}` from the payload the hook sends.
  */
-function fakeRenderInline(args: unknown) {
-  const { templateFiles, inputs } = args as {
-    templateFiles: Record<string, string>
-    inputs: TemplateValue[]
-  }
+function fakeRenderInline({
+  templateFiles = {},
+  inputs = [],
+}: Params<"boilerplate:render-inline">) {
   const ctx = Object.fromEntries(inputs.map((v) => [v.name, v.value]))
   const content = templateFiles["script.sh"]!.replace(
     /\{\{\s*\.([\w.]+)\s*\}\}/g,
@@ -60,31 +59,32 @@ function fakeRenderInline(args: unknown) {
   return { renderedFiles: { "script.sh": { content } } }
 }
 
-let invoke: Mock<(channel: string, args?: unknown) => Promise<unknown>>
-let api: RunbooksAPI
-const originalApi = window.api
+let testApi: TestApi
+/** Every exec:run, in call order. Each stays in flight until a test ends it. */
+let heldRuns: readonly HeldCall<"exec:run">[]
 
 beforeEach(() => {
-  invoke = vi.fn(async (channel: string, args?: unknown) => {
-    if (channel === "boilerplate:render-inline") return fakeRenderInline(args)
-    // Leave the run in flight: these tests only look at what was sent.
-    if (channel === "exec:run") return new Promise(() => {})
-    return {}
+  testApi = makeTestApi({
+    "boilerplate:render-inline": fakeRenderInline,
+    "exec:cancel": () => ({ ok: true }),
   })
-  api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
-  window.api = api
+  // Leave each run in flight: most tests only look at what was sent.
+  heldRuns = testApi.hold("exec:run")
 })
 
 afterEach(() => {
-  // Unmount first: the hook cancels its run through window.api on unmount.
+  // Unmount first: the hook cancels its run on unmount.
   cleanup()
-  window.api = originalApi
 })
 
 type Props = Omit<Parameters<typeof useScriptExecution>[0], "componentId" | "componentType">
 
 function Providers({ children }: { children: ReactNode }) {
-  return createElement(ApiProvider, { api }, createElement(RunbookContextProvider, null, children))
+  return createElement(
+    ApiProvider,
+    { api: testApi.api },
+    createElement(RunbookContextProvider, null, children),
+  )
 }
 
 function renderScriptExecution(props: Props) {
@@ -99,21 +99,11 @@ function renderScriptExecution(props: Props) {
 
 type EncodedOutputs = Record<string, { value: string; sensitive: boolean }>
 
-/** Holds each exec:run open, so a test can end the latest one with a result. */
+/** Ends the latest exec:run, held open since it started, with a result. */
 function holdRuns() {
-  const pending: ((result: unknown) => void)[] = []
-  invoke.mockImplementation(async (channel: string, args?: unknown) => {
-    if (channel === "boilerplate:render-inline") return fakeRenderInline(args)
-    if (channel === "exec:run") {
-      return new Promise((resolve) => {
-        pending.push(resolve)
-      })
-    }
-    return {}
-  })
-  const settle = (result: unknown) =>
+  const settle = (result: Parameters<HeldCall<"exec:run">["resolve"]>[0]) =>
     act(async () => {
-      pending.at(-1)!(result)
+      heldRuns.at(-1)!.resolve(result)
     })
   return {
     finish: (status: "success" | "fail", exitCode: number, outputs: EncodedOutputs = {}) =>
@@ -132,8 +122,7 @@ function renderWithOutputs(props: Props, outputs: Record<string, OutputValues>) 
   return hook
 }
 
-const renderCalls = () =>
-  invoke.mock.calls.filter(([channel]) => channel === "boilerplate:render-inline")
+const renderCalls = () => testApi.callsTo("boilerplate:render-inline")
 
 describe("useScriptExecution — auth gates", () => {
   it("keeps a googleAuthId block gated when the referenced block withdrew its authentication", () => {
@@ -229,7 +218,7 @@ describe("useScriptExecution — execute", () => {
 
     act(() => result.current.exec.execute())
 
-    expect(invoke).toHaveBeenCalledWith(
+    expect(testApi.invoke).toHaveBeenCalledWith(
       "exec:run",
       expect.objectContaining({
         executableId: "exec-target",
@@ -252,7 +241,7 @@ describe("useScriptExecution — execute", () => {
 
     act(() => result.current.exec.execute())
 
-    expect(invoke).toHaveBeenCalledWith(
+    expect(testApi.invoke).toHaveBeenCalledWith(
       "exec:run",
       expect.objectContaining({
         envVarsOverride: expect.objectContaining({
@@ -459,7 +448,7 @@ describe("useScriptExecution — template render", () => {
 
     // execute() renders the script again in the main process, with the real value
     act(() => result.current.exec.execute())
-    expect(invoke).toHaveBeenCalledWith(
+    expect(testApi.invoke).toHaveBeenCalledWith(
       "exec:run",
       expect.objectContaining({
         templateVarValues: { inputs: {}, outputs: { a: { token: "s3cr3t", url: "https://x" } } },
@@ -474,9 +463,8 @@ describe("useScriptExecution — template render", () => {
     const FROM_JSON_ERROR =
       'template: script.sh:1:26: executing "script.sh" at <.outputs.a.creds>: nil data; no entry for key "user"'
     beforeEach(() => {
-      invoke.mockImplementation(async (channel: string) => {
-        if (channel === "boilerplate:render-inline") throw new Error(FROM_JSON_ERROR)
-        return {}
+      testApi.handle("boilerplate:render-inline", () => {
+        throw new Error(FROM_JSON_ERROR)
       })
     })
 
