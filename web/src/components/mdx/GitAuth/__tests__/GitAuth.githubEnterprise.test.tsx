@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Handlers, type Result, type TestApi } from "@/test/test-api"
 
 // Exercises the REAL useGitAuth hook for GitHub Enterprise host handling.
 vi.mock("@/contexts/useSession", () => ({
@@ -12,19 +13,29 @@ vi.mock("@/contexts/useSession", () => ({
 import { GitAuth } from "../GitAuth"
 import { GitHubAuth } from "../../GitHubAuth"
 
-const originalApi = window.api
+// Both CLIs installed, for the manual UI's hint.
+const CLI_STATUS = {
+  gh: { installed: true, version: "2.60.0", meetsFloor: true },
+  glab: { installed: true, version: "1.80.0", meetsFloor: true },
+}
 
-function installApi(impl: (channel: string, args?: unknown) => unknown) {
-  const invoke = vi.fn(async (channel: string, args?: unknown) => impl(channel, args))
-  window.api = {
-    invoke,
-    on: vi.fn(() => () => {}),
-  } as unknown as typeof window.api
-  return invoke
+let currentApi: TestApi
+
+/** A machine with no GitHub credential to detect and only github.com known, plus `handlers`. */
+function installApi(handlers: Handlers = {}) {
+  currentApi = makeTestApi({
+    "github:env-credentials": () => ({ found: false }),
+    "github:cli-credentials": () => ({ found: false }),
+    "github:enumerate-hosts": () => ONLY_GITHUB_COM,
+    "github:host-picked": () => ({ ok: true }),
+    "vcs:invalidate-cache": () => ({ ok: true }),
+    "vcs:cli-status": () => CLI_STATUS,
+    ...handlers,
+  })
+  return currentApi
 }
 
 afterEach(() => {
-  window.api = originalApi
   vi.clearAllMocks()
 })
 
@@ -32,12 +43,17 @@ afterEach(() => {
 function renderWithApi(ui: ReactNode) {
   return render(
     <TestWrapper>
-      <ApiProvider api={window.api}>{ui}</ApiProvider>
+      <ApiProvider api={currentApi.api}>{ui}</ApiProvider>
     </TestWrapper>,
   )
 }
 
-const TWO_HOSTS = {
+const ONLY_GITHUB_COM: Result<"github:enumerate-hosts"> = {
+  hosts: [{ host: "github.com", sources: [], hasCredential: false }],
+  defaultHost: "github.com",
+}
+
+const TWO_HOSTS: Result<"github:enumerate-hosts"> = {
   hosts: [
     { host: "github.com", sources: [], hasCredential: false },
     { host: "ghes.corp", sources: ["gh"], hasCredential: true },
@@ -47,15 +63,7 @@ const TWO_HOSTS = {
 
 describe("GitAuth (GitHub) — host picker", () => {
   it("shows no picker when only github.com is available (unchanged UI)", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "github:enumerate-hosts") {
-        return {
-          hosts: [{ host: "github.com", sources: [], hasCredential: false }],
-          defaultHost: "github.com",
-        }
-      }
-      return { found: false }
-    })
+    const { invoke } = installApi({ "github:enumerate-hosts": () => ONLY_GITHUB_COM })
 
     renderWithApi(<GitAuth id="git" />)
 
@@ -68,11 +76,7 @@ describe("GitAuth (GitHub) — host picker", () => {
   })
 
   it('shows a GitHub host picker (without "Other instance…") when gh knows several hosts', async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "github:enumerate-hosts") return TWO_HOSTS
-      if (channel === "github:host-picked") return { ok: true }
-      return { found: false }
-    })
+    const { invoke } = installApi({ "github:enumerate-hosts": () => TWO_HOSTS })
 
     renderWithApi(<GitAuth id="git" />)
 
@@ -95,11 +99,13 @@ describe("GitAuth (GitHub) — host picker", () => {
   })
 
   it("names the enterprise host on the success card", async () => {
-    installApi((channel) => {
-      if (channel === "github:cli-credentials") {
-        return { found: true, valid: true, user: { login: "mona" }, host: "ghes.corp" }
-      }
-      return { found: false }
+    installApi({
+      "github:cli-credentials": () => ({
+        found: true,
+        valid: true,
+        user: { login: "mona" },
+        host: "ghes.corp",
+      }),
     })
 
     renderWithApi(<GitHubAuth id="gh" host="ghes.corp" />)
@@ -110,7 +116,7 @@ describe("GitAuth (GitHub) — host picker", () => {
 
 describe("GitAuth (GitHub) — authored host", () => {
   it("pins the host: no picker, PAT link follows the GHES host", async () => {
-    const invoke = installApi(() => ({ found: false }))
+    const { invoke } = installApi()
 
     renderWithApi(
       <GitHubAuth id="gh" host="https://ghes.corp/" defaultTab="pat" detectCredentials={false} />,
@@ -126,7 +132,7 @@ describe("GitAuth (GitHub) — authored host", () => {
   })
 
   it("keeps the OAuth tab for an enterprise host with a client ID from the map", async () => {
-    installApi(() => ({ found: false }))
+    installApi()
 
     renderWithApi(
       <GitHubAuth
@@ -146,11 +152,11 @@ describe("GitAuth (GitHub) — authored host", () => {
   })
 
   it("reports an unparseable host as a configuration error and sends nothing", async () => {
-    const invoke = installApi(() => ({ found: false }))
+    installApi()
 
     renderWithApi(<GitHubAuth id="gh" host="ftp://ghes.corp" />)
 
     expect(screen.getByText(/invalid 'host' prop/)).toBeInTheDocument()
-    expect(invoke.mock.calls.some((c) => (c[0] as string).startsWith("github:"))).toBe(false)
+    expect(currentApi.calls.some(({ channel }) => channel.startsWith("github:"))).toBe(false)
   })
 })
