@@ -2,24 +2,18 @@ import { describe, it, expect, vi } from "vitest"
 import { renderHook } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { makeTestApi } from "@/test/test-api"
 import { useIpcWatchMode } from "./useIpcWatchMode"
 
-// Mock boundary: the preload API. Tracks live watch:file-change listeners so
-// tests can fire the event and count subscriptions.
+// Mock boundary: the preload API, as the typed fake. Tests fire
+// watch:file-change through it and count its live subscriptions.
 function createWatchApi() {
-  const listeners = new Set<(...args: unknown[]) => void>()
-  const on = vi.fn((channel: string, callback: (...args: unknown[]) => void) => {
-    if (channel === "watch:file-change") listeners.add(callback)
-    return () => {
-      listeners.delete(callback)
-    }
-  })
-  const api = { invoke: vi.fn(), on } as unknown as RunbooksAPI
+  const testApi = makeTestApi()
   return {
-    api,
-    on,
-    listeners,
-    fileChanged: (path: string) => listeners.forEach((cb) => cb({ type: "reload", path })),
+    api: testApi.api,
+    on: testApi.on,
+    subscriptions: () => testApi.listenerCount("watch:file-change"),
+    fileChanged: (path: string) => testApi.emit("watch:file-change", { type: "reload", path }),
   }
 }
 
@@ -55,7 +49,7 @@ describe("useIpcWatchMode", () => {
     rerender({ onFileChange: latest, isWatchMode: true })
 
     expect(watch.on).toHaveBeenCalledTimes(1)
-    expect(watch.listeners.size).toBe(1)
+    expect(watch.subscriptions()).toBe(1)
 
     watch.fileChanged("/work/a/runbook.mdx")
     expect(latest).toHaveBeenCalledTimes(1)
@@ -69,15 +63,15 @@ describe("useIpcWatchMode", () => {
       onFileChange: vi.fn(),
       isWatchMode: true,
     })
-    expect(watch.listeners.size).toBe(1)
+    expect(watch.subscriptions()).toBe(1)
 
     rerender({ onFileChange: vi.fn(), isWatchMode: false })
-    expect(watch.listeners.size).toBe(0)
+    expect(watch.subscriptions()).toBe(0)
 
     rerender({ onFileChange: vi.fn(), isWatchMode: true })
-    expect(watch.listeners.size).toBe(1)
+    expect(watch.subscriptions()).toBe(1)
 
     unmount()
-    expect(watch.listeners.size).toBe(0)
+    expect(watch.subscriptions()).toBe(0)
   })
 })

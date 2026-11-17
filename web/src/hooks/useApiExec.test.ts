@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { createElement, type ReactNode } from "react"
 import { renderHook, act, waitFor } from "@testing-library/react"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type HeldCall, type Payload, type TestApi } from "@/test/test-api"
 import { useApiExec, type ExecState } from "./useApiExec"
 import { isSensitiveOutput, revealOutputs } from "@/lib/outputValues"
 
@@ -14,82 +15,8 @@ import { isSensitiveOutput, revealOutputs } from "@/lib/outputValues"
 // etc., and calls api.invoke('exec:run', payload) to start execution. The
 // invoke resolves with the run's final status and outputs.
 //
-// Mock boundary: the API from ApiProvider is mocked. The IPC event listeners
-// and Zod parsing run as real production code.
-
-type EventCallback = (...args: unknown[]) => void
-
-/**
- * Creates a mock API that:
- * - Collects event subscriptions via .on()
- * - Allows tests to emit events to those subscribers
- * - Controls when .invoke('exec:run') resolves
- */
-function createMockApi() {
-  const listeners = new Map<string, Set<EventCallback>>()
-  let invokeResolve: ((value?: unknown) => void) | null = null
-  let invokeReject: ((err: Error) => void) | null = null
-  // Every pending exec:run resolver, in call order. Interleaved-run tests need
-  // to settle an *earlier* block's invoke after a later one has started, which
-  // the single `invokeResolve` slot above can't express.
-  const invokeResolvers: Array<(value?: unknown) => void> = []
-  // The executionId of every exec:run, in call order. Main puts the id of its
-  // run on each event, so emit() needs them to do the same.
-  const executionIds: string[] = []
-
-  const api = {
-    invoke: vi.fn((channel: string, ...args: unknown[]) => {
-      // Fire-and-forget channels (e.g. exec:cancel) resolve immediately so they
-      // don't clobber the pending exec:run resolver the tests drive by hand.
-      if (channel !== "exec:run") {
-        return Promise.resolve({ ok: true })
-      }
-      executionIds.push((args[0] as { executionId: string }).executionId)
-      return new Promise<unknown>((resolve, reject) => {
-        invokeResolve = resolve
-        invokeReject = reject
-        invokeResolvers.push(resolve)
-      })
-    }),
-    on: vi.fn((channel: string, callback: EventCallback) => {
-      if (!listeners.has(channel)) {
-        listeners.set(channel, new Set())
-      }
-      listeners.get(channel)!.add(callback)
-      return () => {
-        listeners.get(channel)?.delete(callback)
-      }
-    }),
-  }
-
-  return {
-    api: api as unknown as RunbooksAPI,
-    /** Emit an event of the latest exec:run to all listeners on a channel */
-    emit(channel: string, data: object) {
-      this.emitNth(executionIds.length - 1, channel, data)
-    },
-    /** Emit an event of the nth exec:run (0-based, in call order) */
-    emitNth(index: number, channel: string, data: object) {
-      const event = { ...data, executionId: executionIds[index] }
-      const cbs = listeners.get(channel)
-      if (cbs) {
-        for (const cb of cbs) cb(event)
-      }
-    },
-    /** Resolve the pending invoke('exec:run') call, optionally with a result */
-    resolveInvoke(value?: unknown) {
-      invokeResolve?.(value)
-    },
-    /** Reject the pending invoke('exec:run') call */
-    rejectInvoke(err: Error) {
-      invokeReject?.(err)
-    },
-    /** Resolve the nth invoke('exec:run') call (0-based, in call order) */
-    resolveInvokeNth(index: number, value?: unknown) {
-      invokeResolvers[index]?.(value)
-    },
-  }
-}
+// Mock boundary: the API from ApiProvider is the typed fake from makeTestApi.
+// The IPC event listeners and Zod parsing run as real production code.
 
 type EncodedOutputs = Record<string, { value: string; sensitive: boolean }>
 
@@ -103,16 +30,32 @@ function finished(
 }
 
 describe("useApiExec state machine", () => {
-  let mock: ReturnType<typeof createMockApi>
+  let testApi: TestApi
+  // Every exec:run, in call order, pending until the test settles it.
+  let runs: readonly HeldCall<"exec:run">[]
 
   const renderExec = (options?: Parameters<typeof useApiExec>[0]) =>
     renderHook(() => useApiExec(options), {
       wrapper: ({ children }: { children: ReactNode }) =>
-        createElement(ApiProvider, { api: mock.api }, children),
+        createElement(ApiProvider, { api: testApi.api }, children),
     })
 
+  /** The latest exec:run, the one a single block's test drives. */
+  const latestRun = () => runs.at(-1)!
+
+  /**
+   * The executionId of the nth exec:run (0-based, in call order), which main
+   * puts on every event of that run. The latest run's by default.
+   */
+  const runId = (index = runs.length - 1) => {
+    const id = runs[index]?.params.executionId
+    if (!id) throw new Error(`exec:run #${index} has no executionId`)
+    return id
+  }
+
   beforeEach(() => {
-    mock = createMockApi()
+    testApi = makeTestApi({ "exec:cancel": () => ({ ok: true }) })
+    runs = testApi.hold("exec:run")
   })
 
   afterEach(() => {
@@ -140,7 +83,7 @@ describe("useApiExec state machine", () => {
     expect(result.current.state.status).toBe("running")
 
     // Verify invoke was called with correct payload (plus a generated executionId)
-    expect(mock.api.invoke).toHaveBeenCalledWith("exec:run", {
+    expect(testApi.invoke).toHaveBeenCalledWith("exec:run", {
       executableId: "test-executable",
       templateVarValues: { region: "us-west-2" },
       envVarsOverride: undefined,
@@ -151,9 +94,17 @@ describe("useApiExec state machine", () => {
 
     // Simulate IPC events from main process
     act(() => {
-      mock.emit("exec:log", { line: "Starting...", timestamp: "2024-01-01T00:00:00Z" })
-      mock.emit("exec:log", { line: "Done!", timestamp: "2024-01-01T00:00:01Z" })
-      mock.resolveInvoke(finished("success", 0))
+      testApi.emit("exec:log", {
+        executionId: runId(),
+        line: "Starting...",
+        timestamp: "2024-01-01T00:00:00Z",
+      })
+      testApi.emit("exec:log", {
+        executionId: runId(),
+        line: "Done!",
+        timestamp: "2024-01-01T00:00:01Z",
+      })
+      latestRun().resolve(finished("success", 0))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))
@@ -173,8 +124,12 @@ describe("useApiExec state machine", () => {
     })
 
     act(() => {
-      mock.emit("exec:log", { line: "Running...", timestamp: "2024-01-01T00:00:00Z" })
-      mock.resolveInvoke(finished("fail", 1))
+      testApi.emit("exec:log", {
+        executionId: runId(),
+        line: "Running...",
+        timestamp: "2024-01-01T00:00:00Z",
+      })
+      latestRun().resolve(finished("fail", 1))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("fail"))
@@ -191,7 +146,7 @@ describe("useApiExec state machine", () => {
     expect(result.current.state.status).toBe("running")
 
     act(() => {
-      mock.rejectInvoke(new Error("IPC channel not found"))
+      latestRun().reject(new Error("IPC channel not found"))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("fail"))
@@ -232,7 +187,7 @@ describe("useApiExec state machine", () => {
 
     // Cancel must name an executionId so the backend interrupts *this* run,
     // rather than blindly cancelling whatever is currently active.
-    expect(mock.api.invoke).toHaveBeenCalledWith("exec:cancel", {
+    expect(testApi.invoke).toHaveBeenCalledWith("exec:cancel", {
       executionId: expect.any(String),
     })
     expect(result.current.state.status).toBe("pending")
@@ -246,7 +201,7 @@ describe("useApiExec state machine", () => {
       result.current.execute("test-executable")
     })
     act(() => {
-      mock.rejectInvoke(new Error("IPC channel not found"))
+      latestRun().reject(new Error("IPC channel not found"))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("fail"))
@@ -271,7 +226,7 @@ describe("useApiExec state machine", () => {
 
     expect(first.result.current.state.status).toBe("running")
     expect(second.result.current.state.status).toBe("running")
-    expect(mock.api.invoke).not.toHaveBeenCalledWith("exec:cancel", expect.anything())
+    expect(testApi.invoke).not.toHaveBeenCalledWith("exec:cancel", expect.anything())
   })
 
   it("routes each run's events to the block that started it", async () => {
@@ -289,12 +244,24 @@ describe("useApiExec state machine", () => {
 
     // Interleaved, as two scripts running at once produce them
     await act(async () => {
-      mock.emitNth(0, "exec:log-file", { path: "/logs/first.log" })
-      mock.emitNth(1, "exec:log-file", { path: "/logs/second.log" })
-      mock.emitNth(0, "exec:log", { line: "first: a", timestamp: "2024-01-01T00:00:00Z" })
-      mock.emitNth(1, "exec:log", { line: "second: a", timestamp: "2024-01-01T00:00:01Z" })
-      mock.emitNth(0, "exec:log", { line: "first: b", timestamp: "2024-01-01T00:00:02Z" })
-      mock.resolveInvokeNth(1, finished("warn", 2, { id: { value: "2", sensitive: false } }))
+      testApi.emit("exec:log-file", { executionId: runId(0), path: "/logs/first.log" })
+      testApi.emit("exec:log-file", { executionId: runId(1), path: "/logs/second.log" })
+      testApi.emit("exec:log", {
+        executionId: runId(0),
+        line: "first: a",
+        timestamp: "2024-01-01T00:00:00Z",
+      })
+      testApi.emit("exec:log", {
+        executionId: runId(1),
+        line: "second: a",
+        timestamp: "2024-01-01T00:00:01Z",
+      })
+      testApi.emit("exec:log", {
+        executionId: runId(0),
+        line: "first: b",
+        timestamp: "2024-01-01T00:00:02Z",
+      })
+      runs[1]!.resolve(finished("warn", 2, { id: { value: "2", sensitive: false } }))
     })
 
     expect(first.result.current.state.logs.map((l) => l.line)).toEqual(["first: a", "first: b"])
@@ -309,7 +276,7 @@ describe("useApiExec state machine", () => {
     expect(onSecondFinished).toHaveBeenCalledWith({ id: "2" }, "warn")
 
     await act(async () => {
-      mock.resolveInvokeNth(0, finished("success", 0))
+      runs[0]!.resolve(finished("success", 0))
     })
     expect(first.result.current.state.status).toBe("success")
     expect(second.result.current.state.status).toBe("warn")
@@ -325,19 +292,13 @@ describe("useApiExec state machine", () => {
     act(() => {
       second.result.current.execute("other-script")
     })
-    const [firstRun] = vi
-      .mocked(mock.api.invoke)
-      .mock.calls.filter(([channel]) => channel === "exec:run")
-    const { executionId } = firstRun![1] as { executionId: string }
+    const executionId = runId(0)
 
     act(() => {
       first.result.current.cancel()
     })
 
-    const cancels = vi
-      .mocked(mock.api.invoke)
-      .mock.calls.filter(([channel]) => channel === "exec:cancel")
-    expect(cancels).toEqual([["exec:cancel", { executionId }]])
+    expect(testApi.callsTo("exec:cancel")).toEqual([{ executionId }])
     expect(first.result.current.state.status).toBe("pending")
     expect(second.result.current.state.status).toBe("running")
   })
@@ -357,7 +318,7 @@ describe("useApiExec state machine", () => {
     expect(result.current.state.status).toBe("running")
 
     await act(async () => {
-      mock.resolveInvoke({ status: null, cancelled: true })
+      latestRun().resolve({ status: null, cancelled: true })
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("pending"))
@@ -376,7 +337,7 @@ describe("useApiExec state machine", () => {
     })
 
     await act(async () => {
-      mock.resolveInvoke({ status: null, cancelled: true })
+      latestRun().resolve({ status: null, cancelled: true })
     })
 
     const lines = result.current.state.logs.map((l) => l.line)
@@ -390,23 +351,20 @@ describe("useApiExec state machine", () => {
     act(() => {
       result.current.execute("long-running-script")
     })
-    const runCalls = vi
-      .mocked(mock.api.invoke)
-      .mock.calls.filter(([channel]) => channel === "exec:run")
-    expect(runCalls).toHaveLength(1)
-    const { executionId } = runCalls[0]![1] as { executionId: string }
+    expect(runs).toHaveLength(1)
+    const executionId = runId(0)
 
     // The invoke settles (aborted by main) — which used to clear the id
     // Stop depends on, leaving the button wired to nothing.
     await act(async () => {
-      mock.resolveInvoke({ status: null, cancelled: true })
+      latestRun().resolve({ status: null, cancelled: true })
     })
 
     act(() => {
       result.current.cancel()
     })
 
-    expect(mock.api.invoke).toHaveBeenCalledWith("exec:cancel", { executionId })
+    expect(testApi.invoke).toHaveBeenCalledWith("exec:cancel", { executionId })
   })
 
   it("reset: clears all state back to initial", async () => {
@@ -417,8 +375,12 @@ describe("useApiExec state machine", () => {
     })
 
     act(() => {
-      mock.emit("exec:log", { line: "Output", timestamp: "2024-01-01T00:00:00Z" })
-      mock.resolveInvoke(finished("success", 0))
+      testApi.emit("exec:log", {
+        executionId: runId(),
+        line: "Output",
+        timestamp: "2024-01-01T00:00:00Z",
+      })
+      latestRun().resolve(finished("success", 0))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))
@@ -446,7 +408,7 @@ describe("useApiExec state machine", () => {
     expect(onFinished).not.toHaveBeenCalled()
 
     act(() => {
-      mock.resolveInvoke(
+      latestRun().resolve(
         finished("success", 0, {
           account_id: { value: "123", sensitive: false },
           region: { value: "us-west-2", sensitive: false },
@@ -469,7 +431,7 @@ describe("useApiExec state machine", () => {
       result.current.execute("test-executable")
     })
     act(() => {
-      mock.resolveInvoke(finished("fail", 1))
+      latestRun().resolve(finished("fail", 1))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("fail"))
@@ -486,7 +448,7 @@ describe("useApiExec state machine", () => {
       result.current.execute("test-executable")
     })
     await act(async () => {
-      mock.resolveInvoke({ status: null, cancelled: true })
+      latestRun().resolve({ status: null, cancelled: true })
     })
 
     expect(result.current.state.status).toBe("pending")
@@ -502,7 +464,7 @@ describe("useApiExec state machine", () => {
     })
 
     act(() => {
-      mock.resolveInvoke(
+      latestRun().resolve(
         finished("success", 0, {
           AWS_SECRET_ACCESS_KEY: { value: "topsecret", sensitive: true },
           region: { value: "us-west-2", sensitive: false },
@@ -528,7 +490,7 @@ describe("useApiExec state machine", () => {
   it("files-captured event: passes the backend payload, tree and truncation fields, to the callback", async () => {
     // The exact shape src/domain/exec/executor.ts emits for a step that wrote
     // main.tf to $GENERATED_FILES.
-    const payload = {
+    const payload: Omit<Payload<"exec:files-captured">, "executionId"> = {
       files: [{ path: "main.tf", size: 19 }],
       count: 1,
       fileTree: [
@@ -559,8 +521,8 @@ describe("useApiExec state machine", () => {
     })
 
     act(() => {
-      mock.emit("exec:files-captured", payload)
-      mock.resolveInvoke(finished("success", 0))
+      testApi.emit("exec:files-captured", { executionId: runId(), ...payload })
+      latestRun().resolve(finished("success", 0))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))
@@ -579,8 +541,12 @@ describe("useApiExec state machine", () => {
     })
 
     act(() => {
-      mock.emit("exec:files-captured", { files: [{ path: "main.tf", size: 19 }], count: 1 })
-      mock.resolveInvoke(finished("success", 0))
+      testApi.emit("exec:files-captured", {
+        executionId: runId(),
+        files: [{ path: "main.tf", size: 19 }],
+        count: 1,
+      })
+      latestRun().resolve(finished("success", 0))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))
@@ -598,7 +564,7 @@ describe("useApiExec state machine", () => {
     })
 
     act(() => {
-      mock.resolveInvoke(finished("warn", 2))
+      latestRun().resolve(finished("warn", 2))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("warn"))
@@ -613,11 +579,11 @@ describe("useApiExec state machine", () => {
     })
 
     // Event subscriptions should be registered
-    expect(mock.api.on).toHaveBeenCalledWith("exec:log", expect.any(Function))
-    expect(mock.api.on).toHaveBeenCalledWith("exec:files-captured", expect.any(Function))
+    expect(testApi.on).toHaveBeenCalledWith("exec:log", expect.any(Function))
+    expect(testApi.on).toHaveBeenCalledWith("exec:files-captured", expect.any(Function))
 
     act(() => {
-      mock.resolveInvoke(finished("success", 0))
+      latestRun().resolve(finished("success", 0))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))
@@ -627,7 +593,11 @@ describe("useApiExec state machine", () => {
     // cleanup has already run, so late events are no longer accepted.
     const logCountAfter = result.current.state.logs.length
     act(() => {
-      mock.emit("exec:log", { line: "late arriving", timestamp: "2024-01-01T00:00:00Z" })
+      testApi.emit("exec:log", {
+        executionId: runId(),
+        line: "late arriving",
+        timestamp: "2024-01-01T00:00:00Z",
+      })
     })
     expect(result.current.state.logs.length).toBe(logCountAfter)
 
@@ -665,13 +635,21 @@ describe("useApiExec state machine", () => {
     expect(onRunStarted).toHaveBeenCalledTimes(1)
 
     act(() => {
-      mock.emit("exec:log", { line: "Done!", timestamp: "2024-01-01T00:00:01Z" })
+      testApi.emit("exec:log", {
+        executionId: runId(),
+        line: "Done!",
+        timestamp: "2024-01-01T00:00:01Z",
+      })
     })
     // The run is not over until exec:run resolves: more events can follow.
     expect(onRunEnded).not.toHaveBeenCalled()
     act(() => {
-      mock.emit("exec:log", { line: "Flushed", timestamp: "2024-01-01T00:00:02Z" })
-      mock.resolveInvoke(finished("success", 0))
+      testApi.emit("exec:log", {
+        executionId: runId(),
+        line: "Flushed",
+        timestamp: "2024-01-01T00:00:02Z",
+      })
+      latestRun().resolve(finished("success", 0))
     })
 
     await waitFor(() => expect(onRunEnded).toHaveBeenCalledTimes(1))
@@ -695,7 +673,7 @@ describe("useApiExec state machine", () => {
       result.current.execute("test-executable")
     })
     act(() => {
-      mock.rejectInvoke(new Error("IPC channel not found"))
+      latestRun().reject(new Error("IPC channel not found"))
     })
 
     await waitFor(() => expect(onRunEnded).toHaveBeenCalledTimes(1))
@@ -716,10 +694,10 @@ describe("useApiExec state machine", () => {
       await waitFor(() => expect(onRunEnded).toHaveBeenCalledTimes(reports))
     }
 
-    await runEndingWith(() => mock.resolveInvoke(finished("success", 0)), 1)
-    await runEndingWith(() => mock.rejectInvoke(new Error("IPC channel not found")), 2)
-    await runEndingWith(() => mock.rejectInvoke(new Error("IPC channel not found")), 3)
-    await runEndingWith(() => mock.resolveInvoke(finished("fail", 1)), 4)
+    await runEndingWith(() => latestRun().resolve(finished("success", 0)), 1)
+    await runEndingWith(() => latestRun().reject(new Error("IPC channel not found")), 2)
+    await runEndingWith(() => latestRun().reject(new Error("IPC channel not found")), 3)
+    await runEndingWith(() => latestRun().resolve(finished("fail", 1)), 4)
 
     expect(onRunEnded.mock.calls.map(([state]) => (state as { status: string }).status)).toEqual([
       "success",
@@ -741,9 +719,9 @@ describe("useApiExec state machine", () => {
       result.current.execute("second-run")
     })
     // Main aborts the first run when the second starts.
-    await act(async () => mock.resolveInvokeNth(0, { status: null, cancelled: true }))
+    await act(async () => runs[0]!.resolve({ status: null, cancelled: true }))
     act(() => {
-      mock.resolveInvokeNth(1, finished("success", 0))
+      runs[1]!.resolve(finished("success", 0))
     })
 
     await waitFor(() => expect(onRunEnded).toHaveBeenCalledTimes(1))
