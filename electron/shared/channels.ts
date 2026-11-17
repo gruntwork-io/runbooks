@@ -16,6 +16,7 @@ import type {
   HeavyDir,
   RenderInlineRequest,
   RenderRequest,
+  WorkspaceChangesResponse,
   WorkspaceTreeResponse,
   ScriptFileChange,
   Section,
@@ -886,9 +887,10 @@ export interface IpcChannelMap {
     params: { worktreePath: string; filePath: string }
     result: WorkspaceFileResponse
   }
+  /** The repo's uncommitted changes, or only `singleFile`'s, as getWorkspaceChanges finds them. */
   "workspace:changes": {
     params: { worktreePath: string; singleFile?: string }
-    result: { changes: WorkspaceChange[]; totalChanges: number; tooManyChanges?: boolean }
+    result: WorkspaceChangesResponse
   }
   "workspace:register": { params: { worktreePath: string }; result: { ok: true } }
   "workspace:set-active": { params: { worktreePath: string }; result: { ok: true } }
@@ -1349,13 +1351,6 @@ export interface WorkspaceFileResponse {
   isBinary: boolean
   path: string
   size: number
-}
-
-export interface WorkspaceChange {
-  path: string
-  status: string
-  additions: number
-  deletions: number
 }
 
 export interface FileData {
