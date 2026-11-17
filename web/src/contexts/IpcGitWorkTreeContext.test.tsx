@@ -1,17 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, beforeEach } from "vitest"
 import { renderHook } from "@testing-library/react"
 import { act, type ReactNode } from "react"
-import { ApiProvider, type RunbooksAPI } from "./ApiContext"
+import { ApiProvider } from "./ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
 import { IpcGitWorkTreeProvider } from "./IpcGitWorkTreeContext"
 import { useGitWorkTree } from "./useGitWorkTree"
 import type { GitWorkTree } from "./gitWorkTreeTypes"
 
-const invoke = vi.fn(async (_channel: string, _params?: unknown) => ({ ok: true }))
-const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
+let testApi: TestApi
 
 function Wrapper({ children }: { children: ReactNode }) {
   return (
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <IpcGitWorkTreeProvider>{children}</IpcGitWorkTreeProvider>
     </ApiProvider>
   )
@@ -31,14 +31,18 @@ function workTree(id: string, localPath: string): GitWorkTree {
   }
 }
 
-/** The worktree paths the backend was told to make active, in order. */
-const activeSyncs = () =>
-  invoke.mock.calls
-    .filter(([channel]) => channel === "workspace:set-active")
-    .map(([, params]) => (params as { worktreePath: string }).worktreePath)
+/** The worktree paths the backend was told to make active, in order, from the `from`th on. */
+const activeSyncs = (from = 0) =>
+  testApi
+    .callsTo("workspace:set-active")
+    .slice(from)
+    .map(({ worktreePath }) => worktreePath)
 
 beforeEach(() => {
-  invoke.mockClear()
+  testApi = makeTestApi({
+    "workspace:register": () => ({ ok: true }),
+    "workspace:set-active": () => ({ ok: true }),
+  })
 })
 
 describe("IpcGitWorkTreeProvider", () => {
@@ -96,14 +100,14 @@ describe("IpcGitWorkTreeProvider", () => {
       act(() => result.current.registerWorkTree(workTree("second", "/work/second")))
       // The first block clicks "Clone again": the second stands in meanwhile.
       act(() => result.current.unregisterWorkTree("first"))
-      invoke.mockClear()
+      const synced = activeSyncs().length
 
       // Its new clone must win back the role, or <GitPullRequest> would
       // target the second block's repository.
       act(() => result.current.registerWorkTree(workTree("first", "/work/first-again")))
 
       expect(result.current.activeWorkTreeId).toBe("first")
-      expect(activeSyncs()).toEqual(["/work/first-again"])
+      expect(activeSyncs(synced)).toEqual(["/work/first-again"])
 
       // Handed back once only: the second re-registering later doesn't take it.
       act(() => result.current.registerWorkTree(workTree("second", "/work/second-again")))
@@ -158,13 +162,13 @@ describe("IpcGitWorkTreeProvider", () => {
       const { result } = renderHook(() => useGitWorkTree(), { wrapper: Wrapper })
       act(() => result.current.registerWorkTree(workTree("first", "/work/first")))
       act(() => result.current.registerWorkTree(workTree("second", "/work/second")))
-      invoke.mockClear()
+      const synced = activeSyncs().length
 
       act(() => result.current.unregisterWorkTree("second"))
 
       expect(result.current.workTrees.map((wt) => wt.id)).toEqual(["first"])
       expect(result.current.activeWorkTreeId).toBe("first")
-      expect(activeSyncs()).toEqual([])
+      expect(activeSyncs(synced)).toEqual([])
     })
 
     it("ignores an id that was never registered", () => {
