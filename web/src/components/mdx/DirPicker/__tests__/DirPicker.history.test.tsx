@@ -4,7 +4,8 @@ import { useEffect, type ReactNode } from "react"
 import DirPicker from "../DirPicker"
 import { DirPickerInstruction } from "../DirPickerInstruction"
 import { TestWrapper } from "@/test/test-utils"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import type { SavedBlockState } from "../../../../../../src/domain/session/history"
@@ -24,21 +25,22 @@ const TREE: Record<string, string[]> = {
   "/root/prod/us-east-1": ["svc"],
 }
 
-const invoke = vi.fn(async (channel: string, params?: { worktreePath: string }) => {
-  if (channel === "workspace:dirs") return { dirs: TREE[params!.worktreePath] ?? [] }
-  return { ok: true }
+let testApi: TestApi
+
+beforeEach(() => {
+  testApi = makeTestApi({
+    "workspace:dirs": ({ worktreePath }) => ({ dirs: TREE[worktreePath] ?? [] }),
+    "session:record-event": () => ({ ok: true }),
+    "native:set-theme": () => ({ ok: true }),
+  })
 })
-const api = { invoke, on: () => () => {} } as unknown as RunbooksAPI
 
 /** The payload of each `inputs` event sent to the main process, oldest first. */
 const recorded = () =>
-  invoke.mock.calls
-    .map((call) => call as unknown as [string, { blockId: string; kind: string; payload: unknown }])
-    .filter(([channel]) => channel === "session:record-event")
-    .map(([, event]) => {
-      expect(event).toMatchObject({ sessionId: "s1", blockId: "dp", kind: "inputs" })
-      return event.payload
-    })
+  testApi.callsTo("session:record-event").map((event) => {
+    expect(event).toMatchObject({ sessionId: "s1", blockId: "dp", kind: "inputs" })
+    return event.payload
+  })
 
 /** Prints the `dp` block's registered output values so tests can read them. */
 function PublishedOutputs() {
@@ -64,7 +66,7 @@ function Session({ path, children }: { path?: unknown; children: ReactNode }) {
       ? []
       : [{ blockId: "dp", kind: "inputs", payload: { values: { path }, submitted: true } }]
   return (
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <IpcSessionHistoryProvider sessionId="s1" blockStates={blockStates}>
         <TestWrapper>
           {children}
@@ -79,10 +81,6 @@ const selects = () => screen.getAllByRole("combobox") as HTMLSelectElement[]
 const pathInput = () => screen.getByRole("textbox") as HTMLInputElement
 
 describe("DirPicker in a session", () => {
-  beforeEach(() => {
-    invoke.mockClear()
-  })
-
   it("takes back the path it was left with, selecting each directory that is still there", async () => {
     render(
       <Session path="prod/us-east-1/custom">
@@ -221,50 +219,38 @@ describe("DirPicker in a session", () => {
 
   it("drops a saved path still being walked when the root changes", async () => {
     let answerProd!: () => void
-    invoke.mockImplementation(async (channel: string, params?: { worktreePath: string }) => {
-      if (channel !== "workspace:dirs") return { ok: true }
-      if (params!.worktreePath === "/root/prod") {
+    testApi.handle("workspace:dirs", async ({ worktreePath }) => {
+      if (worktreePath === "/root/prod") {
         await new Promise<void>((resolve) => {
           answerProd = resolve
         })
       }
-      if (params!.worktreePath === "/other") return { dirs: ["x"] }
-      return { dirs: TREE[params!.worktreePath] ?? [] }
+      if (worktreePath === "/other") return { dirs: ["x"] }
+      return { dirs: TREE[worktreePath] ?? [] }
     })
-    try {
-      const { rerender } = render(
-        <Session path="prod/us-east-1">
-          <DirPicker id="dp" rootDir="/root" />
-        </Session>,
-      )
-      await waitFor(() => expect(answerProd).toBeDefined())
+    const { rerender } = render(
+      <Session path="prod/us-east-1">
+        <DirPicker id="dp" rootDir="/root" />
+      </Session>,
+    )
+    await waitFor(() => expect(answerProd).toBeDefined())
 
-      rerender(
-        <Session path="prod/us-east-1">
-          <DirPicker id="dp" rootDir="/other" />
-        </Session>,
-      )
-      await waitFor(() => expect(selects()).toHaveLength(1))
-      await act(async () => answerProd())
+    rerender(
+      <Session path="prod/us-east-1">
+        <DirPicker id="dp" rootDir="/other" />
+      </Session>,
+    )
+    await waitFor(() => expect(selects()).toHaveLength(1))
+    await act(async () => answerProd())
 
-      expect(selects()).toHaveLength(1)
-      expect(screen.getByRole("option", { name: "x" })).toBeInTheDocument()
-      expect(pathInput()).toHaveValue("")
-      expect(publishedValues()).toBeNull()
-    } finally {
-      invoke.mockImplementation(async (channel: string, params?: { worktreePath: string }) => {
-        if (channel === "workspace:dirs") return { dirs: TREE[params!.worktreePath] ?? [] }
-        return { ok: true }
-      })
-    }
+    expect(selects()).toHaveLength(1)
+    expect(screen.getByRole("option", { name: "x" })).toBeInTheDocument()
+    expect(pathInput()).toHaveValue("")
+    expect(publishedValues()).toBeNull()
   })
 })
 
 describe("DirPicker in instruction mode, in a session", () => {
-  beforeEach(() => {
-    invoke.mockClear()
-  })
-
   it("starts from the path the history has, publishes it, and records edits", async () => {
     render(
       <Session path="prod/us-east-1">
