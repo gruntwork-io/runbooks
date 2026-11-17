@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createElement, type ReactNode } from "react"
 import { renderHook, act, waitFor } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Handlers, type Result, type TestApi } from "@/test/test-api"
 import { useGoogleAuth } from "../useGoogleAuth"
 import { sensitiveOutput, type OutputValues } from "@/lib/outputValues"
 
@@ -33,42 +34,42 @@ vi.mock("@/contexts/useSession", () => ({
   useSession: () => ({ isReady: sessionState.isReady }),
 }))
 
-type InvokeImpl = (channel: string, args?: Record<string, unknown>) => unknown
+let testApi: TestApi
 
-type Api = Parameters<typeof ApiProvider>[0]["api"]
-
-let currentApi: Api
-
-/** Install a fake IPC surface. Returns the spy so channels/params can be asserted. */
-function installApi(impl: InvokeImpl) {
-  const invoke = vi.fn(async (channel: string, args?: Record<string, unknown>) => {
-    const result = impl(channel, args)
-    // The hook probes `google:oauth-available` on mount so the Google Sign-In
-    // tab can label "(needs OAuth client)" on FIRST paint. Default it to
-    // "configured" so only the tests that care about an unconfigured build have
-    // to say so.
-    if (
-      channel === "google:oauth-available" &&
-      Object.keys((result ?? {}) as object).length === 0
-    ) {
-      return { available: true }
-    }
-    return result
+/**
+ * Install the typed IPC fake, answering each channel with its handler in
+ * `handlers`. Returns the invoke spy so channels/params can be asserted.
+ *
+ * A few calls are answered unless a test says otherwise:
+ * - The hook probes `google:oauth-available` on mount so the Google Sign-In
+ *   tab can label "(needs OAuth client)" on FIRST paint: "configured", so only
+ *   the tests that care about an unconfigured build have to say so.
+ * - The advisory project check after a sign-in: readable, so no warning.
+ * - The fire-and-forget calls (committing a credential, releasing a sign-in's
+ *   loopback listener, opening the browser): done.
+ */
+function installApi(handlers: Handlers = {}) {
+  testApi = makeTestApi({
+    "google:oauth-available": () => ({ available: true }),
+    "google:check-project": () => ({ enabled: true }),
+    "google:credential-committed": () => ({ ok: true }),
+    "google:oauth-cancel": () => ({ ok: true }),
+    "native:open-external": () => ({ ok: true }),
+    ...handlers,
   })
-  currentApi = { invoke, on: () => () => {} } as unknown as Api
-  return invoke
+  return testApi.invoke
 }
 
 /**
- * Calls to one channel. Used instead of raw call counts so the mount-time
- * capability probe — which is not a credential read — never skews an assertion
- * about what detection did.
+ * The params of each call to one channel. Used instead of raw call counts so
+ * the mount-time capability probe — which is not a credential read — never
+ * skews an assertion about what detection did.
  */
-const callsTo = (invoke: ReturnType<typeof installApi>, channel: string) =>
-  invoke.mock.calls.filter((call) => call[0] === channel)
+const callsTo = <C extends Parameters<TestApi["callsTo"]>[0]>(channel: C) =>
+  testApi.callsTo(channel)
 
 const wrapper = ({ children }: { children: ReactNode }) =>
-  createElement(ApiProvider, { api: currentApi }, children)
+  createElement(ApiProvider, { api: testApi.api }, children)
 
 const renderGoogleAuth = (options: Parameters<typeof useGoogleAuth>[0]) =>
   renderHook(() => useGoogleAuth(options), { wrapper })
@@ -120,7 +121,7 @@ beforeEach(() => {
   registerOutputs.mockClear()
   runbookState.blockOutputs = {}
   sessionState.isReady = true
-  installApi(() => ({}))
+  installApi()
 })
 
 // ---------------------------------------------------------------------------
@@ -129,23 +130,23 @@ beforeEach(() => {
 
 describe("useGoogleAuth — detection", () => {
   it("detectCredentials={false} starts done and never probes for credentials", async () => {
-    const invoke = installApi(() => ({}))
+    installApi()
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
 
     expect(result.current.detectionStatus).toBe("done")
     expect(result.current.authStatus).toBe("pending")
     await act(async () => {})
-    expect(callsTo(invoke, "google:env-credentials")).toHaveLength(0)
-    expect(callsTo(invoke, "google:validate-credentials")).toHaveLength(0)
+    expect(callsTo("google:env-credentials")).toHaveLength(0)
+    expect(callsTo("google:validate-credentials")).toHaveLength(0)
   })
 
   it("waits for the session before probing anything", async () => {
     sessionState.isReady = false
-    const invoke = installApi(() => ({ found: false }))
+    const invoke = installApi({ "google:env-credentials": () => ({ found: false }) })
 
     const { result, rerender } = renderGoogleAuth({ id: "gcp" })
     await act(async () => {})
-    expect(callsTo(invoke, "google:env-credentials")).toHaveLength(0)
+    expect(callsTo("google:env-credentials")).toHaveLength(0)
     expect(result.current.detectionStatus).toBe("pending")
 
     sessionState.isReady = true
@@ -155,30 +156,29 @@ describe("useGoogleAuth — detection", () => {
   })
 
   it("walks sources in author order and stops at the first success (read-only)", async () => {
-    const invoke = installApi((channel, args) => {
-      if (channel !== "google:env-credentials") return {}
-      if (args?.source === "adc") {
-        return {
-          found: true,
-          valid: true,
-          projectId: "proj-a",
-          projectName: "Project A",
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialType: "authorized_user",
-          path: "/home/u/.config/gcloud/application_default_credentials.json",
-          quotaProjectId: "quota-proj",
+    installApi({
+      "google:env-credentials": ({ source }) => {
+        if (source === "adc") {
+          return {
+            found: true,
+            valid: true,
+            projectId: "proj-a",
+            projectName: "Project A",
+            account: { principal: "dev@example.com", accountType: "user" },
+            credentialType: "authorized_user",
+            path: "/home/u/.config/gcloud/application_default_credentials.json",
+            quotaProjectId: "quota-proj",
+          }
         }
-      }
-      return { found: false }
+        return { found: false }
+      },
     })
 
     const { result } = renderGoogleAuth({ id: "gcp" })
 
     await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
 
-    const sources = callsTo(invoke, "google:env-credentials").map(
-      (c) => (c[1] as { source?: string })?.source,
-    )
+    const sources = callsTo("google:env-credentials").map((params) => params.source)
     expect(sources).toEqual(["env", "adc"])
 
     expect(result.current.detectedCredentials).toEqual({
@@ -196,9 +196,7 @@ describe("useGoogleAuth — detection", () => {
   })
 
   it('joins "found but invalid" warnings and finishes as done', async () => {
-    installApi((channel) =>
-      channel === "google:env-credentials" ? { found: true, valid: false } : {},
-    )
+    installApi({ "google:env-credentials": () => ({ found: true, valid: false }) })
 
     const { result } = renderGoogleAuth({ id: "gcp" })
 
@@ -211,17 +209,18 @@ describe("useGoogleAuth — detection", () => {
   })
 
   it("appends MAIN's reason to the per-source copy for a found-but-invalid credential", async () => {
-    installApi((channel, args) => {
-      if (channel !== "google:env-credentials") return {}
-      if (args?.source === "adc") {
-        return {
-          found: true,
-          valid: false,
-          source: "adc",
-          warning: "ENOENT: no such file or directory, open '/home/u/adc.json'",
+    installApi({
+      "google:env-credentials": ({ source }) => {
+        if (source === "adc") {
+          return {
+            found: true,
+            valid: false,
+            source: "adc",
+            warning: "ENOENT: no such file or directory, open '/home/u/adc.json'",
+          }
         }
-      }
-      return { found: false }
+        return { found: false }
+      },
     })
 
     const { result } = renderGoogleAuth({ id: "gcp" })
@@ -233,7 +232,7 @@ describe("useGoogleAuth — detection", () => {
   })
 
   it("passes the prefix through for a { env: { prefix } } source", async () => {
-    const invoke = installApi(() => ({ found: false }))
+    const invoke = installApi({ "google:env-credentials": () => ({ found: false }) })
 
     const { result } = renderGoogleAuth({
       id: "gcp",
@@ -250,20 +249,18 @@ describe("useGoogleAuth — detection", () => {
   })
 
   it("confirming detected credentials registers the session and publishes outputs", async () => {
-    const invoke = installApi((channel, args) => {
-      if (channel === "google:env-credentials") {
-        return {
-          found: true,
-          valid: true,
-          projectId: "proj-a",
-          projectName: "Project A",
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialType: "authorized_user",
-          envVar: "GOOGLE_APPLICATION_CREDENTIALS",
-        }
-      }
-      if (channel === "google:env-credentials-confirm") {
-        expect(args).toEqual({ blockId: "gcp", source: "env", projectId: "proj-a" })
+    const invoke = installApi({
+      "google:env-credentials": () => ({
+        found: true,
+        valid: true,
+        projectId: "proj-a",
+        projectName: "Project A",
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialType: "authorized_user",
+        envVar: "GOOGLE_APPLICATION_CREDENTIALS",
+      }),
+      "google:env-credentials-confirm": (params) => {
+        expect(params).toEqual({ blockId: "gcp", source: "env", projectId: "proj-a" })
         return {
           valid: true,
           account: { principal: "dev@example.com", accountType: "user" },
@@ -271,9 +268,8 @@ describe("useGoogleAuth — detection", () => {
           credentialsPath: "/tmp/runbooks-gcp-1/adc.json",
           credentialType: "authorized_user",
         }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+      },
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: ["env"] })
@@ -314,33 +310,28 @@ describe("useGoogleAuth — detection", () => {
   })
 
   it("confirming a gcloud detection publishes the region/zone MAIN took from the configuration", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:env-credentials") {
-        return {
-          found: true,
-          valid: true,
-          source: "gcloud",
-          projectId: "proj-a",
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialType: "authorized_user",
-          path: "/home/u/.config/gcloud/application_default_credentials.json",
-          configuration: "default",
-        }
-      }
-      if (channel === "google:env-credentials-confirm") {
-        // Nothing requested, so MAIN wrote the configuration's compute defaults.
-        return {
-          valid: true,
-          account: { principal: "dev@example.com", accountType: "user" },
-          projectId: "proj-a",
-          credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
-          credentialType: "authorized_user",
-          region: "europe-west1",
-          zone: "europe-west1-b",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    const invoke = installApi({
+      "google:env-credentials": () => ({
+        found: true,
+        valid: true,
+        source: "gcloud",
+        projectId: "proj-a",
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialType: "authorized_user",
+        path: "/home/u/.config/gcloud/application_default_credentials.json",
+        configuration: "default",
+      }),
+      // Nothing requested, so MAIN wrote the configuration's compute defaults.
+      "google:env-credentials-confirm": () => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        projectId: "proj-a",
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+        credentialType: "authorized_user",
+        region: "europe-west1",
+        zone: "europe-west1-b",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: ["gcloud"] })
@@ -379,20 +370,18 @@ describe("useGoogleAuth — detection", () => {
   })
 
   it("a failed confirm renders inline and publishes nothing", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") {
-        return {
-          found: true,
-          valid: true,
-          projectId: "proj-a",
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialType: "authorized_user",
-        }
-      }
-      if (channel === "google:env-credentials-confirm") {
-        return { valid: false, error: "The credentials expired between detection and use" }
-      }
-      return {}
+    installApi({
+      "google:env-credentials": () => ({
+        found: true,
+        valid: true,
+        projectId: "proj-a",
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialType: "authorized_user",
+      }),
+      "google:env-credentials-confirm": () => ({
+        valid: false,
+        error: "The credentials expired between detection and use",
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: ["env"] })
@@ -408,17 +397,15 @@ describe("useGoogleAuth — detection", () => {
   })
 
   it("rejecting the prompt falls through to the manual tabs", async () => {
-    installApi((channel) =>
-      channel === "google:env-credentials"
-        ? {
-            found: true,
-            valid: true,
-            projectId: "proj-a",
-            account: { principal: "dev@example.com", accountType: "user" },
-            credentialType: "authorized_user",
-          }
-        : {},
-    )
+    installApi({
+      "google:env-credentials": () => ({
+        found: true,
+        valid: true,
+        projectId: "proj-a",
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialType: "authorized_user",
+      }),
+    })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: ["env"] })
     await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
@@ -431,19 +418,17 @@ describe("useGoogleAuth — detection", () => {
   })
 
   it("pauses on a block source that has not executed, then resumes when it has", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          projectId: "proj-b",
-          account: {
-            principal: "sa@proj-b.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          credentialType: "service_account",
-        }
-      }
-      return { found: false }
+    const invoke = installApi({
+      "google:validate-credentials": () => ({
+        valid: true,
+        projectId: "proj-b",
+        account: {
+          principal: "sa@proj-b.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        credentialType: "service_account",
+      }),
+      "google:env-credentials": () => ({ found: false }),
     })
 
     const { result, rerender } = renderGoogleAuth({
@@ -486,19 +471,16 @@ describe("useGoogleAuth — detection", () => {
         },
       },
     }
-    const invoke = installApi((channel) => {
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          projectId: "proj-b",
-          account: {
-            principal: "sa@proj-b.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          credentialType: "access_token",
-        }
-      }
-      return { found: false }
+    const invoke = installApi({
+      "google:validate-credentials": () => ({
+        valid: true,
+        projectId: "proj-b",
+        account: {
+          principal: "sa@proj-b.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        credentialType: "access_token",
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: [{ block: "bootstrap" }] })
@@ -524,10 +506,10 @@ describe("useGoogleAuth — detection", () => {
       },
     }
 
-    const invoke = installApi((channel, args) => {
-      if (channel === "google:validate-credentials") {
-        expect(args?.scopes).toEqual(requiredScopes)
-        expect(args?.registerSession).toBe(false)
+    const invoke = installApi({
+      "google:validate-credentials": (params) => {
+        expect(params.scopes).toEqual(requiredScopes)
+        expect(params.registerSession).toBe(false)
         return {
           valid: false,
           insufficientScopes: true,
@@ -541,8 +523,7 @@ describe("useGoogleAuth — detection", () => {
           },
           credentialType: "access_token",
         }
-      }
-      return { found: false }
+      },
     })
 
     const { result } = renderGoogleAuth({
@@ -566,19 +547,19 @@ describe("useGoogleAuth — detection", () => {
   })
 
   it('"Check again" re-runs the walk and says when it found nothing', async () => {
-    const invoke = installApi(() => ({ found: false }))
+    installApi({ "google:env-credentials": () => ({ found: false }) })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: ["env"] })
     await waitFor(() => expect(result.current.detectionStatus).toBe("done"))
     expect(result.current.manualHint).toBe("No existing credentials found. Sign in below.")
-    expect(callsTo(invoke, "google:env-credentials")).toHaveLength(1)
+    expect(callsTo("google:env-credentials")).toHaveLength(1)
 
     act(() => result.current.handleRetryDetection())
     expect(result.current.detectionStatus).toBe("pending")
 
     await waitFor(() => expect(result.current.detectionStatus).toBe("done"))
     expect(result.current.manualHint).toBe("No existing credentials found. Sign in below.")
-    expect(callsTo(invoke, "google:env-credentials")).toHaveLength(2)
+    expect(callsTo("google:env-credentials")).toHaveLength(2)
   })
 })
 
@@ -588,22 +569,19 @@ describe("useGoogleAuth — detection", () => {
 
 describe("useGoogleAuth — service account tab", () => {
   it("validates the pasted key, registers the session, and publishes outputs", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          projectId: "proj-x",
-          projectName: "Project X",
-          credentialType: "service_account",
-          credentialsPath: "/tmp/runbooks-gcp-2/adc.json",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    const invoke = installApi({
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        projectName: "Project X",
+        credentialType: "service_account",
+        credentialsPath: "/tmp/runbooks-gcp-2/adc.json",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({
@@ -653,21 +631,18 @@ describe("useGoogleAuth — service account tab", () => {
    * env and echoes it back as `projectId`. Modelled here so a test sees the
    * project MAIN would actually have written.
    */
-  const echoingValidate = (channel: string, args?: Record<string, unknown>) => {
-    if (channel === "google:validate-credentials") {
-      return {
-        valid: true,
-        account: {
-          principal: "sa@key-project.iam.gserviceaccount.com",
-          accountType: "service_account",
-        },
-        projectId: (args?.projectId as string | undefined) ?? "key-project",
-        credentialType: "service_account",
-        credentialsPath: "/tmp/runbooks-gcp-4/adc.json",
-      }
-    }
-    if (channel === "google:check-project") return { enabled: true }
-    return {}
+  const echoingValidate: Handlers = {
+    "google:validate-credentials": ({ projectId }) => ({
+      valid: true,
+      account: {
+        principal: "sa@key-project.iam.gserviceaccount.com",
+        accountType: "service_account",
+      },
+      projectId: projectId ?? "key-project",
+      credentialType: "service_account",
+      credentialsPath: "/tmp/runbooks-gcp-4/adc.json",
+    }),
+    "google:check-project": () => ({ enabled: true }),
   }
 
   /** The full output map for an `echoingValidate` login. */
@@ -816,11 +791,12 @@ describe("useGoogleAuth — service account tab", () => {
   })
 
   it("surfaces a rejected key inline as a runtime error", async () => {
-    installApi((channel) =>
-      channel === "google:validate-credentials"
-        ? { valid: false, error: "Not a service account key (expected type: service_account)" }
-        : {},
-    )
+    installApi({
+      "google:validate-credentials": () => ({
+        valid: false,
+        error: "Not a service account key (expected type: service_account)",
+      }),
+    })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
 
@@ -837,7 +813,7 @@ describe("useGoogleAuth — service account tab", () => {
   })
 
   it("refuses to submit an empty key without an IPC round trip", async () => {
-    const invoke = installApi(() => ({}))
+    installApi()
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
 
     await act(async () => {
@@ -846,29 +822,26 @@ describe("useGoogleAuth — service account tab", () => {
 
     expect(result.current.authStatus).toBe("failed")
     expect(result.current.errorMessage).toBe("A service account key JSON is required")
-    expect(callsTo(invoke, "google:validate-credentials")).toHaveLength(0)
+    expect(callsTo("google:validate-credentials")).toHaveLength(0)
   })
 
   it("falls into project selection when the key can see more than one project", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          credentialType: "service_account",
-          credentialsPath: "/tmp/runbooks-gcp-3/adc.json",
-          projects: [
-            { projectId: "proj-one", displayName: "Project One" },
-            { projectId: "proj-two", displayName: "Project Two" },
-          ],
-        }
-      }
-      if (channel === "google:set-project") return { ok: true, projectName: "Project Two" }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    const invoke = installApi({
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        credentialType: "service_account",
+        credentialsPath: "/tmp/runbooks-gcp-3/adc.json",
+        projects: [
+          { projectId: "proj-one", displayName: "Project One" },
+          { projectId: "proj-two", displayName: "Project Two" },
+        ],
+      }),
+      "google:set-project": () => ({ ok: true, projectName: "Project Two" }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -910,26 +883,21 @@ describe("useGoogleAuth — service account tab", () => {
   })
 
   it("takes a key file by PATH and never reads its contents into the renderer", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "native:show-open-dialog") {
-        // The ordinary case: a key downloaded from the console, i.e. OUTSIDE
-        // the workspace. `file:read` would refuse this path outright.
-        return { filePaths: ["/home/u/Downloads/project-abc-1234.json"], canceled: false }
-      }
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          projectId: "proj-x",
-          credentialType: "service_account",
-          credentialsPath: "/home/u/Downloads/project-abc-1234.json",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    const invoke = installApi({
+      // The ordinary case: a key downloaded from the console, i.e. OUTSIDE
+      // the workspace. `file:read` would refuse this path outright.
+      "native:show-open-dialog": () => ({ filePaths: ["/home/u/Downloads/project-abc-1234.json"] }),
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        credentialType: "service_account",
+        credentialsPath: "/home/u/Downloads/project-abc-1234.json",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -942,7 +910,7 @@ describe("useGoogleAuth — service account tab", () => {
     expect(result.current.keyFileName).toBe("project-abc-1234.json")
     // The custody rule: the private key never enters renderer state.
     expect(result.current.serviceAccountKey).toBe("")
-    expect(callsTo(invoke, "file:read")).toHaveLength(0)
+    expect(callsTo("file:read")).toHaveLength(0)
 
     await act(async () => {
       result.current.handleServiceAccountSubmit()
@@ -958,23 +926,18 @@ describe("useGoogleAuth — service account tab", () => {
   })
 
   it("pasting a key after choosing a file drops the file (one credential at a time)", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "native:show-open-dialog") {
-        return { filePaths: ["/home/u/Downloads/key.json"], canceled: false }
-      }
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          projectId: "proj-x",
-          credentialType: "service_account",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      "native:show-open-dialog": () => ({ filePaths: ["/home/u/Downloads/key.json"] }),
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        credentialType: "service_account",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -992,7 +955,7 @@ describe("useGoogleAuth — service account tab", () => {
     })
     await waitFor(() => expect(result.current.authStatus).toBe("authenticated"))
 
-    const [, params] = invoke.mock.calls.find((c) => c[0] === "google:validate-credentials")!
+    const [params] = callsTo("google:validate-credentials")
     expect(params).toHaveProperty("keyJson", SA_KEY)
     expect(params).not.toHaveProperty("keyPath")
   })
@@ -1004,27 +967,22 @@ describe("useGoogleAuth — service account tab", () => {
 
 describe("useGoogleAuth — OAuth tab", () => {
   it("starts the loopback flow, hands off to the browser, and finishes on complete", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:oauth-start") {
-        return {
-          flowId: "flow-1",
-          authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
-          redirectUri: "http://127.0.0.1:53211/oauth2callback",
-          expiresInSeconds: 300,
-        }
-      }
-      if (channel === "google:oauth-poll") {
-        return {
-          status: "complete",
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialsPath: "/tmp/runbooks-gcp-4/adc.json",
-          projects: [{ projectId: "proj-solo", displayName: "Solo Project" }],
-          scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-        }
-      }
-      if (channel === "google:set-project") return { ok: true, projectName: "Solo Project" }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    const invoke = installApi({
+      "google:oauth-start": () => ({
+        flowId: "flow-1",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
+        redirectUri: "http://127.0.0.1:53211/oauth2callback",
+        expiresInSeconds: 300,
+      }),
+      "google:oauth-poll": () => ({
+        status: "complete",
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialsPath: "/tmp/runbooks-gcp-4/adc.json",
+        projects: [{ projectId: "proj-solo", displayName: "Solo Project" }],
+        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+      }),
+      "google:set-project": () => ({ ok: true, projectName: "Solo Project" }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -1060,22 +1018,20 @@ describe("useGoogleAuth — OAuth tab", () => {
   })
 
   it("with no project to pick, sends the region/zone to MAIN and publishes what MAIN wrote", async () => {
-    const invoke = installApi((channel, args) => {
-      if (channel === "google:oauth-start") {
-        return { flowId: "flow-np", authUrl: "https://accounts.google.com/o/oauth2/v2/auth" }
-      }
-      if (channel === "google:oauth-poll") {
-        // No `project` prop and no listable projects: nothing follows this
-        // poll, so it is the only session write. MAIN echoes what it wrote.
-        return {
-          status: "complete",
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialsPath: "/tmp/runbooks-gcp-np/adc.json",
-          ...(args?.region ? { region: args.region } : {}),
-          ...(args?.zone ? { zone: args.zone } : {}),
-        }
-      }
-      return {}
+    installApi({
+      "google:oauth-start": () => ({
+        flowId: "flow-np",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      }),
+      // No `project` prop and no listable projects: nothing follows this
+      // poll, so it is the only session write. MAIN echoes what it wrote.
+      "google:oauth-poll": ({ region, zone }) => ({
+        status: "complete",
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialsPath: "/tmp/runbooks-gcp-np/adc.json",
+        ...(region ? { region } : {}),
+        ...(zone ? { zone } : {}),
+      }),
     })
 
     const { result } = renderGoogleAuth({
@@ -1090,13 +1046,10 @@ describe("useGoogleAuth — OAuth tab", () => {
     })
     await waitFor(() => expect(result.current.authStatus).toBe("authenticated"))
 
-    expect(callsTo(invoke, "google:oauth-poll")).toEqual([
-      [
-        "google:oauth-poll",
-        { flowId: "flow-np", blockId: "gcp", region: "europe-west1", zone: "europe-west1-b" },
-      ],
+    expect(callsTo("google:oauth-poll")).toEqual([
+      { flowId: "flow-np", blockId: "gcp", region: "europe-west1", zone: "europe-west1-b" },
     ])
-    expect(callsTo(invoke, "google:set-project")).toHaveLength(0)
+    expect(callsTo("google:set-project")).toHaveLength(0)
     expect(registerOutputs).toHaveBeenLastCalledWith(
       "gcp",
       outputs({
@@ -1114,22 +1067,20 @@ describe("useGoogleAuth — OAuth tab", () => {
   })
 
   it("sends author OAuth overrides and offers a project picker for multiple projects", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:oauth-start") {
-        return { flowId: "flow-2", authUrl: "https://accounts.google.com/o/oauth2/v2/auth" }
-      }
-      if (channel === "google:oauth-poll") {
-        return {
-          status: "complete",
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialsPath: "/tmp/runbooks-gcp-5/adc.json",
-          projects: [
-            { projectId: "proj-one", displayName: "Project One" },
-            { projectId: "proj-two", displayName: "Project Two" },
-          ],
-        }
-      }
-      return {}
+    const invoke = installApi({
+      "google:oauth-start": () => ({
+        flowId: "flow-2",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      }),
+      "google:oauth-poll": () => ({
+        status: "complete",
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialsPath: "/tmp/runbooks-gcp-5/adc.json",
+        projects: [
+          { projectId: "proj-one", displayName: "Project One" },
+          { projectId: "proj-two", displayName: "Project Two" },
+        ],
+      }),
     })
 
     const { result } = renderGoogleAuth({
@@ -1155,12 +1106,12 @@ describe("useGoogleAuth — OAuth tab", () => {
   })
 
   it("cancelling releases the loopback listener in MAIN", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:oauth-start") {
-        return { flowId: "flow-3", authUrl: "https://accounts.google.com/o/oauth2/v2/auth" }
-      }
-      if (channel === "google:oauth-poll") return { status: "pending" }
-      return {}
+    const invoke = installApi({
+      "google:oauth-start": () => ({
+        flowId: "flow-3",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      }),
+      "google:oauth-poll": () => ({ status: "pending" }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -1181,24 +1132,23 @@ describe("useGoogleAuth — OAuth tab", () => {
   })
 
   it("a poll still in flight from a cancelled sign-in cannot fail the next one", async () => {
-    let settleStalePoll: (value: unknown) => void = () => {}
+    let settleStalePoll: (value: Result<"google:oauth-poll">) => void = () => {}
     let started = 0
-    const invoke = installApi((channel, args) => {
-      if (channel === "google:oauth-start") {
+    const invoke = installApi({
+      "google:oauth-start": () => {
         started++
         return {
           flowId: `flow-${started}`,
           authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
         }
-      }
-      if (channel === "google:oauth-poll") {
-        if (args?.flowId === "flow-1")
+      },
+      "google:oauth-poll": ({ flowId }) => {
+        if (flowId === "flow-1")
           return new Promise((resolve) => {
             settleStalePoll = resolve
           })
         return { status: "pending" }
-      }
-      return {}
+      },
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -1224,23 +1174,19 @@ describe("useGoogleAuth — OAuth tab", () => {
   })
 
   it("marks OAuth unavailable ON MOUNT from the capability probe", async () => {
-    const invoke = installApi((channel) =>
-      channel === "google:oauth-available" ? { available: false } : {},
-    )
+    installApi({ "google:oauth-available": () => ({ available: false }) })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
 
     // No click required: the tab is known to be dead before it is offered.
     await waitFor(() => expect(result.current.oauthUnavailable).toBe(true))
-    expect(callsTo(invoke, "google:oauth-start")).toHaveLength(0)
+    expect(callsTo("google:oauth-start")).toHaveLength(0)
     expect(result.current.authStatus).toBe("pending")
     expect(result.current.errorMessage).toBeNull()
   })
 
   it("treats an author-supplied client id as available without a round trip", async () => {
-    const invoke = installApi((channel) =>
-      channel === "google:oauth-available" ? { available: false } : {},
-    )
+    installApi({ "google:oauth-available": () => ({ available: false }) })
 
     const { result } = renderGoogleAuth({
       id: "gcp",
@@ -1251,13 +1197,11 @@ describe("useGoogleAuth — OAuth tab", () => {
 
     await act(async () => {})
     expect(result.current.oauthUnavailable).toBe(false)
-    expect(callsTo(invoke, "google:oauth-available")).toHaveLength(0)
+    expect(callsTo("google:oauth-available")).toHaveLength(0)
   })
 
   it("treats an author-supplied oauthClientFile as available without a round trip", async () => {
-    const invoke = installApi((channel) =>
-      channel === "google:oauth-available" ? { available: false } : {},
-    )
+    installApi({ "google:oauth-available": () => ({ available: false }) })
 
     const { result } = renderGoogleAuth({
       id: "gcp",
@@ -1267,21 +1211,16 @@ describe("useGoogleAuth — OAuth tab", () => {
 
     await act(async () => {})
     expect(result.current.oauthUnavailable).toBe(false)
-    expect(callsTo(invoke, "google:oauth-available")).toHaveLength(0)
+    expect(callsTo("google:oauth-available")).toHaveLength(0)
   })
 
   it("sends oauthClientFile to MAIN on sign-in start", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:oauth-start") {
-        return {
-          flowId: "flow-file",
-          authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-        }
-      }
-      if (channel === "google:oauth-poll") {
-        return { status: "pending" }
-      }
-      return {}
+    const invoke = installApi({
+      "google:oauth-start": () => ({
+        flowId: "flow-file",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      }),
+      "google:oauth-poll": () => ({ status: "pending" }),
     })
 
     const { result } = renderGoogleAuth({
@@ -1300,19 +1239,16 @@ describe("useGoogleAuth — OAuth tab", () => {
   })
 
   it("lets the operator pick a Desktop OAuth client JSON when none is configured", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:oauth-available") return { available: false }
-      if (channel === "native:show-open-dialog") {
-        return { filePaths: ["/tmp/client_secret_example.apps.googleusercontent.com.json"] }
-      }
-      if (channel === "google:oauth-start") {
-        return {
-          flowId: "flow-picked",
-          authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-        }
-      }
-      if (channel === "google:oauth-poll") return { status: "pending" }
-      return {}
+    const invoke = installApi({
+      "google:oauth-available": () => ({ available: false }),
+      "native:show-open-dialog": () => ({
+        filePaths: ["/tmp/client_secret_example.apps.googleusercontent.com.json"],
+      }),
+      "google:oauth-start": () => ({
+        flowId: "flow-picked",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      }),
+      "google:oauth-poll": () => ({ status: "pending" }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -1341,12 +1277,11 @@ describe("useGoogleAuth — OAuth tab", () => {
   })
 
   it("clearing a picked client JSON re-probes exactly once, through the probe effect", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:oauth-available") return { available: false }
-      if (channel === "native:show-open-dialog") {
-        return { filePaths: ["/tmp/client_secret_example.apps.googleusercontent.com.json"] }
-      }
-      return {}
+    installApi({
+      "google:oauth-available": () => ({ available: false }),
+      "native:show-open-dialog": () => ({
+        filePaths: ["/tmp/client_secret_example.apps.googleusercontent.com.json"],
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -1356,7 +1291,7 @@ describe("useGoogleAuth — OAuth tab", () => {
       await result.current.loadOAuthClientFromFile()
     })
     expect(result.current.oauthUnavailable).toBe(false)
-    const probesBeforeClear = callsTo(invoke, "google:oauth-available").length
+    const probesBeforeClear = callsTo("google:oauth-available").length
 
     await act(async () => {
       result.current.clearOAuthClientFile()
@@ -1364,25 +1299,26 @@ describe("useGoogleAuth — OAuth tab", () => {
 
     // One probe, not a second hand-rolled one racing the effect's.
     await waitFor(() => expect(result.current.oauthUnavailable).toBe(true))
-    expect(callsTo(invoke, "google:oauth-available")).toHaveLength(probesBeforeClear + 1)
+    expect(callsTo("google:oauth-available")).toHaveLength(probesBeforeClear + 1)
     expect(result.current.oauthClientFilePath).toBeNull()
     expect(result.current.oauthClientFileName).toBeNull()
   })
 
   it("a failing re-probe after clearing leaves Sign-In selectable", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:oauth-available") throw new Error("IPC unavailable")
-      if (channel === "native:show-open-dialog") {
-        return { filePaths: ["/tmp/client_secret_example.apps.googleusercontent.com.json"] }
-      }
-      return {}
+    installApi({
+      "google:oauth-available": () => {
+        throw new Error("IPC unavailable")
+      },
+      "native:show-open-dialog": () => ({
+        filePaths: ["/tmp/client_secret_example.apps.googleusercontent.com.json"],
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
     await act(async () => {
       await result.current.loadOAuthClientFromFile()
     })
-    const probesBeforeClear = callsTo(invoke, "google:oauth-available").length
+    const probesBeforeClear = callsTo("google:oauth-available").length
 
     await act(async () => {
       result.current.clearOAuthClientFile()
@@ -1391,17 +1327,17 @@ describe("useGoogleAuth — OAuth tab", () => {
 
     // The probe effect's policy: an unanswerable probe leaves oauth-start (or
     // the Desktop client picker) the last word, rather than disabling Sign-In.
-    expect(callsTo(invoke, "google:oauth-available")).toHaveLength(probesBeforeClear + 1)
+    expect(callsTo("google:oauth-available")).toHaveLength(probesBeforeClear + 1)
     expect(result.current.oauthUnavailable).toBe(false)
   })
 
   it("releases the loopback listener when the poll loop gives up", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:oauth-start") {
-        return { flowId: "flow-9", authUrl: "https://accounts.google.com/o/oauth2/v2/auth" }
-      }
-      if (channel === "google:oauth-poll") return { status: "failed", error: "Sign-in was denied" }
-      return {}
+    const invoke = installApi({
+      "google:oauth-start": () => ({
+        flowId: "flow-9",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      }),
+      "google:oauth-poll": () => ({ status: "failed", error: "Sign-in was denied" }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -1417,12 +1353,13 @@ describe("useGoogleAuth — OAuth tab", () => {
   })
 
   it('"Check again" cancels an in-flight sign-in', async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:oauth-start") {
-        return { flowId: "flow-10", authUrl: "https://accounts.google.com/o/oauth2/v2/auth" }
-      }
-      if (channel === "google:oauth-poll") return { status: "pending" }
-      return { found: false }
+    const invoke = installApi({
+      "google:oauth-start": () => ({
+        flowId: "flow-10",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      }),
+      "google:oauth-poll": () => ({ status: "pending" }),
+      "google:env-credentials": () => ({ found: false }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: ["env"] })
@@ -1444,11 +1381,9 @@ describe("useGoogleAuth — OAuth tab", () => {
   })
 
   it("marks OAuth unavailable when the build has no registered client", async () => {
-    installApi((channel) =>
-      channel === "google:oauth-start"
-        ? { error: "OAuth login is not configured for this build" }
-        : {},
-    )
+    installApi({
+      "google:oauth-start": () => ({ error: "OAuth login is not configured for this build" }),
+    })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
 
@@ -1462,12 +1397,12 @@ describe("useGoogleAuth — OAuth tab", () => {
   })
 
   it("reports an expired authorization request inline", async () => {
-    installApi((channel) => {
-      if (channel === "google:oauth-start") {
-        return { flowId: "flow-4", authUrl: "https://accounts.google.com/o/oauth2/v2/auth" }
-      }
-      if (channel === "google:oauth-poll") return { status: "expired" }
-      return {}
+    installApi({
+      "google:oauth-start": () => ({
+        flowId: "flow-4",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      }),
+      "google:oauth-poll": () => ({ status: "expired" }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -1486,7 +1421,9 @@ describe("useGoogleAuth — OAuth tab", () => {
 // Tab 3 — gcloud configuration
 // ---------------------------------------------------------------------------
 
-const GCLOUD_LISTING = {
+type GcloudConfigurationIpc = Result<"google:gcloud-configurations">["configurations"][number]
+
+const GCLOUD_LISTING: Result<"google:gcloud-configurations"> = {
   configurations: [
     {
       name: "default",
@@ -1509,7 +1446,7 @@ const GCLOUD_LISTING = {
 
 describe("useGoogleAuth — gcloud tab", () => {
   it("lists configurations from disk and preselects the active usable one", async () => {
-    installApi((channel) => (channel === "google:gcloud-configurations" ? GCLOUD_LISTING : {}))
+    installApi({ "google:gcloud-configurations": () => GCLOUD_LISTING })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
 
@@ -1524,14 +1461,14 @@ describe("useGoogleAuth — gcloud tab", () => {
   })
 
   it("refreshing keeps the user's pick, as the fresh entry, while it is still usable", async () => {
-    const prod = {
+    const prod: GcloudConfigurationIpc = {
       name: "prod",
       isActive: false,
       project: "proj-p",
       authType: "adc-service-account",
     }
     let listing = { ...GCLOUD_LISTING, configurations: [...GCLOUD_LISTING.configurations, prod] }
-    installApi((channel) => (channel === "google:gcloud-configurations" ? listing : {}))
+    installApi({ "google:gcloud-configurations": () => listing })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
 
@@ -1558,7 +1495,7 @@ describe("useGoogleAuth — gcloud tab", () => {
 
   it("refreshing clears the selection once no usable configuration is left", async () => {
     let listing = GCLOUD_LISTING
-    installApi((channel) => (channel === "google:gcloud-configurations" ? listing : {}))
+    installApi({ "google:gcloud-configurations": () => listing })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
 
@@ -1581,32 +1518,27 @@ describe("useGoogleAuth — gcloud tab", () => {
   })
 
   it("honours the gcloudConfiguration prop and authenticates against the existing ADC", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:gcloud-configurations") {
-        return {
-          ...GCLOUD_LISTING,
-          configurations: [
-            ...GCLOUD_LISTING.configurations,
-            {
-              name: "prod",
-              isActive: false,
-              account: "ops@example.com",
-              project: "proj-p",
-              authType: "adc-service-account",
-            },
-          ],
-        }
-      }
-      if (channel === "google:gcloud-auth") {
-        return {
-          valid: true,
-          account: { principal: "ops@example.com", accountType: "service_account" },
-          projectId: "proj-p",
-          credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    const invoke = installApi({
+      "google:gcloud-configurations": () => ({
+        ...GCLOUD_LISTING,
+        configurations: [
+          ...GCLOUD_LISTING.configurations,
+          {
+            name: "prod",
+            isActive: false,
+            account: "ops@example.com",
+            project: "proj-p",
+            authType: "adc-service-account",
+          },
+        ],
+      }),
+      "google:gcloud-auth": () => ({
+        valid: true,
+        account: { principal: "ops@example.com", accountType: "service_account" },
+        projectId: "proj-p",
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({
@@ -1647,47 +1579,40 @@ describe("useGoogleAuth — gcloud tab", () => {
   })
 
   it("routes to the project picker when the configuration sets no core/project", async () => {
-    const invoke = installApi((channel, args) => {
-      if (channel === "google:gcloud-configurations") {
-        return {
-          ...GCLOUD_LISTING,
-          configurations: [
-            {
-              name: "scratch",
-              isActive: true,
-              account: "dev@example.com",
-              // Listed before `gcloud config set compute/region us-west1` ran.
-              region: "us-east1",
-              authType: "adc-user",
-            },
-          ],
-        }
-      }
-      if (channel === "google:gcloud-auth") {
-        // No projectId: `gcloud config configurations create scratch` without a
-        // `core/project`, and no `project` prop to fall back on. MAIN reads the
-        // configuration afresh and says which region it wrote.
-        return {
-          valid: true,
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
-          region: (args?.region as string | undefined) ?? "us-west1",
-          projects: [
-            { projectId: "proj-one", displayName: "Project One" },
-            { projectId: "proj-two", displayName: "Project Two" },
-          ],
-        }
-      }
-      if (channel === "google:set-project") {
-        // MAIN keeps the region the block authenticated with when none is sent.
-        return {
-          ok: true,
-          projectName: "Project Two",
-          region: (args?.region as string | undefined) ?? "us-west1",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      "google:gcloud-configurations": () => ({
+        ...GCLOUD_LISTING,
+        configurations: [
+          {
+            name: "scratch",
+            isActive: true,
+            account: "dev@example.com",
+            // Listed before `gcloud config set compute/region us-west1` ran.
+            region: "us-east1",
+            authType: "adc-user",
+          },
+        ],
+      }),
+      // No projectId: `gcloud config configurations create scratch` without a
+      // `core/project`, and no `project` prop to fall back on. MAIN reads the
+      // configuration afresh and says which region it wrote.
+      "google:gcloud-auth": ({ region }) => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+        region: region ?? "us-west1",
+        projects: [
+          { projectId: "proj-one", displayName: "Project One" },
+          { projectId: "proj-two", displayName: "Project Two" },
+        ],
+      }),
+      // MAIN keeps the region the block authenticated with when none is sent.
+      "google:set-project": ({ region }) => ({
+        ok: true,
+        projectName: "Project Two",
+        region: region ?? "us-west1",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -1703,7 +1628,7 @@ describe("useGoogleAuth — gcloud tab", () => {
     expect(result.current.authStatus).toBe("select_project")
     expect(result.current.projects).toHaveLength(2)
     expectNoAuthenticatedPublish(registerOutputs)
-    expect(callsTo(invoke, "google:set-project")).toHaveLength(0)
+    expect(callsTo("google:set-project")).toHaveLength(0)
 
     await act(async () => {
       await result.current.handleProjectSelect({
@@ -1715,12 +1640,8 @@ describe("useGoogleAuth — gcloud tab", () => {
     // The listing's stale region is sent to neither: MAIN's fresh read of the
     // configuration decides, and survives the picker detour on the block's
     // credential in MAIN.
-    expect(callsTo(invoke, "google:gcloud-auth")).toEqual([
-      ["google:gcloud-auth", { blockId: "gcp", configuration: "scratch" }],
-    ])
-    expect(callsTo(invoke, "google:set-project")).toEqual([
-      ["google:set-project", { blockId: "gcp", projectId: "proj-two" }],
-    ])
+    expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp", configuration: "scratch" }])
+    expect(callsTo("google:set-project")).toEqual([{ blockId: "gcp", projectId: "proj-two" }])
     expect(result.current.authStatus).toBe("authenticated")
     expect(registerOutputs).toHaveBeenLastCalledWith(
       "gcp",
@@ -1734,26 +1655,21 @@ describe("useGoogleAuth — gcloud tab", () => {
   })
 
   it("auto-selects the single visible project when the configuration sets none", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:gcloud-configurations") {
-        return {
-          ...GCLOUD_LISTING,
-          configurations: [
-            { name: "scratch", isActive: true, account: "dev@example.com", authType: "adc-user" },
-          ],
-        }
-      }
-      if (channel === "google:gcloud-auth") {
-        return {
-          valid: true,
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
-          projects: [{ projectId: "proj-solo", displayName: "Solo Project" }],
-        }
-      }
-      if (channel === "google:set-project") return { ok: true, projectName: "Solo Project" }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    const invoke = installApi({
+      "google:gcloud-configurations": () => ({
+        ...GCLOUD_LISTING,
+        configurations: [
+          { name: "scratch", isActive: true, account: "dev@example.com", authType: "adc-user" },
+        ],
+      }),
+      "google:gcloud-auth": () => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+        projects: [{ projectId: "proj-solo", displayName: "Solo Project" }],
+      }),
+      "google:set-project": () => ({ ok: true, projectName: "Solo Project" }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -1787,45 +1703,38 @@ describe("useGoogleAuth — gcloud tab", () => {
   })
 
   it("auto-selecting the single project publishes the region/zone MAIN read, not the listing's", async () => {
-    const invoke = installApi((channel, args) => {
-      if (channel === "google:gcloud-configurations") {
-        return {
-          ...GCLOUD_LISTING,
-          configurations: [
-            {
-              name: "scratch",
-              isActive: true,
-              account: "dev@example.com",
-              // Listed before `gcloud config set compute/region us-west1` ran.
-              region: "us-east1",
-              zone: "us-east1-b",
-              authType: "adc-user",
-            },
-          ],
-        }
-      }
-      if (channel === "google:gcloud-auth") {
-        // MAIN reads the configuration afresh and says what it wrote.
-        return {
-          valid: true,
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
-          region: (args?.region as string | undefined) ?? "us-west1",
-          zone: (args?.zone as string | undefined) ?? "us-west1-a",
-          projects: [{ projectId: "proj-solo", displayName: "Solo Project" }],
-        }
-      }
-      if (channel === "google:set-project") {
-        // MAIN keeps the block's own region/zone when none is sent.
-        return {
-          ok: true,
-          projectName: "Solo Project",
-          region: (args?.region as string | undefined) ?? "us-west1",
-          zone: (args?.zone as string | undefined) ?? "us-west1-a",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      "google:gcloud-configurations": () => ({
+        ...GCLOUD_LISTING,
+        configurations: [
+          {
+            name: "scratch",
+            isActive: true,
+            account: "dev@example.com",
+            // Listed before `gcloud config set compute/region us-west1` ran.
+            region: "us-east1",
+            zone: "us-east1-b",
+            authType: "adc-user",
+          },
+        ],
+      }),
+      // MAIN reads the configuration afresh and says what it wrote.
+      "google:gcloud-auth": ({ region, zone }) => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+        region: region ?? "us-west1",
+        zone: zone ?? "us-west1-a",
+        projects: [{ projectId: "proj-solo", displayName: "Solo Project" }],
+      }),
+      // MAIN keeps the block's own region/zone when none is sent.
+      "google:set-project": ({ region, zone }) => ({
+        ok: true,
+        projectName: "Solo Project",
+        region: region ?? "us-west1",
+        zone: zone ?? "us-west1-a",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -1837,12 +1746,8 @@ describe("useGoogleAuth — gcloud tab", () => {
       await result.current.handleGcloudAuth()
     })
 
-    expect(callsTo(invoke, "google:gcloud-auth")).toEqual([
-      ["google:gcloud-auth", { blockId: "gcp", configuration: "scratch" }],
-    ])
-    expect(callsTo(invoke, "google:set-project")).toEqual([
-      ["google:set-project", { blockId: "gcp", projectId: "proj-solo" }],
-    ])
+    expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp", configuration: "scratch" }])
+    expect(callsTo("google:set-project")).toEqual([{ blockId: "gcp", projectId: "proj-solo" }])
     expect(result.current.authStatus).toBe("authenticated")
     expect(registerOutputs).toHaveBeenLastCalledWith(
       "gcp",
@@ -1866,24 +1771,19 @@ describe("useGoogleAuth — gcloud tab", () => {
   })
 
   it("says so out loud when it authenticates with no project at all", async () => {
-    installApi((channel) => {
-      if (channel === "google:gcloud-configurations") {
-        return {
-          ...GCLOUD_LISTING,
-          configurations: [
-            { name: "scratch", isActive: true, account: "dev@example.com", authType: "adc-user" },
-          ],
-        }
-      }
-      if (channel === "google:gcloud-auth") {
-        // Authenticated, no project, and the principal cannot enumerate any.
-        return {
-          valid: true,
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
-        }
-      }
-      return {}
+    installApi({
+      "google:gcloud-configurations": () => ({
+        ...GCLOUD_LISTING,
+        configurations: [
+          { name: "scratch", isActive: true, account: "dev@example.com", authType: "adc-user" },
+        ],
+      }),
+      // Authenticated, no project, and the principal cannot enumerate any.
+      "google:gcloud-auth": () => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -1912,9 +1812,7 @@ describe("useGoogleAuth — gcloud tab", () => {
   })
 
   it("refuses a configuration with no Application Default Credentials", async () => {
-    const invoke = installApi((channel) =>
-      channel === "google:gcloud-configurations" ? GCLOUD_LISTING : {},
-    )
+    const invoke = installApi({ "google:gcloud-configurations": () => GCLOUD_LISTING })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
 
@@ -1942,20 +1840,17 @@ describe("useGoogleAuth — gcloud tab", () => {
   })
 
   it('"No default region" falls through to the configuration\'s own compute/region', async () => {
-    const invoke = installApi((channel, args) => {
-      if (channel === "google:gcloud-configurations") return GCLOUD_LISTING
-      if (channel === "google:gcloud-auth") {
-        // MAIN falls back to the configuration's compute/region when none is sent.
-        return {
-          valid: true,
-          account: { principal: "dev@example.com", accountType: "user" },
-          projectId: "proj-a",
-          credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
-          region: (args?.region as string | undefined) ?? "us-east1",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      "google:gcloud-configurations": () => GCLOUD_LISTING,
+      // MAIN falls back to the configuration's compute/region when none is sent.
+      "google:gcloud-auth": ({ region }) => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        projectId: "proj-a",
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+        region: region ?? "us-east1",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({
@@ -1974,8 +1869,8 @@ describe("useGoogleAuth — gcloud tab", () => {
 
     // Not the cleared prop: no region is sent, so MAIN applies the `default`
     // configuration's compute/region, and the block publishes it.
-    expect(callsTo(invoke, "google:gcloud-auth")).toEqual([
-      ["google:gcloud-auth", { blockId: "gcp", configuration: "default", projectId: "proj-a" }],
+    expect(callsTo("google:gcloud-auth")).toEqual([
+      { blockId: "gcp", configuration: "default", projectId: "proj-a" },
     ])
     expect(registerOutputs).toHaveBeenLastCalledWith(
       "gcp",
@@ -1988,39 +1883,34 @@ describe("useGoogleAuth — gcloud tab", () => {
   })
 
   it("publishes the region/zone MAIN read from the configuration, not the listing the renderer holds", async () => {
-    const invoke = installApi((channel, args) => {
-      if (channel === "google:gcloud-configurations") {
-        // Listed before `gcloud config set compute/region us-west1` (and
-        // compute/zone) ran.
-        return {
-          ...GCLOUD_LISTING,
-          configurations: [
-            {
-              name: "default",
-              isActive: true,
-              account: "dev@example.com",
-              project: "proj-a",
-              region: "us-east1",
-              zone: "us-east1-b",
-              authType: "adc-user",
-            },
-          ],
-        }
-      }
-      if (channel === "google:gcloud-auth") {
-        // MAIN reads the configuration afresh and falls back to its compute
-        // defaults when the renderer sent none; it says what it wrote.
-        return {
-          valid: true,
-          account: { principal: "dev@example.com", accountType: "user" },
-          projectId: "proj-a",
-          credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
-          region: (args?.region as string | undefined) ?? "us-west1",
-          zone: (args?.zone as string | undefined) ?? "us-west1-a",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    const invoke = installApi({
+      // Listed before `gcloud config set compute/region us-west1` (and
+      // compute/zone) ran.
+      "google:gcloud-configurations": () => ({
+        ...GCLOUD_LISTING,
+        configurations: [
+          {
+            name: "default",
+            isActive: true,
+            account: "dev@example.com",
+            project: "proj-a",
+            region: "us-east1",
+            zone: "us-east1-b",
+            authType: "adc-user",
+          },
+        ],
+      }),
+      // MAIN reads the configuration afresh and falls back to its compute
+      // defaults when the renderer sent none; it says what it wrote.
+      "google:gcloud-auth": ({ region, zone }) => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        projectId: "proj-a",
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+        region: region ?? "us-west1",
+        zone: zone ?? "us-west1-a",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -2060,21 +1950,18 @@ describe("useGoogleAuth — gcloud tab", () => {
   })
 
   it("sends an explicitly picked region/zone and publishes it over the configuration's", async () => {
-    const invoke = installApi((channel, args) => {
-      if (channel === "google:gcloud-configurations") return GCLOUD_LISTING
-      if (channel === "google:gcloud-auth") {
-        // The configuration's compute/region only applies when none is sent.
-        return {
-          valid: true,
-          account: { principal: "dev@example.com", accountType: "user" },
-          projectId: "proj-a",
-          credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
-          region: (args?.region as string | undefined) ?? "us-east1",
-          ...(args?.zone ? { zone: args.zone as string } : {}),
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      "google:gcloud-configurations": () => GCLOUD_LISTING,
+      // The configuration's compute/region only applies when none is sent.
+      "google:gcloud-auth": ({ region, zone }) => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        projectId: "proj-a",
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+        region: region ?? "us-east1",
+        ...(zone ? { zone } : {}),
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({
@@ -2092,17 +1979,14 @@ describe("useGoogleAuth — gcloud tab", () => {
       await result.current.handleGcloudAuth()
     })
 
-    expect(callsTo(invoke, "google:gcloud-auth")).toEqual([
-      [
-        "google:gcloud-auth",
-        {
-          blockId: "gcp",
-          configuration: "default",
-          projectId: "proj-a",
-          region: "europe-west4",
-          zone: "europe-west4-a",
-        },
-      ],
+    expect(callsTo("google:gcloud-auth")).toEqual([
+      {
+        blockId: "gcp",
+        configuration: "default",
+        projectId: "proj-a",
+        region: "europe-west4",
+        zone: "europe-west4-a",
+      },
     ])
     expect(result.current.authStatus).toBe("authenticated")
     expect(registerOutputs).toHaveBeenLastCalledWith(
@@ -2118,32 +2002,27 @@ describe("useGoogleAuth — gcloud tab", () => {
   })
 
   it('"Change project" keeps publishing the configuration\'s compute/region', async () => {
-    const invoke = installApi((channel, args) => {
-      if (channel === "google:gcloud-configurations") return GCLOUD_LISTING
-      if (channel === "google:gcloud-auth") {
-        // MAIN falls back to the configuration's compute/region when none is sent.
-        return {
-          valid: true,
-          account: { principal: "dev@example.com", accountType: "user" },
-          projectId: "proj-a",
-          credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
-          region: (args?.region as string | undefined) ?? "us-east1",
-          projects: [
-            { projectId: "proj-a", displayName: "Project A" },
-            { projectId: "proj-b", displayName: "Project B" },
-          ],
-        }
-      }
-      if (channel === "google:set-project") {
-        // MAIN keeps the block's own region when none is requested, and says so.
-        return {
-          ok: true,
-          projectName: "Project B",
-          region: (args?.region as string | undefined) ?? "us-east1",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      "google:gcloud-configurations": () => GCLOUD_LISTING,
+      // MAIN falls back to the configuration's compute/region when none is sent.
+      "google:gcloud-auth": ({ region }) => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        projectId: "proj-a",
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+        region: region ?? "us-east1",
+        projects: [
+          { projectId: "proj-a", displayName: "Project A" },
+          { projectId: "proj-b", displayName: "Project B" },
+        ],
+      }),
+      // MAIN keeps the block's own region when none is requested, and says so.
+      "google:set-project": ({ region }) => ({
+        ok: true,
+        projectName: "Project B",
+        region: region ?? "us-east1",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -2167,9 +2046,7 @@ describe("useGoogleAuth — gcloud tab", () => {
     })
 
     // The renderer no longer knows the configuration's region; MAIN does.
-    expect(callsTo(invoke, "google:set-project")).toEqual([
-      ["google:set-project", { blockId: "gcp", projectId: "proj-b" }],
-    ])
+    expect(callsTo("google:set-project")).toEqual([{ blockId: "gcp", projectId: "proj-b" }])
     expect(result.current.authStatus).toBe("authenticated")
     expect(registerOutputs).toHaveBeenLastCalledWith(
       "gcp",
@@ -2197,23 +2074,21 @@ describe("useGoogleAuth — gcloud tab", () => {
 
 describe("useGoogleAuth — post-authentication", () => {
   it("surfaces a project-access warning without failing the auth", async () => {
-    installApi((channel) => {
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          projectId: "proj-x",
-          credentialType: "service_account",
-          credentialsPath: "/tmp/runbooks-gcp-6/adc.json",
-        }
-      }
-      if (channel === "google:check-project") {
-        return { enabled: false, warning: 'This credential cannot read project "proj-x"' }
-      }
-      return {}
+    installApi({
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        credentialType: "service_account",
+        credentialsPath: "/tmp/runbooks-gcp-6/adc.json",
+      }),
+      "google:check-project": () => ({
+        enabled: false,
+        warning: 'This credential cannot read project "proj-x"',
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", project: "proj-x", detectCredentials: false })
@@ -2228,11 +2103,10 @@ describe("useGoogleAuth — post-authentication", () => {
   })
 
   it('"Change project" loads the picker when the list is empty', async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:projects") {
-        return { projects: [{ projectId: "proj-one", displayName: "Project One" }] }
-      }
-      return {}
+    const invoke = installApi({
+      "google:projects": () => ({
+        projects: [{ projectId: "proj-one", displayName: "Project One" }],
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -2247,10 +2121,10 @@ describe("useGoogleAuth — post-authentication", () => {
   })
 
   it('"Change project" surfaces a project-list failure instead of swallowing it', async () => {
-    installApi((channel) => {
-      if (channel === "google:projects")
+    installApi({
+      "google:projects": () => {
         throw new Error("Cloud Resource Manager API has not been used")
-      return {}
+      },
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -2265,22 +2139,21 @@ describe("useGoogleAuth — post-authentication", () => {
   })
 
   it('cancelling "Change project" returns to the success card and keeps the outputs', async () => {
-    installApi((channel) => {
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          projectId: "proj-x",
-          credentialType: "service_account",
-          credentialsPath: "/tmp/runbooks-gcp-cp/adc.json",
-        }
-      }
-      if (channel === "google:projects")
-        return { projects: [], error: "Cloud Resource Manager API has not been used" }
-      return {}
+    installApi({
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        credentialType: "service_account",
+        credentialsPath: "/tmp/runbooks-gcp-cp/adc.json",
+      }),
+      "google:projects": () => ({
+        projects: [],
+        error: "Cloud Resource Manager API has not been used",
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", project: "proj-x", detectCredentials: false })
@@ -2321,22 +2194,20 @@ describe("useGoogleAuth — post-authentication", () => {
   })
 
   it("cancelling the picker a fresh sign-in routed into still starts over", async () => {
-    installApi((channel) => {
-      if (channel === "google:oauth-start") {
-        return { flowId: "flow-cancel", authUrl: "https://accounts.google.com/o/oauth2/v2/auth" }
-      }
-      if (channel === "google:oauth-poll") {
-        return {
-          status: "complete",
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialsPath: "/tmp/runbooks-gcp-fresh/adc.json",
-          projects: [
-            { projectId: "proj-one", displayName: "Project One" },
-            { projectId: "proj-two", displayName: "Project Two" },
-          ],
-        }
-      }
-      return {}
+    installApi({
+      "google:oauth-start": () => ({
+        flowId: "flow-cancel",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      }),
+      "google:oauth-poll": () => ({
+        status: "complete",
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialsPath: "/tmp/runbooks-gcp-fresh/adc.json",
+        projects: [
+          { projectId: "proj-one", displayName: "Project One" },
+          { projectId: "proj-two", displayName: "Project Two" },
+        ],
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -2356,20 +2227,18 @@ describe("useGoogleAuth — post-authentication", () => {
 
   it('a failed "Change project" commit does not let a later picker Cancel restore the old card', async () => {
     let projectsListed = false
-    installApi((channel) => {
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          projectId: "proj-x",
-          credentialType: "service_account",
-          credentialsPath: "/tmp/runbooks-gcp-sa/adc.json",
-        }
-      }
-      if (channel === "google:projects") {
+    installApi({
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        credentialType: "service_account",
+        credentialsPath: "/tmp/runbooks-gcp-sa/adc.json",
+      }),
+      "google:projects": () => {
         projectsListed = true
         return {
           projects: [
@@ -2377,24 +2246,21 @@ describe("useGoogleAuth — post-authentication", () => {
             { projectId: "proj-y", displayName: "Project Y" },
           ],
         }
-      }
-      if (channel === "google:set-project")
-        return { ok: false, error: "Permission denied on proj-y" }
-      if (channel === "google:oauth-start") {
-        return { flowId: "flow-after", authUrl: "https://accounts.google.com/o/oauth2/v2/auth" }
-      }
-      if (channel === "google:oauth-poll") {
-        return {
-          status: "complete",
-          account: { principal: "dev@example.com", accountType: "user" },
-          credentialsPath: "/tmp/runbooks-gcp-after/adc.json",
-          projects: [
-            { projectId: "proj-one", displayName: "Project One" },
-            { projectId: "proj-two", displayName: "Project Two" },
-          ],
-        }
-      }
-      return {}
+      },
+      "google:set-project": () => ({ ok: false, error: "Permission denied on proj-y" }),
+      "google:oauth-start": () => ({
+        flowId: "flow-after",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      }),
+      "google:oauth-poll": () => ({
+        status: "complete",
+        account: { principal: "dev@example.com", accountType: "user" },
+        credentialsPath: "/tmp/runbooks-gcp-after/adc.json",
+        projects: [
+          { projectId: "proj-one", displayName: "Project One" },
+          { projectId: "proj-two", displayName: "Project Two" },
+        ],
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
@@ -2428,20 +2294,17 @@ describe("useGoogleAuth — post-authentication", () => {
   })
 
   it("re-authenticating clears the account, the projects, and the detection state", async () => {
-    installApi((channel) => {
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          projectId: "proj-x",
-          credentialType: "service_account",
-          credentialsPath: "/tmp/runbooks-gcp-7/adc.json",
-        }
-      }
-      return {}
+    installApi({
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        credentialType: "service_account",
+        credentialsPath: "/tmp/runbooks-gcp-7/adc.json",
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", project: "proj-x", detectCredentials: false })
@@ -2468,20 +2331,17 @@ describe("useGoogleAuth — post-authentication", () => {
     // next sign-in materialised its replacement — and because the Run button
     // reads `__AUTHENTICATED`, it stayed enabled the whole time. gcloud then
     // failed with "Failed to load credential file … was not found".
-    installApi((channel) => {
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          projectId: "proj-x",
-          credentialType: "service_account",
-          credentialsPath: "/tmp/runbooks-gcp-A7oaHl/adc.json",
-        }
-      }
-      return {}
+    installApi({
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        credentialType: "service_account",
+        credentialsPath: "/tmp/runbooks-gcp-A7oaHl/adc.json",
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", project: "proj-x", detectCredentials: false })
@@ -2507,20 +2367,17 @@ describe("useGoogleAuth — post-authentication", () => {
   })
 
   it("tells MAIN which credential it committed, so the superseded file can be zeroed", async () => {
-    const invoke = installApi((channel) => {
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          projectId: "proj-x",
-          credentialType: "service_account",
-          credentialsPath: "/tmp/runbooks-gcp-4gUk0g/adc.json",
-        }
-      }
-      return {}
+    installApi({
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        credentialType: "service_account",
+        credentialsPath: "/tmp/runbooks-gcp-4gUk0g/adc.json",
+      }),
     })
 
     const { result } = renderGoogleAuth({ id: "gcp", project: "proj-x", detectCredentials: false })
@@ -2531,11 +2388,8 @@ describe("useGoogleAuth — post-authentication", () => {
     })
     await waitFor(() => expect(result.current.authStatus).toBe("authenticated"))
 
-    expect(callsTo(invoke, "google:credential-committed")).toEqual([
-      [
-        "google:credential-committed",
-        { blockId: "gcp", credentialsPath: "/tmp/runbooks-gcp-4gUk0g/adc.json" },
-      ],
+    expect(callsTo("google:credential-committed")).toEqual([
+      { blockId: "gcp", credentialsPath: "/tmp/runbooks-gcp-4gUk0g/adc.json" },
     ])
   })
 })
@@ -2544,7 +2398,7 @@ describe("useGoogleAuth — post-authentication", () => {
 // `defaultTab`; the user's tab clicks own it from then on.
 describe("useGoogleAuth — defaultTab", () => {
   const renderWithTab = (defaultTab?: string) => {
-    installApi(() => ({}))
+    installApi()
     return renderGoogleAuth({ id: "gcp", detectCredentials: false, defaultTab })
   }
 
