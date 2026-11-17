@@ -3,7 +3,8 @@ import { useEffect, type ReactNode } from "react"
 import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { useRunbookContext, flattenInputs } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
@@ -45,18 +46,14 @@ vi.mock("@/hooks/useApiGetBoilerplateConfig", () => ({
 
 const DEFAULTS = { region: "us-east-1", count: 3, enable_logging: true }
 
-const invoke = vi.fn(async () => ({ ok: true }))
-const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
+let testApi: TestApi
 
 /** The payload of each event sent to the main process, oldest first. */
 const recorded = () =>
-  invoke.mock.calls
-    .map((call) => call as unknown as [string, { blockId: string; kind: string; payload: unknown }])
-    .filter(([channel]) => channel === "session:record-event")
-    .map(([, event]) => {
-      expect(event).toMatchObject({ sessionId: "s1", blockId: "test-inputs", kind: "inputs" })
-      return event.payload
-    })
+  testApi.callsTo("session:record-event").map((event) => {
+    expect(event).toMatchObject({ sessionId: "s1", blockId: "test-inputs", kind: "inputs" })
+    return event.payload
+  })
 
 let runbook: RunbookContextType | undefined
 function Capture() {
@@ -73,7 +70,7 @@ function Session({ saved, children }: { saved?: unknown; children: ReactNode }) 
   const blockStates: SavedBlockState[] =
     saved === undefined ? [] : [{ blockId: "test-inputs", kind: "inputs", payload: saved }]
   return (
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <IpcSessionHistoryProvider sessionId="s1" blockStates={blockStates}>
         <TestWrapper>
           <Capture />
@@ -96,7 +93,10 @@ const settle = () =>
 
 describe("Inputs in a session", () => {
   beforeEach(() => {
-    invoke.mockClear()
+    testApi = makeTestApi({
+      "session:record-event": () => ({ ok: true }),
+      "native:set-theme": () => ({ ok: true }),
+    })
     runbook = undefined
     loaded.config = true
     loaded.locked = false
