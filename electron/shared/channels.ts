@@ -13,6 +13,7 @@ import type {
   Executable,
   FileTreeNode,
   FilesCapturedEvent,
+  GeneratedFilesCheckResponse,
   HeavyDir,
   RenderInlineRequest,
   RenderRequest,
@@ -899,16 +900,17 @@ export interface IpcChannelMap {
   /**
    * Whether the session's generated directory has files. When it has, `fileTree`
    * and its truncation fields are that directory's tree, as a render returns it.
+   * `outputPath` picks another directory under the session; the renderer sends
+   * none, only a `sessionKey` that main ignores, for useIpc to check again
+   * when the session changes.
    */
   "generated-files:check": {
-    params: void
-    result: {
-      hasFiles: boolean
-      fileCount: number
-      fileTree?: WorkspaceTreeNode[]
+    params: { outputPath?: string; sessionKey?: string } | void
+    result: GeneratedFilesCheckResponse & {
+      fileTree?: FileTreeNode[]
       truncatedTree?: boolean
       totalFiles?: number
-      heavyDirs?: Array<{ path: string; fileCount: number }>
+      heavyDirs?: HeavyDir[]
     }
   }
   "generated-files:delete": {
@@ -1335,14 +1337,6 @@ export interface PullRequestRequest {
   headBranch: string
   commitMessage: string
   labels?: string[]
-}
-
-export interface WorkspaceTreeNode {
-  name: string
-  path: string
-  type: "file" | "directory"
-  language?: string
-  children?: WorkspaceTreeNode[]
 }
 
 export interface WorkspaceFileResponse {

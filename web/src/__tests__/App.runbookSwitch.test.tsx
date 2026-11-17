@@ -136,8 +136,6 @@ function makeApi({
             : [],
       }
     },
-    // Main also says where the generated directory is, which the channel's
-    // type leaves out and the renderer reads.
     "generated-files:check": () => {
       const fileCount = current ? (generatedFiles[current.path] ?? 0) : 0
       return {
