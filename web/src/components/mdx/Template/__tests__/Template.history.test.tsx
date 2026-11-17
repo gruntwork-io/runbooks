@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { useEffect, type ReactNode } from "react"
 import { act, render, screen, fireEvent } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
@@ -50,18 +51,25 @@ vi.mock("@/contexts/useInstructionMode", () => ({
 
 import Template from "../Template"
 
-const invoke = vi.fn(async () => ({ ok: true }))
-const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
+let testApi: TestApi
+/** How many events were sent before the last clearRecorded(). */
+let clearedThrough = 0
 
 /** The payload of each `kind` event sent to the main process, oldest first. */
 const recorded = (kind = "inputs") =>
-  invoke.mock.calls
-    .map((call) => call as unknown as [string, { kind: string; payload: unknown }])
-    .filter(([channel, event]) => channel === "session:record-event" && event.kind === kind)
-    .map(([, event]) => {
+  testApi
+    .callsTo("session:record-event")
+    .slice(clearedThrough)
+    .filter((event) => event.kind === kind)
+    .map((event) => {
       expect(event).toMatchObject({ sessionId: "s1", blockId: "vpc" })
       return event.payload
     })
+
+/** Forgets the events sent so far: recorded() lists only later ones. */
+const clearRecorded = () => {
+  clearedThrough = testApi.callsTo("session:record-event").length
+}
 
 let ctx: RunbookContextType
 function CaptureContext() {
@@ -102,7 +110,7 @@ function Session({
       : [{ blockId: "vpc", kind: "render" as const, payload: written }]),
   ]
   return (
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <IpcSessionHistoryProvider sessionId="s1" blockStates={blockStates}>
         <TestWrapper>
           <CaptureContext />
@@ -129,7 +137,11 @@ const templateVariables = configReturn.data.variables
 
 describe("Template in a session", () => {
   beforeEach(() => {
-    invoke.mockClear()
+    testApi = makeTestApi({
+      "session:record-event": () => ({ ok: true }),
+      "native:set-theme": () => ({ ok: true }),
+    })
+    clearedThrough = 0
     autoRender.mockClear()
     mode.instruction = false
     delete configReturn.data.contentHash
@@ -183,7 +195,7 @@ describe("Template in a session", () => {
     const written = recorded("render").at(-1)
     expect(written).toEqual({ writtenHash: expect.stringMatching(/^[0-9a-f]{64}$/) })
     unmount()
-    invoke.mockClear()
+    clearRecorded()
     autoRender.mockClear()
     return written
   }
@@ -287,7 +299,7 @@ describe("Template in a session", () => {
     await settle()
     expect(recorded().at(-1)).toMatchObject({ values: { name: "billing" }, submitted: false })
     fresh.unmount()
-    invoke.mockClear()
+    clearRecorded()
 
     const generated = render(
       <Session saved={{ values: { name: "billing" }, submitted: true }}>
