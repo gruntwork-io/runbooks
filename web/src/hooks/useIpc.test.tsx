@@ -29,9 +29,13 @@ function createControllableApi() {
 }
 
 const file = (path: string, content: string): Result<"file:read"> => ({
+  name: path,
   path,
   content,
-  isBinary: false,
+  contentHash: `hash-${content}`,
+  language: "text",
+  size: content.length,
+  isTruncated: false,
 })
 const A = file("a", "A")
 const B = file("b", "B")

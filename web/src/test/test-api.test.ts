@@ -1,7 +1,15 @@
 import { describe, it, expect, vi } from "vitest"
 import { makeTestApi } from "./test-api"
 
-const FILE = { path: "/a.sh", content: "echo a", isBinary: false }
+const FILE = {
+  name: "a.sh",
+  path: "/a.sh",
+  content: "echo a",
+  contentHash: "h-a",
+  language: "bash",
+  size: 6,
+  isTruncated: false,
+}
 
 describe("makeTestApi", () => {
   describe("invoke", () => {
@@ -225,8 +233,8 @@ describe("makeTestApi", () => {
     // @ts-expect-error: no such channel
     makeTestApi({ "file:get": () => "A" })
     const testApi = makeTestApi({
-      // @ts-expect-error: file:read answers with FileData, which has content
-      "file:read": () => ({ path: "/a.sh", isBinary: false }),
+      // @ts-expect-error: file:read answers with the file's content
+      "file:read": () => ({ ...FILE, content: undefined }),
       // @ts-expect-error: session:rename's params have a name, not a title
       "session:rename": ({ title }: { title: string }) => ({ name: title }),
     })

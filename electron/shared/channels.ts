@@ -11,6 +11,7 @@
 import type {
   ExecRequest,
   Executable,
+  FileData,
   FileTreeNode,
   FilesCapturedEvent,
   GeneratedFilesCheckResponse,
@@ -918,7 +919,8 @@ export interface IpcChannelMap {
   "generated-files:delete": { params: void; result: GeneratedFilesDeleteResponse }
 
   // File Operations
-  "file:read": { params: { path: string }; result: FileData }
+  /** The file at `path`, as readFileMetadata reads it. */
+  "file:read": { params: { path: string }; result: FileData & { contentHash: string } }
 
   // Watch Mode
   "watch:subscribe": { params: void; result: { ok: true } }
@@ -1344,11 +1346,4 @@ export interface WorkspaceFileResponse {
   isBinary: boolean
   path: string
   size: number
-}
-
-export interface FileData {
-  content: string
-  language?: string
-  path: string
-  isBinary: boolean
 }

@@ -64,8 +64,7 @@ function createApi(
         warnings: [],
       }
     },
-    // What main's readFileMetadata answers. isBinary is there only because
-    // channels.ts's FileData requires it: main doesn't send one.
+    // What main's readFileMetadata answers.
     "file:read": () => ({
       name: "deploy.sh",
       path: SCRIPT_PATH,
@@ -73,7 +72,6 @@ function createApi(
       language: "bash",
       size: script.content.length,
       isTruncated: false,
-      isBinary: false,
     }),
     "runbook:script-change": () => {
       if (script.contentHash === registered.contentHash) return { change: null }
