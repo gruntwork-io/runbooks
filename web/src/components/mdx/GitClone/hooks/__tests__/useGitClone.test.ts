@@ -56,9 +56,14 @@ function holdClones() {
   return { clones, cloneId }
 }
 
-const SUCCESS: Result<"git:clone"> = {
+type Cloned = Extract<Result<"git:clone">, { status: "success" }>
+
+const SUCCESS: Cloned = {
   status: "success",
   absolutePath: "/work/infra",
+  relativePath: "infra",
+  fileCount: 12,
+  ref: "main",
   hasCommits: true,
   outputs: { clone_path: "/work/infra" },
 }
@@ -207,10 +212,10 @@ describe("useGitClone — cancel", () => {
     })
     expect(result.current.logs.map((l) => l.line)).toEqual(["from the retry"])
 
-    // The cancelled clone then fails (its directory was deleted by the retry's
-    // "Delete & Clone"). That is not the retry's failure.
+    // The cancelled clone then ends, as main ends one: { status: "cancelled" }.
+    // That is not the retry's failure.
     await act(async () => {
-      clones[0]!.resolve({ status: "fail", error: "destination vanished" })
+      clones[0]!.resolve({ status: "cancelled" })
     })
     expect(result.current.cloneStatus).toBe("running")
     expect(result.current.errorMessage).toBeNull()
@@ -296,9 +301,12 @@ describe("useGitClone — reset", () => {
   })
 
   describe("with a default-branch seed still in flight", () => {
-    const emptyRepo = (name: string): Result<"git:clone"> => ({
+    const emptyRepo = (name: string): Cloned => ({
       status: "success",
       absolutePath: `/work/${name}`,
+      relativePath: name,
+      fileCount: 0,
+      ref: "",
       hasCommits: false,
       outputs: { clone_path: `/work/${name}` },
     })

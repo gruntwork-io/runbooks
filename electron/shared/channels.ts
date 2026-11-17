@@ -831,21 +831,26 @@ export interface IpcChannelMap {
   }
 
   // Git Operations
+  /** A clone that fails rejects. */
   "git:clone": {
     params: GitCloneRequest
-    result: {
-      /** "success", or "cancelled" when git:clone-cancel stopped the clone. */
-      status: string
-      error?: string
-      fileCount?: number
-      absolutePath?: string
-      relativePath?: string
-      /** Branch the clone landed on — the base branch of any PR opened against it. */
-      ref?: string
-      /** False for a repo with no commits: it has no branch a PR could target. */
-      hasCommits?: boolean
-      outputs?: Record<string, string>
-    }
+    result:
+      | {
+          status: "success"
+          error?: undefined
+          fileCount: number
+          absolutePath: string
+          relativePath: string
+          /** Branch the clone landed on — the base branch of any PR opened against it. */
+          ref: string
+          /** False for a repo with no commits: it has no branch a PR could target. */
+          hasCommits: boolean
+          outputs: Record<string, string>
+        }
+      /** git:clone-cancel stopped the clone. */
+      | { status: "cancelled"; error?: undefined }
+      /** The destination exists, and the request didn't set `force` to replace it. */
+      | { status?: undefined; error: "directory_exists" }
   }
   // Stops the clone started with this `cloneId`: git is killed, not just
   // detached from the UI, so it can't keep writing into the destination.

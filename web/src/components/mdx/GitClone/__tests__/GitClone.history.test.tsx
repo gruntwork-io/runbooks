@@ -312,9 +312,9 @@ describe("GitClone in a session", () => {
 
   it("records an empty repository only once it has a default branch, on that branch", async () => {
     const user = userEvent.setup()
-    // A clone of an empty repo: no commits, so no ref either.
-    const { ref: _ref, ...unborn } = CLONED
-    testApi.handle("git:clone", () => ({ ...unborn, hasCommits: false }))
+    // A clone of an empty repo: no commits, so no branch either. main sends
+    // the branch HEAD names, or "" when it can't read one.
+    testApi.handle("git:clone", () => ({ ...CLONED, ref: "", hasCommits: false }))
     testApi.handle("git:init-default-branch", () => ({ branch: "trunk" }))
     renderGitClone(undefined, { prefilledUrl: URL })
     const clone = screen.getByRole("button", { name: /^Clone$/i })
