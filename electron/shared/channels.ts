@@ -16,6 +16,7 @@ import type {
   HeavyDir,
   RenderInlineRequest,
   RenderRequest,
+  WorkspaceTreeResponse,
   ScriptFileChange,
   Section,
   SessionMetadata,
@@ -878,14 +879,8 @@ export interface IpcChannelMap {
   "git:delete-branch": { params: { worktreePath: string; branch: string }; result: { ok: true } }
 
   // Workspace
-  "workspace:tree": {
-    params: { worktreePath: string; subpath?: string }
-    result: {
-      tree: WorkspaceTreeNode[]
-      totalFiles: number
-      gitInfo?: { branch: string; remoteUrl: string; commitSha: string }
-    }
-  }
+  /** The tree of `worktreePath`, a repo or one of its folders, as getWorkspaceTree builds it. */
+  "workspace:tree": { params: { worktreePath: string }; result: WorkspaceTreeResponse }
   "workspace:dirs": { params: { worktreePath: string }; result: { dirs?: string[] } }
   "workspace:file": {
     params: { worktreePath: string; filePath: string }
