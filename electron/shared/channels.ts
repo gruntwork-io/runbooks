@@ -11,7 +11,10 @@
 import type {
   ExecRequest,
   Executable,
+  FileTreeNode,
   FilesCapturedEvent,
+  HeavyDir,
+  RenderRequest,
   ScriptFileChange,
   Section,
   SessionMetadata,
@@ -184,7 +187,8 @@ export interface IpcChannelMap {
     params: { templatePath?: string; boilerplateContent?: string }
     result: BoilerplateConfig
   }
-  "boilerplate:render": { params: RenderRequest; result: RenderResponse }
+  /** A render that a newer one of the same template overtook resolves to Superseded. */
+  "boilerplate:render": { params: RenderRequest; result: RenderResponse | Superseded }
   "boilerplate:render-inline": {
     params: RenderInlineRequest
     result: {
@@ -1065,17 +1069,24 @@ export interface BoilerplateVariable {
   default?: unknown
 }
 
-export interface RenderRequest {
-  templatePath: string
-  variables: Record<string, unknown>
-  outputPath: string
-}
-
+/** What boilerplate:render wrote: each file's path relative to `outputDir`. */
 export interface RenderResponse {
-  files: string[]
-  created: number
-  modified: number
-  deleted: number
+  message: string
+  outputDir: string
+  templatePath: string
+  /**
+   * The output dir's tree, with the truncation fields below. Empty for the
+   * worktree target, and left out with them when the render changed nothing.
+   */
+  fileTree?: FileTreeNode[]
+  totalFiles?: number
+  truncatedTree?: boolean
+  heavyDirs?: HeavyDir[]
+  deletedFiles: string[]
+  createdFiles: string[]
+  modifiedFiles: string[]
+  /** Unchanged files, which the render didn't write. */
+  skippedFiles: string[]
 }
 
 export interface RenderInlineRequest {
