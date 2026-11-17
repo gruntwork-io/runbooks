@@ -149,7 +149,6 @@ function makeApi({
       if (deleteFails) throw new Error("EACCES: permission denied")
       const deletedCount = current ? (generatedFiles[current.path] ?? 0) : 0
       return {
-        ok: true,
         success: true,
         deletedCount,
         message: `Successfully deleted ${deletedCount} file(s) from ${current?.path ?? ""}/generated`,

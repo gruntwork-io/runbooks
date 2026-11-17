@@ -14,6 +14,7 @@ import type {
   FileTreeNode,
   FilesCapturedEvent,
   GeneratedFilesCheckResponse,
+  GeneratedFilesDeleteResponse,
   HeavyDir,
   RenderInlineRequest,
   RenderRequest,
@@ -913,10 +914,8 @@ export interface IpcChannelMap {
       heavyDirs?: HeavyDir[]
     }
   }
-  "generated-files:delete": {
-    params: void
-    result: { ok: true; success?: boolean; deletedCount?: number; message?: string }
-  }
+  /** Main also reads an optional outputPath, as for generated-files:check; the renderer sends none. */
+  "generated-files:delete": { params: void; result: GeneratedFilesDeleteResponse }
 
   // File Operations
   "file:read": { params: { path: string }; result: FileData }
