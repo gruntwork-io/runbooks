@@ -65,8 +65,8 @@ test.describe("sample-runbooks/demo1", () => {
     // Verify the architecture image loaded successfully.
     const img = page.getByRole("img", { name: "AWS infrastructure preview" })
     await expect(img).toBeVisible()
-    const naturalWidth = await img.evaluate(
-      (el) => (el as unknown as { naturalWidth: number }).naturalWidth,
+    const naturalWidth = await img.evaluate((el) =>
+      el instanceof HTMLImageElement ? el.naturalWidth : 0,
     )
     expect(naturalWidth, "Image failed to load (naturalWidth is 0)").toBeGreaterThan(0)
 
@@ -340,8 +340,8 @@ test.describe("sample-runbooks/markdown-only-full", () => {
     // Verify the image loaded successfully.
     const img = markdownBody.locator("img")
     await expect(img).toBeVisible()
-    const naturalWidth = await img.evaluate(
-      (el) => (el as unknown as { naturalWidth: number }).naturalWidth,
+    const naturalWidth = await img.evaluate((el) =>
+      el instanceof HTMLImageElement ? el.naturalWidth : 0,
     )
     expect(naturalWidth, "Image failed to load (naturalWidth is 0)").toBeGreaterThan(0)
 

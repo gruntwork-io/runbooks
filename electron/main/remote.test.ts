@@ -505,7 +505,7 @@ describe("openRemoteRunbook (real git)", () => {
       },
     })),
   ).pipe(Layer.provide(ChildProcessSpawnerLive))
-  const credentials = {
+  const credentials: VcsCredentialsShape = {
     enumerateGitHubHosts: () => Effect.succeed({ configHosts: [], defaultHost: "github.com" }),
     // Every host counts as GitHub, so only the transport decides whether a
     // token is looked up.
@@ -515,7 +515,18 @@ describe("openRemoteRunbook (real git)", () => {
         tokenLookups.push(host)
         return TOKEN
       }),
-  } as unknown as VcsCredentialsShape
+    // The rest aren't reached by a clone.
+    detectGitHubEnv: () => Effect.die("detectGitHubEnv not used"),
+    detectGitHubCli: () => Effect.die("detectGitHubCli not used"),
+    detectGitLabEnv: () => Effect.die("detectGitLabEnv not used"),
+    detectGitLabCli: () => Effect.die("detectGitLabCli not used"),
+    validateDirect: () => Effect.die("validateDirect not used"),
+    enumerateGitLabHosts: () => Effect.die("enumerateGitLabHosts not used"),
+    validateViaCli: () => Effect.die("validateViaCli not used"),
+    cliStatus: () => Effect.die("cliStatus not used"),
+    invalidateCache: () => Effect.die("invalidateCache not used"),
+    markTransportDegraded: () => Effect.die("markTransportDegraded not used"),
+  }
   const testLayer = Layer.mergeAll(
     GitCliClientLive.pipe(Layer.provide(spawnerLayer)),
     spawnerLayer,

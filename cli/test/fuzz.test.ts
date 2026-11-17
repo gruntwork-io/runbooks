@@ -370,6 +370,7 @@ describe("generateFuzzValue", () => {
 
   it("unknown type: throws a descriptive error", () => {
     expect(() =>
+      // A type the config's type rules out, as an unchecked runbook can still declare.
       generateFuzzValue({ type: "totally-unknown" as unknown as FuzzConfig["type"] }),
     ).toThrow(/Unknown fuzz type/)
   })

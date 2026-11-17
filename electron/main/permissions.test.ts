@@ -9,6 +9,7 @@ type CheckHandler = Parameters<Session["setPermissionCheckHandler"]>[0]
 function handlers(): { request: NonNullable<RequestHandler>; check: NonNullable<CheckHandler> } {
   let request: RequestHandler = null
   let check: CheckHandler = null
+  // Electron builds Sessions only in a running app; this one has the two setters the code uses.
   installPermissionHandlers({
     setPermissionRequestHandler: (h: RequestHandler) => {
       request = h
@@ -82,6 +83,7 @@ describe("installClientCertificateHandler", () => {
       callback: (certificate?: unknown) => void,
     ) => void
     const listeners = new Map<string, Listener>()
+    // Electron's App exists only in a running app; this one has the `on` the handler uses.
     installClientCertificateHandler({
       on: (event: string, listener: Listener) => listeners.set(event, listener),
     } as unknown as App)

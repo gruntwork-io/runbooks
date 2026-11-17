@@ -153,8 +153,9 @@ describe("aws:validate", () => {
   })
 
   it("reports a check that ends in a defect as invalid", async () => {
-    const runPromise = spyOn(runtime, "runPromise").mockImplementationOnce((() =>
-      Effect.runPromise(Effect.die(new Error("boom")))) as unknown as typeof runtime.runPromise)
+    const runPromise = spyOn(runtime, "runPromise").mockImplementationOnce(() =>
+      Effect.runPromise(Effect.die(new Error("boom"))),
+    )
     spies.push(runPromise)
 
     expect(await invokeValidate()).toStrictEqual({
@@ -189,7 +190,7 @@ describe("aws:check-region", () => {
       enabled: false,
       warning: `Region ${REGION} is not enabled for this AWS account`,
     })
-    const command = send.mock.calls[0]![0] as unknown as GetRegionOptStatusCommand
+    const command = send.mock.calls[0]![0]
     expect(command).toBeInstanceOf(GetRegionOptStatusCommand)
     expect(command.input).toEqual({ RegionName: REGION })
   })
@@ -206,8 +207,9 @@ describe("aws:check-region", () => {
   ])(
     "fails open, and logs without the credentials, when the check ends in %s",
     async (_label, outcome) => {
-      const runPromise = spyOn(runtime, "runPromise").mockImplementationOnce((() =>
-        Effect.runPromise(outcome)) as unknown as typeof runtime.runPromise)
+      const runPromise = spyOn(runtime, "runPromise").mockImplementationOnce(() =>
+        Effect.runPromise(outcome),
+      )
       spies.push(runPromise)
       const handlerErrors = captureHandlerErrors()
 

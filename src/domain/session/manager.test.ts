@@ -8,16 +8,11 @@ import {
   type SessionState,
 } from "./manager.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
+import type { Environment } from "../../services/Environment.ts"
 import type { SessionExecSnapshot } from "../../types.ts"
 
-function run<A>(effect: Effect.Effect<A, any, any>, env: Record<string, string> = {}) {
-  return Effect.runPromise(
-    effect.pipe(Effect.provide(makeTestEnvironment(env))) as unknown as Effect.Effect<
-      A,
-      any,
-      never
-    >,
-  )
+function run<A, E>(effect: Effect.Effect<A, E, Environment>, env: Record<string, string> = {}) {
+  return Effect.runPromise(effect.pipe(Effect.provide(makeTestEnvironment(env))))
 }
 
 describe("filterCapturedEnv", () => {

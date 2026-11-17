@@ -116,6 +116,7 @@ describe("installEmbedSession", () => {
       setPermissionCheckHandler: (h: never) => (handlers.check = h),
       setDevicePermissionHandler: (h: never) => (handlers.device = h),
     })
+    // Electron builds Sessions only in a running app; this one has what installEmbedSession uses.
     installEmbedSession(target as unknown as Session)
 
     let granted: boolean | undefined
@@ -135,6 +136,7 @@ describe("hardenEmbedGuest", () => {
     const { listeners, target } = emitter({
       setWindowOpenHandler: (h: () => unknown) => (openHandler = h),
     })
+    // Electron builds WebContents only in a running app; this one has what hardenEmbedGuest uses.
     hardenEmbedGuest(target as unknown as WebContents, partition, () => HOST)
     return { listeners, open: () => openHandler!() }
   }

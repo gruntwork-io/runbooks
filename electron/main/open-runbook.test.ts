@@ -19,6 +19,7 @@ function makeFakeWindow(isLoading: boolean, isDestroyed = false, isVisible = !is
   const calls: SendCall[] = []
   let finishLoadCb: (() => void) | null = null
   let showCb: (() => void) | null = null
+  // Electron builds windows only in a running app; this one has what the opener uses.
   const win = {
     isDestroyed: () => isDestroyed,
     isVisible: () => isVisible,
