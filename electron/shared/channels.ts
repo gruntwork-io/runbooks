@@ -10,6 +10,7 @@
 // these types from channels.ts directly.
 import type {
   ExecRequest,
+  Executable,
   FilesCapturedEvent,
   ScriptFileChange,
   Section,
@@ -85,7 +86,8 @@ export interface IpcChannelMap {
   }
   "runbook:executables": {
     params: void
-    result: { executables: Record<string, Executable>; warnings?: string[] }
+    /** The registry's executables by id, without their content, which stays in main. */
+    result: { executables: Record<string, Omit<Executable, "content">>; warnings?: string[] }
   }
   /**
    * How the script file of block `componentId` differs on disk from the
@@ -1040,15 +1042,6 @@ export interface IpcEventMap {
 
 export type InvokeChannel = keyof IpcChannelMap
 export type EventChannel = keyof IpcEventMap
-
-export interface Executable {
-  id: string
-  type: string
-  content: string
-  language: string
-  hash: string
-  componentId?: string
-}
 
 export interface BoilerplateConfig {
   variables: BoilerplateVariable[]
