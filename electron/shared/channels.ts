@@ -32,6 +32,14 @@ export type SessionSwitchResult =
   /** Nothing was done, for `error`, a sentence fit to show the user. */
   | { status: "failed"; error: string }
 
+/**
+ * What an invoke resolves to, in place of its result, when a newer invoke of
+ * the same channel overtook it. useIpc ignores it: the newer call drives the UI.
+ */
+export interface Superseded {
+  superseded: true
+}
+
 // ---------------------------------------------------------------------------
 // Invoke channels (request/response, replaces REST GET/POST/DELETE)
 // ---------------------------------------------------------------------------
@@ -61,24 +69,26 @@ export interface IpcChannelMap {
      * again starts a new session in place of a finished one.
      */
     params: { path: string; watchMode?: boolean; remoteSource?: string; reload?: boolean }
-    result: {
-      path: string
-      content: string
-      contentHash: string
-      language: string
-      size: number
-      isWatchMode?: boolean
-      warnings?: string[]
-      remoteSource?: string
-      assetHost: string
-      sessionId: string
-      sessionName: string
-      sessionDir: string
-      sessionResumedFrom?: string
-      sessionFinishedAt?: string
-      finishedSession?: { name: string; finishedAt: string }
-      blockStates: SavedBlockState[]
-    }
+    result:
+      | {
+          path: string
+          content: string
+          contentHash: string
+          language: string
+          size: number
+          isWatchMode?: boolean
+          warnings?: string[]
+          remoteSource?: string
+          assetHost: string
+          sessionId: string
+          sessionName: string
+          sessionDir: string
+          sessionResumedFrom?: string
+          sessionFinishedAt?: string
+          finishedSession?: { name: string; finishedAt: string }
+          blockStates: SavedBlockState[]
+        }
+      | Superseded
   }
   "runbook:open-remote": {
     params: { url: string }
