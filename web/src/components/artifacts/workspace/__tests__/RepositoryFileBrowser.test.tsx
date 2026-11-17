@@ -1,8 +1,9 @@
 import type { ReactElement } from "react"
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
 import type { WorkspaceFileChange } from "@/hooks/useGitFileChanges"
 import type { WorkspaceTreeNode } from "@/hooks/useGitFileTree"
 import { RepositoryFileBrowser } from "../RepositoryFileBrowser"
@@ -42,23 +43,18 @@ const TREE: WorkspaceTreeNode[] = [
 ]
 
 let disk: Record<string, string>
-const invoke = vi.fn(async (channel: string, args: { filePath: string }) => {
-  if (channel !== "workspace:file") throw new Error(`unexpected channel ${channel}`)
-  const content = disk[args.filePath]
-  if (content === undefined) throw new Error(`no file ${args.filePath} on the fake disk`)
-  return { path: args.filePath, content, language: "text", size: content.length }
-})
-const api = { invoke, on: vi.fn(() => () => {}) } as unknown as typeof window.api
+let testApi: TestApi
 
-const originalApi = window.api
 beforeEach(() => {
-  invoke.mockClear()
   poll.changes = []
   disk = { "/repo/main.tf": "v0", "/repo/other.tf": "o0", "/repo/modules\\vpc.tf": "cidr" }
-  window.api = api
-})
-afterEach(() => {
-  window.api = originalApi
+  testApi = makeTestApi({
+    "workspace:file": ({ filePath }) => {
+      const content = disk[filePath]
+      if (content === undefined) throw new Error(`no file ${filePath} on the fake disk`)
+      return { path: filePath, content, language: "text", isBinary: false, size: content.length }
+    },
+  })
 })
 
 const modified = (path: string, newContent: string): WorkspaceFileChange => ({
@@ -71,7 +67,7 @@ const modified = (path: string, newContent: string): WorkspaceFileChange => ({
 })
 
 const ui = () => (
-  <ApiProvider api={api}>
+  <ApiProvider api={testApi.api}>
     <RepositoryFileBrowser tree={TREE} isLoading={false} error={null} onRetry={() => {}} />
   </ApiProvider>
 )
@@ -88,9 +84,7 @@ function editOnDisk(
 }
 
 const fileFetches = (path: string) =>
-  invoke.mock.calls.filter(
-    ([channel, args]) => channel === "workspace:file" && args.filePath === path,
-  ).length
+  testApi.callsTo("workspace:file").filter(({ filePath }) => filePath === path).length
 
 async function select(name: string) {
   await userEvent.click(screen.getByRole("treeitem", { name }))
