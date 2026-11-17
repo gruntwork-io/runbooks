@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createElement, type ReactNode } from "react"
 import { renderHook, act, waitFor } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Result, type TestApi } from "@/test/test-api"
 import { useAwsAuth } from "../useAwsAuth"
 import { sensitiveOutput } from "@/lib/outputValues"
 
@@ -22,25 +23,22 @@ vi.mock("@/contexts/useSession", () => ({
   useSession: () => ({ isReady: true }),
 }))
 
-type Api = Parameters<typeof ApiProvider>[0]["api"]
-type Reply = Record<string, unknown>
+let testApi: TestApi
 
-let currentApi: Api
-
-function installApi(replies: { detect?: Reply; confirm?: Reply }) {
-  const invoke = vi.fn(async (channel: string) => {
-    if (channel === "aws:env-credentials") return replies.detect ?? { found: false }
-    if (channel === "aws:env-credentials-confirm") return replies.confirm ?? { valid: false }
-    if (channel === "session:set-env") return { ok: true }
-    if (channel === "aws:check-region") return { enabled: true }
-    throw new Error(`unexpected channel ${channel}`)
+function installApi(replies: {
+  detect?: Result<"aws:env-credentials">
+  confirm?: Result<"aws:env-credentials-confirm">
+}) {
+  testApi = makeTestApi({
+    "aws:env-credentials": () => replies.detect ?? { found: false },
+    "aws:env-credentials-confirm": () => replies.confirm ?? { valid: false },
+    "session:set-env": () => ({ ok: true }),
+    "aws:check-region": () => ({ enabled: true }),
   })
-  currentApi = { invoke, on: () => () => {} } as unknown as Api
-  return invoke
 }
 
 const wrapper = ({ children }: { children: ReactNode }) =>
-  createElement(ApiProvider, { api: currentApi }, children)
+  createElement(ApiProvider, { api: testApi.api }, children)
 
 const renderAwsAuth = (detectCredentials?: Parameters<typeof useAwsAuth>[0]["detectCredentials"]) =>
   renderHook(
@@ -66,14 +64,14 @@ beforeEach(() => {
 
 describe("useAwsAuth — env credential detection", () => {
   it("prompts with the detected account for a found and valid reply (default source)", async () => {
-    const invoke = installApi({
+    installApi({
       detect: { found: true, valid: true, ...IDENTITY, region: "eu-west-1", hasSessionToken: true },
     })
 
     const { result } = renderAwsAuth()
 
     await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
-    expect(invoke).toHaveBeenCalledWith("aws:env-credentials", {
+    expect(testApi.invoke).toHaveBeenCalledWith("aws:env-credentials", {
       prefix: "",
       defaultRegion: "us-west-2",
     })
@@ -121,7 +119,7 @@ describe("useAwsAuth — env credential detection", () => {
   })
 
   it("'Check again' re-runs detection", async () => {
-    const invoke = installApi({ detect: { found: false } })
+    installApi({ detect: { found: false } })
 
     const { result } = renderAwsAuth()
     await waitFor(() => expect(result.current.detectionStatus).toBe("done"))
@@ -131,9 +129,7 @@ describe("useAwsAuth — env credential detection", () => {
 
     await waitFor(() => expect(result.current.detectionStatus).toBe("done"))
     expect(result.current.manualHint).toBe("No existing credentials found. Sign in below.")
-    expect(invoke.mock.calls.filter(([channel]) => channel === "aws:env-credentials")).toHaveLength(
-      2,
-    )
+    expect(testApi.callsTo("aws:env-credentials")).toHaveLength(2)
   })
 
   it("'Check again' after rejecting the prompt brings it back", async () => {
@@ -165,7 +161,7 @@ describe("useAwsAuth — env credential detection", () => {
 
 describe("useAwsAuth — env credential confirm", () => {
   it("sends the prefix through detect and confirm, then publishes the confirmed keys", async () => {
-    const invoke = installApi({
+    installApi({
       detect: {
         found: true,
         valid: true,
@@ -185,7 +181,7 @@ describe("useAwsAuth — env credential confirm", () => {
     const { result } = renderAwsAuth([{ env: { prefix: "PROD_" } }])
 
     await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
-    expect(invoke).toHaveBeenCalledWith("aws:env-credentials", {
+    expect(testApi.invoke).toHaveBeenCalledWith("aws:env-credentials", {
       prefix: "PROD_",
       defaultRegion: "us-west-2",
     })
@@ -193,7 +189,7 @@ describe("useAwsAuth — env credential confirm", () => {
 
     await act(() => result.current.handleConfirmDetected())
 
-    expect(invoke).toHaveBeenCalledWith("aws:env-credentials-confirm", {
+    expect(testApi.invoke).toHaveBeenCalledWith("aws:env-credentials-confirm", {
       prefix: "PROD_",
       defaultRegion: "us-west-2",
       expectedAccountId: IDENTITY.accountId,
@@ -213,7 +209,7 @@ describe("useAwsAuth — env credential confirm", () => {
       AWS_SESSION_TOKEN: sensitiveOutput(""),
     })
     // The renderer, not MAIN's confirm handler, writes the session env, with the real values.
-    expect(invoke).toHaveBeenCalledWith("session:set-env", { env })
+    expect(testApi.invoke).toHaveBeenCalledWith("session:set-env", { env })
   })
 
   it("asks again, publishing nothing, when the credentials now belong to another account", async () => {
@@ -222,7 +218,7 @@ describe("useAwsAuth — env credential confirm", () => {
       accountName: "other",
       arn: "arn:aws:iam::999999999999:user/x",
     }
-    const invoke = installApi({
+    installApi({
       detect: {
         found: true,
         valid: true,
@@ -251,7 +247,7 @@ describe("useAwsAuth — env credential confirm", () => {
       hasSessionToken: true,
     })
     expect(registerOutputs).not.toHaveBeenCalled()
-    expect(invoke.mock.calls.map(([c]) => c)).not.toContain("session:set-env")
+    expect(testApi.calls.map(({ channel }) => channel)).not.toContain("session:set-env")
   })
 
   it("fails without publishing anything when confirm reports invalid", async () => {
@@ -282,23 +278,16 @@ describe("useAwsAuth — env credential confirm", () => {
 
 describe("useAwsAuth — env confirm reply after the block is gone", () => {
   it("publishes nothing when the confirm reply lands after the block unmounts", async () => {
-    let answerConfirm!: (reply: Reply) => void
-    const invoke = vi.fn(async (channel: string) => {
-      if (channel === "aws:env-credentials")
-        return {
-          found: true,
-          valid: true,
-          ...IDENTITY,
-          region: "eu-west-1",
-          hasSessionToken: false,
-        }
-      if (channel === "aws:env-credentials-confirm")
-        return new Promise<Reply>((r) => {
-          answerConfirm = r
-        })
-      throw new Error(`unexpected channel ${channel}`)
+    testApi = makeTestApi({
+      "aws:env-credentials": () => ({
+        found: true,
+        valid: true,
+        ...IDENTITY,
+        region: "eu-west-1",
+        hasSessionToken: false,
+      }),
     })
-    currentApi = { invoke, on: () => () => {} } as unknown as Api
+    const confirms = testApi.hold("aws:env-credentials-confirm")
     const { result, unmount } = renderAwsAuth()
     await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
 
@@ -307,7 +296,7 @@ describe("useAwsAuth — env confirm reply after the block is gone", () => {
       confirming = result.current.handleConfirmDetected()
     })
     unmount()
-    answerConfirm({
+    confirms[0]!.resolve({
       valid: true,
       ...IDENTITY,
       accessKeyId: "AKIA_ENV",
@@ -319,6 +308,6 @@ describe("useAwsAuth — env confirm reply after the block is gone", () => {
     expect(registerOutputs).not.toHaveBeenCalled()
     // MAIN's confirm handler writes nothing itself, and the renderer never
     // gets to publish: the session env is untouched.
-    expect(invoke.mock.calls.map(([c]) => c)).not.toContain("session:set-env")
+    expect(testApi.calls.map(({ channel }) => channel)).not.toContain("session:set-env")
   })
 })

@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Handlers, type TestApi } from "@/test/test-api"
 import { useRunbookContext } from "@/contexts/useRunbook"
 
 /**
@@ -20,21 +21,17 @@ vi.mock("@/contexts/useSession", () => ({
 
 import AwsAuth from "../AwsAuth"
 
-type Api = Parameters<typeof ApiProvider>[0]["api"]
-type InvokeImpl = (channel: string, params?: Record<string, unknown>) => unknown
+let testApi: TestApi
 
-let currentApi: Api
-let invoke: ReturnType<typeof vi.fn>
-
-function installApi(impl: InvokeImpl) {
-  invoke = vi.fn(async (channel: string, params?: Record<string, unknown>) => impl(channel, params))
-  currentApi = { invoke, on: () => () => {} } as unknown as Api
+/** Answers the channels in `handlers`; an invoke of any other channel rejects. */
+function installApi(handlers: Handlers) {
+  testApi = makeTestApi(handlers)
 }
 
 function renderBlock(children: ReactNode) {
   return render(
     <TestWrapper>
-      <ApiProvider api={currentApi}>{children}</ApiProvider>
+      <ApiProvider api={testApi.api}>{children}</ApiProvider>
       <RunbookProgressProbe />
     </TestWrapper>,
   )
@@ -66,9 +63,8 @@ function SourceBlock({ id }: { id: string }) {
 }
 
 beforeEach(() => {
-  installApi(() => {
-    throw new Error("no IPC expected")
-  })
+  // No IPC expected: every invoke rejects.
+  installApi({})
 })
 
 describe("AwsAuth — rendering", () => {
@@ -84,7 +80,7 @@ describe("AwsAuth — rendering", () => {
     expect(screen.getByRole("button", { name: "Authenticate" })).toBeDisabled()
     // Detection is off, so there is no hint or "Check again" and nothing was invoked.
     expect(screen.queryByTestId("detection-hint")).toBeNull()
-    expect(invoke).not.toHaveBeenCalled()
+    expect(testApi.invoke).not.toHaveBeenCalled()
   })
 
   it("opens the SSO form when its tab is picked", () => {
@@ -133,10 +129,7 @@ describe("AwsAuth — rendering", () => {
 
 describe("AwsAuth — detection", () => {
   it("waits for a block source that has not run, then prompts once it has", async () => {
-    installApi((channel) => {
-      if (channel === "aws:validate") return { valid: true, ...IDENTITY }
-      throw new Error(`unexpected channel ${channel}`)
-    })
+    installApi({ "aws:validate": () => ({ valid: true, ...IDENTITY }) })
     renderBlock(
       <>
         <SourceBlock id="assume-role" />
@@ -159,28 +152,23 @@ describe("AwsAuth — detection", () => {
   })
 
   it("prompts with env credentials and shows the account once they are confirmed", async () => {
-    installApi((channel) => {
-      if (channel === "aws:env-credentials") {
-        return {
-          found: true,
-          valid: true,
-          ...IDENTITY,
-          region: "us-east-1",
-          hasSessionToken: false,
-        }
-      }
-      if (channel === "aws:env-credentials-confirm") {
-        return {
-          valid: true,
-          ...IDENTITY,
-          accessKeyId: "AKIA_ENV",
-          secretAccessKey: "env-secret",
-          region: "us-east-1",
-        }
-      }
-      if (channel === "session:set-env") return { ok: true }
-      if (channel === "aws:check-region") return { enabled: true }
-      throw new Error(`unexpected channel ${channel}`)
+    installApi({
+      "aws:env-credentials": () => ({
+        found: true,
+        valid: true,
+        ...IDENTITY,
+        region: "us-east-1",
+        hasSessionToken: false,
+      }),
+      "aws:env-credentials-confirm": () => ({
+        valid: true,
+        ...IDENTITY,
+        accessKeyId: "AKIA_ENV",
+        secretAccessKey: "env-secret",
+        region: "us-east-1",
+      }),
+      "session:set-env": () => ({ ok: true }),
+      "aws:check-region": () => ({ enabled: true }),
     })
     renderBlock(<AwsAuth id="test-aws" />)
 
@@ -209,22 +197,19 @@ describe("AwsAuth — detection", () => {
 
   it("turns red when the credentials expire within minutes, and signs in again on request", async () => {
     const expiresAt = new Date(Date.now() + 2 * 60_000).toISOString()
-    installApi((channel) => {
-      if (channel === "aws:env-credentials") return { found: true, valid: true, ...IDENTITY }
-      if (channel === "aws:env-credentials-confirm") {
-        return {
-          valid: true,
-          ...IDENTITY,
-          accessKeyId: "ASIA_ENV",
-          secretAccessKey: "env-secret",
-          sessionToken: "env-token",
-          region: "us-east-1",
-          expiresAt,
-        }
-      }
-      if (channel === "session:set-env") return { ok: true }
-      if (channel === "aws:check-region") return { enabled: true }
-      throw new Error(`unexpected channel ${channel}`)
+    installApi({
+      "aws:env-credentials": () => ({ found: true, valid: true, ...IDENTITY }),
+      "aws:env-credentials-confirm": () => ({
+        valid: true,
+        ...IDENTITY,
+        accessKeyId: "ASIA_ENV",
+        secretAccessKey: "env-secret",
+        sessionToken: "env-token",
+        region: "us-east-1",
+        expiresAt,
+      }),
+      "session:set-env": () => ({ ok: true }),
+      "aws:check-region": () => ({ enabled: true }),
     })
     renderBlock(<AwsAuth id="test-aws" />)
     fireEvent.click(await screen.findByRole("button", { name: "Use These Credentials" }))
@@ -243,20 +228,17 @@ describe("AwsAuth — detection", () => {
   })
 
   it("counts as a step of the runbook, done while it shows it's signed in", async () => {
-    installApi((channel) => {
-      if (channel === "aws:env-credentials") return { found: true, valid: true, ...IDENTITY }
-      if (channel === "aws:env-credentials-confirm") {
-        return {
-          valid: true,
-          ...IDENTITY,
-          accessKeyId: "AKIA_ENV",
-          secretAccessKey: "env-secret",
-          region: "us-east-1",
-        }
-      }
-      if (channel === "session:set-env") return { ok: true }
-      if (channel === "aws:check-region") return { enabled: true }
-      throw new Error(`unexpected channel ${channel}`)
+    installApi({
+      "aws:env-credentials": () => ({ found: true, valid: true, ...IDENTITY }),
+      "aws:env-credentials-confirm": () => ({
+        valid: true,
+        ...IDENTITY,
+        accessKeyId: "AKIA_ENV",
+        secretAccessKey: "env-secret",
+        region: "us-east-1",
+      }),
+      "session:set-env": () => ({ ok: true }),
+      "aws:check-region": () => ({ enabled: true }),
     })
     renderBlock(<AwsAuth id="test-aws" />)
     const useCredentials = await screen.findByRole("button", { name: "Use These Credentials" })
@@ -271,21 +253,18 @@ describe("AwsAuth — detection", () => {
   })
 
   it("stays green for credentials that expire hours from now", async () => {
-    installApi((channel) => {
-      if (channel === "aws:env-credentials") return { found: true, valid: true, ...IDENTITY }
-      if (channel === "aws:env-credentials-confirm") {
-        return {
-          valid: true,
-          ...IDENTITY,
-          accessKeyId: "ASIA_ENV",
-          secretAccessKey: "env-secret",
-          region: "us-east-1",
-          expiresAt: new Date(Date.now() + 8 * 60 * 60_000).toISOString(),
-        }
-      }
-      if (channel === "session:set-env") return { ok: true }
-      if (channel === "aws:check-region") return { enabled: true }
-      throw new Error(`unexpected channel ${channel}`)
+    installApi({
+      "aws:env-credentials": () => ({ found: true, valid: true, ...IDENTITY }),
+      "aws:env-credentials-confirm": () => ({
+        valid: true,
+        ...IDENTITY,
+        accessKeyId: "ASIA_ENV",
+        secretAccessKey: "env-secret",
+        region: "us-east-1",
+        expiresAt: new Date(Date.now() + 8 * 60 * 60_000).toISOString(),
+      }),
+      "session:set-env": () => ({ ok: true }),
+      "aws:check-region": () => ({ enabled: true }),
     })
     renderBlock(<AwsAuth id="test-aws" />)
     fireEvent.click(await screen.findByRole("button", { name: "Use These Credentials" }))
