@@ -2,42 +2,35 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { act, render, renderHook, screen } from "@testing-library/react"
 import { useEffect, type ReactNode } from "react"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { makeTestApi, type HeldCall, type Result } from "@/test/test-api"
 import { IpcGitWorkTreeProvider } from "@/contexts/IpcGitWorkTreeContext"
 import { WorkspaceGitDataProvider } from "@/contexts/WorkspaceGitDataContext"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import type { GitWorkTree, GitWorkTreeContextType } from "@/contexts/gitWorkTreeTypes"
-import { useGitFileChanges, type WorkspaceFileChange } from "@/hooks/useGitFileChanges"
-import { useGitFileTree, type WorkspaceTreeNode } from "@/hooks/useGitFileTree"
+import { useGitFileChanges } from "@/hooks/useGitFileChanges"
+import { useGitFileTree } from "@/hooks/useGitFileTree"
 import { Workspace } from "@/components/artifacts/workspace/Workspace"
 
 // The IPC bridge is the only fake. `workspace:changes` and `workspace:tree`
 // calls stay pending until a test settles them, so each test decides the order
 // in which responses land.
-interface PendingCall {
-  channel: string
-  params: { worktreePath: string; singleFile?: string }
-  resolve: (value: unknown) => void
-  reject: (err: unknown) => void
-}
+type Held = "workspace:changes" | "workspace:tree"
 
 function createApi() {
-  const calls: PendingCall[] = []
-  const invoke = vi.fn((channel: string, params: PendingCall["params"]) => {
-    if (channel === "workspace:changes" || channel === "workspace:tree") {
-      return new Promise((resolve, reject) => {
-        calls.push({ channel, params, resolve, reject })
-      })
-    }
-    return Promise.resolve({ ok: true })
+  const testApi = makeTestApi({
+    "workspace:register": () => ({ ok: true }),
+    "workspace:set-active": () => ({ ok: true }),
   })
-  const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
-  const callsTo = (channel: string, worktreePath?: string) =>
-    calls.filter(
-      (c) =>
-        c.channel === channel &&
-        (worktreePath === undefined || c.params.worktreePath === worktreePath),
+  const held: { [C in Held]: readonly HeldCall<C>[] } = {
+    "workspace:changes": testApi.hold("workspace:changes"),
+    "workspace:tree": testApi.hold("workspace:tree"),
+  }
+  /** The pending calls of `channel`, only those for `worktreePath` if given. */
+  const callsTo = <C extends Held>(channel: C, worktreePath?: string): HeldCall<C>[] =>
+    held[channel].filter(
+      (call) => worktreePath === undefined || call.params.worktreePath === worktreePath,
     )
-  return { api, callsTo }
+  return { api: testApi.api, callsTo }
 }
 
 function Providers({ api, children }: { api: RunbooksAPI; children: ReactNode }) {
@@ -69,21 +62,48 @@ const worktree = (name: string): GitWorkTree => ({
   },
 })
 
-const modified = (path: string, extra: Partial<WorkspaceFileChange> = {}): WorkspaceFileChange => ({
+type Change = Result<"workspace:changes">["changes"][number]
+type TreeNode = Result<"workspace:tree">["tree"][number]
+
+const modified = (path: string, extra: Partial<Change> = {}): Change => ({
   path,
   changeType: "modified",
   additions: 1,
   deletions: 1,
   language: "hcl",
+  isBinary: false,
+  diffTruncated: false,
   ...extra,
 })
 
-const file = (id: string): WorkspaceTreeNode => ({ id, name: id, type: "file" })
-const lazyFolder = (id: string): WorkspaceTreeNode => ({
+/** A poll's answer listing `changes`, all of them. */
+const changeList = (...changes: Change[]): Result<"workspace:changes"> => ({
+  changes,
+  totalChanges: changes.length,
+  tooManyChanges: false,
+})
+
+const file = (id: string): TreeNode => ({
+  id,
+  name: id,
+  type: "file",
+  size: 0,
+  language: "",
+  isBinary: false,
+  isIgnored: false,
+  isLazyLoad: false,
+  children: [],
+})
+const lazyFolder = (id: string): TreeNode => ({
   id,
   name: id,
   type: "folder",
+  size: 0,
+  language: "",
+  isBinary: false,
+  isIgnored: false,
   isLazyLoad: true,
+  children: [],
 })
 
 /**
@@ -91,7 +111,7 @@ const lazyFolder = (id: string): WorkspaceTreeNode => ({
  * Calls usually come from destructuring callsTo(), so a missing one fails the
  * test here.
  */
-async function settle(calls: (PendingCall | undefined)[], value: unknown) {
+async function settle<C extends Held>(calls: (HeldCall<C> | undefined)[], value: Result<C>) {
   await act(async () => {
     for (const call of calls) {
       if (!call) throw new Error("expected a pending call to settle")
@@ -145,7 +165,7 @@ describe("WorkspaceGitDataProvider", () => {
     expect(callsTo("workspace:tree")).toHaveLength(1)
 
     await settle(callsTo("workspace:tree"), { tree: [file("main.tf")], totalFiles: 1 })
-    await settle(callsTo("workspace:changes"), { changes: [modified("main.tf")], totalChanges: 1 })
+    await settle(callsTo("workspace:changes"), changeList(modified("main.tf")))
     expect(screen.getByTestId("pr-block")).toHaveTextContent("main.tf")
     // The change count moving 0 -> 1 refreshes the tree once, not once per Workspace
     expect(callsTo("workspace:tree")).toHaveLength(2)
@@ -155,10 +175,7 @@ describe("WorkspaceGitDataProvider", () => {
         vi.advanceTimersByTime(3000)
       })
       expect(callsTo("workspace:changes")).toHaveLength(expected)
-      await settle(callsTo("workspace:changes").slice(-1), {
-        changes: [modified("main.tf")],
-        totalChanges: 1,
-      })
+      await settle(callsTo("workspace:changes").slice(-1), changeList(modified("main.tf")))
     }
   })
 
@@ -363,13 +380,13 @@ describe("WorkspaceGitDataProvider", () => {
     expect(callsTo("workspace:changes")).toHaveLength(1)
 
     // The older response is dropped, and exactly one fetch follows it
-    await settle([beforeWrite], { changes: [modified("before-the-write.tf")], totalChanges: 1 })
+    await settle([beforeWrite], changeList(modified("before-the-write.tf")))
     expect(result.current.changes.changes).toEqual([])
     expect(result.current.changes.isLoading).toBe(true)
     const pending = callsTo("workspace:changes")
     expect(pending).toHaveLength(2)
 
-    await settle([pending[1]], { changes: [modified("written-by-script.tf")], totalChanges: 1 })
+    await settle([pending[1]], changeList(modified("written-by-script.tf")))
     expect(result.current.changes.changes.map((c) => c.path)).toEqual(["written-by-script.tf"])
     expect(result.current.changes.totalChanges).toBe(1)
     expect(result.current.changes.isLoading).toBe(false)
@@ -391,7 +408,7 @@ describe("WorkspaceGitDataProvider", () => {
     })
     expect(callsTo("workspace:changes")).toHaveLength(1)
 
-    await settle(callsTo("workspace:changes"), { changes: [], totalChanges: 0 })
+    await settle(callsTo("workspace:changes"), changeList())
     await act(async () => {
       vi.advanceTimersByTime(3000)
     })
@@ -410,11 +427,11 @@ describe("WorkspaceGitDataProvider", () => {
       result.current.workTrees.invalidateGitFileTree()
     })
 
-    await settle([beforeWrite], { changes: [], totalChanges: 0 })
+    await settle([beforeWrite], changeList())
     expect(result.current.changes.isLoading).toBe(true)
 
     const [, current] = callsTo("workspace:changes")
-    await settle([current], { changes: [modified("written-by-script.tf")], totalChanges: 1 })
+    await settle([current], changeList(modified("written-by-script.tf")))
     expect(result.current.changes.isLoading).toBe(false)
   })
 
@@ -432,18 +449,15 @@ describe("WorkspaceGitDataProvider", () => {
     // One poll at a time: b's waits for a's
     expect(callsTo("workspace:changes", "/repos/b")).toHaveLength(0)
 
-    await settle(callsTo("workspace:changes", "/repos/a"), {
-      changes: [modified("a.tf"), modified("a2.tf")],
-      totalChanges: 2,
-    })
+    await settle(
+      callsTo("workspace:changes", "/repos/a"),
+      changeList(modified("a.tf"), modified("a2.tf")),
+    )
     expect(result.current.changes.changes).toEqual([])
     expect(result.current.changes.isLoading).toBe(true)
     expect(callsTo("workspace:changes", "/repos/b")).toHaveLength(1)
 
-    await settle(callsTo("workspace:changes", "/repos/b"), {
-      changes: [modified("b.tf")],
-      totalChanges: 1,
-    })
+    await settle(callsTo("workspace:changes", "/repos/b"), changeList(modified("b.tf")))
     expect(result.current.changes.changes.map((c) => c.path)).toEqual(["b.tf"])
     expect(result.current.changes.totalChanges).toBe(1)
     expect(result.current.changes.isLoading).toBe(false)
@@ -456,10 +470,10 @@ describe("WorkspaceGitDataProvider", () => {
     await act(async () => {
       result.current.workTrees.registerWorkTree(worktree("a"))
     })
-    await settle(callsTo("workspace:changes"), {
-      changes: [modified("main.tf", { diffTruncated: true })],
-      totalChanges: 1,
-    })
+    await settle(
+      callsTo("workspace:changes"),
+      changeList(modified("main.tf", { diffTruncated: true })),
+    )
 
     let diffLoaded!: Promise<void>
     await act(async () => {
@@ -477,19 +491,16 @@ describe("WorkspaceGitDataProvider", () => {
     const pollsOfA = callsTo("workspace:changes", "/repos/a").filter(
       (c) => c.params.singleFile === undefined,
     )
-    await settle(pollsOfA.slice(1), {
-      changes: [modified("main.tf", { diffTruncated: true })],
-      totalChanges: 1,
-    })
-    await settle(callsTo("workspace:changes", "/repos/b"), {
-      changes: [modified("main.tf", { diffTruncated: true })],
-      totalChanges: 1,
-    })
+    await settle(pollsOfA.slice(1), changeList(modified("main.tf", { diffTruncated: true })))
+    await settle(
+      callsTo("workspace:changes", "/repos/b"),
+      changeList(modified("main.tf", { diffTruncated: true })),
+    )
 
-    await settle([diffForA], {
-      changes: [modified("main.tf", { originalContent: "a-old", newContent: "a-new" })],
-      totalChanges: 1,
-    })
+    await settle(
+      [diffForA],
+      changeList(modified("main.tf", { originalContent: "a-old", newContent: "a-new" })),
+    )
     await diffLoaded
     expect(result.current.changes.changes).toEqual([modified("main.tf", { diffTruncated: true })])
   })
@@ -575,7 +586,7 @@ describe("WorkspaceGitDataProvider", () => {
     expect(result.current.changes.isLoading).toBe(false)
 
     await settle(callsTo("workspace:tree"), { tree: [file("main.tf")], totalFiles: 1 })
-    await settle(callsTo("workspace:changes"), { changes: [modified("main.tf")], totalChanges: 1 })
+    await settle(callsTo("workspace:changes"), changeList(modified("main.tf")))
     expect(result.current.tree.tree).toBeNull()
     expect(result.current.tree.totalFiles).toBe(0)
     expect(result.current.changes.changes).toEqual([])
