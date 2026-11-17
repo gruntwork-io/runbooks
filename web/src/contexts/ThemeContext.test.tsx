@@ -4,35 +4,11 @@ import type { ReactNode } from "react"
 import { ThemeProvider } from "./ThemeContext"
 import { useTheme } from "./useTheme"
 import { THEME_STORAGE_KEY } from "./ThemeContext.types"
+import { installMatchMedia } from "@/test/match-media"
 
-// jsdom doesn't implement matchMedia — install a controllable fake so we can
-// simulate the OS color-scheme preference and live changes to it.
-type Listener = (e: { matches: boolean }) => void
-
-function installMatchMedia(initialDark: boolean) {
-  let matches = initialDark
-  const listeners = new Set<Listener>()
-  const mql = {
-    get matches() {
-      return matches
-    },
-    media: "(prefers-color-scheme: dark)",
-    addEventListener: (_: string, l: Listener) => listeners.add(l),
-    removeEventListener: (_: string, l: Listener) => listeners.delete(l),
-    addListener: (l: Listener) => listeners.add(l),
-    removeListener: (l: Listener) => listeners.delete(l),
-    dispatchEvent: () => true,
-    onchange: null,
-  }
-  window.matchMedia = vi.fn().mockReturnValue(mql) as unknown as typeof window.matchMedia
-  return {
-    /** Simulate the OS switching its color scheme. */
-    setDark(next: boolean) {
-      matches = next
-      listeners.forEach((l) => l({ matches: next }))
-    },
-  }
-}
+// jsdom doesn't implement matchMedia: installMatchMedia puts in a fake the
+// tests control, to simulate the OS color-scheme preference and live changes
+// to it.
 
 function wrapper({ children }: { children: ReactNode }) {
   return <ThemeProvider>{children}</ThemeProvider>
@@ -93,11 +69,11 @@ describe("ThemeContext", () => {
     const { result } = renderHook(() => useTheme(), { wrapper })
     expect(result.current.resolvedTheme).toBe("light")
 
-    act(() => mm.setDark(true))
+    act(() => mm.change(true))
     expect(result.current.resolvedTheme).toBe("dark")
     expect(document.documentElement.classList.contains("dark")).toBe(true)
 
-    act(() => mm.setDark(false))
+    act(() => mm.change(false))
     expect(result.current.resolvedTheme).toBe("light")
     expect(document.documentElement.classList.contains("dark")).toBe(false)
   })
@@ -106,7 +82,7 @@ describe("ThemeContext", () => {
     const { result } = renderHook(() => useTheme(), { wrapper })
     act(() => result.current.setTheme("light"))
 
-    act(() => mm.setDark(true))
+    act(() => mm.change(true))
     expect(result.current.resolvedTheme).toBe("light")
     expect(document.documentElement.classList.contains("dark")).toBe(false)
   })

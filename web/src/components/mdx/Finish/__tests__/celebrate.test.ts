@@ -27,7 +27,7 @@ vi.mock("canvas-confetti", () => ({ default: { create: confettiMock.create } }))
 const originalMatchMedia = window.matchMedia
 
 function setReducedMotion(reduce: boolean) {
-  window.matchMedia = vi.fn((query: string) => ({
+  window.matchMedia = vi.fn((query: string): MediaQueryList => ({
     matches: reduce && query === "(prefers-reduced-motion: reduce)",
     media: query,
     onchange: null,
@@ -36,7 +36,7 @@ function setReducedMotion(reduce: boolean) {
     addListener: vi.fn(),
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
-  })) as unknown as typeof window.matchMedia
+  }))
 }
 
 // A fresh module per test, so the lazily created confetti instance doesn't
