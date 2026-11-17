@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor, act } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
+import type { EventChannel } from "../../../electron/shared/channels.ts"
+import type { SavedBlockState } from "../../../src/domain/session/history.ts"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { InstructionModeProvider } from "@/contexts/InstructionModeContext"
 import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
@@ -51,83 +54,77 @@ const FILE_CONTENT = 'region = "us-east-1"\n'
  * and whose generated-files:check finds the last opened runbook's file, with
  * its tree. The check for runbook B waits for `bChecked`.
  */
-function makeApi(blockStates: unknown[], bChecked: Promise<void> = Promise.resolve()) {
-  const listeners = new Map<string, Set<(payload: unknown) => void>>()
+function makeApi(blockStates: SavedBlockState[], bChecked: Promise<void> = Promise.resolve()) {
   let current = RUNBOOKS["/work/a"]
-  const invoke = vi.fn(async (channel: string, params?: { path?: string }) => {
-    switch (channel) {
-      case "native:get-cli-config":
-        return {}
-      case "runbook:get": {
-        current = RUNBOOKS[params?.path as keyof typeof RUNBOOKS] ?? current
-        const content = `# Runbook ${current.name}\n`
-        return {
-          path: `${params?.path}/runbook.mdx`,
-          content,
-          contentHash: current.name,
-          language: "mdx",
-          size: content.length,
-          isWatchMode: false,
-          warnings: [],
-          sessionId: current.session,
-          sessionName: "elegant-elephant",
-          sessionDir: `/sessions/dirs/${current.session}`,
-          blockStates,
-        }
+  const testApi = makeTestApi({
+    "native:get-cli-config": () => ({}),
+    "native:set-theme": () => ({ ok: true }),
+    // A home directory none of the fixtures' paths are in, so they show in full.
+    "native:get-home-dir": () => ({ path: "/home/tester" }),
+    "session:record-event": () => ({ ok: true }),
+    "runbook:get": ({ path }) => {
+      current = RUNBOOKS[path as keyof typeof RUNBOOKS] ?? current
+      const content = `# Runbook ${current.name}\n`
+      return {
+        path: `${path}/runbook.mdx`,
+        content,
+        contentHash: current.name,
+        language: "mdx",
+        size: content.length,
+        isWatchMode: false,
+        warnings: [],
+        assetHost: "rtest",
+        sessionId: current.session,
+        sessionName: "elegant-elephant",
+        sessionDir: `/sessions/dirs/${current.session}`,
+        blockStates,
       }
-      case "generated-files:check": {
-        const checking = current
-        if (checking === RUNBOOKS["/work/b"]) await bChecked
-        return {
-          hasFiles: true,
-          fileCount: 1,
-          absoluteOutputPath: `/sessions/dirs/${checking.session}/generated`,
-          relativeOutputPath: "generated",
-          fileTree: [
-            {
-              id: checking.file,
+    },
+    "generated-files:check": async () => {
+      const checking = current
+      if (checking === RUNBOOKS["/work/b"]) await bChecked
+      return {
+        hasFiles: true,
+        fileCount: 1,
+        absoluteOutputPath: `/sessions/dirs/${checking.session}/generated`,
+        relativeOutputPath: "generated",
+        fileTree: [
+          {
+            id: checking.file,
+            name: checking.file,
+            type: "file",
+            children: [],
+            file: {
               name: checking.file,
-              type: "file",
-              children: [],
-              file: {
-                name: checking.file,
-                path: checking.file,
-                content: FILE_CONTENT,
-                language: "hcl",
-                size: FILE_CONTENT.length,
-              },
+              path: checking.file,
+              content: FILE_CONTENT,
+              language: "hcl",
+              size: FILE_CONTENT.length,
+              isTruncated: false,
             },
-          ],
-          totalFiles: 1,
-          truncatedTree: false,
-          heavyDirs: [],
-        }
+          },
+        ],
+        totalFiles: 1,
+        truncatedTree: false,
+        heavyDirs: [],
       }
-      default:
-        return undefined
-    }
+    },
   })
-  const on = vi.fn((channel: string, cb: (payload: unknown) => void) => {
-    if (!listeners.has(channel)) listeners.set(channel, new Set())
-    listeners.get(channel)!.add(cb)
-    return () => listeners.get(channel)?.delete(cb)
-  })
-  const emit = async (channel: string, payload?: unknown) => {
+
+  /** Sends main's event `channel` to the renderer. */
+  async function emit<E extends EventChannel>(...event: Parameters<typeof testApi.emit<E>>) {
     await act(async () => {
-      listeners.get(channel)?.forEach((cb) => cb(payload))
+      testApi.emit(...event)
     })
   }
-  const api = { invoke, on } as unknown as Parameters<typeof ApiProvider>[0]["api"]
-  return { api, emit, invoke }
+
+  return { testApi, emit }
 }
 
-const originalApi = window.api
-
-async function openRunbook(blockStates: unknown[], bChecked?: Promise<void>) {
-  const { api, emit, invoke } = makeApi(blockStates, bChecked)
-  window.api = api
+async function openRunbook(blockStates: SavedBlockState[], bChecked?: Promise<void>) {
+  const { testApi, emit } = makeApi(blockStates, bChecked)
   render(
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <ThemeProvider>
         <InstructionModeProvider>
           <ErrorReportingProvider>
@@ -147,30 +144,25 @@ async function openRunbook(blockStates: unknown[], bChecked?: Promise<void>) {
   expect(
     await screen.findByRole("heading", { name: "Runbook A", hidden: true }),
   ).toBeInTheDocument()
-  return { emit, invoke }
+  return { emit, testApi }
 }
 
-const RESUMED = [{ blockId: "vpc", kind: "inputs", payload: { values: {}, submitted: true } }]
+const RESUMED: SavedBlockState[] = [
+  { blockId: "vpc", kind: "inputs", payload: { values: {}, submitted: true } },
+]
 
 const shownTrees = () => screen.getAllByTestId("generated-tree").map((tree) => tree.textContent)
 const shownChanges = () =>
   screen.getAllByTestId("generated-changes").map((changes) => changes.textContent)
 
 /** The `review` events the app saved to a session's history, oldest first. */
-const savedReviews = (invoke: ReturnType<typeof makeApi>["invoke"], sessionId: string) =>
-  invoke.mock.calls
-    .filter(([channel]) => channel === "session:record-event")
-    .map(
-      ([, params]) =>
-        params as unknown as { sessionId: string; blockId: string; kind: string; payload: unknown },
-    )
+const savedReviews = (testApi: TestApi, sessionId: string) =>
+  testApi
+    .callsTo("session:record-event")
     .filter((event) => event.sessionId === sessionId && event.kind === "review")
 
 describe("App opening a session with generated files", () => {
   beforeEach(() => localStorage.clear())
-  afterEach(() => {
-    window.api = originalApi
-  })
 
   it("shows the files a resumed session's blocks wrote, and does not offer to delete them", async () => {
     await openRunbook([
@@ -230,7 +222,7 @@ describe("App opening a session with generated files", () => {
     expect(shownChanges()).toEqual(["", ""])
   })
 
-  const UNREVIEWED = [
+  const UNREVIEWED: SavedBlockState[] = [
     ...RESUMED,
     {
       blockId: "generated-files",
@@ -240,16 +232,16 @@ describe("App opening a session with generated files", () => {
   ]
 
   it("saves what is left to review in the session's history", async () => {
-    const { invoke } = await openRunbook(UNREVIEWED)
+    const { testApi } = await openRunbook(UNREVIEWED)
     await waitFor(() => expect(shownChanges()).toContain("main.tf:added"))
 
     await act(async () => screen.getAllByRole("button", { name: "Dismiss all" })[0]!.click())
 
     await waitFor(
-      () => expect(savedReviews(invoke, "session-0").at(-1)?.payload).toEqual({ files: [] }),
+      () => expect(savedReviews(testApi, "session-0").at(-1)?.payload).toEqual({ files: [] }),
       { timeout: 3000 },
     )
-    expect(savedReviews(invoke, "session-0").at(-1)?.blockId).toBe("generated-files")
+    expect(savedReviews(testApi, "session-0").at(-1)?.blockId).toBe("generated-files")
   })
 
   it("never saves one session's files to review in the next session's history", async () => {
@@ -257,15 +249,15 @@ describe("App opening a session with generated files", () => {
     const bChecked = new Promise<void>((resolve) => {
       releaseB = resolve
     })
-    const { emit, invoke } = await openRunbook(UNREVIEWED, bChecked)
+    const { emit, testApi } = await openRunbook(UNREVIEWED, bChecked)
     await waitFor(() => expect(shownChanges()).toContain("main.tf:added"))
 
     await emit("file:open-runbook", { path: "/work/b" })
     await screen.findByRole("heading", { name: "Runbook B", hidden: true })
     await act(async () => releaseB())
-    await waitFor(() => expect(savedReviews(invoke, "session-1")).not.toHaveLength(0), {
+    await waitFor(() => expect(savedReviews(testApi, "session-1")).not.toHaveLength(0), {
       timeout: 3000,
     })
-    expect(JSON.stringify(savedReviews(invoke, "session-1"))).not.toContain("main.tf")
+    expect(JSON.stringify(savedReviews(testApi, "session-1"))).not.toContain("main.tf")
   })
 })
