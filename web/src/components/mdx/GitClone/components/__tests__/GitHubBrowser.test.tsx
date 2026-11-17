@@ -3,8 +3,17 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { GitHubBrowser } from "../GitHubBrowser"
 import type { GitHubOrg, GitHubRepo } from "../../types"
 
-const ORGS = [{ id: 1, login: "acme", type: "Organization" }] as unknown as GitHubOrg[]
-const REPOS = [{ id: 2, name: "infra", private: true }] as unknown as GitHubRepo[]
+const ORGS: GitHubOrg[] = [{ id: 1, login: "acme" }]
+const REPOS: GitHubRepo[] = [
+  {
+    id: 2,
+    ownerId: 1,
+    name: "infra",
+    fullName: "acme/infra",
+    private: true,
+    defaultBranch: "main",
+  },
+]
 
 function renderBrowser(host?: string) {
   const onRepoSelected = vi.fn()

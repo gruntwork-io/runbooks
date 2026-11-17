@@ -2,17 +2,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
+import { ApiProvider } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
+import { makeTestApi, type Result, type TestApi } from "@/test/test-api"
 import { GitClone } from ".."
 
-// Only the IPC boundary is mocked, so the real useGitClone drives the block and
-// these tests cover its gating of outputs as well as the rendered warning.
-const invoke = vi.fn()
+// Only the IPC boundary is faked (makeTestApi, through the real ApiProvider),
+// so the real useGitClone drives the block and these tests cover its gating
+// of outputs as well as the rendered warning.
+let testApi: TestApi
 
-vi.mock("@/contexts/ApiContext", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/contexts/ApiContext")>()
-  return { ...actual, useApi: () => ({ invoke, on: vi.fn(() => () => {}) }) }
-})
+const SESSION: Result<"session:get"> = {
+  workingDir: "/work",
+  executionCount: 0,
+  createdAt: "2024-01-01T00:00:00Z",
+  lastActivity: "2024-01-01T00:00:00Z",
+}
 
 const registerWorkTree = vi.fn()
 const unregisterWorkTree = vi.fn()
@@ -33,8 +38,8 @@ vi.mock("@/contexts/useGitWorkTree", () => ({
 const OUTPUTS = { clone_path: "/home/me/infra", repo_owner: "acme", repo_name: "infra" }
 
 /** A checkout of a repo that was created but never pushed to. */
-const EMPTY_REPO = {
-  status: "success" as const,
+const EMPTY_REPO: Result<"git:local-repo"> = {
+  status: "success",
   absolutePath: "/home/me/infra",
   relativePath: "/home/me/infra",
   fileCount: 0,
@@ -42,7 +47,7 @@ const EMPTY_REPO = {
   // An unborn HEAD names no ref, which is exactly why the base branch can't be
   // inferred from it.
   ref: "",
-  refType: "branch" as const,
+  refType: "branch",
   hasCommits: false,
   outputs: OUTPUTS,
 }
@@ -62,28 +67,29 @@ const publishedOutputs = () =>
 
 function renderGitClone(props: Record<string, unknown> = {}) {
   return render(
-    <TestWrapper>
-      <GitClone id="test-clone" {...props} />
-      <OutputsProbe />
-    </TestWrapper>,
+    <ApiProvider api={testApi.api}>
+      <TestWrapper>
+        <GitClone id="test-clone" {...props} />
+        <OutputsProbe />
+      </TestWrapper>
+    </ApiProvider>,
   )
 }
 
 beforeEach(() => {
-  invoke.mockReset()
   registerWorkTree.mockReset()
   unregisterWorkTree.mockReset()
 })
 
 describe("GitClone — a repository with no commits", () => {
   /** Answer every channel the block calls, with a configurable local-repo reply. */
-  function mockIpc(localRepo: unknown = EMPTY_REPO) {
-    invoke.mockImplementation(async (channel: string) => {
-      if (channel === "git:local-repo") return localRepo
-      if (channel === "session:get") return { workingDir: "/work" }
-      if (channel === "github:orgs") return []
-      if (channel === "git:init-default-branch") return { branch: "main" }
-      return {}
+  function mockIpc(localRepo: Result<"git:local-repo"> = EMPTY_REPO) {
+    testApi = makeTestApi({
+      "git:local-repo": () => localRepo,
+      "session:get": () => SESSION,
+      "native:set-theme": () => ({ ok: true }),
+      "github:orgs": () => [],
+      "git:init-default-branch": () => ({ branch: "main" }),
     })
   }
 
@@ -129,7 +135,7 @@ describe("GitClone — a repository with no commits", () => {
     await user.click(seed)
 
     await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith("git:init-default-branch", {
+      expect(testApi.invoke).toHaveBeenCalledWith("git:init-default-branch", {
         worktreePath: "/home/me/infra",
         branch: "main",
       }),
@@ -151,13 +157,7 @@ describe("GitClone — a repository with no commits", () => {
 
   it("keeps the warning up and reports why when seeding fails", async () => {
     mockIpc()
-    invoke.mockImplementation(async (channel: string) => {
-      if (channel === "git:local-repo") return EMPTY_REPO
-      if (channel === "session:get") return { workingDir: "/work" }
-      if (channel === "github:orgs") return []
-      if (channel === "git:init-default-branch") return { error: "Permission denied" }
-      return {}
-    })
+    testApi.handle("git:init-default-branch", () => ({ error: "Permission denied" }))
     renderGitClone({ source: "local", prefilledRepoDir: "/home/me/infra" })
     const user = await confirmLocalCheckout()
 
@@ -181,7 +181,7 @@ describe("GitClone — a repository with no commits", () => {
     await user.click(seed)
 
     await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith(
+      expect(testApi.invoke).toHaveBeenCalledWith(
         "git:init-default-branch",
         expect.objectContaining({ branch: "master" }),
       ),
@@ -206,12 +206,12 @@ describe("GitClone — a repository with no commits", () => {
 })
 
 describe("GitClone — the base branch a clone records", () => {
-  function mockCloneIpc(clone: unknown) {
-    invoke.mockImplementation(async (channel: string) => {
-      if (channel === "git:clone") return clone
-      if (channel === "session:get") return { workingDir: "/work" }
-      if (channel === "github:orgs") return []
-      return {}
+  function mockCloneIpc(clone: Result<"git:clone">) {
+    testApi = makeTestApi({
+      "git:clone": () => clone,
+      "session:get": () => SESSION,
+      "native:set-theme": () => ({ ok: true }),
+      "github:orgs": () => [],
     })
   }
 
@@ -269,7 +269,7 @@ describe("GitClone — the base branch a clone records", () => {
   })
 
   it("withdraws the previous repo on 'Clone again', so an empty repo cloned next still holds", async () => {
-    const REPO_A = {
+    const REPO_A: Result<"git:clone"> = {
       status: "success",
       absolutePath: "/work/a",
       relativePath: "a",
@@ -278,7 +278,7 @@ describe("GitClone — the base branch a clone records", () => {
       hasCommits: true,
       outputs: { clone_path: "/work/a", repo_owner: "acme", repo_name: "a" },
     }
-    const EMPTY_B = {
+    const EMPTY_B: Result<"git:clone"> = {
       status: "success",
       absolutePath: "/work/b",
       relativePath: "b",
@@ -288,11 +288,15 @@ describe("GitClone — the base branch a clone records", () => {
       outputs: { clone_path: "/work/b", repo_owner: "acme", repo_name: "b" },
     }
     const clones = [REPO_A, EMPTY_B]
-    invoke.mockImplementation(async (channel: string) => {
-      if (channel === "git:clone") return clones.shift()
-      if (channel === "session:get") return { workingDir: "/work" }
-      if (channel === "github:orgs") return []
-      return {}
+    testApi = makeTestApi({
+      "git:clone": () => {
+        const next = clones.shift()
+        if (!next) throw new Error("no more clones scripted")
+        return next
+      },
+      "session:get": () => SESSION,
+      "native:set-theme": () => ({ ok: true }),
+      "github:orgs": () => [],
     })
     renderGitClone({ prefilledUrl: "https://github.com/acme/a.git" })
     const user = await runClone()

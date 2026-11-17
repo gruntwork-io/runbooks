@@ -2,18 +2,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Result, type TestApi } from "@/test/test-api"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { GitClone } from ".."
 
-// Only the IPC boundary and the worktree context are mocked, so the real
-// useGitClone drives the block: these tests cover what starting over withdraws
-// as well as where the action is shown.
-const invoke = vi.fn()
+// Only the IPC boundary (makeTestApi, through the real ApiProvider) and the
+// worktree context are faked, so the real useGitClone drives the block: these
+// tests cover what starting over withdraws as well as where the action is shown.
+let testApi: TestApi
 
-vi.mock("@/contexts/ApiContext", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/contexts/ApiContext")>()
-  return { ...actual, useApi: () => ({ invoke, on: vi.fn(() => () => {}) }) }
-})
+const SESSION: Result<"session:get"> = {
+  workingDir: "/work",
+  executionCount: 0,
+  createdAt: "2024-01-01T00:00:00Z",
+  lastActivity: "2024-01-01T00:00:00Z",
+}
 
 const registerWorkTree = vi.fn()
 const unregisterWorkTree = vi.fn()
@@ -31,17 +35,19 @@ vi.mock("@/contexts/useGitWorkTree", () => ({
   }),
 }))
 
-const REPO = {
-  status: "success" as const,
+const OUTPUTS = { clone_path: "/home/me/infra", repo_owner: "acme", repo_name: "infra" }
+
+const REPO: Result<"git:local-repo"> = {
+  status: "success",
   absolutePath: "/home/me/infra",
   relativePath: "/home/me/infra",
   fileCount: 42,
   remoteUrl: "https://github.com/acme/infra.git",
   ref: "main",
-  refType: "branch" as const,
+  refType: "branch",
   commitSha: "abc123",
   hasCommits: true,
-  outputs: { clone_path: "/home/me/infra", repo_owner: "acme", repo_name: "infra" },
+  outputs: OUTPUTS,
 }
 
 /** Reads the outputs the block published, so withdrawing them can be asserted directly. */
@@ -59,23 +65,31 @@ const publishedOutputs = () =>
 
 function renderGitClone(props: Record<string, unknown> = {}) {
   return render(
-    <TestWrapper>
-      <GitClone id="test-clone" {...props} />
-      <OutputsProbe />
-    </TestWrapper>,
+    <ApiProvider api={testApi.api}>
+      <TestWrapper>
+        <GitClone id="test-clone" {...props} />
+        <OutputsProbe />
+      </TestWrapper>
+    </ApiProvider>,
   )
 }
 
 /** Answer every channel the block calls, for both sources. */
 function mockIpc() {
-  invoke.mockImplementation(async (channel: string) => {
-    if (channel === "git:local-repo") return REPO
-    if (channel === "git:clone") {
-      return { ...REPO, absolutePath: "/work/infra", relativePath: "infra", fileCount: 12 }
-    }
-    if (channel === "session:get") return { workingDir: "/work" }
-    if (channel === "github:orgs") return []
-    return {}
+  testApi = makeTestApi({
+    "git:local-repo": () => REPO,
+    "git:clone": () => ({
+      status: "success",
+      absolutePath: "/work/infra",
+      relativePath: "infra",
+      fileCount: 12,
+      ref: "main",
+      hasCommits: true,
+      outputs: OUTPUTS,
+    }),
+    "session:get": () => SESSION,
+    "github:orgs": () => [],
+    "native:set-theme": () => ({ ok: true }),
   })
 }
 
@@ -97,7 +111,6 @@ async function startUsingLocalCheckout() {
 }
 
 beforeEach(() => {
-  invoke.mockReset()
   registerWorkTree.mockReset()
   unregisterWorkTree.mockReset()
   mockIpc()
@@ -122,7 +135,7 @@ describe("GitClone — stopping use of a local checkout", () => {
   it("withdraws the checkout and returns to the directory form", async () => {
     const user = await startUsingLocalCheckout()
     await waitFor(() => expect(registerWorkTree).toHaveBeenCalledTimes(1))
-    expect(publishedOutputs()).toEqual(REPO.outputs)
+    expect(publishedOutputs()).toEqual(OUTPUTS)
 
     await user.click(screen.getByRole("button", { name: /Stop using this repo/i }))
 
@@ -145,7 +158,7 @@ describe("GitClone — stopping use of a local checkout", () => {
     await user.click(confirm)
     await screen.findByText("Using local checkout")
     await waitFor(() => expect(registerWorkTree).toHaveBeenCalledTimes(2))
-    expect(publishedOutputs()).toEqual(REPO.outputs)
+    expect(publishedOutputs()).toEqual(OUTPUTS)
   })
 })
 

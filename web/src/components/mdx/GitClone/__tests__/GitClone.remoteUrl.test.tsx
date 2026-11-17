@@ -1,17 +1,22 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Result, type TestApi } from "@/test/test-api"
 import { GitClone } from ".."
 
-// Only the IPC boundary is mocked: the real block parses the remote and
-// registers the worktree that <GitPullRequest> later reads owner/repo from.
-const invoke = vi.fn()
+// Only the IPC boundary is faked (makeTestApi, through the real ApiProvider):
+// the real block parses the remote and registers the worktree that
+// <GitPullRequest> later reads owner/repo from.
+let testApi: TestApi
 
-vi.mock("@/contexts/ApiContext", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/contexts/ApiContext")>()
-  return { ...actual, useApi: () => ({ invoke, on: vi.fn(() => () => {}) }) }
-})
+const SESSION: Result<"session:get"> = {
+  workingDir: "/work",
+  executionCount: 0,
+  createdAt: "2024-01-01T00:00:00Z",
+  lastActivity: "2024-01-01T00:00:00Z",
+}
 
 const registerWorkTree = vi.fn()
 vi.mock("@/contexts/useGitWorkTree", () => ({
@@ -30,53 +35,36 @@ vi.mock("@/contexts/useGitWorkTree", () => ({
 /** A self-managed GitLab whose SSH server runs as `gitlab`, not `git`. */
 const CUSTOM_USER_REMOTE = "gitlab@gitlab.corp.net:platform/infra/live.git"
 
-function mockIpc(replies: Record<string, unknown>) {
-  invoke.mockImplementation(async (channel: string) => {
-    if (channel in replies) return replies[channel]
-    if (channel === "session:get") return { workingDir: "/work" }
-    if (channel === "github:orgs") return []
-    return {}
-  })
-}
-
 function renderGitClone(props: Record<string, unknown> = {}) {
   return render(
-    <TestWrapper>
-      <GitClone id="test-clone" {...props} />
-    </TestWrapper>,
+    <ApiProvider api={testApi.api}>
+      <TestWrapper>
+        <GitClone id="test-clone" {...props} />
+      </TestWrapper>
+    </ApiProvider>,
   )
 }
 
-// The clone path calls window.api directly, while the local path goes through
-// useApi() — point both at the same spy so one mockImplementation covers both.
-const originalApi = window.api
-
 beforeEach(() => {
-  invoke.mockReset()
   registerWorkTree.mockReset()
-  window.api = {
-    invoke,
-    on: vi.fn(() => () => {}),
-  } as unknown as typeof window.api
-})
-
-afterEach(() => {
-  window.api = originalApi
+  testApi = makeTestApi({
+    "session:get": () => SESSION,
+    "github:orgs": () => [],
+    "native:set-theme": () => ({ ok: true }),
+  })
 })
 
 describe("GitClone — SSH remotes with a custom user", () => {
   it("registers owner and repo for a cloned remote", async () => {
-    mockIpc({
-      "git:clone": {
-        status: "success",
-        absolutePath: "/work/live",
-        relativePath: "live",
-        fileCount: 3,
-        ref: "main",
-        hasCommits: true,
-        outputs: { clone_path: "/work/live", repo_owner: "platform/infra", repo_name: "live" },
-      },
-    })
+    testApi.handle("git:clone", () => ({
+      status: "success",
+      absolutePath: "/work/live",
+      relativePath: "live",
+      fileCount: 3,
+      ref: "main",
+      hasCommits: true,
+      outputs: { clone_path: "/work/live", repo_owner: "platform/infra", repo_name: "live" },
+    }))
     renderGitClone({ prefilledUrl: CUSTOM_USER_REMOTE })
 
     const user = userEvent.setup()
@@ -95,19 +83,17 @@ describe("GitClone — SSH remotes with a custom user", () => {
   })
 
   it("registers owner and repo for a local checkout's remote", async () => {
-    mockIpc({
-      "git:local-repo": {
-        status: "success",
-        absolutePath: "/home/me/live",
-        relativePath: "/home/me/live",
-        fileCount: 3,
-        remoteUrl: CUSTOM_USER_REMOTE,
-        ref: "main",
-        refType: "branch",
-        hasCommits: true,
-        outputs: { clone_path: "/home/me/live", repo_owner: "platform/infra", repo_name: "live" },
-      },
-    })
+    testApi.handle("git:local-repo", () => ({
+      status: "success",
+      absolutePath: "/home/me/live",
+      relativePath: "/home/me/live",
+      fileCount: 3,
+      remoteUrl: CUSTOM_USER_REMOTE,
+      ref: "main",
+      refType: "branch",
+      hasCommits: true,
+      outputs: { clone_path: "/home/me/live", repo_owner: "platform/infra", repo_name: "live" },
+    }))
     renderGitClone({ source: "local", prefilledRepoDir: "/home/me/live" })
 
     const user = userEvent.setup()

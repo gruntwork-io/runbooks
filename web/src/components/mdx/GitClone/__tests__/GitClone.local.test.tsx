@@ -2,16 +2,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Result, type TestApi } from "@/test/test-api"
 import { GitClone } from ".."
 
-// The IPC boundary is the only thing mocked — the real useGitClone drives the
-// block, so these tests cover the hook's preview/select logic too.
-const invoke = vi.fn()
+// The IPC boundary is the only thing faked (makeTestApi, through the real
+// ApiProvider) — the real useGitClone drives the block, so these tests cover
+// the hook's preview/select logic too.
+let testApi: TestApi
 
-vi.mock("@/contexts/ApiContext", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/contexts/ApiContext")>()
-  return { ...actual, useApi: () => ({ invoke, on: vi.fn(() => () => {}) }) }
-})
+const SESSION: Result<"session:get"> = {
+  workingDir: "/work",
+  executionCount: 0,
+  createdAt: "2024-01-01T00:00:00Z",
+  lastActivity: "2024-01-01T00:00:00Z",
+}
 
 const registerWorkTree = vi.fn()
 vi.mock("@/contexts/useGitWorkTree", () => ({
@@ -28,33 +33,35 @@ vi.mock("@/contexts/useGitWorkTree", () => ({
   }),
 }))
 
-const REPO = {
-  status: "success" as const,
+const REPO: Result<"git:local-repo"> = {
+  status: "success",
   absolutePath: "/home/me/infra",
   relativePath: "/home/me/infra",
   fileCount: 42,
   remoteUrl: "https://github.com/acme/infra.git",
   ref: "main",
-  refType: "branch" as const,
+  refType: "branch",
   commitSha: "abc123",
   outputs: { clone_path: "/home/me/infra", repo_owner: "acme", repo_name: "infra" },
 }
 
 /** Answer every channel the block calls on mount, plus git:local-repo. */
-function mockIpc(localRepo: unknown = REPO) {
-  invoke.mockImplementation(async (channel: string) => {
-    if (channel === "git:local-repo") return localRepo
-    if (channel === "session:get") return { workingDir: "/work" }
-    if (channel === "github:orgs") return []
-    return {}
+function mockIpc(localRepo: Result<"git:local-repo"> = REPO) {
+  testApi = makeTestApi({
+    "git:local-repo": () => localRepo,
+    "session:get": () => SESSION,
+    "github:orgs": () => [],
+    "native:set-theme": () => ({ ok: true }),
   })
 }
 
 function renderGitClone(props: Record<string, unknown> = {}) {
   return render(
-    <TestWrapper>
-      <GitClone id="test-clone" {...props} />
-    </TestWrapper>,
+    <ApiProvider api={testApi.api}>
+      <TestWrapper>
+        <GitClone id="test-clone" {...props} />
+      </TestWrapper>
+    </ApiProvider>,
   )
 }
 
@@ -63,7 +70,6 @@ function renderGitClone(props: Record<string, unknown> = {}) {
 const repoDirInput = () => screen.getByPlaceholderText("/path/to/your/repo")
 
 beforeEach(() => {
-  invoke.mockReset()
   registerWorkTree.mockReset()
   mockIpc()
 })
@@ -136,7 +142,7 @@ describe("GitClone — local checkout", () => {
       timeout: 2000,
     })
 
-    expect(invoke).toHaveBeenCalledWith("git:local-repo", { path: "/home/me/infra" })
+    expect(testApi.invoke).toHaveBeenCalledWith("git:local-repo", { path: "/home/me/infra" })
     expect(screen.getByText(/https:\/\/github.com\/acme\/infra.git/)).toBeInTheDocument()
     expect(screen.getByText(/42 tracked files/)).toBeInTheDocument()
   })
@@ -154,28 +160,20 @@ describe("GitClone — local checkout", () => {
 
   it("fills the path from the native folder picker", async () => {
     const user = userEvent.setup()
-    invoke.mockImplementation(async (channel: string) => {
-      if (channel === "native:show-open-dialog") return { filePaths: ["/home/me/infra"] }
-      if (channel === "git:local-repo") return REPO
-      return {}
-    })
+    testApi.handle("native:show-open-dialog", () => ({ filePaths: ["/home/me/infra"] }))
     renderGitClone({ source: "local" })
 
     await user.click(screen.getByRole("button", { name: /Browse/i }))
 
     await waitFor(() => expect(repoDirInput()).toHaveValue("/home/me/infra"))
-    expect(invoke).toHaveBeenCalledWith("native:show-open-dialog", {
+    expect(testApi.invoke).toHaveBeenCalledWith("native:show-open-dialog", {
       properties: ["openDirectory"],
     })
   })
 
   it("leaves the path alone when the picker is dismissed", async () => {
     const user = userEvent.setup()
-    invoke.mockImplementation(async (channel: string) => {
-      if (channel === "native:show-open-dialog") return { filePaths: [] }
-      if (channel === "git:local-repo") return REPO
-      return {}
-    })
+    testApi.handle("native:show-open-dialog", () => ({ filePaths: [] }))
     renderGitClone({ source: "local", prefilledRepoDir: "/home/me/infra" })
 
     await user.click(screen.getByRole("button", { name: /Browse/i }))
@@ -208,7 +206,7 @@ describe("GitClone — local checkout", () => {
 
     await waitFor(() => expect(screen.getByText(/Using local checkout/i)).toBeInTheDocument())
 
-    expect(invoke).toHaveBeenCalledWith("git:local-repo", {
+    expect(testApi.invoke).toHaveBeenCalledWith("git:local-repo", {
       path: "/home/me/infra",
       register: true,
     })
@@ -263,7 +261,9 @@ describe("GitClone — local checkout", () => {
   })
 
   it("warns when the checkout has no remote to open pull requests against", async () => {
-    mockIpc({ ...REPO, remoteUrl: undefined, outputs: { clone_path: "/home/me/infra" } })
+    // A checkout with no remote has no remoteUrl.
+    const { remoteUrl: _remoteUrl, ...noRemote } = REPO
+    mockIpc({ ...noRemote, outputs: { clone_path: "/home/me/infra" } })
     renderGitClone({ source: "local", prefilledRepoDir: "/home/me/infra" })
 
     await waitFor(
@@ -278,14 +278,9 @@ describe("GitClone — a clone that main rejects", () => {
   it("shows the handler's own message, not Electron's wrapper around it", async () => {
     const message =
       'invalid repo path "../outside": use a directory inside the repository, relative to its root'
-    invoke.mockImplementation(async (channel: string) => {
-      // How Electron rejects an invoke whose handler threw.
-      if (channel === "git:clone") {
-        throw new Error(`Error invoking remote method 'git:clone': Error: ${message}`)
-      }
-      if (channel === "session:get") return { workingDir: "/work" }
-      if (channel === "github:orgs") return []
-      return {}
+    // How Electron rejects an invoke whose handler threw.
+    testApi.handle("git:clone", () => {
+      throw new Error(`Error invoking remote method 'git:clone': Error: ${message}`)
     })
     const user = userEvent.setup()
     renderGitClone({
