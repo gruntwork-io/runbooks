@@ -58,7 +58,7 @@ describe("FormControls selects match form state", () => {
 
   it("selects a listed numeric enum option instead of an unlisted duplicate", () => {
     // parseBoilerplateConfig passes enum options through as YAML parsed them,
-    // so `options: [1.28, 1.29]` arrives as numbers.
+    // so `options: [1.28, 1.29]` arrives as numbers, which the type says it can't.
     const variable: BoilerplateVariable = {
       name: "Version",
       type: "enum",

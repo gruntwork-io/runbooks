@@ -30,6 +30,7 @@ class FakeHighlight extends Set<Range> {
   priority = 0
 }
 let registry: Map<string, FakeHighlight>
+// jsdom has no CSS.highlights to install a registry in; this view lets the tests add and remove one.
 const cssWithHighlights = CSS as unknown as { highlights?: Map<string, FakeHighlight> }
 
 function renderPage(api: ReturnType<typeof makeApi>["api"]) {
