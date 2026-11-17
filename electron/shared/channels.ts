@@ -8,7 +8,13 @@
 // Import from the canonical src/types.ts so channels.ts and the backend
 // handlers share the same contract. Re-exported so consumers can import
 // these types from channels.ts directly.
-import type { ExecRequest, ScriptFileChange, Section, SessionMetadata } from "../../src/types.ts"
+import type {
+  ExecRequest,
+  FilesCapturedEvent,
+  ScriptFileChange,
+  Section,
+  SessionMetadata,
+} from "../../src/types.ts"
 export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
@@ -986,12 +992,8 @@ export interface IpcEventMap {
   // can be streaming at once.
   "exec:log": { executionId: string; line: string; timestamp: string; replace?: boolean }
   "exec:log-file": { executionId: string; path: string }
-  "exec:files-captured": {
-    executionId: string
-    files: string[]
-    count: number
-    fileTree: unknown
-  }
+  /** The files a step captured, as the executor reports them. */
+  "exec:files-captured": FilesCapturedEvent & { executionId: string }
   /**
    * `path` is the runbook the watcher watches (as runbook:get resolved it), so
    * after a failed open the renderer reloads that runbook, not the failed one.
