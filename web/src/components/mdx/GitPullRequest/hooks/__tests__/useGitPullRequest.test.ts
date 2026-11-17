@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
 import { createElement, type ReactNode } from "react"
 import { renderHook, act, waitFor } from "@testing-library/react"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type HeldCall } from "@/test/test-api"
 import { RunbookContextProvider } from "@/contexts/RunbookContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { normalizeBlockId } from "@/lib/utils"
@@ -19,46 +20,53 @@ import { CANCELED_RUN_WAIT_MS, useGitPullRequest } from "../useGitPullRequest"
  * the hook reconciles the events with the invoke result.
  */
 
-type Listener = (data: unknown) => void
-
 /** Channels whose invoke stays pending until a test settles it. */
 const OPERATION_CHANNELS = new Set(["git:pull-request", "git:merge-request", "git:push"])
 
-function createEmittingApi() {
-  const listeners = new Map<string, Set<Listener>>()
-  const pending: Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }> = []
+function createEmittingApi(cfg: PRProviderConfig) {
+  const testApi = makeTestApi()
+  const creates = testApi.hold(cfg.channels.create)
+  const pushes = testApi.hold(cfg.channels.push)
+  const emit = testApi.emit
 
-  const invoke = vi.fn((channel: string, _body?: unknown) => {
-    if (!OPERATION_CHANNELS.has(channel)) return Promise.resolve({})
-    return new Promise<unknown>((resolve, reject) => {
-      pending.push({ resolve, reject })
-    })
-  })
+  const operations = () => testApi.calls.filter(({ channel }) => OPERATION_CHANNELS.has(channel))
 
-  const api = {
-    invoke,
-    on: (channel: string, callback: Listener) => {
-      if (!listeners.has(channel)) listeners.set(channel, new Set())
-      listeners.get(channel)!.add(callback)
-      return () => {
-        listeners.get(channel)?.delete(callback)
-      }
-    },
-  } as unknown as RunbooksAPI
-
-  const emit = (channel: string, data: unknown) => {
-    for (const callback of listeners.get(channel) ?? []) callback(data)
+  /**
+   * The nth operation invoke (0-based, in call order across the operation
+   * channels), which must be one of `held`'s.
+   */
+  function nth<C extends PRProviderConfig["channels"]["create" | "push"]>(
+    n: number,
+    channel: C,
+    held: readonly HeldCall<C>[],
+  ): HeldCall<C> {
+    const before = operations().slice(0, n + 1)
+    if (before[n]?.channel !== channel) {
+      throw new Error(`operation #${n} is ${before[n]?.channel ?? "not made yet"}, not ${channel}`)
+    }
+    return held[before.filter((call) => call.channel === channel).length - 1]!
   }
+  /** The nth operation invoke, a create. */
+  const createCall = (n: number) => nth(n, cfg.channels.create, creates)
+  /** The nth operation invoke, a push. */
+  const pushCall = (n: number) => nth(n, cfg.channels.push, pushes)
 
   return {
-    api,
-    invoke,
+    api: testApi.api,
+    invoke: testApi.invoke,
     emit,
-    /** Settle the nth operation invoke (0-based, in call order). */
-    resolve: (n: number, value: unknown) => pending[n]!.resolve(value),
-    reject: (n: number, error: Error) => pending[n]!.reject(error),
-    /** Total subscribed listeners across every channel. */
-    listenerCount: () => [...listeners.values()].reduce((sum, set) => sum + set.size, 0),
+    createCall,
+    pushCall,
+    operations,
+    /** Total subscribed listeners across every channel the hook subscribed to. */
+    listenerCount: () =>
+      [...new Set(testApi.on.mock.calls.map(([channel]) => channel))].reduce(
+        (sum, channel) => sum + testApi.listenerCount(channel),
+        0,
+      ),
+    /** Holds every label request until the test settles it. */
+    holdLabelRequests: () => testApi.hold(cfg.channels.labels),
+    unhandled: testApi.unhandled,
 
     // The main process's responses, in git.ts's order.
 
@@ -68,25 +76,25 @@ function createEmittingApi() {
       emit("git:pr-result", { prUrl: pr.url, prNumber: pr.number, branchName: pr.branch })
       emit("git:outputs", { outputs: pr.outputs })
       emit("git:status", { status: "success", exitCode: 0 })
-      pending[n]!.resolve({ url: pr.url, number: pr.number })
+      createCall(n).resolve({ url: pr.url, number: pr.number })
     },
     /** respondToGitPrExit on failure: error (with any code), status, then return. */
     createFails(n: number, message: string, code?: { code: string; branchName: string }) {
       emit("git:error", { message, ...code })
       emit("git:status", { status: "fail", exitCode: 1 })
-      pending[n]!.resolve({ error: message })
+      createCall(n).resolve({ error: message })
     },
     /** The git:push handler on success: status, then return. */
     pushSucceeds(n: number) {
       emit("git:log", { line: "Push complete.", timestamp: "2026-01-01T00:00:01Z" })
       emit("git:status", { status: "success", exitCode: 0 })
-      pending[n]!.resolve({ ok: true })
+      pushCall(n).resolve({ ok: true })
     },
     /** The git:push handler on failure: error, status, then return. */
     pushFails(n: number, message: string) {
       emit("git:error", { message })
       emit("git:status", { status: "fail", exitCode: 1 })
-      pending[n]!.resolve({ error: message })
+      pushCall(n).resolve({ error: message })
     },
   }
 }
@@ -130,7 +138,7 @@ const STILL_RUNNING_LINE =
   "The canceled operation is still running in the background. Starting anyway; its output may still appear here."
 
 function renderPR(cfg: PRProviderConfig) {
-  const fake = createEmittingApi()
+  const fake = createEmittingApi(cfg)
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(
       ApiProvider,
@@ -144,8 +152,7 @@ function renderPR(cfg: PRProviderConfig) {
   const state = () => view.result.current.pr
   const outputs = () => view.result.current.runbook.blockOutputs[normalizeBlockId(BLOCK_ID)]?.values
   const logLines = () => state().logs.map((entry) => entry.line)
-  const operationCalls = () =>
-    fake.invoke.mock.calls.filter(([channel]) => OPERATION_CHANNELS.has(channel))
+  const operationCalls = fake.operations
 
   /** Start a create; returns its promise without waiting on it. */
   const create = (params = CREATE_PARAMS) => {
@@ -217,7 +224,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
 
       const done = create()
       await act(async () => {
-        fake.resolve(0, { error: message })
+        fake.createCall(0).resolve({ error: message })
         await done
       })
 
@@ -232,7 +239,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
 
       const done = create()
       await act(async () => {
-        fake.reject(0, new Error("IPC channel closed"))
+        fake.createCall(0).reject(new Error("IPC channel closed"))
         await done
       })
 
@@ -299,7 +306,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
 
       const done = push()
       await act(async () => {
-        fake.resolve(1, { error: message })
+        fake.pushCall(1).resolve({ error: message })
         await done
       })
       // Still inside the 500 ms listener window, so the late events are heard.
@@ -319,7 +326,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
 
       const done = push()
       await act(async () => {
-        fake.reject(1, new Error("IPC channel closed"))
+        fake.pushCall(1).reject(new Error("IPC channel closed"))
         await done
       })
 
@@ -543,7 +550,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
       act(() => state().cancel())
       const second = create()
       await act(async () => {
-        fake.reject(0, new Error("canceled run crashed"))
+        fake.createCall(0).reject(new Error("canceled run crashed"))
         await first
       })
       // The retry subscribed before the canceled run's catch cleaned up.
@@ -570,7 +577,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
       const done = create()
       await act(async () => {
         fake.emit("git:status", { status: "success", exitCode: 0 })
-        fake.resolve(0, { url: pr.url, number: pr.number })
+        fake.createCall(0).resolve({ url: pr.url, number: pr.number })
         await done
       })
       expect(state().status).toBe("success")
@@ -615,22 +622,9 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
   })
 
   describe("labels", () => {
-    /** Hold every label request until the test settles it. */
-    function holdLabelRequests(fake: ReturnType<typeof createEmittingApi>) {
-      const requests: Array<(value: unknown) => void> = []
-      fake.invoke.mockImplementation((channel: string) =>
-        channel === cfg.channels.labels
-          ? new Promise<unknown>((resolve) => {
-              requests.push(resolve)
-            })
-          : Promise.resolve({}),
-      )
-      return requests
-    }
-
     it("shows the labels of the repo asked for last when an earlier repo's labels land after them", async () => {
       const { fake, state } = renderPR(cfg)
-      const labelRequests = holdLabelRequests(fake)
+      const labelRequests = fake.holdLabelRequests()
 
       // The active worktree switched while the first repo's labels loaded
       act(() => {
@@ -642,10 +636,10 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
       expect(labelRequests).toHaveLength(2)
 
       await act(async () => {
-        labelRequests[1]!({ labels: ["infra-label"] })
+        labelRequests[1]!.resolve({ labels: ["infra-label"] })
       })
       await act(async () => {
-        labelRequests[0]!({ labels: ["old-repo-label"] })
+        labelRequests[0]!.resolve({ labels: ["old-repo-label"] })
       })
       expect(state().labels.map((label) => label.name)).toEqual(["infra-label"])
       expect(state().labelsLoading).toBe(false)
@@ -653,7 +647,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
 
     it("keeps the labels spinner until the latest request lands", async () => {
       const { fake, state } = renderPR(cfg)
-      const labelRequests = holdLabelRequests(fake)
+      const labelRequests = fake.holdLabelRequests()
 
       act(() => {
         void state().fetchLabels("acme", "old-repo")
@@ -663,13 +657,13 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
       })
 
       await act(async () => {
-        labelRequests[0]!({ labels: ["old-repo-label"] })
+        labelRequests[0]!.resolve({ labels: ["old-repo-label"] })
       })
       expect(state().labelsLoading).toBe(true)
       expect(state().labels).toEqual([])
 
       await act(async () => {
-        labelRequests[1]!({ labels: ["infra-label"] })
+        labelRequests[1]!.resolve({ labels: ["infra-label"] })
       })
       expect(state().labelsLoading).toBe(false)
       expect(state().labels.map((label) => label.name)).toEqual(["infra-label"])
