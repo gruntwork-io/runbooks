@@ -91,7 +91,9 @@ describe("SQLite visual preview", () => {
     )
 
     invoke.mockResolvedValue(selectResult)
-    const button = successContainer.querySelector("button")!
+    const button = Array.from(successContainer.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Run"),
+    )!
     button.click()
     // Attendre que React mette à jour le DOM
     await new Promise<void>((resolve) => {
@@ -113,7 +115,9 @@ describe("SQLite visual preview", () => {
       </TestWrapper>,
     )
     invoke.mockResolvedValue(emptyResult)
-    emptyContainer.querySelector("button")!.click()
+    Array.from(emptyContainer.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("Run"))!
+      .click()
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 100)
     })
@@ -133,7 +137,9 @@ describe("SQLite visual preview", () => {
       </TestWrapper>,
     )
     invoke.mockRejectedValue(new Error("no such table: nonexistent_table"))
-    failContainer.querySelector("button")!.click()
+    Array.from(failContainer.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("Run"))!
+      .click()
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 100)
     })
@@ -153,7 +159,9 @@ describe("SQLite visual preview", () => {
       </TestWrapper>,
     )
     invoke.mockResolvedValue({ columns: [], rows: [], rowCount: 1, isRead: false })
-    writeContainer.querySelector("button")!.click()
+    Array.from(writeContainer.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("Run"))!
+      .click()
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 100)
     })

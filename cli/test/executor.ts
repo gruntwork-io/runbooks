@@ -1973,28 +1973,17 @@ export class TestExecutor {
         })
       : []
 
-    const db = openSqliteDatabase(dbPath)
+    let db: ReturnType<typeof openSqliteDatabase> | undefined
     try {
+      db = openSqliteDatabase(dbPath)
       let queryResult: SqlQueryResult
-      try {
-        if (pathProp) {
-          // Like a Command's `path`: relative to the runbook's folder, as in the app.
-          const sqlPath = path.resolve(runbookDir, pathProp)
-          const sql = fs.readFileSync(sqlPath, "utf8")
-          queryResult = Effect.runSync(runSqlScript(db, sql))
-        } else {
-          queryResult = Effect.runSync(runQuery(db, query ?? "", params))
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        result.actualStatus = "fail"
-        result.passed = this.matchesExpectedStatus(step.expect, "fail")
-        if (step.error_contains && !msg.toLowerCase().includes(step.error_contains.toLowerCase())) {
-          result.passed = false
-          result.error = `Expected error to contain "${step.error_contains}" but got: ${msg}`
-        }
-        result.duration = Date.now() - start
-        return result
+      if (pathProp) {
+        // Like a Command's `path`: relative to the runbook's folder, as in the app.
+        const sqlPath = path.resolve(runbookDir, pathProp)
+        const sql = fs.readFileSync(sqlPath, "utf8")
+        queryResult = Effect.runSync(runSqlScript(db, sql))
+      } else {
+        queryResult = Effect.runSync(runQuery(db, query ?? "", params))
       }
       result.actualStatus = "success"
       result.passed = this.matchesExpectedStatus(step.expect, "success")
@@ -2005,8 +1994,20 @@ export class TestExecutor {
         this.blockOutputs.set(block.id, new Map([[outputName, JSON.stringify(queryResult.rows)]]))
       }
       this.passedScripts.add(normalizeBlockId(block.id))
+    } catch (err: unknown) {
+      // Query failure AND database-open failure land here: a missing parent
+      // directory makes openSqliteDatabase throw, and an expect: fail step
+      // should still match it.
+      this.passedScripts.delete(normalizeBlockId(block.id))
+      const msg = err instanceof Error ? err.message : String(err)
+      result.actualStatus = "fail"
+      result.passed = this.matchesExpectedStatus(step.expect, "fail")
+      if (step.error_contains && !msg.toLowerCase().includes(step.error_contains.toLowerCase())) {
+        result.passed = false
+        result.error = `Expected error to contain "${step.error_contains}" but got: ${msg}`
+      }
     } finally {
-      db.close()
+      db?.close()
     }
     result.duration = Date.now() - start
     return result

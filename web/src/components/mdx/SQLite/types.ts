@@ -21,7 +21,7 @@ export interface SqlQueryResult {
 export interface SQLiteProps {
   /** Unique block id. */
   id: string
-  /** Path to the .db file (relative to the session worktree), or `:memory:`. */
+  /** Path to the .db file (relative to the runbook's folder), or `:memory:`. */
   db: string
   /** SQL statement. Use `?` placeholders for parameterized values. Exactly one of `query` and `path`. */
   query?: string

@@ -84,7 +84,7 @@ testdata/sample-runbooks/sqlite-demo/
 | Prop | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Unique block id |
-| `db` | string | yes | Path to the `.db` file (relative to worktree) or `:memory:` |
+| `db` | string | yes | Path to the `.db` file (relative to the runbook directory) or `:memory:` |
 | `query` | string | yes | SQL statement; `?` placeholders for params |
 | `params` | array | no | Values bound to `?` placeholders (never string-concatenated) |
 | `output` | string | no | Name of the output variable holding the result rows |
@@ -109,7 +109,7 @@ Renderer (SQLite.tsx)
 1. **No `node:sqlite` import in `src/domain/`** — domain speaks `SqlDatabase`,
    `src/layers/NodeSqlite.ts` opens it.
 2. **Path validation** — `dbPath` resolved through `path-guard.ts`, must be
-   inside the session worktree (except `:memory:`).
+   resolved against the runbook directory, then validated to stay inside the session (except `:memory:`).
 3. **Parameterized queries only** — `?` placeholders, never SQL string
    concatenation. This is enforced by the API shape (separate `params` array).
 4. **Typed errors** — `SqliteQueryError` added to `src/errors/index.ts`.
@@ -148,5 +148,5 @@ interface ColumnInfo {
 
 - Should the block support multiple statements in one `query` prop?
   (Proposed: no, one statement per block — clearer outputs and errors.)
-- Should `db` support absolute paths outside the worktree?
+- Should `db` support absolute paths outside the session?
   (Proposed: no, same security model as generated files.)

@@ -74,6 +74,14 @@ describe("runQuery", () => {
     })
   })
 
+  it("never lets a generated alias collide with an existing column name", async () => {
+    await withDb(async (db) => {
+      const result = await run(runQuery(db, "SELECT 1 AS a, 2 AS a, 3 AS a_2"))
+      // The duplicate "a" can't take "a_2" (reserved by the third column), so it becomes "a_2_".
+      expect(result.columns).toEqual(["a", "a_2_", "a_2"])
+    })
+  })
+
   it("returns empty rows for a SELECT that matches nothing", async () => {
     await withDb(async (db) => {
       await run(runQuery(db, "CREATE TABLE t (x INTEGER)"))

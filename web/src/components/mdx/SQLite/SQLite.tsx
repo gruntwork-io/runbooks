@@ -128,8 +128,27 @@ function SQLite({
     }
   }, [isDuplicate, isNormalizedCollision, collidingId, configError, id, reportError, clearError])
 
+  // A template reference whose value is missing resolves to `{{ ... }}` in
+  // backticks — running with that literal text would send the wrong SQL.
+  const unresolvedRef = useMemo(() => {
+    const BACKTICK_REF = "`{{"
+    const check = (v: string | undefined): string | null => {
+      if (v === undefined || !v.includes(BACKTICK_REF)) return null
+      const start = v.indexOf(BACKTICK_REF)
+      const end = v.indexOf("`", start + 1)
+      return end === -1 ? v : v.slice(start, end + 1)
+    }
+    return (
+      check(resolvedDb) ??
+      check(resolvedQuery) ??
+      check(resolvedPath) ??
+      (resolvedParams ?? []).map((p) => (typeof p === "string" ? check(p) : null)).find(Boolean) ??
+      null
+    )
+  }, [resolvedDb, resolvedQuery, resolvedPath, resolvedParams])
+
   const runQuery = useCallback(async () => {
-    if (!resolvedDb || (!resolvedQuery && !resolvedPath) || isDuplicate) return
+    if (!resolvedDb || (!resolvedQuery && !resolvedPath) || isDuplicate || unresolvedRef) return
     setStatus("running")
     setError(null)
     setResult(null)
@@ -156,6 +175,7 @@ function SQLite({
     resolvedQuery,
     resolvedPath,
     resolvedParams,
+    unresolvedRef,
     output,
     id,
     isDuplicate,
@@ -211,11 +231,19 @@ function SQLite({
         {resolvedQuery ? resolvedQuery : `SQL file: ${resolvedPath ?? ""}`}
       </pre>
 
+      {/* Unresolved template reference warning */}
+      {unresolvedRef && (
+        <div className="text-sm text-warning mb-2">
+          Unresolved template reference {unresolvedRef} — fill in the referenced input/output before
+          running.
+        </div>
+      )}
+
       {/* Action button */}
       <div className="flex items-center gap-2 mb-3">
         <Button
           onClick={runQuery}
-          disabled={status === "running" || isDuplicate}
+          disabled={status === "running" || isDuplicate || unresolvedRef !== null}
           size="sm"
           variant={status === "fail" ? "destructive" : "default"}
         >
