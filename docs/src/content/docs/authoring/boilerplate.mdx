@@ -110,12 +110,31 @@ Each variable supports these properties:
 |----------|----------|-------------|
 | `name` | Yes | Variable name, referenced as `{{ .inputs.Name }}`, or as `{{ .Name }}` in the files a `<Template>` renders |
 | `type` | No | Data type: `string`, `int`, `float`, `bool`, `enum`, `list`, `map` (defaults to `string`). Write it in lowercase. The form shows a field of any other type as text, but Boilerplate rejects it, so a `<Template>` that uses it fails |
-| `description` | No | Help text shown in the form |
+| `description` | No | Help text shown under the field. It can use markdown. See [Field descriptions](#field-descriptions) |
 | `default` | No | Default value. Once a field's value differs from it, a **Reset** button next to the field's name puts it back |
 | `options` | For `enum` | The dropdown's options: a list, or a block output that holds one. See [Options](#options) |
 | `validations` | No | [Validation rules](#validations) |
 | `sensitive` | No | For a `string`, masks the field like a password input, with a button to show the value |
 | `order` | No | An integer that places the field in the form, lowest first. See [Field order](#field-order) |
+
+### Field descriptions
+
+A field's `description` is markdown. It can use **bold**, *italic*, `code`, links, line breaks, and bulleted or numbered lists. A YAML block scalar (`description: |`) keeps its line breaks, so a list can be written as one:
+
+```yaml
+variables:
+  - name: SubscriptionLayout
+    type: enum
+    options: [single, caf]
+    description: |
+      How many subscriptions the platform uses:
+      - **single**: one subscription for everything.
+      - **caf**: four subscriptions, as Microsoft's [Cloud Adoption Framework](https://learn.microsoft.com/azure/cloud-adoption-framework/ready/landing-zone/) recommends.
+```
+
+Links open in your browser. A description shows in the same small, muted text whether it uses markdown or not, so a one-line description without any looks as it always has.
+
+Only that markdown renders. HTML, such as `<name>`, shows as you wrote it, and so does a line that markdown would make a heading, quote, horizontal rule or code block. Images are left out.
 
 ### Field order
 

@@ -68,6 +68,25 @@ variables:
 
 The code fence is required. Without it, MDX parses the YAML as Markdown paragraphs and lists and loses its indentation, so the block shows an "Invalid inline boilerplate configuration format" error asking you to wrap the YAML in a code fence.
 
+A `description` can use markdown, such as **bold**, links and lists. Write a multi-line one as a YAML block scalar:
+
+`````mdx
+<Inputs id="platform">
+```yaml
+variables:
+  - name: SubscriptionLayout
+    type: enum
+    options: [single, caf]
+    description: |
+      How many subscriptions the platform uses:
+      - **single**: one subscription for everything.
+      - **caf**: four subscriptions, as Microsoft's [Cloud Adoption Framework](https://learn.microsoft.com/azure/cloud-adoption-framework/ready/landing-zone/) recommends.
+```
+</Inputs>
+`````
+
+See [Field descriptions](/authoring/boilerplate/#field-descriptions) for what renders.
+
 ### Loading from a path
 
 Load variables from an external `boilerplate.yml` file:

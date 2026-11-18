@@ -18,7 +18,7 @@ variables:
   # Shown, but nobody filling in the form can change it.
   - name: Team
     type: string
-    description: The team that owns every service this runbook creates
+    description: The team that owns **every** service this runbook creates
     default: platform
     order: 3
     x-locked: true
@@ -31,7 +31,14 @@ variables:
 
   - name: LogLevel
     type: enum
-    description: How much the service logs
+    # A block scalar keeps its lines, so the description can hold a list.
+    description: |
+      How much the service logs. Each level includes the ones below it:
+      - `debug`: everything, for tracking down a problem
+      - `info`: normal operation
+      - `warn` and `error`: only what needs attention
+
+      See [log levels](https://en.wikipedia.org/wiki/Syslog#Severity_level) for where these come from.
     options:
       - debug
       - info
