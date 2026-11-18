@@ -566,6 +566,19 @@ If no prefixed credential is found, it falls back to the unprefixed variables, a
     RUNBOOKS_TEST_CLOUDSDK_COMPUTE_REGION: us-central1
 ```
 
+## Testing AzureAuth blocks
+
+For an `<AzureAuth>` block, the test runner looks for a service principal in environment variables, then for an Azure CLI sign-in, and adds what it finds to the test case environment under the names the app writes. It never contacts Azure, so a test shows that the block is wired up and says nothing about whether the sign-in works.
+
+- **Service principal:** `ARM_CLIENT_ID`, `ARM_TENANT_ID` and `ARM_CLIENT_SECRET` (or `ARM_CLIENT_CERTIFICATE_PATH`, a PEM file), then the same `AZURE_*` names. With the step's `env_prefix`, the prefixed names are tried first, then the unprefixed ones.
+- **Azure CLI:** a sign-in in `AZURE_CONFIG_DIR`, or in `~/.azure` when that's unset. It sets `AZURE_CONFIG_DIR` and `ARM_USE_CLI=true`. Set `AZURE_CONFIG_DIR` to an empty value to skip it.
+
+The tenant and subscription come from the service principal's variables, then the block's `tenantId` and `subscriptionId` props, then `ARM_TENANT_ID` / `AZURE_TENANT_ID` and `ARM_SUBSCRIPTION_ID` / `AZURE_SUBSCRIPTION_ID`, then the Azure CLI's default account. `requiredRoles` isn't checked.
+
+If neither is found, the step is skipped and every block that references it with `azureAuthId` is blocked.
+
+Unlike the app, the runner doesn't run `az login`: it uses an Azure CLI sign-in in place, sets no `AZURE_CONFIG_DIR` for a service principal, and doesn't set the `AZURE_PRINCIPAL_*` variables for a CLI sign-in.
+
 ## Testing GitHubAuth blocks
 
 For a `<GitHubAuth>` block, the test runner looks for a token for the block's host: the one its `host` prop names, or `github.com` without one. It ties each environment variable to a host the way the app does, so a token is only used for its own host:

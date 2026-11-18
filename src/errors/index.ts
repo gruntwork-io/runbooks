@@ -68,6 +68,14 @@ export class GoogleOAuthError extends Data.TaggedError("GoogleOAuthError")<{
   readonly cause?: unknown
 }> {}
 
+// Azure
+export class AzureAuthError extends Data.TaggedError("AzureAuthError")<{
+  readonly message: string
+  readonly cliMissing?: boolean | undefined
+  readonly command?: string | undefined
+  readonly cause?: unknown
+}> {}
+
 /**
  * Transport-failure classification for VCS API errors, set by
  * classifyTlsError (src/domain/tls/system-ca.ts). Present only

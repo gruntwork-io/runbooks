@@ -81,6 +81,7 @@ A finished session keeps its directory, files and history, but Runbooks doesn't 
 - `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block whose credentials the final check needs. The Finish button is disabled until authentication completes.
 - `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block whose credentials the final check needs. GitHub only. The Finish button is disabled until authentication completes. Prefer `gitAuthId`.
 - `googleAuthId` (string): ID of a [GoogleAuth](/authoring/blocks/googleauth/) block whose credentials the final check needs. The Finish button is disabled until authentication completes.
+- `azureAuthId` (string): ID of an [AzureAuth](/authoring/blocks/azureauth/) block whose sign-in the final check needs. The Finish button is disabled until the block has signed in.
 - `successMessage` (string): message shown once the runbook is finished. Default "You finished this runbook!". Supports inline markdown.
 - `warnMessage` (string): message shown when the final check exits with code 2. Default "Warning". Supports inline markdown.
 - `failMessage` (string): message shown when the final check fails. Default "The final check failed. Check the logs, fix the problem, and run it again.". Supports inline markdown.

@@ -16,6 +16,52 @@ import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { CustomCaStatus } from "../../src/domain/tls/customCa.ts"
 export type { CustomCaStatus }
 
+import type { AzurePrincipal } from "../../src/domain/azure/claims.ts"
+import type { AzureSubscription, AzureTenant, RequiredRole } from "../../src/domain/azure/auth.ts"
+import type { AzureAuthType } from "../../src/domain/azure/env.ts"
+export type {
+  AzurePrincipal as AzurePrincipalIpc,
+  AzureSubscription as AzureSubscriptionIpc,
+  AzureTenant as AzureTenantIpc,
+  RequiredRole as AzureRequiredRoleIpc,
+  AzureAuthType as AzureAuthTypeIpc,
+}
+
+export type AzureDetectionSourceIpc = "env" | "cli"
+
+export interface AzureSignInPinsIpc {
+  tenantId?: string
+  subscriptionId?: string
+  requiredRoles?: RequiredRole[]
+}
+
+export type AzureSignInResultIpc =
+  | {
+      status: "authenticated"
+      authType: AzureAuthType
+      principal: AzurePrincipal
+      tenantId: string
+      tenantName?: string | undefined
+      subscriptionId?: string | undefined
+      subscriptionName?: string | undefined
+      configDir: string
+      env: Record<string, string>
+      sessionEnvWarning?: string
+    }
+  | {
+      status: "select_context"
+      authType: AzureAuthType
+      principal: AzurePrincipal
+      tenants: AzureTenant[]
+      subscriptions: AzureSubscription[]
+    }
+  | {
+      status: "failed"
+      error: string
+      cliMissing?: boolean
+      missingRoles?: RequiredRole[]
+    }
+
 /** What session:switch did. */
 export type SessionSwitchResult =
   /** The renderer is opening the session's runbook in that session. */
@@ -584,6 +630,63 @@ export interface IpcChannelMap {
   "google:credential-committed": {
     params: { blockId?: string; credentialsPath?: string }
     result: { ok: true }
+  }
+
+  "azure:detect": {
+    params: { prefix?: string; sources: AzureDetectionSourceIpc[] }
+    result: {
+      found: boolean
+      source?: AzureDetectionSourceIpc
+      principalName?: string
+      tenantId?: string
+      subscriptionId?: string
+      subscriptionName?: string
+      envVarPrefix?: string
+      error?: string
+      cliMissing?: boolean
+    }
+  }
+  "azure:confirm-detected": {
+    params: AzureSignInPinsIpc & {
+      blockId: string
+      source: AzureDetectionSourceIpc
+      prefix?: string
+    }
+    result: AzureSignInResultIpc
+  }
+  "azure:login-start": {
+    params: { blockId: string; deviceCode: boolean; tenantId?: string }
+    result: { flowId?: string; error?: string; cliMissing?: boolean }
+  }
+  "azure:login-poll": {
+    params: AzureSignInPinsIpc & { flowId: string }
+    result:
+      | AzureSignInResultIpc
+      | { status: "pending"; verificationUri?: string; userCode?: string }
+  }
+  "azure:cancel": { params: { blockId: string }; result: { ok: true } }
+  "azure:service-principal": {
+    params: AzureSignInPinsIpc & {
+      blockId: string
+      clientId: string
+      tenantId: string
+      clientSecret?: string
+      certificatePath?: string
+    }
+    result: AzureSignInResultIpc
+  }
+  "azure:select-context": {
+    params: {
+      blockId: string
+      tenantId: string
+      subscriptionId?: string
+      requiredRoles?: RequiredRole[]
+    }
+    result: AzureSignInResultIpc
+  }
+  "azure:validate-session": {
+    params: { blockId: string; configDir: string; tenantId: string }
+    result: { valid: boolean; unreachable?: boolean; error?: string }
   }
 
   // GitHub Authentication

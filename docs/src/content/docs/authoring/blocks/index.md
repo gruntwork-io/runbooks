@@ -28,6 +28,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 
 - [`<AwsAuth>`](/authoring/blocks/awsauth) signs in to AWS with static credentials, AWS SSO, or a local AWS profile.
 - [`<GoogleAuth>`](/authoring/blocks/googleauth) signs in to Google Cloud with a service account key, a Google sign-in, or a gcloud configuration.
+- [`<AzureAuth>`](/authoring/blocks/azureauth) signs in to Azure with the Azure CLI, a device code, or a service principal.
 - [`<GitAuth>`](/authoring/blocks/gitauth) signs in to GitHub or GitLab, chosen from a dropdown.
 - [`<GitHubAuth>`](/authoring/blocks/githubauth) is `<GitAuth>` locked to GitHub.
 - [`<GitLabAuth>`](/authoring/blocks/gitlabauth) is `<GitAuth>` locked to GitLab.
@@ -50,7 +51,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 Interactive blocks take an `id` prop, a unique identifier for the block. When one block references another, it does so by the other block's ID:
 
 - `inputsId` uses the values collected by an `<Inputs>` or `<Template>` block. See [Wiring blocks with `inputsId`](/authoring/inputs-and-outputs/#wiring-blocks-with-inputsid).
-- `awsAuthId`, `googleAuthId`, `gitAuthId` and `githubAuthId` choose which auth block's credentials a block uses.
+- `awsAuthId`, `azureAuthId`, `googleAuthId`, `gitAuthId` and `githubAuthId` choose which auth block's credentials a block uses.
 - `dependsOn` names the `<Command>` or `<Check>` blocks that must succeed before a `<Command>`, `<Check>` or `<Finish>` can run. A `<Check>` that ends with a warning counts too. See [Run order](/authoring/blocks/command/#run-order).
 - `gitCloneId` roots a `<DirPicker>` in the repository a `<GitClone>` block cloned.
 - `{{ .outputs.<block_id>.<output_name> }}` reads the outputs of a block that has already run. In template syntax, write any hyphens in the ID as underscores. See [Block outputs](/authoring/inputs-and-outputs/#block-outputs).
@@ -76,6 +77,7 @@ Each block the user acts on is a step. It is done once the block shows it's done
 | `<Inputs>` | Its form was submitted, and is green. |
 | `<Template>` | Its files were generated, and its form is green. |
 | `<AwsAuth>`, `<GoogleAuth>`, `<GitAuth>`, `<GitHubAuth>` and `<GitLabAuth>` | It is signed in, and green: credentials that expire within five minutes turn it red. |
+| `<AzureAuth>` | It is signed in. |
 | `<GitClone>` | It cloned or found its repository, which is still on the session's branch. |
 | `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>` | It opened its pull or merge request. |
 | `<DirPicker>` | It has a path. |
@@ -96,4 +98,4 @@ Once the block is done, as in the [Progress](#progress) table, it folds down to 
 
 The block folds each time it becomes done, such as when a run succeeds again, and shows in full whenever it isn't done, such as a sign-in whose credentials are about to expire. A [resumed session](/commands/sessions/#resuming-a-session) brings its done blocks back folded. Folding only hides a block: its logs, outputs and values stay as they were, for the blocks that use them.
 
-`autoCollapse` works on `<Command>`, `<Check>`, `<Prerequisites>`, `<AwsAuth>`, `<GoogleAuth>`, `<GitAuth>`, `<GitHubAuth>`, `<GitLabAuth>`, `<GitClone>`, `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>`. In [instruction mode](/intro/instruction-mode/#tracking-your-progress), these blocks fold once the user marks them as done.
+`autoCollapse` works on `<Command>`, `<Check>`, `<Prerequisites>`, `<AwsAuth>`, `<GoogleAuth>`, `<AzureAuth>`, `<GitAuth>`, `<GitHubAuth>`, `<GitLabAuth>`, `<GitClone>`, `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>`. In [instruction mode](/intro/instruction-mode/#tracking-your-progress), these blocks fold once the user marks them as done.

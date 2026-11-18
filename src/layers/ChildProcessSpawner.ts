@@ -118,6 +118,7 @@ const impl: ProcessSpawnerShape = {
           cwd: options?.cwd,
           env: options?.env as NodeJS.ProcessEnv | undefined,
           stdio: [needsStdin ? "pipe" : "ignore", "pipe", "pipe"],
+          windowsVerbatimArguments: options?.windowsVerbatimArguments,
           // Run the child as its own process-group leader (POSIX: pid === pgid).
           // Scripts here spawn a tree — bash → terragrunt → tofu → providers —
           // and `kill` below signals the whole group via the negative pid. Without

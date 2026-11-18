@@ -30,6 +30,7 @@ import { rehypeChapters } from "@/components/mdx/Chapter/rehypeChapters"
 import { Iframe } from "@/components/mdx/Iframe"
 import { AwsAuth } from "@/components/mdx/AwsAuth"
 import { GoogleAuth } from "@/components/mdx/GoogleAuth"
+import { AzureAuth } from "@/components/mdx/AzureAuth"
 import { GitAuth } from "@/components/mdx/GitAuth"
 import { GitHubAuth } from "@/components/mdx/GitHubAuth"
 import { GitLabAuth } from "@/components/mdx/GitLabAuth"
@@ -357,6 +358,7 @@ export const MDX_COMPONENTS = {
   // Authentication components
   AwsAuth,
   GoogleAuth,
+  AzureAuth,
   GitAuth,
   GitHubAuth,
   GitLabAuth,

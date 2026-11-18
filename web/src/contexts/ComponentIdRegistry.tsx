@@ -22,6 +22,7 @@ export type BlockComponentType =
   | "TemplateInline"
   | "AwsAuth"
   | "GoogleAuth"
+  | "AzureAuth"
   | "GitAuth"
   | "GitHubAuth"
   | "GitLabAuth"

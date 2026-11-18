@@ -27,6 +27,8 @@ const baseExecution = {
   hasGitHubAuthDependency: true,
   unmetGoogleAuthDependency: null,
   hasGoogleAuthDependency: true,
+  unmetAzureAuthDependency: null as { blockId: string } | null,
+  hasAzureAuthDependency: true,
   isRendering: false,
   renderError: null,
   status: "pending" as string,

@@ -93,6 +93,7 @@ import {
   type AuthDependency,
 } from "./validation.ts"
 import { AUTH_BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
+import { AZURE_AUTH_ENV_VARS } from "../../src/domain/exec/authEnv.ts"
 import { unknownBlocksError } from "../../src/runbooks-version.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 import { errorMessage } from "../../src/errors/message.ts"
@@ -868,6 +869,9 @@ export class TestExecutor {
 
       case "GoogleAuth":
         return this.runGoogleAuth(block, step, start)
+
+      case "AzureAuth":
+        return this.runAzureAuth(block, step, start)
 
       case "GitClone":
         return this.runGitClone(block, step, start)
@@ -1753,6 +1757,140 @@ export class TestExecutor {
     result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start
     if (this.options.verbose) console.log("--- Google Cloud credentials found, injected ---")
+    return result
+  }
+
+  // -----------------------------------------------------------------------
+  // AzureAuth block
+  // -----------------------------------------------------------------------
+
+  private findAzureServicePrincipal(prefix: string) {
+    for (const family of ["ARM_", "AZURE_"]) {
+      const get = (name: string) => this.getenv(`${prefix}${family}${name}`)
+      const clientId = get("CLIENT_ID")
+      const tenantId = get("TENANT_ID")
+      const clientSecret = get("CLIENT_SECRET")
+      const certPath = get("CLIENT_CERTIFICATE_PATH")
+      const certificatePath = /\.(pfx|p12)$/i.test(certPath) ? "" : certPath
+      if (clientId && tenantId && (clientSecret || certificatePath)) {
+        return {
+          clientId,
+          tenantId,
+          clientSecret,
+          certificatePath,
+          subscriptionId: get("SUBSCRIPTION_ID"),
+        }
+      }
+    }
+    return null
+  }
+
+  private resolveAzureCliDir(): string | null {
+    const dir = this.hasEnv("AZURE_CONFIG_DIR")
+      ? this.getenv("AZURE_CONFIG_DIR")
+      : path.join(os.homedir(), ".azure")
+    if (!dir) return null
+    return fs.existsSync(path.join(dir, "azureProfile.json")) ? dir : null
+  }
+
+  private readAzureCliDefault(dir: string): { tenantId?: string; subscriptionId?: string } {
+    try {
+      const text = fs
+        .readFileSync(path.join(dir, "azureProfile.json"), "utf8")
+        .replace(/^\uFEFF/, "")
+      const profile = JSON.parse(text) as {
+        subscriptions?: Array<{
+          id?: string
+          tenantId?: string
+          name?: string
+          isDefault?: boolean
+        }>
+      }
+      const account = profile.subscriptions?.find((sub) => sub.isDefault)
+      if (!account?.tenantId) return {}
+      const tenantLevel =
+        account.id === account.tenantId || account.name === "N/A(tenant level account)"
+      return {
+        tenantId: account.tenantId,
+        ...(account.id && !tenantLevel ? { subscriptionId: account.id } : {}),
+      }
+    } catch {
+      return {}
+    }
+  }
+
+  private runAzureAuth(block: ParsedComponent, step: TestStep, start: number): StepResult {
+    const result = makeStepResult(`azureAuth:${block.id}`, step.expect)
+    const prefix = step.env_prefix ?? ""
+    const creds: Record<string, string> = {}
+
+    const sp =
+      this.findAzureServicePrincipal(prefix) ?? (prefix ? this.findAzureServicePrincipal("") : null)
+    const cliDir = sp ? null : this.resolveAzureCliDir()
+
+    if (!sp && !cliDir) {
+      this.blockStates.set(block.id, "skipped")
+      result.actualStatus = "skipped"
+      result.passed = this.matchesExpectedStatus(step.expect, "skipped")
+      result.duration = Date.now() - start
+      if (this.options.verbose) console.log("--- No Azure credentials found ---")
+      return result
+    }
+
+    const cliDefault = cliDir ? this.readAzureCliDefault(cliDir) : {}
+    const envTenant =
+      this.firstEnv(prefix, ["ARM_TENANT_ID", "AZURE_TENANT_ID"]) ||
+      this.firstEnv("", ["ARM_TENANT_ID", "AZURE_TENANT_ID"])
+    const tenantId =
+      sp?.tenantId || stringProp(block.props, "tenantId") || envTenant || cliDefault.tenantId
+    const subscriptionId =
+      stringProp(block.props, "subscriptionId") ||
+      sp?.subscriptionId ||
+      this.firstEnv(prefix, ["ARM_SUBSCRIPTION_ID", "AZURE_SUBSCRIPTION_ID"]) ||
+      this.firstEnv("", ["ARM_SUBSCRIPTION_ID", "AZURE_SUBSCRIPTION_ID"]) ||
+      cliDefault.subscriptionId
+
+    if (sp) {
+      creds["AZURE_AUTH_TYPE"] = "service_principal"
+      creds["ARM_CLIENT_ID"] = sp.clientId
+      creds["AZURE_CLIENT_ID"] = sp.clientId
+      creds["AZURE_PRINCIPAL_NAME"] = sp.clientId
+      creds["AZURE_PRINCIPAL_TYPE"] = "servicePrincipal"
+      if (sp.clientSecret) {
+        creds["ARM_CLIENT_SECRET"] = sp.clientSecret
+        creds["AZURE_CLIENT_SECRET"] = sp.clientSecret
+      } else {
+        creds["AZURE_CLIENT_CERTIFICATE_PATH"] = sp.certificatePath
+        creds["ARM_USE_CLI"] = "true"
+      }
+    } else if (cliDir) {
+      creds["AZURE_AUTH_TYPE"] = "cli"
+      creds["AZURE_CONFIG_DIR"] = cliDir
+      creds["ARM_USE_CLI"] = "true"
+    }
+    if (tenantId) {
+      creds["ARM_TENANT_ID"] = tenantId
+      creds["AZURE_TENANT_ID"] = tenantId
+    }
+    if (subscriptionId) {
+      creds["ARM_SUBSCRIPTION_ID"] = subscriptionId
+      creds["AZURE_SUBSCRIPTION_ID"] = subscriptionId
+    }
+
+    this.authBlockCredentials.set(block.id, creds)
+
+    const stale = new Set<string>(AZURE_AUTH_ENV_VARS)
+    this.sessionEnv = this.sessionEnv.filter((entry) => {
+      const eq = entry.indexOf("=")
+      return eq === -1 || !stale.has(entry.slice(0, eq))
+    })
+    for (const [k, v] of Object.entries(creds)) this.sessionEnv.push(`${k}=${v}`)
+
+    this.blockStates.set(block.id, "success")
+    result.actualStatus = "success"
+    result.passed = this.matchesExpectedStatus(step.expect, "success")
+    result.duration = Date.now() - start
+    if (this.options.verbose) console.log("--- Azure credentials found, injected ---")
     return result
   }
 

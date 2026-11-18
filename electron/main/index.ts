@@ -34,6 +34,7 @@ import { expectLaunch, isSessionOpen, pageRunbook, resetToNewSession } from "./i
 import { closeRunbook, stopWatchers } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
+import { cleanupAzureConfigDirs } from "./ipc/azure-config-dirs.ts"
 import { cancelAllExecutions } from "./ipc/exec.ts"
 import { resolveRunbookAssetPath, runbookAssetHost } from "./ipc/path-guard.ts"
 import { byteRangeResponse } from "./asset-range.ts"
@@ -641,6 +642,8 @@ app.on("will-quit", (event) => {
 
       // Shred the credential files materialised for Google Cloud auth
       cleanupGoogleCredentialFiles()
+
+      cleanupAzureConfigDirs()
 
       // Close the runbook and script file watchers (runtime.dispose doesn't reach them)
       void stopWatchers()

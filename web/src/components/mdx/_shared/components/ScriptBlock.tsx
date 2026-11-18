@@ -103,6 +103,7 @@ export interface ScriptBlockProps {
   gitAuthId?: string | undefined
   /** Reference to a GoogleAuth block by ID for Google Cloud credentials. The block's credentials will be passed as environment variables (GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, CLOUDSDK_CORE_PROJECT, GOOGLE_PROJECT, CLOUDSDK_CORE_ACCOUNT, and the region/zone vars). */
   googleAuthId?: string | undefined
+  azureAuthId?: string | undefined
   successMessage?: string | undefined
   /** Warning message (Check only — Command never reaches the warn state). */
   warnMessage?: string | undefined
@@ -146,6 +147,7 @@ export function ScriptBlock({
   githubAuthId,
   gitAuthId,
   googleAuthId,
+  azureAuthId,
   successMessage = "Success",
   warnMessage = "Warning",
   failMessage = "Failed",
@@ -206,6 +208,8 @@ export function ScriptBlock({
     hasGitHubAuthDependency,
     unmetGoogleAuthDependency,
     hasGoogleAuthDependency,
+    unmetAzureAuthDependency,
+    hasAzureAuthDependency,
     isRendering,
     renderError,
     templateContext,
@@ -230,6 +234,7 @@ export function ScriptBlock({
     githubAuthId,
     gitAuthId,
     googleAuthId,
+    azureAuthId,
     children,
     componentType: variant.componentType,
     usePty,
@@ -544,6 +549,7 @@ export function ScriptBlock({
     !hasAwsAuthDependency ||
     !hasGitHubAuthDependency ||
     !hasGoogleAuthDependency ||
+    !hasAzureAuthDependency ||
     isRunBlocked(runBlockers) ||
     (scriptless && status === "success")
 
@@ -782,6 +788,14 @@ export function ScriptBlock({
                 dependency={unmetGoogleAuthDependency}
                 heading="Waiting for Google Cloud authentication:"
                 hint="Authenticate with the referenced GoogleAuth block first."
+              />
+            )}
+
+            {hasAllInputDependencies && hasAllOutputDependencies && (
+              <UnmetAuthDependencyWarning
+                dependency={unmetAzureAuthDependency}
+                heading="Waiting for Azure authentication:"
+                hint="Sign in with the referenced AzureAuth block first."
               />
             )}
 

@@ -59,7 +59,11 @@ export function openSessionStorage(userDataDir: string): SessionStorage {
       dirsRoot,
       cipher: safeStorageCipher(),
       moveToTrash: trash(),
-      ephemeralFileEnvVars: GOOGLE_CREDENTIAL_FILE_ENV_VARS,
+      ephemeralFileEnvVars: [
+        ...GOOGLE_CREDENTIAL_FILE_ENV_VARS,
+        "AZURE_CONFIG_DIR",
+        "AZURE_EXTENSION_DIR",
+      ],
       random: () => Math.random(),
       onSaveError: (err) => {
         log.error("Failed to save the session:", err)
