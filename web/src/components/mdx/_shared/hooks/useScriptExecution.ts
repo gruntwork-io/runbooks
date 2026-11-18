@@ -171,13 +171,6 @@ export function buildGoogleAuthEnvVars(
   return envVars
 }
 
-/**
- * An AzureAuth block's env vars for one run. Like Google's credential-file
- * override, the credential-bearing vars are re-emitted blank when the block
- * has none, so a client secret or subscription ANOTHER AzureAuth block left in
- * the session env can't win over this block's sign-in (OpenTofu's azurerm
- * prefers a client secret to the Azure CLI).
- */
 export function buildAzureAuthEnvVars(
   blockId: string | undefined,
   allOutputs: Record<string, { values: OutputValues }>,
@@ -264,7 +257,6 @@ interface UseScriptExecutionReturn {
   unmetGoogleAuthDependency: UnmetAuthDependency | null
   hasGoogleAuthDependency: boolean
 
-  // Azure Auth dependency
   unmetAzureAuthDependency: UnmetAuthDependency | null
   hasAzureAuthDependency: boolean
 
@@ -643,9 +635,6 @@ export function useScriptExecution({
   )
   const hasGoogleAuthDependency = unmetGoogleAuthDependency === null
 
-  // Get Azure credentials from outputs if azureAuthId is specified. The
-  // credential-bearing vars are always emitted (blank when unset), so only the
-  // __AUTHENTICATED marker can satisfy the dependency, as for Google.
   const azureAuthEnvVars = useMemo(
     () => buildAzureAuthEnvVars(azureAuthId, allOutputs),
     [azureAuthId, allOutputs],

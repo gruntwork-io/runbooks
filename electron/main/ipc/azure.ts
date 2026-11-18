@@ -1,14 +1,8 @@
-/**
- * IPC handlers for Azure authentication (the AzureAuth block).
- *
- * Thin: the handlers live in ./azure-signin.ts, and the config dirs each
- * sign-in runs in are kept by ./azure-config-dirs.ts.
- */
 import { ipcMain } from "electron"
 import {
   handleConfirmDetected,
   handleDetect,
-  handleLoginCancel,
+  handleCancel,
   handleLoginPoll,
   handleLoginStart,
   handleSelectContext,
@@ -30,9 +24,7 @@ export function registerAzureHandlers(): void {
   ipcMain.handle("azure:login-poll", (_event, params: Params<"azure:login-poll">) =>
     handleLoginPoll(params),
   )
-  ipcMain.handle("azure:login-cancel", (_event, params: Params<"azure:login-cancel">) =>
-    handleLoginCancel(params),
-  )
+  ipcMain.handle("azure:cancel", (_event, params: Params<"azure:cancel">) => handleCancel(params))
   ipcMain.handle("azure:service-principal", (_event, params: Params<"azure:service-principal">) =>
     handleServicePrincipal(params),
   )

@@ -16,76 +16,50 @@ import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { CustomCaStatus } from "../../src/domain/tls/customCa.ts"
 export type { CustomCaStatus }
 
-/** Where AzureAuth looks for an existing sign-in. */
+import type { AzurePrincipal } from "../../src/domain/azure/claims.ts"
+import type { AzureSubscription, AzureTenant, RequiredRole } from "../../src/domain/azure/auth.ts"
+import type { AzureAuthType } from "../../src/domain/azure/env.ts"
+export type {
+  AzurePrincipal as AzurePrincipalIpc,
+  AzureSubscription as AzureSubscriptionIpc,
+  AzureTenant as AzureTenantIpc,
+  RequiredRole as AzureRequiredRoleIpc,
+  AzureAuthType as AzureAuthTypeIpc,
+}
+
 export type AzureDetectionSourceIpc = "env" | "cli"
 
-/** How an AzureAuth block signed in (its AZURE_AUTH_TYPE). */
-export type AzureAuthTypeIpc = "cli" | "device_code" | "service_principal"
-
-export interface AzurePrincipalIpc {
-  /** UPN or sign-in name for a user or guest; the app (client) ID for a service principal. */
-  name: string
-  objectId: string
-  type: "user" | "guest" | "servicePrincipal"
-  tenantId: string
-  homeTenantId?: string | undefined
-  displayName?: string | undefined
-}
-
-export interface AzureTenantIpc {
-  tenantId: string
-  displayName?: string
-  defaultDomain?: string
-}
-
-export interface AzureSubscriptionIpc {
-  id: string
-  name: string
-  tenantId: string
-  isDefault: boolean
-}
-
-/** A role the block requires, at an ARM scope or `subscription`. */
-export interface AzureRequiredRoleIpc {
-  role: string
-  scope?: string
-}
-
-/** The block's pins, sent with every channel that can finish a sign-in. */
 export interface AzureSignInPinsIpc {
   tenantId?: string
   subscriptionId?: string
-  requiredRoles?: AzureRequiredRoleIpc[]
+  requiredRoles?: RequiredRole[]
 }
 
-/** Where a sign-in stands once az has signed in. */
 export type AzureSignInResultIpc =
   | {
       status: "authenticated"
-      authType: AzureAuthTypeIpc
-      principal: AzurePrincipalIpc
+      authType: AzureAuthType
+      principal: AzurePrincipal
       tenantId: string
-      tenantName?: string
-      subscriptionId?: string
-      subscriptionName?: string
+      tenantName?: string | undefined
+      subscriptionId?: string | undefined
+      subscriptionName?: string | undefined
       configDir: string
-      /** Every var MAIN wrote to the session env: what the block publishes. */
       env: Record<string, string>
       sessionEnvWarning?: string
     }
   | {
       status: "select_context"
-      authType: AzureAuthTypeIpc
-      principal: AzurePrincipalIpc
-      tenants: AzureTenantIpc[]
-      subscriptions: AzureSubscriptionIpc[]
+      authType: AzureAuthType
+      principal: AzurePrincipal
+      tenants: AzureTenant[]
+      subscriptions: AzureSubscription[]
     }
   | {
       status: "failed"
       error: string
       cliMissing?: boolean
-      /** Set when the sign-in worked but lacks roles the block requires. */
-      missingRoles?: AzureRequiredRoleIpc[]
+      missingRoles?: RequiredRole[]
     }
 
 /** What session:switch did. */
@@ -658,35 +632,20 @@ export interface IpcChannelMap {
     result: { ok: true }
   }
 
-  // Azure Authentication
-  //
-  // custody: like google:*, MAIN owns the credential. Every sign-in lives in an
-  // Azure CLI config dir main creates for the calling block (AZURE_CONFIG_DIR),
-  // and MAIN writes the session env. The renderer may SEND a service
-  // principal's secret the user typed; a result carries it back only in `env`,
-  // which the block publishes as its outputs (secrets as sensitive outputs), as
-  // aws:* does. Every channel that signs in names the block (`blockId`), so two
-  // AzureAuth blocks never share a sign-in.
-  //
-  // READ-ONLY detection: metadata only, nothing is signed in or written.
   "azure:detect": {
     params: { prefix?: string; sources: AzureDetectionSourceIpc[] }
     result: {
       found: boolean
       source?: AzureDetectionSourceIpc
-      /** env: the client ID; cli: the signed-in account. */
       principalName?: string
       tenantId?: string
       subscriptionId?: string
       subscriptionName?: string
-      /** env only: which family of names supplied it, "ARM_" or "AZURE_". */
       envVarPrefix?: string
       error?: string
       cliMissing?: boolean
     }
   }
-  // Sign the block in with what azure:detect found: a copy of the user's
-  // az login, or the environment's service principal.
   "azure:confirm-detected": {
     params: AzureSignInPinsIpc & {
       blockId: string
@@ -695,8 +654,6 @@ export interface IpcChannelMap {
     }
     result: AzureSignInResultIpc
   }
-  // An interactive `az login` (browser, or device code) in a new config dir.
-  // The process is a real OS resource: cancel must reach main.
   "azure:login-start": {
     params: { blockId: string; deviceCode: boolean; tenantId?: string }
     result: { flowId?: string; error?: string; cliMissing?: boolean }
@@ -705,42 +662,31 @@ export interface IpcChannelMap {
     params: AzureSignInPinsIpc & { flowId: string }
     result:
       | AzureSignInResultIpc
-      | {
-          status: "pending"
-          /** Device code only, once az has printed them. */
-          verificationUri?: string
-          userCode?: string
-        }
+      | { status: "pending"; verificationUri?: string; userCode?: string }
   }
-  "azure:login-cancel": { params: { flowId: string }; result: { ok: true } }
+  "azure:cancel": { params: { blockId: string }; result: { ok: true } }
   "azure:service-principal": {
     params: AzureSignInPinsIpc & {
       blockId: string
       clientId: string
       tenantId: string
       clientSecret?: string
-      /** Absolute path to a PEM file with the key and certificate. */
       certificatePath?: string
     }
     result: AzureSignInResultIpc
   }
-  // Point the block's latest sign-in at a tenant and subscription: after a
-  // sign-in that left the choice to the user, or to change it later.
   "azure:select-context": {
     params: {
       blockId: string
       tenantId: string
       subscriptionId?: string
-      requiredRoles?: AzureRequiredRoleIpc[]
+      requiredRoles?: RequiredRole[]
     }
     result: AzureSignInResultIpc
   }
-  // A session restores a block's sign-in: is its config dir still main's, and
-  // does it still get a token? Writes nothing; the session env was restored
-  // with the session.
   "azure:validate-session": {
     params: { blockId: string; configDir: string; tenantId: string }
-    result: { valid: boolean; error?: string }
+    result: { valid: boolean; unreachable?: boolean; error?: string }
   }
 
   // GitHub Authentication

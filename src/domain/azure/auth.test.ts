@@ -7,17 +7,15 @@ import {
   listAccounts,
   listTenants,
   loginServicePrincipal,
-  missingRoles,
   missingRolesMessage,
   parseDeviceCodePrompt,
   principalFor,
   resolveContextOptions,
   resolveRoleScope,
-  scopeCovers,
   showAccount,
   type AzureSubscription,
 } from "./auth.ts"
-import { AZ_MISSING_MESSAGE } from "./cli.ts"
+import { AZ_MISSING_MESSAGE, azCommand } from "./cli.ts"
 import { makeRecordingSpawner, type SpawnResponse } from "../../test-utils/TestSpawner.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 
@@ -89,12 +87,13 @@ describe("showAccount", () => {
 })
 
 describe("listAccounts", () => {
-  it("marks a tenant with no subscriptions as tenant-level", () => {
+  it("marks a tenant with no subscriptions as tenant-level, and drops disabled ones", () => {
     const { exit } = run(listAccounts(CTX), () =>
       stdout(
         JSON.stringify([
           { id: "sub-1", name: "Prod", tenantId: "T1", isDefault: true, state: "Enabled" },
           { id: "t2", name: "N/A(tenant level account)", tenantId: "t2" },
+          { id: "old", name: "Old", tenantId: "T1", state: "Disabled" },
         ]),
       ),
     )
@@ -103,7 +102,6 @@ describe("listAccounts", () => {
         id: "sub-1",
         name: "Prod",
         tenantId: "t1",
-        state: "Enabled",
         isDefault: true,
         tenantLevel: false,
       },
@@ -168,7 +166,7 @@ describe("principalFor", () => {
 })
 
 describe("loginServicePrincipal", () => {
-  it("never puts the secret in the error", () => {
+  it("sends the secret on stdin, never in argv or the error", () => {
     const { exit, calls } = run(
       loginServicePrincipal(CTX, { clientId: "app", tenantId: "t", clientSecret: "hunter2" }),
       () => stderr("ERROR: AADSTS7000215: Invalid client secret provided."),
@@ -176,7 +174,9 @@ describe("loginServicePrincipal", () => {
     const message = failureMessage(exit)
     expect(message).toContain("Invalid client secret")
     expect(message).not.toContain("hunter2")
-    expect(calls[0]!.args).toContain("--password=hunter2")
+    expect(calls[0]!.args).toContain("--password=@-")
+    expect(calls[0]!.args.join(" ")).not.toContain("hunter2")
+    expect(calls[0]!.stdin).toBe("hunter2")
     expect(calls[0]!.args).toContain("--allow-no-subscriptions")
   })
 
@@ -186,6 +186,15 @@ describe("loginServicePrincipal", () => {
       () => stdout(""),
     )
     expect(calls[0]!.args).toEqual(expect.arrayContaining(["--certificate", "/k.pem"]))
+  })
+
+  it("refuses a PKCS#12 certificate, which az can't read", () => {
+    const { exit, calls } = run(
+      loginServicePrincipal(CTX, { clientId: "app", tenantId: "t", certificatePath: "/k.pfx" }),
+      () => stdout(""),
+    )
+    expect(failureMessage(exit)).toContain("PEM certificate")
+    expect(calls).toHaveLength(0)
   })
 
   it("needs a secret or a certificate", () => {
@@ -281,7 +290,7 @@ describe("resolveContextOptions", () => {
     tenantLevel: true,
   })
   const resolve = (params: Parameters<typeof resolveContextOptions>[0]) =>
-    Effect.runSyncExit(resolveContextOptions(params))
+    Effect.runSyncExit(Effect.try({ try: () => resolveContextOptions(params), catch: (e) => e }))
 
   it("chooses the only tenant and subscription", () => {
     expect(value(resolve({ accounts: [sub("s1", "t1")], tenants: [] })).chosen).toEqual({
@@ -341,34 +350,62 @@ describe("resolveContextOptions", () => {
 })
 
 describe("required roles", () => {
+  const principal = { name: "me", objectId: "oid", type: "guest" as const, tenantId: "t" }
+
   it("resolves the subscription shorthand", () => {
     expect(resolveRoleScope(undefined, "s1")).toBe("/subscriptions/s1")
-    expect(resolveRoleScope("subscription")).toBe("/")
+    expect(resolveRoleScope("subscription")).toBeUndefined()
     expect(resolveRoleScope("/")).toBe("/")
     expect(resolveRoleScope("providers/Microsoft.Management/managementGroups/mg")).toBe(
       "/providers/Microsoft.Management/managementGroups/mg",
     )
   })
 
-  it("counts an assignment at a parent scope", () => {
-    expect(scopeCovers("/", "/subscriptions/s1")).toBe(true)
-    expect(scopeCovers("/subscriptions/S1", "/subscriptions/s1/resourceGroups/rg")).toBe(true)
-    expect(scopeCovers("/subscriptions/s1", "/subscriptions/s10")).toBe(false)
-    expect(scopeCovers("/subscriptions/s1", "/")).toBe(false)
-  })
-
-  it("lists the roles no assignment grants", () => {
-    const assignments = [
-      { roleDefinitionName: "Owner", scope: "/subscriptions/s1" },
-      { roleDefinitionName: "Reader", scope: "/" },
-    ]
-    expect(
-      missingRoles(
-        [{ role: "owner" }, { role: "User Access Administrator", scope: "/" }],
-        assignments,
+  it("counts a role inherited from a management group, with groups, in one call per scope", () => {
+    const { exit, calls } = run(
+      checkRequiredRoles(
+        CTX,
+        principal,
+        [
+          { role: "owner" },
+          { role: "Contributor" },
+          { role: "User Access Administrator", scope: "/" },
+        ],
         "s1",
       ),
-    ).toEqual([{ role: "User Access Administrator", scope: "/" }])
+      (args) =>
+        args.includes("/subscriptions/s1")
+          ? stdout(
+              JSON.stringify([
+                {
+                  roleDefinitionName: "Owner",
+                  scope: "/providers/Microsoft.Management/managementGroups/root",
+                },
+              ]),
+            )
+          : stdout(JSON.stringify([{ roleDefinitionName: "Reader", scope: "/" }])),
+    )
+    expect(value(exit)).toEqual([
+      { role: "Contributor", scope: "/subscriptions/s1" },
+      { role: "User Access Administrator", scope: "/" },
+    ])
+    expect(calls).toHaveLength(2)
+    expect(calls[0]!.args).toEqual(
+      expect.arrayContaining([
+        "--assignee-object-id",
+        "oid",
+        "--include-groups",
+        "--include-inherited",
+      ]),
+    )
+  })
+
+  it("reports a subscription role as missing when no subscription was chosen", () => {
+    const { exit, calls } = run(checkRequiredRoles(CTX, principal, [{ role: "Owner" }]), () =>
+      stdout("[]"),
+    )
+    expect(value(exit)).toEqual([{ role: "Owner", scope: "the subscription (none chosen)" }])
+    expect(calls).toHaveLength(0)
   })
 
   it("explains how to get User Access Administrator at the root", () => {
@@ -376,18 +413,18 @@ describe("required roles", () => {
       missingRolesMessage([{ role: "User Access Administrator", scope: "/" }], "me@x.com"),
     ).toContain("Access management for Azure resources")
   })
+})
 
-  it("falls back to the principal's own assignments when groups can't be read", () => {
-    const principal = { name: "me", objectId: "oid", type: "guest" as const, tenantId: "t" }
-    const { exit, calls } = run(
-      checkRequiredRoles(CTX, principal, [{ role: "Owner", scope: "subscription" }], "s1"),
-      (args) =>
-        args.includes("--include-groups")
-          ? stderr("ERROR: Insufficient privileges to complete the operation.")
-          : stdout(JSON.stringify([{ roleDefinitionName: "Owner", scope: "/subscriptions/s1" }])),
-    )
-    expect(value(exit)).toEqual([])
-    expect(calls).toHaveLength(2)
-    expect(calls[1]!.args).toEqual(expect.arrayContaining(["--assignee-object-id", "oid"]))
+describe("azCommand", () => {
+  it("runs az directly, or through cmd.exe on Windows with every argument quoted", () => {
+    expect(azCommand(["account", "show"], "linux")).toEqual({
+      command: "az",
+      args: ["account", "show"],
+    })
+    expect(azCommand(["login", "--certificate", 'C:\\My Keys\\a"b.pem'], "win32")).toEqual({
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", '""az" "login" "--certificate" "C:\\My Keys\\a""b.pem""'],
+      windowsVerbatimArguments: true,
+    })
   })
 })

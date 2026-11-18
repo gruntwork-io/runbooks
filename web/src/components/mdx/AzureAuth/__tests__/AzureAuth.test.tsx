@@ -6,11 +6,6 @@ import { ApiProvider } from "@/contexts/ApiContext"
 import { useAllOutputs } from "@/contexts/useRunbook"
 import { isSensitiveOutput, revealOutput } from "@/lib/outputValues"
 
-/**
- * The whole <AzureAuth> block: the real component, hook and runbook context.
- * Only the IPC surface behind useApi() is faked, plus session readiness.
- */
-
 vi.mock("@/contexts/useSession", () => ({
   useSession: () => ({ isReady: true }),
 }))
@@ -28,7 +23,6 @@ function installApi(impl: InvokeImpl) {
   currentApi = { invoke, on: () => () => {} } as unknown as Api
 }
 
-/** Shows a block's outputs, revealed, as JSON. */
 function OutputsProbe({ id }: { id: string }) {
   const outputs = useAllOutputs()[id]?.values ?? {}
   const shown = Object.fromEntries(
@@ -194,6 +188,54 @@ describe("AzureAuth — tenant and subscription picker", () => {
   })
 })
 
+describe("AzureAuth — picker errors", () => {
+  it("keeps the picker up and shows why a pick failed", async () => {
+    installApi((channel) => {
+      if (channel === "azure:confirm-detected") {
+        return {
+          status: "select_context",
+          authType: "cli",
+          principal: GUEST,
+          tenants: [{ tenantId: GUEST.tenantId, displayName: "LZ Testing" }],
+          subscriptions: [
+            {
+              id: "sub-1",
+              name: "A",
+              tenantId: GUEST.tenantId,
+              isDefault: true,
+              tenantLevel: false,
+            },
+            {
+              id: "sub-2",
+              name: "B",
+              tenantId: GUEST.tenantId,
+              isDefault: false,
+              tenantLevel: false,
+            },
+          ],
+        }
+      }
+      if (channel === "azure:detect") return { found: true, source: "cli", principalName: "me" }
+      if (channel === "azure:select-context") {
+        return {
+          status: "failed",
+          error: "me is missing the required role: Owner at /subscriptions/sub-1.",
+        }
+      }
+      if (channel === "azure:cancel") return { ok: true }
+      throw new Error(`unexpected ${channel}`)
+    })
+    renderBlock(
+      <AzureAuth id="azure" detectCredentials={["cli"]} requiredRoles={[{ role: "Owner" }]} />,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Use this sign-in" }))
+    await screen.findByTestId("azure-context-picker")
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("missing the required role")
+    expect(screen.getByTestId("azure-context-picker")).toBeInTheDocument()
+  })
+})
+
 describe("AzureAuth — service principal", () => {
   it("publishes the client secret as a sensitive output", async () => {
     installApi((channel) => {
@@ -266,7 +308,7 @@ describe("AzureAuth — device code", () => {
             }
           : { ...AUTHENTICATED, authType: "device_code" }
       }
-      if (channel === "azure:login-cancel") return { ok: true }
+      if (channel === "azure:cancel") return { ok: true }
       throw new Error(`unexpected ${channel}`)
     })
     renderBlock(

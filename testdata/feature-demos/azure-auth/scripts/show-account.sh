@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Show the account AzureAuth signed this step in to, and the variables it set.
 set -euo pipefail
 
 echo "AZURE_AUTH_TYPE=${AZURE_AUTH_TYPE:-}"

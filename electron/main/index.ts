@@ -643,7 +643,6 @@ app.on("will-quit", (event) => {
       // Shred the credential files materialised for Google Cloud auth
       cleanupGoogleCredentialFiles()
 
-      // Remove the Azure CLI config dirs AzureAuth blocks signed in to
       cleanupAzureConfigDirs()
 
       // Close the runbook and script file watchers (runtime.dispose doesn't reach them)

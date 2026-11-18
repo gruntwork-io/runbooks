@@ -55,7 +55,7 @@ const INVOKE_CHANNELS = {
   "azure:confirm-detected": true,
   "azure:login-start": true,
   "azure:login-poll": true,
-  "azure:login-cancel": true,
+  "azure:cancel": true,
   "azure:service-principal": true,
   "azure:select-context": true,
   "azure:validate-session": true,

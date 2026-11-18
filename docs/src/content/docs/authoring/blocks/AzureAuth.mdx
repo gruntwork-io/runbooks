@@ -26,7 +26,7 @@ The block has three tabs:
 |-----|-------------|
 | **Azure CLI** | Runs `az login`, which opens a browser. Use an existing `az login` through [credential detection](#credential-detection) |
 | **Device Code** | Runs `az login --use-device-code`: the block shows a code to enter at `https://microsoft.com/devicelogin` from any device. For headless or remote machines |
-| **Service Principal** | A client ID and tenant ID, with a client secret or a certificate (a PEM file with the key and certificate) |
+| **Service Principal** | A client ID and tenant ID, with a client secret or a certificate (a PEM file with the key and certificate; the Azure CLI doesn't read `.pfx` files) |
 
 The Azure CLI and Device Code tabs take an optional **Tenant ID**. Enter one to sign in to that tenant directly, for example a tenant where you're a guest. A `tenantId` prop fills it in and locks it.
 
@@ -56,7 +56,7 @@ AzureAuth signs in with the [Azure CLI](https://learn.microsoft.com/cli/azure/in
 | `inputsId` | `string \| string[]` | - | Reference one or more [Inputs](/authoring/blocks/inputs/) blocks for template expressions in props |
 
 <Aside type="caution">
-`detectCredentials` and `requiredRoles` take JSX expressions: write `detectCredentials={['cli']}`, not `detectCredentials="cli"`.
+`detectCredentials` and `requiredRoles` take JSX expressions: write `detectCredentials={['cli']}`, not `detectCredentials="cli"`. An entry the block doesn't know, such as AwsAuth's `{ block: ... }` source, is a configuration error.
 </Aside>
 
 ## Environment variables
@@ -69,10 +69,10 @@ When the sign-in succeeds, these variables are set in the session environment fo
 | `AZURE_EXTENSION_DIR` | Where `az` finds extensions: your own extensions when the block copied your `az login`, else the block's directory |
 | `AZURE_TENANT_ID`, `ARM_TENANT_ID` | The tenant |
 | `AZURE_SUBSCRIPTION_ID`, `ARM_SUBSCRIPTION_ID` | The subscription. Not set for a tenant-level sign-in |
-| `ARM_USE_CLI` | `true` for an Azure CLI or device code sign-in: `azurerm` and `azuread` use the Azure CLI's sign-in |
+| `ARM_USE_CLI` | `true` unless the sign-in is a service principal with a secret: `azurerm` and `azuread` use the Azure CLI's sign-in |
 | `ARM_CLIENT_ID`, `AZURE_CLIENT_ID` | Service principal only. The client (app) ID |
 | `ARM_CLIENT_SECRET`, `AZURE_CLIENT_SECRET` | Service principal with a secret only |
-| `AZURE_CLIENT_CERTIFICATE_PATH` | Service principal with a certificate only. `ARM_CLIENT_CERTIFICATE_PATH` is also set when the file is a `.pfx` or `.p12`, which is the only format `azurerm` reads. For a PEM file, `ARM_USE_CLI` is set instead |
+| `AZURE_CLIENT_CERTIFICATE_PATH` | Service principal with a certificate only. `azurerm` reads certificates only as PKCS#12, so `ARM_USE_CLI` is set too and it uses the Azure CLI's sign-in |
 | `AZURE_AUTH_TYPE` | `cli`, `device_code` or `service_principal` |
 | `AZURE_PRINCIPAL_NAME` | The user's sign-in name (UPN), or the service principal's client ID |
 | `AZURE_PRINCIPAL_OBJECT_ID` | The principal's object ID in the tenant |
@@ -155,7 +155,7 @@ A guest tenant often requires its own multi-factor authentication, so `az login`
 
 ## Required roles
 
-`requiredRoles` checks that the principal holds roles before the block counts as signed in. Each entry names a role and a scope: an ARM scope such as `/` or `/providers/Microsoft.Management/managementGroups/root`, or `subscription` (the default) for the chosen subscription. An assignment at a parent scope, or to one of the principal's groups, counts.
+`requiredRoles` checks that the principal holds roles before the block counts as signed in. Each entry names a role and a scope: an ARM scope such as `/` or `/providers/Microsoft.Management/managementGroups/root`, or `subscription` (the default) for the chosen subscription. An assignment at a parent scope, including a management group, or to one of the principal's groups, counts. A `subscription` role is missing when no subscription was chosen.
 
 ```mdx
 <AzureAuth
@@ -169,11 +169,7 @@ A guest tenant often requires its own multi-factor authentication, so `az login`
 />
 ```
 
-A missing role fails the sign-in with the roles and scopes that are missing. Steps that reference the block stay disabled. For User Access Administrator at `/`, the error explains how a Global Administrator turns on access management for Azure resources.
-
-<Aside type="note">
-Groups are read through Microsoft Graph, which a guest often can't query. Then only the principal's own assignments are checked.
-</Aside>
+A missing role fails the sign-in with the roles and scopes that are missing, and the picker stays up so another subscription can be chosen. Steps that reference the block stay disabled. For User Access Administrator at `/`, the error explains how a Global Administrator turns on access management for Azure resources.
 
 ## Credential detection
 
@@ -181,9 +177,9 @@ Groups are read through Microsoft Graph, which a guest often can't query. Then o
 
 | Source | Looks for |
 |--------|-----------|
-| `'env'` | A service principal in `ARM_CLIENT_ID`, `ARM_TENANT_ID` and `ARM_CLIENT_SECRET` or `ARM_CLIENT_CERTIFICATE_PATH`; then the same `AZURE_*` names. `ARM_SUBSCRIPTION_ID` (or `AZURE_SUBSCRIPTION_ID`) pins the subscription unless the block pins one |
+| `'env'` | A service principal in `ARM_CLIENT_ID`, `ARM_TENANT_ID` and `ARM_CLIENT_SECRET` or `ARM_CLIENT_CERTIFICATE_PATH` (a PEM file); then the same `AZURE_*` names. `ARM_SUBSCRIPTION_ID` (or `AZURE_SUBSCRIPTION_ID`) pins the subscription unless the block pins one. A block that pins `tenantId` refuses a service principal from another tenant |
 | `{ env: { prefix: 'CI_' } }` | The same names with a prefix: `CI_ARM_CLIENT_ID`, ... |
-| `'cli'` | Your own `az login` (in `AZURE_CONFIG_DIR`, or `~/.azure`). The block signs in with a copy of it, so your own `az` session doesn't change |
+| `'cli'` | Your own `az login` (in `AZURE_CONFIG_DIR`, or `~/.azure`). Detection and the sign-in use a copy of it, so your own `az` session doesn't change |
 
 ```mdx
 {/* Same as detectCredentials={['env', 'cli']} */}
@@ -206,8 +202,8 @@ In [instruction mode](/intro/instruction-mode/), AzureAuth shows a "Sign in to A
 
 ## Security
 
-- Each sign-in lives in a private (`0700`) temporary directory that's deleted when the block signs in again and when the app quits. A session resumed after a restart asks the user to sign in again.
-- A client secret is passed to `az login` on its command line, the only way `az` takes one without a prompt. Other users of the machine may see the process's arguments while it runs. Prefer a certificate on shared machines.
+- Each sign-in lives in a private (`0700`) temporary directory that's deleted when the block signs in again and when the app quits. A session resumed after a restart asks the user to sign in again. A restored sign-in is kept when Azure can't be reached to check it.
+- A client secret is passed to `az login` on its standard input, never on its command line.
 - Runbooks never sends a client secret to the renderer except as the block's sensitive output.
 
 ## Troubleshooting

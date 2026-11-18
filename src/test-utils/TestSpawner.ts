@@ -28,6 +28,7 @@ export interface RecordedSpawn {
   readonly command: string
   readonly args: string[]
   readonly env?: Record<string, string | undefined> | undefined
+  readonly stdin?: string | undefined
 }
 
 export const makeRecordingSpawner = (
@@ -41,7 +42,7 @@ export const makeRecordingSpawner = (
   const layer = Layer.succeed(ProcessSpawner, {
     spawn: (command, args, options) =>
       Effect.suspend(() => {
-        calls.push({ command, args, env: options?.env })
+        calls.push({ command, args, env: options?.env, stdin: options?.stdin })
         const response = respond(command, args)
         if (response === "ENOENT") {
           return Effect.fail(

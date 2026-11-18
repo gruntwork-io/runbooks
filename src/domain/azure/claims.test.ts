@@ -48,9 +48,6 @@ describe("principalFromClaims", () => {
     ).toBe("user")
   })
 
-  // The shape of a real guest token: `az login --tenant <guest tenant>` by a
-  // user of another tenant. homeTenantId in the CLI profile says the guest
-  // tenant; only the token's idp says otherwise.
   it("reads a B2B guest from its idp, with its home tenant", () => {
     expect(
       principalFromClaims({

@@ -13,7 +13,6 @@ interface InteractiveSignInProps {
   onCancel: () => void
 }
 
-/** The Azure CLI tab (browser sign-in) and the Device Code tab. */
 export function InteractiveSignIn({
   deviceCodeFlow,
   authenticating,

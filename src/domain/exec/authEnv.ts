@@ -44,13 +44,6 @@ export const GOOGLE_AUTH_ENV_VARS = [
   "GOOGLE_ZONE",
 ] as const
 
-/**
- * What an azureAuthId reference passes, and all an <AzureAuth> block writes to
- * the session env. `AZURE_CONFIG_DIR` is the credential: the block's own Azure
- * CLI sign-in, which `az` and OpenTofu's `azurerm`/`azuread` (with
- * `ARM_USE_CLI`) read. A service principal also passes its client ID and
- * secret or certificate under the names `azurerm` and the Azure SDKs read.
- */
 export const AZURE_AUTH_ENV_VARS = [
   "AZURE_CONFIG_DIR",
   "AZURE_EXTENSION_DIR",

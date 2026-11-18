@@ -1,7 +1,6 @@
 interface TenantFieldProps {
   value: string
   onChange: (value: string) => void
-  /** The block's `tenantId` prop: shown, and not editable. */
   pinned?: string | undefined
   disabled?: boolean
   required?: boolean

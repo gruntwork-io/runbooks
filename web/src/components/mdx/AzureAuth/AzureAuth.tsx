@@ -15,7 +15,7 @@ import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import { AzureAuthInstruction } from "./AzureAuthInstruction"
 import type { AzureAuthProps } from "./types"
 import { useAzureAuth } from "./hooks/useAzureAuth"
-import { getStatusClasses, getStatusIconClasses, StatusIcon } from "./utils"
+import { detectionPlan, getStatusClasses, getStatusIconClasses, StatusIcon } from "./utils"
 import { AuthTabs } from "./components/AuthTabs"
 import { AuthSuccess } from "./components/AuthSuccess"
 import { ContextPicker } from "./components/ContextPicker"
@@ -23,7 +23,6 @@ import { DetectedCredentialsPrompt } from "./components/DetectedCredentialsPromp
 import { InteractiveSignIn } from "./components/InteractiveSignIn"
 import { ServicePrincipalForm } from "./components/ServicePrincipalForm"
 
-/** Requires-roles entries that aren't `{ role: string, scope?: string }`. */
 function invalidRequiredRoles(requiredRoles: unknown): boolean {
   if (requiredRoles === undefined) return false
   if (!Array.isArray(requiredRoles)) return true
@@ -54,10 +53,10 @@ function AzureAuthInteractive({
     value ? resolveTemplateReferences(value, templateCtx) : value
   const resolvedTitle = resolve(title)
   const resolvedDescription = resolve(description)
-  // Template expressions in the pins resolve; an empty result pins nothing.
   const resolvedTenantId = resolve(tenantId)?.trim() || undefined
   const resolvedSubscriptionId = resolve(subscriptionId)?.trim() || undefined
   const rolesInvalid = invalidRequiredRoles(requiredRoles)
+  const detectionInvalid = detectionPlan(detectCredentials).invalid
 
   const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
@@ -84,6 +83,14 @@ function AzureAuthInteractive({
         severity: "error",
         message: `Duplicate component ID: ${id}`,
       })
+    } else if (detectionInvalid) {
+      reportError({
+        componentId: id,
+        componentType: "AzureAuth",
+        severity: "error",
+        message:
+          'detectCredentials must be false or an array of "env", "cli" or { env: { prefix } }',
+      })
     } else if (rolesInvalid) {
       reportError({
         componentId: id,
@@ -94,7 +101,7 @@ function AzureAuthInteractive({
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, rolesInvalid, reportError, clearError])
+  }, [id, isDuplicate, detectionInvalid, rolesInvalid, reportError, clearError])
 
   if (!id) {
     return (
@@ -214,7 +221,7 @@ function AzureAuthInteractive({
               </div>
             )}
 
-            {status === "failed" && auth.errorMessage && (
+            {(status === "failed" || status === "select_context") && auth.errorMessage && (
               <div className="mb-4 text-destructive text-sm flex items-start gap-2" role="alert">
                 <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
                 <div className="min-w-0">
@@ -232,7 +239,7 @@ function AzureAuthInteractive({
                 onSelectTenant={auth.selectTenant}
                 selectedSubscriptionId={auth.selectedSubscriptionId}
                 onSelectSubscription={auth.setSelectedSubscriptionId}
-                authenticating={false}
+                authenticating={auth.selecting}
                 onContinue={auth.handleSelectContext}
                 onCancel={auth.handleManualAuth}
               />
@@ -290,10 +297,6 @@ function AzureAuthInteractive({
   )
 }
 
-/**
- * AzureAuth entry point: in instruction mode a plain "Sign in to Azure"
- * instruction, otherwise the interactive sign-in.
- */
 function AzureAuth(props: AzureAuthProps) {
   const { enabled: instructionMode } = useInstructionMode()
   if (instructionMode) return <AzureAuthInstruction {...props} />

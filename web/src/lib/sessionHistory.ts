@@ -186,9 +186,7 @@ const SavedAzureAuthSchema = z.discriminatedUnion("status", [
     tenantName: z.string().optional(),
     subscriptionId: z.string().optional(),
     subscriptionName: z.string().optional(),
-    /** The config dir main signed the block in to. Gone after an app restart. */
     configDir: z.string(),
-    /** What the block published: the env vars main wrote to the session. */
     env: z.record(z.string(), z.string()),
   }),
 ])

@@ -1764,18 +1764,14 @@ export class TestExecutor {
   // AzureAuth block
   // -----------------------------------------------------------------------
 
-  /**
-   * A service principal under `prefix`: ARM_* first (OpenTofu's names), then
-   * AZURE_* (the Azure SDKs'). Needs a client ID, a tenant ID, and a secret or
-   * a certificate path.
-   */
   private findAzureServicePrincipal(prefix: string) {
     for (const family of ["ARM_", "AZURE_"]) {
       const get = (name: string) => this.getenv(`${prefix}${family}${name}`)
       const clientId = get("CLIENT_ID")
       const tenantId = get("TENANT_ID")
       const clientSecret = get("CLIENT_SECRET")
-      const certificatePath = get("CLIENT_CERTIFICATE_PATH")
+      const certPath = get("CLIENT_CERTIFICATE_PATH")
+      const certificatePath = /\.(pfx|p12)$/i.test(certPath) ? "" : certPath
       if (clientId && tenantId && (clientSecret || certificatePath)) {
         return {
           clientId,
@@ -1789,11 +1785,6 @@ export class TestExecutor {
     return null
   }
 
-  /**
-   * The Azure CLI config dir holding a sign-in, or null. `AZURE_CONFIG_DIR`,
-   * when SET, is authoritative: set but empty means "no Azure CLI sign-in", so a
-   * runbook test can blank it for a deterministic skip.
-   */
   private resolveAzureCliDir(): string | null {
     const dir = this.hasEnv("AZURE_CONFIG_DIR")
       ? this.getenv("AZURE_CONFIG_DIR")
@@ -1802,10 +1793,8 @@ export class TestExecutor {
     return fs.existsSync(path.join(dir, "azureProfile.json")) ? dir : null
   }
 
-  /** The default account in an Azure CLI profile (azureProfile.json), read offline. */
   private readAzureCliDefault(dir: string): { tenantId?: string; subscriptionId?: string } {
     try {
-      // az writes the profile with a UTF-8 BOM.
       const text = fs
         .readFileSync(path.join(dir, "azureProfile.json"), "utf8")
         .replace(/^\uFEFF/, "")
@@ -1830,13 +1819,6 @@ export class TestExecutor {
     }
   }
 
-  /**
-   * AzureAuth in headless test mode: a service principal from the environment
-   * (with the step's env_prefix, then without), else an existing Azure CLI
-   * sign-in, injected under the names the interactive block writes. Like the
-   * other auth blocks this never reaches the network: the test asserts wiring,
-   * not validity.
-   */
   private runAzureAuth(block: ParsedComponent, step: TestStep, start: number): StepResult {
     const result = makeStepResult(`azureAuth:${block.id}`, step.expect)
     const prefix = step.env_prefix ?? ""
@@ -1879,9 +1861,7 @@ export class TestExecutor {
         creds["AZURE_CLIENT_SECRET"] = sp.clientSecret
       } else {
         creds["AZURE_CLIENT_CERTIFICATE_PATH"] = sp.certificatePath
-        if (/\.(pfx|p12)$/i.test(sp.certificatePath)) {
-          creds["ARM_CLIENT_CERTIFICATE_PATH"] = sp.certificatePath
-        }
+        creds["ARM_USE_CLI"] = "true"
       }
     } else if (cliDir) {
       creds["AZURE_AUTH_TYPE"] = "cli"
@@ -1899,8 +1879,6 @@ export class TestExecutor {
 
     this.authBlockCredentials.set(block.id, creds)
 
-    // Replace every Azure var in the session, so another block's client secret
-    // can't outrank this block's sign-in.
     const stale = new Set<string>(AZURE_AUTH_ENV_VARS)
     this.sessionEnv = this.sessionEnv.filter((entry) => {
       const eq = entry.indexOf("=")

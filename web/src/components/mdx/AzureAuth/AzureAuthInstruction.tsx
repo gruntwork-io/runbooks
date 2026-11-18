@@ -4,12 +4,6 @@ import { useTemplateContext } from "@/contexts/useRunbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import type { AzureAuthProps } from "./types"
 
-/**
- * Instruction-mode rendering of an AzureAuth block: a plain "Sign in to
- * Azure" instruction with the pinned tenant and subscription. Nothing signs in.
- * A separate component so useAzureAuth (which detects sign-ins on mount)
- * never runs in instruction mode.
- */
 export function AzureAuthInstruction({
   id,
   description,

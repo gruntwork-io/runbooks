@@ -71,9 +71,7 @@ export class GoogleOAuthError extends Data.TaggedError("GoogleOAuthError")<{
 // Azure
 export class AzureAuthError extends Data.TaggedError("AzureAuthError")<{
   readonly message: string
-  /** The Azure CLI isn't installed, or isn't on PATH. */
   readonly cliMissing?: boolean | undefined
-  /** The az command, without its arguments (which can carry a secret). */
   readonly command?: string | undefined
   readonly cause?: unknown
 }> {}

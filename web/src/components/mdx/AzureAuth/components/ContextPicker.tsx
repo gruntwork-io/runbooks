@@ -22,7 +22,6 @@ const tenantLabel = (tenant: AzureTenant) =>
     ? `${tenant.displayName}${tenant.defaultDomain ? ` (${tenant.defaultDomain})` : ""}`
     : tenant.tenantId
 
-/** Pick a tenant, then a subscription in it (or none, for tenant-level work). */
 export function ContextPicker({
   principal,
   tenants,

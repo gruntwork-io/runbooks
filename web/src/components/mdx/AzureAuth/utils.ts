@@ -34,29 +34,31 @@ export const { getStatusClasses, StatusIcon, getStatusIconClasses } =
 
 const AUTH_METHODS: readonly AzureAuthMethod[] = ["cli", "device_code", "service_principal"]
 
-/** The tab to open on: `defaultTab` when it names one, else Azure CLI. */
 export function resolveDefaultAuthMethod(defaultTab: string | undefined): AzureAuthMethod {
   return AUTH_METHODS.includes(defaultTab as AzureAuthMethod)
     ? (defaultTab as AzureAuthMethod)
     : "cli"
 }
 
-/** The detection sources as `azure:detect` takes them: a prefix, then sources. */
-export function detectionPlan(
-  sources: false | AzureCredentialSource[] | undefined,
-): Array<{ source: "env" | "cli"; prefix?: string }> {
-  if (sources === false) return []
-  const list = Array.isArray(sources) ? sources : ["env", "cli"]
-  return list.flatMap((source): Array<{ source: "env" | "cli"; prefix?: string }> => {
-    if (source === "env" || source === "cli") return [{ source }]
-    if (typeof source === "object" && source && "env" in source) {
-      return [{ source: "env", prefix: source.env?.prefix ?? "" }]
-    }
-    return []
-  })
+type DetectionStep = { source: "env" | "cli"; prefix?: string }
+
+export function detectionPlan(sources: false | AzureCredentialSource[] | undefined): {
+  steps: DetectionStep[]
+  invalid: boolean
+} {
+  if (sources === false) return { steps: [], invalid: false }
+  if (sources !== undefined && !Array.isArray(sources)) return { steps: [], invalid: true }
+  const steps: DetectionStep[] = []
+  let invalid = false
+  for (const source of sources ?? ["env", "cli"]) {
+    if (source === "env" || source === "cli") steps.push({ source })
+    else if (typeof source === "object" && source !== null && "env" in source) {
+      steps.push({ source: "env", prefix: source.env?.prefix ?? "" })
+    } else invalid = true
+  }
+  return { steps, invalid }
 }
 
-/** "User", "Guest" or "Service principal". */
 export function principalTypeLabel(type: AzurePrincipal["type"]): string {
   switch (type) {
     case "user":
@@ -68,7 +70,6 @@ export function principalTypeLabel(type: AzurePrincipal["type"]): string {
   }
 }
 
-/** How the block signed in, for the success card. */
 export function authTypeLabel(authType: string): string {
   switch (authType) {
     case "cli":

@@ -1,8 +1,11 @@
 import { describe, it, expect, spyOn, beforeEach, afterAll } from "bun:test"
 import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
 import { Effect, Layer } from "effect"
 import { runtime, sessionManager } from "./runtime.ts"
 import {
+  handleCancel,
   handleConfirmDetected,
   handleDetect,
   handleLoginPoll,
@@ -16,13 +19,6 @@ import { cleanupAzureConfigDirs } from "./azure-config-dirs.ts"
 import { makeRecordingSpawner, type SpawnResponse } from "../../../src/test-utils/TestSpawner.ts"
 import { makeTestEnvironment } from "../../../src/test-utils/TestEnvironment.ts"
 import type { AzureSignInResultIpc } from "../../shared/channels.ts"
-
-/**
- * The azure:* replies as the renderer receives them. The shared runtime runs
- * each effect against a fake `az` (a recording spawner answering by argv) and
- * a test process env; the domain functions, the config-dir custody and the
- * session manager are the real ones.
- */
 
 const GUEST_TENANT = "05547fca-944c-4be0-9f4a-fac8b78fb1ab"
 const HOME_TENANT = "141052b1-f3e4-49c2-91a3-dc349beb66f1"
@@ -114,7 +110,6 @@ beforeEach(() => {
     token: { oid: "user-oid", tid: GUEST_TENANT, upn: "alice@contoso.com" },
     assignments: [],
   }
-  // A session another AzureAuth block (a CLI sign-in) already wrote to.
   Effect.runSync(
     sessionManager
       .createSession("/tmp")
@@ -145,7 +140,6 @@ describe("azure:service-principal", () => {
     const env = sessionEnv()
     expect(env.AZURE_CONFIG_DIR).toBe(result.configDir)
     expect(env.ARM_CLIENT_ID).toBe("app-id")
-    // The previous block's CLI flag would make azurerm skip the secret.
     expect(env.ARM_USE_CLI).toBeUndefined()
 
     const login = spawner.calls.find((call) => call.args[0] === "login")!
@@ -248,6 +242,61 @@ describe("tenant and subscription choice", () => {
   })
 })
 
+describe("pins and cancellation", () => {
+  it("resolves a tenant pinned by domain to its ID", async () => {
+    const started = await handleLoginStart({
+      blockId: "lz",
+      deviceCode: false,
+      tenantId: "contoso.onmicrosoft.com",
+    })
+    let polled = await handleLoginPoll({
+      flowId: started.flowId!,
+      tenantId: "contoso.onmicrosoft.com",
+    })
+    for (let i = 0; polled.status === "pending" && i < 50; i++) {
+      await Bun.sleep(5)
+      polled = await handleLoginPoll({
+        flowId: started.flowId!,
+        tenantId: "contoso.onmicrosoft.com",
+      })
+    }
+    expect(authenticated(polled).tenantId).toBe(GUEST_TENANT)
+    const tokenCall = spawner.calls.find(
+      (call) =>
+        call.args[1] === "get-access-token" && call.args.includes("contoso.onmicrosoft.com"),
+    )
+    expect(tokenCall).toBeDefined()
+  })
+
+  it("refuses an environment service principal from another tenant than the block's pin", async () => {
+    processEnv = {
+      ...processEnv,
+      ARM_CLIENT_ID: "app",
+      ARM_TENANT_ID: GUEST_TENANT,
+      ARM_CLIENT_SECRET: "x",
+    }
+    const result = await handleConfirmDetected({
+      blockId: "sp",
+      source: "env",
+      tenantId: "99999999-9999-9999-9999-999999999999",
+    })
+    expect(result).toMatchObject({ status: "failed" })
+    expect(sessionEnv().AZURE_CONFIG_DIR).toBe("/old")
+  })
+
+  it("drops a sign-in cancelled while it was finishing", async () => {
+    const pending = handleServicePrincipal({
+      blockId: "sp",
+      clientId: "app",
+      tenantId: GUEST_TENANT,
+      clientSecret: "x",
+    })
+    handleCancel({ blockId: "sp" })
+    expect(await pending).toEqual({ status: "failed", error: "This sign-in was cancelled" })
+    expect(sessionEnv().AZURE_CONFIG_DIR).toBe("/old")
+  })
+})
+
 describe("one sign-in per block", () => {
   it("gives two blocks separate dirs, and releases a block's old dir when it signs in again", async () => {
     const sp = { clientId: "app", tenantId: GUEST_TENANT, clientSecret: "x" }
@@ -264,8 +313,6 @@ describe("one sign-in per block", () => {
 
 describe("device code", () => {
   it("reports the code az printed, then signs in", async () => {
-    // A controlled exit: the recording spawner's exit is immediate, so the
-    // first poll may already see it. The code must still have been parsed.
     const started = await handleLoginStart({
       blockId: "dc",
       deviceCode: true,
@@ -309,15 +356,26 @@ describe("detection", () => {
     expect(spawner.calls).toHaveLength(0)
   })
 
-  it("reports the user's own az login, read where az keeps it", async () => {
-    processEnv = { ...processEnv, AZURE_CONFIG_DIR: "/home/me/.azure" }
-    const detected = await handleDetect({ sources: ["cli"] })
-    expect(detected).toMatchObject({
-      found: true,
-      source: "cli",
-      principalName: "alice@contoso.com",
-    })
-    expect(spawner.calls[0]!.env?.AZURE_CONFIG_DIR).toBe("/home/me/.azure")
+  it("reads the user's own az login from a copy it then removes", async () => {
+    const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "user-azure-"))
+    fs.writeFileSync(path.join(userDir, "azureProfile.json"), "{}")
+    const previous = process.env.AZURE_CONFIG_DIR
+    process.env.AZURE_CONFIG_DIR = userDir
+    try {
+      const detected = await handleDetect({ sources: ["cli"] })
+      expect(detected).toMatchObject({
+        found: true,
+        source: "cli",
+        principalName: "alice@contoso.com",
+      })
+      const used = spawner.calls[0]!.env!.AZURE_CONFIG_DIR!
+      expect(used).not.toBe(userDir)
+      expect(fs.existsSync(used)).toBe(false)
+    } finally {
+      if (previous === undefined) delete process.env.AZURE_CONFIG_DIR
+      else process.env.AZURE_CONFIG_DIR = previous
+      fs.rmSync(userDir, { recursive: true, force: true })
+    }
   })
 
   it("refuses an invalid prefix", async () => {
@@ -329,6 +387,27 @@ describe("detection", () => {
 })
 
 describe("azure:validate-session", () => {
+  it("reports an unreachable Azure apart from a refused sign-in", async () => {
+    const result = authenticated(
+      await handleServicePrincipal({
+        blockId: "u",
+        clientId: "a",
+        tenantId: GUEST_TENANT,
+        clientSecret: "x",
+      }),
+    )
+    spawner = makeRecordingSpawner(() =>
+      out("ERROR: HTTPSConnectionPool: Max retries exceeded with url", "stderr", 1),
+    )
+    expect(
+      await handleValidateSession({
+        blockId: "u",
+        configDir: result.configDir,
+        tenantId: GUEST_TENANT,
+      }),
+    ).toMatchObject({ valid: false, unreachable: true })
+  })
+
   it("refuses a dir main didn't create", async () => {
     expect(
       await handleValidateSession({ blockId: "x", configDir: "/home/me/.azure", tenantId: "t" }),

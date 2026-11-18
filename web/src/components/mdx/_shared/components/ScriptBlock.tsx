@@ -103,7 +103,6 @@ export interface ScriptBlockProps {
   gitAuthId?: string | undefined
   /** Reference to a GoogleAuth block by ID for Google Cloud credentials. The block's credentials will be passed as environment variables (GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, CLOUDSDK_CORE_PROJECT, GOOGLE_PROJECT, CLOUDSDK_CORE_ACCOUNT, and the region/zone vars). */
   googleAuthId?: string | undefined
-  /** Reference to an AzureAuth block by ID for Azure credentials. The block's AZURE_CONFIG_DIR, its ARM_ and AZURE_ tenant and subscription vars, and a service principal's client vars are passed as environment variables. */
   azureAuthId?: string | undefined
   successMessage?: string | undefined
   /** Warning message (Check only — Command never reaches the warn state). */
@@ -792,7 +791,6 @@ export function ScriptBlock({
               />
             )}
 
-            {/* Show unmet Azure auth dependency */}
             {hasAllInputDependencies && hasAllOutputDependencies && (
               <UnmetAuthDependencyWarning
                 dependency={unmetAzureAuthDependency}

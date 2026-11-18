@@ -38,7 +38,6 @@ describe("azureSessionEnv", () => {
       AZURE_PRINCIPAL_OBJECT_ID: "user-oid",
       AZURE_PRINCIPAL_TYPE: "user",
     })
-    // Another block's service principal must not survive in the session.
     expect(clear).toEqual([
       "ARM_CLIENT_ID",
       "ARM_CLIENT_SECRET",
@@ -78,19 +77,8 @@ describe("azureSessionEnv", () => {
     expect(clear).toContain("ARM_USE_CLI")
   })
 
-  it("passes a PFX certificate to azurerm, and a PEM one only to the SDKs", () => {
-    const pfx = azureSessionEnv({
-      authType: "service_principal",
-      configDir: "/d",
-      principal: SP,
-      tenantId: "t",
-      clientId: "app-id",
-      certificatePath: "/keys/sp.pfx",
-    })
-    expect(pfx.set.ARM_CLIENT_CERTIFICATE_PATH).toBe("/keys/sp.pfx")
-    expect(pfx.set.ARM_USE_CLI).toBeUndefined()
-
-    const pem = azureSessionEnv({
+  it("passes a certificate path to the SDKs, and lets azurerm use the CLI's sign-in", () => {
+    const { set } = azureSessionEnv({
       authType: "service_principal",
       configDir: "/d",
       principal: SP,
@@ -98,9 +86,9 @@ describe("azureSessionEnv", () => {
       clientId: "app-id",
       certificatePath: "/keys/sp.pem",
     })
-    expect(pem.set.ARM_CLIENT_CERTIFICATE_PATH).toBeUndefined()
-    expect(pem.set.AZURE_CLIENT_CERTIFICATE_PATH).toBe("/keys/sp.pem")
-    expect(pem.set.ARM_USE_CLI).toBe("true")
+    expect(set.AZURE_CLIENT_CERTIFICATE_PATH).toBe("/keys/sp.pem")
+    expect(set.ARM_CLIENT_CERTIFICATE_PATH).toBeUndefined()
+    expect(set.ARM_USE_CLI).toBe("true")
   })
 
   it("only ever names vars an azureAuthId step may pass", () => {

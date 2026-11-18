@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Check that the Azure variables an AzureAuth block passes are consistent.
-# Doesn't call Azure, so it also runs in `runbooks test`.
 set -uo pipefail
 
 fail() { echo "FAIL: $*"; exit 1; }

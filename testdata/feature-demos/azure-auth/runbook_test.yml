@@ -1,14 +1,3 @@
-# Test configuration for azure-auth.
-#
-# The test runner never calls Azure: these tests check that AzureAuth is wired
-# to the steps that reference it with azureAuthId.
-#
-# To check a real sign-in locally, sign in with `az login` and run:
-#
-#   just build && resources/bin/runbooks-test test testdata/feature-demos/azure-auth -v
-#
-# with the `local-cli-sign-in` test below uncommented.
-
 version: 1
 
 settings:
@@ -31,7 +20,6 @@ tests:
       AZURE_CLIENT_CERTIFICATE_PATH: ""
       RUNBOOKS_TEST_ARM_CLIENT_ID: ""
       RUNBOOKS_TEST_AZURE_CLIENT_ID: ""
-      # Set but empty: no Azure CLI sign-in, even on a machine that has one.
       AZURE_CONFIG_DIR: ""
     steps:
       - block: azure-auth
@@ -58,13 +46,3 @@ tests:
         expect: success
       - block: check-azure-env
         expect: success
-
-  # Needs a real `az login`; not run in CI.
-  # - name: local-cli-sign-in
-  #   steps:
-  #     - block: azure-auth
-  #       expect: success
-  #     - block: show-account
-  #       expect: success
-  #     - block: check-azure-env
-  #       expect: success

@@ -11,7 +11,6 @@ export type { AzureTenantIpc as AzureTenant }
 export type { AzureSubscriptionIpc as AzureSubscription }
 export type { AzureRequiredRoleIpc as AzureRequiredRole }
 
-/** Which sign-in tab is active. */
 export type AzureAuthMethod = "cli" | "device_code" | "service_principal"
 
 export type AzureAuthStatus =
@@ -23,16 +22,8 @@ export type AzureAuthStatus =
 
 export type AzureDetectionStatus = "pending" | "detected" | "done"
 
-/**
- * Where to look for an existing sign-in, tried in the order written:
- * - `"env"`: a service principal in ARM_* or AZURE_* (client ID, tenant ID, and
- *   a secret or certificate path);
- * - `{ env: { prefix } }`: the same names with a prefix, e.g. `CI_ARM_CLIENT_ID`;
- * - `"cli"`: the Azure CLI's own sign-in (`az login`).
- */
 export type AzureCredentialSource = "env" | { env: { prefix?: string } } | "cli"
 
-/** An existing sign-in detection found, awaiting the user's confirmation. */
 export interface DetectedAzureCredentials {
   source: "env" | "cli"
   prefix?: string | undefined
@@ -43,7 +34,6 @@ export interface DetectedAzureCredentials {
   envVarPrefix?: string | undefined
 }
 
-/** What the success card shows. */
 export interface AzureSignInInfo {
   authType: AzureAuthTypeIpc
   principal: AzurePrincipalIpc
@@ -57,15 +47,10 @@ export interface AzureAuthProps {
   id: string
   title?: string
   description?: string
-  /** Pin a tenant: the picker is skipped, and interactive sign-in goes straight to it. */
   tenantId?: string
-  /** Pin a subscription (ID or name): the picker is skipped. */
   subscriptionId?: string
-  /** Roles the signed-in principal must hold, e.g. `[{ role: "Owner", scope: "subscription" }]`. */
   requiredRoles?: AzureRequiredRoleIpc[]
-  /** `false`, or the sources to try in order. Defaults to `["env", "cli"]`. */
   detectCredentials?: false | AzureCredentialSource[]
-  /** The tab to open on: `cli`, `device_code` or `service_principal`. */
   defaultTab?: AzureAuthMethod
   inputsId?: string | string[]
   autoCollapse?: boolean

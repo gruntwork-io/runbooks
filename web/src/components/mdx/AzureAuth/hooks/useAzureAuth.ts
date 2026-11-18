@@ -31,12 +31,25 @@ interface UseAzureAuthOptions {
   defaultTab?: string | undefined
 }
 
-/** How often a running `az login` is polled. */
+type Authenticated = Extract<AzureSignInResultIpc, { status: "authenticated" }>
+
 const POLL_INTERVAL_MS = 2000
 
 const SECRET_NAMES = new Set<string>(AZURE_SECRET_ENV_VARS)
 
-/** The block's outputs for a sign-in: its env vars (secrets sensitive) and names. */
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+function infoOf(saved: Omit<Authenticated, "status" | "env" | "configDir">): AzureSignInInfo {
+  return {
+    authType: saved.authType,
+    principal: saved.principal,
+    tenantId: saved.tenantId,
+    tenantName: saved.tenantName,
+    subscriptionId: saved.subscriptionId,
+    subscriptionName: saved.subscriptionName,
+  }
+}
+
 function outputsFor(env: Record<string, string>, info: AzureSignInInfo): OutputValues {
   const outputs: OutputValues = {}
   for (const [name, value] of Object.entries(env)) {
@@ -61,222 +74,156 @@ export function useAzureAuth({
   const { isReady: sessionReady } = useSession()
   const history = useSessionHistory()
 
-  // The sign-in the session's history has for this block. The block starts
-  // signed in to it and checks it below.
-  const [restored] = useState(() => {
+  const [restoredAtMount] = useState(() => {
     const saved = parseSavedAzureAuth(history.saved(id, "auth"))
     return saved?.status === "signed-in" ? saved : undefined
   })
 
-  const plan = detectionPlan(detectCredentials)
+  const { steps: plan } = detectionPlan(detectCredentials)
 
   const [authMethod, setAuthMethod] = useState<AzureAuthMethod>(() =>
     resolveDefaultAuthMethod(defaultTab),
   )
   const [authStatus, setAuthStatus] = useState<AzureAuthStatus>(
-    restored ? "authenticated" : "pending",
+    restoredAtMount ? "authenticated" : "pending",
   )
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [cliMissing, setCliMissing] = useState(false)
   const [signInInfo, setSignInInfo] = useState<AzureSignInInfo | null>(
-    restored
-      ? {
-          authType: restored.authType,
-          principal: restored.principal,
-          tenantId: restored.tenantId,
-          tenantName: restored.tenantName,
-          subscriptionId: restored.subscriptionId,
-          subscriptionName: restored.subscriptionName,
-        }
-      : null,
+    restoredAtMount ? infoOf(restoredAtMount) : null,
   )
 
-  // Detection
   const [detectionStatus, setDetectionStatus] = useState<AzureDetectionStatus>(
-    plan.length === 0 || restored ? "done" : "pending",
+    plan.length === 0 || restoredAtMount ? "done" : "pending",
   )
   const [detected, setDetected] = useState<DetectedAzureCredentials | null>(null)
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
   const [nothingDetected, setNothingDetected] = useState(false)
-  const [detectionAttempt, setDetectionAttempt] = useState(restored ? -1 : 0)
+  const [detectionAttempt, setDetectionAttempt] = useState(restoredAtMount ? -1 : 0)
 
-  // Forms
   const [signInTenantId, setSignInTenantId] = useState(tenantId ?? "")
   const [clientId, setClientId] = useState("")
   const [spTenantId, setSpTenantId] = useState(tenantId ?? "")
   const [clientSecret, setClientSecret] = useState("")
   const [certificatePath, setCertificatePath] = useState("")
   const [useCertificate, setUseCertificate] = useState(false)
-
-  // Device code prompt, once az prints it
   const [deviceCode, setDeviceCode] = useState<{
     verificationUri: string
     userCode: string
   } | null>(null)
 
-  // Tenant and subscription picker
   const [pickerPrincipal, setPickerPrincipal] = useState<AzurePrincipal | null>(null)
   const [tenants, setTenants] = useState<AzureTenant[]>([])
   const [subscriptions, setSubscriptions] = useState<AzureSubscription[]>([])
   const [selectedTenantId, setSelectedTenantId] = useState("")
   const [selectedSubscriptionId, setSelectedSubscriptionId] = useState("")
+  const [selecting, setSelecting] = useState(false)
 
-  // Each sign-in attempt runs under its own number, and acts on a reply only
-  // while that number is current, so cancel, re-auth and unmount end it even
-  // with a reply in flight.
   const flowRef = useRef(0)
-  const loginFlowIdRef = useRef<string | null>(null)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const roles = requiredRoles && requiredRoles.length > 0 ? { requiredRoles } : {}
   const pins = {
     ...(tenantId ? { tenantId } : {}),
     ...(subscriptionId ? { subscriptionId } : {}),
-    ...(requiredRoles && requiredRoles.length > 0 ? { requiredRoles } : {}),
+    ...roles,
   }
 
-  function stopLogin() {
+  function stopAttempt() {
     flowRef.current++
     if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
     pollTimerRef.current = null
-    const flowId = loginFlowIdRef.current
-    loginFlowIdRef.current = null
-    if (flowId) void api.invoke("azure:login-cancel", { flowId }).catch(() => {})
     setDeviceCode(null)
+    void api.invoke("azure:cancel", { blockId: id }).catch(() => {})
   }
 
-  // End a running az login when the block goes away.
   useEffect(
     () => () => {
       flowRef.current++
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
-      const flowId = loginFlowIdRef.current
-      loginFlowIdRef.current = null
-      if (flowId) void api.invoke("azure:login-cancel", { flowId }).catch(() => {})
+      void api.invoke("azure:cancel", { blockId: id }).catch(() => {})
     },
-    [api],
+    [api, id],
   )
 
-  function publish(result: Extract<AzureSignInResultIpc, { status: "authenticated" }>) {
-    const info: AzureSignInInfo = {
-      authType: result.authType,
-      principal: result.principal,
-      tenantId: result.tenantId,
-      tenantName: result.tenantName,
-      subscriptionId: result.subscriptionId,
-      subscriptionName: result.subscriptionName,
-    }
+  function publish(result: Authenticated) {
+    const info = infoOf(result)
     registerOutputs(id, outputsFor(result.env, info))
     setSignInInfo(info)
     setAuthStatus("authenticated")
     setErrorMessage(null)
     setWarningMessage(result.sessionEnvWarning ?? null)
+    const { status: _status, sessionEnvWarning: _warning, ...saved } = result
     history.record(id, "auth", {
       status: "signed-in",
       block: "azure",
-      authType: result.authType,
-      principal: result.principal,
-      tenantId: result.tenantId,
-      ...(result.tenantName ? { tenantName: result.tenantName } : {}),
-      ...(result.subscriptionId ? { subscriptionId: result.subscriptionId } : {}),
-      ...(result.subscriptionName ? { subscriptionName: result.subscriptionName } : {}),
-      configDir: result.configDir,
-      env: result.env,
+      ...saved,
     } satisfies SavedAzureAuth)
   }
 
-  /** Act on where a sign-in stands. */
+  function fail(message: string, missingCli = false) {
+    setAuthStatus("failed")
+    setErrorMessage(message)
+    if (missingCli) setCliMissing(true)
+  }
+
   function handleResult(result: AzureSignInResultIpc) {
-    switch (result.status) {
-      case "authenticated":
-        publish(result)
-        return
-      case "select_context": {
-        setPickerPrincipal(result.principal)
-        setTenants(result.tenants)
-        setSubscriptions(result.subscriptions)
-        const firstTenant =
-          result.tenants.find((t) => t.tenantId === result.principal.tenantId) ?? result.tenants[0]
-        const tenant = firstTenant?.tenantId ?? ""
-        setSelectedTenantId(tenant)
-        const inTenant = result.subscriptions.filter((s) => s.tenantId === tenant)
-        setSelectedSubscriptionId((inTenant.find((s) => s.isDefault) ?? inTenant[0])?.id ?? "")
-        setAuthStatus("select_context")
-        setErrorMessage(null)
-        return
-      }
-      case "failed":
-        setAuthStatus("failed")
-        setErrorMessage(result.error)
-        if (result.cliMissing) setCliMissing(true)
-        return
-    }
+    if (result.status === "authenticated") return publish(result)
+    if (result.status === "failed") return fail(result.error, result.cliMissing)
+    setPickerPrincipal(result.principal)
+    setTenants(result.tenants)
+    setSubscriptions(result.subscriptions)
+    const tenant =
+      (result.tenants.find((t) => t.tenantId === result.principal.tenantId) ?? result.tenants[0])
+        ?.tenantId ?? ""
+    setSelectedTenantId(tenant)
+    const inTenant = result.subscriptions.filter((s) => s.tenantId === tenant)
+    setSelectedSubscriptionId((inTenant.find((s) => s.isDefault) ?? inTenant[0])?.id ?? "")
+    setAuthStatus("select_context")
+    setErrorMessage(null)
   }
 
   async function run(call: () => Promise<AzureSignInResultIpc>) {
-    stopLogin()
+    stopAttempt()
     const flow = flowRef.current
     setAuthStatus("authenticating")
     setErrorMessage(null)
     try {
       const result = await call()
-      if (flowRef.current !== flow) return
-      handleResult(result)
+      if (flowRef.current === flow) handleResult(result)
     } catch (err) {
-      if (flowRef.current !== flow) return
-      setAuthStatus("failed")
-      setErrorMessage(err instanceof Error ? err.message : String(err))
+      if (flowRef.current === flow) fail(errorText(err))
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Restore
-  // -------------------------------------------------------------------------
-
-  // A restored sign-in is published at once, then checked: its config dir is
-  // gone after an app restart, and its tokens can expire.
   useEffect(() => {
-    if (!restored) return
-    const info: AzureSignInInfo = {
-      authType: restored.authType,
-      principal: restored.principal,
-      tenantId: restored.tenantId,
-      tenantName: restored.tenantName,
-      subscriptionId: restored.subscriptionId,
-      subscriptionName: restored.subscriptionName,
-    }
-    registerOutputs(id, outputsFor(restored.env, info))
+    if (!restoredAtMount) return
+    registerOutputs(id, outputsFor(restoredAtMount.env, infoOf(restoredAtMount)))
     const flow = flowRef.current
     void api
       .invoke("azure:validate-session", {
         blockId: id,
-        configDir: restored.configDir,
-        tenantId: restored.tenantId,
+        configDir: restoredAtMount.configDir,
+        tenantId: restoredAtMount.tenantId,
       })
       .then((data) => {
-        if (flowRef.current !== flow || data.valid) return
+        if (flowRef.current !== flow || data.valid || data.unreachable) return
         flowRef.current++
         registerOutputs(id, { __AUTHENTICATED: "false" })
         history.record(id, "auth", { status: "signed-out" } satisfies SavedAzureAuth)
         setSignInInfo(null)
-        setAuthStatus("failed")
-        setErrorMessage(
+        fail(
           `The saved Azure sign-in no longer works (${data.error ?? "it was refused"}). Sign in again.`,
         )
       })
       .catch(() => {})
-    // Runs once, for the sign-in the block mounted with.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // -------------------------------------------------------------------------
-  // Detection
-  // -------------------------------------------------------------------------
+  }, [api, id, history, registerOutputs, restoredAtMount])
 
   const planKey = JSON.stringify(plan)
   useEffect(() => {
     if (!sessionReady || detectionAttempt < 0) return
-    const steps = JSON.parse(planKey) as ReturnType<typeof detectionPlan>
+    const steps = JSON.parse(planKey) as typeof plan
     if (steps.length === 0) return
     let cancelled = false
     void (async () => {
@@ -307,7 +254,7 @@ export function useAzureAuth({
           if (data.error && !data.cliMissing) warnings.push(data.error)
         } catch (err) {
           if (cancelled) return
-          warnings.push(err instanceof Error ? err.message : String(err))
+          warnings.push(errorText(err))
         }
       }
       if (cancelled) return
@@ -322,12 +269,12 @@ export function useAzureAuth({
 
   function handleConfirmDetected() {
     if (!detected) return
-    const found = detected
+    const { source, prefix } = detected
     void run(() =>
       api.invoke("azure:confirm-detected", {
         blockId: id,
-        source: found.source,
-        ...(found.prefix ? { prefix: found.prefix } : {}),
+        source,
+        ...(prefix ? { prefix } : {}),
         ...pins,
       }),
     ).then(() => setDetectionStatus("done"))
@@ -348,44 +295,25 @@ export function useAzureAuth({
     setDetectionAttempt((n) => Math.max(n, 0) + 1)
   }
 
-  // -------------------------------------------------------------------------
-  // Interactive sign-in (browser or device code)
-  // -------------------------------------------------------------------------
-
   async function startLogin(useDeviceCode: boolean) {
-    stopLogin()
+    stopAttempt()
     const flow = flowRef.current
     setAuthStatus("authenticating")
     setErrorMessage(null)
     const tenant = (tenantId ?? signInTenantId).trim()
+    const tenantPin = tenant ? { tenantId: tenant } : {}
     try {
       const started = await api.invoke("azure:login-start", {
         blockId: id,
         deviceCode: useDeviceCode,
-        ...(tenant ? { tenantId: tenant } : {}),
+        ...tenantPin,
       })
-      if (flowRef.current !== flow) {
-        if (started.flowId) void api.invoke("azure:login-cancel", { flowId: started.flowId })
-        return
-      }
-      if (!started.flowId) {
-        handleResult({
-          status: "failed",
-          error: started.error ?? "Couldn't start az login",
-          ...(started.cliMissing ? { cliMissing: true } : {}),
-        })
-        return
-      }
-      loginFlowIdRef.current = started.flowId
+      if (flowRef.current !== flow) return
       const flowId = started.flowId
+      if (!flowId) return fail(started.error ?? "Couldn't start az login", started.cliMissing)
       const poll = async () => {
         try {
-          const data = await api.invoke("azure:login-poll", {
-            flowId,
-            ...pins,
-            // A tenant typed for this sign-in pins the context like the prop.
-            ...(tenant ? { tenantId: tenant } : {}),
-          })
+          const data = await api.invoke("azure:login-poll", { flowId, ...pins, ...tenantPin })
           if (flowRef.current !== flow) return
           if (data.status === "pending") {
             if (data.verificationUri && data.userCode) {
@@ -394,51 +322,36 @@ export function useAzureAuth({
             pollTimerRef.current = setTimeout(() => void poll(), POLL_INTERVAL_MS)
             return
           }
-          loginFlowIdRef.current = null
           setDeviceCode(null)
           handleResult(data)
         } catch (err) {
-          if (flowRef.current !== flow) return
-          loginFlowIdRef.current = null
-          setAuthStatus("failed")
-          setErrorMessage(err instanceof Error ? err.message : String(err))
+          if (flowRef.current === flow) fail(errorText(err))
         }
       }
       pollTimerRef.current = setTimeout(() => void poll(), POLL_INTERVAL_MS / 2)
     } catch (err) {
-      if (flowRef.current !== flow) return
-      setAuthStatus("failed")
-      setErrorMessage(err instanceof Error ? err.message : String(err))
+      if (flowRef.current === flow) fail(errorText(err))
     }
   }
 
   function handleCancelLogin() {
-    stopLogin()
+    stopAttempt()
     setAuthStatus("pending")
     setErrorMessage(null)
   }
 
-  // -------------------------------------------------------------------------
-  // Service principal
-  // -------------------------------------------------------------------------
-
   function handleServicePrincipal() {
-    const tenant = (tenantId ?? spTenantId).trim()
     void run(() =>
       api.invoke("azure:service-principal", {
         blockId: id,
         clientId: clientId.trim(),
-        tenantId: tenant,
+        tenantId: (tenantId ?? spTenantId).trim(),
         ...(useCertificate ? { certificatePath: certificatePath.trim() } : { clientSecret }),
         ...(subscriptionId ? { subscriptionId } : {}),
-        ...(requiredRoles && requiredRoles.length > 0 ? { requiredRoles } : {}),
+        ...roles,
       }),
     ).then(() => setClientSecret(""))
   }
-
-  // -------------------------------------------------------------------------
-  // Picker
-  // -------------------------------------------------------------------------
 
   function selectTenant(next: string) {
     setSelectedTenantId(next)
@@ -446,31 +359,37 @@ export function useAzureAuth({
     setSelectedSubscriptionId((inTenant.find((s) => s.isDefault) ?? inTenant[0])?.id ?? "")
   }
 
-  function handleSelectContext() {
+  async function handleSelectContext() {
     if (!selectedTenantId) return
-    void run(() =>
-      api.invoke("azure:select-context", {
+    const flow = ++flowRef.current
+    setSelecting(true)
+    setErrorMessage(null)
+    try {
+      const result = await api.invoke("azure:select-context", {
         blockId: id,
         tenantId: selectedTenantId,
         ...(selectedSubscriptionId ? { subscriptionId: selectedSubscriptionId } : {}),
-        ...(requiredRoles && requiredRoles.length > 0 ? { requiredRoles } : {}),
-      }),
-    )
+        ...roles,
+      })
+      if (flowRef.current !== flow) return
+      if (result.status === "failed") setErrorMessage(result.error)
+      else handleResult(result)
+    } catch (err) {
+      if (flowRef.current === flow) setErrorMessage(errorText(err))
+    } finally {
+      if (flowRef.current === flow) setSelecting(false)
+    }
   }
 
-  // -------------------------------------------------------------------------
-  // Re-authenticate
-  // -------------------------------------------------------------------------
-
   function handleManualAuth() {
-    stopLogin()
-    // Withdraw the outputs so azureAuthId steps stop until the next sign-in.
+    stopAttempt()
     registerOutputs(id, { __AUTHENTICATED: "false" })
     history.record(id, "auth", { status: "signed-out" } satisfies SavedAzureAuth)
     setAuthStatus("pending")
     setErrorMessage(null)
     setWarningMessage(null)
     setSignInInfo(null)
+    setSelecting(false)
     setDetected(null)
     setDetectionWarning(null)
     setNothingDetected(false)
@@ -485,7 +404,6 @@ export function useAzureAuth({
     warningMessage,
     cliMissing,
     signInInfo,
-
     detectionStatus,
     detected,
     detectionWarning,
@@ -493,7 +411,6 @@ export function useAzureAuth({
       plan.length === 0
         ? null
         : signInHint({ invalidDetected: detectionWarning !== null, nothingDetected }),
-
     signInTenantId,
     setSignInTenantId,
     clientId,
@@ -507,7 +424,6 @@ export function useAzureAuth({
     useCertificate,
     setUseCertificate,
     deviceCode,
-
     pickerPrincipal,
     tenants,
     subscriptions,
@@ -515,7 +431,7 @@ export function useAzureAuth({
     selectTenant,
     selectedSubscriptionId,
     setSelectedSubscriptionId,
-
+    selecting,
     handleConfirmDetected,
     handleRejectDetected,
     handleRetryDetection,
@@ -523,7 +439,7 @@ export function useAzureAuth({
     startDeviceCodeLogin: () => void startLogin(true),
     handleCancelLogin,
     handleServicePrincipal,
-    handleSelectContext,
+    handleSelectContext: () => void handleSelectContext(),
     handleManualAuth,
   }
 }
