@@ -14,6 +14,8 @@
 export interface UntouchedValueVariable {
   type: string
   options?: readonly unknown[]
+  /** Set when the options come from a block's output (see options.ts) */
+  optionsFrom?: unknown
   schema?: Record<string, string>
 }
 
@@ -32,7 +34,7 @@ export function untouchedTupleElement(elementType: string | undefined): "" | fal
  * the types whose control shows one: form state starts from it, so an
  * untouched field never looks filled in while nothing is sent for it.
  *   - bool: false (an unchecked checkbox)
- *   - tuple (a list with a schema and no options, which the form's
+ *   - tuple (a list with a schema and no options of either kind, which the form's
  *     FormControl renders as a TupleInput): one untouched element per schema key
  *   - anything else: undefined (its control shows empty)
  */
@@ -42,6 +44,7 @@ export function untouchedValue(variable: UntouchedValueVariable): unknown {
   const isTuple =
     variable.type === "list" &&
     !(options && options.length > 0) &&
+    !variable.optionsFrom &&
     schema !== undefined &&
     Object.keys(schema).length > 0
   if (isTuple) {

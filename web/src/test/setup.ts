@@ -34,6 +34,7 @@ if (!window.matchMedia) {
 
 // jsdom implements neither ResizeObserver nor scrollIntoView. cmdk (the command
 // palette behind the region pickers) calls both on mount, so give it no-ops.
+// The pickers also scroll their list to the top as it opens (scrollTo).
 if (!window.ResizeObserver) {
   window.ResizeObserver = class {
     observe() {}
@@ -43,6 +44,9 @@ if (!window.ResizeObserver) {
 }
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {}
+}
+if (!Element.prototype.scrollTo) {
+  Element.prototype.scrollTo = () => {}
 }
 
 // A block folded by autoCollapse hides its parts with a stylesheet, which

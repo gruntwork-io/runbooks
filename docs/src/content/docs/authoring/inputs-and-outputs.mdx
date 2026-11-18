@@ -234,7 +234,7 @@ For example, a Command whose `id` is `create-account` that outputs `account_id` 
 {{ .outputs.create_account.account_id }}
 ```
 
-This syntax works in the `env` prop and the scripts of `<Command>`, `<Check>` and `<Finish>` blocks, `<Template>` files, and `<TemplateInline>` content.
+This syntax works in the `env` prop and the scripts of `<Command>`, `<Check>` and `<Finish>` blocks, `<Template>` files, and `<TemplateInline>` content. In a form, a variable's `default` can use an output (see [Defaults that use other variables](/authoring/boilerplate/#defaults-that-use-other-variables)), and so can a dropdown's `options` or a multi-select's `x-options`, which list what a script output (see [Options from a block's output](/authoring/boilerplate/#options-from-a-blocks-output)).
 
 An output often holds text from outside the runbook, such as a PR title or an API response. To use one in a script, pass it with [`env`](/authoring/blocks/command/#passing-values-as-environment-variables): the script gets the value as data, so nothing in it runs, whatever it holds.
 
@@ -266,7 +266,7 @@ When a block references outputs from a block that hasn't run yet, a warning name
 
 A Command or Check block's button is also disabled while the upstream block is running again. See [Run order](/authoring/blocks/command/#run-order).
 
-A Command, Check or Finish block that reads an output through its `env` prop lets you enter the value yourself instead, and then doesn't wait for the upstream block. See [Entering an output by hand](/authoring/blocks/command/#entering-an-output-by-hand). So does a form field whose default uses an output: see [Defaults that use other variables](/authoring/boilerplate/#defaults-that-use-other-variables).
+A Command, Check or Finish block that reads an output through its `env` prop lets you enter the value yourself instead, and then doesn't wait for the upstream block. See [Entering an output by hand](/authoring/blocks/command/#entering-an-output-by-hand). So does a form field whose default uses an output: see [Defaults that use other variables](/authoring/boilerplate/#defaults-that-use-other-variables). A field whose options come from an output waits for its block too, and shows which one.
 
 After a block runs, **View Outputs** below the log viewer lists its outputs in a table. [Sensitive outputs](#sensitive-outputs) are masked there.
 

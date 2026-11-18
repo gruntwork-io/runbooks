@@ -29,6 +29,7 @@ import {
 } from "../../../src/services/WarmRenderDispatcher.ts"
 import { buildFileTree } from "../../../src/domain/workspace/file-tree.ts"
 import { hashTemplateDir } from "../../../src/domain/boilerplate/templateHash.ts"
+import { goFacingTemplateDir } from "../../../src/domain/boilerplate/boilerplateCompat.ts"
 import {
   buildManifestFromDirectoryWithContent,
   computeDiff,
@@ -261,6 +262,9 @@ export function registerBoilerplateHandlers(): void {
       const warmDispatcher = yield* WarmRenderDispatcher
 
       const resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
+      // What Boilerplate renders: the template, or a copy whose config it
+      // accepts when the template uses options only Runbooks reads.
+      const boilerplateTemplatePath = yield* goFacingTemplateDir(resolvedTemplatePath)
 
       // Resolve output directory
       const outputDir = yield* resolveRenderOutputDir(params.target, params.outputPath)
@@ -297,7 +301,7 @@ export function registerBoilerplateHandlers(): void {
       // template-execution errors to surface to the user.
       const tWarm = Date.now()
       const warmResult = yield* warmDispatcher
-        .render(templateId, resolvedTemplatePath, flattenedVariables)
+        .render(templateId, boilerplateTemplatePath, flattenedVariables)
         .pipe(
           // Any warm-path failure (loader/bundle producer/structural) is
           // recoverable — fall through to the cold path. We don't want a
@@ -388,7 +392,7 @@ export function registerBoilerplateHandlers(): void {
         const dMkdtemp = Date.now() - tMkdtemp
 
         const tRenderInner = Date.now()
-        yield* renderer.renderTemplate(resolvedTemplatePath, createdTempDir, flattenedVariables)
+        yield* renderer.renderTemplate(boilerplateTemplatePath, createdTempDir, flattenedVariables)
         dRender = Date.now() - tRenderInner
 
         // Merge subprocess output into our content map, but only for

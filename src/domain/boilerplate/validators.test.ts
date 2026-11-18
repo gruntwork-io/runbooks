@@ -109,3 +109,29 @@ variables:
     expect(validateVariableValue(version, "v1.2.3")).toBeUndefined()
   })
 })
+
+describe("validateVariableValue with options from an output", () => {
+  const optionsFrom = {
+    expression: "{{ fromJson .outputs.list_regions.regions }}",
+    blockId: "list_regions",
+    outputName: "regions",
+  }
+
+  it("checks the value against the options once they're read", () => {
+    const variable = { name: "Location", type: "enum", optionsFrom, options: ["eastus"] }
+    expect(validateVariableValue(variable, "eastus")).toBeUndefined()
+    expect(validateVariableValue(variable, "westus")).toBe('"westus" isn\'t one of the options.')
+  })
+
+  it("doesn't check them before", () => {
+    expect(validateVariableValue({ name: "Location", type: "enum", optionsFrom }, "westus")).toBe(
+      undefined,
+    )
+  })
+
+  it("leaves a static list to its control, as before", () => {
+    expect(
+      validateVariableValue({ name: "env", type: "enum", options: ["dev"] }, "prod"),
+    ).toBeUndefined()
+  })
+})

@@ -1,0 +1,53 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+  parallelizable: true
+
+tests:
+  - name: defaults
+    description: |
+      The script lists the regions, and the defaults are among them.
+    assertions:
+      - type: output_equals
+        block: list-regions
+        output: regions
+        value: '[{"value":"eastus","label":"East US (eastus)"},{"value":"westus2","label":"West US 2 (westus2)"},{"value":"northeurope","label":"North Europe (northeurope)"},{"value":"swedencentral","label":"Sweden Central (swedencentral)"}]'
+      - type: file_contains
+        path: settings.yml
+        contains: "location: eastus"
+      - type: file_contains
+        path: settings.yml
+        contains: "size: small"
+      - type: file_contains
+        path: backup.txt
+        contains: "Backups go to northeurope"
+
+  - name: picked-values
+    description: |
+      Other options picked from the lists render as their values.
+    inputs:
+      region-settings.Location: swedencentral
+      region-settings.AllowedLocations: [northeurope, swedencentral]
+      region-settings.Size: large
+      backup.BackupLocation: westus2
+    assertions:
+      - type: file_contains
+        path: settings.yml
+        contains: "location: swedencentral"
+      - type: file_contains
+        path: settings.yml
+        contains: "size: large"
+      - type: file_contains
+        path: backup.txt
+        contains: "Backups go to westus2"
+
+  - name: waits-for-the-list
+    description: |
+      Until the script has run, the Template waits for its output.
+    steps:
+      - block: region-settings
+        expect: blocked
+        missing_outputs:
+          - outputs.list_regions.regions

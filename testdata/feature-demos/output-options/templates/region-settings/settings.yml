@@ -1,0 +1,3 @@
+location: {{ .Location }}
+allowed_locations: {{ .AllowedLocations }}
+size: {{ .Size }}

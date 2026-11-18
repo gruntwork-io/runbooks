@@ -135,8 +135,8 @@ variables:
     expect(result.variables[0]!.options).toBeUndefined()
   })
 
-  it("drops non-string x-options entries from untyped YAML", async () => {
-    const result = await parse(`
+  it("drops non-string x-options entries from untyped YAML, with a warning", async () => {
+    const { result, warnings } = await parseWarning(`
 variables:
   - name: opt_in_regions
     type: list
@@ -147,10 +147,14 @@ variables:
       - eu-west-1
 `)
     expect(result.variables[0]!.options).toEqual(["us-east-1", "eu-west-1"])
+    expect(warnings).toEqual([
+      '[boilerplate config] variable "opt_in_regions": x-options[1] must be a string or { value, label }; ignoring it.',
+      '[boilerplate config] variable "opt_in_regions": x-options[2] must be a string or { value, label }; ignoring it.',
+    ])
   })
 
   it("leaves options unset when no x-options entry is a string", async () => {
-    const result = await parse(`
+    const { result } = await parseWarning(`
 variables:
   - name: opt_in_regions
     type: list
@@ -160,6 +164,94 @@ variables:
 `)
     expect(result.variables[0]!.options).toBeUndefined()
   })
+
+  it("reads labelled options on an enum and on a list's x-options", async () => {
+    const result = await parse(`
+variables:
+  - name: Size
+    type: enum
+    options:
+      - value: small
+        label: Small (1 vCPU)
+      - large
+  - name: Regions
+    type: list
+    x-options:
+      - { value: eastus, label: East US }
+      - westus
+`)
+    expect(result.variables[0]!.options).toEqual(["small", "large"])
+    expect(result.variables[0]!.optionLabels).toEqual({ small: "Small (1 vCPU)", large: "large" })
+    expect(result.variables[1]!.options).toEqual(["eastus", "westus"])
+    expect(result.variables[1]!.optionLabels).toEqual({ eastus: "East US", westus: "westus" })
+  })
+
+  it("leaves optionLabels unset for plain strings", async () => {
+    const result = await parse(`
+variables:
+  - name: env
+    type: enum
+    options: [dev, prod]
+`)
+    expect(result.variables[0]!.options).toEqual(["dev", "prod"])
+    expect(result.variables[0]!.optionLabels).toBeUndefined()
+    expect(result.variables[0]!.optionsFrom).toBeUndefined()
+  })
+
+  it("reads options that come from a block's output", async () => {
+    const result = await parse(`
+variables:
+  - name: Location
+    type: enum
+    options: "{{ fromJson .outputs.list_regions.regions }}"
+    default: eastus
+  - name: AllowedLocations
+    type: list
+    x-options: "{{ fromJson .outputs.list-regions.regions }}"
+`)
+    expect(result.variables[0]!.options).toBeUndefined()
+    expect(result.variables[0]!.optionsFrom).toEqual({
+      expression: "{{ fromJson .outputs.list_regions.regions }}",
+      blockId: "list_regions",
+      outputName: "regions",
+    })
+    expect(result.variables[1]!.optionsFrom?.blockId).toBe("list-regions")
+  })
+
+  it("registers the output the options come from as an output dependency", () => {
+    const deps = extractOutputDependencies(`
+variables:
+  - name: Location
+    type: enum
+    options: "{{ fromJson .outputs.list_regions.regions }}"
+`)
+    expect(deps).toEqual([
+      { blockId: "list_regions", outputName: "regions", fullPath: "outputs.list_regions.regions" },
+    ])
+  })
+
+  it.each([
+    ["options", "enum", "eastus"],
+    ["options", "enum", "{{ .inputs.Regions }}"],
+    ["x-options", "list", "{{ fromJson .outputs.list_regions }}"],
+  ])(
+    "fails on %s that is neither a list nor an output reference (%s: %j)",
+    async (key, type, value) => {
+      const result = await Effect.runPromise(
+        Effect.result(
+          parseBoilerplateConfig(`
+variables:
+  - name: Location
+    type: ${type}
+    ${key}: ${JSON.stringify(value)}
+`),
+        ),
+      )
+      expect(result._tag).toBe("Failure")
+      if (result._tag !== "Failure") return
+      expect(result.failure.message).toContain(`variable "Location": ${key} must be a list`)
+    },
+  )
 
   it("detects sensitive flag", async () => {
     const result = await parse(`
