@@ -75,6 +75,8 @@ const NOT_COLLAPSIBLE = [
   "Admonition",
   "Chapter",
   "Iframe",
+  // SQLite shows its result table under the header; folding would hide it.
+  "SQLite",
   "a",
   "pre",
   "input",

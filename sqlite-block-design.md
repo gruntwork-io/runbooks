@@ -110,8 +110,10 @@ Renderer (SQLite.tsx)
    `src/layers/NodeSqlite.ts` opens it.
 2. **Path validation** — `dbPath` resolved through `path-guard.ts`, must be
    resolved against the runbook directory, then validated to stay inside the session (except `:memory:`).
-3. **Parameterized queries only** — `?` placeholders, never SQL string
-   concatenation. This is enforced by the API shape (separate `params` array).
+3. **Parameterized queries** — untrusted values go in the separate `params`
+   array (`?` placeholders); binding protects those values. The API does not
+   enforce this: an author can still interpolate input into `query` text
+   before it reaches `db.prepare`, so runbooks must not do that.
 4. **Typed errors** — `SqliteQueryError` added to `src/errors/index.ts`.
 5. **Read-only vs write** — `SELECT`/`PRAGMA` return rows; `INSERT`/`UPDATE`/
    `CREATE` return rowCount. The block auto-detects via result shape.
