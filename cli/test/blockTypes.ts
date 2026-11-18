@@ -30,6 +30,7 @@ export const BLOCK_TYPES = [
   "Admonition",
   "Chapter",
   "Iframe",
+  "SQLite",
 ] as const
 
 /** Blocks that authenticate and inject credentials for the blocks that reference them. */

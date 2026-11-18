@@ -116,6 +116,7 @@ export class InputValidator {
     components.push(...this.parseRunBlocks(elements, "Command"))
     components.push(...this.parseRunBlocks(elements, "Finish"))
     components.push(...this.parseRunBlocks(elements, "Prerequisites"))
+    components.push(...this.parseRunBlocks(elements, "SQLite"))
     components.push(...this.parseTemplateBlocks(elements, runbookDir))
     components.push(...this.parseTemplateInlineBlocks(elements))
     for (const authType of AUTH_BLOCK_TYPES) {

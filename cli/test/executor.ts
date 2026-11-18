@@ -9,9 +9,12 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
-import { Result, ManagedRuntime } from "effect"
+import { Effect, Result, ManagedRuntime } from "effect"
 
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
+import { openSqliteDatabase } from "../../src/layers/NodeSqlite.ts"
+import { runQuery, runSqlScript } from "../../src/domain/sqlite/query.ts"
+import type { SqlParam, SqlQueryResult } from "../../src/domain/sqlite/result.ts"
 import { stringArrayProp, stringProp, type PropValue, type Props } from "../../src/mdx.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
@@ -1300,6 +1303,9 @@ export class TestExecutor {
         result.duration = Date.now() - start
         return result
 
+      case "SQLite":
+        return this.runSQLite(block, step, start)
+
       default:
         result.passed = false
         result.actualStatus = "error"
@@ -2337,6 +2343,85 @@ export class TestExecutor {
     }
     result.actualStatus = "success"
     result.passed = this.matchesExpectedStatus(step.expect, "success")
+    result.duration = Date.now() - start
+    return result
+  }
+
+  // -----------------------------------------------------------------------
+  // SQLite block
+  // -----------------------------------------------------------------------
+
+  private runSQLite(block: ParsedComponent, step: TestStep, start: number): StepResult {
+    const result = makeStepResult(`sqlite:${block.id}`, step.expect)
+
+    const dbProp = stringProp(block.props, "db")
+    const query = stringProp(block.props, "query")
+    const pathProp = stringProp(block.props, "path")
+    if (!dbProp || (!query && !pathProp)) {
+      result.passed = false
+      result.actualStatus = "config_error"
+      result.error = `SQLite block "${block.id}" requires 'db' and one of 'query' or 'path'`
+      result.duration = Date.now() - start
+      return result
+    }
+    if (query && pathProp) {
+      result.passed = false
+      result.actualStatus = "config_error"
+      result.error = `SQLite block "${block.id}" takes either 'query' or 'path', not both`
+      result.duration = Date.now() - start
+      return result
+    }
+
+    // Resolve the db path against the runbook's folder, as the app's
+    // path-guard does (resolveAgainstRunbook). `:memory:` stays as-is.
+    const runbookDir = path.dirname(this.runbookPath)
+    const dbPath = dbProp === ":memory:" ? ":memory:" : path.resolve(runbookDir, dbProp)
+
+    // Read params prop (array of scalars)
+    const rawParams = block.props.params
+    const params: SqlParam[] = Array.isArray(rawParams)
+      ? rawParams.map((p) => {
+          if (p === null) return null
+          if (typeof p === "string" || typeof p === "number" || typeof p === "boolean") return p
+          return String(p)
+        })
+      : []
+
+    const db = openSqliteDatabase(dbPath)
+    try {
+      let queryResult: SqlQueryResult
+      try {
+        if (pathProp) {
+          // Like a Command's `path`: relative to the runbook's folder, as in the app.
+          const sqlPath = path.resolve(runbookDir, pathProp)
+          const sql = fs.readFileSync(sqlPath, "utf8")
+          queryResult = Effect.runSync(runSqlScript(db, sql))
+        } else {
+          queryResult = Effect.runSync(runQuery(db, query ?? "", params))
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        result.actualStatus = "fail"
+        result.passed = this.matchesExpectedStatus(step.expect, "fail")
+        if (step.error_contains && !msg.toLowerCase().includes(step.error_contains.toLowerCase())) {
+          result.passed = false
+          result.error = `Expected error to contain "${step.error_contains}" but got: ${msg}`
+        }
+        result.duration = Date.now() - start
+        return result
+      }
+      result.actualStatus = "success"
+      result.passed = this.matchesExpectedStatus(step.expect, "success")
+      // Publish the output prop as a JSON-encoded rows array, as the app does
+      const outputName = stringProp(block.props, "output")
+      if (outputName) {
+        result.outputs = { [outputName]: JSON.stringify(queryResult.rows) }
+        this.blockOutputs.set(block.id, new Map([[outputName, JSON.stringify(queryResult.rows)]]))
+      }
+      this.passedScripts.add(normalizeBlockId(block.id))
+    } finally {
+      db.close()
+    }
     result.duration = Date.now() - start
     return result
   }

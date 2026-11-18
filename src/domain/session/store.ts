@@ -13,10 +13,12 @@ import { SessionStoreError } from "../../errors/index.ts"
 export type SqlValue = string | number | null | Uint8Array
 
 export interface SqlStatement {
-  run(...params: SqlValue[]): void
+  run(...params: SqlValue[]): { changes: number; lastInsertRowid: number | bigint }
   /** The first row, or undefined when there is none. */
   get(...params: SqlValue[]): unknown
   all(...params: SqlValue[]): unknown[]
+  /** Column metadata for statements that return a result set; empty for writes. */
+  columns(): { name: string }[]
 }
 
 export interface SqlDatabase {

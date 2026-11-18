@@ -35,6 +35,7 @@ import { registerWatchHandlers } from "./watch.ts"
 import { registerThemeHandlers } from "./theme.ts"
 import { registerCustomCaHandlers } from "./custom-ca.ts"
 import { registerAgentHandlers } from "./agent.ts"
+import { registerSqliteHandlers } from "./sqlite.ts"
 import { withVcs } from "./vcs-tristate.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 
@@ -93,5 +94,6 @@ export function registerAllIpcHandlers(): void {
   registerThemeHandlers()
   registerCustomCaHandlers()
   registerAgentHandlers()
+  registerSqliteHandlers()
   registerVcsStatusHandler()
 }

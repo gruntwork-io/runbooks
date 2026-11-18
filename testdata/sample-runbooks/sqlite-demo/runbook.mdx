@@ -1,0 +1,87 @@
+# SQLite Block Demo
+
+This runbook demonstrates the `<SQLite>` block. Each block runs a SQL query
+against a local SQLite database file and shows the result as a table.
+
+## Create a table
+
+<SQLite
+  id="create-users"
+  db="./demo.db"
+  query="CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT)"
+  title="Create the users table"
+  description="Creates the `users` table if it doesn't exist yet."
+/>
+
+## Insert rows
+
+<SQLite
+  id="insert-alice"
+  db="./demo.db"
+  query="INSERT INTO users (name, email) VALUES (?, ?)"
+  params={["Alice", "alice@example.com"]}
+  title="Insert Alice"
+/>
+
+<SQLite
+  id="insert-bob"
+  db="./demo.db"
+  query="INSERT INTO users (name, email) VALUES (?, ?)"
+  params={["Bob", null]}
+  title="Insert Bob (no email)"
+/>
+
+## Query the data
+
+<SQLite
+  id="list-users"
+  db="./demo.db"
+  query="SELECT id, name, email FROM users ORDER BY id"
+  output="users"
+  title="List all users"
+  description="Selects every row from the users table. The result is exported as the `users` output."
+  successMessage="Users loaded!"
+/>
+
+<SQLite
+  id="count-users"
+  db="./demo.db"
+  query="SELECT COUNT(*) AS total FROM users"
+  title="Count users"
+/>
+
+## Error case
+
+<SQLite
+  id="bad-query"
+  db="./demo.db"
+  query="SELECT * FROM nonexistent_table"
+  title="This query will fail"
+  description="Demonstrates the error state of the block."
+  failMessage="Query failed as expected"
+/>
+
+## Test on Navidrome
+
+<SQLite
+  id="test-nv"
+  db="./navidrome.db"
+  query="SELECT album, album_artist
+    FROM playlist_tracks
+      INNER JOIN media_file mf ON media_file_id = mf.id
+    WHERE playlist_id = (
+      SELECT id FROM playlist WHERE name = 'Validé'
+    ) AND path LIKE 'validated%'
+    GROUP BY album, album_artist;"
+  title="Tests"
+/>
+
+## Run a SQL file
+
+<SQLite
+  id="seed-from-file"
+  db="./demo.db"
+  path="./scripts/seed.sql"
+  title="Seed from a .sql file"
+  description="Executes every statement in scripts/seed.sql (multi-statement)."
+/>
