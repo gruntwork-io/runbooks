@@ -21,6 +21,8 @@ dist/
 testdata/**/output
 testdata/**/generated
 testdata/**/empty-repo
+testdata/**/*.db
+web/src/components/mdx/SQLite/__tests__/sqlite-preview.html
 out/
 test-results/
 

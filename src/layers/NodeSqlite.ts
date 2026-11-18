@@ -20,10 +20,18 @@ export function openSqliteDatabase(file: string): SqlDatabase {
       const statement = db.prepare(sql)
       return {
         run: (...params) => {
-          statement.run(...params)
+          const info = statement.run(...params)
+          return {
+            changes: Number(info.changes),
+            lastInsertRowid:
+              typeof info.lastInsertRowid === "bigint"
+                ? Number(info.lastInsertRowid)
+                : info.lastInsertRowid,
+          }
         },
         get: (...params) => statement.get(...params),
         all: (...params) => statement.all(...params),
+        columns: () => statement.columns().map((c) => ({ name: c.name })),
       }
     },
     close: () => {
