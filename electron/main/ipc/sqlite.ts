@@ -13,7 +13,7 @@ import { runtime } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { openSqliteDatabase } from "../../../src/layers/NodeSqlite.ts"
 import { runQuery, runSqlScript } from "../../../src/domain/sqlite/query.ts"
-import type { SqlParam, SqlQueryResult } from "../../../src/domain/sqlite/result.ts"
+import type { SqlParam } from "../../../src/domain/sqlite/result.ts"
 import type { IpcChannelMap } from "../../shared/channels.ts"
 
 interface SqliteQueryRequest {
@@ -27,31 +27,36 @@ export function registerSqliteHandlers(): void {
   ipcMain.handle("sqlite:query", async (_event, req: SqliteQueryRequest) => {
     return runtime.runPromise(
       Effect.gen(function* () {
+        if (req.sql && req.sqlPath) {
+          throw new Error("sqlite:query takes either 'sql' or 'sqlPath', not both")
+        }
         // `:memory:` is always allowed; file paths must stay in the session.
         const dbPath =
           req.dbPath === ":memory:" ? ":memory:" : yield* validateSessionPath(req.dbPath)
 
-        // A .sql file is executed as a script (multi-statement); an inline
-        // query runs as a single statement and may return rows.
-        let result: SqlQueryResult
-        const db = openSqliteDatabase(dbPath)
-        try {
-          if (req.sqlPath) {
-            const sqlPath = yield* validateSessionPath(req.sqlPath)
-            const sql = yield* Effect.try({
-              try: () => readFileSync(sqlPath, "utf8"),
-              catch: (err) =>
-                new Error(
-                  `cannot read SQL file ${req.sqlPath}: ${err instanceof Error ? err.message : String(err)}`,
-                ),
-            })
-            result = yield* runSqlScript(db, sql)
-          } else {
-            result = yield* runQuery(db, req.sql ?? "", req.params ?? [])
-          }
-        } finally {
-          db.close()
-        }
+        // Acquire the connection as an Effect so close() runs even when the
+        // query fails at a yield* (a plain JS finally would not run then).
+        const result = yield* Effect.acquireUseRelease(
+          Effect.sync(() => openSqliteDatabase(dbPath)),
+          (db) =>
+            Effect.gen(function* () {
+              // A .sql file is executed as a script (multi-statement); an
+              // inline query runs as a single statement and may return rows.
+              if (req.sqlPath) {
+                const sqlPath = yield* validateSessionPath(req.sqlPath)
+                const sql = yield* Effect.try({
+                  try: () => readFileSync(sqlPath, "utf8"),
+                  catch: (err) =>
+                    new Error(
+                      `cannot read SQL file ${req.sqlPath}: ${err instanceof Error ? err.message : String(err)}`,
+                    ),
+                })
+                return yield* runSqlScript(db, sql)
+              }
+              return yield* runQuery(db, req.sql ?? "", req.params ?? [])
+            }),
+          (db) => Effect.sync(() => db.close()),
+        )
         return result satisfies IpcChannelMap["sqlite:query"]["result"]
       }),
     )

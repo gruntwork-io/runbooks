@@ -38,14 +38,20 @@ export function runQuery(db: SqlDatabase, sql: string, params: SqlParam[] = []) 
         const rawRows = stmt.all(...values) as Record<string, unknown>[]
         // stmt.all() returns objects keyed by column name, so duplicate names
         // (SELECT 1 AS a, 2 AS a) collapse: the object keeps only the last
-        // value, and node:sqlite exposes no positional row access. Dedupe the
-        // displayed names (a, a_2, ...) so the header is unambiguous; cells of
+        // value, and this Node version has no positional row access
+        // (setReturnArrays needs Node 25.9). Dedupe the displayed names so a
+        // generated alias (a_2) can't collide with an existing one; cells of
         // a duplicated name all show the last value (documented limitation).
+        const reserved = new Set(cols.map((c) => c.name))
         const seen = new Map<string, number>()
         const columns = cols.map((c) => {
           const n = seen.get(c.name) ?? 0
           seen.set(c.name, n + 1)
-          return n === 0 ? c.name : `${c.name}_${n + 1}`
+          if (n === 0) return c.name
+          let candidate = `${c.name}_${n + 1}`
+          while (reserved.has(candidate)) candidate = `${candidate}_`
+          reserved.add(candidate)
+          return candidate
         })
         const rows = rawRows.map((row) => cols.map((c) => row[c.name]))
         return {

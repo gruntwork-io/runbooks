@@ -61,21 +61,6 @@ against a local SQLite database file and shows the result as a table.
   failMessage="Query failed as expected"
 />
 
-## Test on Navidrome
-
-<SQLite
-  id="test-nv"
-  db="./navidrome.db"
-  query="SELECT album, album_artist
-    FROM playlist_tracks
-      INNER JOIN media_file mf ON media_file_id = mf.id
-    WHERE playlist_id = (
-      SELECT id FROM playlist WHERE name = 'Validé'
-    ) AND path LIKE 'validated%'
-    GROUP BY album, album_artist;"
-  title="Tests"
-/>
-
 ## Run a SQL file
 
 <SQLite

@@ -91,5 +91,5 @@ Note: SQL string literals use single quotes (`'value'`). Double quotes (`"value"
 
 ## Safety
 
-- The `db` path is validated to stay inside the session's working directory (or a registered worktree). `:memory:` is always allowed.
+- The `db` path is validated to stay resolved against the runbook's folder, then validated to stay inside the session. `:memory:` is always allowed.
 - Values are only ever passed as bound parameters (`?`), so SQL injection through `params` is not possible.
