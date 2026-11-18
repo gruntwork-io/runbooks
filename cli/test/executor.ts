@@ -2007,10 +2007,15 @@ export class TestExecutor {
       const msg = err instanceof Error ? err.message : String(err)
       result.actualStatus = "fail"
       result.passed = this.matchesExpectedStatus(step.expect, "fail")
-      result.error = msg
+      // SQLite props render with revealOutputs, so an error can quote a
+      // revealed path (e.g. a missing SQL file whose path prop contains a
+      // sensitive output). Mask those values in the stored error; the raw
+      // msg stays for the error_contains comparison below.
+      const masked = this.maskRevealedValues(msg)
+      result.error = masked
       if (step.error_contains && !msg.toLowerCase().includes(step.error_contains.toLowerCase())) {
         result.passed = false
-        result.error = `Expected error to contain "${step.error_contains}" but got: ${msg}`
+        result.error = `Expected error to contain "${step.error_contains}" but got: ${masked}`
       }
     } finally {
       db?.close()
@@ -2348,6 +2353,21 @@ export class TestExecutor {
    * ID with hyphens turned into underscores, so `outputs.create_account`
    * finds block "create-account".
    */
+  /**
+   * Replace every revealed output value found in `text` with `<redacted>`.
+   * Used before storing an error message that may quote a prop rendered with
+   * revealOutputs (e.g. a resolved path).
+   */
+  private maskRevealedValues(text: string): string {
+    let masked = text
+    for (const outputs of Object.values(this.templateOutputs(revealOutputs))) {
+      for (const value of Object.values(outputs)) {
+        if (value) masked = masked.split(value).join("<redacted>")
+      }
+    }
+    return masked
+  }
+
   private templateOutputs(
     outputValues: (values: OutputValues) => Record<string, string> = revealOutputs,
   ): Record<string, Record<string, string>> {
