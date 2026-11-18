@@ -41,20 +41,25 @@ describe("installIpcSenderCheck", () => {
     const ipc = {
       handle: (channel: string, listener: Listener) => listeners.set(channel, listener),
     }
+    // Its listeners take any event, so the tests can call them with stand-ins
+    // rather than whole IpcMainInvokeEvents, which Pick<IpcMain> won't accept.
     installIpcSenderCheck(ipc as unknown as Pick<IpcMain, "handle">, isTrusted)
     return { ipc, listeners }
   }
 
   it("runs the handler for a trusted sender and refuses the rest without running it", async () => {
-    const { ipc, listeners } = install((e) => (e as unknown as { trusted: boolean }).trusted)
+    // Stand-ins for a sender's event: only their identity matters to isTrusted.
+    const trusted = {}
+    const untrusted = {}
+    const { ipc, listeners } = install((e) => e === trusted)
     let calls = 0
     ipc.handle("exec:run", (_e: unknown, arg: unknown) => {
       calls++
       return arg
     })
 
-    expect(await listeners.get("exec:run")!({ trusted: true }, "ok")).toBe("ok")
-    expect(() => listeners.get("exec:run")!({ trusted: false })).toThrow(
+    expect(await listeners.get("exec:run")!(trusted, "ok")).toBe("ok")
+    expect(() => listeners.get("exec:run")!(untrusted)).toThrow(
       "exec:run can only be called from the app's window",
     )
     expect(calls).toBe(1)

@@ -2,6 +2,7 @@ import { useState } from "react"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi } from "@/test/test-api"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import {
   DropdownMenu,
@@ -13,23 +14,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { FIND_ACTIVE_HIGHLIGHT, FIND_MATCH_HIGHLIGHT } from "@/lib/findInPage"
 import { FIND_BAR_WAITS_ATTRIBUTE, FindBar, type FindBarHandle } from "../FindBar"
 
-type Listener = (payload: unknown) => void
-
-/** A preload api whose `on` records listeners, so a test can emit menu events. */
+/** A preload api that sends the Edit menu's find events when a test says so. */
 function makeApi() {
-  const listeners = new Map<string, Set<Listener>>()
-  const on = vi.fn((channel: string, cb: Listener) => {
-    if (!listeners.has(channel)) listeners.set(channel, new Set())
-    listeners.get(channel)!.add(cb)
-    return () => listeners.get(channel)?.delete(cb)
-  })
-  const api = { invoke: vi.fn(), on } as unknown as Parameters<typeof ApiProvider>[0]["api"]
+  const testApi = makeTestApi()
   const find = async (action: "open" | "next" | "previous") => {
     await act(async () => {
-      listeners.get("menu:find")?.forEach((cb) => cb({ action }))
+      testApi.emit("menu:find", { action })
     })
   }
-  return { api, find }
+  return { api: testApi.api, find }
 }
 
 /** Stand-ins for the CSS Custom Highlight API, which jsdom lacks. */
@@ -37,6 +30,7 @@ class FakeHighlight extends Set<Range> {
   priority = 0
 }
 let registry: Map<string, FakeHighlight>
+// jsdom has no CSS.highlights to install a registry in; this view lets the tests add and remove one.
 const cssWithHighlights = CSS as unknown as { highlights?: Map<string, FakeHighlight> }
 
 function renderPage(api: ReturnType<typeof makeApi>["api"]) {

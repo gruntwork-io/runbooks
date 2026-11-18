@@ -2,7 +2,8 @@ import { describe, it, expect, vi, afterEach } from "vitest"
 import type { ReactNode } from "react"
 import { render, screen, waitFor, act } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Handlers, type Result, type TestApi } from "@/test/test-api"
 
 // detectCredentials={false} against the REAL useGitAuth hook: the block must
 // not read as if it searched for credentials and failed. No login suggestion,
@@ -20,22 +21,22 @@ const NEUTRAL_HINT = "This runbook doesn't use existing credentials — sign in 
 
 // Both CLIs installed, and each has a credential for its SaaS host — exactly
 // the setup where the old copy told a logged-in user to log in again.
-const CLI_STATUS = {
+const CLI_STATUS: Result<"vcs:cli-status"> = {
   gh: { installed: true, version: "2.40.1", meetsFloor: true },
   glab: { installed: true, version: "1.50.0", meetsFloor: true },
 }
-const GITLAB_HOSTS = {
+const GITLAB_HOSTS: Result<"gitlab:enumerate-hosts"> = {
   hosts: [
     { host: "gitlab.com", sources: ["glab"], hasCredential: true },
     { host: "git.corp.example", sources: ["recent"], hasCredential: false },
   ],
   defaultHost: "gitlab.com",
 }
-const GITHUB_COM_ONLY = {
+const GITHUB_COM_ONLY: Result<"github:enumerate-hosts"> = {
   hosts: [{ host: "github.com", sources: ["gh"], hasCredential: true }],
   defaultHost: "github.com",
 }
-const GITHUB_WITH_GHES = {
+const GITHUB_WITH_GHES: Result<"github:enumerate-hosts"> = {
   hosts: [
     { host: "github.com", sources: ["gh"], hasCredential: true },
     { host: "ghes.corp", sources: ["gh"], hasCredential: true },
@@ -43,22 +44,25 @@ const GITHUB_WITH_GHES = {
   defaultHost: "github.com",
 }
 
-let currentApi: RunbooksAPI
+let currentApi: TestApi
 
-function installApi(overrides: Record<string, unknown> = {}) {
-  const invoke = vi.fn(async (channel: string) => {
-    if (channel in overrides) return overrides[channel]
-    if (channel === "vcs:cli-status") return CLI_STATUS
-    return { found: false }
+/** A machine where detection, when it runs, finds no credential, plus `overrides`. */
+function installApi(overrides: Handlers = {}) {
+  currentApi = makeTestApi({
+    "github:env-credentials": () => ({ found: false }),
+    "github:cli-credentials": () => ({ found: false }),
+    "gitlab:env-credentials": () => ({ found: false }),
+    "gitlab:cli-credentials": () => ({ found: false }),
+    "vcs:cli-status": () => CLI_STATUS,
+    ...overrides,
   })
-  currentApi = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
-  return invoke
+  return currentApi
 }
 
 function renderWithApi(ui: ReactNode) {
   return render(
     <TestWrapper>
-      <ApiProvider api={currentApi}>{ui}</ApiProvider>
+      <ApiProvider api={currentApi.api}>{ui}</ApiProvider>
     </TestWrapper>,
   )
 }
@@ -68,13 +72,13 @@ function renderWithApi(ui: ReactNode) {
  * so a negative assertion can't pass just because the old CLI-driven hint
  * hadn't rendered yet.
  */
-async function settleCliStatus(invoke: ReturnType<typeof installApi>) {
-  await waitFor(() => expect(invoke).toHaveBeenCalledWith("vcs:cli-status"))
+async function settleCliStatus(testApi: TestApi) {
+  await waitFor(() => expect(testApi.invoke).toHaveBeenCalledWith("vcs:cli-status"))
   await act(async () => {})
 }
 
-const credentialCalls = (invoke: ReturnType<typeof installApi>) =>
-  invoke.mock.calls.filter(([channel]) => channel.endsWith("-credentials"))
+const credentialCalls = (testApi: TestApi) =>
+  testApi.calls.filter(({ channel }) => channel.endsWith("-credentials"))
 
 function expectNoDetectionAffordances(label: "GitHub" | "GitLab") {
   expect(screen.getByTestId("detection-hint")).toHaveTextContent(NEUTRAL_HINT)
@@ -91,13 +95,13 @@ afterEach(() => {
 
 describe("GitAuth — detectCredentials={false} (real hook)", () => {
   it("GitLab: neutral hint, plain host picker, no Reload or auto-auth FAQ", async () => {
-    const invoke = installApi({ "gitlab:enumerate-hosts": GITLAB_HOSTS })
+    const testApi = installApi({ "gitlab:enumerate-hosts": () => GITLAB_HOSTS })
 
     renderWithApi(<GitAuth id="git" provider="gitlab" detectCredentials={false} />)
     await screen.findByPlaceholderText(/GitLab access token/i)
     const select = await screen.findByRole("combobox")
     await waitFor(() => expect(select).toHaveValue("gitlab.com"))
-    await settleCliStatus(invoke)
+    await settleCliStatus(testApi)
 
     expectNoDetectionAffordances("GitLab")
     // The host choice still matters, so the picker stays — as a plain list.
@@ -106,31 +110,31 @@ describe("GitAuth — detectCredentials={false} (real hook)", () => {
     expect(screen.queryByTestId("host-sources-git")).toBeNull()
     expect(screen.queryByTestId("host-credential-git")).toBeNull()
     expect(screen.queryByTestId("host-no-credential-git")).toBeNull()
-    expect(credentialCalls(invoke)).toEqual([])
+    expect(credentialCalls(testApi)).toEqual([])
   })
 
   it("GitHub (github.com only, no picker): neutral hint, no Check again, OAuth without the auto-auth FAQ", async () => {
-    const invoke = installApi({ "github:enumerate-hosts": GITHUB_COM_ONLY })
+    const testApi = installApi({ "github:enumerate-hosts": () => GITHUB_COM_ONLY })
 
     renderWithApi(<GitAuth id="git" detectCredentials={false} />)
     await screen.findByText(/redirected to authorize/i)
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("github:enumerate-hosts", {}))
-    await settleCliStatus(invoke)
+    await waitFor(() => expect(testApi.invoke).toHaveBeenCalledWith("github:enumerate-hosts", {}))
+    await settleCliStatus(testApi)
 
     expect(screen.queryByRole("combobox")).toBeNull()
     expectNoDetectionAffordances("GitHub")
     // The OAuth pane's other FAQ is about the sign-in itself, so it stays.
     expect(screen.getByText("What permissions does this grant?")).toBeInTheDocument()
-    expect(credentialCalls(invoke)).toEqual([])
+    expect(credentialCalls(testApi)).toEqual([])
   })
 
   it("GitHub with an Enterprise host: the picker has no Reload or credential annotations", async () => {
-    const invoke = installApi({ "github:enumerate-hosts": GITHUB_WITH_GHES })
+    const testApi = installApi({ "github:enumerate-hosts": () => GITHUB_WITH_GHES })
 
     renderWithApi(<GitAuth id="git" detectCredentials={false} />)
     const select = await screen.findByRole("combobox")
     expect(screen.getByRole("option", { name: "ghes.corp" })).toBeInTheDocument()
-    await settleCliStatus(invoke)
+    await settleCliStatus(testApi)
 
     expect(select).toHaveValue("github.com")
     expectNoDetectionAffordances("GitHub")
@@ -139,33 +143,33 @@ describe("GitAuth — detectCredentials={false} (real hook)", () => {
   })
 
   it("GitHub pinned to an Enterprise host without a client ID: no Check again, and the OAuth tab points at a token only", async () => {
-    const invoke = installApi()
+    const testApi = installApi()
 
     renderWithApi(<GitAuth id="git" host="ghes.corp" detectCredentials={false} />)
     await screen.findByText(
       /Sign-in with GitHub isn't set up for ghes\.corp\. Use a personal access token instead\./,
     )
-    await settleCliStatus(invoke)
+    await settleCliStatus(testApi)
 
     expectNoDetectionAffordances("GitHub")
-    expect(credentialCalls(invoke)).toEqual([])
+    expect(credentialCalls(testApi)).toEqual([])
   })
 
   it.each([
     ["GitHubAuth", "GitHub", () => <GitHubAuth id="git" detectCredentials={false} />],
     ["GitLabAuth", "GitLab", () => <GitLabAuth id="git" detectCredentials={false} />],
   ] as const)("<%s> inherits it", async (_name, label, ui) => {
-    const invoke = installApi({
-      "github:enumerate-hosts": GITHUB_COM_ONLY,
-      "gitlab:enumerate-hosts": GITLAB_HOSTS,
+    const testApi = installApi({
+      "github:enumerate-hosts": () => GITHUB_COM_ONLY,
+      "gitlab:enumerate-hosts": () => GITLAB_HOSTS,
     })
 
     renderWithApi(ui())
     await screen.findByTestId("detection-hint")
-    await settleCliStatus(invoke)
+    await settleCliStatus(testApi)
 
     expectNoDetectionAffordances(label)
-    expect(credentialCalls(invoke)).toEqual([])
+    expect(credentialCalls(testApi)).toEqual([])
   })
 })
 
@@ -174,7 +178,7 @@ describe("GitAuth — detectCredentials={false} (real hook)", () => {
 // pass vacuously.
 describe("GitAuth — default detection finds nothing (control)", () => {
   it("GitHub: login hint, Check again and the auto-auth FAQ", async () => {
-    installApi({ "github:enumerate-hosts": GITHUB_COM_ONLY })
+    installApi({ "github:enumerate-hosts": () => GITHUB_COM_ONLY })
 
     renderWithApi(<GitAuth id="git" />)
 
@@ -184,7 +188,7 @@ describe("GitAuth — default detection finds nothing (control)", () => {
   })
 
   it("GitLab: login hint, Reload, host annotations and the auto-auth FAQ", async () => {
-    installApi({ "gitlab:enumerate-hosts": GITLAB_HOSTS })
+    installApi({ "gitlab:enumerate-hosts": () => GITLAB_HOSTS })
 
     renderWithApi(<GitAuth id="git" provider="gitlab" />)
 

@@ -150,6 +150,7 @@ describe("resolveTemplateReferences", () => {
 
   it("should return empty/null-ish text unchanged", () => {
     expect(resolveTemplateReferences("", ctx)).toBe("")
+    // Untyped callers can pass null or undefined; the casts get them past the string type.
     expect(resolveTemplateReferences(null as unknown as string, ctx)).toBe(null)
     expect(resolveTemplateReferences(undefined as unknown as string, ctx)).toBe(undefined)
   })

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
+import type { EventChannel } from "../../../electron/shared/channels.ts"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { InstructionModeProvider } from "@/contexts/InstructionModeContext"
 import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
@@ -85,7 +87,6 @@ function makeApi({
   replacesFinished = {},
   pageRunbook,
 }: ApiOptions = {}) {
-  const listeners = new Map<string, Set<(payload: unknown) => void>>()
   let current: RunbookFixture | null = null
   // Like main, only the load that resumes a session says it was resumed, and
   // only the load that replaces a finished one names it.
@@ -93,84 +94,72 @@ function makeApi({
   // How many times each runbook was given a new session (see newSession).
   const sessionCounts = new Map<string, number>()
 
-  const invoke = vi.fn(
-    async (channel: string, params?: { path?: string; remoteSource?: string; name?: string }) => {
-      switch (channel) {
-        case "native:get-cli-config":
-          return pageRunbook ?? {}
-        case "session:rename":
-          return { name: params?.name }
-        case "session:list":
-          return { sessions: [] }
-        case "runbook:get": {
-          // A runbook's directory or its runbook.mdx, like resolveRunbookPath
-          const fixture = params?.path
-            ? (RUNBOOKS[params.path] ?? Object.values(RUNBOOKS).find((r) => r.path === params.path))
-            : undefined
-          if (!fixture) throw new Error(NO_RUNBOOK_MESSAGE(params?.path ?? ""))
-          current = fixture
-          const sessionCount = sessionCounts.get(fixture.path) ?? 0
-          const resume = sessionCount === 0 ? resumed[fixture.path] : undefined
-          const firstLoad = !loadedOnce.has(fixture.path)
-          loadedOnce.add(fixture.path)
-          const resumes = resume !== undefined && firstLoad
-          const replaced =
-            sessionCount === 0 && firstLoad ? replacesFinished[fixture.path] : undefined
-          return {
-            path: fixture.path,
-            content: fixture.content,
-            contentHash: fixture.path,
-            language: "mdx",
-            size: fixture.content.length,
-            isWatchMode: watchMode,
-            warnings: [],
-            remoteSource: params?.remoteSource,
-            sessionId: `session-${sessionCount}`,
-            sessionName: SESSION_NAMES[sessionCount],
-            sessionDir: `/sessions/dirs/session-${sessionCount}`,
-            ...(resumes ? { sessionResumedFrom: resume.from } : {}),
-            ...(resume?.finishedAt !== undefined ? { sessionFinishedAt: resume.finishedAt } : {}),
-            ...(replaced ? { finishedSession: replaced } : {}),
-            blockStates:
-              resume !== undefined && resume.history !== false
-                ? [{ blockId: "region", kind: "inputs", payload: { values: {}, submitted: false } }]
-                : [],
-          }
-        }
-        case "generated-files:check": {
-          const fileCount = current ? (generatedFiles[current.path] ?? 0) : 0
-          return {
-            hasFiles: fileCount > 0,
-            fileCount,
-            absoluteOutputPath: `${current?.path ?? ""}/generated`,
-            relativeOutputPath: "generated",
-          }
-        }
-        case "generated-files:delete": {
-          if (deleteFails) throw new Error("EACCES: permission denied")
-          const deletedCount = current ? (generatedFiles[current.path] ?? 0) : 0
-          return {
-            ok: true,
-            success: true,
-            deletedCount,
-            message: `Successfully deleted ${deletedCount} file(s) from ${current?.path ?? ""}/generated`,
-          }
-        }
-        default:
-          return undefined
+  const testApi = makeTestApi({
+    "native:get-cli-config": () => pageRunbook ?? {},
+    "native:set-theme": () => ({ ok: true }),
+    // A home directory none of the fixtures' paths are in, so they show in full.
+    "native:get-home-dir": () => ({ path: "/home/tester" }),
+    "native:open-runbook-dialog": () => ({ ok: true }),
+    "native:reset-session": () => ({ ok: true }),
+    "session:rename": ({ name }) => ({ name }),
+    "session:list": () => ({ sessions: [] }),
+    "runbook:get": ({ path, remoteSource }) => {
+      // A runbook's directory or its runbook.mdx, like resolveRunbookPath
+      const fixture = RUNBOOKS[path] ?? Object.values(RUNBOOKS).find((r) => r.path === path)
+      if (!fixture) throw new Error(NO_RUNBOOK_MESSAGE(path))
+      current = fixture
+      const sessionCount = sessionCounts.get(fixture.path) ?? 0
+      const resume = sessionCount === 0 ? resumed[fixture.path] : undefined
+      const firstLoad = !loadedOnce.has(fixture.path)
+      loadedOnce.add(fixture.path)
+      const resumes = resume !== undefined && firstLoad
+      const replaced = sessionCount === 0 && firstLoad ? replacesFinished[fixture.path] : undefined
+      return {
+        path: fixture.path,
+        content: fixture.content,
+        contentHash: fixture.path,
+        language: "mdx",
+        size: fixture.content.length,
+        isWatchMode: watchMode,
+        warnings: [],
+        ...(remoteSource !== undefined ? { remoteSource } : {}),
+        assetHost: "rtest",
+        sessionId: `session-${sessionCount}`,
+        sessionName: SESSION_NAMES[sessionCount] ?? `session-${sessionCount}`,
+        sessionDir: `/sessions/dirs/session-${sessionCount}`,
+        ...(resumes ? { sessionResumedFrom: resume.from } : {}),
+        ...(resume?.finishedAt !== undefined ? { sessionFinishedAt: resume.finishedAt } : {}),
+        ...(replaced ? { finishedSession: replaced } : {}),
+        blockStates:
+          resume !== undefined && resume.history !== false
+            ? [{ blockId: "region", kind: "inputs", payload: { values: {}, submitted: false } }]
+            : [],
       }
     },
-  )
-
-  const on = vi.fn((channel: string, cb: (payload: unknown) => void) => {
-    if (!listeners.has(channel)) listeners.set(channel, new Set())
-    listeners.get(channel)!.add(cb)
-    return () => listeners.get(channel)?.delete(cb)
+    "generated-files:check": () => {
+      const fileCount = current ? (generatedFiles[current.path] ?? 0) : 0
+      return {
+        hasFiles: fileCount > 0,
+        fileCount,
+        absoluteOutputPath: `${current?.path ?? ""}/generated`,
+        relativeOutputPath: "generated",
+      }
+    },
+    "generated-files:delete": () => {
+      if (deleteFails) throw new Error("EACCES: permission denied")
+      const deletedCount = current ? (generatedFiles[current.path] ?? 0) : 0
+      return {
+        success: true,
+        deletedCount,
+        message: `Successfully deleted ${deletedCount} file(s) from ${current?.path ?? ""}/generated`,
+      }
+    },
   })
 
-  const emit = async (channel: string, payload?: unknown) => {
+  /** Sends main's event `channel` to the renderer. */
+  async function emit<E extends EventChannel>(...event: Parameters<typeof testApi.emit<E>>) {
     await act(async () => {
-      listeners.get(channel)?.forEach((cb) => cb(payload))
+      testApi.emit(...event)
     })
   }
 
@@ -184,8 +173,7 @@ function makeApi({
     await emit("file:open-runbook", { path: current.path })
   }
 
-  const api = { invoke, on } as unknown as Parameters<typeof ApiProvider>[0]["api"]
-  return { api, invoke, emit, newSession }
+  return { testApi, api: testApi.api, emit, newSession }
 }
 
 /** Stands in for a block of the open runbook writing to the shared logs store. */
@@ -204,13 +192,8 @@ function LogSeeder() {
   )
 }
 
-const originalApi = window.api
-
 function renderApp(options?: ApiOptions) {
   const mock = makeApi(options)
-  // useApiGeneratedFilesDelete still calls window.api directly; point it at
-  // the same mock the ApiProvider serves.
-  window.api = mock.api
   render(
     <ApiProvider api={mock.api}>
       <ThemeProvider>
@@ -232,12 +215,8 @@ function renderApp(options?: ApiOptions) {
   return mock
 }
 
-function callsTo(invoke: ReturnType<typeof makeApi>["invoke"], channel: string) {
-  return invoke.mock.calls.filter(([c]) => c === channel)
-}
-
-function runbookGetCallsFor(invoke: ReturnType<typeof makeApi>["invoke"], path: string) {
-  return callsTo(invoke, "runbook:get").filter(([, params]) => params?.path === path).length
+function runbookGetCallsFor(testApi: TestApi, path: string) {
+  return testApi.callsTo("runbook:get").filter((params) => params.path === path).length
 }
 
 async function openRunbook(emit: ReturnType<typeof makeApi>["emit"], dir: string, heading: string) {
@@ -277,17 +256,16 @@ async function isLogDownloadEnabled(emit: ReturnType<typeof makeApi>["emit"]) {
 describe("App runbook switching", () => {
   beforeEach(() => localStorage.clear())
   afterEach(() => {
-    window.api = originalApi
     Reflect.deleteProperty(navigator, "clipboard")
   })
 
   it("resets per-runbook state when a different runbook is opened without closing the first", async () => {
-    const { invoke, emit } = renderApp()
+    const { testApi, emit } = renderApp()
     await openRunbook(emit, "/work/a", "Runbook A")
     await trustRunbook()
     fireEvent.click(screen.getByRole("button", { name: "Seed logs" }))
     expect(await isLogDownloadEnabled(emit)).toBe(true)
-    const checksBefore = callsTo(invoke, "generated-files:check").length
+    const checksBefore = testApi.callsTo("generated-files:check").length
 
     await openRunbook(emit, "/work/b", "Runbook B")
 
@@ -297,20 +275,20 @@ describe("App runbook switching", () => {
     expect(await isLogDownloadEnabled(emit)).toBe(false)
     // The generated-files check runs again for B's session.
     await waitFor(() =>
-      expect(callsTo(invoke, "generated-files:check").length).toBeGreaterThan(checksBefore),
+      expect(testApi.callsTo("generated-files:check").length).toBeGreaterThan(checksBefore),
     )
-    expect(callsTo(invoke, "generated-files:check").at(-1)?.[1]).toEqual({
+    expect(testApi.callsTo("generated-files:check").at(-1)).toEqual({
       sessionKey: "/work/b/runbook.mdx\nsession-0",
     })
   })
 
   it("resets per-runbook state when the open runbook starts a new session", async () => {
-    const { invoke, emit, newSession } = renderApp()
+    const { testApi, emit, newSession } = renderApp()
     await openRunbook(emit, "/work/a", "Runbook A")
     await trustRunbook()
     fireEvent.click(screen.getByRole("button", { name: "Seed logs" }))
     expect(await isLogDownloadEnabled(emit)).toBe(true)
-    const checksBefore = callsTo(invoke, "generated-files:check").length
+    const checksBefore = testApi.callsTo("generated-files:check").length
 
     await newSession()
 
@@ -320,9 +298,9 @@ describe("App runbook switching", () => {
     expect(await isLogDownloadEnabled(emit)).toBe(false)
     // The new session has its own generated-files directory to check.
     await waitFor(() =>
-      expect(callsTo(invoke, "generated-files:check").length).toBeGreaterThan(checksBefore),
+      expect(testApi.callsTo("generated-files:check").length).toBeGreaterThan(checksBefore),
     )
-    expect(callsTo(invoke, "generated-files:check").at(-1)?.[1]).toEqual({
+    expect(testApi.callsTo("generated-files:check").at(-1)).toEqual({
       sessionKey: "/work/a/runbook.mdx\nsession-1",
     })
   })
@@ -347,13 +325,13 @@ describe("App runbook switching", () => {
   })
 
   it("renames the session from the header, and shows the new name there and in the window title", async () => {
-    const { invoke, emit, newSession } = renderApp()
+    const { testApi, emit, newSession } = renderApp()
     await openRunbook(emit, "/work/a", "Runbook A")
 
     fireEvent.click(screen.getByTestId("session-name"))
     await userEvent.keyboard("prod-deploy{Enter}")
 
-    expect(invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
+    expect(testApi.invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
     await waitFor(() => expect(screen.getByTestId("session-name")).toHaveTextContent("prod-deploy"))
     expect(document.title).toBe("prod-deploy - Gruntwork Runbooks")
 
@@ -392,7 +370,7 @@ describe("App runbook switching", () => {
   })
 
   it("shows the saved sessions from the header menu and the native menu, with no runbook open too", async () => {
-    const { emit, invoke } = renderApp()
+    const { emit, testApi } = renderApp()
 
     await emit("menu:switch-session")
     expect(await screen.findByRole("dialog", { name: "Sessions" })).toBeInTheDocument()
@@ -406,7 +384,7 @@ describe("App runbook switching", () => {
     await waitFor(() =>
       expect(screen.getByRole("searchbox", { name: "Filter sessions" })).toHaveFocus(),
     )
-    expect(invoke.mock.calls.filter(([channel]) => channel === "session:list")).toHaveLength(2)
+    expect(testApi.callsTo("session:list")).toHaveLength(2)
   })
 
   it("forgets a rename asked for while no runbook was open", async () => {
@@ -443,23 +421,21 @@ describe("App runbook switching", () => {
     expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument()
   })
 
-  it.each([
+  it.each<[string, "native:reset-session" | "native:close-runbook", string]>([
     ["Reset Session", "native:reset-session", "Failed to reset the session:"],
     ["Close Runbook", "native:close-runbook", "Failed to close the runbook:"],
   ])("asks main to %s from the header menu, and logs a failure", async (item, channel, logged) => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {})
-    const { emit, invoke } = renderApp()
+    const { emit, testApi } = renderApp()
     await openRunbook(emit, "/work/a", "Runbook A")
-    const fallback = invoke.getMockImplementation()!
-    invoke.mockImplementation(async (c: string, params?: Record<string, string>) => {
-      if (c === channel) throw new Error("main is busy")
-      return fallback(c, params)
+    testApi.handle(channel, () => {
+      throw new Error("main is busy")
     })
 
     await emit("menu:preferences")
     await userEvent.click(await screen.findByRole("menuitem", { name: item }))
 
-    expect(invoke).toHaveBeenCalledWith(channel)
+    expect(testApi.invoke).toHaveBeenCalledWith(channel)
     await waitFor(() => expect(errors).toHaveBeenCalledWith(logged, expect.any(Error)))
     errors.mockRestore()
   })
@@ -545,21 +521,21 @@ describe("App runbook switching", () => {
   })
 
   it("keeps per-runbook state when the same runbook is opened again", async () => {
-    const { invoke, emit } = renderApp()
+    const { testApi, emit } = renderApp()
     await openRunbook(emit, "/work/a", "Runbook A")
     await trustRunbook()
     fireEvent.click(screen.getByRole("button", { name: "Seed logs" }))
-    const checksBefore = callsTo(invoke, "generated-files:check").length
+    const checksBefore = testApi.callsTo("generated-files:check").length
 
     await emit("file:open-runbook", { path: "/work/a" })
 
     // The repeat open re-reads the runbook...
-    await waitFor(() => expect(runbookGetCallsFor(invoke, "/work/a")).toBe(2))
+    await waitFor(() => expect(runbookGetCallsFor(testApi, "/work/a")).toBe(2))
     expect(screen.getByRole("heading", { name: "Runbook A" })).toBeInTheDocument()
     // ...but it is the same runbook, so its state survives.
     expect(isTrustPending()).toBe(false)
     expect(await isLogDownloadEnabled(emit)).toBe(true)
-    expect(callsTo(invoke, "generated-files:check").length).toBe(checksBefore)
+    expect(testApi.callsTo("generated-files:check").length).toBe(checksBefore)
   })
 
   it("checks generated files for each runbook, even after the alert was dismissed in the previous one", async () => {
@@ -591,7 +567,7 @@ describe("App runbook switching", () => {
   ])(
     "prompts for the next runbook after a delete that $outcome in the previous one",
     async ({ deleteFails, resultTitle }) => {
-      const { invoke, emit } = renderApp({
+      const { testApi, emit } = renderApp({
         generatedFiles: { "/work/a/runbook.mdx": 3, "/work/b/runbook.mdx": 1 },
         deleteFails,
       })
@@ -599,7 +575,7 @@ describe("App runbook switching", () => {
       await openRunbook(emit, "/work/a", "Runbook A")
       expect(await screen.findByText(/There are 3 files/)).toBeInTheDocument()
       fireEvent.click(screen.getByRole("button", { name: "Delete Files" }))
-      await waitFor(() => expect(callsTo(invoke, "generated-files:delete")).toHaveLength(1))
+      await waitFor(() => expect(testApi.callsTo("generated-files:delete")).toHaveLength(1))
       if (deleteFails) {
         // A failed delete keeps the dialog open on its error until closed.
         expect(await screen.findByText(resultTitle)).toBeInTheDocument()
@@ -618,20 +594,16 @@ describe("App runbook switching", () => {
 })
 
 describe("App page loads", () => {
-  afterEach(() => {
-    window.api = originalApi
-  })
-
   it("opens the runbook the app was launched with", async () => {
-    const { invoke } = renderApp({ pageRunbook: { runbookPath: "/work/a" } })
+    const { testApi } = renderApp({ pageRunbook: { runbookPath: "/work/a" } })
 
     expect(await screen.findByRole("heading", { name: "Runbook A" })).toBeInTheDocument()
-    expect(callsTo(invoke, "runbook:get")).toHaveLength(1)
-    expect(callsTo(invoke, "runbook:get")[0]?.[1]).not.toHaveProperty("reload")
+    expect(testApi.callsTo("runbook:get")).toHaveLength(1)
+    expect(testApi.callsTo("runbook:get")[0]).not.toHaveProperty("reload")
   })
 
   it("after View > Reload, reloads the runbook the page showed, remote source included", async () => {
-    const { invoke, emit } = renderApp({
+    const { testApi, emit } = renderApp({
       pageRunbook: {
         runbookPath: "/work/b/runbook.mdx",
         remoteSource: "https://github.com/acme/runbooks//b",
@@ -640,9 +612,9 @@ describe("App page loads", () => {
     })
 
     expect(await screen.findByRole("heading", { name: "Runbook B" })).toBeInTheDocument()
-    expect(callsTo(invoke, "runbook:get")).toHaveLength(1)
+    expect(testApi.callsTo("runbook:get")).toHaveLength(1)
     // A reload, which keeps a finished session where an open replaces it.
-    expect(callsTo(invoke, "runbook:get")[0]?.[1]).toMatchObject({
+    expect(testApi.callsTo("runbook:get")[0]).toMatchObject({
       path: "/work/b/runbook.mdx",
       remoteSource: "https://github.com/acme/runbooks//b",
       reload: true,
@@ -650,8 +622,8 @@ describe("App page loads", () => {
 
     // An open after it is an open again.
     await openRunbook(emit, "/work/a", "Runbook A")
-    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).not.toHaveProperty("reload")
-    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]?.remoteSource).toBeUndefined()
+    expect(testApi.callsTo("runbook:get").at(-1)).not.toHaveProperty("reload")
+    expect(testApi.callsTo("runbook:get").at(-1)?.remoteSource).toBeUndefined()
   })
 })
 
@@ -659,9 +631,6 @@ describe("App resumed sessions", () => {
   const TWO_DAYS_AGO = new Date(Date.now() - 2 * 24 * 60 * 60_000 - 60_000).toISOString()
 
   beforeEach(() => localStorage.clear())
-  afterEach(() => {
-    window.api = originalApi
-  })
 
   it("says the runbook resumed a saved session and when it was last used, until dismissed", async () => {
     const { emit } = renderApp({ resumed: { "/work/a/runbook.mdx": { from: TWO_DAYS_AGO } } })
@@ -681,14 +650,14 @@ describe("App resumed sessions", () => {
   })
 
   it("starts a new session from the notice", async () => {
-    const { invoke, emit, newSession } = renderApp({
+    const { testApi, emit, newSession } = renderApp({
       resumed: { "/work/a/runbook.mdx": { from: TWO_DAYS_AGO } },
     })
     await openRunbook(emit, "/work/a", "Runbook A")
 
     fireEvent.click(await screen.findByRole("button", { name: "Start new session" }))
 
-    expect(callsTo(invoke, "native:reset-session")).toHaveLength(1)
+    expect(testApi.callsTo("native:reset-session")).toHaveLength(1)
     expect(screen.queryByText(/Resumed session/)).not.toBeInTheDocument()
     // Main answers by loading the runbook in a new session.
     await newSession()
@@ -738,9 +707,6 @@ describe("App sessions replacing a finished one", () => {
   }
 
   beforeEach(() => localStorage.clear())
-  afterEach(() => {
-    window.api = originalApi
-  })
 
   it("says the runbook opened in a new session because it was finished in the last one, until dismissed", async () => {
     const { emit } = renderApp({ replacesFinished: REPLACES_FINISHED })
@@ -765,13 +731,13 @@ describe("App sessions replacing a finished one", () => {
   })
 
   it("opens the saved sessions from the notice", async () => {
-    const { emit, invoke } = renderApp({ replacesFinished: REPLACES_FINISHED })
+    const { emit, testApi } = renderApp({ replacesFinished: REPLACES_FINISHED })
     await openRunbook(emit, "/work/a", "Runbook A")
 
     fireEvent.click(await screen.findByRole("button", { name: "Switch session…" }))
 
     expect(await screen.findByRole("dialog", { name: "Sessions" })).toBeInTheDocument()
-    await waitFor(() => expect(callsTo(invoke, "session:list")).toHaveLength(1))
+    await waitFor(() => expect(testApi.callsTo("session:list")).toHaveLength(1))
   })
 
   it("goes away when another runbook opens", async () => {
@@ -787,9 +753,6 @@ describe("App sessions replacing a finished one", () => {
 
 describe("App runbook context", () => {
   beforeEach(() => localStorage.clear())
-  afterEach(() => {
-    window.api = originalApi
-  })
 
   it("passes the open runbook's file path down to its blocks", async () => {
     // Blocks read it from the runbook context, e.g. to name the runbook in
@@ -804,9 +767,6 @@ describe("App runbook context", () => {
 
 describe("App failed runbook opens", () => {
   beforeEach(() => localStorage.clear())
-  afterEach(() => {
-    window.api = originalApi
-  })
 
   it("reports a failed open over the runbook that is still showing", async () => {
     const { emit } = renderApp()
@@ -824,29 +784,29 @@ describe("App failed runbook opens", () => {
   })
 
   it("retries the failed path from the banner", async () => {
-    const { invoke, emit } = renderApp()
+    const { testApi, emit } = renderApp()
     await openRunbook(emit, "/work/a", "Runbook A")
     await emit("file:open-runbook", { path: "/work/empty" })
     await screen.findByText(/This folder doesn't contain a runbook\.mdx file/)
-    expect(runbookGetCallsFor(invoke, "/work/empty")).toBe(1)
+    expect(runbookGetCallsFor(testApi, "/work/empty")).toBe(1)
 
     fireEvent.click(screen.getByRole("button", { name: "Retry" }))
 
-    await waitFor(() => expect(runbookGetCallsFor(invoke, "/work/empty")).toBe(2))
+    await waitFor(() => expect(runbookGetCallsFor(testApi, "/work/empty")).toBe(2))
     expect(
       await screen.findByText(/This folder doesn't contain a runbook\.mdx file/),
     ).toBeInTheDocument()
   })
 
   it("tries again when the same failed path is opened a second time", async () => {
-    const { invoke, emit } = renderApp()
+    const { testApi, emit } = renderApp()
     await openRunbook(emit, "/work/a", "Runbook A")
     await emit("file:open-runbook", { path: "/work/empty" })
     await screen.findByText(/This folder doesn't contain a runbook\.mdx file/)
 
     await emit("file:open-runbook", { path: "/work/empty" })
 
-    await waitFor(() => expect(runbookGetCallsFor(invoke, "/work/empty")).toBe(2))
+    await waitFor(() => expect(runbookGetCallsFor(testApi, "/work/empty")).toBe(2))
   })
 
   it("hides the banner on dismiss and keeps the current runbook", async () => {
@@ -864,7 +824,7 @@ describe("App failed runbook opens", () => {
   })
 
   it("shows the full-screen error when the first open fails", async () => {
-    const { invoke, emit } = renderApp()
+    const { testApi, emit } = renderApp()
 
     await emit("file:open-runbook", { path: "/work/empty" })
 
@@ -873,48 +833,45 @@ describe("App failed runbook opens", () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Choose Another Folder" }))
-    expect(callsTo(invoke, "native:open-runbook-dialog")).toHaveLength(1)
+    expect(testApi.callsTo("native:open-runbook-dialog")).toHaveLength(1)
   })
 })
 
 describe("App watch mode", () => {
   beforeEach(() => localStorage.clear())
-  afterEach(() => {
-    window.api = originalApi
-  })
 
   /** The main process's watcher reporting a change to the runbook it watches. */
   const fileChanged = (emit: ReturnType<typeof makeApi>["emit"], path: string) =>
     emit("watch:file-change", { type: "reload", path })
 
   it("reloads the open runbook when its file changes", async () => {
-    const { invoke, emit } = renderApp({ watchMode: true })
+    const { testApi, emit } = renderApp({ watchMode: true })
     await openRunbook(emit, "/work/a", "Runbook A")
-    const callsBefore = callsTo(invoke, "runbook:get").length
+    const callsBefore = testApi.callsTo("runbook:get").length
 
     await fileChanged(emit, "/work/a/runbook.mdx")
 
-    await waitFor(() => expect(callsTo(invoke, "runbook:get").length).toBe(callsBefore + 1))
+    await waitFor(() => expect(testApi.callsTo("runbook:get").length).toBe(callsBefore + 1))
     // A reload, which keeps a finished session where an open replaces it.
-    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).toMatchObject({
+    expect(testApi.callsTo("runbook:get").at(-1)).toMatchObject({
       path: "/work/a",
       reload: true,
     })
 
     // After a later open of the same runbook, saves reload it as before.
     await emit("file:open-runbook", { path: "/work/a" })
-    await waitFor(() => expect(callsTo(invoke, "runbook:get").length).toBe(callsBefore + 2))
-    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).not.toHaveProperty("reload")
+    await waitFor(() => expect(testApi.callsTo("runbook:get").length).toBe(callsBefore + 2))
+    expect(testApi.callsTo("runbook:get").at(-1)).not.toHaveProperty("reload")
     await fileChanged(emit, "/work/a/runbook.mdx")
-    await waitFor(() => expect(callsTo(invoke, "runbook:get").length).toBe(callsBefore + 3))
-    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).toMatchObject({
+    await waitFor(() => expect(testApi.callsTo("runbook:get").length).toBe(callsBefore + 3))
+    expect(testApi.callsTo("runbook:get").at(-1)).toMatchObject({
       path: "/work/a",
       reload: true,
     })
   })
 
   it("reloads the displayed runbook, not a failed open, and keeps a dismissed error dismissed", async () => {
-    const { invoke, emit } = renderApp({ watchMode: true })
+    const { testApi, emit } = renderApp({ watchMode: true })
     await openRunbook(emit, "/work/a", "Runbook A")
     // A failed open leaves A on screen; main keeps watching A.
     await emit("file:open-runbook", { path: "/work/empty" })
@@ -923,10 +880,10 @@ describe("App watch mode", () => {
 
     await fileChanged(emit, "/work/a/runbook.mdx")
 
-    await waitFor(() => expect(runbookGetCallsFor(invoke, "/work/a/runbook.mdx")).toBe(1))
-    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).toMatchObject({ reload: true })
+    await waitFor(() => expect(runbookGetCallsFor(testApi, "/work/a/runbook.mdx")).toBe(1))
+    expect(testApi.callsTo("runbook:get").at(-1)).toMatchObject({ reload: true })
     // Every save used to re-send the failed open and raise its banner again.
-    expect(runbookGetCallsFor(invoke, "/work/empty")).toBe(1)
+    expect(runbookGetCallsFor(testApi, "/work/empty")).toBe(1)
     expect(
       screen.queryByText(/This folder doesn't contain a runbook\.mdx file/),
     ).not.toBeInTheDocument()
@@ -934,13 +891,13 @@ describe("App watch mode", () => {
 
     // The request is now the displayed runbook again, so later saves reload it.
     await fileChanged(emit, "/work/a/runbook.mdx")
-    await waitFor(() => expect(runbookGetCallsFor(invoke, "/work/a/runbook.mdx")).toBe(2))
-    expect(runbookGetCallsFor(invoke, "/work/empty")).toBe(1)
-    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).toMatchObject({ reload: true })
+    await waitFor(() => expect(runbookGetCallsFor(testApi, "/work/a/runbook.mdx")).toBe(2))
+    expect(runbookGetCallsFor(testApi, "/work/empty")).toBe(1)
+    expect(testApi.callsTo("runbook:get").at(-1)).toMatchObject({ reload: true })
 
     // An open after them is an open again (the first was the test's own).
     await emit("file:open-runbook", { path: "/work/a" })
-    await waitFor(() => expect(runbookGetCallsFor(invoke, "/work/a")).toBe(2))
-    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).not.toHaveProperty("reload")
+    await waitFor(() => expect(runbookGetCallsFor(testApi, "/work/a")).toBe(2))
+    expect(testApi.callsTo("runbook:get").at(-1)).not.toHaveProperty("reload")
   })
 })

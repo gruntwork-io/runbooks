@@ -8,7 +8,23 @@
 // Import from the canonical src/types.ts so channels.ts and the backend
 // handlers share the same contract. Re-exported so consumers can import
 // these types from channels.ts directly.
-import type { ExecRequest, ScriptFileChange, Section, SessionMetadata } from "../../src/types.ts"
+import type {
+  ExecRequest,
+  Executable,
+  FileData,
+  FileTreeNode,
+  FilesCapturedEvent,
+  GeneratedFilesCheckResponse,
+  GeneratedFilesDeleteResponse,
+  HeavyDir,
+  RenderInlineRequest,
+  RenderRequest,
+  WorkspaceChangesResponse,
+  WorkspaceTreeResponse,
+  ScriptFileChange,
+  Section,
+  SessionMetadata,
+} from "../../src/types.ts"
 export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
@@ -71,6 +87,14 @@ export type SessionSwitchResult =
   /** Nothing was done, for `error`, a sentence fit to show the user. */
   | { status: "failed"; error: string }
 
+/**
+ * What an invoke resolves to, in place of its result, when a newer invoke of
+ * the same channel overtook it. useIpc ignores it: the newer call drives the UI.
+ */
+export interface Superseded {
+  superseded: true
+}
+
 // ---------------------------------------------------------------------------
 // Invoke channels (request/response, replaces REST GET/POST/DELETE)
 // ---------------------------------------------------------------------------
@@ -100,24 +124,26 @@ export interface IpcChannelMap {
      * again starts a new session in place of a finished one.
      */
     params: { path: string; watchMode?: boolean; remoteSource?: string; reload?: boolean }
-    result: {
-      path: string
-      content: string
-      contentHash: string
-      language: string
-      size: number
-      isWatchMode?: boolean
-      warnings?: string[]
-      remoteSource?: string
-      assetHost: string
-      sessionId: string
-      sessionName: string
-      sessionDir: string
-      sessionResumedFrom?: string
-      sessionFinishedAt?: string
-      finishedSession?: { name: string; finishedAt: string }
-      blockStates: SavedBlockState[]
-    }
+    result:
+      | {
+          path: string
+          content: string
+          contentHash: string
+          language: string
+          size: number
+          isWatchMode?: boolean
+          warnings?: string[]
+          remoteSource?: string
+          assetHost: string
+          sessionId: string
+          sessionName: string
+          sessionDir: string
+          sessionResumedFrom?: string
+          sessionFinishedAt?: string
+          finishedSession?: { name: string; finishedAt: string }
+          blockStates: SavedBlockState[]
+        }
+      | Superseded
   }
   "runbook:open-remote": {
     params: { url: string }
@@ -125,7 +151,8 @@ export interface IpcChannelMap {
   }
   "runbook:executables": {
     params: void
-    result: { executables: Record<string, Executable>; warnings?: string[] }
+    /** The registry's executables by id, without their content, which stays in main. */
+    result: { executables: Record<string, Omit<Executable, "content">>; warnings?: string[] }
   }
   /**
    * How the script file of block `componentId` differs on disk from the
@@ -212,24 +239,38 @@ export interface IpcChannelMap {
     params: { templatePath?: string; boilerplateContent?: string }
     result: BoilerplateConfig
   }
-  "boilerplate:render": { params: RenderRequest; result: RenderResponse }
+  /** A render that a newer one of the same template overtook resolves to Superseded. */
+  "boilerplate:render": { params: RenderRequest; result: RenderResponse | Superseded }
   "boilerplate:render-inline": {
-    params: RenderInlineRequest
+    /**
+     * Main reads only each input's name and value, so `type` is any string,
+     * as the renderer's TemplateValue has it, not src/types.ts's narrower one.
+     */
+    params: Omit<RenderInlineRequest, "inputs"> & {
+      inputs: { name: string; type: string; value: unknown }[]
+    }
+    /**
+     * Each template file, rendered, by its name. With generateFile it was also
+     * written, and `fileTree` is the output dir's tree with the truncation
+     * fields, or empty for the worktree target; a preview has neither.
+     */
     result: {
+      message: string
       renderedFiles: Record<
         string,
         {
+          name: string
+          path: string
           content: string
-          name?: string
-          path?: string
-          language?: string
-          size?: number
-          isTruncated?: boolean
+          language: string
+          size: number
+          isTruncated: boolean
         }
       >
-      message?: string
-      fileTree?: unknown
-      meta?: unknown
+      fileTree?: FileTreeNode[]
+      totalFiles?: number
+      truncatedTree?: boolean
+      heavyDirs?: HeavyDir[]
     }
   }
   /**
@@ -898,21 +939,26 @@ export interface IpcChannelMap {
   }
 
   // Git Operations
+  /** A clone that fails rejects. */
   "git:clone": {
     params: GitCloneRequest
-    result: {
-      /** "success", or "cancelled" when git:clone-cancel stopped the clone. */
-      status: string
-      error?: string
-      fileCount?: number
-      absolutePath?: string
-      relativePath?: string
-      /** Branch the clone landed on — the base branch of any PR opened against it. */
-      ref?: string
-      /** False for a repo with no commits: it has no branch a PR could target. */
-      hasCommits?: boolean
-      outputs?: Record<string, string>
-    }
+    result:
+      | {
+          status: "success"
+          error?: undefined
+          fileCount: number
+          absolutePath: string
+          relativePath: string
+          /** Branch the clone landed on — the base branch of any PR opened against it. */
+          ref: string
+          /** False for a repo with no commits: it has no branch a PR could target. */
+          hasCommits: boolean
+          outputs: Record<string, string>
+        }
+      /** git:clone-cancel stopped the clone. */
+      | { status: "cancelled"; error?: undefined }
+      /** The destination exists, and the request didn't set `force` to replace it. */
+      | { status?: undefined; error: "directory_exists" }
   }
   // Stops the clone started with this `cloneId`: git is killed, not just
   // detached from the UI, so it can't keep writing into the destination.
@@ -940,22 +986,17 @@ export interface IpcChannelMap {
   "git:delete-branch": { params: { worktreePath: string; branch: string }; result: { ok: true } }
 
   // Workspace
-  "workspace:tree": {
-    params: { worktreePath: string; subpath?: string }
-    result: {
-      tree: WorkspaceTreeNode[]
-      totalFiles: number
-      gitInfo?: { branch: string; remoteUrl: string; commitSha: string }
-    }
-  }
+  /** The tree of `worktreePath`, a repo or one of its folders, as getWorkspaceTree builds it. */
+  "workspace:tree": { params: { worktreePath: string }; result: WorkspaceTreeResponse }
   "workspace:dirs": { params: { worktreePath: string }; result: { dirs?: string[] } }
   "workspace:file": {
     params: { worktreePath: string; filePath: string }
     result: WorkspaceFileResponse
   }
+  /** The repo's uncommitted changes, or only `singleFile`'s, as getWorkspaceChanges finds them. */
   "workspace:changes": {
     params: { worktreePath: string; singleFile?: string }
-    result: { changes: WorkspaceChange[]; totalChanges: number; tooManyChanges?: boolean }
+    result: WorkspaceChangesResponse
   }
   "workspace:register": { params: { worktreePath: string }; result: { ok: true } }
   "workspace:set-active": { params: { worktreePath: string }; result: { ok: true } }
@@ -964,25 +1005,25 @@ export interface IpcChannelMap {
   /**
    * Whether the session's generated directory has files. When it has, `fileTree`
    * and its truncation fields are that directory's tree, as a render returns it.
+   * `outputPath` picks another directory under the session; the renderer sends
+   * none, only a `sessionKey` that main ignores, for useIpc to check again
+   * when the session changes.
    */
   "generated-files:check": {
-    params: void
-    result: {
-      hasFiles: boolean
-      fileCount: number
-      fileTree?: WorkspaceTreeNode[]
+    params: { outputPath?: string; sessionKey?: string } | void
+    result: GeneratedFilesCheckResponse & {
+      fileTree?: FileTreeNode[]
       truncatedTree?: boolean
       totalFiles?: number
-      heavyDirs?: Array<{ path: string; fileCount: number }>
+      heavyDirs?: HeavyDir[]
     }
   }
-  "generated-files:delete": {
-    params: void
-    result: { ok: true; success?: boolean; deletedCount?: number; message?: string }
-  }
+  /** Main also reads an optional outputPath, as for generated-files:check; the renderer sends none. */
+  "generated-files:delete": { params: void; result: GeneratedFilesDeleteResponse }
 
   // File Operations
-  "file:read": { params: { path: string }; result: FileData }
+  /** The file at `path`, as readFileMetadata reads it. */
+  "file:read": { params: { path: string }; result: FileData & { contentHash: string } }
 
   // Watch Mode
   "watch:subscribe": { params: void; result: { ok: true } }
@@ -1089,12 +1130,8 @@ export interface IpcEventMap {
   // can be streaming at once.
   "exec:log": { executionId: string; line: string; timestamp: string; replace?: boolean }
   "exec:log-file": { executionId: string; path: string }
-  "exec:files-captured": {
-    executionId: string
-    files: string[]
-    count: number
-    fileTree: unknown
-  }
+  /** The files a step captured, as the executor reports them. */
+  "exec:files-captured": FilesCapturedEvent & { executionId: string }
   /**
    * `path` is the runbook the watcher watches (as runbook:get resolved it), so
    * after a failed open the renderer reloads that runbook, not the failed one.
@@ -1142,15 +1179,6 @@ export interface IpcEventMap {
 export type InvokeChannel = keyof IpcChannelMap
 export type EventChannel = keyof IpcEventMap
 
-export interface Executable {
-  id: string
-  type: string
-  content: string
-  language: string
-  hash: string
-  componentId?: string
-}
-
 export interface BoilerplateConfig {
   variables: BoilerplateVariable[]
   sections: Section[]
@@ -1163,26 +1191,24 @@ export interface BoilerplateVariable {
   default?: unknown
 }
 
-export interface RenderRequest {
-  templatePath: string
-  variables: Record<string, unknown>
-  outputPath: string
-}
-
+/** What boilerplate:render wrote: each file's path relative to `outputDir`. */
 export interface RenderResponse {
-  files: string[]
-  created: number
-  modified: number
-  deleted: number
-}
-
-export interface RenderInlineRequest {
-  template?: string
-  templateFiles?: Record<string, string>
-  variables?: Record<string, unknown>
-  inputs?: Array<{ name: string; value: unknown }>
-  generateFile?: boolean
-  outputPath?: string
+  message: string
+  outputDir: string
+  templatePath: string
+  /**
+   * The output dir's tree, with the truncation fields below. Empty for the
+   * worktree target, and left out with them when the render changed nothing.
+   */
+  fileTree?: FileTreeNode[]
+  totalFiles?: number
+  truncatedTree?: boolean
+  heavyDirs?: HeavyDir[]
+  deletedFiles: string[]
+  createdFiles: string[]
+  modifiedFiles: string[]
+  /** Unchanged files, which the render didn't write. */
+  skippedFiles: string[]
 }
 
 export interface ResolveInputsRequest {
@@ -1417,32 +1443,10 @@ export interface PullRequestRequest {
   labels?: string[]
 }
 
-export interface WorkspaceTreeNode {
-  name: string
-  path: string
-  type: "file" | "directory"
-  language?: string
-  children?: WorkspaceTreeNode[]
-}
-
 export interface WorkspaceFileResponse {
   content: string
   language?: string
   isBinary: boolean
   path: string
   size: number
-}
-
-export interface WorkspaceChange {
-  path: string
-  status: string
-  additions: number
-  deletions: number
-}
-
-export interface FileData {
-  content: string
-  language?: string
-  path: string
-  isBinary: boolean
 }

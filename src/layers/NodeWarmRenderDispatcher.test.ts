@@ -29,7 +29,9 @@ function fakeInputsMap(): InputsMapResult {
   return {
     inputs: {},
     files: Object.fromEntries(KNOWN_PATHS.map((p) => [p, []])),
-  } as unknown as InputsMapResult
+    sources: {},
+    errors: [],
+  }
 }
 
 /**
@@ -49,7 +51,9 @@ function varsDiffInputsMap(): InputsMapResult {
       "both.txt": ["t:Name", "t:Region"],
       "static.txt": [],
     },
-  } as unknown as InputsMapResult
+    sources: {},
+    errors: [],
+  }
 }
 
 interface BundleSpy {
@@ -363,7 +367,9 @@ function partialsOutsideBundleInputsMap(): InputsMapResult {
       },
       dependencies: {},
     },
-  } as unknown as InputsMapResult
+    sources: {},
+    errors: [],
+  }
 }
 
 /**
@@ -381,7 +387,9 @@ function collapsedFilenameInputsMap(): InputsMapResult {
       ".": ["t:RootTerragruntFileName"],
       "name.txt": ["t:Name"],
     },
-  } as unknown as InputsMapResult
+    sources: {},
+    errors: [],
+  }
 }
 
 describe("NodeWarmRenderDispatcher warm eligibility", () => {

@@ -57,6 +57,17 @@ const warmResult = (overrides: Partial<WarmRenderResult>): WarmRenderResult => (
 // The real FileSystem, so writes land on disk; the warm dispatcher and the
 // cold subprocess renderer are the boundaries (the backend test run does not
 // fetch the vendored boilerplate binary or WASM module).
+/** A WASM runtime whose members die if called, but for the given ones. */
+const wasmRuntime = (overrides: Partial<WasmRuntimeShape> = {}): WasmRuntimeShape => ({
+  renderFiles: () => Effect.die("renderFiles not used"),
+  prepareBundle: () => Effect.die("prepareBundle not used"),
+  renderFilesWithHandle: () => Effect.die("renderFilesWithHandle not used"),
+  releaseBundle: () => Effect.die("releaseBundle not used"),
+  renderTemplate: () => Effect.die("renderTemplate not used"),
+  isReady: Effect.die("isReady not used"),
+  ...overrides,
+})
+
 const testLayer = (spy: Spy) =>
   Layer.mergeAll(
     NodeFileSystemLive,
@@ -72,7 +83,7 @@ const testLayer = (spy: Spy) =>
       renderTemplate: () => Effect.sync(() => void spy.coldRenders++),
     }),
     // Only reached for template-valued inputs, which these tests don't send.
-    Layer.succeed(WasmRuntime, {} as WasmRuntimeShape),
+    Layer.succeed(WasmRuntime, wasmRuntime()),
   )
 
 describe("boilerplate:render", () => {
@@ -100,6 +111,8 @@ describe("boilerplate:render", () => {
     await runtime.runPromise(sessionManager.createSession(tmp, runbookPath))
 
     spy = { warm: warmResult({}), commits: [], coldRenders: 0 }
+    // The app runtime requires every service; these handlers use only what
+    // testLayer provides, which the type of runFork can't express.
     spyOn(runtime, "runFork").mockImplementation(((
       effect: Effect.Effect<unknown, unknown, never>,
     ) =>
@@ -228,11 +241,12 @@ describe("boilerplate:resolve-inputs", () => {
   }
 
   beforeEach(() => {
+    // As runFork above: the handler needs only the WASM runtime of the app's services.
     spyOn(runtime, "runPromise").mockImplementation(((effect: Effect.Effect<unknown, unknown>) =>
       Effect.runPromise(
         Effect.provide(
           effect,
-          Layer.succeed(WasmRuntime, { renderTemplate } as unknown as WasmRuntimeShape),
+          Layer.succeed(WasmRuntime, wasmRuntime({ renderTemplate })),
         ) as Effect.Effect<unknown>,
       )) as unknown as typeof runtime.runPromise)
   })

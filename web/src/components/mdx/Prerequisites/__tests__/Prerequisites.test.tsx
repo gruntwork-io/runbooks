@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { act, cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type HeldCall, type Result, type TestApi } from "@/test/test-api"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useAllOutputs } from "@/contexts/useRunbook"
@@ -42,22 +43,19 @@ const TOOLS = `tools:
     install: Run \`brew install gh\`.
 `
 
-let invoke: ReturnType<typeof vi.fn>
-let api: RunbooksAPI
+let testApi: TestApi
+let runs: readonly HeldCall<"exec:run">[]
 /** Ends the exec:run in flight, as the main process does with its result. */
-let endRun: (result: unknown) => void
+const endRun = (result: Result<"exec:run">) => runs.at(-1)!.resolve(result)
 
 beforeEach(() => {
   mockInstructionMode = false
-  invoke = vi.fn((channel: string) => {
-    if (channel === "exec:run") {
-      return new Promise((resolve) => {
-        endRun = resolve
-      })
-    }
-    return Promise.resolve({ ok: true })
+  testApi = makeTestApi({
+    "exec:cancel": () => ({ ok: true }),
+    "session:record-event": () => ({ ok: true }),
+    "native:set-theme": () => ({ ok: true }),
   })
-  api = { invoke, on: () => () => {} } as unknown as RunbooksAPI
+  runs = testApi.hold("exec:run")
 })
 
 afterEach(() => {
@@ -108,7 +106,7 @@ function renderBlock({
   const blockStates: SavedBlockState[] =
     saved === undefined ? [] : [{ blockId: id, kind: "run", payload: saved }]
   return render(
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <IpcSessionHistoryProvider sessionId="s1" blockStates={blockStates}>
         <TestWrapper>
           <Prerequisites id={id}>
@@ -145,7 +143,7 @@ describe("Prerequisites", () => {
     expect(screen.getByText("Install OpenTofu")).not.toBeVisible()
     expect(screen.getByText("Checking the tools...")).not.toBeVisible()
     expect(screen.getByRole("button", { name: "Check" })).toBeEnabled()
-    expect(invoke).not.toHaveBeenCalledWith("exec:run", expect.anything())
+    expect(testApi.invoke).not.toHaveBeenCalledWith("exec:run", expect.anything())
   })
 
   it("checks in the main process, then marks each tool and says how to fix the missing ones", async () => {
@@ -153,7 +151,7 @@ describe("Prerequisites", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Check" }))
 
-    expect(invoke).toHaveBeenCalledWith(
+    expect(testApi.invoke).toHaveBeenCalledWith(
       "exec:run",
       expect.objectContaining({ executableId: "exec-tools" }),
     )
@@ -296,7 +294,7 @@ describe("Prerequisites", () => {
     expect(row("tofu")).toHaveAttribute("data-status", "missing")
     expect(row("gh")).toHaveAttribute("data-status", "found")
     expect(published()).toEqual({})
-    expect(invoke).not.toHaveBeenCalledWith("exec:run", expect.anything())
+    expect(testApi.invoke).not.toHaveBeenCalledWith("exec:run", expect.anything())
   })
 
   it("explains a block whose tool list isn't in the registry, instead of running nothing", async () => {
@@ -305,7 +303,7 @@ describe("Prerequisites", () => {
     await userEvent.click(screen.getByRole("button", { name: "Check" }))
 
     expect(screen.getByText('Runbooks has no tool list for "unregistered"')).toBeInTheDocument()
-    expect(invoke).not.toHaveBeenCalledWith("exec:run", expect.anything())
+    expect(testApi.invoke).not.toHaveBeenCalledWith("exec:run", expect.anything())
   })
 
   describe("a configuration error", () => {
@@ -419,7 +417,7 @@ describe("Prerequisites", () => {
         "command -v git\ntofu --version\ncommand -v gh",
       )
       expect(screen.queryByRole("button", { name: "Check" })).toBeNull()
-      expect(invoke).not.toHaveBeenCalledWith("exec:run", expect.anything())
+      expect(testApi.invoke).not.toHaveBeenCalledWith("exec:run", expect.anything())
     })
   })
 })

@@ -2,18 +2,23 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Result, type TestApi } from "@/test/test-api"
 import type { PathRoots } from "@/lib/displayPath"
 import { ShortenedPaths } from "@/test/ShortenedPaths"
 import { GitClone } from ".."
 
-// Only the IPC boundary is mocked: the real block and useGitClone build the
-// destination preview from the session's working directory.
-const invoke = vi.fn()
+// Only the IPC boundary is faked (makeTestApi, through the real ApiProvider):
+// the real block and useGitClone build the destination preview from the
+// session's working directory.
+let testApi: TestApi
 
-vi.mock("@/contexts/ApiContext", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/contexts/ApiContext")>()
-  return { ...actual, useApi: () => ({ invoke, on: vi.fn(() => () => {}) }) }
-})
+const SESSION: Result<"session:get"> = {
+  workingDir: "/work",
+  executionCount: 0,
+  createdAt: "2024-01-01T00:00:00Z",
+  lastActivity: "2024-01-01T00:00:00Z",
+}
 
 vi.mock("@/contexts/useGitWorkTree", () => ({
   useGitWorkTree: () => ({
@@ -31,12 +36,12 @@ vi.mock("@/contexts/useGitWorkTree", () => ({
 
 const REPO_URL = "https://github.com/acme/infra.git"
 
-function mockIpc(replies: Record<string, unknown> = {}) {
-  invoke.mockImplementation(async (channel: string) => {
-    if (channel in replies) return replies[channel]
-    if (channel === "session:get") return { workingDir: "/work" }
-    if (channel === "github:orgs") return []
-    return {}
+/** Answer every channel the block calls; tests override one with testApi.handle. */
+function mockIpc() {
+  testApi = makeTestApi({
+    "session:get": () => SESSION,
+    "github:orgs": () => [],
+    "native:set-theme": () => ({ ok: true }),
   })
 }
 
@@ -45,11 +50,13 @@ const ROOTS: PathRoots = { sessionDir: "/work", homeDir: "/home/me" }
 
 function renderGitClone(props: Record<string, unknown> = {}, roots: PathRoots = ROOTS) {
   return render(
-    <TestWrapper>
-      <ShortenedPaths roots={roots}>
-        <GitClone id="test-clone" {...props} />
-      </ShortenedPaths>
-    </TestWrapper>,
+    <ApiProvider api={testApi.api}>
+      <TestWrapper>
+        <ShortenedPaths roots={roots}>
+          <GitClone id="test-clone" {...props} />
+        </ShortenedPaths>
+      </TestWrapper>
+    </ApiProvider>,
   )
 }
 
@@ -60,7 +67,6 @@ async function clickClone(user: ReturnType<typeof userEvent.setup>) {
 }
 
 beforeEach(() => {
-  invoke.mockReset()
   mockIpc()
 })
 
@@ -108,7 +114,7 @@ describe("GitClone — Local Path preview", () => {
   })
 
   it("recognises a Windows absolute Local Path", async () => {
-    mockIpc({ "session:get": { workingDir: "C:\\work" } })
+    testApi.handle("session:get", () => ({ ...SESSION, workingDir: "C:\\work" }))
     const user = userEvent.setup()
     renderGitClone(
       { prefilledUrl: REPO_URL, prefilledLocalPath: "C:\\work\\infra" },
@@ -125,17 +131,15 @@ describe("GitClone — Local Path preview", () => {
 
 describe("GitClone — completed clone", () => {
   it("shows the path shortened and copies it in full", async () => {
-    mockIpc({
-      "git:clone": {
-        status: "success",
-        relativePath: "live",
-        absolutePath: "/work/live",
-        fileCount: 3,
-        ref: "main",
-        hasCommits: true,
-        outputs: { clone_path: "/work/live" },
-      },
-    })
+    testApi.handle("git:clone", () => ({
+      status: "success",
+      relativePath: "live",
+      absolutePath: "/work/live",
+      fileCount: 3,
+      ref: "main",
+      hasCommits: true,
+      outputs: { clone_path: "/work/live" },
+    }))
     const user = userEvent.setup()
     renderGitClone({ prefilledUrl: REPO_URL })
 
@@ -153,7 +157,8 @@ describe("GitClone — completed clone", () => {
 
 describe("GitClone — overwrite confirmation", () => {
   it("carries the full path on the shortened one, not in a pointer to Additional Settings", async () => {
-    mockIpc({ "git:clone": { error: "directory_exists" } })
+    // What main's git:clone handler returns for an existing destination.
+    testApi.handle("git:clone", () => ({ error: "directory_exists" }))
     const user = userEvent.setup()
     renderGitClone({ prefilledUrl: REPO_URL, prefilledLocalPath: "infra-live" })
 

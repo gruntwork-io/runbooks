@@ -484,7 +484,7 @@ describe("AwsSdkClient.checkRegion", () => {
     const spy = stubAccount(() => Promise.resolve({ RegionOptStatus: "DISABLED" }))
 
     expect(await run((c) => c.checkRegion("ap-east-1", CREDS))).toEqual(Result.succeed(false))
-    const command = spy.mock.calls[0]![0] as unknown as GetRegionOptStatusCommand
+    const command = spy.mock.calls[0]![0]
     expect(command).toBeInstanceOf(GetRegionOptStatusCommand)
     expect(command.input).toEqual({ RegionName: "ap-east-1" })
   })

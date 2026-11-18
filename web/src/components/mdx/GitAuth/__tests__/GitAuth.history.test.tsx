@@ -2,7 +2,14 @@ import { describe, it, expect, vi, afterEach } from "vitest"
 import type { ReactNode } from "react"
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react"
 import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import {
+  makeTestApi,
+  type Handler,
+  type Handlers,
+  type Result,
+  type TestApi,
+} from "@/test/test-api"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { revealOutputs } from "@/lib/outputValues"
@@ -20,17 +27,42 @@ import { GitAuth } from "../GitAuth"
 import { GitHubAuth } from "../../GitHubAuth/GitHubAuth"
 import { GitLabAuth } from "../../GitLabAuth/GitLabAuth"
 
-type Answer = (channel: string, args: Record<string, unknown>) => unknown
+// Both CLIs installed, for the manual UI's hint.
+const CLI_STATUS: Result<"vcs:cli-status"> = {
+  gh: { installed: true, version: "2.60.0", meetsFloor: true },
+  glab: { installed: true, version: "1.80.0", meetsFloor: true },
+}
 
-let invoke: ReturnType<typeof vi.fn>
+/** A machine with no credential to detect and no host configured beyond the SaaS ones. */
+const NOTHING_FOUND: Handlers = {
+  "github:enumerate-hosts": () => ({
+    hosts: [{ host: "github.com", sources: [], hasCredential: false }],
+    defaultHost: "github.com",
+  }),
+  "gitlab:enumerate-hosts": () => ({ hosts: [], defaultHost: "gitlab.com" }),
+  "github:env-credentials": () => ({ found: false }),
+  "github:cli-credentials": () => ({ found: false }),
+  "gitlab:env-credentials": () => ({ found: false }),
+  "gitlab:cli-credentials": () => ({ found: false }),
+  "github:host-picked": () => ({ ok: true }),
+  "gitlab:host-picked": () => ({ ok: true }),
+  "vcs:invalidate-cache": () => ({ ok: true }),
+  "vcs:cli-status": () => CLI_STATUS,
+}
 
-/** A preload API whose channels answer with `answer`, or with nothing. */
-function makeApi(answer: Answer): RunbooksAPI {
-  invoke = vi.fn(async (channel: string, args?: Record<string, unknown>) => {
-    if (channel === "session:record-event") return { ok: true }
-    return (await answer(channel, args ?? {})) ?? {}
+let testApi: TestApi
+
+/**
+ * A preload API whose channels answer with `handlers`, over a machine with
+ * nothing to detect, in a session that records every event.
+ */
+function makeApi(handlers: Handlers): TestApi {
+  testApi = makeTestApi({
+    ...NOTHING_FOUND,
+    "session:record-event": () => ({ ok: true }),
+    ...handlers,
   })
-  return { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
+  return testApi
 }
 
 /** Reads the outputs the block published, with sensitive values revealed. */
@@ -51,8 +83,8 @@ const publishedOutputs = () =>
   > | null
 
 /** Render `block` in a session whose history says it was left as `saved`. */
-function renderInSession(answer: Answer, block: ReactNode, saved?: SavedGitAuth) {
-  const api = makeApi(answer)
+function renderInSession(handlers: Handlers, block: ReactNode, saved?: SavedGitAuth) {
+  const { api } = makeApi(handlers)
   const blockStates: SavedBlockState[] =
     saved === undefined ? [] : [{ blockId: "git", kind: "auth", payload: saved }]
   return render(
@@ -70,19 +102,22 @@ function renderInSession(answer: Answer, block: ReactNode, saved?: SavedGitAuth)
 
 /** The payload of each auth event sent to the main process, oldest first. */
 const recorded = () =>
-  invoke.mock.calls
-    .filter(([channel]) => channel === "session:record-event")
-    .map(([, event]) => {
-      expect(event).toMatchObject({ sessionId: "s1", blockId: "git", kind: "auth" })
-      return (event as { payload: unknown }).payload
-    })
+  testApi.callsTo("session:record-event").map((event) => {
+    expect(event).toMatchObject({ sessionId: "s1", blockId: "git", kind: "auth" })
+    return event.payload
+  })
 
-const callsTo = (channel: string) =>
-  invoke.mock.calls.filter(([c]) => c === channel).map(([, args]) => args)
+const callsTo: TestApi["callsTo"] = (channel) => testApi.callsTo(channel)
 
-/** One host for the provider's picker, as host enumeration reports it. */
-const onlyHost = (host: string) => ({
-  hosts: [{ host, sources: ["config"], hasCredential: true }],
+/** One host for the GitHub picker, from gh's config, as host enumeration reports it. */
+const onlyGitHubHost = (host: string): Result<"github:enumerate-hosts"> => ({
+  hosts: [{ host, sources: ["gh"], hasCredential: true }],
+  defaultHost: host,
+})
+
+/** One host for the GitLab picker, from glab's config, as host enumeration reports it. */
+const onlyGitLabHost = (host: string): Result<"gitlab:enumerate-hosts"> => ({
+  hosts: [{ host, sources: ["glab"], hasCredential: true }],
   defaultHost: host,
 })
 
@@ -107,13 +142,10 @@ const SAVED_GITHUB: SavedGitAuth = {
 }
 
 /** Answers for a saved GitHub sign-in whose check is `check`. */
-const githubAnswers =
-  (check: () => unknown): Answer =>
-  (channel) => {
-    if (channel === "github:enumerate-hosts") return onlyHost("github.com")
-    if (channel === "github:validate") return check()
-    return undefined
-  }
+const githubAnswers = (check: Handler<"github:validate">): Handlers => ({
+  "github:enumerate-hosts": () => onlyGitHubHost("github.com"),
+  "github:validate": check,
+})
 
 /** A promise the test settles, for a check still in flight. */
 function deferred<T>() {
@@ -131,12 +163,14 @@ afterEach(() => {
 describe("GitAuth in a session: recording sign-ins", () => {
   it("records a PAT sign-in with its token as a sensitive output", async () => {
     renderInSession(
-      (channel) => {
-        if (channel === "gitlab:enumerate-hosts") return onlyHost("gitlab.com")
-        if (channel === "gitlab:validate") {
-          return { valid: true, user: { login: "tanuki" }, scopes: ["api"], tokenType: "pat" }
-        }
-        return undefined
+      {
+        "gitlab:enumerate-hosts": () => onlyGitLabHost("gitlab.com"),
+        "gitlab:validate": () => ({
+          valid: true,
+          user: { login: "tanuki" },
+          scopes: ["api"],
+          tokenType: "pat",
+        }),
       },
       <GitAuth id="git" provider="gitlab" detectCredentials={false} />,
     )
@@ -170,19 +204,16 @@ describe("GitAuth in a session: recording sign-ins", () => {
 
   it("records a sign-in that detection found, with its source and without a token", async () => {
     renderInSession(
-      (channel) => {
-        if (channel === "github:enumerate-hosts") return onlyHost("github.com")
-        if (channel === "github:env-credentials") {
-          return {
-            found: true,
-            valid: true,
-            user: { login: "octo" },
-            scopes: ["repo"],
-            tokenType: "classic_pat",
-            envVar: "GITHUB_TOKEN",
-          }
-        }
-        return undefined
+      {
+        "github:enumerate-hosts": () => onlyGitHubHost("github.com"),
+        "github:env-credentials": () => ({
+          found: true,
+          valid: true,
+          user: { login: "octo" },
+          scopes: ["repo"],
+          tokenType: "classic_pat",
+          envVar: "GITHUB_TOKEN",
+        }),
       },
       <GitAuth id="git" />,
     )
@@ -210,26 +241,21 @@ describe("GitAuth in a session: recording sign-ins", () => {
 
   it("records a GitHub sign-in in the browser", async () => {
     renderInSession(
-      (channel) => {
-        if (channel === "github:enumerate-hosts") return onlyHost("github.com")
-        if (channel === "github:oauth-start") {
-          return {
-            userCode: "ABCD-1234",
-            verificationUri: "https://github.com/login/device",
-            deviceCode: "device",
-            interval: 5,
-            expiresIn: 900,
-          }
-        }
-        if (channel === "github:oauth-poll") {
-          return {
-            status: "complete",
-            user: { login: "octo" },
-            scopes: ["repo"],
-            tokenType: "oauth",
-          }
-        }
-        return undefined
+      {
+        "github:enumerate-hosts": () => onlyGitHubHost("github.com"),
+        "github:oauth-start": () => ({
+          userCode: "ABCD-1234",
+          verificationUri: "https://github.com/login/device",
+          deviceCode: "device",
+          interval: 5,
+          expiresIn: 900,
+        }),
+        "github:oauth-poll": () => ({
+          status: "complete",
+          user: { login: "octo" },
+          scopes: ["repo"],
+          tokenType: "oauth",
+        }),
       },
       <GitAuth id="git" detectCredentials={false} />,
     )
@@ -250,13 +276,10 @@ describe("GitAuth in a session: recording sign-ins", () => {
 
   it("records one sign-out when the user signs in again or switches providers", async () => {
     renderInSession(
-      (channel) => {
-        if (channel === "github:enumerate-hosts") return onlyHost("github.com")
-        if (channel === "gitlab:enumerate-hosts") return onlyHost("gitlab.com")
-        if (channel === "github:validate") {
-          return { valid: true, user: { login: "octo" }, scopes: ["repo"] }
-        }
-        return undefined
+      {
+        "github:enumerate-hosts": () => onlyGitHubHost("github.com"),
+        "gitlab:enumerate-hosts": () => onlyGitLabHost("gitlab.com"),
+        "github:validate": () => ({ valid: true, user: { login: "octo" }, scopes: ["repo"] }),
       },
       <GitAuth id="git" detectCredentials={false} defaultTab="pat" />,
     )
@@ -278,7 +301,7 @@ describe("GitAuth in a session: recording sign-ins", () => {
 
 describe("GitAuth in a session: resuming a sign-in", () => {
   it("starts signed in, on the saved host, with its outputs published and no detection", async () => {
-    const check = deferred<unknown>()
+    const check = deferred<Result<"github:validate">>()
     renderInSession(
       githubAnswers(() => check.promise),
       <GitAuth id="git" />,
@@ -395,7 +418,7 @@ describe("GitAuth in a session: resuming a sign-in", () => {
   })
 
   it("ignores a check that comes back after the user signed in again", async () => {
-    const check = deferred<unknown>()
+    const check = deferred<Result<"github:validate">>()
     renderInSession(
       githubAnswers(() => check.promise),
       <GitAuth id="git" />,
@@ -412,10 +435,9 @@ describe("GitAuth in a session: resuming a sign-in", () => {
 
   it("starts on the saved provider and instance when the provider picker is shown", async () => {
     renderInSession(
-      (channel) => {
-        if (channel === "gitlab:enumerate-hosts") return onlyHost("gitlab.com")
-        if (channel === "gitlab:validate") return { valid: true, user: { login: "tanuki" } }
-        return undefined
+      {
+        "gitlab:enumerate-hosts": () => onlyGitLabHost("gitlab.com"),
+        "gitlab:validate": () => ({ valid: true, user: { login: "tanuki" } }),
       },
       <GitAuth id="git" />,
       {
@@ -449,11 +471,10 @@ describe("GitAuth in a session: resuming a sign-in", () => {
 
   it("keeps the saved host out of another provider's hosts", async () => {
     renderInSession(
-      (channel) => {
-        if (channel === "github:enumerate-hosts") return onlyHost("github.com")
-        if (channel === "gitlab:enumerate-hosts") return onlyHost("gitlab.com")
-        if (channel === "github:validate") return { valid: true, user: { login: "octo" } }
-        return undefined
+      {
+        "github:enumerate-hosts": () => onlyGitHubHost("github.com"),
+        "gitlab:enumerate-hosts": () => onlyGitLabHost("gitlab.com"),
+        "github:validate": () => ({ valid: true, user: { login: "octo" } }),
       },
       <GitAuth id="git" detectCredentials={false} />,
       SAVED_GITHUB,
@@ -473,7 +494,7 @@ describe("GitAuth in a session: resuming a sign-in", () => {
     ["no scopes known", []],
   ])("warns of no missing scope for a saved sign-in with %s", async (_label, scopes) => {
     renderInSession(
-      githubAnswers(() => deferred<unknown>().promise),
+      githubAnswers(() => deferred<Result<"github:validate">>().promise),
       <GitAuth id="git" />,
       { ...SAVED_GITHUB, scopes },
     )
@@ -484,18 +505,15 @@ describe("GitAuth in a session: resuming a sign-in", () => {
 
   it("lists the saved host once when enumeration lists it too", async () => {
     renderInSession(
-      (channel) => {
-        if (channel === "github:enumerate-hosts") {
-          return {
-            hosts: [
-              { host: "github.com", sources: ["config"], hasCredential: true },
-              { host: "github.example.com", sources: ["env"], hasCredential: true },
-            ],
-            defaultHost: "github.com",
-          }
-        }
-        if (channel === "github:validate") return deferred<unknown>().promise
-        return undefined
+      {
+        "github:enumerate-hosts": () => ({
+          hosts: [
+            { host: "github.com", sources: ["gh"], hasCredential: true },
+            { host: "github.example.com", sources: ["env"], hasCredential: true },
+          ],
+          defaultHost: "github.com",
+        }),
+        "github:validate": () => deferred<Result<"github:validate">>().promise,
       },
       <GitAuth id="git" />,
       SAVED_GITHUB,
@@ -507,7 +525,7 @@ describe("GitAuth in a session: resuming a sign-in", () => {
 
   it("shows the saved host as one with a credential, and no other source", async () => {
     renderInSession(
-      githubAnswers(() => deferred<unknown>().promise),
+      githubAnswers(() => deferred<Result<"github:validate">>().promise),
       <GitAuth id="git" />,
       SAVED_GITHUB,
     )
@@ -577,7 +595,7 @@ describe("GitAuth in a session: resuming a sign-in", () => {
 
   it("ignores a saved GitHub sign-in in a GitLab-locked block", async () => {
     renderInSession(
-      (channel) => (channel === "gitlab:enumerate-hosts" ? onlyHost("gitlab.com") : undefined),
+      { "gitlab:enumerate-hosts": () => onlyGitLabHost("gitlab.com") },
       <GitLabAuth id="git" detectCredentials={false} />,
       SAVED_GITHUB,
     )
@@ -595,18 +613,15 @@ describe("GitAuth in a session: a token that expires", () => {
   it("records when the token expires, and stays green while it is hours away", async () => {
     const expiresAt = inMinutes(8 * 60)
     renderInSession(
-      (channel) => {
-        if (channel === "github:enumerate-hosts") return onlyHost("github.com")
-        if (channel === "github:env-credentials") {
-          return {
-            found: true,
-            valid: true,
-            user: { login: "octo" },
-            envVar: "GITHUB_TOKEN",
-            expiresAt,
-          }
-        }
-        return undefined
+      {
+        "github:enumerate-hosts": () => onlyGitHubHost("github.com"),
+        "github:env-credentials": () => ({
+          found: true,
+          valid: true,
+          user: { login: "octo" },
+          envVar: "GITHUB_TOKEN",
+          expiresAt,
+        }),
       },
       <GitAuth id="git" />,
     )

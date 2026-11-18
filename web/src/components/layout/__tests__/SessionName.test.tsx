@@ -1,17 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
 import { SessionName } from "../SessionName"
 
-// The IPC boundary is the only thing mocked: the main process owns the
+// The IPC boundary is the only thing faked: the main process owns the
 // session and knows the other sessions' names.
-const invoke = vi.fn()
-
-vi.mock("@/contexts/ApiContext", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/contexts/ApiContext")>()
-  return { ...actual, useApi: () => ({ invoke, on: vi.fn(() => () => {}) }) }
-})
+let testApi: TestApi
+const withApi = {
+  wrapper: ({ children }: { children: ReactNode }) => (
+    <ApiProvider api={testApi.api}>{children}</ApiProvider>
+  ),
+}
 
 /** The name as the header holds it: renaming is the header's state, the name the app's. */
 function Harness({ onRenamed }: { onRenamed: (name: string) => void }) {
@@ -36,31 +38,31 @@ function Harness({ onRenamed }: { onRenamed: (name: string) => void }) {
 /** Render the name and click it; returns the field and the onRenamed spy. */
 async function startRenaming() {
   const onRenamed = vi.fn()
-  render(<Harness onRenamed={onRenamed} />)
+  render(<Harness onRenamed={onRenamed} />, withApi)
   fireEvent.click(screen.getByRole("button", { name: "Rename session elegant-elephant" }))
   return { field: screen.getByRole("textbox", { name: "Session name" }), onRenamed }
 }
 
 describe("SessionName", () => {
   beforeEach(() => {
-    invoke.mockReset()
+    testApi = makeTestApi()
   })
 
   it("copies the name from the button before it, and stays a name", async () => {
     const user = userEvent.setup()
-    render(<Harness onRenamed={vi.fn()} />)
+    render(<Harness onRenamed={vi.fn()} />, withApi)
 
     await user.click(screen.getByRole("button", { name: "Copy session name" }))
 
     expect(await navigator.clipboard.readText()).toBe("elegant-elephant")
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Session name copied")
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
-    expect(invoke).not.toHaveBeenCalled()
+    expect(testApi.invoke).not.toHaveBeenCalled()
   })
 
   it("hints at what each control does when hovered", async () => {
     const user = userEvent.setup()
-    render(<Harness onRenamed={vi.fn()} />)
+    render(<Harness onRenamed={vi.fn()} />, withApi)
 
     await user.hover(screen.getByRole("button", { name: "Copy session name" }))
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy session name")
@@ -81,12 +83,12 @@ describe("SessionName", () => {
   })
 
   it("renames the session on Enter and shows the name the main process returns", async () => {
-    invoke.mockResolvedValue({ name: "prod-deploy" })
+    testApi.handle("session:rename", () => ({ name: "prod-deploy" }))
     const { onRenamed } = await startRenaming()
 
     await userEvent.keyboard("prod-deploy{Enter}")
 
-    expect(invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
+    expect(testApi.invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
     expect(
       await screen.findByRole("button", { name: "Rename session prod-deploy" }),
     ).toBeInTheDocument()
@@ -114,7 +116,7 @@ describe("SessionName", () => {
       "Use lowercase letters, digits and hyphens",
     )
     expect(field).toBeInvalid()
-    expect(invoke).not.toHaveBeenCalled()
+    expect(testApi.invoke).not.toHaveBeenCalled()
     expect(onRenamed).not.toHaveBeenCalled()
 
     // The message goes once the name is edited.
@@ -123,7 +125,9 @@ describe("SessionName", () => {
   })
 
   it("shows the main process's reason when it refuses the name, and keeps the field open", async () => {
-    invoke.mockRejectedValue(new Error("Another session is already named brave-otter."))
+    testApi.handle("session:rename", () => {
+      throw new Error("Another session is already named brave-otter.")
+    })
     const { field, onRenamed } = await startRenaming()
 
     await userEvent.keyboard("brave-otter{Enter}")
@@ -144,7 +148,7 @@ describe("SessionName", () => {
     expect(
       screen.getByRole("button", { name: "Rename session elegant-elephant" }),
     ).toBeInTheDocument()
-    expect(invoke).not.toHaveBeenCalled()
+    expect(testApi.invoke).not.toHaveBeenCalled()
     expect(onRenamed).not.toHaveBeenCalled()
   })
 
@@ -157,16 +161,16 @@ describe("SessionName", () => {
     expect(
       screen.getByRole("button", { name: "Rename session elegant-elephant" }),
     ).toBeInTheDocument()
-    expect(invoke).not.toHaveBeenCalled()
+    expect(testApi.invoke).not.toHaveBeenCalled()
   })
 
   it("drops the spaces around a name before checking or sending it", async () => {
-    invoke.mockResolvedValue({ name: "prod-deploy" })
+    testApi.handle("session:rename", () => ({ name: "prod-deploy" }))
     await startRenaming()
 
     await userEvent.keyboard("  prod-deploy {Enter}")
 
-    expect(invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
+    expect(testApi.invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   })
 
@@ -179,16 +183,11 @@ describe("SessionName", () => {
     expect(
       screen.getByRole("button", { name: "Rename session elegant-elephant" }),
     ).toBeInTheDocument()
-    expect(invoke).not.toHaveBeenCalled()
+    expect(testApi.invoke).not.toHaveBeenCalled()
   })
 
   it("keeps the field, disabled, while the main process renames, even if it loses focus", async () => {
-    let finish!: (value: { name: string }) => void
-    invoke.mockReturnValue(
-      new Promise((resolve) => {
-        finish = resolve
-      }),
-    )
+    const renames = testApi.hold("session:rename")
     const { field, onRenamed } = await startRenaming()
     expect(field).toHaveAttribute("aria-invalid", "false")
 
@@ -197,7 +196,7 @@ describe("SessionName", () => {
     fireEvent.blur(field)
     expect(screen.getByRole("textbox", { name: "Session name" })).toBe(field)
 
-    finish({ name: "prod-deploy" })
+    renames[0]!.resolve({ name: "prod-deploy" })
     expect(
       await screen.findByRole("button", { name: "Rename session prod-deploy" }),
     ).toBeInTheDocument()
@@ -205,7 +204,9 @@ describe("SessionName", () => {
   })
 
   it("lets the user edit again after the main process refuses the name", async () => {
-    invoke.mockRejectedValue(new Error("Another session is already named brave-otter."))
+    testApi.handle("session:rename", () => {
+      throw new Error("Another session is already named brave-otter.")
+    })
     const { field } = await startRenaming()
 
     await userEvent.keyboard("brave-otter{Enter}")
@@ -225,6 +226,6 @@ describe("SessionName", () => {
     expect(
       screen.getByRole("button", { name: "Rename session elegant-elephant" }),
     ).toBeInTheDocument()
-    expect(invoke).not.toHaveBeenCalled()
+    expect(testApi.invoke).not.toHaveBeenCalled()
   })
 })

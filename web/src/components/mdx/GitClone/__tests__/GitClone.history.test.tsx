@@ -3,23 +3,25 @@ import type { ReactNode } from "react"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
+import { makeTestApi, type Handler, type Result, type TestApi } from "@/test/test-api"
+import { ApiProvider } from "@/contexts/ApiContext"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import type { SavedBlockState } from "../../../../../../src/domain/session/history"
 import { GitClone } from ".."
 
-// A GitClone block under the real session history provider. The mock
+// A GitClone block under the real session history provider. The faked
 // boundary is the preload API (git:*, and session:record-event, where an
-// event leaves the renderer) and the worktree context.
-// One API object for every render, as ApiProvider gives: the restore check
-// runs in an effect that depends on it.
-const api = vi.hoisted(() => ({ invoke: vi.fn(), on: vi.fn(() => () => {}) }))
-const invoke = api.invoke
+// event leaves the renderer), given by the real ApiProvider, and the
+// worktree context.
+let testApi: TestApi
 
-vi.mock("@/contexts/ApiContext", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/contexts/ApiContext")>()
-  return { ...actual, useApi: () => api }
-})
+const SESSION: Result<"session:get"> = {
+  workingDir: "/work",
+  executionCount: 0,
+  createdAt: "2024-01-01T00:00:00Z",
+  lastActivity: "2024-01-01T00:00:00Z",
+}
 
 const registerWorkTree = vi.fn()
 const unregisterWorkTree = vi.fn()
@@ -41,8 +43,8 @@ const URL = "https://github.com/acme/infra.git"
 const OUTPUTS = { clone_path: "/work/infra", repo_owner: "acme", repo_name: "infra" }
 
 /** What git:clone answers for URL. */
-const CLONED = {
-  status: "success" as const,
+const CLONED: Result<"git:clone"> = {
+  status: "success",
   absolutePath: "/work/infra",
   relativePath: "infra",
   fileCount: 12,
@@ -51,18 +53,20 @@ const CLONED = {
   outputs: OUTPUTS,
 }
 
+const CHECKOUT_OUTPUTS = { clone_path: "/home/me/infra", repo_owner: "acme", repo_name: "infra" }
+
 /** What git:local-repo answers for a checkout the user already has. */
-const CHECKOUT = {
-  status: "success" as const,
+const CHECKOUT: Result<"git:local-repo"> = {
+  status: "success",
   absolutePath: "/home/me/infra",
   relativePath: "/home/me/infra",
   fileCount: 42,
   remoteUrl: URL,
   ref: "main",
-  refType: "branch" as const,
+  refType: "branch",
   commitSha: "abc123",
   hasCommits: true,
-  outputs: { clone_path: "/home/me/infra", repo_owner: "acme", repo_name: "infra" },
+  outputs: CHECKOUT_OUTPUTS,
 }
 
 /** A `clone` event for a repository cloned from URL. */
@@ -81,30 +85,30 @@ const SAVED_CLONE = {
   outputs: OUTPUTS,
 }
 
-/** Answer every channel the block calls; `localRepo` is git:local-repo's answer. */
-function mockIpc(localRepo: () => Promise<unknown> = async () => CHECKOUT) {
-  invoke.mockImplementation(async (channel: string) => {
-    if (channel === "git:local-repo") return localRepo()
-    if (channel === "git:clone") return CLONED
-    if (channel === "session:get") return { workingDir: "/work" }
-    if (channel === "github:orgs") return []
-    return { ok: true }
+/** Answer every channel the block calls; `localRepo` answers git:local-repo. */
+function mockIpc(localRepo: Handler<"git:local-repo"> = () => CHECKOUT) {
+  testApi = makeTestApi({
+    "git:local-repo": localRepo,
+    "git:clone": () => CLONED,
+    "session:get": () => SESSION,
+    "github:orgs": () => [],
+    "session:record-event": () => ({ ok: true }),
+    "native:set-theme": () => ({ ok: true }),
   })
 }
 
 /** The payload of each `clone` event sent to the main process, oldest first. */
 const recorded = () =>
-  invoke.mock.calls
-    .map((call) => call as unknown as [string, { blockId: string; kind: string; payload: unknown }])
-    .filter(([channel, event]) => channel === "session:record-event" && event.kind === "clone")
-    .map(([, event]) => {
+  testApi
+    .callsTo("session:record-event")
+    .filter((event) => event.kind === "clone")
+    .map((event) => {
       expect(event).toMatchObject({ sessionId: "s1", blockId: "test-clone" })
       return event.payload
     })
 
 /** The git:local-repo calls, by their parameters. */
-const localRepoCalls = () =>
-  invoke.mock.calls.filter(([channel]) => channel === "git:local-repo").map(([, params]) => params)
+const localRepoCalls = () => testApi.callsTo("git:local-repo")
 
 /** Reads the outputs the block published. */
 function OutputsProbe() {
@@ -124,13 +128,15 @@ function Session({ saved, children }: { saved?: unknown; children: ReactNode }) 
   const blockStates: SavedBlockState[] =
     saved === undefined ? [] : [{ blockId: "test-clone", kind: "clone", payload: saved }]
   return (
-    <IpcSessionHistoryProvider sessionId="s1" blockStates={blockStates}>
-      <TestWrapper>
-        {children}
-        <OutputsProbe />
-        <RunbookProgressProbe />
-      </TestWrapper>
-    </IpcSessionHistoryProvider>
+    <ApiProvider api={testApi.api}>
+      <IpcSessionHistoryProvider sessionId="s1" blockStates={blockStates}>
+        <TestWrapper>
+          {children}
+          <OutputsProbe />
+          <RunbookProgressProbe />
+        </TestWrapper>
+      </IpcSessionHistoryProvider>
+    </ApiProvider>
   )
 }
 
@@ -152,7 +158,6 @@ const settle = () =>
   )
 
 beforeEach(() => {
-  invoke.mockReset()
   registerWorkTree.mockReset()
   unregisterWorkTree.mockReset()
   mockIpc()
@@ -178,7 +183,7 @@ describe("GitClone in a session", () => {
   })
 
   it("starts over, and says why, when the repository is no longer on disk", async () => {
-    mockIpc(async () => ({ status: "fail", error: "no such directory" }))
+    mockIpc(() => ({ status: "fail", error: "no such directory" }))
 
     renderGitClone(SAVED_CLONE)
 
@@ -194,7 +199,7 @@ describe("GitClone in a session", () => {
   })
 
   it("turns red, and leaves the repository alone, when it is on another branch than the session saved", async () => {
-    mockIpc(async () => ({ ...CHECKOUT, ref: "feature-x" }))
+    mockIpc(() => ({ ...CHECKOUT, ref: "feature-x" }))
 
     renderGitClone(SAVED_CLONE)
 
@@ -209,7 +214,7 @@ describe("GitClone in a session", () => {
   })
 
   it("says the repository is no longer on the saved branch when it has none checked out", async () => {
-    mockIpc(async () => ({ ...CHECKOUT, ref: "" }))
+    mockIpc(() => ({ ...CHECKOUT, ref: "" }))
 
     renderGitClone(SAVED_CLONE)
 
@@ -231,7 +236,7 @@ describe("GitClone in a session", () => {
   ])(
     "counts as a step of the runbook, $progress done when the repository is on $ref",
     async ({ ref, progress }) => {
-      mockIpc(async () => ({ ...CHECKOUT, ref }))
+      mockIpc(() => ({ ...CHECKOUT, ref }))
       renderGitClone(SAVED_CLONE)
       await waitFor(() => expect(localRepoCalls()).toHaveLength(1))
       await settle()
@@ -241,7 +246,7 @@ describe("GitClone in a session", () => {
   )
 
   it("drops the branch warning when the user starts over", async () => {
-    mockIpc(async () => ({ ...CHECKOUT, ref: "feature-x" }))
+    mockIpc(() => ({ ...CHECKOUT, ref: "feature-x" }))
     renderGitClone(SAVED_CLONE)
     await screen.findByText("This repository is on feature-x, not main")
 
@@ -252,7 +257,7 @@ describe("GitClone in a session", () => {
   })
 
   it("keeps the repository when the check itself fails", async () => {
-    mockIpc(async () => {
+    mockIpc(() => {
       throw new Error("IPC channel closed")
     })
 
@@ -277,7 +282,7 @@ describe("GitClone in a session", () => {
   })
 
   it("says the repository is no longer a git repository when the check gives no reason", async () => {
-    mockIpc(async () => ({ status: "fail" }))
+    mockIpc(() => ({ status: "fail" }))
 
     renderGitClone(SAVED_CLONE)
 
@@ -290,20 +295,14 @@ describe("GitClone in a session", () => {
 
   it("ignores a check that comes back after Clone again", async () => {
     const user = userEvent.setup()
-    let answerCheck!: (answer: unknown) => void
-    mockIpc(
-      () =>
-        new Promise((resolve) => {
-          answerCheck = resolve
-        }),
-    )
+    const checks = testApi.hold("git:local-repo")
     renderGitClone(SAVED_CLONE)
     await waitFor(() => expect(localRepoCalls()).toHaveLength(1))
 
     await user.click(screen.getByRole("button", { name: /Clone again/i }))
     await user.click(screen.getByRole("button", { name: /^Clone$/i }))
     await screen.findByText("Clone complete")
-    await act(async () => answerCheck({ status: "fail", error: "no such directory" }))
+    await act(async () => checks[0]!.resolve({ status: "fail", error: "no such directory" }))
 
     expect(screen.getByText("Clone complete")).toBeInTheDocument()
     expect(screen.queryByText("This block's repository is gone")).not.toBeInTheDocument()
@@ -313,13 +312,10 @@ describe("GitClone in a session", () => {
 
   it("records an empty repository only once it has a default branch, on that branch", async () => {
     const user = userEvent.setup()
-    invoke.mockImplementation(async (channel: string) => {
-      if (channel === "git:clone") return { ...CLONED, hasCommits: false, ref: undefined }
-      if (channel === "git:init-default-branch") return { branch: "trunk" }
-      if (channel === "session:get") return { workingDir: "/work" }
-      if (channel === "github:orgs") return []
-      return { ok: true }
-    })
+    // A clone of an empty repo: no commits, so no branch either. main sends
+    // the branch HEAD names, or "" when it can't read one.
+    testApi.handle("git:clone", () => ({ ...CLONED, ref: "", hasCommits: false }))
+    testApi.handle("git:init-default-branch", () => ({ branch: "trunk" }))
     renderGitClone(undefined, { prefilledUrl: URL })
     const clone = screen.getByRole("button", { name: /^Clone$/i })
     await waitFor(() => expect(clone).toBeEnabled(), { timeout: 2000 })
@@ -414,7 +410,7 @@ describe("GitClone in a session", () => {
         commitSha: "abc123",
         hasCommits: true,
       },
-      outputs: CHECKOUT.outputs,
+      outputs: CHECKOUT_OUTPUTS,
     })
 
     await user.click(screen.getByRole("button", { name: /Stop using this repo/i }))
@@ -439,7 +435,7 @@ describe("GitClone in a session", () => {
         commitSha: "abc123",
         hasCommits: true,
       },
-      outputs: CHECKOUT.outputs,
+      outputs: CHECKOUT_OUTPUTS,
     })
 
     expect(screen.getByText("Using local checkout")).toBeInTheDocument()

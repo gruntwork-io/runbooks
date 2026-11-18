@@ -1,17 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import type { ReactNode } from "react"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
 import { CustomCaDialog } from "../CustomCaDialog"
 import type { CaCertificateSummary, CustomCaStatus } from "../../../../../src/domain/tls/customCa"
 
-// The IPC boundary is the only thing mocked: main reads, saves and installs the file.
-const invoke = vi.fn()
-const api = { invoke, on: () => () => {} }
-
-vi.mock("@/contexts/ApiContext", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/contexts/ApiContext")>()
-  return { ...actual, useApi: () => api }
-})
+// The IPC boundary is the only thing faked: main reads, saves and installs the file.
+let testApi: TestApi
+const withApi = {
+  wrapper: ({ children }: { children: ReactNode }) => (
+    <ApiProvider api={testApi.api}>{children}</ApiProvider>
+  ),
+}
 
 const ROOT: CaCertificateSummary = {
   subject: "Acme Root CA",
@@ -31,24 +33,20 @@ const INTERMEDIATE: CaCertificateSummary = {
 const NONE: CustomCaStatus = { certificates: [] }
 const SET: CustomCaStatus = { path: "/certs/acme.pem", certificates: [ROOT, INTERMEDIATE] }
 
-/** Main's answers, by channel. Each test overrides what it needs. */
-let answers: Record<string, () => unknown>
-
+// Main's answers, by channel. Each test overrides what it needs.
 beforeEach(() => {
-  invoke.mockReset()
-  answers = {
+  testApi = makeTestApi({
     "tls:custom-ca-status": () => NONE,
     "tls:choose-custom-ca": () => ({ status: SET }),
     "tls:clear-custom-ca": () => ({ status: NONE }),
-  }
-  invoke.mockImplementation(async (channel: string) => answers[channel]!())
+  })
 })
 
-const callsTo = (channel: string) => invoke.mock.calls.filter(([c]) => c === channel)
+const callsTo: TestApi["callsTo"] = (channel) => testApi.callsTo(channel)
 
 describe("CustomCaDialog", () => {
   it("says no certificate is set, and offers to choose one", async () => {
-    render(<CustomCaDialog open onOpenChange={vi.fn()} />)
+    render(<CustomCaDialog open onOpenChange={vi.fn()} />, withApi)
 
     expect(await screen.findByText("No custom CA certificate is set.")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Choose File…" })).toBeEnabled()
@@ -56,8 +54,8 @@ describe("CustomCaDialog", () => {
   })
 
   it("lists the file's certificates: who issued each, when it expires, and its fingerprint", async () => {
-    answers["tls:custom-ca-status"] = () => SET
-    render(<CustomCaDialog open onOpenChange={vi.fn()} />)
+    testApi.handle("tls:custom-ca-status", () => SET)
+    render(<CustomCaDialog open onOpenChange={vi.fn()} />, withApi)
 
     expect(await screen.findByText("/certs/acme.pem")).toBeInTheDocument()
     expect(screen.getByText("Acme Root CA")).toBeInTheDocument()
@@ -70,12 +68,12 @@ describe("CustomCaDialog", () => {
   })
 
   it("says why a saved file isn't trusted, such as when it's gone", async () => {
-    answers["tls:custom-ca-status"] = () => ({
+    testApi.handle("tls:custom-ca-status", () => ({
       path: "/certs/gone.pem",
       certificates: [],
       error: "The file isn't there anymore.",
-    })
-    render(<CustomCaDialog open onOpenChange={vi.fn()} />)
+    }))
+    render(<CustomCaDialog open onOpenChange={vi.fn()} />, withApi)
 
     expect(
       await screen.findByText("Not trusted: The file isn't there anymore."),
@@ -85,7 +83,7 @@ describe("CustomCaDialog", () => {
 
   it("shows the certificates of the file chosen in main's file dialog", async () => {
     const user = userEvent.setup()
-    render(<CustomCaDialog open onOpenChange={vi.fn()} />)
+    render(<CustomCaDialog open onOpenChange={vi.fn()} />, withApi)
 
     await user.click(await screen.findByRole("button", { name: "Choose File…" }))
 
@@ -95,12 +93,12 @@ describe("CustomCaDialog", () => {
 
   it("keeps the current setting and says why when the file chosen has no certificate", async () => {
     const user = userEvent.setup()
-    answers["tls:custom-ca-status"] = () => SET
-    answers["tls:choose-custom-ca"] = () => ({
+    testApi.handle("tls:custom-ca-status", () => SET)
+    testApi.handle("tls:choose-custom-ca", () => ({
       status: SET,
       rejected: "The file has no certificates. Choose the CA's certificate, not a key.",
-    })
-    render(<CustomCaDialog open onOpenChange={vi.fn()} />)
+    }))
+    render(<CustomCaDialog open onOpenChange={vi.fn()} />, withApi)
 
     await user.click(await screen.findByRole("button", { name: "Choose Another File…" }))
 
@@ -110,8 +108,8 @@ describe("CustomCaDialog", () => {
 
   it("changes nothing when the file dialog is canceled", async () => {
     const user = userEvent.setup()
-    answers["tls:choose-custom-ca"] = () => ({ status: NONE, canceled: true })
-    render(<CustomCaDialog open onOpenChange={vi.fn()} />)
+    testApi.handle("tls:choose-custom-ca", () => ({ status: NONE, canceled: true }))
+    render(<CustomCaDialog open onOpenChange={vi.fn()} />, withApi)
 
     await user.click(await screen.findByRole("button", { name: "Choose File…" }))
 
@@ -122,8 +120,8 @@ describe("CustomCaDialog", () => {
 
   it("removes the custom CA", async () => {
     const user = userEvent.setup()
-    answers["tls:custom-ca-status"] = () => SET
-    render(<CustomCaDialog open onOpenChange={vi.fn()} />)
+    testApi.handle("tls:custom-ca-status", () => SET)
+    render(<CustomCaDialog open onOpenChange={vi.fn()} />, withApi)
 
     await user.click(await screen.findByRole("button", { name: "Remove" }))
 
@@ -133,13 +131,13 @@ describe("CustomCaDialog", () => {
 
   it("keeps the custom CA and says why when it can't be removed", async () => {
     const user = userEvent.setup()
-    answers["tls:custom-ca-status"] = () => SET
-    answers["tls:clear-custom-ca"] = () => ({
+    testApi.handle("tls:custom-ca-status", () => SET)
+    testApi.handle("tls:clear-custom-ca", () => ({
       status: SET,
       rejected:
         "The certificate bundle for scripts can't be written: ENOSPC: no space left on device",
-    })
-    render(<CustomCaDialog open onOpenChange={vi.fn()} />)
+    }))
+    render(<CustomCaDialog open onOpenChange={vi.fn()} />, withApi)
 
     await user.click(await screen.findByRole("button", { name: "Remove" }))
 
@@ -149,11 +147,11 @@ describe("CustomCaDialog", () => {
 
   it("shows a failed request's error", async () => {
     const user = userEvent.setup()
-    answers["tls:custom-ca-status"] = () => SET
-    answers["tls:clear-custom-ca"] = () => {
+    testApi.handle("tls:custom-ca-status", () => SET)
+    testApi.handle("tls:clear-custom-ca", () => {
       throw new Error("EACCES: permission denied")
-    }
-    render(<CustomCaDialog open onOpenChange={vi.fn()} />)
+    })
+    render(<CustomCaDialog open onOpenChange={vi.fn()} />, withApi)
 
     await user.click(await screen.findByRole("button", { name: "Remove" }))
 
@@ -163,7 +161,7 @@ describe("CustomCaDialog", () => {
   it("closes on Done", async () => {
     const user = userEvent.setup()
     const onOpenChange = vi.fn()
-    render(<CustomCaDialog open onOpenChange={onOpenChange} />)
+    render(<CustomCaDialog open onOpenChange={onOpenChange} />, withApi)
 
     await user.click(await screen.findByRole("button", { name: "Done" }))
 

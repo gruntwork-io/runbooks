@@ -6,7 +6,8 @@ import { useRunbookContext } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import { sensitiveOutput } from "@/lib/outputValues"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi } from "@/test/test-api"
 
 // Mock config loading
 let mockConfigReturn = {
@@ -229,9 +230,8 @@ describe("Template", () => {
         },
       }
       // Resolves the two defaults when their variable is sent, as main would.
-      const invoke = vi.fn(
-        async (channel: string, request: { inputs: Record<string, unknown> }) => {
-          if (channel !== "boilerplate:resolve-inputs") return undefined
+      const testApi = makeTestApi({
+        "boilerplate:resolve-inputs": (request) => {
           const { region, token } = request.inputs
           return {
             inputs: {
@@ -241,9 +241,10 @@ describe("Template", () => {
             },
           }
         },
-      )
+        "native:set-theme": () => ({ ok: true }),
+      })
       render(
-        <ApiProvider api={{ invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI}>
+        <ApiProvider api={testApi.api}>
           <TestWrapper>
             <CaptureContext />
             <Template id="state" path="templates/state" inputsId="cfg" />
@@ -267,9 +268,9 @@ describe("Template", () => {
 
       expect(screen.getByLabelText("Bucket")).toHaveTextContent("eu-west-1-state")
       expect(screen.getByLabelText("Auth")).not.toHaveTextContent("ghp_s3cr3t")
-      const resolveRequests = invoke.mock.calls.filter(([c]) => c === "boilerplate:resolve-inputs")
+      const resolveRequests = testApi.callsTo("boilerplate:resolve-inputs")
       expect(resolveRequests.length).toBeGreaterThan(0)
-      for (const [, request] of resolveRequests) {
+      for (const request of resolveRequests) {
         expect(request.inputs).not.toHaveProperty("token")
       }
     })

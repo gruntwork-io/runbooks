@@ -10,6 +10,7 @@ import {
 describe("extractTemplateDependenciesFromString", () => {
   it("should return empty array for empty or null-ish content", () => {
     expect(extractTemplateDependenciesFromString("")).toEqual([])
+    // Untyped callers can pass null or undefined; the casts get them past the string type.
     expect(extractTemplateDependenciesFromString(null as unknown as string)).toEqual([])
     expect(extractTemplateDependenciesFromString(undefined as unknown as string)).toEqual([])
   })

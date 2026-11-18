@@ -93,7 +93,8 @@ describe("SessionStore", () => {
   })
 
   it("rolls back an insert that fails part way, and keeps working", () => {
-    // The session row goes in, then a worktree path the schema refuses.
+    // The session row goes in, then a worktree path the schema refuses. The
+    // cast is the point: null is what the type rules out and the schema must catch.
     const broken = record({ worktrees: [null as unknown as string] })
 
     const failed = run(Effect.result(store.insert(broken)))

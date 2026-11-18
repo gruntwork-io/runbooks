@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { act, renderHook } from "@testing-library/react"
 import type { ReactNode } from "react"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
 import {
   ExecutableRegistryContext,
   type ExecutableRegistryContextValue,
@@ -11,27 +11,16 @@ import { IpcGitWorkTreeProvider } from "@/contexts/IpcGitWorkTreeContext"
 import { LogsProvider } from "@/contexts/LogsContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { TestWrapper } from "@/test/test-utils"
+import { makeTestApi, type HeldCall, type TestApi } from "@/test/test-api"
 import { makeConfig } from "@/test/make-config"
+import { renderedInline } from "@/test/render-inline"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
 import { useScriptExecution } from "../useScriptExecution"
 
+let testApi: TestApi
 // `boilerplate:render-inline` calls stay pending until the test settles them,
 // so the test decides the order in which renders land.
-interface PendingRender {
-  resolve: (value: unknown) => void
-  reject: (err: unknown) => void
-}
-
-const renders: PendingRender[] = []
-const invoke = vi.fn((channel: string) => {
-  if (channel === "boilerplate:render-inline") {
-    return new Promise((resolve, reject) => {
-      renders.push({ resolve, reject })
-    })
-  }
-  return Promise.resolve({ ok: true })
-})
-const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
+let renders: readonly HeldCall<"boilerplate:render-inline">[]
 
 const registry: ExecutableRegistryContextValue = {
   getExecutableByComponentId: () => null,
@@ -40,7 +29,7 @@ const registry: ExecutableRegistryContextValue = {
 
 function Providers({ children }: { children: ReactNode }) {
   return (
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <TestWrapper>
         <ExecutableRegistryContext.Provider value={registry}>
           <GeneratedFilesProvider>
@@ -55,7 +44,7 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 const config = makeConfig([{ name: "name", type: BoilerplateVariableType.String }])
-const rendered = (content: string) => ({ renderedFiles: { "script.sh": { content } } })
+const rendered = (content: string) => renderedInline({ "script.sh": content })
 
 function renderCommand(command = "echo {{ .inputs.name }}") {
   return renderHook(
@@ -83,8 +72,8 @@ async function typeName(result: ReturnType<typeof renderCommand>["result"], name
 }
 
 beforeEach(() => {
-  renders.length = 0
-  invoke.mockClear()
+  testApi = makeTestApi({ "native:set-theme": () => ({ ok: true }) })
+  renders = testApi.hold("boilerplate:render-inline")
   vi.useFakeTimers()
 })
 afterEach(() => {

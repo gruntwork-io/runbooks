@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
 import type { ReactNode } from "react"
 import { renderHook, waitFor } from "@testing-library/react"
-import { ApiProvider, type RunbooksAPI } from "./ApiContext"
+import { ApiProvider } from "./ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
 import { IpcSessionHistoryProvider } from "./IpcSessionHistoryContext"
 import { useSessionHistory } from "./useSessionHistory"
 import type { SavedBlockState } from "../../../src/domain/session/history"
@@ -10,13 +11,12 @@ const FORM = { values: { region: "us-east-1" }, submitted: true }
 
 // Mock boundary: the preload API, which is where an event leaves the renderer.
 function renderHistory(
-  invoke: RunbooksAPI["invoke"],
+  testApi: TestApi,
   props: { sessionId: string | undefined; blockStates: SavedBlockState[] | undefined },
 ) {
-  const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
   return renderHook(() => useSessionHistory(), {
     wrapper: ({ children }: { children: ReactNode }) => (
-      <ApiProvider api={api}>
+      <ApiProvider api={testApi.api}>
         <IpcSessionHistoryProvider {...props}>{children}</IpcSessionHistoryProvider>
       </ApiProvider>
     ),
@@ -29,7 +29,7 @@ describe("IpcSessionHistoryProvider", () => {
   })
 
   it("gives a block what the session's history says it was left as", () => {
-    const { result } = renderHistory(vi.fn(), {
+    const { result } = renderHistory(makeTestApi(), {
       sessionId: "s1",
       blockStates: [
         { blockId: "config", kind: "inputs", payload: FORM },
@@ -43,8 +43,8 @@ describe("IpcSessionHistoryProvider", () => {
   })
 
   it("sends an event to the main process for the session, and has it as the block's state", () => {
-    const invoke = vi.fn(async () => ({ ok: true }))
-    const { result } = renderHistory(invoke as unknown as RunbooksAPI["invoke"], {
+    const testApi = makeTestApi({ "session:record-event": () => ({ ok: true }) })
+    const { result } = renderHistory(testApi, {
       sessionId: "s1",
       blockStates: [
         { blockId: "config", kind: "inputs", payload: { values: {}, submitted: false } },
@@ -53,7 +53,7 @@ describe("IpcSessionHistoryProvider", () => {
 
     result.current.record("config", "inputs", FORM)
 
-    expect(invoke).toHaveBeenCalledWith("session:record-event", {
+    expect(testApi.invoke).toHaveBeenCalledWith("session:record-event", {
       sessionId: "s1",
       blockId: "config",
       kind: "inputs",
@@ -64,10 +64,12 @@ describe("IpcSessionHistoryProvider", () => {
 
   it("keeps the block's state when the main process can't save it, and keeps the payload out of the console", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    const invoke = vi.fn(async () => {
-      throw new Error('the inputs event of block "login" is too long')
+    const testApi = makeTestApi({
+      "session:record-event": () => {
+        throw new Error('the inputs event of block "login" is too long')
+      },
     })
-    const { result } = renderHistory(invoke as unknown as RunbooksAPI["invoke"], {
+    const { result } = renderHistory(testApi, {
       sessionId: "s1",
       blockStates: [],
     })
@@ -85,23 +87,25 @@ describe("IpcSessionHistoryProvider", () => {
   })
 
   it("marks the session finished in the main process", () => {
-    const invoke = vi.fn(async () => ({ ok: true }))
-    const { result } = renderHistory(invoke as unknown as RunbooksAPI["invoke"], {
+    const testApi = makeTestApi({ "session:finish": () => ({ ok: true }) })
+    const { result } = renderHistory(testApi, {
       sessionId: "s1",
       blockStates: [],
     })
 
     result.current.finish()
 
-    expect(invoke).toHaveBeenCalledWith("session:finish", { sessionId: "s1" })
+    expect(testApi.invoke).toHaveBeenCalledWith("session:finish", { sessionId: "s1" })
   })
 
   it("says in the console when the session can't be marked finished", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    const invoke = vi.fn(async () => {
-      throw new Error("failed to mark a session finished: disk full")
+    const testApi = makeTestApi({
+      "session:finish": () => {
+        throw new Error("failed to mark a session finished: disk full")
+      },
     })
-    const { result } = renderHistory(invoke as unknown as RunbooksAPI["invoke"], {
+    const { result } = renderHistory(testApi, {
       sessionId: "s1",
       blockStates: [],
     })
@@ -114,13 +118,13 @@ describe("IpcSessionHistoryProvider", () => {
   })
 
   it("sends nothing while no session is loaded", () => {
-    const invoke = vi.fn()
-    const { result } = renderHistory(invoke, { sessionId: undefined, blockStates: undefined })
+    const testApi = makeTestApi()
+    const { result } = renderHistory(testApi, { sessionId: undefined, blockStates: undefined })
 
     result.current.record("config", "inputs", FORM)
     result.current.finish()
 
-    expect(invoke).not.toHaveBeenCalled()
+    expect(testApi.invoke).not.toHaveBeenCalled()
   })
 })
 

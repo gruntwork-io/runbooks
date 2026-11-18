@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Handlers, type TestApi } from "@/test/test-api"
 
 /**
  * The failure-recovery path of the real block + real useGitPullRequest hook.
@@ -45,36 +46,17 @@ vi.mock("../components/PRResult", () => ({
 
 import GitPullRequest from "../GitPullRequest"
 
-type Api = Parameters<typeof ApiProvider>[0]["api"]
-type Handler = (args: Record<string, unknown>) => unknown
-
 const PR_URL = "https://github.com/acme/infra/pull/42"
 const LOCAL_CONFLICT = "fatal: a branch named 'runbook/1' already exists"
 
-let listeners: Map<string, Set<(data: unknown) => void>>
-let invoke: ReturnType<typeof vi.fn>
+let testApi: TestApi
 
-function emit(channel: string, data: unknown) {
-  for (const cb of listeners.get(channel) ?? []) cb(data)
-}
-
-function renderBlock(handlers: Record<string, Handler>) {
-  listeners = new Map()
-  invoke = vi.fn(async (channel: string, args: Record<string, unknown>) =>
-    channel in handlers ? handlers[channel]!(args) : { labels: [] },
-  )
-  const api = {
-    invoke,
-    on: (channel: string, cb: (data: unknown) => void) => {
-      if (!listeners.has(channel)) listeners.set(channel, new Set())
-      listeners.get(channel)!.add(cb)
-      return () => listeners.get(channel)?.delete(cb)
-    },
-  } as unknown as Api
+function renderBlock(handlers: Handlers) {
+  testApi = makeTestApi({ "github:labels": () => ({ labels: [] }), ...handlers })
 
   return render(
     <TestWrapper>
-      <ApiProvider api={api}>
+      <ApiProvider api={testApi.api}>
         <GitPullRequest id="pr" provider="github" prefilledBranchName="runbook/1" />
       </ApiProvider>
     </TestWrapper>,
@@ -83,21 +65,19 @@ function renderBlock(handlers: Record<string, Handler>) {
 
 /** The create/delete invokes in order, ignoring the label fetch. */
 function actionCalls(): string[] {
-  return invoke.mock.calls
-    .map((call) => call[0] as string)
-    .filter((channel) => channel !== "github:labels")
+  return testApi.calls.map((call) => call.channel).filter((channel) => channel !== "github:labels")
 }
 
 function fail(message: string, code?: string) {
-  emit("git:error", { message, ...(code ? { code, branchName: "runbook/1" } : {}) })
-  emit("git:status", { status: "fail", exitCode: 1 })
+  testApi.emit("git:error", { message, ...(code ? { code, branchName: "runbook/1" } : {}) })
+  testApi.emit("git:status", { status: "fail", exitCode: 1 })
   return { error: message }
 }
 
 function succeed() {
-  emit("git:pr-result", { prUrl: PR_URL, prNumber: 42, branchName: "runbook/1" })
-  emit("git:outputs", { outputs: { PR_ID: "42", PR_URL } })
-  emit("git:status", { status: "success", exitCode: 0 })
+  testApi.emit("git:pr-result", { prUrl: PR_URL, prNumber: 42, branchName: "runbook/1" })
+  testApi.emit("git:outputs", { outputs: { PR_ID: "42", PR_URL } })
+  testApi.emit("git:status", { status: "success", exitCode: 0 })
   return { url: PR_URL, number: 42 }
 }
 
@@ -121,7 +101,7 @@ describe("GitPullRequest failure recovery", () => {
 
     expect(await screen.findByText(`Opened ${PR_URL}`)).toBeInTheDocument()
     expect(actionCalls()).toEqual(["git:pull-request", "git:delete-branch", "git:pull-request"])
-    expect(invoke).toHaveBeenCalledWith("git:delete-branch", {
+    expect(testApi.invoke).toHaveBeenCalledWith("git:delete-branch", {
       worktreePath: "/work/infra",
       branch: "runbook/1",
     })

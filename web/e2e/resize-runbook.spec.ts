@@ -65,7 +65,13 @@ async function showFiles(page: Page) {
   await page.waitForFunction("document.getAnimations().length === 0")
 }
 
-/** Drags `handle` `dx` pixels to the right, or to the left when negative. */
+/**
+ * Drags `handle` `dx` pixels to the right, or to the left when negative.
+ *
+ * Moves in steps of a quarter of the handle's width, so each move lands on the
+ * handle even once it has lost the pointer capture. On the Linux CI runner the
+ * X server can send a move with no button held mid-drag, which releases it.
+ */
 async function drag(page: Page, handle: Locator, dx: number) {
   const box = await handle.boundingBox()
   if (!box) throw new Error("The resize handle isn't on screen")
@@ -73,7 +79,6 @@ async function drag(page: Page, handle: Locator, dx: number) {
   const y = box.y + box.height / 2
   await page.mouse.move(x, y)
   await page.mouse.down()
-  await page.mouse.move(x + dx / 2, y)
-  await page.mouse.move(x + dx, y)
+  await page.mouse.move(x + dx, y, { steps: Math.ceil(Math.abs(dx) / (box.width / 4)) })
   await page.mouse.up()
 }

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { act, render, screen } from "@testing-library/react"
 import { useEffect } from "react"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
+import { renderedInline } from "@/test/render-inline"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
@@ -29,37 +31,30 @@ import TemplateInline from "../TemplateInline"
 const TEMPLATE = "Hello {{ .inputs.name }}"
 const DEBOUNCE_SETTLE_MS = 450
 
-interface RenderInlineParams {
-  templateFiles: Record<string, string>
-  inputs: Array<{ name: string; value: unknown }>
-  generateFile?: boolean
-}
-
-function makeInvoke() {
-  return vi.fn((channel: string, params?: RenderInlineParams) => {
-    if (channel !== "boilerplate:render-inline" || !params) {
-      return Promise.resolve({ ok: true })
-    }
-    const inputs = (params.inputs.find((i) => i.name === "inputs")?.value ?? {}) as Record<
-      string,
-      unknown
-    >
-    const renderedFiles = Object.fromEntries(
-      Object.entries(params.templateFiles).map(([name, content]) => [
-        name,
-        {
-          name,
-          path: name,
-          content: content.replace("{{ .inputs.name }}", String(inputs.name)),
-          language: "",
-        },
-      ]),
-    )
-    return Promise.resolve(
-      params.generateFile
-        ? { renderedFiles, fileTree: [], totalFiles: 1, truncatedTree: false, heavyDirs: [] }
-        : { renderedFiles },
-    )
+/** Renders each template file with `.inputs.name`, answering the way main does. */
+function makeTestApiRenderingInline() {
+  return makeTestApi({
+    "boilerplate:render-inline": (params) => {
+      const inputs = params.inputs.find((input) => input.name === "inputs")?.value
+      const name =
+        typeof inputs === "object" && inputs !== null && "name" in inputs ? inputs.name : undefined
+      const contents = Object.fromEntries(
+        Object.entries(params.templateFiles).map(([file, content]) => [
+          file,
+          content.replace("{{ .inputs.name }}", String(name)),
+        ]),
+      )
+      return params.generateFile
+        ? renderedInline(contents, {
+            fileTree: [],
+            totalFiles: 1,
+            truncatedTree: false,
+            heavyDirs: [],
+          })
+        : renderedInline(contents)
+    },
+    "session:record-event": () => ({ ok: true }),
+    "native:set-theme": () => ({ ok: true }),
   })
 }
 
@@ -73,23 +68,31 @@ function RegisterInputs({ values }: { values: Record<string, unknown> }) {
   return null
 }
 
-let invoke: ReturnType<typeof makeInvoke>
+let testApi: TestApi
+/** How many of each channel's calls were made before the last forgetCalls(). */
+let forgotten = { renders: 0, events: 0 }
 
 /** Each render-inline request, oldest first. */
-const renderCalls = () =>
-  invoke.mock.calls
-    .filter(([channel]) => channel === "boilerplate:render-inline")
-    .map(([, params]) => params as RenderInlineParams)
+const renderCalls = () => testApi.callsTo("boilerplate:render-inline").slice(forgotten.renders)
 
 /** The payload of each `render` event sent to the main process, oldest first. */
 const recordedRenders = () =>
-  invoke.mock.calls
-    .map((call) => call as unknown as [string, { blockId: string; kind: string; payload: unknown }])
-    .filter(([channel, event]) => channel === "session:record-event" && event.kind === "render")
-    .map(([, event]) => {
+  testApi
+    .callsTo("session:record-event")
+    .slice(forgotten.events)
+    .filter((event) => event.kind === "render")
+    .map((event) => {
       expect(event.blockId).toBe("tpl")
       return event.payload
     })
+
+/** Forgets the calls made so far: renderCalls() and recordedRenders() list only later ones. */
+const forgetCalls = () => {
+  forgotten = {
+    renders: testApi.callsTo("boilerplate:render-inline").length,
+    events: testApi.callsTo("session:record-event").length,
+  }
+}
 
 /**
  * The block in a session whose history says it last wrote what `written`
@@ -106,13 +109,10 @@ function renderBlock({
   generateFile?: boolean
   target?: "generated"
 }) {
-  const api = { invoke, on: vi.fn(() => () => {}) } as unknown as Parameters<
-    typeof ApiProvider
-  >[0]["api"]
   const blockStates: SavedBlockState[] =
     written === undefined ? [] : [{ blockId: "tpl", kind: "render", payload: written }]
   const ui = (current: Record<string, unknown>) => (
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <IpcSessionHistoryProvider sessionId="s1" blockStates={blockStates}>
         <TestWrapper>
           <RegisterInputs values={current} />
@@ -151,14 +151,15 @@ async function writeOnce(values: Record<string, unknown>): Promise<unknown> {
   expect(renderCalls().at(-1)?.generateFile).toBe(true)
   const written = recordedRenders().at(-1)
   unmount()
-  invoke.mockClear()
+  forgetCalls()
   applyFileTreeUpdate.mockClear()
   return written
 }
 
 describe("TemplateInline in a session", () => {
   beforeEach(() => {
-    invoke = makeInvoke()
+    testApi = makeTestApiRenderingInline()
+    forgotten = { renders: 0, events: 0 }
     applyFileTreeUpdate.mockClear()
   })
 

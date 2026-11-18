@@ -2,34 +2,58 @@ import { describe, it, expect, vi, afterEach } from "vitest"
 import { createElement, useEffect, useRef, type ReactNode } from "react"
 import { renderHook, act } from "@testing-library/react"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { makeTestApi, type Result } from "@/test/test-api"
+import { renderedInline } from "@/test/render-inline"
 import { useIpc, type UseIpcOptions, type UseIpcReturn } from "./useIpc"
 
 // =============================================================================
 // useIpc request sequencing, lazy/debounce and disabled transitions
 // =============================================================================
 //
-// Mock boundary: the IPC `invoke` is the only fake. It returns a promise the
-// test settles by hand, so response ordering is under the test's control.
+// Mock boundary: the IPC API is the only fake (makeTestApi). Its invokes stay
+// pending until the test settles them, so response ordering is under the
+// test's control.
 // `useApi()` is fed through the real ApiProvider.
 
-interface PendingInvoke {
-  channel: string
-  params: unknown
-  resolve: (value: unknown) => void
-  reject: (reason: unknown) => void
+// Each channel the tests drive holds its invokes, so the test settles them in
+// any order.
+function createControllableApi() {
+  const testApi = makeTestApi()
+  return {
+    api: testApi.api,
+    invoke: testApi.invoke,
+    reads: testApi.hold("file:read"),
+    renders: testApi.hold("boilerplate:render"),
+    inlineRenders: testApi.hold("boilerplate:render-inline"),
+  }
 }
 
-function createControllableApi() {
-  const pending: PendingInvoke[] = []
-  const invoke = vi.fn(
-    (channel: string, params?: unknown) =>
-      new Promise((resolve, reject) => {
-        pending.push({ channel, params, resolve, reject })
-      }),
-  )
-  const api = { invoke, on: () => () => {} } as unknown as RunbooksAPI
-  return { api, invoke, pending }
+const file = (path: string, content: string): Result<"file:read"> => ({
+  name: path,
+  path,
+  content,
+  contentHash: `hash-${content}`,
+  language: "text",
+  size: content.length,
+  isTruncated: false,
+})
+const A = file("a", "A")
+const B = file("b", "B")
+const RENDER_REQUEST = { templatePath: "/templates/vpc", variables: { v: 1 }, outputPath: "/out" }
+const RENDERED: Result<"boilerplate:render"> = {
+  message: "Template rendered to /out",
+  outputDir: "/out",
+  templatePath: "/templates/vpc",
+  fileTree: [],
+  totalFiles: 1,
+  truncatedTree: false,
+  heavyDirs: [],
+  deletedFiles: [],
+  createdFiles: ["main.tf"],
+  modifiedFiles: [],
+  skippedFiles: [],
 }
+const RENDERED_INLINE = renderedInline({ "main.tf": "rendered" })
 
 interface HookProps {
   channel: string
@@ -60,68 +84,77 @@ afterEach(() => {
 describe("useIpc", () => {
   describe("eager fetch", () => {
     it("fetches on mount and commits the response", async () => {
-      const { api, invoke, pending } = createControllableApi()
-      const { result } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
+      const { api, invoke, reads } = createControllableApi()
+      const { result } = renderUseIpc(api, { channel: "file:read", params: { path: "a" } })
 
       expect(invoke).toHaveBeenCalledTimes(1)
-      expect(invoke).toHaveBeenCalledWith("file:get", { path: "a" })
+      expect(invoke).toHaveBeenCalledWith("file:read", { path: "a" })
       expect(result.current.isLoading).toBe(true)
 
-      await settle(() => pending[0]!.resolve("A"))
+      await settle(() => reads[0]!.resolve(A))
 
-      expect(result.current.data).toBe("A")
+      expect(result.current.data).toBe(A)
       expect(result.current.isLoading).toBe(false)
       expect(result.current.error).toBeNull()
     })
 
     it("ignores an older response that resolves after a newer one", async () => {
-      const { api, invoke, pending } = createControllableApi()
-      const { result, rerender } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
+      const { api, invoke, reads } = createControllableApi()
+      const { result, rerender } = renderUseIpc(api, {
+        channel: "file:read",
+        params: { path: "a" },
+      })
 
-      rerender({ channel: "file:get", params: { path: "b" } })
+      rerender({ channel: "file:read", params: { path: "b" } })
       expect(invoke).toHaveBeenCalledTimes(2)
-      expect(pending[1]!.params).toEqual({ path: "b" })
+      expect(reads[1]!.params).toEqual({ path: "b" })
 
-      await settle(() => pending[1]!.resolve("B"))
-      expect(result.current.data).toBe("B")
+      await settle(() => reads[1]!.resolve(B))
+      expect(result.current.data).toBe(B)
 
-      await settle(() => pending[0]!.resolve("A"))
-      expect(result.current.data).toBe("B")
+      await settle(() => reads[0]!.resolve(A))
+      expect(result.current.data).toBe(B)
       expect(result.current.isLoading).toBe(false)
     })
 
     it("ignores an older rejection that settles after a newer response", async () => {
-      const { api, pending } = createControllableApi()
-      const { result, rerender } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
+      const { api, reads } = createControllableApi()
+      const { result, rerender } = renderUseIpc(api, {
+        channel: "file:read",
+        params: { path: "a" },
+      })
 
-      rerender({ channel: "file:get", params: { path: "b" } })
-      await settle(() => pending[1]!.resolve("B"))
-      await settle(() => pending[0]!.reject(new Error("stale failure")))
+      rerender({ channel: "file:read", params: { path: "b" } })
+      await settle(() => reads[1]!.resolve(B))
+      await settle(() => reads[0]!.reject(new Error("stale failure")))
 
-      expect(result.current.data).toBe("B")
+      expect(result.current.data).toBe(B)
       expect(result.current.error).toBeNull()
     })
 
     it("does not re-fetch when params change identity but not content", () => {
       const { api, invoke } = createControllableApi()
-      const { rerender } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
+      const { rerender } = renderUseIpc(api, { channel: "file:read", params: { path: "a" } })
 
-      rerender({ channel: "file:get", params: { path: "a" } })
+      rerender({ channel: "file:read", params: { path: "a" } })
 
       expect(invoke).toHaveBeenCalledTimes(1)
     })
 
     it("leaves state alone when the main process reports the call as superseded", async () => {
-      const { api, pending } = createControllableApi()
-      const { result } = renderUseIpc(api, { channel: "boilerplate:render", params: { v: 1 } })
-      await settle(() => pending[0]!.resolve("first"))
+      const { api, renders } = createControllableApi()
+      const { result } = renderUseIpc(api, {
+        channel: "boilerplate:render",
+        params: RENDER_REQUEST,
+      })
+      await settle(() => renders[0]!.resolve(RENDERED))
 
       act(() => result.current.refetch())
       expect(result.current.isLoading).toBe(true)
-      await settle(() => pending[1]!.resolve({ superseded: true }))
+      await settle(() => renders[1]!.resolve({ superseded: true }))
 
       // Not committed as data; the newer call that superseded it drives state.
-      expect(result.current.data).toBe("first")
+      expect(result.current.data).toBe(RENDERED)
       expect(result.current.error).toBeNull()
       expect(result.current.isLoading).toBe(true)
     })
@@ -129,13 +162,11 @@ describe("useIpc", () => {
 
   describe("errors", () => {
     it("strips Electron's IPC wrapper and repeated Error: prefixes from the message", async () => {
-      const { api, pending } = createControllableApi()
-      const { result } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
+      const { api, reads } = createControllableApi()
+      const { result } = renderUseIpc(api, { channel: "file:read", params: { path: "a" } })
 
       await settle(() =>
-        pending[0]!.reject(
-          new Error("Error invoking remote method 'file:get': Error: Error: boom"),
-        ),
+        reads[0]!.reject(new Error("Error invoking remote method 'file:read': Error: Error: boom")),
       )
 
       expect(result.current.error?.message).toBe("boom")
@@ -144,25 +175,25 @@ describe("useIpc", () => {
     })
 
     it("reports a generic message for a non-Error rejection", async () => {
-      const { api, pending } = createControllableApi()
-      const { result } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
+      const { api, reads } = createControllableApi()
+      const { result } = renderUseIpc(api, { channel: "file:read", params: { path: "a" } })
 
-      await settle(() => pending[0]!.reject("not an Error"))
+      await settle(() => reads[0]!.reject("not an Error"))
 
       expect(result.current.error?.message).toBe("An unexpected error occurred")
     })
 
     it("clears the error when a refetch succeeds", async () => {
-      const { api, pending } = createControllableApi()
-      const { result } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
-      await settle(() => pending[0]!.reject(new Error("boom")))
+      const { api, reads } = createControllableApi()
+      const { result } = renderUseIpc(api, { channel: "file:read", params: { path: "a" } })
+      await settle(() => reads[0]!.reject(new Error("boom")))
       expect(result.current.error).not.toBeNull()
 
       act(() => result.current.refetch())
-      await settle(() => pending[1]!.resolve("A"))
+      await settle(() => reads[1]!.resolve(A))
 
       expect(result.current.error).toBeNull()
-      expect(result.current.data).toBe("A")
+      expect(result.current.data).toBe(A)
     })
   })
 
@@ -182,21 +213,21 @@ describe("useIpc", () => {
 
     it("collapses a burst of requests into one invoke with the last params", async () => {
       vi.useFakeTimers()
-      const { api, invoke, pending } = createControllableApi()
+      const { api, invoke, inlineRenders } = createControllableApi()
       const { result } = renderUseIpc(api, {
         channel: "boilerplate:render-inline",
         options: lazyOptions,
       })
 
-      act(() => result.current.debouncedRequest!({ v: 1 }))
+      act(() => result.current.debouncedRequest!({ variables: { v: 1 } }))
       act(() => {
         vi.advanceTimersByTime(100)
       })
-      act(() => result.current.debouncedRequest!({ v: 2 }))
+      act(() => result.current.debouncedRequest!({ variables: { v: 2 } }))
       act(() => {
         vi.advanceTimersByTime(100)
       })
-      act(() => result.current.debouncedRequest!({ v: 3 }))
+      act(() => result.current.debouncedRequest!({ variables: { v: 3 } }))
       act(() => {
         vi.advanceTimersByTime(299)
       })
@@ -206,11 +237,11 @@ describe("useIpc", () => {
         vi.advanceTimersByTime(1)
       })
       expect(invoke).toHaveBeenCalledTimes(1)
-      expect(invoke).toHaveBeenCalledWith("boilerplate:render-inline", { v: 3 })
+      expect(invoke).toHaveBeenCalledWith("boilerplate:render-inline", { variables: { v: 3 } })
       expect(result.current.isLoading).toBe(true)
 
-      await settle(() => pending[0]!.resolve("rendered"))
-      expect(result.current.data).toBe("rendered")
+      await settle(() => inlineRenders[0]!.resolve(RENDERED_INLINE))
+      expect(result.current.data).toBe(RENDERED_INLINE)
       expect(result.current.isLoading).toBe(false)
     })
 
@@ -222,7 +253,7 @@ describe("useIpc", () => {
         options: lazyOptions,
       })
 
-      act(() => result.current.debouncedRequest!({ v: 1 }))
+      act(() => result.current.debouncedRequest!({ variables: { v: 1 } }))
       unmount()
       act(() => {
         vi.advanceTimersByTime(1000)
@@ -233,22 +264,26 @@ describe("useIpc", () => {
 
     it("keeps existing data when params change (the consumer drives fetches)", async () => {
       vi.useFakeTimers()
-      const { api, invoke, pending } = createControllableApi()
+      const { api, invoke, inlineRenders } = createControllableApi()
       const { result, rerender } = renderUseIpc(api, {
         channel: "boilerplate:render-inline",
-        params: { v: 1 },
+        params: { variables: { v: 1 } },
         options: lazyOptions,
       })
-      act(() => result.current.debouncedRequest!({ v: 1 }))
+      act(() => result.current.debouncedRequest!({ variables: { v: 1 } }))
       act(() => {
         vi.advanceTimersByTime(300)
       })
-      await settle(() => pending[0]!.resolve("rendered"))
+      await settle(() => inlineRenders[0]!.resolve(RENDERED_INLINE))
 
-      rerender({ channel: "boilerplate:render-inline", params: { v: 2 }, options: lazyOptions })
+      rerender({
+        channel: "boilerplate:render-inline",
+        params: { variables: { v: 2 } },
+        options: lazyOptions,
+      })
 
       expect(invoke).toHaveBeenCalledTimes(1)
-      expect(result.current.data).toBe("rendered")
+      expect(result.current.data).toBe(RENDERED_INLINE)
     })
   })
 
@@ -265,7 +300,7 @@ describe("useIpc", () => {
 
     it("still sends a debounced request scheduled from a mount effect", async () => {
       vi.useFakeTimers()
-      const { api, invoke, pending } = createControllableApi()
+      const { api, invoke, inlineRenders } = createControllableApi()
       const { result } = renderStrict(api, () => {
         const ipc = useIpc<unknown>("boilerplate:render-inline", undefined, {
           lazy: true,
@@ -276,7 +311,7 @@ describe("useIpc", () => {
         useEffect(() => {
           if (sentRef.current) return
           sentRef.current = true
-          debouncedRequest!({ v: 1 })
+          debouncedRequest!({ variables: { v: 1 } })
         }, [debouncedRequest])
         return ipc
       })
@@ -285,17 +320,21 @@ describe("useIpc", () => {
         vi.advanceTimersByTime(300)
       })
       expect(invoke).toHaveBeenCalledTimes(1)
-      expect(invoke).toHaveBeenCalledWith("boilerplate:render-inline", { v: 1 })
+      expect(invoke).toHaveBeenCalledWith("boilerplate:render-inline", { variables: { v: 1 } })
 
-      await settle(() => pending[0]!.resolve("rendered"))
-      expect(result.current.data).toBe("rendered")
+      await settle(() => inlineRenders[0]!.resolve(RENDERED_INLINE))
+      expect(result.current.data).toBe(RENDERED_INLINE)
       expect(result.current.isLoading).toBe(false)
     })
 
     it("still commits a request started from a mount effect", async () => {
-      const { api, invoke, pending } = createControllableApi()
+      const { api, invoke, inlineRenders } = createControllableApi()
       const { result } = renderStrict(api, () => {
-        const ipc = useIpc<unknown>("boilerplate:render-inline", { v: 1 }, { lazy: true })
+        const ipc = useIpc<unknown>(
+          "boilerplate:render-inline",
+          { variables: { v: 1 } },
+          { lazy: true },
+        )
         const sentRef = useRef(false)
         const { refetch } = ipc
         useEffect(() => {
@@ -307,9 +346,9 @@ describe("useIpc", () => {
       })
 
       expect(invoke).toHaveBeenCalledTimes(1)
-      await settle(() => pending[0]!.resolve("rendered"))
+      await settle(() => inlineRenders[0]!.resolve(RENDERED_INLINE))
 
-      expect(result.current.data).toBe("rendered")
+      expect(result.current.data).toBe(RENDERED_INLINE)
       expect(result.current.isLoading).toBe(false)
     })
   })
@@ -318,7 +357,7 @@ describe("useIpc", () => {
     it("does not fetch while disabled", () => {
       const { api, invoke } = createControllableApi()
       const { result } = renderUseIpc(api, {
-        channel: "file:get",
+        channel: "file:read",
         params: { path: "a" },
         options: { disabled: true },
       })
@@ -329,28 +368,31 @@ describe("useIpc", () => {
     })
 
     it("fetches once it goes from disabled to enabled", async () => {
-      const { api, invoke, pending } = createControllableApi()
+      const { api, invoke, reads } = createControllableApi()
       const { result, rerender } = renderUseIpc(api, {
-        channel: "file:get",
+        channel: "file:read",
         params: { path: "a" },
         options: { disabled: true },
       })
 
-      rerender({ channel: "file:get", params: { path: "a" }, options: { disabled: false } })
+      rerender({ channel: "file:read", params: { path: "a" }, options: { disabled: false } })
 
       expect(invoke).toHaveBeenCalledTimes(1)
-      expect(invoke).toHaveBeenCalledWith("file:get", { path: "a" })
+      expect(invoke).toHaveBeenCalledWith("file:read", { path: "a" })
       expect(result.current.isLoading).toBe(true)
-      await settle(() => pending[0]!.resolve("A"))
-      expect(result.current.data).toBe("A")
+      await settle(() => reads[0]!.resolve(A))
+      expect(result.current.data).toBe(A)
     })
 
     it("clears data and error when disabled", async () => {
-      const { api, pending } = createControllableApi()
-      const { result, rerender } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
-      await settle(() => pending[0]!.resolve("A"))
+      const { api, reads } = createControllableApi()
+      const { result, rerender } = renderUseIpc(api, {
+        channel: "file:read",
+        params: { path: "a" },
+      })
+      await settle(() => reads[0]!.resolve(A))
 
-      rerender({ channel: "file:get", params: { path: "a" }, options: { disabled: true } })
+      rerender({ channel: "file:read", params: { path: "a" }, options: { disabled: true } })
 
       expect(result.current.data).toBeNull()
       expect(result.current.error).toBeNull()
@@ -358,11 +400,14 @@ describe("useIpc", () => {
     })
 
     it("drops an in-flight response that settles after the channel is cleared", async () => {
-      const { api, pending } = createControllableApi()
-      const { result, rerender } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
+      const { api, reads } = createControllableApi()
+      const { result, rerender } = renderUseIpc(api, {
+        channel: "file:read",
+        params: { path: "a" },
+      })
 
       rerender({ channel: "", params: { path: "a" } })
-      await settle(() => pending[0]!.resolve("A"))
+      await settle(() => reads[0]!.resolve(A))
 
       expect(result.current.data).toBeNull()
       expect(result.current.isLoading).toBe(false)
@@ -374,7 +419,7 @@ describe("useIpc", () => {
       const options: UseIpcOptions = { lazy: true, debounceMs: 300 }
       const { result, rerender } = renderUseIpc(api, { channel: "boilerplate:render", options })
 
-      act(() => result.current.debouncedRequest!({ v: 1 }))
+      act(() => result.current.debouncedRequest!(RENDER_REQUEST))
       rerender({ channel: "boilerplate:render", options: { ...options, disabled: true } })
       act(() => {
         vi.advanceTimersByTime(1000)
@@ -391,7 +436,7 @@ describe("useIpc", () => {
       const options: UseIpcOptions = { lazy: true, debounceMs: 300 }
       const { result, rerender } = renderUseIpc(api, { channel: "boilerplate:render", options })
 
-      act(() => result.current.debouncedRequest!({ v: 1 }))
+      act(() => result.current.debouncedRequest!(RENDER_REQUEST))
       // The timer holds the performInvoke captured with the old channel, so
       // only clearing the timer (not bumping the request seq) stops it.
       rerender({ channel: "", options })

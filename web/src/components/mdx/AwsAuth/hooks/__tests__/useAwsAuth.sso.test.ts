@@ -2,6 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { createElement, type ReactNode } from "react"
 import { renderHook, act } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
+import {
+  makeTestApi,
+  type Handler,
+  type Handlers,
+  type Result,
+  type TestApi,
+} from "@/test/test-api"
 import { useAwsAuth } from "../useAwsAuth"
 import { sensitiveOutput } from "@/lib/outputValues"
 
@@ -23,10 +30,6 @@ vi.mock("@/contexts/useRunbook", () => ({
 vi.mock("@/contexts/useSession", () => ({
   useSession: () => ({ isReady: true }),
 }))
-
-type Api = Parameters<typeof ApiProvider>[0]["api"]
-type Params = Record<string, unknown>
-type Handler = (params: Params) => unknown
 
 const SSO_REGION = "eu-central-1"
 const ACCOUNTS = [
@@ -56,28 +59,21 @@ const deviceFlow = (deviceCode: string) => ({
 })
 
 /** Starts D1, D2, ... in order. */
-const startsInOrder = (): Handler => {
+const startsInOrder = (): Handler<"aws:sso-start"> => {
   let n = 0
   return () => deviceFlow(`D${++n}`)
 }
 
-let currentApi: Api
-let invoke: ReturnType<typeof vi.fn>
+let testApi: TestApi
 
-function installApi(handlers: Record<string, Handler>) {
-  const all: Record<string, Handler> = {
+function installApi(handlers: Handlers) {
+  testApi = makeTestApi({
     "aws:sso-start": startsInOrder(),
     "aws:sso-poll": () => PENDING,
-    "session:set-env": () => ({}),
+    "session:set-env": () => ({ ok: true }),
     "aws:check-region": () => ({ enabled: true }),
     ...handlers,
-  }
-  invoke = vi.fn(async (channel: string, params: Params) => {
-    const handler = all[channel]
-    if (!handler) throw new Error(`unexpected channel ${channel}`)
-    return handler(params)
   })
-  currentApi = { invoke, on: () => () => {} } as unknown as Api
 }
 
 /** A promise the test settles by hand, to hold an IPC call in flight. */
@@ -90,7 +86,7 @@ function deferred<T>() {
 }
 
 const wrapper = ({ children }: { children: ReactNode }) =>
-  createElement(ApiProvider, { api: currentApi }, children)
+  createElement(ApiProvider, { api: testApi.api }, children)
 
 const renderSso = (props: { ssoAccountId?: string; ssoRoleName?: string } = {}) =>
   renderHook(
@@ -112,12 +108,9 @@ const advance = (ms: number) =>
     await vi.advanceTimersByTimeAsync(ms)
   })
 
-const polledDeviceCodes = () =>
-  invoke.mock.calls
-    .filter(([channel]) => channel === "aws:sso-poll")
-    .map(([, params]) => params.deviceCode)
+const polledDeviceCodes = () => testApi.callsTo("aws:sso-poll").map((params) => params.deviceCode)
 
-const channelsCalled = () => invoke.mock.calls.map(([channel]) => channel)
+const channelsCalled = () => testApi.calls.map(({ channel }) => channel)
 
 let openSpy: MockInstance<typeof window.open>
 
@@ -140,7 +133,12 @@ describe("useAwsAuth — SSO sign-in", () => {
         ++polls < 3
           ? PENDING
           : { status: "select_account", accessToken: "sso-token", accounts: ACCOUNTS },
-      "aws:sso-roles": () => ({ roles: [{ roleName: "ReadOnly" }, { roleName: "Admin" }] }),
+      "aws:sso-roles": () => ({
+        roles: [
+          { roleName: "ReadOnly", accountId: "111111111111" },
+          { roleName: "Admin", accountId: "111111111111" },
+        ],
+      }),
       "aws:sso-complete": () => ({ ...IDENTITY, ...ROLE_KEYS }),
     })
     const { result } = renderSso()
@@ -149,7 +147,7 @@ describe("useAwsAuth — SSO sign-in", () => {
 
     expect(openSpy).toHaveBeenCalledWith("https://device.sso.example/D1", "_blank")
     expect(result.current.authStatus).toBe("authenticating")
-    expect(invoke).toHaveBeenCalledWith("aws:sso-poll", {
+    expect(testApi.invoke).toHaveBeenCalledWith("aws:sso-poll", {
       deviceCode: "D1",
       clientId: "cid",
       clientSecret: "csecret",
@@ -165,7 +163,7 @@ describe("useAwsAuth — SSO sign-in", () => {
     expect(result.current.ssoAccounts).toEqual(ACCOUNTS)
 
     await act(() => result.current.handleSsoAccountSelect(ACCOUNTS[0]!))
-    expect(invoke).toHaveBeenCalledWith("aws:sso-roles", {
+    expect(testApi.invoke).toHaveBeenCalledWith("aws:sso-roles", {
       accessToken: "sso-token",
       accountId: "111111111111",
       region: SSO_REGION,
@@ -176,7 +174,7 @@ describe("useAwsAuth — SSO sign-in", () => {
     act(() => result.current.setSelectedSsoRole("Admin"))
     await act(() => result.current.handleSsoComplete())
 
-    expect(invoke).toHaveBeenCalledWith("aws:sso-complete", {
+    expect(testApi.invoke).toHaveBeenCalledWith("aws:sso-complete", {
       accessToken: "sso-token",
       accountId: "111111111111",
       roleName: "Admin",
@@ -201,7 +199,7 @@ describe("useAwsAuth — SSO sign-in", () => {
     await act(() => result.current.handleSsoAuth())
     await advance(0)
 
-    expect(invoke).toHaveBeenCalledWith(
+    expect(testApi.invoke).toHaveBeenCalledWith(
       "aws:sso-poll",
       expect.objectContaining({
         deviceCode: "D1",
@@ -261,7 +259,7 @@ describe("useAwsAuth — SSO poll lifecycle", () => {
   })
 
   it("ignores a cancelled attempt's in-flight poll when it answers after a new sign-in", async () => {
-    const d1Poll = deferred<unknown>()
+    const d1Poll = deferred<Result<"aws:sso-poll">>()
     installApi({ "aws:sso-poll": (p) => (p.deviceCode === "D1" ? d1Poll.promise : SUCCESS) })
     const { result } = renderSso()
 
@@ -285,7 +283,7 @@ describe("useAwsAuth — SSO poll lifecycle", () => {
   })
 
   it("does not open the browser or poll when cancelled while the flow is starting", async () => {
-    const start = deferred<unknown>()
+    const start = deferred<Result<"aws:sso-start">>()
     installApi({ "aws:sso-start": () => start.promise })
     const { result } = renderSso()
 
@@ -335,10 +333,10 @@ describe("useAwsAuth — SSO account and role steps after a cancel", () => {
   const SELECT_ACCOUNT = { status: "select_account", accessToken: "sso-token", accounts: ACCOUNTS }
 
   it("ignores an aws:sso-complete reply that lands after Cancel", async () => {
-    const complete = deferred<unknown>()
+    const complete = deferred<Result<"aws:sso-complete">>()
     installApi({
       "aws:sso-poll": () => SELECT_ACCOUNT,
-      "aws:sso-roles": () => ({ roles: [{ roleName: "Admin" }] }),
+      "aws:sso-roles": () => ({ roles: [{ roleName: "Admin", accountId: "111111111111" }] }),
       "aws:sso-complete": () => complete.promise,
     })
     const { result } = renderSso()
@@ -367,7 +365,7 @@ describe("useAwsAuth — SSO account and role steps after a cancel", () => {
   })
 
   it("ignores an aws:sso-roles reply that lands after the account picker's Cancel", async () => {
-    const roles = deferred<unknown>()
+    const roles = deferred<Result<"aws:sso-roles">>()
     installApi({
       "aws:sso-poll": () => SELECT_ACCOUNT,
       "aws:sso-roles": () => roles.promise,
@@ -384,7 +382,7 @@ describe("useAwsAuth — SSO account and role steps after a cancel", () => {
     })
     act(() => result.current.handleManualAuth())
     await act(async () => {
-      roles.resolve({ roles: [{ roleName: "Admin" }] })
+      roles.resolve({ roles: [{ roleName: "Admin", accountId: "111111111111" }] })
       await selecting
     })
 

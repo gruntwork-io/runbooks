@@ -3,6 +3,7 @@ import { useEffect, type ReactNode } from "react"
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
@@ -103,26 +104,19 @@ vi.mock("../components/PRResult", () => ({
 
 import GitPullRequest from "../GitPullRequest"
 
-type Api = Parameters<typeof ApiProvider>[0]["api"]
-
 const PR_URL = "https://github.com/acme/infra/pull/42"
 const RESULT = { prUrl: PR_URL, prNumber: 42, branchName: "runbook/1" }
 const OUTPUTS = { PR_ID: "42", PR_URL }
 const CREATED = { status: "created", result: RESULT, outputs: OUTPUTS }
 
-let listeners: Map<string, Set<(data: unknown) => void>>
-let invoke: ReturnType<typeof vi.fn>
-
-function emit(channel: string, data: unknown) {
-  for (const cb of listeners.get(channel) ?? []) cb(data)
-}
+let testApi: TestApi
 
 /** The payload of each `kind` event sent to the main process, oldest first. */
 const recorded = (kind: string) =>
-  invoke.mock.calls
-    .map((call) => call as unknown as [string, { blockId: string; kind: string; payload: unknown }])
-    .filter(([channel, event]) => channel === "session:record-event" && event.kind === kind)
-    .map(([, event]) => {
+  testApi
+    .callsTo("session:record-event")
+    .filter((event) => event.kind === kind)
+    .map((event) => {
       expect(event.blockId).toBe("pr")
       return event.payload
     })
@@ -162,28 +156,20 @@ function renderBlock(
   env?: string,
   { props = {}, withholdOutputs = false }: { props?: object; withholdOutputs?: boolean } = {},
 ) {
-  listeners = new Map()
-  invoke = vi.fn(async (channel: string) => {
-    if (channel === "git:pull-request") {
-      emit("git:pr-result", RESULT)
-      if (!withholdOutputs) emit("git:outputs", { outputs: OUTPUTS })
-      emit("git:status", { status: "success", exitCode: 0 })
+  testApi = makeTestApi({
+    "git:pull-request": () => {
+      testApi.emit("git:pr-result", RESULT)
+      if (!withholdOutputs) testApi.emit("git:outputs", { outputs: OUTPUTS })
+      testApi.emit("git:status", { status: "success", exitCode: 0 })
       return { url: PR_URL, number: 42 }
-    }
-    if (channel === "github:labels") return { labels: [] }
-    return { ok: true }
-  })
-  const api = {
-    invoke,
-    on: (channel: string, cb: (data: unknown) => void) => {
-      if (!listeners.has(channel)) listeners.set(channel, new Set())
-      listeners.get(channel)!.add(cb)
-      return () => listeners.get(channel)?.delete(cb)
     },
-  } as unknown as Api
+    "github:labels": () => ({ labels: [] }),
+    "session:record-event": () => ({ ok: true }),
+    "native:set-theme": () => ({ ok: true }),
+  })
 
   const ui = (currentEnv: string | undefined): ReactNode => (
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <IpcSessionHistoryProvider sessionId="s1" blockStates={blockStates}>
         <TestWrapper>
           <Capture />
@@ -381,7 +367,7 @@ describe("GitPullRequest in a session", () => {
     await settle()
     expect(recorded("pull-request")).toEqual([])
 
-    act(() => emit("git:outputs", { outputs: OUTPUTS }))
+    act(() => testApi.emit("git:outputs", { outputs: OUTPUTS }))
 
     await waitFor(() => expect(recorded("pull-request")).toEqual([CREATED]))
   })

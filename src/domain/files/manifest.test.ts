@@ -351,7 +351,7 @@ describe("applyDiffFromContent", () => {
         orphaned: [],
         unchanged: [],
       }
-      ;(diff as unknown as Record<string, string[]>)[bucket] = [pathValue]
+      diff[bucket] = [pathValue]
 
       // A tripwire file we expect to remain on disk regardless of the diff.
       const tripwireDir = nodePath.join(tmp, "tripwire")
@@ -368,7 +368,7 @@ describe("applyDiffFromContent", () => {
 
       expect(result._tag).toBe("Failure")
       if (result._tag === "Failure") {
-        expect((result.failure as unknown as { _tag: string })._tag).toBe("PathTraversalError")
+        expect(result.failure._tag).toBe("PathTraversalError")
       }
       // The tripwire file must still exist.
       expect(nodeFs.existsSync(tripwire)).toBe(true)

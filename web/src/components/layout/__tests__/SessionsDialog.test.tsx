@@ -1,19 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type TestApi } from "@/test/test-api"
 import { SessionsDialog } from "../SessionsDialog"
 import type { ListedSession } from "../../../../../src/domain/session/store"
 
-// The IPC boundary is the only thing mocked: main lists, switches and deletes.
-const invoke = vi.fn()
-// One object, as the real ApiProvider gives every render.
-const api = { invoke, on: () => () => {} }
-
-vi.mock("@/contexts/ApiContext", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/contexts/ApiContext")>()
-  return { ...actual, useApi: () => api }
-})
+// The IPC boundary is the only thing faked: main lists, switches and deletes.
+// One api per test, which the real ApiProvider gives every render. Each test
+// overrides the answers it needs.
+let testApi: TestApi
+const withApi = {
+  wrapper: ({ children }: { children: ReactNode }) => (
+    <ApiProvider api={testApi.api}>{children}</ApiProvider>
+  ),
+}
 
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString()
 
@@ -46,22 +48,17 @@ const SESSIONS = [
   session({ id: "g1", name: "lost-falcon", path: "/gone/runbook.mdx", runbookMissing: true }),
 ]
 
-/** Main's answers, by channel. Each test overrides what it needs. */
-let answers: Record<string, (params: unknown) => unknown>
-
 beforeEach(() => {
-  invoke.mockReset()
-  answers = {
+  testApi = makeTestApi({
     "session:list": () => ({ sessions: SESSIONS }),
     "session:switch": () => ({ status: "switched" }),
     "session:delete": () => ({ ok: true }),
-  }
-  invoke.mockImplementation(async (channel: string, params: unknown) => answers[channel]!(params))
+  })
 })
 
 function renderDialog() {
   const onOpenChange = vi.fn()
-  render(<SessionsDialog open onOpenChange={onOpenChange} />)
+  render(<SessionsDialog open onOpenChange={onOpenChange} />, withApi)
   return { onOpenChange }
 }
 
@@ -71,8 +68,7 @@ const row = (name: string) =>
 /** The list item of the session named `name`, once the list has loaded. */
 const rowAsync = async (name: string) =>
   (await screen.findByRole("button", { name: new RegExp(`^${name}`) })).closest("li")!
-const callsTo = (channel: string) =>
-  invoke.mock.calls.filter(([c]) => c === channel).map(([, params]) => params)
+const callsTo: TestApi["callsTo"] = (channel) => testApi.callsTo(channel)
 
 describe("SessionsDialog", () => {
   it("lists the sessions by runbook, the open runbook's first", async () => {
@@ -107,12 +103,12 @@ describe("SessionsDialog", () => {
   })
 
   it("marks the sessions that are finished", async () => {
-    answers["session:list"] = () => ({
+    testApi.handle("session:list", () => ({
       sessions: [
         session({ id: "f", name: "done-deal", finishedAt: hoursAgo(2) }),
         session({ id: "u", name: "still-going" }),
       ],
-    })
+    }))
     renderDialog()
 
     expect(within(await rowAsync("done-deal")).getByText("Finished")).toBeInTheDocument()
@@ -120,15 +116,11 @@ describe("SessionsDialog", () => {
   })
 
   it("says it is loading until main has listed the sessions", async () => {
-    let finish!: (value: unknown) => void
-    answers["session:list"] = () =>
-      new Promise((resolve) => {
-        finish = resolve
-      })
+    const listings = testApi.hold("session:list")
     renderDialog()
 
     expect(screen.getByText("Loading sessions…")).toBeInTheDocument()
-    finish({ sessions: SESSIONS })
+    listings[0]!.resolve({ sessions: SESSIONS })
     await screen.findByText("elegant-elephant")
     expect(screen.queryByText("Loading sessions…")).not.toBeInTheDocument()
   })
@@ -171,7 +163,7 @@ describe("SessionsDialog", () => {
   })
 
   it("says when there are no saved sessions", async () => {
-    answers["session:list"] = () => ({ sessions: [] })
+    testApi.handle("session:list", () => ({ sessions: [] }))
     renderDialog()
 
     expect(await screen.findByText("No saved sessions yet.")).toBeInTheDocument()
@@ -179,9 +171,9 @@ describe("SessionsDialog", () => {
   })
 
   it("says why the sessions couldn't be listed", async () => {
-    answers["session:list"] = () => {
+    testApi.handle("session:list", () => {
       throw new Error("Error invoking remote method 'session:list': Error: database is locked")
-    }
+    })
     renderDialog()
 
     expect(await screen.findByRole("alert")).toHaveTextContent("database is locked")
@@ -200,11 +192,7 @@ describe("SessionsDialog", () => {
 
   it("says it is cloning a remote session's runbook while it switches", async () => {
     const user = userEvent.setup()
-    let finish!: (value: unknown) => void
-    answers["session:switch"] = () =>
-      new Promise((resolve) => {
-        finish = resolve
-      })
+    const switches = testApi.hold("session:switch")
     renderDialog()
 
     await user.click(await screen.findByRole("button", { name: /^quiet-lynx/ }))
@@ -214,12 +202,12 @@ describe("SessionsDialog", () => {
     // Nothing else can be switched to or deleted meanwhile.
     expect(screen.getByRole("button", { name: /^brave-otter/ })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Delete brave-otter" })).toBeDisabled()
-    finish({ status: "switched" })
+    switches[0]!.resolve({ status: "switched" })
   })
 
   it("says it is opening a local session's runbook while it switches", async () => {
     const user = userEvent.setup()
-    answers["session:switch"] = () => new Promise(() => {})
+    testApi.handle("session:switch", () => new Promise(() => {}))
     renderDialog()
 
     await user.click(await screen.findByRole("button", { name: /^brave-otter/ }))
@@ -229,9 +217,9 @@ describe("SessionsDialog", () => {
 
   it("says why main couldn't switch", async () => {
     const user = userEvent.setup()
-    answers["session:switch"] = () => {
+    testApi.handle("session:switch", () => {
       throw new Error("Error invoking remote method 'session:switch': Error: no window")
-    }
+    })
     renderDialog()
 
     await user.click(await screen.findByRole("button", { name: /^brave-otter/ }))
@@ -242,16 +230,12 @@ describe("SessionsDialog", () => {
 
   it("ignores a switch's answer that comes after the dialog was closed", async () => {
     const user = userEvent.setup()
-    let finish!: (value: unknown) => void
-    answers["session:switch"] = () =>
-      new Promise((resolve) => {
-        finish = resolve
-      })
+    const switches = testApi.hold("session:switch")
     const { onOpenChange } = renderDialog()
     await user.click(await screen.findByRole("button", { name: /^brave-otter/ }))
 
     await user.keyboard("{Escape}")
-    finish({ status: "script-running" })
+    switches[0]!.resolve({ status: "script-running" })
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledTimes(1))
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
@@ -259,10 +243,9 @@ describe("SessionsDialog", () => {
 
   it("asks before stopping a running script, and keeps the script running when told to", async () => {
     const user = userEvent.setup()
-    answers["session:switch"] = (params) =>
-      (params as { stopRunningScript?: boolean }).stopRunningScript
-        ? { status: "switched" }
-        : { status: "script-running" }
+    testApi.handle("session:switch", ({ stopRunningScript }) =>
+      stopRunningScript ? { status: "switched" } : { status: "script-running" },
+    )
     const { onOpenChange } = renderDialog()
 
     await user.click(await screen.findByRole("button", { name: /^brave-otter/ }))
@@ -279,10 +262,9 @@ describe("SessionsDialog", () => {
 
   it("stops the running script and switches when the user agrees", async () => {
     const user = userEvent.setup()
-    answers["session:switch"] = (params) =>
-      (params as { stopRunningScript?: boolean }).stopRunningScript
-        ? { status: "switched" }
-        : { status: "script-running" }
+    testApi.handle("session:switch", ({ stopRunningScript }) =>
+      stopRunningScript ? { status: "switched" } : { status: "script-running" },
+    )
     const { onOpenChange } = renderDialog()
 
     await user.click(await screen.findByRole("button", { name: /^brave-otter/ }))
@@ -294,7 +276,7 @@ describe("SessionsDialog", () => {
 
   it("says why a switch failed, and stays open", async () => {
     const user = userEvent.setup()
-    answers["session:switch"] = () => ({ status: "failed", error: "repository not found" })
+    testApi.handle("session:switch", () => ({ status: "failed", error: "repository not found" }))
     const { onOpenChange } = renderDialog()
 
     await user.click(await screen.findByRole("button", { name: /^quiet-lynx/ }))
@@ -322,7 +304,7 @@ describe("SessionsDialog", () => {
 
   it("says it is deleting, and blocks other changes, until main has deleted it", async () => {
     const user = userEvent.setup()
-    answers["session:delete"] = () => new Promise(() => {})
+    testApi.handle("session:delete", () => new Promise(() => {}))
     renderDialog()
 
     await user.click(await screen.findByRole("button", { name: "Delete calm-heron" }))
@@ -360,9 +342,9 @@ describe("SessionsDialog", () => {
 
   it("says why a delete failed, and keeps the session listed", async () => {
     const user = userEvent.setup()
-    answers["session:delete"] = () => {
+    testApi.handle("session:delete", () => {
       throw new Error("Error invoking remote method 'session:delete': EACCES: permission denied")
-    }
+    })
     renderDialog()
 
     await user.click(await screen.findByRole("button", { name: "Delete calm-heron" }))
@@ -373,11 +355,11 @@ describe("SessionsDialog", () => {
   })
 
   it("lists the sessions again each time it opens", async () => {
-    const { rerender } = render(<SessionsDialog open onOpenChange={vi.fn()} />)
+    const { rerender } = render(<SessionsDialog open onOpenChange={vi.fn()} />, withApi)
     await screen.findByText("elegant-elephant")
 
     rerender(<SessionsDialog open={false} onOpenChange={vi.fn()} />)
-    answers["session:list"] = () => ({ sessions: [session({ id: "n", name: "new-one" })] })
+    testApi.handle("session:list", () => ({ sessions: [session({ id: "n", name: "new-one" })] }))
     rerender(<SessionsDialog open onOpenChange={vi.fn()} />)
 
     expect(await screen.findByText("new-one")).toBeInTheDocument()
@@ -386,11 +368,7 @@ describe("SessionsDialog", () => {
 
   it("shows only the latest listing when an earlier one answers late", async () => {
     const user = userEvent.setup()
-    const listings: Array<(value: unknown) => void> = []
-    answers["session:list"] = () =>
-      new Promise((resolve) => {
-        listings.push(resolve)
-      })
+    const listings = testApi.hold("session:list")
     function Harness() {
       const [open, setOpen] = useState(true)
       return (
@@ -400,27 +378,25 @@ describe("SessionsDialog", () => {
         </>
       )
     }
-    render(<Harness />)
+    render(<Harness />, withApi)
     await waitFor(() => expect(listings).toHaveLength(1))
 
     await user.keyboard("{Escape}")
     await user.click(screen.getByRole("button", { name: "Sessions" }))
     await waitFor(() => expect(listings).toHaveLength(2))
-    await act(async () => listings[0]!({ sessions: SESSIONS }))
+    await act(async () => listings[0]!.resolve({ sessions: SESSIONS }))
 
     expect(screen.queryByText("elegant-elephant")).not.toBeInTheDocument()
     expect(screen.getByText("Loading sessions…")).toBeInTheDocument()
-    await act(async () => listings[1]!({ sessions: [session({ id: "n", name: "new-one" })] }))
+    await act(async () =>
+      listings[1]!.resolve({ sessions: [session({ id: "n", name: "new-one" })] }),
+    )
     expect(screen.getByText("new-one")).toBeInTheDocument()
   })
 
   it("does not carry a failure that answered after it closed into the next time it opens", async () => {
     const user = userEvent.setup()
-    const failures: Array<(err: Error) => void> = []
-    answers["session:switch"] = () =>
-      new Promise((_resolve, reject) => {
-        failures.push(reject)
-      })
+    const switches = testApi.hold("session:switch")
     function Harness() {
       const [open, setOpen] = useState(true)
       return (
@@ -430,11 +406,11 @@ describe("SessionsDialog", () => {
         </>
       )
     }
-    render(<Harness />)
+    render(<Harness />, withApi)
     await user.click(await screen.findByRole("button", { name: /^brave-otter/ }))
 
     await user.keyboard("{Escape}")
-    await act(async () => failures[0]!(new Error("too late")))
+    await act(async () => switches[0]!.reject(new Error("too late")))
     await user.click(screen.getByRole("button", { name: "Sessions" }))
 
     await screen.findByText("elegant-elephant")
@@ -443,17 +419,13 @@ describe("SessionsDialog", () => {
 
   it("keeps a session listed when its delete answers after the dialog was closed", async () => {
     const user = userEvent.setup()
-    let finish!: (value: unknown) => void
-    answers["session:delete"] = () =>
-      new Promise((resolve) => {
-        finish = resolve
-      })
+    const deletes = testApi.hold("session:delete")
     const { onOpenChange } = renderDialog()
     await user.click(await screen.findByRole("button", { name: "Delete calm-heron" }))
     await user.click(within(row("calm-heron")).getByRole("button", { name: "Delete" }))
 
     await user.keyboard("{Escape}")
-    await act(async () => finish({ ok: true }))
+    await act(async () => deletes[0]!.resolve({ ok: true }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()

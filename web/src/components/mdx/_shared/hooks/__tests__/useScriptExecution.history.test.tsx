@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import type { ReactNode } from "react"
 import { renderHook, act, cleanup, waitFor } from "@testing-library/react"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { RunbookContextProvider } from "@/contexts/RunbookContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { isSensitiveOutput, revealOutputs } from "@/lib/outputValues"
+import { makeTestApi, type HeldCall, type TestApi } from "@/test/test-api"
 import { useScriptExecution } from "../useScriptExecution"
 import type { SavedBlockState } from "../../../../../../../src/domain/session/history"
 
@@ -36,53 +37,39 @@ vi.mock("@/contexts/useLogs", () => {
   return { useLogs: () => ctx }
 })
 
-let invoke: ReturnType<typeof vi.fn>
-let api: RunbooksAPI
-let listeners: Map<string, Set<(data: unknown) => void>>
-/** Ends the exec:run in flight, as the main process does with its result. */
-let endRun: (result: unknown) => void
-const originalApi = window.api
+let testApi: TestApi
+/** Every exec:run, in call order; the test ends each as the main process does with its result. */
+let runs: readonly HeldCall<"exec:run">[]
 
 beforeEach(() => {
-  listeners = new Map()
-  invoke = vi.fn((channel: string) => {
-    if (channel === "exec:run") {
-      return new Promise((resolve) => {
-        endRun = resolve
-      })
-    }
-    return Promise.resolve({ ok: true })
+  testApi = makeTestApi({
+    "session:record-event": () => ({ ok: true }),
+    "exec:cancel": () => ({ ok: true }),
   })
-  const on = (channel: string, listener: (data: unknown) => void) => {
-    const set = listeners.get(channel) ?? new Set()
-    set.add(listener)
-    listeners.set(channel, set)
-    return () => set.delete(listener)
-  }
-  api = { invoke, on } as unknown as RunbooksAPI
-  // useApiExec runs and cancels through window.api directly.
-  window.api = api
+  runs = testApi.hold("exec:run")
 })
 
 afterEach(() => {
   cleanup()
-  window.api = originalApi
 })
 
-const emit = (channel: string, data: Record<string, unknown>) => {
-  const run = invoke.mock.calls.filter(([invoked]) => invoked === "exec:run").at(-1)
-  const { executionId } = run![1] as { executionId: string }
-  listeners.get(channel)?.forEach((listener) => listener({ ...data, executionId }))
+/** Ends the exec:run in flight, as the main process does with its result. */
+const endRun = (result: Parameters<HeldCall<"exec:run">["resolve"]>[0]) =>
+  runs.at(-1)!.resolve(result)
+
+/** The executionId of the exec:run in flight, which main puts on each of its events. */
+const runId = () => {
+  const id = runs.at(-1)?.params.executionId
+  if (!id) throw new Error("no exec:run with an executionId")
+  return id
 }
 
 /** The payload of each run event sent to the main process, oldest first. */
 const recorded = () =>
-  invoke.mock.calls
-    .filter(([channel]) => channel === "session:record-event")
-    .map(([, event]) => {
-      expect(event).toMatchObject({ sessionId: "s1", blockId: "deploy", kind: "run" })
-      return (event as { payload: unknown }).payload
-    })
+  testApi.callsTo("session:record-event").map((event) => {
+    expect(event).toMatchObject({ sessionId: "s1", blockId: "deploy", kind: "run" })
+    return event.payload
+  })
 
 /** Mount the block in a session whose history says it was left as `saved`. */
 function renderBlock(saved?: unknown) {
@@ -99,7 +86,7 @@ function renderBlock(saved?: unknown) {
     }),
     {
       wrapper: ({ children }: { children: ReactNode }) => (
-        <ApiProvider api={api}>
+        <ApiProvider api={testApi.api}>
           <IpcSessionHistoryProvider sessionId="s1" blockStates={blockStates}>
             <RunbookContextProvider>{children}</RunbookContextProvider>
           </IpcSessionHistoryProvider>
@@ -122,8 +109,8 @@ describe("useScriptExecution in a session", () => {
     expect(recorded()).toEqual([{ status: "running" }])
 
     act(() => {
-      emit("exec:log-file", { path: LOG_FILE })
-      emit("exec:log", LOG)
+      testApi.emit("exec:log-file", { executionId: runId(), path: LOG_FILE })
+      testApi.emit("exec:log", { executionId: runId(), ...LOG })
     })
     await act(async () =>
       endRun({
@@ -154,7 +141,7 @@ describe("useScriptExecution in a session", () => {
   it("adds a stopped run as not run, with the line that says it was stopped", async () => {
     const { result } = renderBlock()
     act(() => result.current.exec.execute())
-    act(() => emit("exec:log", LOG))
+    act(() => testApi.emit("exec:log", { executionId: runId(), ...LOG }))
 
     act(() => result.current.exec.cancel())
     await act(async () => endRun({ status: null, cancelled: true }))

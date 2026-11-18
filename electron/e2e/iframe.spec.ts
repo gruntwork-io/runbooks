@@ -251,6 +251,7 @@ test.describe("Iframe block", () => {
       expect(
         await readFromMain(
           app,
+          // The setup above put `opened` on main's globalThis, whose type doesn't have it.
           () => (globalThis as unknown as { opened: string[] }).opened,
           undefined,
         ),

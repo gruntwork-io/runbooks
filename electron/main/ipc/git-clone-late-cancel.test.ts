@@ -4,6 +4,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { mockElectron } from "../test-utils/mock-electron.ts"
+import { makeFakeFetch } from "../../../src/test-utils/FakeFetch.ts"
 
 // git.ts registers its handlers on electron's ipcMain. Capture them so the
 // real git:clone / git:clone-cancel handlers can be called directly; the rest
@@ -91,10 +92,10 @@ afterAll(() => {
 let lookupStarted = false
 beforeEach(() => {
   lookupStarted = false
-  globalThis.fetch = (() => {
+  globalThis.fetch = makeFakeFetch(() => {
     lookupStarted = true
     return new Promise<Response>(() => {})
-  }) as unknown as typeof fetch
+  })
 })
 afterEach(() => {
   globalThis.fetch = originalFetch
@@ -159,8 +160,9 @@ describe("git:clone-cancel after git has finished", () => {
   }, 20_000)
 
   it("still registers the worktree of a clone that is not cancelled", async () => {
-    globalThis.fetch = (() =>
-      Promise.resolve(new Response("not found", { status: 404 }))) as unknown as typeof fetch
+    globalThis.fetch = makeFakeFetch(() =>
+      Promise.resolve(new Response("not found", { status: 404 })),
+    )
 
     const result = await startClone({ localPath: "done", cloneId: "done-1" })
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createElement, type ReactNode } from "react"
 import { renderHook, act, waitFor } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Handlers, type TestApi } from "@/test/test-api"
 import { useAwsAuth } from "../useAwsAuth"
 import { sensitiveOutput, type OutputValues } from "@/lib/outputValues"
 
@@ -25,9 +26,11 @@ vi.mock("@/contexts/useSession", () => ({
   useSession: () => ({ isReady: true }),
 }))
 
-type Api = Parameters<typeof ApiProvider>[0]["api"]
-type Params = Record<string, unknown>
-type Reply = Record<string, unknown>
+interface Identity {
+  accountId: string
+  accountName: string
+  arn: string
+}
 
 const ACCOUNT_A = {
   accountId: "111111111111",
@@ -41,14 +44,13 @@ const ACCOUNT_B = {
 }
 
 /** What aws:validate says about each access key; anything else is invalid. */
-let identities: Record<string, Reply>
-let currentApi: Api
-let invoke: ReturnType<typeof vi.fn>
+let identities: Record<string, Identity>
+let testApi: TestApi
 
-function installApi(handlers: Record<string, (params: Params) => unknown> = {}) {
-  const all: Record<string, (params: Params) => unknown> = {
-    "aws:validate": (p) => {
-      const identity = identities[p.accessKeyId as string]
+function installApi(handlers: Handlers = {}) {
+  testApi = makeTestApi({
+    "aws:validate": ({ accessKeyId }) => {
+      const identity = accessKeyId === undefined ? undefined : identities[accessKeyId]
       return identity
         ? { valid: true, ...identity }
         : { valid: false, error: "The security token included in the request is expired" }
@@ -57,17 +59,11 @@ function installApi(handlers: Record<string, (params: Params) => unknown> = {}) 
     "session:set-env": () => ({ ok: true }),
     "aws:check-region": () => ({ enabled: true }),
     ...handlers,
-  }
-  invoke = vi.fn(async (channel: string, params: Params) => {
-    const handler = all[channel]
-    if (!handler) throw new Error(`unexpected channel ${channel}`)
-    return handler(params)
   })
-  currentApi = { invoke, on: () => () => {} } as unknown as Api
 }
 
 const wrapper = ({ children }: { children: ReactNode }) =>
-  createElement(ApiProvider, { api: currentApi }, children)
+  createElement(ApiProvider, { api: testApi.api }, children)
 
 const renderAwsAuth = (detectCredentials: Parameters<typeof useAwsAuth>[0]["detectCredentials"]) =>
   renderHook(
@@ -96,7 +92,8 @@ const KEYS_A = {
   AWS_REGION: "eu-west-1",
 }
 
-const channelsCalled = () => invoke.mock.calls.map(([channel]) => channel)
+// From the spy, so a test can clear the calls made before the step it checks.
+const channelsCalled = () => testApi.invoke.mock.calls.map(([channel]) => channel)
 
 beforeEach(() => {
   registerOutputs.mockClear()
@@ -118,7 +115,7 @@ describe("useAwsAuth — { block } detection", () => {
     rerender()
 
     await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
-    expect(invoke).toHaveBeenCalledWith("aws:validate", {
+    expect(testApi.invoke).toHaveBeenCalledWith("aws:validate", {
       accessKeyId: "ASIA_A",
       secretAccessKey: "secret-a",
       sessionToken: "token-a",
@@ -145,7 +142,7 @@ describe("useAwsAuth — { block } detection", () => {
     const { result } = renderAwsAuth([{ block: "assume-role" }])
 
     await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
-    expect(invoke).toHaveBeenCalledWith("aws:validate", {
+    expect(testApi.invoke).toHaveBeenCalledWith("aws:validate", {
       accessKeyId: "ASIA_A",
       secretAccessKey: "secret-a",
       sessionToken: "token-a",
@@ -189,7 +186,7 @@ describe("useAwsAuth — confirming { block } credentials", () => {
 
   it("re-validates at confirm and publishes the keys it validated", async () => {
     const { result } = await detectAccountA()
-    invoke.mockClear()
+    testApi.invoke.mockClear()
 
     await act(() => result.current.handleConfirmDetected())
 
@@ -229,7 +226,7 @@ describe("useAwsAuth — confirming { block } credentials", () => {
     })
     expect(JSON.stringify(published)).not.toMatch(/secret-a|token-a/)
     // The session env is what scripts run with, so it gets the real values
-    expect(invoke).toHaveBeenCalledWith("session:set-env", {
+    expect(testApi.invoke).toHaveBeenCalledWith("session:set-env", {
       env: {
         AWS_ACCESS_KEY_ID: "ASIA_A",
         AWS_SECRET_ACCESS_KEY: "secret-a",

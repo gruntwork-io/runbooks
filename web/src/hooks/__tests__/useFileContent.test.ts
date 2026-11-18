@@ -1,30 +1,19 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect } from "vitest"
 import { act, renderHook } from "@testing-library/react"
 import { createElement, type ReactNode } from "react"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi } from "@/test/test-api"
 import { useFileContent } from "../useFileContent"
 
 // `workspace:file` reads stay pending until the test settles them, so each
 // test decides the order in which they land.
-interface PendingRead {
-  filePath: string
-  resolve: (value: unknown) => void
-  reject: (err: unknown) => void
-}
-
 function setup() {
-  const reads: PendingRead[] = []
-  const invoke = vi.fn(
-    (_channel: string, params: { filePath: string }) =>
-      new Promise((resolve, reject) => {
-        reads.push({ filePath: params.filePath, resolve, reject })
-      }),
-  )
-  const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
+  const testApi = makeTestApi()
+  const reads = testApi.hold("workspace:file")
   const wrapper = ({ children }: { children: ReactNode }) =>
-    createElement(ApiProvider, { api }, children)
+    createElement(ApiProvider, { api: testApi.api }, children)
   const { result } = renderHook(() => useFileContent(), { wrapper })
-  const readsOf = (filePath: string) => reads.filter((r) => r.filePath === filePath)
+  const readsOf = (filePath: string) => reads.filter((r) => r.params.filePath === filePath)
   const pendingRead = (filePath: string) => {
     const read = readsOf(filePath).at(-1)
     if (!read) throw new Error(`no read issued for ${filePath}`)
@@ -36,13 +25,14 @@ function setup() {
     if (!older || !newer) throw new Error(`expected two reads of ${filePath}`)
     return [older, newer] as const
   }
-  return { result, invoke, pendingRead, twoReadsOf }
+  return { result, invoke: testApi.invoke, pendingRead, twoReadsOf }
 }
 
 const content = (path: string, text: string) => ({
   path,
   content: text,
   language: "hcl",
+  isBinary: false,
   size: text.length,
 })
 

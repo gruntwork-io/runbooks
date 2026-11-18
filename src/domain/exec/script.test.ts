@@ -21,16 +21,11 @@ import {
 import { encodeOutputs, isSensitiveOutput, revealOutput } from "./outputValues.ts"
 import { LOG_CHANNELS, logChannelFiles } from "./logChannels.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
+import type { FileSystem } from "../../services/FileSystem.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 
-function runFs<A>(effect: Effect.Effect<A, any, any>, files: Record<string, string> = {}) {
-  return Effect.runPromise(
-    effect.pipe(Effect.provide(makeTestFileSystem(files))) as unknown as Effect.Effect<
-      A,
-      any,
-      never
-    >,
-  )
+function runFs<A, E>(effect: Effect.Effect<A, E, FileSystem>, files: Record<string, string> = {}) {
+  return Effect.runPromise(effect.pipe(Effect.provide(makeTestFileSystem(files))))
 }
 
 // ---------------------------------------------------------------------------

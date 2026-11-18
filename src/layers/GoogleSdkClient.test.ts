@@ -14,6 +14,7 @@ import {
 } from "./GoogleSdkClient.ts"
 import { GoogleClient } from "../services/GoogleClient.ts"
 import type { GoogleClientShape } from "../services/GoogleClient.ts"
+import { makeFakeFetch } from "../test-utils/FakeFetch.ts"
 
 /**
  * Found against a real GCP org: `projects:search` returned a DELETE_REQUESTED
@@ -151,13 +152,14 @@ describe("classifyProjectAccessError", () => {
       },
     }
     const transport = new gaxiosLib.Gaxios({
-      fetchImplementation: (() =>
+      fetchImplementation: makeFakeFetch(() =>
         Promise.resolve(
           new Response(JSON.stringify(body), {
             status: 403,
             headers: { "Content-Type": "application/json" },
           }),
-        )) as unknown as typeof fetch,
+        ),
+      ),
     })
     const err = await transport
       .request({ url: "https://cloudresourcemanager.googleapis.com/v3/projects/p" })

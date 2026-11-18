@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import { readdirSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { TestWrapper } from "@/test/test-utils"
+import { makeTestApi, type TestApi } from "@/test/test-api"
 import MDXContainer, { compileMDX } from "@/components/MDXContainer"
 
 /**
@@ -35,12 +36,14 @@ const ATTACKS: Array<[string, string]> = [
 ]
 
 describe("MDXContainer — runbook code cannot run on open", () => {
-  const invoke = vi.fn()
+  // No handlers: nothing here should reach the API, and an invoke that did
+  // is still recorded before it rejects.
+  let testApi: TestApi
   const originalApi = window.api
 
   beforeEach(() => {
-    invoke.mockReset()
-    window.api = { invoke, on: vi.fn(() => () => {}) } as unknown as typeof window.api
+    testApi = makeTestApi()
+    window.api = testApi.api
   })
 
   afterEach(() => {
@@ -58,7 +61,7 @@ describe("MDXContainer — runbook code cannot run on open", () => {
     expect(error).toHaveTextContent("Error processing MDX content")
     expect(error).toHaveTextContent(/not allowed in runbooks|must be a literal value/)
     expect(screen.queryByTestId("runbook-content")).toBeNull()
-    expect(invoke).not.toHaveBeenCalled()
+    expect(testApi.invoke).not.toHaveBeenCalled()
   })
 
   it("still renders literal props, comments and template strings", async () => {
@@ -107,7 +110,7 @@ describe("MDXContainer — runbook code cannot run on open", () => {
     expect(error).toHaveTextContent(
       "Line 7: the `command` prop of <Command> must be a literal value",
     )
-    expect(invoke).not.toHaveBeenCalled()
+    expect(testApi.invoke).not.toHaveBeenCalled()
   })
 })
 

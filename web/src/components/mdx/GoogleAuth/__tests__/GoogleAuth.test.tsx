@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Handlers, type Result, type TestApi } from "@/test/test-api"
 
 /**
  * Integration coverage for the whole `<GoogleAuth>` block: the real component,
@@ -22,40 +23,38 @@ vi.mock("@/contexts/useSession", () => ({
 
 import GoogleAuth from "../GoogleAuth"
 
-type InvokeImpl = (channel: string, args?: Record<string, unknown>) => unknown
+let testApi: TestApi
+let invoke: TestApi["invoke"]
 
-type Api = Parameters<typeof ApiProvider>[0]["api"]
-
-let currentApi: Api
-let invoke: ReturnType<typeof vi.fn>
-
-function installApi(impl: InvokeImpl) {
-  invoke = vi.fn(async (channel: string, args?: Record<string, unknown>) => {
-    const result = impl(channel, args)
-    // The block probes `google:oauth-available` on mount so the Google Sign-In
-    // tab can render disabled on first paint. Default it to "configured" so
-    // only the tests that care about an unconfigured build have to say so.
-    if (
-      channel === "google:oauth-available" &&
-      Object.keys((result ?? {}) as object).length === 0
-    ) {
-      return { available: true }
-    }
-    return result
+/**
+ * Install the typed IPC fake, answering each channel with its handler in
+ * `handlers`.
+ *
+ * A few calls are answered unless a test says otherwise:
+ * - The block probes `google:oauth-available` on mount so the Google Sign-In
+ *   tab can render disabled on first paint: "configured", so only the tests
+ *   that care about an unconfigured build have to say so.
+ * - The fire-and-forget calls (committing a credential, opening the browser):
+ *   done.
+ */
+function installApi(handlers: Handlers) {
+  testApi = makeTestApi({
+    "google:oauth-available": () => ({ available: true }),
+    "google:credential-committed": () => ({ ok: true }),
+    "native:open-external": () => ({ ok: true }),
+    ...handlers,
   })
-  currentApi = { invoke, on: () => () => {} } as unknown as Api
-  return invoke
+  invoke = testApi.invoke
 }
 
-/** Calls to one channel, ignoring the mount-time capability probe. */
-function callsTo(channel: string): unknown[][] {
-  return invoke.mock.calls.filter((call) => call[0] === channel)
-}
+/** The params of each call to one channel, ignoring the mount-time capability probe. */
+const callsTo = <C extends Parameters<TestApi["callsTo"]>[0]>(channel: C) =>
+  testApi.callsTo(channel)
 
 function renderBlock(children: ReactNode) {
   return render(
     <TestWrapper>
-      <ApiProvider api={currentApi}>{children}</ApiProvider>
+      <ApiProvider api={testApi.api}>{children}</ApiProvider>
       <RunbookProgressProbe />
     </TestWrapper>,
   )
@@ -69,8 +68,7 @@ const SA_KEY = JSON.stringify({
 })
 
 /** Nothing ambient to find — the block falls through to the manual tabs. */
-const NO_CREDENTIALS: InvokeImpl = (channel) =>
-  channel === "google:env-credentials" ? { found: false } : {}
+const NO_CREDENTIALS: Handlers = { "google:env-credentials": () => ({ found: false }) }
 
 beforeEach(() => {
   installApi(NO_CREDENTIALS)
@@ -167,23 +165,20 @@ describe("GoogleAuth — rendering", () => {
 
 describe("GoogleAuth — service account tab", () => {
   it("authenticates with a pasted key and shows the success card", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return { found: false }
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          projectId: "proj-x",
-          projectName: "Project X",
-          credentialType: "service_account",
-          credentialsPath: "/tmp/runbooks-gcp-a/adc.json",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      ...NO_CREDENTIALS,
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        projectName: "Project X",
+        credentialType: "service_account",
+        credentialsPath: "/tmp/runbooks-gcp-a/adc.json",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     renderBlock(<GoogleAuth id="gcp" project="proj-x" />)
@@ -208,18 +203,18 @@ describe("GoogleAuth — service account tab", () => {
   })
 
   it("counts as a step of the runbook, done once it shows it's signed in", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return { found: false }
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: { principal: "sa@key-project.iam.gserviceaccount.com" },
-          projectId: "proj-x",
-          credentialType: "service_account",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      ...NO_CREDENTIALS,
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        credentialType: "service_account",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
     renderBlock(<GoogleAuth id="gcp" project="proj-x" />)
 
@@ -234,22 +229,19 @@ describe("GoogleAuth — service account tab", () => {
   })
 
   it("turns red when the access token expires within minutes, and signs in again on request", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return { found: false }
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "dev@example.com",
-            accountType: "user",
-            expiresAt: new Date(Date.now() + 60_000).toISOString(),
-          },
-          projectId: "proj-x",
-          credentialType: "access_token",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      ...NO_CREDENTIALS,
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "dev@example.com",
+          accountType: "user",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+        projectId: "proj-x",
+        credentialType: "access_token",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
     renderBlock(<GoogleAuth id="gcp" project="proj-x" />)
 
@@ -271,12 +263,12 @@ describe("GoogleAuth — service account tab", () => {
   })
 
   it("renders a rejected key inline as a runtime error, not a reported one", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return { found: false }
-      if (channel === "google:validate-credentials") {
-        return { valid: false, error: "Not a service account key (expected type: service_account)" }
-      }
-      return {}
+    installApi({
+      ...NO_CREDENTIALS,
+      "google:validate-credentials": () => ({
+        valid: false,
+        error: "Not a service account key (expected type: service_account)",
+      }),
     })
 
     renderBlock(<GoogleAuth id="gcp" />)
@@ -297,26 +289,23 @@ describe("GoogleAuth — service account tab", () => {
   })
 
   it("routes to the project picker when the key sees more than one project", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return { found: false }
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          credentialType: "service_account",
-          credentialsPath: "/tmp/runbooks-gcp-b/adc.json",
-          projects: [
-            { projectId: "proj-one", displayName: "Project One" },
-            { projectId: "proj-two", displayName: "Project Two" },
-          ],
-        }
-      }
-      if (channel === "google:set-project") return { ok: true, projectName: "Project Two" }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      ...NO_CREDENTIALS,
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        credentialType: "service_account",
+        credentialsPath: "/tmp/runbooks-gcp-b/adc.json",
+        projects: [
+          { projectId: "proj-one", displayName: "Project One" },
+          { projectId: "proj-two", displayName: "Project Two" },
+        ],
+      }),
+      "google:set-project": () => ({ ok: true, projectName: "Project Two" }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     renderBlock(<GoogleAuth id="gcp" />)
@@ -349,23 +338,20 @@ describe("GoogleAuth — change project", () => {
   const LIST_ERROR = "Cloud Resource Manager API has not been used in project 123"
 
   it("shows a project-list failure in the picker, and Cancel keeps the authentication", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return { found: false }
-      if (channel === "google:validate-credentials") {
-        return {
-          valid: true,
-          account: {
-            principal: "sa@key-project.iam.gserviceaccount.com",
-            accountType: "service_account",
-          },
-          projectId: "proj-x",
-          credentialType: "service_account",
-          credentialsPath: "/tmp/runbooks-gcp-cp/adc.json",
-        }
-      }
-      if (channel === "google:projects") return { projects: [], error: LIST_ERROR }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      ...NO_CREDENTIALS,
+      "google:validate-credentials": () => ({
+        valid: true,
+        account: {
+          principal: "sa@key-project.iam.gserviceaccount.com",
+          accountType: "service_account",
+        },
+        projectId: "proj-x",
+        credentialType: "service_account",
+        credentialsPath: "/tmp/runbooks-gcp-cp/adc.json",
+      }),
+      "google:projects": () => ({ projects: [], error: LIST_ERROR }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     renderBlock(<GoogleAuth id="gcp" project="proj-x" />)
@@ -399,16 +385,14 @@ describe("GoogleAuth — change project", () => {
 describe("GoogleAuth — Google sign-in tab", () => {
   it("starts the loopback flow, shows the browser handoff, and completes", async () => {
     let pollCount = 0
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return { found: false }
-      if (channel === "google:oauth-start") {
-        return {
-          flowId: "flow-1",
-          authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
-          redirectUri: "http://127.0.0.1:53211/oauth2callback",
-        }
-      }
-      if (channel === "google:oauth-poll") {
+    installApi({
+      ...NO_CREDENTIALS,
+      "google:oauth-start": () => ({
+        flowId: "flow-1",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
+        redirectUri: "http://127.0.0.1:53211/oauth2callback",
+      }),
+      "google:oauth-poll": () => {
         pollCount += 1
         return {
           status: "complete",
@@ -416,10 +400,9 @@ describe("GoogleAuth — Google sign-in tab", () => {
           credentialsPath: "/tmp/runbooks-gcp-c/adc.json",
           projects: [{ projectId: "proj-solo", displayName: "Solo Project" }],
         }
-      }
-      if (channel === "google:set-project") return { ok: true, projectName: "Solo Project" }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+      },
+      "google:set-project": () => ({ ok: true, projectName: "Solo Project" }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     renderBlock(<GoogleAuth id="gcp" />)
@@ -439,11 +422,7 @@ describe("GoogleAuth — Google sign-in tab", () => {
   })
 
   it("offers a Desktop OAuth client picker on FIRST PAINT when the build has no client", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return { found: false }
-      if (channel === "google:oauth-available") return { available: false }
-      return {}
-    })
+    installApi({ ...NO_CREDENTIALS, "google:oauth-available": () => ({ available: false }) })
 
     renderBlock(<GoogleAuth id="gcp" />)
 
@@ -462,22 +441,19 @@ describe("GoogleAuth — Google sign-in tab", () => {
   })
 
   it("starts Sign-In with an operator-chosen Desktop OAuth client JSON", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return { found: false }
-      if (channel === "google:oauth-available") return { available: false }
-      if (channel === "native:show-open-dialog") {
-        return { filePaths: ["/tmp/client_secret_example.apps.googleusercontent.com.json"] }
-      }
-      if (channel === "google:oauth-start") {
-        return {
-          flowId: "flow-1",
-          authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=x",
-          redirectUri: "http://127.0.0.1:9/",
-          expiresInSeconds: 600,
-        }
-      }
-      if (channel === "google:oauth-poll") return { status: "pending" }
-      return {}
+    installApi({
+      ...NO_CREDENTIALS,
+      "google:oauth-available": () => ({ available: false }),
+      "native:show-open-dialog": () => ({
+        filePaths: ["/tmp/client_secret_example.apps.googleusercontent.com.json"],
+      }),
+      "google:oauth-start": () => ({
+        flowId: "flow-1",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=x",
+        redirectUri: "http://127.0.0.1:9/",
+        expiresInSeconds: 600,
+      }),
+      "google:oauth-poll": () => ({ status: "pending" }),
     })
 
     renderBlock(<GoogleAuth id="gcp" />)
@@ -498,12 +474,9 @@ describe("GoogleAuth — Google sign-in tab", () => {
 
   it("falls back to the client picker when oauth-start reports it is not configured", async () => {
     // The probe says the build is fine, but the flow is refused at start time.
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return { found: false }
-      if (channel === "google:oauth-start") {
-        return { error: "OAuth login is not configured for this build" }
-      }
-      return {}
+    installApi({
+      ...NO_CREDENTIALS,
+      "google:oauth-start": () => ({ error: "OAuth login is not configured for this build" }),
     })
 
     renderBlock(<GoogleAuth id="gcp" />)
@@ -527,7 +500,7 @@ describe("GoogleAuth — Google sign-in tab", () => {
 // ---------------------------------------------------------------------------
 
 describe("GoogleAuth — gcloud tab", () => {
-  const listing = {
+  const listing: Result<"google:gcloud-configurations"> = {
     configurations: [
       {
         name: "default",
@@ -548,19 +521,16 @@ describe("GoogleAuth — gcloud tab", () => {
   }
 
   it("lists configurations on tab entry and authenticates with the selected one", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return { found: false }
-      if (channel === "google:gcloud-configurations") return listing
-      if (channel === "google:gcloud-auth") {
-        return {
-          valid: true,
-          account: { principal: "dev@example.com", accountType: "user" },
-          projectId: "proj-a",
-          credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      ...NO_CREDENTIALS,
+      "google:gcloud-configurations": () => listing,
+      "google:gcloud-auth": () => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        projectId: "proj-a",
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     renderBlock(<GoogleAuth id="gcp" />)
@@ -591,7 +561,7 @@ describe("GoogleAuth — gcloud tab", () => {
 // ---------------------------------------------------------------------------
 
 describe("GoogleAuth — credential detection", () => {
-  const detected = {
+  const detected: Result<"google:env-credentials"> = {
     found: true,
     valid: true,
     projectId: "proj-a",
@@ -602,19 +572,16 @@ describe("GoogleAuth — credential detection", () => {
   }
 
   it("prompts for confirmation before using detected credentials", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return detected
-      if (channel === "google:env-credentials-confirm") {
-        return {
-          valid: true,
-          account: { principal: "dev@example.com", accountType: "user" },
-          projectId: "proj-a",
-          credentialsPath: "/tmp/runbooks-gcp-d/adc.json",
-          credentialType: "authorized_user",
-        }
-      }
-      if (channel === "google:check-project") return { enabled: true }
-      return {}
+    installApi({
+      "google:env-credentials": () => detected,
+      "google:env-credentials-confirm": () => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        projectId: "proj-a",
+        credentialsPath: "/tmp/runbooks-gcp-d/adc.json",
+        credentialType: "authorized_user",
+      }),
+      "google:check-project": () => ({ enabled: true }),
     })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} />)
@@ -638,7 +605,7 @@ describe("GoogleAuth — credential detection", () => {
   })
 
   it('"Use Different Credentials" falls through to the manual tabs', async () => {
-    installApi((channel) => (channel === "google:env-credentials" ? detected : {}))
+    installApi({ "google:env-credentials": () => detected })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} />)
 
@@ -649,9 +616,7 @@ describe("GoogleAuth — credential detection", () => {
   })
 
   it("warns inline when the ambient credentials are found but invalid", async () => {
-    installApi((channel) =>
-      channel === "google:env-credentials" ? { found: true, valid: false } : {},
-    )
+    installApi({ "google:env-credentials": () => ({ found: true, valid: false }) })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} />)
 
@@ -663,18 +628,19 @@ describe("GoogleAuth — credential detection", () => {
   })
 
   it("adds MAIN's reason to the invalid-credentials warning", async () => {
-    installApi((channel, args) => {
-      if (channel !== "google:env-credentials") return {}
-      if (args?.source === "adc") {
-        return {
-          found: true,
-          valid: false,
-          source: "adc",
-          path: "/home/u/.config/gcloud/application_default_credentials.json",
-          warning: "ENOENT: no such file or directory",
+    installApi({
+      "google:env-credentials": ({ source }) => {
+        if (source === "adc") {
+          return {
+            found: true,
+            valid: false,
+            source: "adc",
+            path: "/home/u/.config/gcloud/application_default_credentials.json",
+            warning: "ENOENT: no such file or directory",
+          }
         }
-      }
-      return { found: false }
+        return { found: false }
+      },
     })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={["adc"]} />)
@@ -688,11 +654,12 @@ describe("GoogleAuth — credential detection", () => {
   })
 
   it("names a prefixed env var once, exactly as MAIN read it", async () => {
-    installApi((channel) =>
-      channel === "google:env-credentials"
-        ? { ...detected, envVar: "PROD_GOOGLE_APPLICATION_CREDENTIALS" }
-        : {},
-    )
+    installApi({
+      "google:env-credentials": () => ({
+        ...detected,
+        envVar: "PROD_GOOGLE_APPLICATION_CREDENTIALS",
+      }),
+    })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={[{ env: { prefix: "PROD_" } }]} />)
 
@@ -729,7 +696,7 @@ describe("GoogleAuth — required scopes", () => {
   const CLOUD_PLATFORM = "https://www.googleapis.com/auth/cloud-platform"
   const requiredScopes = [CLOUD_PLATFORM, DIRECTORY]
 
-  const insufficient = {
+  const insufficient: Result<"google:env-credentials"> = {
     found: true,
     valid: false,
     insufficientScopes: true,
@@ -743,12 +710,11 @@ describe("GoogleAuth — required scopes", () => {
   }
 
   it("shows the insufficient-scopes recovery card instead of Use These Credentials", async () => {
-    installApi((channel, args) => {
-      if (channel === "google:env-credentials") {
-        expect(args?.scopes).toEqual(requiredScopes)
+    installApi({
+      "google:env-credentials": ({ scopes }) => {
+        expect(scopes).toEqual(requiredScopes)
         return insufficient
-      }
-      return {}
+      },
     })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} scopes={requiredScopes} />)
@@ -760,16 +726,13 @@ describe("GoogleAuth — required scopes", () => {
   })
 
   it("starts Google Sign-In with the required scopes from the recovery card", async () => {
-    installApi((channel) => {
-      if (channel === "google:env-credentials") return insufficient
-      if (channel === "google:oauth-start") {
-        return {
-          flowId: "flow-scopes",
-          authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=scopes",
-        }
-      }
-      if (channel === "google:oauth-poll") return { status: "pending" }
-      return {}
+    installApi({
+      "google:env-credentials": () => insufficient,
+      "google:oauth-start": () => ({
+        flowId: "flow-scopes",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=scopes",
+      }),
+      "google:oauth-poll": () => ({ status: "pending" }),
     })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} scopes={requiredScopes} />)
@@ -782,10 +745,9 @@ describe("GoogleAuth — required scopes", () => {
   })
 
   it("shows the gcloud --scopes command when Sign-In is unavailable", async () => {
-    installApi((channel) => {
-      if (channel === "google:oauth-available") return { available: false }
-      if (channel === "google:env-credentials") return insufficient
-      return {}
+    installApi({
+      "google:oauth-available": () => ({ available: false }),
+      "google:env-credentials": () => insufficient,
     })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} scopes={requiredScopes} />)
@@ -801,9 +763,9 @@ describe("GoogleAuth — required scopes", () => {
   })
 
   it("does not enforce default scopes when the author omits the prop", async () => {
-    installApi((channel, args) => {
-      if (channel === "google:env-credentials") {
-        expect(args?.scopes).toBeUndefined()
+    installApi({
+      "google:env-credentials": ({ scopes }) => {
+        expect(scopes).toBeUndefined()
         return {
           found: true,
           valid: true,
@@ -811,8 +773,7 @@ describe("GoogleAuth — required scopes", () => {
           account: { principal: "dev@example.com", accountType: "user" },
           credentialType: "authorized_user",
         }
-      }
-      return {}
+      },
     })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} />)

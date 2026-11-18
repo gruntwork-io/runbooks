@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import type { ReactNode } from "react"
 import { renderHook, act, waitFor } from "@testing-library/react"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Result, type TestApi } from "@/test/test-api"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { sensitiveOutput } from "@/lib/outputValues"
 import { useAwsAuth } from "../useAwsAuth"
@@ -25,24 +26,16 @@ vi.mock("@/contexts/useSession", () => ({
   useSession: () => ({ isReady: true }),
 }))
 
-type Reply = (args: unknown) => unknown
-
-let replies: Record<string, Reply>
-let invoke: ReturnType<typeof vi.fn>
+let testApi: TestApi
 
 beforeEach(() => {
   registerOutputs.mockClear()
   runbookState.blockOutputs = {}
-  replies = {
+  testApi = makeTestApi({
     "session:record-event": () => ({ ok: true }),
     "session:set-env": () => ({ ok: true }),
     "aws:check-region": () => ({ enabled: true }),
     "aws:env-credentials": () => ({ found: false }),
-  }
-  invoke = vi.fn(async (channel: string, args?: unknown) => {
-    const reply = replies[channel]
-    if (!reply) throw new Error(`unexpected channel ${channel}`)
-    return reply(args)
   })
 })
 
@@ -67,12 +60,10 @@ const SAVED = {
 
 /** The payload of each auth event sent to the main process, oldest first. */
 const recorded = () =>
-  invoke.mock.calls
-    .filter(([channel]) => channel === "session:record-event")
-    .map(([, event]) => {
-      expect(event).toMatchObject({ sessionId: "s1", blockId: "aws", kind: "auth" })
-      return (event as { payload: unknown }).payload
-    })
+  testApi.callsTo("session:record-event").map((event) => {
+    expect(event).toMatchObject({ sessionId: "s1", blockId: "aws", kind: "auth" })
+    return event.payload
+  })
 
 function renderAwsAuth(
   options: {
@@ -83,7 +74,7 @@ function renderAwsAuth(
 ) {
   const blockStates: SavedBlockState[] =
     options.saved === undefined ? [] : [{ blockId: "aws", kind: "auth", payload: options.saved }]
-  const api = { invoke, on: () => () => {} } as unknown as RunbooksAPI
+  const { api } = testApi
   return renderHook(
     () =>
       useAwsAuth({
@@ -118,7 +109,7 @@ function deferred<T>() {
 
 describe("useAwsAuth in a session — recording", () => {
   it("records a sign-in with static keys, with the credentials and the account", async () => {
-    replies["aws:validate"] = () => ({ valid: true, ...ACCOUNT })
+    testApi.handle("aws:validate", () => ({ valid: true, ...ACCOUNT }))
     const { result } = renderAwsAuth()
 
     act(() => {
@@ -142,15 +133,15 @@ describe("useAwsAuth in a session — recording", () => {
   })
 
   it("records a sign-in with a local profile, with when its credentials expire", async () => {
-    replies["aws:profiles"] = () => ({ profiles: [{ name: "default", authType: "static" }] })
-    replies["aws:profile-auth"] = () => ({
+    testApi.handle("aws:profiles", () => ({ profiles: [{ name: "default", authType: "static" }] }))
+    testApi.handle("aws:profile-auth", () => ({
       valid: true,
       ...ACCOUNT,
       accessKeyId: "AKIA_PROFILE",
       secretAccessKey: "profile-secret",
       sessionToken: "profile-token",
       expiresAt: "2026-10-03T13:00:00.000Z",
-    })
+    }))
     const { result } = renderAwsAuth()
 
     await act(() => result.current.loadAwsProfiles())
@@ -175,15 +166,15 @@ describe("useAwsAuth in a session — recording", () => {
   })
 
   it("records a sign-in with credentials detected in the environment", async () => {
-    replies["aws:env-credentials"] = () => ({ found: true, valid: true, ...ACCOUNT })
-    replies["aws:env-credentials-confirm"] = () => ({
+    testApi.handle("aws:env-credentials", () => ({ found: true, valid: true, ...ACCOUNT }))
+    testApi.handle("aws:env-credentials-confirm", () => ({
       valid: true,
       ...ACCOUNT,
       accessKeyId: "AKIA_ENV",
       secretAccessKey: "env-secret",
       region: "eu-central-1",
       expiresAt: "2026-10-03T14:00:00.000Z",
-    })
+    }))
     const { result } = renderAwsAuth({ detectCredentials: ["env"] })
     await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
 
@@ -217,7 +208,7 @@ describe("useAwsAuth in a session — recording", () => {
         },
       },
     }
-    replies["aws:validate"] = () => ({ valid: true, ...ACCOUNT })
+    testApi.handle("aws:validate", () => ({ valid: true, ...ACCOUNT }))
     const { result } = renderAwsAuth({ detectCredentials: [{ block: "creds" }] })
     await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
 
@@ -257,12 +248,13 @@ describe("useAwsAuth in a session — recording", () => {
     let open: { mockRestore: () => void }
     beforeEach(() => {
       open = vi.spyOn(window, "open").mockReturnValue(null)
-      replies["aws:sso-start"] = () => ({
+      testApi.handle("aws:sso-start", () => ({
         verificationUri: "https://device.sso.example/",
+        userCode: "ABCD-EFGH",
         deviceCode: "dc",
         clientId: "cid",
         clientSecret: "cs",
-      })
+      }))
     })
 
     afterEach(() => {
@@ -270,7 +262,7 @@ describe("useAwsAuth in a session — recording", () => {
     })
 
     it("records a sign-in to the account and role the block names", async () => {
-      replies["aws:sso-poll"] = () => ({ status: "success", ...ACCOUNT, ...SSO_CREDENTIALS })
+      testApi.handle("aws:sso-poll", () => ({ status: "success", ...ACCOUNT, ...SSO_CREDENTIALS }))
       const { result } = renderAwsAuth({
         sso: {
           ssoStartUrl: "https://acme.awsapps.com/start",
@@ -285,13 +277,15 @@ describe("useAwsAuth in a session — recording", () => {
     })
 
     it("records a sign-in to the account and role the user picks", async () => {
-      replies["aws:sso-poll"] = () => ({
+      testApi.handle("aws:sso-poll", () => ({
         status: "select_account",
         accessToken: "sso-access",
         accounts: [{ accountId: ACCOUNT.accountId, accountName: "dev", emailAddress: "d@x" }],
-      })
-      replies["aws:sso-roles"] = () => ({ roles: [{ roleName: "Admin" }] })
-      replies["aws:sso-complete"] = () => ({ ...ACCOUNT, ...SSO_CREDENTIALS })
+      }))
+      testApi.handle("aws:sso-roles", () => ({
+        roles: [{ roleName: "Admin", accountId: ACCOUNT.accountId }],
+      }))
+      testApi.handle("aws:sso-complete", () => ({ ...ACCOUNT, ...SSO_CREDENTIALS }))
       const { result } = renderAwsAuth({ sso: { ssoStartUrl: "https://acme.awsapps.com/start" } })
 
       await act(() => result.current.handleSsoAuth())
@@ -305,7 +299,7 @@ describe("useAwsAuth in a session — recording", () => {
   })
 
   it("records a sign-out when the user re-authenticates", async () => {
-    replies["aws:validate"] = () => ({ valid: true, ...ACCOUNT })
+    testApi.handle("aws:validate", () => ({ valid: true, ...ACCOUNT }))
     const { result } = renderAwsAuth({ saved: SAVED })
     await act(async () => {})
 
@@ -318,8 +312,8 @@ describe("useAwsAuth in a session — recording", () => {
 
 describe("useAwsAuth in a session — resuming", () => {
   it("starts signed in to the saved account, publishes its outputs, and checks the saved credentials", async () => {
-    const check = deferred<unknown>()
-    replies["aws:validate"] = () => check.promise
+    const check = deferred<Result<"aws:validate">>()
+    testApi.handle("aws:validate", () => check.promise)
     const { result } = renderAwsAuth({ saved: SAVED, detectCredentials: ["env"] })
 
     expect(result.current.authStatus).toBe("authenticated")
@@ -334,18 +328,18 @@ describe("useAwsAuth in a session — resuming", () => {
         AWS_SESSION_TOKEN: sensitiveOutput("saved-token"),
       }),
     )
-    expect(invoke).toHaveBeenCalledWith("aws:validate", SAVED.credentials)
+    expect(testApi.invoke).toHaveBeenCalledWith("aws:validate", SAVED.credentials)
 
     await act(async () => check.resolve({ valid: true, ...ACCOUNT }))
 
     expect(result.current.authStatus).toBe("authenticated")
     // Detection was skipped, and starting from the history is not a sign-in.
-    expect(invoke).not.toHaveBeenCalledWith("aws:env-credentials", expect.anything())
+    expect(testApi.invoke).not.toHaveBeenCalledWith("aws:env-credentials", expect.anything())
     expect(recorded()).toEqual([])
   })
 
   it("goes back to sign-in when the saved credentials no longer work", async () => {
-    replies["aws:validate"] = () => ({ valid: false, error: "ExpiredToken" })
+    testApi.handle("aws:validate", () => ({ valid: false, error: "ExpiredToken" }))
     const { result } = renderAwsAuth({ saved: SAVED })
 
     await waitFor(() => expect(result.current.authStatus).toBe("failed"))
@@ -359,7 +353,7 @@ describe("useAwsAuth in a session — resuming", () => {
   })
 
   it("goes back to sign-in when the saved credentials are refused without a reason", async () => {
-    replies["aws:validate"] = () => ({ valid: false })
+    testApi.handle("aws:validate", () => ({ valid: false }))
     const { result } = renderAwsAuth({ saved: SAVED })
 
     await waitFor(() => expect(result.current.authStatus).toBe("failed"))
@@ -374,18 +368,20 @@ describe("useAwsAuth in a session — resuming", () => {
     expect(result.current.authStatus).toBe("pending")
     expect(result.current.accountInfo).toBeNull()
     await act(async () => {})
-    expect(invoke).not.toHaveBeenCalledWith("aws:validate", expect.anything())
+    expect(testApi.invoke).not.toHaveBeenCalledWith("aws:validate", expect.anything())
   })
 
   it("keeps the sign-in when AWS can't be reached", async () => {
-    replies["aws:validate"] = () => ({
+    testApi.handle("aws:validate", () => ({
       valid: false,
       error: "getaddrinfo ENOTFOUND sts.amazonaws.com",
       unreachable: true,
-    })
+    }))
     const { result } = renderAwsAuth({ saved: SAVED })
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("aws:validate", SAVED.credentials))
+    await waitFor(() =>
+      expect(testApi.invoke).toHaveBeenCalledWith("aws:validate", SAVED.credentials),
+    )
     await act(async () => {})
 
     expect(result.current.authStatus).toBe("authenticated")
@@ -395,12 +391,14 @@ describe("useAwsAuth in a session — resuming", () => {
   })
 
   it("keeps the sign-in when the check itself fails", async () => {
-    replies["aws:validate"] = () => {
+    testApi.handle("aws:validate", () => {
       throw new Error("IPC channel closed")
-    }
+    })
     const { result } = renderAwsAuth({ saved: SAVED })
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("aws:validate", SAVED.credentials))
+    await waitFor(() =>
+      expect(testApi.invoke).toHaveBeenCalledWith("aws:validate", SAVED.credentials),
+    )
     await act(async () => {})
 
     expect(result.current.authStatus).toBe("authenticated")
@@ -409,10 +407,12 @@ describe("useAwsAuth in a session — resuming", () => {
   })
 
   it("ignores a late failed check once the user has re-authenticated", async () => {
-    const check = deferred<unknown>()
-    replies["aws:validate"] = () => check.promise
+    const check = deferred<Result<"aws:validate">>()
+    testApi.handle("aws:validate", () => check.promise)
     const { result } = renderAwsAuth({ saved: SAVED })
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("aws:validate", SAVED.credentials))
+    await waitFor(() =>
+      expect(testApi.invoke).toHaveBeenCalledWith("aws:validate", SAVED.credentials),
+    )
 
     act(() => result.current.handleManualAuth())
     await act(async () => check.resolve({ valid: false, error: "ExpiredToken" }))
@@ -428,6 +428,6 @@ describe("useAwsAuth in a session — resuming", () => {
     })
 
     expect(result.current.authStatus).toBe("pending")
-    expect(invoke).not.toHaveBeenCalledWith("aws:validate", expect.anything())
+    expect(testApi.invoke).not.toHaveBeenCalledWith("aws:validate", expect.anything())
   })
 })

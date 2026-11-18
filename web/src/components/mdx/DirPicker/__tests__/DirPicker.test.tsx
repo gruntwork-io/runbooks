@@ -5,6 +5,7 @@ import DirPicker from "../DirPicker"
 import type { DirPickerProps } from "../types"
 import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { makeTestApi, type Result, type TestApi } from "@/test/test-api"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { INSTRUCTION_MODE_STORAGE_KEY } from "@/contexts/InstructionModeContext.types"
@@ -25,23 +26,18 @@ const TREE: Record<string, string[]> = {
   "/root2": ["alpha"],
 }
 
-type DirsResult = { dirs: string[] }
+type DirsResult = Result<"workspace:dirs">
 
 /**
- * IPC stub that answers `workspace:dirs` from TREE, in the `{ dirs }` shape the
- * channel declares. `pending` lets a test hold a single path's response open.
+ * IPC that answers `workspace:dirs` from TREE. `pending` lets a test hold a
+ * single path's response open.
  */
 function makeApi(pending: Record<string, Promise<DirsResult>> = {}) {
-  const invoke = vi.fn(async (channel: string, params?: { worktreePath: string }) => {
-    if (channel === "workspace:dirs") {
-      const worktreePath = params!.worktreePath
-      return pending[worktreePath] ?? { dirs: TREE[worktreePath] ?? [] }
-    }
-    if (channel === "native:set-theme") return { ok: true }
-    throw new Error(`unexpected channel: ${channel}`)
+  return makeTestApi({
+    "workspace:dirs": ({ worktreePath }) =>
+      pending[worktreePath] ?? { dirs: TREE[worktreePath] ?? [] },
+    "native:set-theme": () => ({ ok: true }),
   })
-  const api = { invoke, on: () => () => {} } as unknown as RunbooksAPI
-  return { api, invoke }
 }
 
 function deferred<T>() {
@@ -428,10 +424,8 @@ describe("DirPicker — PATH output", () => {
 })
 
 describe("DirPicker — GitClone root changes", () => {
-  const rootFetches = (invoke: ReturnType<typeof makeApi>["invoke"], path: string) =>
-    invoke.mock.calls.filter(
-      ([channel, params]) => channel === "workspace:dirs" && params?.worktreePath === path,
-    )
+  const rootFetches = (testApi: TestApi, path: string) =>
+    testApi.callsTo("workspace:dirs").filter((params) => params.worktreePath === path)
 
   it("publishes no output entry until a path is chosen", async () => {
     renderClonePicker("/root")
@@ -455,8 +449,8 @@ describe("DirPicker — GitClone root changes", () => {
   })
 
   it("re-lists the root when the same clone_path comes back, with PATH still removed", async () => {
-    const { api, invoke } = makeApi()
-    const { setClonePath } = renderClonePicker("/root", api)
+    const testApi = makeApi()
+    const { setClonePath } = renderClonePicker("/root", testApi.api)
     await waitFor(() => expect(optionValues(dropdown(0))).toEqual(["dev", "prod"]))
     await select(0, "prod")
     await waitFor(() => expect(selects()).toHaveLength(2))
@@ -464,7 +458,7 @@ describe("DirPicker — GitClone root changes", () => {
     setClonePath(null)
     setClonePath("/root")
 
-    await waitFor(() => expect(rootFetches(invoke, "/root")).toHaveLength(2))
+    await waitFor(() => expect(rootFetches(testApi, "/root")).toHaveLength(2))
     await waitFor(() => expect(selects()).toHaveLength(1))
     expect(dropdown(0).value).toBe("")
     expect(pathInput().value).toBe("")
@@ -504,9 +498,9 @@ describe("DirPicker — GitClone root changes", () => {
 
   it("discards a root listing that resolves after clone_path changed", async () => {
     const rootFetch = deferred<DirsResult>()
-    const { api, invoke } = makeApi({ "/root": rootFetch.promise })
-    const { setClonePath } = renderClonePicker("/root", api)
-    expect(rootFetches(invoke, "/root")).toHaveLength(1)
+    const testApi = makeApi({ "/root": rootFetch.promise })
+    const { setClonePath } = renderClonePicker("/root", testApi.api)
+    expect(rootFetches(testApi, "/root")).toHaveLength(1)
 
     setClonePath("/root2")
     await waitFor(() => expect(optionValues(dropdown(0))).toEqual(["alpha"]))

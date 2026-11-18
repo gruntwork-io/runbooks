@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, afterEach } from "vitest"
 import type { ReactNode } from "react"
 import { renderHook, act, cleanup, waitFor } from "@testing-library/react"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import { IpcExecutableRegistryProvider } from "@/contexts/IpcExecutableRegistryContext"
 import { RunbookContextProvider } from "@/contexts/RunbookContext"
+import { makeTestApi } from "@/test/test-api"
 import { useScriptExecution } from "../useScriptExecution"
 
 // A path-based block under the real IpcExecutableRegistryProvider: the block
@@ -42,11 +43,8 @@ function createApi(
   initial: { script: Version; registered: Version } = { script: V1, registered: V1 },
 ) {
   let { script, registered } = initial
-  const listeners = new Map<string, Set<(payload?: unknown) => void>>()
-  const emit = (channel: string, payload?: unknown) =>
-    listeners.get(channel)?.forEach((cb) => cb(payload))
-  const invoke = vi.fn(async (channel: string, params?: { contentHash?: string }) => {
-    if (channel === "runbook:executables") {
+  const testApi = makeTestApi({
+    "runbook:executables": () => {
       // The entry ID is derived from the content, as in the main process.
       const id = `e-${registered.contentHash}`
       return {
@@ -57,16 +55,25 @@ function createApi(
             componentId: "target",
             componentType: "command",
             contentHash: registered.contentHash,
+            language: "bash",
             path: SCRIPT_PATH,
+            templateVars: [],
+            env: {},
           },
         },
         warnings: [],
       }
-    }
-    if (channel === "file:read") {
-      return { path: SCRIPT_PATH, ...script, language: "bash", size: script.content.length }
-    }
-    if (channel === "runbook:script-change") {
+    },
+    // What main's readFileMetadata answers.
+    "file:read": () => ({
+      name: "deploy.sh",
+      path: SCRIPT_PATH,
+      ...script,
+      language: "bash",
+      size: script.content.length,
+      isTruncated: false,
+    }),
+    "runbook:script-change": () => {
       if (script.contentHash === registered.contentHash) return { change: null }
       return {
         change: {
@@ -75,32 +82,21 @@ function createApi(
           diskContentHash: script.contentHash,
         },
       }
-    }
-    if (channel === "runbook:reload-script") {
-      if (params?.contentHash !== script.contentHash) {
+    },
+    "runbook:reload-script": ({ contentHash }) => {
+      if (contentHash !== script.contentHash) {
         throw new Error(`${SCRIPT_PATH} changed again after you reviewed it.`)
       }
       registered = script
-      emit("registry:updated")
+      testApi.emit("registry:updated")
       return { ok: true }
-    }
-    return {}
+    },
   })
-  const on = vi.fn((channel: string, callback: (payload?: unknown) => void) => {
-    const set = listeners.get(channel) ?? new Set()
-    set.add(callback)
-    listeners.set(channel, set)
-    return () => {
-      set.delete(callback)
-    }
-  })
-  const api = { invoke, on } as unknown as RunbooksAPI
   return {
-    api,
-    invoke,
-    fileReads: () => invoke.mock.calls.filter(([channel]) => channel === "file:read").length,
-    changeChecks: () =>
-      invoke.mock.calls.filter(([channel]) => channel === "runbook:script-change").length,
+    api: testApi.api,
+    invoke: testApi.invoke,
+    fileReads: () => testApi.callsTo("file:read").length,
+    changeChecks: () => testApi.callsTo("runbook:script-change").length,
     /**
      * The script changed on disk and a watch-mode reload rebuilt the registry
      * from it. runbook.mdx was saved unchanged, so the MDX isn't recompiled
@@ -109,37 +105,27 @@ function createApi(
     rebuildRegistry(version: Version) {
       script = version
       registered = version
-      emit("registry:updated")
+      testApi.emit("registry:updated")
     },
     /** The script changed on disk and the main process's script watcher reported it. */
     editScript(version: Version) {
       script = version
-      emit("watch:script-change", { componentIds: ["target"] })
+      testApi.emit("watch:script-change", { componentIds: ["target"] })
     },
     /** The script watcher reported a write to a script that another block runs. */
     editOtherBlocksScript() {
-      emit("watch:script-change", { componentIds: ["other"] })
+      testApi.emit("watch:script-change", { componentIds: ["other"] })
     },
     /** The script changed on disk and the watcher has not reported it yet. */
     editScriptUnnoticed(version: Version) {
       script = version
     },
+    testApi,
   }
 }
 
-const originalApi = window.api
-
-beforeEach(() => {
-  // useApiExec subscribes to exec:* through window.api directly.
-  window.api = {
-    invoke: vi.fn(async () => ({})),
-    on: vi.fn(() => () => {}),
-  } as unknown as typeof window.api
-})
-
 afterEach(() => {
   cleanup()
-  window.api = originalApi
 })
 
 function renderPathBlock(api: RunbooksAPI) {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { act, renderHook } from "@testing-library/react"
 import type { ReactNode } from "react"
-import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { ApiProvider } from "@/contexts/ApiContext"
 import {
   ExecutableRegistryContext,
   type ExecutableRegistryContextValue,
@@ -13,33 +13,17 @@ import { useRunbookContext } from "@/contexts/useRunbook"
 import { SessionHistoryContext, type SessionHistory } from "@/contexts/SessionHistoryContext.types"
 import { isSensitiveOutput, revealOutput, sensitiveOutput } from "@/lib/outputValues"
 import { TestWrapper } from "@/test/test-utils"
+import { makeTestApi, type HeldCall, type TestApi } from "@/test/test-api"
 import { makeConfig } from "@/test/make-config"
+import { renderedInline } from "@/test/render-inline"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
 import type { Executable } from "@/types/executable"
 import { useScriptExecution } from "../useScriptExecution"
 import { outputRef } from "../../lib/outputOverrides"
 
+let testApi: TestApi
 // `boilerplate:render-inline` calls stay pending until the test settles them.
-interface PendingRender {
-  templateFiles: Record<string, string>
-  inputs: Array<{ name: string; value: unknown }>
-  resolve: (value: unknown) => void
-}
-
-const renders: PendingRender[] = []
-const invoke = vi.fn(
-  (channel: string, params?: Omit<PendingRender, "resolve"> & Record<string, unknown>) => {
-    if (channel === "boilerplate:render-inline") {
-      return new Promise((resolve) => {
-        renders.push({ templateFiles: params!.templateFiles, inputs: params!.inputs, resolve })
-      })
-    }
-    // A run that never ends, so the test can read what it was sent
-    if (channel === "exec:run") return new Promise(() => {})
-    return Promise.resolve({ ok: true })
-  },
-)
-const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
+let renders: readonly HeldCall<"boilerplate:render-inline">[]
 
 let registered: Executable | null = null
 const registry: ExecutableRegistryContextValue = {
@@ -58,7 +42,7 @@ const history: SessionHistory = {
 
 function Providers({ children }: { children: ReactNode }) {
   return (
-    <ApiProvider api={api}>
+    <ApiProvider api={testApi.api}>
       <SessionHistoryContext.Provider value={history}>
         <TestWrapper>
           <ExecutableRegistryContext.Provider value={registry}>
@@ -94,8 +78,10 @@ function renderCommand(env: unknown) {
 }
 
 beforeEach(() => {
-  renders.length = 0
-  invoke.mockClear()
+  testApi = makeTestApi({ "native:set-theme": () => ({ ok: true }) })
+  renders = testApi.hold("boilerplate:render-inline")
+  // A run that never ends, so the test can read what it was sent
+  testApi.hold("exec:run")
   record.mockClear()
   saved = {}
   registered = null
@@ -125,18 +111,13 @@ describe("useScriptExecution — env prop", () => {
 
     // One render for the script and the env values that are templates
     expect(renders).toHaveLength(1)
-    expect(renders[0]!.templateFiles).toEqual({
+    expect(renders[0]!.params.templateFiles).toEqual({
       "script.sh": COMMAND,
       "env:BUCKET": "{{ .inputs.BucketName }}",
     })
 
     await act(async () => {
-      renders[0]!.resolve({
-        renderedFiles: {
-          "script.sh": { content: COMMAND },
-          "env:BUCKET": { content: "my-bucket" },
-        },
-      })
+      renders[0]!.resolve(renderedInline({ "script.sh": COMMAND, "env:BUCKET": "my-bucket" }))
     })
     expect(result.current.exec.envVars).toEqual([
       { name: "BUCKET", value: "my-bucket" },
@@ -197,8 +178,8 @@ describe("useScriptExecution — outputs entered by hand", () => {
   }
 
   /** The outputs a render request rendered the script and env with. */
-  function renderedOutputs(render: PendingRender) {
-    return render.inputs.find((input) => input.name === "outputs")!.value
+  function renderedOutputs(render: HeldCall<"boilerplate:render-inline">) {
+    return (render.params.inputs ?? []).find((input) => input.name === "outputs")!.value
   }
 
   it("stops waiting for an output given by hand, and waits again once it's reset", async () => {
@@ -232,7 +213,7 @@ describe("useScriptExecution — outputs entered by hand", () => {
       vi.advanceTimersByTime(300)
     })
     expect(renders).toHaveLength(1)
-    expect(renders[0]!.templateFiles).toEqual({
+    expect(renders[0]!.params.templateFiles).toEqual({
       "script.sh": PRINT,
       "env:PR_TITLE": "{{ .outputs.fetch-pr.title }}",
     })
@@ -275,8 +256,7 @@ describe("useScriptExecution — outputs entered by hand", () => {
     await act(async () => {
       result.current.exec.execute()
     })
-    const run = invoke.mock.calls.find(([channel]) => channel === "exec:run")
-    expect(run?.[1]).toMatchObject({
+    expect(testApi.callsTo("exec:run")[0]).toMatchObject({
       executableId: "e1",
       templateVarValues: { outputs: { fetch_pr: { title: "New title", url: "https://x" } } },
     })
@@ -308,8 +288,7 @@ describe("useScriptExecution — outputs entered by hand", () => {
     await act(async () => {
       result.current.exec.execute()
     })
-    const run = invoke.mock.calls.find(([channel]) => channel === "exec:run")
-    expect(run?.[1]).toMatchObject({
+    expect(testApi.callsTo("exec:run")[0]).toMatchObject({
       templateVarValues: { outputs: { fetch_pr: { title: "s3cr3t" } } },
     })
   })

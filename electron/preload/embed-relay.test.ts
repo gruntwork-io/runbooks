@@ -26,6 +26,7 @@ function relayedGuest() {
       return ipc
     },
   }
+  // A guest's window and ipcRenderer exist only in Electron; these have what the relay uses.
   installEmbedRelay(win as unknown as Relay[0], ipc as unknown as Relay[1])
 
   return {

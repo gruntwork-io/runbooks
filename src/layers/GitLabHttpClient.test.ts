@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { GitLabHttpClientLive } from "./GitLabHttpClient.ts"
 import { GitLabClient } from "../services/GitLabClient.ts"
 import { GitLabApiError } from "../errors/index.ts"
+import { makeFakeFetch } from "../test-utils/FakeFetch.ts"
 
 const originalFetch = globalThis.fetch
 
@@ -192,8 +193,7 @@ describe("GitLabHttpClient.validateToken", () => {
     const cause = Object.assign(new Error("unable to verify the first certificate"), {
       code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
     })
-    globalThis.fetch = (() =>
-      Promise.reject(new TypeError("fetch failed", { cause }))) as unknown as typeof fetch
+    globalThis.fetch = makeFakeFetch(() => Promise.reject(new TypeError("fetch failed", { cause })))
 
     const result = await Effect.runPromise(Effect.result(validate("glpat-abc")))
 

@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createElement, type ReactNode } from "react"
 import { renderHook, act, waitFor } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
+import { makeTestApi, type Result, type TestApi } from "@/test/test-api"
 import { useAwsAuth } from "../useAwsAuth"
 import { sensitiveOutput } from "@/lib/outputValues"
 import type { ProfileInfo } from "../../types"
@@ -24,28 +25,26 @@ vi.mock("@/contexts/useSession", () => ({
   useSession: () => ({ isReady: true }),
 }))
 
-type Api = Parameters<typeof ApiProvider>[0]["api"]
+/** What aws:profile-auth answers for any profile. */
+const PROFILE_AUTH = {
+  valid: true,
+  accountId: "111122223333",
+  accountName: "dev",
+  arn: "arn:aws:iam::111122223333:user/dev",
+  accessKeyId: "AKIA_DEV",
+  secretAccessKey: "dev-secret",
+}
 
 let profilesReply: () => Promise<{ profiles: ProfileInfo[] }>
-let invoke: Mock<(channel: string, args?: unknown) => Promise<unknown>>
+let testApi: TestApi
 
 beforeEach(() => {
   registerOutputs.mockClear()
-  invoke = vi.fn(async (channel: string) => {
-    if (channel === "aws:profiles") return profilesReply()
-    if (channel === "aws:profile-auth") {
-      return {
-        valid: true,
-        accountId: "111122223333",
-        accountName: "dev",
-        arn: "arn:aws:iam::111122223333:user/dev",
-        accessKeyId: "AKIA_DEV",
-        secretAccessKey: "dev-secret",
-      }
-    }
-    if (channel === "session:set-env") return {}
-    if (channel === "aws:check-region") return { enabled: true }
-    throw new Error(`unexpected channel ${channel}`)
+  testApi = makeTestApi({
+    "aws:profiles": () => profilesReply(),
+    "aws:profile-auth": () => PROFILE_AUTH,
+    "session:set-env": () => ({ ok: true }),
+    "aws:check-region": () => ({ enabled: true }),
   })
 })
 
@@ -54,7 +53,7 @@ const replyWith = (profiles: ProfileInfo[]) => {
 }
 
 const wrapper = ({ children }: { children: ReactNode }) =>
-  createElement(ApiProvider, { api: { invoke, on: () => () => {} } as unknown as Api }, children)
+  createElement(ApiProvider, { api: testApi.api }, children)
 
 const renderAwsAuth = () =>
   renderHook(
@@ -94,7 +93,7 @@ describe("useAwsAuth — local profiles", () => {
 
     // The chosen region goes along: it is the fallback when the profile sets
     // none, and it picks the partition (commercial or GovCloud) STS runs in.
-    expect(invoke).toHaveBeenCalledWith("aws:profile-auth", {
+    expect(testApi.invoke).toHaveBeenCalledWith("aws:profile-auth", {
       profileName: "default",
       profile: "default",
       defaultRegion: "us-west-2",
@@ -112,13 +111,7 @@ describe("useAwsAuth — local profiles", () => {
 describe("useAwsAuth — profile region", () => {
   it("publishes the profile's own region, not the chosen one, when the profile sets one", async () => {
     replyWith([DEFAULT])
-    const base = invoke.getMockImplementation()!
-    invoke.mockImplementation(async (channel: string, args?: unknown) => {
-      const reply = await base(channel, args)
-      return channel === "aws:profile-auth"
-        ? { ...(reply as object), region: "us-gov-east-1" }
-        : reply
-    })
+    testApi.handle("aws:profile-auth", () => ({ ...PROFILE_AUTH, region: "us-gov-east-1" }))
     const { result } = renderAwsAuth()
     await act(() => result.current.loadAwsProfiles())
 
@@ -188,17 +181,9 @@ describe("useAwsAuth — refreshing profiles", () => {
 describe("useAwsAuth — profile sign-in reply after the attempt ended", () => {
   /** Holds aws:profile-auth in flight until the test answers it. */
   const holdProfileAuth = () => {
-    let answer!: (reply: Record<string, unknown>) => void
-    const base = invoke.getMockImplementation()!
-    invoke.mockImplementation(async (channel: string, args?: unknown) => {
-      if (channel === "aws:profile-auth")
-        return new Promise((r) => {
-          answer = r
-        })
-      if (channel === "aws:env-credentials") return { found: false }
-      return base(channel, args)
-    })
-    return (reply: Record<string, unknown>) => answer(reply)
+    const signIns = testApi.hold("aws:profile-auth")
+    testApi.handle("aws:env-credentials", () => ({ found: false }))
+    return (reply: Result<"aws:profile-auth">) => signIns[0]!.resolve(reply)
   }
   const VALID = {
     valid: true,
