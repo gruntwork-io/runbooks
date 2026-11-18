@@ -68,6 +68,16 @@ export class GoogleOAuthError extends Data.TaggedError("GoogleOAuthError")<{
   readonly cause?: unknown
 }> {}
 
+// Azure
+export class AzureAuthError extends Data.TaggedError("AzureAuthError")<{
+  readonly message: string
+  /** The Azure CLI isn't installed, or isn't on PATH. */
+  readonly cliMissing?: boolean | undefined
+  /** The az command, without its arguments (which can carry a secret). */
+  readonly command?: string | undefined
+  readonly cause?: unknown
+}> {}
+
 /**
  * Transport-failure classification for VCS API errors, set by
  * classifyTlsError (src/domain/tls/system-ca.ts). Present only

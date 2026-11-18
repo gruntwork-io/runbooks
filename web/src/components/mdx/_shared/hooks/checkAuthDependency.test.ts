@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest"
-import { checkAuthDependency, buildAuthEnvVars, buildGoogleAuthEnvVars } from "./useScriptExecution"
+import {
+  checkAuthDependency,
+  buildAuthEnvVars,
+  buildAzureAuthEnvVars,
+  buildGoogleAuthEnvVars,
+} from "./useScriptExecution"
 import { GOOGLE_AUTH_ENV_VARS } from "../../../../../../src/domain/exec/authEnv.ts"
 
 describe("checkAuthDependency", () => {
@@ -197,5 +202,45 @@ describe("buildGoogleAuthEnvVars — CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE brid
       const awsEnvVars = { AWS_ACCESS_KEY_ID: "AKIA...", AWS_SECRET_ACCESS_KEY: "secret" }
       expect(checkAuthDependency("aws-auth", awsEnvVars, {})).toBeNull()
     })
+  })
+})
+
+describe("buildAzureAuthEnvVars — one AzureAuth block per run", () => {
+  const cliOutputs = {
+    tenant_a: {
+      values: {
+        AZURE_CONFIG_DIR: "/tmp/runbooks-azure-a",
+        ARM_TENANT_ID: "a",
+        ARM_SUBSCRIPTION_ID: "sub-a",
+        ARM_USE_CLI: "true",
+        AZURE_TENANT_NAME: "Tenant A",
+        __AUTHENTICATED: "true",
+      },
+    },
+  }
+
+  it("is undefined without a referenced block or its outputs", () => {
+    expect(buildAzureAuthEnvVars(undefined, cliOutputs)).toBeUndefined()
+    expect(buildAzureAuthEnvVars("tenant_b", cliOutputs)).toBeUndefined()
+  })
+
+  it("passes the block's vars, and blanks the credential vars it lacks", () => {
+    const envVars = buildAzureAuthEnvVars("tenant_a", cliOutputs)!
+    expect(envVars.AZURE_CONFIG_DIR).toBe("/tmp/runbooks-azure-a")
+    expect(envVars.ARM_USE_CLI).toBe("true")
+    // Another block's service principal in the session env must not win.
+    expect(envVars.ARM_CLIENT_SECRET).toBe("")
+    expect(envVars.ARM_CLIENT_ID).toBe("")
+    // Outputs that aren't env vars aren't passed.
+    expect(envVars.AZURE_TENANT_NAME).toBeUndefined()
+  })
+
+  it("is gated on __AUTHENTICATED alone, since the vars are never empty", () => {
+    const withdrawn = { tenant_a: { values: { __AUTHENTICATED: "false" } } }
+    const envVars = buildAzureAuthEnvVars("tenant_a", withdrawn)
+    expect(checkAuthDependency("tenant_a", envVars, withdrawn, true)).toEqual({
+      blockId: "tenant_a",
+    })
+    expect(checkAuthDependency("tenant_a", envVars, cliOutputs, true)).toBeNull()
   })
 })

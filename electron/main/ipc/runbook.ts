@@ -20,6 +20,8 @@ import {
   setRunbookConfig,
 } from "./runtime.ts"
 import { resetGoogleCredentialRegistry } from "./google-credential-registry.ts"
+import { resetAzureConfigDirRegistry } from "./azure-config-dirs.ts"
+import { resetAzureSignIns } from "./azure-signin.ts"
 import { startWatcher, watchScripts } from "./watch.ts"
 import { runbookAssetHost } from "./path-guard.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
@@ -297,6 +299,8 @@ export function registerRunbookHandlers(): void {
         // boundary so a Google credential or git-host auth banner from the
         // previous runbook can't leak into this one.
         resetGoogleCredentialRegistry()
+        resetAzureSignIns()
+        resetAzureConfigDirRegistry()
         vcsSessionMeta.clear()
         // A resumed session's git credentials stay bound to the hosts they
         // were bound to: the env's GITHUB_HOST and GH_HOST alone would let a

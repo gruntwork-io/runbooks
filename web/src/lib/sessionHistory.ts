@@ -168,6 +168,38 @@ export function parseSavedAwsAuth(payload: unknown): SavedAwsAuth | undefined {
   return parsed.success ? parsed.data : undefined
 }
 
+const SavedAzureAuthSchema = z.discriminatedUnion("status", [
+  SignedOutSchema,
+  z.object({
+    status: z.literal("signed-in"),
+    block: z.literal("azure"),
+    authType: z.enum(["cli", "device_code", "service_principal"]),
+    principal: z.object({
+      name: z.string(),
+      objectId: z.string(),
+      type: z.enum(["user", "guest", "servicePrincipal"]),
+      tenantId: z.string(),
+      homeTenantId: z.string().optional(),
+      displayName: z.string().optional(),
+    }),
+    tenantId: z.string(),
+    tenantName: z.string().optional(),
+    subscriptionId: z.string().optional(),
+    subscriptionName: z.string().optional(),
+    /** The config dir main signed the block in to. Gone after an app restart. */
+    configDir: z.string(),
+    /** What the block published: the env vars main wrote to the session. */
+    env: z.record(z.string(), z.string()),
+  }),
+])
+
+export type SavedAzureAuth = z.infer<typeof SavedAzureAuthSchema>
+
+export function parseSavedAzureAuth(payload: unknown): SavedAzureAuth | undefined {
+  const parsed = SavedAzureAuthSchema.safeParse(payload)
+  return parsed.success ? parsed.data : undefined
+}
+
 const EncodedOutputsSchema = z.record(
   z.string(),
   z.object({ value: z.string(), sensitive: z.boolean() }),

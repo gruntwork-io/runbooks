@@ -1,0 +1,70 @@
+# Test configuration for azure-auth.
+#
+# The test runner never calls Azure: these tests check that AzureAuth is wired
+# to the steps that reference it with azureAuthId.
+#
+# To check a real sign-in locally, sign in with `az login` and run:
+#
+#   just build && resources/bin/runbooks-test test testdata/feature-demos/azure-auth -v
+#
+# with the `local-cli-sign-in` test below uncommented.
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  - name: skip-without-credentials
+    description: With no service principal and no Azure CLI sign-in, azure-auth
+      skips and the azureAuthId steps skip too.
+    env:
+      ARM_CLIENT_ID: ""
+      ARM_TENANT_ID: ""
+      ARM_CLIENT_SECRET: ""
+      ARM_CLIENT_CERTIFICATE_PATH: ""
+      AZURE_CLIENT_ID: ""
+      AZURE_TENANT_ID: ""
+      AZURE_CLIENT_SECRET: ""
+      AZURE_CLIENT_CERTIFICATE_PATH: ""
+      RUNBOOKS_TEST_ARM_CLIENT_ID: ""
+      RUNBOOKS_TEST_AZURE_CLIENT_ID: ""
+      # Set but empty: no Azure CLI sign-in, even on a machine that has one.
+      AZURE_CONFIG_DIR: ""
+    steps:
+      - block: azure-auth
+        expect: skip
+      - block: show-account
+        expect: skip
+      - block: check-azure-env
+        expect: skip
+
+  - name: service-principal-wiring
+    description: A service principal under the RUNBOOKS_TEST_ prefix reaches
+      the azureAuthId Check under the names azurerm and the Azure SDKs read.
+    env:
+      ARM_CLIENT_ID: ""
+      AZURE_CLIENT_ID: ""
+      AZURE_CONFIG_DIR: ""
+      RUNBOOKS_TEST_ARM_CLIENT_ID: 00000000-0000-0000-0000-000000000001
+      RUNBOOKS_TEST_ARM_TENANT_ID: 00000000-0000-0000-0000-000000000002
+      RUNBOOKS_TEST_ARM_CLIENT_SECRET: not-a-real-secret
+      RUNBOOKS_TEST_ARM_SUBSCRIPTION_ID: 00000000-0000-0000-0000-000000000003
+    steps:
+      - block: azure-auth
+        env_prefix: RUNBOOKS_TEST_
+        expect: success
+      - block: check-azure-env
+        expect: success
+
+  # Needs a real `az login`; not run in CI.
+  # - name: local-cli-sign-in
+  #   steps:
+  #     - block: azure-auth
+  #       expect: success
+  #     - block: show-account
+  #       expect: success
+  #     - block: check-azure-env
+  #       expect: success

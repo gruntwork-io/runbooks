@@ -59,7 +59,8 @@ export function openSessionStorage(userDataDir: string): SessionStorage {
       dirsRoot,
       cipher: safeStorageCipher(),
       moveToTrash: trash(),
-      ephemeralFileEnvVars: GOOGLE_CREDENTIAL_FILE_ENV_VARS,
+      // An Azure config dir is removed at quit like a Google credential file.
+      ephemeralFileEnvVars: [...GOOGLE_CREDENTIAL_FILE_ENV_VARS, "AZURE_CONFIG_DIR"],
       random: () => Math.random(),
       onSaveError: (err) => {
         log.error("Failed to save the session:", err)

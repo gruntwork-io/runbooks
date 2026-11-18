@@ -18,6 +18,7 @@ export const BLOCK_TYPES = [
   "TemplateInline",
   "AwsAuth",
   "GoogleAuth",
+  "AzureAuth",
   "GitAuth",
   "GitHubAuth",
   "GitLabAuth",
@@ -35,6 +36,7 @@ export const BLOCK_TYPES = [
 export const AUTH_BLOCK_TYPES = [
   "AwsAuth",
   "GoogleAuth",
+  "AzureAuth",
   "GitAuth",
   "GitHubAuth",
   "GitLabAuth",

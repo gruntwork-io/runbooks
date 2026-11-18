@@ -21,6 +21,7 @@ const STEP_BLOCKS = [
   "Prerequisites",
   "AwsAuth",
   "GoogleAuth",
+  "AzureAuth",
   "GitAuth",
   "GitHubAuth",
   "GitLabAuth",

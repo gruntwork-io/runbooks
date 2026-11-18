@@ -1,0 +1,122 @@
+# Azure Authentication Demo
+
+This runbook demonstrates the `<AzureAuth>` block. It signs in with the Azure CLI (`az login`), a device code, or a service principal, and keeps each block's sign-in in its own `AZURE_CONFIG_DIR`, so the blocks here don't collide with each other or change your own `~/.azure`.
+
+---
+
+## 1. Basic usage
+
+With no `detectCredentials` prop, the block looks for a service principal in `ARM_*` / `AZURE_*` environment variables, then for your existing `az login`, and asks you to confirm before using it. After signing in it asks you to pick a tenant and subscription, unless there's only one of each.
+
+```mdx
+<AzureAuth id="azure-auth" title="Sign in to Azure" />
+```
+
+<AzureAuth
+  id="azure-auth"
+  title="Sign in to Azure"
+  description="Sign in with the method you prefer. The sign-in is used by the steps below."
+/>
+
+<Command
+  id="show-account"
+  path="scripts/show-account.sh"
+  title="Show the signed-in account"
+  description="Runs `az account show` with this block's sign-in, and prints the variables AzureAuth set."
+  azureAuthId="azure-auth"
+  successMessage="Signed in to Azure."
+/>
+
+<Check
+  id="check-azure-env"
+  path="checks/verify-azure-env.sh"
+  title="Check the Azure environment variables"
+  description="Checks the variables `azurerm` and the Azure SDKs read are consistent. Doesn't call Azure."
+  azureAuthId="azure-auth"
+  successMessage="The Azure variables are consistent."
+  failMessage="The Azure variables are missing or inconsistent."
+/>
+
+---
+
+## 2. Pinning a tenant and subscription
+
+`tenantId` and `subscriptionId` skip the picker. A tenant ID also sends interactive sign-in straight to that tenant, which is how a guest signs in to another organization's tenant. Both take template expressions.
+
+<Inputs id="azure-target">
+```yaml
+variables:
+  - name: TenantId
+    type: string
+    description: The tenant to sign in to (ID or domain)
+    default: ""
+```
+</Inputs>
+
+```mdx
+<AzureAuth
+  id="azure-pinned"
+  tenantId="{{ .inputs.TenantId }}"
+  inputsId="azure-target"
+  defaultTab="device_code"
+/>
+```
+
+<AzureAuth
+  id="azure-pinned"
+  title="Sign in to a specific tenant"
+  tenantId="{{ .inputs.TenantId }}"
+  inputsId="azure-target"
+  defaultTab="device_code"
+  detectCredentials={false}
+/>
+
+<Command
+  id="show-pinned-account"
+  path="scripts/show-account.sh"
+  title="Show the pinned sign-in"
+  azureAuthId="azure-pinned"
+/>
+
+---
+
+## 3. Requiring roles
+
+`requiredRoles` checks the principal's role assignments after sign-in, and fails the sign-in with the roles that are missing. A landing-zone bootstrap, for example, needs User Access Administrator at the root scope.
+
+```mdx
+<AzureAuth
+  id="azure-admin"
+  requiredRoles={[
+    { role: "User Access Administrator", scope: "/" },
+    { role: "Owner", scope: "subscription" },
+  ]}
+/>
+```
+
+<AzureAuth
+  id="azure-admin"
+  title="Sign in as a landing-zone administrator"
+  detectCredentials={['cli']}
+  requiredRoles={[
+    { role: "User Access Administrator", scope: "/" },
+    { role: "Owner", scope: "subscription" },
+  ]}
+/>
+
+---
+
+## 4. Service principal from the environment
+
+Detection with a prefix reads `CI_ARM_CLIENT_ID`, `CI_ARM_TENANT_ID` and `CI_ARM_CLIENT_SECRET` (or the `AZURE_*` names).
+
+```mdx
+<AzureAuth id="azure-ci" detectCredentials={[{ env: { prefix: 'CI_' } }]} defaultTab="service_principal" />
+```
+
+<AzureAuth
+  id="azure-ci"
+  title="Sign in as a CI service principal"
+  detectCredentials={[{ env: { prefix: 'CI_' } }]}
+  defaultTab="service_principal"
+/>

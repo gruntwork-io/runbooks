@@ -50,7 +50,9 @@ import {
   GIT_AUTH_ENV_VARS,
   GITHUB_AUTH_ENV_VARS,
   GOOGLE_AUTH_ENV_VARS,
+  AZURE_AUTH_ENV_VARS,
 } from "../../../../../../src/domain/exec/authEnv.ts"
+import { AZURE_CREDENTIAL_ENV_VARS } from "../../../../../../src/domain/azure/env.ts"
 import {
   parseBlockEnv,
   sameBlockEnv,
@@ -71,6 +73,8 @@ interface UseScriptExecutionProps {
   gitAuthId?: string | undefined
   /** Reference to a GoogleAuth block by ID for Google Cloud credentials. The block's credential path and project/region/zone vars are passed as environment variables for this execution only. */
   googleAuthId?: string | undefined
+  /** Reference to an AzureAuth block by ID. The block's AZURE_CONFIG_DIR, tenant, subscription and service principal vars are passed as environment variables for this execution only. */
+  azureAuthId?: string | undefined
   children?: ReactNode
   componentType: ComponentType
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY. */
@@ -168,6 +172,25 @@ export function buildGoogleAuthEnvVars(
 }
 
 /**
+ * An AzureAuth block's env vars for one run. Like Google's credential-file
+ * override, the credential-bearing vars are re-emitted blank when the block
+ * has none, so a client secret or subscription ANOTHER AzureAuth block left in
+ * the session env can't win over this block's sign-in (OpenTofu's azurerm
+ * prefers a client secret to the Azure CLI).
+ */
+export function buildAzureAuthEnvVars(
+  blockId: string | undefined,
+  allOutputs: Record<string, { values: OutputValues }>,
+): Record<string, string> | undefined {
+  if (!blockId) return undefined
+  const blockOutputs = allOutputs[normalizeBlockId(blockId)]
+  if (!blockOutputs?.values) return undefined
+  const envVars = buildAuthEnvVars(blockId, allOutputs, AZURE_AUTH_ENV_VARS) ?? {}
+  for (const name of AZURE_CREDENTIAL_ENV_VARS) envVars[name] ??= ""
+  return envVars
+}
+
+/**
  * The details under a script view render error when the script uses a
  * sensitive output: that render shows it as <redacted>, which a template that
  * processes the value can't handle, while the run renders the real value.
@@ -241,6 +264,10 @@ interface UseScriptExecutionReturn {
   unmetGoogleAuthDependency: UnmetAuthDependency | null
   hasGoogleAuthDependency: boolean
 
+  // Azure Auth dependency
+  unmetAzureAuthDependency: UnmetAuthDependency | null
+  hasAzureAuthDependency: boolean
+
   // Rendering
   isRendering: boolean
   renderError: AppError | null
@@ -285,6 +312,7 @@ export function useScriptExecution({
   githubAuthId,
   gitAuthId,
   googleAuthId,
+  azureAuthId,
   children,
   componentType,
   usePty,
@@ -615,6 +643,19 @@ export function useScriptExecution({
   )
   const hasGoogleAuthDependency = unmetGoogleAuthDependency === null
 
+  // Get Azure credentials from outputs if azureAuthId is specified. The
+  // credential-bearing vars are always emitted (blank when unset), so only the
+  // __AUTHENTICATED marker can satisfy the dependency, as for Google.
+  const azureAuthEnvVars = useMemo(
+    () => buildAzureAuthEnvVars(azureAuthId, allOutputs),
+    [azureAuthId, allOutputs],
+  )
+  const unmetAzureAuthDependency = useMemo(
+    () => checkAuthDependency(azureAuthId, azureAuthEnvVars, allOutputs, true),
+    [azureAuthId, azureAuthEnvVars, allOutputs],
+  )
+  const hasAzureAuthDependency = unmetAzureAuthDependency === null
+
   // Whether the script view's render shows a sensitive output as <redacted>
   // (see the render effect below)
   const displayMasksSensitiveOutput = useMemo(
@@ -932,12 +973,13 @@ export function useScriptExecution({
       outputs: revealTemplateOutputs(applyOverrides(ctx.outputs, outputOverrides)),
     }
 
-    // Merge AWS, GitHub, generic Git, and Google Cloud auth env vars
+    // Merge AWS, GitHub, generic Git, Google Cloud and Azure auth env vars
     const authEnvVars = {
       ...awsAuthEnvVars,
       ...githubAuthEnvVars,
       ...gitAuthEnvVars,
       ...googleAuthEnvVars,
+      ...azureAuthEnvVars,
     }
     const mergedAuthEnvVars = Object.keys(authEnvVars).length > 0 ? authEnvVars : undefined
 
@@ -970,6 +1012,7 @@ export function useScriptExecution({
     githubAuthEnvVars,
     gitAuthEnvVars,
     googleAuthEnvVars,
+    azureAuthEnvVars,
     usePty,
     timeoutMs,
   ])
@@ -1030,6 +1073,8 @@ export function useScriptExecution({
     // Google Cloud Auth dependency
     unmetGoogleAuthDependency,
     hasGoogleAuthDependency,
+    unmetAzureAuthDependency,
+    hasAzureAuthDependency,
 
     // Rendering
     isRendering,

@@ -1,0 +1,221 @@
+---
+title: <AzureAuth>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<AzureAuth>` block signs in to Azure with the Azure CLI, a device code, or a service principal. Once signed in, the sign-in is available to later [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks, which can run `az`, OpenTofu's `azurerm` and `azuread` providers, and Terragrunt against it.
+
+By default, AzureAuth looks for a service principal in environment variables, then for an existing `az login`. If it finds one, it asks the user to confirm before using it. See [Credential detection](#credential-detection).
+
+## Basic usage
+
+```mdx
+<AzureAuth
+  id="azure-auth"
+  title="Sign in to Azure"
+  description="Sign in to the tenant you're setting up"
+/>
+```
+
+## Sign-in methods
+
+The block has three tabs:
+
+| Tab | Description |
+|-----|-------------|
+| **Azure CLI** | Runs `az login`, which opens a browser. Use an existing `az login` through [credential detection](#credential-detection) |
+| **Device Code** | Runs `az login --use-device-code`: the block shows a code to enter at `https://microsoft.com/devicelogin` from any device. For headless or remote machines |
+| **Service Principal** | A client ID and tenant ID, with a client secret or a certificate (a PEM file with the key and certificate) |
+
+The Azure CLI and Device Code tabs take an optional **Tenant ID**. Enter one to sign in to that tenant directly, for example a tenant where you're a guest. A `tenantId` prop fills it in and locks it.
+
+Azure CLI is the tab users land on. Set `defaultTab` to open on a different one:
+
+```mdx
+<AzureAuth id="azure-auth" defaultTab="device_code" />
+```
+
+<Aside type="note">
+AzureAuth signs in with the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), so `az` must be installed and on your `PATH`. If it isn't, the block says so and links to the install page.
+</Aside>
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `id` | `string` | required | Unique identifier for this component |
+| `title` | `string` | `"Azure Authentication"` | Display title shown in the UI (supports template expressions) |
+| `description` | `string` | - | Description of the sign-in's purpose (supports template expressions) |
+| `autoCollapse` | `boolean` | `false` | Folds the block down to its title once it's signed in. See [Folding done blocks](/authoring/blocks/#folding-done-blocks) |
+| `tenantId` | `string` | - | Pin a tenant, by ID or domain. Interactive sign-in goes straight to it, and the tenant picker is skipped (supports template expressions) |
+| `subscriptionId` | `string` | - | Pin a subscription, by ID or name. The subscription picker is skipped (supports template expressions) |
+| `requiredRoles` | `{ role: string, scope?: string }[]` | - | Roles the signed-in principal must hold. See [Required roles](#required-roles) |
+| `defaultTab` | `'cli'`, `'device_code'`, or `'service_principal'` | `'cli'` | Which tab the block opens on. An unrecognized value falls back to `'cli'` |
+| `detectCredentials` | `false \| AzureCredentialSource[]` | `['env', 'cli']` | Whether and how to detect an existing sign-in. See [Credential detection](#credential-detection) |
+| `inputsId` | `string \| string[]` | - | Reference one or more [Inputs](/authoring/blocks/inputs/) blocks for template expressions in props |
+
+<Aside type="caution">
+`detectCredentials` and `requiredRoles` take JSX expressions: write `detectCredentials={['cli']}`, not `detectCredentials="cli"`.
+</Aside>
+
+## Environment variables
+
+When the sign-in succeeds, these variables are set in the session environment for later Command and Check blocks, and published as the block's outputs:
+
+| Variable | Value |
+|----------|-------|
+| `AZURE_CONFIG_DIR` | The block's own Azure CLI config directory, holding its sign-in. A bare `az` uses it |
+| `AZURE_EXTENSION_DIR` | Where `az` finds extensions: your own extensions when the block copied your `az login`, else the block's directory |
+| `AZURE_TENANT_ID`, `ARM_TENANT_ID` | The tenant |
+| `AZURE_SUBSCRIPTION_ID`, `ARM_SUBSCRIPTION_ID` | The subscription. Not set for a tenant-level sign-in |
+| `ARM_USE_CLI` | `true` for an Azure CLI or device code sign-in: `azurerm` and `azuread` use the Azure CLI's sign-in |
+| `ARM_CLIENT_ID`, `AZURE_CLIENT_ID` | Service principal only. The client (app) ID |
+| `ARM_CLIENT_SECRET`, `AZURE_CLIENT_SECRET` | Service principal with a secret only |
+| `AZURE_CLIENT_CERTIFICATE_PATH` | Service principal with a certificate only. `ARM_CLIENT_CERTIFICATE_PATH` is also set when the file is a `.pfx` or `.p12`, which is the only format `azurerm` reads. For a PEM file, `ARM_USE_CLI` is set instead |
+| `AZURE_AUTH_TYPE` | `cli`, `device_code` or `service_principal` |
+| `AZURE_PRINCIPAL_NAME` | The user's sign-in name (UPN), or the service principal's client ID |
+| `AZURE_PRINCIPAL_OBJECT_ID` | The principal's object ID in the tenant |
+| `AZURE_PRINCIPAL_TYPE` | `user`, `guest` or `servicePrincipal` |
+
+A variable the sign-in has no value for is removed from the session, so a client secret from an earlier AzureAuth block doesn't linger.
+
+## Block outputs
+
+The block's outputs are the variables above, plus:
+
+| Output | Value |
+|--------|-------|
+| `AZURE_TENANT_NAME` | The tenant's display name, when Azure returns one |
+| `AZURE_SUBSCRIPTION_NAME` | The subscription's name |
+| `__AUTHENTICATED` | `"true"` once signed in, `"false"` after **Re-authenticate** |
+
+The client secret outputs are [sensitive](/authoring/inputs-and-outputs/#sensitive-outputs): a template that shows them shows `<redacted>`.
+
+```mdx
+<Command
+  id="show-principal"
+  command={`echo "Signed in as {{ .outputs.azure_auth.AZURE_PRINCIPAL_NAME }} ({{ .outputs.azure_auth.AZURE_PRINCIPAL_TYPE }})"`}
+/>
+```
+
+## Using with Commands and Checks
+
+Without any extra props, later blocks run with whichever AzureAuth block signed in last, through the session environment.
+
+To bind a block to one specific AzureAuth block, use the `azureAuthId` prop. The referenced block's variables are passed to that execution only, and the **Run** button stays disabled until the block has signed in:
+
+```mdx
+<AzureAuth id="azure-auth" />
+
+<Command
+  id="list-groups"
+  azureAuthId="azure-auth"
+  command="az group list -o table"
+/>
+
+<Check
+  id="check-tofu"
+  azureAuthId="azure-auth"
+  command="cd infra && tofu plan -input=false"
+/>
+```
+
+An `azureAuthId` step also gets the client ID, secret and certificate variables blank when the block has none. That stops a service principal from another block in the session taking precedence: `azurerm` prefers a client secret to the Azure CLI.
+
+## Several tenants or subscriptions
+
+Each AzureAuth block keeps its own sign-in in its own `AZURE_CONFIG_DIR`, so blocks for different tenants or subscriptions don't collide, and none of them changes your own `~/.azure`:
+
+```mdx
+<AzureAuth id="management" tenantId="contoso.onmicrosoft.com" subscriptionId="Management" />
+<AzureAuth id="workload" tenantId="fabrikam.onmicrosoft.com" />
+
+<Command id="mgmt" azureAuthId="management" command="az account show" />
+<Command id="wl" azureAuthId="workload" command="az account show" />
+```
+
+With several AzureAuth blocks, use `azureAuthId` on every command: the session environment holds only the most recent sign-in.
+
+## Tenant and subscription picker
+
+After signing in, the block lists every tenant the account can see, including tenants where it's a guest, and the subscriptions in each. The block skips the picker when:
+
+- `subscriptionId` is set: its tenant is used;
+- `tenantId` is set, and the tenant has at most one subscription;
+- the account sees one tenant with at most one subscription.
+
+A tenant can be used without a subscription, for tenant-level work such as bootstrapping a landing zone. Choose **No subscription (tenant-level)**: the subscription variables are left unset.
+
+### Guest accounts
+
+A guest is a user signed in to a tenant that isn't their home tenant (Microsoft Entra B2B). AzureAuth reads the principal from a token for the chosen tenant, so it reports a guest as `AZURE_PRINCIPAL_TYPE=guest`, with the guest's object ID in that tenant, and shows the home tenant on the success card.
+
+A guest tenant often requires its own multi-factor authentication, so `az login` can't always get a token for it without asking. If a tenant is missing from the picker, or choosing it fails with *Couldn't get a token for tenant ... without signing in again*, sign in with that tenant ID: set the `tenantId` prop, or enter it in the **Tenant ID** field.
+
+## Required roles
+
+`requiredRoles` checks that the principal holds roles before the block counts as signed in. Each entry names a role and a scope: an ARM scope such as `/` or `/providers/Microsoft.Management/managementGroups/root`, or `subscription` (the default) for the chosen subscription. An assignment at a parent scope, or to one of the principal's groups, counts.
+
+```mdx
+<AzureAuth
+  id="lz-admin"
+  tenantId="{{ .inputs.TenantId }}"
+  inputsId="tenant"
+  requiredRoles={[
+    { role: "User Access Administrator", scope: "/" },
+    { role: "Owner", scope: "subscription" },
+  ]}
+/>
+```
+
+A missing role fails the sign-in with the roles and scopes that are missing. Steps that reference the block stay disabled. For User Access Administrator at `/`, the error explains how a Global Administrator turns on access management for Azure resources.
+
+<Aside type="note">
+Groups are read through Microsoft Graph, which a guest often can't query. Then only the principal's own assignments are checked.
+</Aside>
+
+## Credential detection
+
+`detectCredentials` lists where to look for an existing sign-in, in order. The first one found is offered to the user, who confirms or chooses to sign in another way.
+
+| Source | Looks for |
+|--------|-----------|
+| `'env'` | A service principal in `ARM_CLIENT_ID`, `ARM_TENANT_ID` and `ARM_CLIENT_SECRET` or `ARM_CLIENT_CERTIFICATE_PATH`; then the same `AZURE_*` names. `ARM_SUBSCRIPTION_ID` (or `AZURE_SUBSCRIPTION_ID`) pins the subscription unless the block pins one |
+| `{ env: { prefix: 'CI_' } }` | The same names with a prefix: `CI_ARM_CLIENT_ID`, ... |
+| `'cli'` | Your own `az login` (in `AZURE_CONFIG_DIR`, or `~/.azure`). The block signs in with a copy of it, so your own `az` session doesn't change |
+
+```mdx
+{/* Same as detectCredentials={['env', 'cli']} */}
+<AzureAuth id="azure-auth" />
+
+{/* Only offer an existing az login */}
+<AzureAuth id="azure-auth" detectCredentials={['cli']} />
+
+{/* Never detect */}
+<AzureAuth id="azure-auth" detectCredentials={false} />
+```
+
+## Testing
+
+In `runbooks test`, an AzureAuth block takes a service principal from the environment (with the step's `env_prefix`, then without), else an existing Azure CLI sign-in. See [Testing AzureAuth blocks](/authoring/testing/#testing-azureauth-blocks).
+
+## Instruction mode
+
+In [instruction mode](/intro/instruction-mode/), AzureAuth shows a "Sign in to Azure" instruction with the pinned tenant, subscription and required roles. Nothing signs in.
+
+## Security
+
+- Each sign-in lives in a private (`0700`) temporary directory that's deleted when the block signs in again and when the app quits. A session resumed after a restart asks the user to sign in again.
+- A client secret is passed to `az login` on its command line, the only way `az` takes one without a prompt. Other users of the machine may see the process's arguments while it runs. Prefer a certificate on shared machines.
+- Runbooks never sends a client secret to the renderer except as the block's sensitive output.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| *The Azure CLI (az) isn't installed* | Install the Azure CLI, then click **Check again** |
+| A tenant is missing from the picker | You may need to sign in to it directly: enter its tenant ID and sign in again. See [Guest accounts](#guest-accounts) |
+| *Subscription ... isn't one this account can use* | The `subscriptionId` prop names a subscription the account can't see (in the pinned tenant, when one is set) |
+| *... is missing the required role* | Ask an administrator for the role, then sign in again |
+| A Command's **Run** button stays disabled | Its `azureAuthId` names an AzureAuth block that hasn't signed in, or an ID that doesn't exist |

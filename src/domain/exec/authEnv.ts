@@ -1,6 +1,6 @@
 /**
  * The env vars an auth block gives a script for one run. A Command or Check
- * that names a block with awsAuthId, githubAuthId, gitAuthId or googleAuthId
+ * that names a block with awsAuthId, azureAuthId, githubAuthId, gitAuthId or googleAuthId
  * gets these from the block's outputs, and a run's `envVarsOverride` carries
  * nothing else. The renderer builds the overrides from these lists, and the
  * main process refuses any other name, so no caller can set PATH, BASH_ENV,
@@ -44,8 +44,36 @@ export const GOOGLE_AUTH_ENV_VARS = [
   "GOOGLE_ZONE",
 ] as const
 
+/**
+ * What an azureAuthId reference passes, and all an <AzureAuth> block writes to
+ * the session env. `AZURE_CONFIG_DIR` is the credential: the block's own Azure
+ * CLI sign-in, which `az` and OpenTofu's `azurerm`/`azuread` (with
+ * `ARM_USE_CLI`) read. A service principal also passes its client ID and
+ * secret or certificate under the names `azurerm` and the Azure SDKs read.
+ */
+export const AZURE_AUTH_ENV_VARS = [
+  "AZURE_CONFIG_DIR",
+  "AZURE_EXTENSION_DIR",
+  "AZURE_TENANT_ID",
+  "AZURE_SUBSCRIPTION_ID",
+  "ARM_TENANT_ID",
+  "ARM_SUBSCRIPTION_ID",
+  "ARM_USE_CLI",
+  "ARM_CLIENT_ID",
+  "ARM_CLIENT_SECRET",
+  "ARM_CLIENT_CERTIFICATE_PATH",
+  "AZURE_CLIENT_ID",
+  "AZURE_CLIENT_SECRET",
+  "AZURE_CLIENT_CERTIFICATE_PATH",
+  "AZURE_AUTH_TYPE",
+  "AZURE_PRINCIPAL_NAME",
+  "AZURE_PRINCIPAL_OBJECT_ID",
+  "AZURE_PRINCIPAL_TYPE",
+] as const
+
 const AUTH_ENV_VARS: readonly string[] = [
   ...AWS_AUTH_ENV_VARS,
+  ...AZURE_AUTH_ENV_VARS,
   ...GIT_AUTH_ENV_VARS,
   ...GOOGLE_AUTH_ENV_VARS,
 ]
