@@ -149,9 +149,11 @@ describe("spawned programs, through the bundle", () => {
 
   it.skipIf(!has("git"))("git over HTTPS (GIT_SSL_CAINFO)", async () => {
     const args = ["ls-remote", `${baseUrl}/repo.git`]
-    // OpenSSL's wording, then GnuTLS's (Debian and Ubuntu build git with it).
+    // OpenSSL's wording, then GnuTLS's (Debian and Ubuntu build git with it):
+    // "server certificate verification failed" from older git, "SSL
+    // certificate verification failed: certificate signer not trusted" from newer.
     const certProblem =
-      /SSL certificate problem|certificate verify failed|unable to get local issuer|server certificate verification failed/i
+      /SSL certificate problem|certificate verify failed|unable to get local issuer|certificate verification failed/i
     expect((await run("git", args, false)).output).toMatch(certProblem)
     // Past TLS: the stub has no repo, so git reports that instead.
     const trusted = await run("git", args, true)
