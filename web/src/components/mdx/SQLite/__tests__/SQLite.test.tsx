@@ -6,6 +6,7 @@ import { RunbookContext } from "@/contexts/RunbookContext"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import SQLite from "../SQLite"
 import type { SqlQueryResult } from "../types"
+import { sensitiveOutput } from "@/lib/outputValues"
 
 // ---------------------------------------------------------------------------
 // Mock the IPC boundary — the api.invoke("sqlite:query") call. The real
@@ -59,6 +60,16 @@ const writeResult: SqlQueryResult = {
 // declared at module level so the Provider value is a stable reference.
 const templateCtxValue = {
   getTemplateContext: () => ({ inputs: { Name: "Alice" }, outputs: {} }),
+  registerOutputs: vi.fn(),
+} as unknown as RunbookContextType
+
+// A context whose outputs include a sensitive one, to check that execution
+// gets the real value while the display stays masked.
+const templateCtxWithSecret = {
+  getTemplateContext: () => ({
+    inputs: {},
+    outputs: { auth: { token: sensitiveOutput("s3cret") } },
+  }),
   registerOutputs: vi.fn(),
 } as unknown as RunbookContextType
 
@@ -119,6 +130,37 @@ describe("SQLite block", () => {
       expect(invoke).toHaveBeenCalledWith(
         "sqlite:query",
         expect.objectContaining({ params: ["Alice"] }),
+      )
+    })
+  })
+
+  it("sends sensitive outputs revealed over IPC but shows them masked", async () => {
+    invoke.mockResolvedValue(writeResult)
+    const user = userEvent.setup()
+    render(
+      <TestWrapper>
+        <RunbookContext.Provider value={templateCtxWithSecret}>
+          <SQLite
+            id="secret-query"
+            db="./test.db"
+            query="INSERT INTO tokens (value) VALUES (?) -- {{ .outputs.auth.token }}"
+            params={["{{ .outputs.auth.token }}"]}
+          />
+        </RunbookContext.Provider>
+      </TestWrapper>,
+    )
+
+    // Display preview masks the sensitive output
+    expect(screen.getByText(/<redacted>/)).toBeDefined()
+
+    await user.click(screen.getByRole("button", { name: /run/i }))
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "sqlite:query",
+        expect.objectContaining({
+          params: ["s3cret"],
+          sql: "INSERT INTO tokens (value) VALUES (?) -- s3cret",
+        }),
       )
     })
   })

@@ -789,11 +789,13 @@ export class TestExecutor {
 
     // Render template vars in block props. The app resolves props for display
     // and shows a sensitive output in them as <redacted>, so they get the
-    // same here.
+    // same here — except a SQLite block, which executes its props and needs
+    // the real output values.
+    const propOutputValues = block.type === "SQLite" ? revealOutputs : maskOutputs
     try {
       block = {
         ...block,
-        props: renderPropTemplates(block.props, this.buildTemplateVars(block.id, maskOutputs)),
+        props: renderPropTemplates(block.props, this.buildTemplateVars(block.id, propOutputValues)),
       }
     } catch (e: unknown) {
       result.passed = false
@@ -1999,9 +2001,13 @@ export class TestExecutor {
       // directory makes openSqliteDatabase throw, and an expect: fail step
       // should still match it.
       this.passedScripts.delete(normalizeBlockId(block.id))
+      // A failed rerun must not leave the previous run's rows behind: later
+      // blocks would consume stale outputs.
+      this.blockOutputs.delete(block.id)
       const msg = err instanceof Error ? err.message : String(err)
       result.actualStatus = "fail"
       result.passed = this.matchesExpectedStatus(step.expect, "fail")
+      result.error = msg
       if (step.error_contains && !msg.toLowerCase().includes(step.error_contains.toLowerCase())) {
         result.passed = false
         result.error = `Expected error to contain "${step.error_contains}" but got: ${msg}`

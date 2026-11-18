@@ -10,7 +10,7 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTemplateContext, useRunbookContext } from "@/contexts/useRunbook"
 import { useApi } from "@/contexts/ApiContext"
-import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { resolveTemplateReferences, resolveTemplateReferencesRevealed } from "@/lib/templateUtils"
 import { cn } from "@/lib/utils"
 import { createAppError, type AppError } from "@/types/error"
 import type { SQLiteProps, SQLiteStatus, SqlParam, SqlQueryResult } from "./types"
@@ -44,7 +44,8 @@ function SQLite({
   const [result, setResult] = useState<SqlQueryResult | null>(null)
   const [error, setError] = useState<AppError | null>(null)
 
-  // Resolve template references in the SQL props
+  // Resolve template references in the SQL props for display: a sensitive
+  // output shows as <redacted> (resolveTemplateReferences masks it).
   const resolvedDb = useMemo(
     () => (db ? resolveTemplateReferences(db, templateCtx) : db),
     [db, templateCtx],
@@ -57,11 +58,25 @@ function SQLite({
     () => (path ? resolveTemplateReferences(path, templateCtx) : path),
     [path, templateCtx],
   )
-  // Each scalar param may itself be a template ({{ .inputs.Name }})
-  const resolvedParams = useMemo(
+  // The props resolved with real values for execution: the query runs with
+  // sensitive outputs, so they must not be masked here. Each scalar param may
+  // itself be a template ({{ .inputs.Name }}).
+  const execDb = useMemo(
+    () => (db ? resolveTemplateReferencesRevealed(db, templateCtx) : db),
+    [db, templateCtx],
+  )
+  const execQuery = useMemo(
+    () => (query ? resolveTemplateReferencesRevealed(query, templateCtx) : query),
+    [query, templateCtx],
+  )
+  const execPath = useMemo(
+    () => (path ? resolveTemplateReferencesRevealed(path, templateCtx) : path),
+    [path, templateCtx],
+  )
+  const execParams = useMemo(
     () =>
       params?.map((p) =>
-        typeof p === "string" ? (resolveTemplateReferences(p, templateCtx) as SqlParam) : p,
+        typeof p === "string" ? (resolveTemplateReferencesRevealed(p, templateCtx) as SqlParam) : p,
       ),
     [params, templateCtx],
   )
@@ -139,25 +154,25 @@ function SQLite({
       return end === -1 ? v : v.slice(start, end + 1)
     }
     return (
-      check(resolvedDb) ??
-      check(resolvedQuery) ??
-      check(resolvedPath) ??
-      (resolvedParams ?? []).map((p) => (typeof p === "string" ? check(p) : null)).find(Boolean) ??
+      check(execDb) ??
+      check(execQuery) ??
+      check(execPath) ??
+      (execParams ?? []).map((p) => (typeof p === "string" ? check(p) : null)).find(Boolean) ??
       null
     )
-  }, [resolvedDb, resolvedQuery, resolvedPath, resolvedParams])
+  }, [execDb, execQuery, execPath, execParams])
 
   const runQuery = useCallback(async () => {
-    if (!resolvedDb || (!resolvedQuery && !resolvedPath) || isDuplicate || unresolvedRef) return
+    if (!execDb || (!execQuery && !execPath) || isDuplicate || unresolvedRef) return
     setStatus("running")
     setError(null)
     setResult(null)
     try {
       const res = await api.invoke("sqlite:query", {
-        dbPath: resolvedDb,
-        ...(resolvedQuery ? { sql: resolvedQuery } : {}),
-        ...(resolvedPath ? { sqlPath: resolvedPath } : {}),
-        params: resolvedParams ?? [],
+        dbPath: execDb,
+        ...(execQuery ? { sql: execQuery } : {}),
+        ...(execPath ? { sqlPath: execPath } : {}),
+        params: execParams ?? [],
       })
       setResult(res)
       setStatus("success")
@@ -171,10 +186,10 @@ function SQLite({
     }
   }, [
     api,
-    resolvedDb,
-    resolvedQuery,
-    resolvedPath,
-    resolvedParams,
+    execDb,
+    execQuery,
+    execPath,
+    execParams,
     unresolvedRef,
     output,
     id,

@@ -593,7 +593,7 @@ function validateComponent(comp: ParsedComponent): ConfigError[] {
       if (!comp.hasExplicitId) {
         errors.push({
           componentType: "SQLite",
-          componentId: "(missing)",
+          componentId: comp.id,
           message: "The 'id' prop is required",
         })
       }
