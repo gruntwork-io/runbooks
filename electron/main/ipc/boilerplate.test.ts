@@ -40,6 +40,8 @@ interface Spy {
   warm: WarmRenderResult
   commits: Array<Record<string, unknown>>
   coldRenders: number
+  /** What the cold subprocess writes, by path relative to its output dir. */
+  coldFiles: Record<string, string>
 }
 
 const warmResult = (overrides: Partial<WarmRenderResult>): WarmRenderResult => ({
@@ -80,7 +82,14 @@ const testLayer = (spy: Spy) =>
     Layer.succeed(BoilerplateRenderer, {
       renderFile: () => Effect.die("renderFile not used"),
       renderFileStrict: () => Effect.die("renderFileStrict not used"),
-      renderTemplate: () => Effect.sync(() => void spy.coldRenders++),
+      renderTemplate: (_templatePath, outDir) =>
+        Effect.sync(() => {
+          spy.coldRenders++
+          for (const [relPath, content] of Object.entries(spy.coldFiles)) {
+            fs.mkdirSync(path.dirname(path.join(outDir, relPath)), { recursive: true })
+            fs.writeFileSync(path.join(outDir, relPath), content)
+          }
+        }),
     }),
     // Only reached for template-valued inputs, which these tests don't send.
     Layer.succeed(WasmRuntime, wasmRuntime()),
@@ -110,7 +119,7 @@ describe("boilerplate:render", () => {
     setRunbookConfig({ ...originalRunbookConfig, localPath: runbookPath, isWatchMode: false })
     await runtime.runPromise(sessionManager.createSession(tmp, runbookPath))
 
-    spy = { warm: warmResult({}), commits: [], coldRenders: 0 }
+    spy = { warm: warmResult({}), commits: [], coldRenders: 0, coldFiles: {} }
     // The app runtime requires every service; these handlers use only what
     // testLayer provides, which the type of runFork can't express.
     spyOn(runtime, "runFork").mockImplementation(((
@@ -189,6 +198,127 @@ describe("boilerplate:render", () => {
     expect(fs.existsSync(path.join(generatedDir, "ok.tf"))).toBe(false)
     // The subprocess would hit the same template error, so it isn't run.
     expect(spy.coldRenders).toBe(0)
+  })
+
+  // A template like the Azure landing zone's: `identity/` is written only for
+  // the "caf" layout, through `skip_files: [{ path: identity, if: '{{ ne
+  // .Layout "caf" }}' }]`. `other.tf` doesn't depend on the layout.
+  const CAF_PATHS = ["common.hcl", "identity/main.tf", "identity/nested/vars.tf", "other.tf"]
+  const readGenerated = (relPath: string) =>
+    fs.existsSync(path.join(generatedDir, relPath))
+      ? fs.readFileSync(path.join(generatedDir, relPath), "utf8")
+      : undefined
+
+  describe("when a re-render stops producing files the last one wrote", () => {
+    const renderCaf = async () => {
+      spy.warm = warmResult({
+        files: CAF_PATHS.map((p) => ({ path: p, content: `${p} caf` })),
+        allKnownPaths: CAF_PATHS,
+        attemptedPaths: CAF_PATHS,
+      })
+      await render()
+      // A file the template never wrote, next to its output.
+      fs.writeFileSync(path.join(generatedDir, "notes.md"), "mine")
+      fs.writeFileSync(path.join(generatedDir, "identity", "mine.txt"), "mine")
+    }
+
+    it("deletes the files skip_files now excludes on the warm path", async () => {
+      await renderCaf()
+
+      // Layout changed to "single": the analyzer marks every file that
+      // reads it dirty, and WASM reports identity/ as excluded.
+      spy.warm = warmResult({
+        files: [{ path: "common.hcl", content: "common.hcl single" }],
+        skipped: ["identity/main.tf", "identity/nested/vars.tf"],
+        allKnownPaths: CAF_PATHS,
+        attemptedPaths: ["common.hcl", "identity/main.tf", "identity/nested/vars.tf"],
+      })
+      const result = (await render()) as { deletedFiles: string[]; skippedFiles: string[] }
+
+      expect([...result.deletedFiles].sort()).toEqual([
+        "identity/main.tf",
+        "identity/nested/vars.tf",
+      ])
+      expect(readGenerated("common.hcl")).toBe("common.hcl single")
+      expect(readGenerated("identity/main.tf")).toBeUndefined()
+      expect(fs.existsSync(path.join(generatedDir, "identity", "nested"))).toBe(false)
+      // Not re-rendered, so still produced and kept.
+      expect(readGenerated("other.tf")).toBe("other.tf caf")
+      expect(result.skippedFiles).toEqual(["other.tf"])
+      // Files the template never wrote are left alone, and so is the
+      // directory that still holds one.
+      expect(readGenerated("notes.md")).toBe("mine")
+      expect(readGenerated("identity/mine.txt")).toBe("mine")
+      expect(manifestStore.get(TEMPLATE_ID)?.files.map((f) => f.path)).toEqual([
+        "common.hcl",
+        "other.tf",
+      ])
+
+      // Switching back writes them again.
+      spy.warm = warmResult({
+        files: ["common.hcl", "identity/main.tf", "identity/nested/vars.tf"].map((p) => ({
+          path: p,
+          content: `${p} caf`,
+        })),
+        allKnownPaths: CAF_PATHS,
+        attemptedPaths: ["common.hcl", "identity/main.tf", "identity/nested/vars.tf"],
+      })
+      const back = (await render()) as { createdFiles: string[] }
+
+      expect([...back.createdFiles].sort()).toEqual(["identity/main.tf", "identity/nested/vars.tf"])
+      expect(readGenerated("identity/nested/vars.tf")).toBe("identity/nested/vars.tf caf")
+      expect(manifestStore.get(TEMPLATE_ID)?.files.map((f) => f.path)).toEqual(CAF_PATHS)
+    })
+
+    it("deletes the files the cold render no longer writes", async () => {
+      await renderCaf()
+
+      // Warm is unavailable, so the subprocess renders the whole template,
+      // and with the "single" layout skip_files keeps identity/ out of it.
+      spy.warm = warmResult({ warmDisabled: true, disabledReason: "wasm-not-ready" })
+      spy.coldFiles = { "common.hcl": "common.hcl single", "other.tf": "other.tf caf" }
+      const result = (await render()) as { deletedFiles: string[] }
+
+      expect(spy.coldRenders).toBe(1)
+      expect([...result.deletedFiles].sort()).toEqual([
+        "identity/main.tf",
+        "identity/nested/vars.tf",
+      ])
+      expect(readGenerated("common.hcl")).toBe("common.hcl single")
+      expect(readGenerated("identity/main.tf")).toBeUndefined()
+      expect(fs.existsSync(path.join(generatedDir, "identity", "nested"))).toBe(false)
+      expect(readGenerated("other.tf")).toBe("other.tf caf")
+      expect(readGenerated("notes.md")).toBe("mine")
+      expect(readGenerated("identity/mine.txt")).toBe("mine")
+      expect(manifestStore.get(TEMPLATE_ID)?.files.map((f) => f.path)).toEqual([
+        "common.hcl",
+        "other.tf",
+      ])
+    })
+
+    it("deletes them when part of the render falls back to cold", async () => {
+      await renderCaf()
+
+      // One dirty file needs the subprocess, which renders the whole
+      // template; the warm half reports identity/ excluded.
+      spy.warm = warmResult({
+        coldNeeded: ["common.hcl"],
+        skipped: ["identity/main.tf", "identity/nested/vars.tf"],
+        allKnownPaths: CAF_PATHS,
+        attemptedPaths: ["common.hcl", "identity/main.tf", "identity/nested/vars.tf"],
+      })
+      spy.coldFiles = { "common.hcl": "common.hcl single", "other.tf": "other.tf caf" }
+      const result = (await render()) as { deletedFiles: string[] }
+
+      expect([...result.deletedFiles].sort()).toEqual([
+        "identity/main.tf",
+        "identity/nested/vars.tf",
+      ])
+      expect(readGenerated("common.hcl")).toBe("common.hcl single")
+      expect(fs.existsSync(path.join(generatedDir, "identity", "nested"))).toBe(false)
+      expect(readGenerated("other.tf")).toBe("other.tf caf")
+      expect(readGenerated("identity/mine.txt")).toBe("mine")
+    })
   })
 
   // A variable the template misuses everywhere fails every file; the message
