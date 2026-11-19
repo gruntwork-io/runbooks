@@ -113,10 +113,20 @@ async function commitContext(
   at: Attempt,
   signIn: BlockSignIn,
   choice: { tenantId: string; subscriptionId?: string | undefined },
-  requiredRoles: readonly RequiredRole[] | undefined,
+  pins: {
+    readonly requiredRoles?: readonly RequiredRole[] | undefined
+    readonly principalObjectId?: string | undefined
+  },
 ): Promise<Result> {
   const { ctx } = signIn
+  const { requiredRoles } = pins
   const principal = await runtime.runPromise(principalFor(ctx, choice.tenantId))
+  if (pins.principalObjectId && principal.objectId !== pins.principalObjectId) {
+    return {
+      status: "failed",
+      error: `This sign-in is now ${principal.name}, not the account the block used before`,
+    }
+  }
   if (choice.subscriptionId) await runtime.runPromise(setSubscription(ctx, choice.subscriptionId))
 
   if (requiredRoles && requiredRoles.length > 0) {
@@ -190,7 +200,7 @@ async function finishSignIn(
     tenantId: pinnedTenant,
     subscriptionId: pins.subscriptionId,
   })
-  if (options.chosen) return commitContext(at, signIn, options.chosen, pins.requiredRoles)
+  if (options.chosen) return commitContext(at, signIn, options.chosen, pins)
   const principal = await runtime.runPromise(principalFor(ctx, signedIn?.tenantId))
   return {
     status: "select_context",
@@ -504,7 +514,7 @@ export async function handleSelectContext(params: {
       newAttempt(params.blockId),
       signIn,
       { tenantId: params.tenantId, subscriptionId: params.subscriptionId },
-      params.requiredRoles,
+      { requiredRoles: params.requiredRoles },
     )
   } catch (err) {
     return failed(err)
@@ -518,9 +528,9 @@ export async function handleValidateSession(params: {
   blockId: string
   configDir: string
   tenantId: string
-}): Promise<{ valid: boolean; unreachable?: boolean; error?: string }> {
+}): Promise<{ valid: boolean; unreachable?: boolean; ended?: boolean; error?: string }> {
   if (!adoptConfigDir(params.blockId, params.configDir)) {
-    return { valid: false, error: "the sign-in ended when Runbooks quit" }
+    return { valid: false, ended: true, error: "the sign-in ended when Runbooks quit" }
   }
   try {
     await runtime.runPromise(principalFor({ configDir: params.configDir }, params.tenantId))

@@ -242,6 +242,47 @@ describe("tenant and subscription choice", () => {
   })
 })
 
+describe("resuming a detected sign-in", () => {
+  const envSp = () => {
+    processEnv = {
+      ...processEnv,
+      ARM_CLIENT_ID: "app",
+      ARM_TENANT_ID: GUEST_TENANT,
+      ARM_CLIENT_SECRET: "x",
+    }
+    az.token = { oid: "sp-oid", tid: GUEST_TENANT, appid: "app", idtyp: "app" }
+  }
+
+  it("signs in when the sign-in is still the expected principal", async () => {
+    envSp()
+    const result = authenticated(
+      await handleConfirmDetected({
+        blockId: "sp",
+        source: "env",
+        tenantId: GUEST_TENANT,
+        subscriptionId: "sub-1",
+        principalObjectId: "sp-oid",
+      }),
+    )
+    expect(result.principal.objectId).toBe("sp-oid")
+    expect(sessionEnv().AZURE_CONFIG_DIR).toBe(result.configDir)
+  })
+
+  it("refuses another principal without touching the session, and releases the dir", async () => {
+    envSp()
+    const result = await handleConfirmDetected({
+      blockId: "sp",
+      source: "env",
+      tenantId: GUEST_TENANT,
+      principalObjectId: "someone-else",
+    })
+    expect(result).toMatchObject({ status: "failed" })
+    expect(sessionEnv().AZURE_CONFIG_DIR).toBe("/old")
+    const login = spawner.calls.find((call) => call.args[0] === "login")
+    expect(fs.existsSync(login!.env!.AZURE_CONFIG_DIR!)).toBe(false)
+  })
+})
+
 describe("pins and cancellation", () => {
   it("resolves a tenant pinned by domain to its ID", async () => {
     const started = await handleLoginStart({
@@ -408,11 +449,30 @@ describe("azure:validate-session", () => {
     ).toMatchObject({ valid: false, unreachable: true })
   })
 
-  it("refuses a dir main didn't create", async () => {
+  it("refuses a dir main didn't create, as a sign-in that ended", async () => {
     expect(
       await handleValidateSession({ blockId: "x", configDir: "/home/me/.azure", tenantId: "t" }),
-    ).toMatchObject({ valid: false })
+    ).toMatchObject({ valid: false, ended: true })
     expect(spawner.calls).toHaveLength(0)
+  })
+
+  it("says a refused sign-in in a dir that is there did not end", async () => {
+    const result = authenticated(
+      await handleServicePrincipal({
+        blockId: "v",
+        clientId: "a",
+        tenantId: GUEST_TENANT,
+        clientSecret: "x",
+      }),
+    )
+    spawner = makeRecordingSpawner(() => out("ERROR: AADSTS700082: expired", "stderr", 1))
+    const checked = await handleValidateSession({
+      blockId: "v",
+      configDir: result.configDir,
+      tenantId: GUEST_TENANT,
+    })
+    expect(checked).toMatchObject({ valid: false })
+    expect(checked.ended).toBeUndefined()
   })
 
   it("accepts a block's own dir that still gets a token", async () => {

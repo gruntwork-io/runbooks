@@ -49,6 +49,12 @@ export interface AzureSignInPinsIpc {
   tenantId?: string
   subscriptionId?: string
   requiredRoles?: RequiredRole[]
+  /**
+   * The object ID the sign-in must be, in the tenant it signs in to: a sign-in
+   * as anyone else fails, with nothing written. Set when a block resumes a
+   * detected sign-in after a restart.
+   */
+  principalObjectId?: string
 }
 
 export type AzureSignInResultIpc =
@@ -727,7 +733,11 @@ export interface IpcChannelMap {
   }
   "azure:validate-session": {
     params: { blockId: string; configDir: string; tenantId: string }
-    result: { valid: boolean; unreachable?: boolean; error?: string }
+    /**
+     * `ended`: the block's config dir is gone, as it is after Runbooks quits,
+     * so the sign-in can't be checked, only made again.
+     */
+    result: { valid: boolean; unreachable?: boolean; ended?: boolean; error?: string }
   }
 
   // GitHub Authentication

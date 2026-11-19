@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react"
-import { AlertTriangle, Cloud, Loader2 } from "lucide-react"
+import { AlertTriangle, Cloud, Info, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -169,10 +169,20 @@ function AzureAuthInteractive({
               </div>
             )}
 
-            {auth.detectionStatus === "pending" && status === "pending" && (
+            {auth.detectionStatus === "pending" && (status === "pending" || authenticating) && (
               <div className="mb-4 text-info text-sm flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin" />
                 <span>Checking for an existing Azure sign-in...</span>
+              </div>
+            )}
+
+            {auth.notice && status === "pending" && auth.detectionStatus !== "pending" && (
+              <div
+                className="mb-4 text-muted-foreground text-sm flex items-start gap-2"
+                role="status"
+              >
+                <Info className="size-4 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">{auth.notice}</div>
               </div>
             )}
 

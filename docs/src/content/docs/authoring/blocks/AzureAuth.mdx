@@ -202,7 +202,11 @@ In [instruction mode](/intro/instruction-mode/), AzureAuth shows a "Sign in to A
 
 ## Security
 
-- Each sign-in lives in a private (`0700`) temporary directory that's deleted when the block signs in again and when the app quits. A session resumed after a restart asks the user to sign in again. A restored sign-in is kept when Azure can't be reached to check it.
+- Each sign-in lives in a private (`0700`) temporary directory that's deleted when the block signs in again and when the app quits. A restored sign-in is kept when Azure can't be reached to check it.
+- After a restart, the block's directory is gone, so a resumed session can't reuse its sign-in:
+  - A sign-in the user accepted from [credential detection](#credential-detection) is detected again. When it's the same principal, and it can still use the saved tenant and subscription, the block signs in with it again without asking, and checks `requiredRoles` again. When anything changed, the block offers the detected sign-in as usual.
+  - Otherwise (a browser or device code sign-in, a service principal typed into the block, or nothing detected), the block says Runbooks was restarted and asks the user to sign in again.
+  - Blocks with its `azureAuthId` wait until it's signed in again.
 - A client secret is passed to `az login` on its standard input, never on its command line.
 - Runbooks never sends a client secret to the renderer except as the block's sensitive output.
 
