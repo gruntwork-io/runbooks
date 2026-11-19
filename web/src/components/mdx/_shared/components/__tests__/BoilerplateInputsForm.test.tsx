@@ -1304,6 +1304,51 @@ describe("BoilerplateInputsForm conditional fields", () => {
   }
   const layout = () => screen.getByLabelText("Subscription Layout")
 
+  it("doesn't wait on the options of a hidden field", () => {
+    const hiddenOptionsConfig: BoilerplateConfig = {
+      variables: [
+        {
+          name: "SubscriptionLayout",
+          type: "enum",
+          description: "",
+          options: ["single", "caf"],
+          default: "single",
+        },
+        {
+          name: "IdentitySubscriptionId",
+          type: "enum",
+          description: "",
+          optionsFrom: {
+            expression: "{{ fromJson .outputs.list_subscriptions.subscriptions }}",
+            blockId: "list_subscriptions",
+            outputName: "subscriptions",
+          },
+          showWhen: { SubscriptionLayout: ["caf"] },
+        },
+      ],
+    }
+    render(
+      <RunbookStateStub blockOutputs={{}}>
+        <BoilerplateInputsForm
+          id="tpl"
+          blockType="Template"
+          boilerplateConfig={hiddenOptionsConfig}
+          onGenerate={vi.fn()}
+          enableAutoRender={false}
+          variant="standard"
+        />
+      </RunbookStateStub>,
+    )
+
+    // Hidden: its block hasn't run, but the form can still generate
+    expect(screen.getByRole("button", { name: "Generate" })).toBeEnabled()
+
+    // Shown: now it waits for the block
+    fireEvent.change(layout(), { target: { value: "caf" } })
+    expect(screen.getByTestId("options-waiting-IdentitySubscriptionId")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Generate" })).toBeDisabled()
+  })
+
   it("shows a field only while its condition holds, and updates as the other field changes", () => {
     renderForm({ boilerplateConfig: layoutConfig })
 

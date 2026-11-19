@@ -381,7 +381,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const optionErrors: Record<string, string> = {}
   for (const variable of outputOptions.variables) {
     const status: OutputOptionsStatus | undefined = outputOptions.status[variable.name]
-    if (!status || sharedVarNames.has(variable.name)) continue
+    // A field x-show-when hides isn't asked for, so its options can't hold the form up either
+    if (!status || sharedVarNames.has(variable.name) || hidden.has(variable.name)) continue
     if (status.kind === "waiting") optionsWaiting[variable.name] = status.waitingFor
     else if (status.kind === "missing") {
       missingByField[variable.name] = [...(missingByField[variable.name] ?? []), ...status.missing]
