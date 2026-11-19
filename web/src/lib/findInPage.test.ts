@@ -272,6 +272,14 @@ describe("queryPattern", () => {
     expect(() => queryPattern("nat(", { regex: true })).toThrow(SyntaxError)
   })
 
+  it("throws for a mistake in an escape only Unicode mode has, rather than searching for other text", () => {
+    // The looser syntax would read these as "p{Letterz}" and "u{110000}".
+    expect(() => queryPattern("\\p{Letterz}", { regex: true })).toThrow(SyntaxError)
+    expect(() => queryPattern("\\u{110000}", { regex: true })).toThrow(SyntaxError)
+    // An escaped backslash before p isn't such an escape.
+    expect(matched(queryPattern("\\\\p{x}", { regex: true }), "a\\p{x}")).toEqual(["\\p{x}"])
+  })
+
   it("has no pattern for a blank query", () => {
     expect(queryPattern("  ", { regex: true })).toBeNull()
   })

@@ -233,6 +233,18 @@ describe("ViewLogs search", () => {
     expect(logInput()).toHaveValue("route")
   })
 
+  it("highlights what a colored line shows, after its backspaces", async () => {
+    const user = userEvent.setup()
+    // Shown as "Draf! Draft": only the second Draft is on screen.
+    renderLogs({ logs: [entry("\u001b[32mDraft\b!\u001b[0m Draft")] })
+    await user.click(screen.getByRole("button", { name: "Search logs" }))
+    await user.type(logInput(), "Draft")
+    expect(logStatus()).toHaveTextContent("1 of 1")
+    const [active] = registry.get(LOG_ACTIVE_HIGHLIGHT) ?? []
+    expect(active?.toString()).toBe("Draft")
+    expect(active?.startOffset).toBe(1)
+  })
+
   it("closes when the logs collapse", async () => {
     const user = userEvent.setup()
     renderLogs()
@@ -323,6 +335,30 @@ describe("ViewLogs and the Edit menu's Find items", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(logStatus()).toHaveTextContent("2 of 4")
   })
+
+  it("returns focus to the inline logs when the maximized logs close, so Find Next stays on them", async () => {
+    const user = userEvent.setup()
+    const { find } = renderWithFindBar()
+    await user.click(screen.getByRole("button", { name: "Maximize logs" }))
+    await find("open")
+    await user.type(
+      within(screen.getByRole("dialog")).getByRole("textbox", { name: "Find in logs" }),
+      "nat_gateway",
+    )
+    await user.click(screen.getByRole("button", { name: "Minimize logs" }))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(logInput()).toHaveFocus()
+    await find("next")
+    expect(logStatus()).toHaveTextContent("1 of 3")
+    expect(document.querySelector('[aria-label="Find in page"]')).toBeNull()
+
+    // With the search closed, to the button that maximized them.
+    await user.keyboard("{Escape}")
+    await user.click(screen.getByRole("button", { name: "Maximize logs" }))
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Maximize logs" })).toHaveFocus()
+  })
 })
 
 describe("ViewLogs jump buttons", () => {
@@ -388,6 +424,50 @@ describe("ViewLogs jump buttons", () => {
     Object.defineProperty(body, "scrollHeight", { configurable: true, value: 1100 })
     rerenderLogs({ logs: [...APPLY, entry("Still creating...")], status: "running" })
     expect(body.scrollTop).toBe(1100)
+  })
+
+  it("jumps instantly while a run streams, so a new line can't cut a smooth jump short", async () => {
+    const user = userEvent.setup()
+    const { rerenderLogs } = renderLogs()
+    const body = sizeBody(1000, 100)
+    const smoothScroll = vi.fn()
+    body.scrollTo = smoothScroll as typeof body.scrollTo
+    // Three screens from the top of a finished log: smooth.
+    scrollTo(body, 300)
+    await user.click(screen.getByRole("button", { name: "Jump to top" }))
+    expect(smoothScroll).toHaveBeenCalledWith({ top: 0, behavior: "smooth" })
+
+    smoothScroll.mockClear()
+    rerenderLogs({ status: "running" })
+    scrollTo(body, 300)
+    await user.click(screen.getByRole("button", { name: "Jump to top" }))
+    expect(smoothScroll).not.toHaveBeenCalled()
+    expect(body.scrollTop).toBe(0)
+  })
+
+  it("drops the new-lines count once nothing is below the view, as when only matching lines show", () => {
+    // jsdom has no ResizeObserver; this one lets the test say when sizes change.
+    const resized: (() => void)[] = []
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          resized.push(callback)
+        }
+        observe() {}
+        disconnect() {}
+      },
+    )
+    const { rerenderLogs } = renderLogs({ logs: APPLY.slice(0, 2), status: "running" })
+    const body = sizeBody(1000, 100)
+    scrollTo(body, 0)
+    rerenderLogs({ logs: APPLY, status: "running" })
+    expect(screen.getByRole("button", { name: "Jump to bottom: 2 new lines" })).toBeInTheDocument()
+
+    // The log now fits, without a scroll.
+    Object.defineProperty(body, "scrollHeight", { configurable: true, value: 100 })
+    act(() => resized.forEach((callback) => callback()))
+    expect(screen.queryByRole("button", { name: /^Jump to bottom/ })).not.toBeInTheDocument()
   })
 
   it("goes back to the plain button when the run ends", () => {

@@ -63,7 +63,13 @@ import {
   type LogMatch,
   type LogPosition,
 } from "@/lib/logSearch"
-import { stripAnsi, parseLogsToStructured, downloadFile, generateLogFilename } from "@/lib/logs"
+import {
+  stripAnsi,
+  shownText,
+  parseLogsToStructured,
+  downloadFile,
+  generateLogFilename,
+} from "@/lib/logs"
 import { formatShortcut } from "@/lib/platform"
 import { cn } from "@/lib/utils"
 import "./ViewLogs.css"
@@ -155,6 +161,7 @@ export function ViewLogs({ logs, status, autoOpen = false, blockId, logFilePath 
   const maximizedView = useRef<LogViewHandle>(null)
   const inlineInput = useRef<HTMLInputElement>(null)
   const maximizedInput = useRef<HTMLInputElement>(null)
+  const maximizeButton = useRef<HTMLButtonElement>(null)
 
   const [prevAutoOpen, setPrevAutoOpen] = useState(autoOpen)
   if (autoOpen !== prevAutoOpen) {
@@ -421,6 +428,7 @@ export function ViewLogs({ logs, status, autoOpen = false, blockId, logFilePath 
               <Tooltip delayDuration={350}>
                 <TooltipTrigger asChild>
                   <Button
+                    ref={maximizeButton}
                     variant="ghost"
                     size="icon"
                     aria-label="Maximize logs"
@@ -473,6 +481,15 @@ export function ViewLogs({ logs, status, autoOpen = false, blockId, logFilePath 
             e.preventDefault()
             if (find.open) maximizedInput.current?.focus()
             else maximizedView.current?.focus()
+          }}
+          // The dialog has no trigger for Radix to return focus to, so return
+          // it to the inline search, else to the button that maximized the
+          // logs, keeping Find… and the keys on these logs.
+          onCloseAutoFocus={(e) => {
+            const target = find.open ? inlineInput.current : maximizeButton.current
+            if (!target) return
+            e.preventDefault()
+            target.focus()
           }}
           // Escape closes the search before the logs.
           onEscapeKeyDown={(e) => {
@@ -564,6 +581,7 @@ function LogScroll({
   variant: "inline" | "maximized"
 }) {
   const bodyRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   // Whether new lines scroll the view to the end: until the user scrolls up.
   const following = useRef(true)
   // The match ranges painted in this view, one per match, null where a match
@@ -598,13 +616,20 @@ function LogScroll({
     for (const line of el.querySelectorAll<HTMLElement>("[data-log-line]")) {
       lines.set(Number(line.dataset.logLine), line)
     }
-    // A line's matches, in order, are its rendered matches, in order.
     const ranges: (Range | null)[] = []
     for (let i = 0; i < matches.length;) {
       const { line } = matches[i]!
+      let end = i
+      while (matches[end]?.line === line) end++
+      const lineMatches = matches.slice(i, end)
       const lineEl = lines.get(line)
-      const found = lineEl ? rangesIn(lineEl, pattern) : []
-      for (let k = 0; matches[i]?.line === line; i++, k++) ranges.push(found[k] ?? null)
+      // line is a line of logs, since the matches came from them.
+      ranges.push(
+        ...(lineEl
+          ? rangesIn(lineEl, shownText(logs[line]!.line), lineMatches)
+          : lineMatches.map(() => null)),
+      )
+      i = end
     }
     rangesRef.current = ranges
     paintLogMatches(
@@ -612,7 +637,7 @@ function LogScroll({
       ranges.filter((range) => range !== null),
       ranges[current] ?? null,
     )
-  }, [owner, pattern, matches, current, filtering, wrap])
+  }, [owner, logs, pattern, matches, current, filtering, wrap])
 
   useEffect(() => () => clearLogMatches(owner), [owner])
 
@@ -647,30 +672,61 @@ function LogScroll({
     focus: () => bodyRef.current?.focus({ preventScroll: true }),
   }))
 
-  const onScroll = () => {
-    const el = bodyRef.current
-    if (!el) return
+  /**
+   * Show the jump buttons that would move the view, and count the new lines
+   * from when it left the end.
+   */
+  const updateControls = (el: HTMLElement) => {
     const end = atEnd(el)
-    following.current = end
     setShowTop(el.scrollTop > el.clientHeight)
     setShowBottom(!end)
     if (end) setPausedAt(null)
     else if (pausedAt === null) setPausedAt(logs.length)
   }
 
+  const onScroll = () => {
+    const el = bodyRef.current
+    if (!el) return
+    following.current = atEnd(el)
+    updateControls(el)
+  }
+
+  // A change in size without a scroll, such as only matching lines leaving
+  // nothing below, or a resized window: keep a following view at its end,
+  // and the jump buttons up to date.
+  const onResize = useEffectEvent(() => {
+    const el = bodyRef.current
+    if (!el) return
+    if (following.current) el.scrollTop = el.scrollHeight
+    else following.current = atEnd(el)
+    updateControls(el)
+  })
+  useEffect(() => {
+    const el = bodyRef.current
+    const content = contentRef.current
+    if (!el || !content || typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(() => onResize())
+    observer.observe(el)
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [])
+
   const jump = (to: "top" | "bottom") => {
     const el = bodyRef.current
     if (!el) return
     const top = to === "top" ? 0 : el.scrollHeight - el.clientHeight
-    // Smooth over a few screens; further would take seconds. Never to the end
-    // of a running log, which would move on while it scrolls.
+    // Smooth over a few screens; further would take seconds. Never while a
+    // run streams: a new line would scroll a view near its end back to it,
+    // or move the end on.
     const smooth =
       Math.abs(top - el.scrollTop) <= el.clientHeight * 4 &&
-      !(to === "bottom" && status === "running") &&
+      status !== "running" &&
       !prefersReducedMotion()
     following.current = to === "bottom"
     if (smooth && typeof el.scrollTo === "function") el.scrollTo({ top, behavior: "smooth" })
     else el.scrollTop = top
+    // Without a scroll event when the view was already there.
+    updateControls(el)
     el.focus({ preventScroll: true })
   }
 
@@ -745,22 +801,24 @@ function LogScroll({
           !wrap && "overflow-x-auto",
         )}
       >
-        {logs.length > 0 && (
-          <div className="space-y-1">
-            {shown
-              ? shown.map((index, k) => renderLine(index, k > 0 && index - shown[k - 1]! > 1))
-              : logs.map((_, index) => renderLine(index, false))}
-          </div>
-        )}
-        {shown?.length === 0 && logs.length > 0 && (
-          <div className="text-sm text-gray-400 italic">No matching lines.</div>
-        )}
-        {status === "running" && (
-          <div className="text-xs font-mono text-gray-400 animate-pulse">Running...</div>
-        )}
-        {logs.length === 0 && status !== "running" && (
-          <div className="text-sm text-gray-400 italic">No logs yet.</div>
-        )}
+        <div ref={contentRef}>
+          {logs.length > 0 && (
+            <div className="space-y-1">
+              {shown
+                ? shown.map((index, k) => renderLine(index, k > 0 && index - shown[k - 1]! > 1))
+                : logs.map((_, index) => renderLine(index, false))}
+            </div>
+          )}
+          {shown?.length === 0 && logs.length > 0 && (
+            <div className="text-sm text-gray-400 italic">No matching lines.</div>
+          )}
+          {status === "running" && (
+            <div className="text-xs font-mono text-gray-400 animate-pulse">Running...</div>
+          )}
+          {logs.length === 0 && status !== "running" && (
+            <div className="text-sm text-gray-400 italic">No logs yet.</div>
+          )}
+        </div>
       </div>
 
       {/* Where the matches fall in the whole log, along its right edge. */}

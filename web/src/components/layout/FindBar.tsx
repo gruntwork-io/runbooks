@@ -296,7 +296,7 @@ export function FindBar({ ref }: { ref?: Ref<FindBarHandle> }) {
           e.preventDefault()
           step(e.shiftKey ? -1 : 1)
         }}
-        className="w-48 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+        className="w-48 rounded-sm bg-transparent px-1 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
       />
       <span
         role="status"

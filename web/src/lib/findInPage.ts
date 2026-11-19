@@ -85,6 +85,12 @@ export interface QueryOptions {
 }
 
 /**
+ * A \p{…}, \P{…} or \u{…} escape (not an escaped backslash before one),
+ * which means something else outside Unicode mode: \p{L} matches "p{L}".
+ */
+const UNICODE_ESCAPE = /(?<!\\)(?:\\\\)*\\(?:[pP]|u\{)/
+
+/**
  * The global pattern for `query`, or null for a blank one. By default it is
  * case-insensitive and treats every character literally, except that a run
  * of whitespace matches any run of whitespace: text nodes keep the line
@@ -100,9 +106,12 @@ export function queryPattern(
   if (regex) {
     // Unicode mode reads \p{…} and characters outside the BMP; the older
     // syntax also takes the stray escapes and braces people type, like \- or {.
+    // A query with an escape only Unicode mode has stays there, so a mistake
+    // in one, like \p{Letterz}, is an error, not a search for other text.
     try {
       return new RegExp(query, `${flags}u`)
-    } catch {
+    } catch (error) {
+      if (UNICODE_ESCAPE.test(query)) throw error
       return new RegExp(query, flags)
     }
   }

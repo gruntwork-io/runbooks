@@ -49,6 +49,12 @@ describe("findLogMatches", () => {
     )
   })
 
+  it("matches the text a colored line shows, after its backspaces", () => {
+    // Shown as "Draf! Draft".
+    const log = lines("\u001b[32mDraft\b!\u001b[0m Draft")
+    expect(triples(findLogMatches(log, queryPattern("Draft")))).toEqual([[0, 6, 11]])
+  })
+
   it("matches nothing without a pattern", () => {
     expect(findLogMatches(lines("anything"), null)).toEqual([])
   })
@@ -142,12 +148,18 @@ describe("matchMarks", () => {
 })
 
 describe("rangesIn", () => {
-  it("finds matches across inline elements, leaving out ignored text", () => {
-    const line = document.createElement("div")
-    line.innerHTML =
-      '<span data-find-ignore="">12:00:01 nat</span><span><span class="ansi-green-fg">aws_na</span>t_gateway.main[2]</span>'
-    const ranges = rangesIn(line, queryPattern("nat")!)
-    expect(ranges.map((range) => range.toString())).toEqual(["nat"])
+  const line = document.createElement("div")
+  line.innerHTML =
+    '<span data-find-ignore="">12:00:01 nat</span><span><span class="ansi-green-fg">aws_na</span>t_gateway.main[2]</span>'
+  const text = "aws_nat_gateway.main[2]"
+
+  it("places matches by offset across inline elements, leaving out ignored text", () => {
+    const ranges = rangesIn(line, text, [{ start: 4, end: 7 }])
+    expect(ranges.map((range) => range?.toString())).toEqual(["nat"])
     expect(ranges[0]!.startContainer.textContent).toBe("aws_na")
+  })
+
+  it("places no match on a line that reads differently from the text it was found in", () => {
+    expect(rangesIn(line, "Draft aws_nat", [{ start: 10, end: 13 }])).toEqual([null])
   })
 })

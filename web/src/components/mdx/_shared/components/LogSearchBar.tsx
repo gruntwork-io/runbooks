@@ -108,7 +108,7 @@ export function LogSearchBar({
           onStep(e.shiftKey ? -1 : 1)
         }}
         className={cn(
-          "h-6 max-w-88 min-w-24 flex-[1_1_10rem] bg-transparent px-1 text-sm text-foreground outline-none placeholder:text-muted-foreground",
+          "h-6 max-w-88 min-w-24 flex-[1_1_10rem] rounded-sm bg-transparent px-1 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
           invalid &&
             "text-destructive underline decoration-destructive decoration-wavy underline-offset-4",
         )}

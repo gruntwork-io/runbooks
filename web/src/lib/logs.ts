@@ -28,6 +28,63 @@ export function stripAnsi(text: string): string {
   return text.replace(ANSI_REGEX, "")
 }
 
+/* eslint-disable no-control-regex */
+const CHARSET_REGEX = /\x1b[()*/+-].?/g
+const OSC_REGEX = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g
+/** What anser takes as a CSI sequence's body, after the ESC [ it splits on. */
+const CSI_BODY_REGEX = /^[!\x3c-\x3f]*[\d;]*[\x20-\x2c]*[\x40-\x7e]/
+const BACKSPACE_REGEX = /[^\n]\x08/g
+/* eslint-enable no-control-regex */
+
+/**
+ * Strip the sequences TerminalText removes before rendering, which
+ * ansi-to-react doesn't handle: character set designations (ESC(B from tput
+ * sgr0) and OSC sequences (ESC ] ... BEL/ST, e.g. background color queries
+ * from gh CLI).
+ */
+export function stripNonColorAnsi(text: string): string {
+  return text.replace(CHARSET_REGEX, "").replace(OSC_REGEX, "")
+}
+
+/** Each backspace erases the character before it, as ansi-to-react applies them. */
+function applyBackspaces(text: string): string {
+  let before: string
+  do {
+    before = text
+    text = text.replace(BACKSPACE_REGEX, "")
+  } while (text.length < before.length)
+  return text
+}
+
+/**
+ * Text after a carriage return overwrites the start of its line, as
+ * escape-carriage applies it for ansi-to-react.
+ */
+function applyCarriageReturns(text: string): string {
+  if (!text.includes("\r")) return text
+  text = text.replace(/\r+\n/g, "\n")
+  while (/\r./.test(text)) {
+    text = text.replace(
+      /^([^\r\n]*)\r+([^\r\n]+)/gm,
+      (_, base: string, insert: string) => insert + base.slice(insert.length),
+    )
+  }
+  return text
+}
+
+/**
+ * The text TerminalText shows for a line of output, so a search counts what
+ * is on screen. A line with color codes goes through ansi-to-react, which
+ * applies its backspaces and carriage returns and drops its CSI sequences;
+ * any other line is shown as it is. TerminalText's tests check the two agree.
+ */
+export function shownText(text: string): string {
+  const cleaned = stripNonColorAnsi(text)
+  if (!cleaned.includes("\x1b[")) return cleaned
+  const [first = "", ...chunks] = applyCarriageReturns(applyBackspaces(cleaned)).split("\x1b[")
+  return first + chunks.map((chunk) => chunk.replace(CSI_BODY_REGEX, "")).join("")
+}
+
 // =============================================================================
 // Log Parsing
 // =============================================================================
