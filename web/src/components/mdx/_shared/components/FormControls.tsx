@@ -22,6 +22,7 @@ import {
   summarizeTemplateValue,
 } from "../lib/templateValue"
 import { LinkedValueChip, TemplateValueText, type FieldLinks } from "./TemplateValue"
+import { optionItems } from "../../../../../../src/domain/boilerplate/options"
 
 /**
  * Base props interface for all form control components
@@ -299,7 +300,8 @@ export const BooleanInput: React.FC<BaseFormControlProps> = ({
  *     (`{{ .OtherVar }}`) is labelled by what it comes to when that is known,
  *     else by what it is linked to, never by its syntax.
  * Options and value are compared as strings: YAML can make options numbers or
- * booleans, while a picked value is always the option's string.
+ * booleans, while a picked value is always the option's string. An option with
+ * a label is shown as its label.
  */
 export const EnumSelect: React.FC<BaseFormControlProps> = ({
   variable,
@@ -312,9 +314,15 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({
   disabled,
 }) => {
   const current = valueText(value)
-  const options = (variable.options ?? []).map(String)
+  const items = optionItems(variable)
+  const options = items.map((item) => item.value)
   const showPlaceholder = current === "" && (value == null || !options.includes(""))
   const isUnlistedValue = current !== "" && !options.includes(current)
+  // A linked value that comes to a listed option is shown as that option, once, with its label. The
+  // link stays the value, so it keeps following what it links to until the user picks something else.
+  const resolvedText = isTemplateValue(current) ? resolvedValueText(resolvedValue) : undefined
+  const linkedItem =
+    resolvedText === undefined ? undefined : items.find((item) => item.value === resolvedText)
   return (
     <select
       id={`${id}-${variable.name}`}
@@ -331,16 +339,20 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({
       )}
       {isUnlistedValue && (
         <option value={current} disabled>
-          {isTemplateValue(current)
-            ? (resolvedValueText(resolvedValue) ?? summarizeTemplateValue(current))
-            : current}
+          {linkedItem
+            ? linkedItem.label
+            : isTemplateValue(current)
+              ? (resolvedText ?? summarizeTemplateValue(current))
+              : current}
         </option>
       )}
-      {options.map((option) => (
-        <option key={option} value={option}>
-          {option}
-        </option>
-      ))}
+      {items
+        .filter((item) => item !== linkedItem)
+        .map((item) => (
+          <option key={item.value} value={item.value}>
+            {item.label}
+          </option>
+        ))}
     </select>
   )
 }
@@ -448,7 +460,8 @@ export const ListInput: React.FC<BaseFormControlProps> = ({
  * `x-options` extension, surfaced as `variable.options`). Renders a searchable popover of checkable options and
  * keeps the selection in the canonical option order. The value is a plain `string[]` — identical on the wire to a
  * freeform list — so Boilerplate renders it unchanged. Membership is enforced only by the UI (the picker never
- * offers a value outside the option set); there is no Go-side constraint.
+ * offers a value outside the option set); there is no Go-side constraint. An option with a label is shown as its
+ * label, and the search matches labels and values.
  */
 export const MultiSelectInput: React.FC<BaseFormControlProps> = ({
   variable,
@@ -459,7 +472,9 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({
   disabled,
   readOnlyLabel,
 }) => {
-  const options = variable.options ?? []
+  const items = optionItems(variable)
+  const options = items.map((item) => item.value)
+  const labelOf = (option: string) => variable.optionLabels?.[option] ?? option
   const selected = Array.isArray(value)
     ? value.filter((v): v is string => typeof v === "string")
     : []
@@ -527,10 +542,11 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({
               <CommandList ref={listRef} className="max-h-[300px]">
                 <CommandEmpty>No match found.</CommandEmpty>
                 <CommandGroup>
-                  {options.map((option) => (
+                  {items.map(({ value: option, label }) => (
                     <CommandItem
                       key={option}
                       value={option}
+                      keywords={[label]}
                       onSelect={() => toggle(option)}
                       className="flex items-center gap-2"
                     >
@@ -540,7 +556,7 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({
                           selectedSet.has(option) ? "opacity-100" : "opacity-0",
                         )}
                       />
-                      <span className="font-mono text-xs text-foreground">{option}</span>
+                      <span className="font-mono text-xs text-foreground">{label}</span>
                     </CommandItem>
                   ))}
                 </CommandGroup>
@@ -560,14 +576,14 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({
                 key={option}
                 className={`inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 font-mono text-xs ${disabled ? "text-muted-foreground" : "text-foreground"}`}
               >
-                {option}
+                {labelOf(option)}
                 {!disabled && (
                   <button
                     type="button"
                     onClick={() => removeItem(option)}
                     className="text-muted-foreground hover:text-destructive cursor-pointer rounded-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    title={`Remove ${option}`}
-                    aria-label={`Remove ${option}`}
+                    title={`Remove ${labelOf(option)}`}
+                    aria-label={`Remove ${labelOf(option)}`}
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -1042,8 +1058,9 @@ export const FormControl: React.FC<BaseFormControlProps> = (props) => {
     case BoilerplateVariableType.Enum:
       return <EnumSelect {...props} />
     case BoilerplateVariableType.List:
-      // A list with an enumerated option set (x-options) renders as a multi-select picker.
-      if (variable.options && variable.options.length > 0) {
+      // A list with an enumerated option set (x-options) renders as a multi-select picker, as does one whose
+      // options come from a block's output, even when that output lists none.
+      if ((variable.options && variable.options.length > 0) || variable.optionsFrom) {
         return <MultiSelectInput {...props} />
       }
       // Use tuple input if schema is defined (numeric keys = fixed-length typed array)

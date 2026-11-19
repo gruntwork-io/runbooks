@@ -12,6 +12,12 @@ import { errorMessage } from "../../errors/message.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { BATCH_IO_CONCURRENCY } from "../files/manifest.ts"
 import { extractTemplateDependenciesFromString } from "./templateDependencies.ts"
+import {
+  optionFields,
+  parseOptionsReference,
+  staticOptionItems,
+  type OptionFields,
+} from "./options.ts"
 import type {
   BoilerplateConfig,
   BoilerplateVariable,
@@ -43,7 +49,8 @@ interface RawVariable {
   description?: string
   type?: string
   default?: unknown
-  options?: string[]
+  // A list of options (strings or { value, label }), or an output reference that yields one
+  options?: unknown
   sensitive?: boolean
   validations?: (RawValidation | string)[]
   // Boilerplate's own key for the order it prompts for variables in, lowest first
@@ -54,7 +61,8 @@ interface RawVariable {
   "x-section"?: string
   // Enumerates the allowed values for a `list` variable so the form renders a multi-select picker. Boilerplate
   // forbids `options` on a non-enum type, so this rides the x-extension seam instead and the Go tool ignores it.
-  "x-options"?: string[]
+  // Like `options`, a list or an output reference.
+  "x-options"?: unknown
   "x-locked"?: unknown
   "x-hidden"?: unknown
 }
@@ -329,6 +337,37 @@ function parseSkipFiles(raw: unknown): SkipFileRule[] {
 }
 
 // ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
+
+/**
+ * The option fields of an enum's `options` or a list's `x-options`: a list
+ * of strings or `{ value, label }` (an invalid entry is dropped with a
+ * warning), or an output reference such as
+ * `{{ fromJson .outputs.list_regions.regions }}`, which the form and the test
+ * runner read once the block has run. Any other string is a config error: it
+ * can't be told from a typo in a reference.
+ */
+function parseOptions(
+  raw: unknown,
+  where: string,
+  scalars: boolean,
+): Effect.Effect<OptionFields, BoilerplateConfigError> {
+  if (Array.isArray(raw)) {
+    return Effect.succeed(optionFields(staticOptionItems(raw, where, scalars)))
+  }
+  if (typeof raw === "string") {
+    const reference = parseOptionsReference(raw)
+    if (reference) return Effect.succeed({ optionsFrom: reference })
+  }
+  return Effect.fail(
+    new BoilerplateConfigError({
+      message: `${where} must be a list, or a block output that holds one, such as "{{ fromJson .outputs.<block_id>.<output_name> }}".`,
+    }),
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main parser
 // ---------------------------------------------------------------------------
 
@@ -381,19 +420,22 @@ export function parseBoilerplateConfig(
         variable.default = rv.default
       }
 
-      if (varType === "enum" && rv.options) {
-        variable.options = rv.options
+      // An enum's `options`, or a list's `x-options` (a list carrying x-options is the multi-select signal). The
+      // membership guarantee for a list is UI-only: Boilerplate still treats the value as a plain list.
+      if (varType === "enum" && rv.options != null) {
+        Object.assign(
+          variable,
+          yield* parseOptions(rv.options, `variable "${rv.name}": options`, true),
+        )
       }
-
-      // A `list` carrying x-options is the multi-select signal: the enumerated values constrain the picker. The
-      // membership guarantee is UI-only — Boilerplate still treats the value as a plain list (no Go-side validation).
-      // YAML.parse is untyped, so filter to strings rather than trusting the declared `string[]` shape.
-      const xOptions = rv["x-options"]
-      if (varType === "list" && Array.isArray(xOptions)) {
-        const stringOptions = xOptions.filter((o): o is string => typeof o === "string")
-        if (stringOptions.length > 0) {
-          variable.options = stringOptions
-        }
+      if (varType === "list" && rv["x-options"] != null) {
+        const fields = yield* parseOptions(
+          rv["x-options"],
+          `variable "${rv.name}": x-options`,
+          false,
+        )
+        // A static list without options stays a freeform list, as it always has.
+        if (fields.optionsFrom || (fields.options?.length ?? 0) > 0) Object.assign(variable, fields)
       }
 
       const schema = rv["x-schema"]

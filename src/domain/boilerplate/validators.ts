@@ -7,6 +7,8 @@
  * so it must stay free of Node and Electron imports.
  */
 
+import { optionMembershipError, type OptionFields } from "./options.ts"
+
 /**
  * A validation rule in the shape parseBoilerplateConfig emits. Typed
  * structurally so the renderer's enum-typed ValidationRule fits as well.
@@ -18,8 +20,9 @@ export interface ValidationRuleLike {
 }
 
 /** The parts of a boilerplate variable that validateVariableValue reads. */
-export interface ValidatableVariable {
+export interface ValidatableVariable extends OptionFields {
   name: string
+  type?: string
   required?: boolean
   validations?: readonly ValidationRuleLike[]
 }
@@ -197,7 +200,8 @@ export const applyValidationRule = (
 
 /**
  * Validates a value against a variable's definition: the required check
- * first, then each validation rule against the value's string form.
+ * first, then, for options that come from a block's output, that the value is
+ * one of them, then each validation rule against the value's string form.
  * @param variable - The variable definition (required flag and rules)
  * @param value - The value to validate
  * @param label - How the required message names the variable (defaults to its name)
@@ -229,6 +233,10 @@ export const validateVariableValue = (
       return `${label} is required`
     }
   }
+
+  // Options that come from a block's output, once read (see optionMembershipError)
+  const membershipError = optionMembershipError(variable, value)
+  if (membershipError) return membershipError
 
   const stringValue = stringForm(value)
 

@@ -2742,3 +2742,93 @@ describe("TestExecutor — GitClone sparse checkout", () => {
     expect(badRef.stepResults[0]).toMatchObject({ actualStatus: "fail", passed: true })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Options from a block's output: an input is checked against the options once
+// the block that outputs them has run.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — options from a block's output", () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-options-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  const makeExecutor = async (regionsJson: string) => {
+    fs.mkdirSync(path.join(tmp, "tpl"))
+    fs.writeFileSync(
+      path.join(tmp, "tpl", "boilerplate.yml"),
+      [
+        "variables:",
+        "  - name: Location",
+        "    type: enum",
+        `    options: "{{ fromJson .outputs.list_regions.regions }}"`,
+        "    default: eastus",
+        "  - name: Allowed",
+        "    type: list",
+        `    x-options: "{{ fromJson .outputs.list_regions.regions }}"`,
+        "    default: [eastus]",
+        "",
+      ].join("\n"),
+    )
+    fs.writeFileSync(path.join(tmp, "tpl", "out.txt"), "location={{ .Location }}\n")
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      [
+        "# Options",
+        "",
+        `<Command id="list-regions" command={\`echo 'regions=${regionsJson}' >> "$RUNBOOK_OUTPUT"\`} />`,
+        "",
+        `<Template id="tpl" path="tpl" />`,
+        "",
+      ].join("\n"),
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  it("renders a value that is one of the options", async () => {
+    const executor = await makeExecutor('[{"value":"eastus","label":"East US"},"westus"]')
+    const result = executor.runTest({
+      name: "ok",
+      inputs: { "tpl.Location": { literal: "westus" } },
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(fs.readFileSync(path.join(tmp, "generated", "out.txt"), "utf-8")).toBe(
+      "location=westus\n",
+    )
+  })
+
+  it("fails a value that isn't, once the options are known", async () => {
+    const executor = await makeExecutor('["eastus","westus"]')
+    const result = executor.runTest({
+      name: "not-an-option",
+      inputs: {
+        "tpl.Location": { literal: "mars" },
+        "tpl.Allowed": { literal: ["eastus", "venus"] },
+      },
+    })
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[1]?.error).toBe(
+      "Input validation failed:\n" +
+        `  - tpl.Location: "mars" isn't one of the options.\n` +
+        `  - tpl.Allowed: "venus" isn't one of the options.`,
+    )
+  })
+
+  it("fails an output that isn't a list of options, naming the block and output", async () => {
+    const executor = await makeExecutor('{"eastus":"East US"}')
+    const result = executor.runTest({ name: "bad-output" })
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[1]?.error).toContain(
+      `tpl.Location: The options come from output "regions" of block "list_regions", which must be a JSON array`,
+    )
+  })
+})

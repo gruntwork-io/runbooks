@@ -10,6 +10,7 @@ import { useFormState } from "../hooks/useFormState"
 import { useFormValidation } from "../hooks/useFormValidation"
 import { useResolvedTemplateValues } from "../hooks/useResolvedTemplateValues"
 import { useOutputDependencyStatus } from "../hooks/useOutputDependencyStatus"
+import { useOutputOptions, type OutputOptionsStatus } from "../hooks/useOutputOptions"
 import { useEnteredValues } from "../hooks/useEnteredValues"
 import { containsTemplateValue, isTemplateValue } from "../lib/templateValue"
 import { untouchedValue } from "../lib/untouchedValue"
@@ -17,10 +18,12 @@ import { markKeystroke } from "@/lib/renderPerf"
 import { FormStatus } from "./FormStatus"
 import { UnmetDependenciesWarning } from "./UnmetDependenciesWarning"
 import { BlockIdLabel } from "./BlockIdLabel"
+import { BlockLink } from "./BlockLink"
 import { ProgressStep } from "./ProgressStep"
 import type { BlockOutput } from "@/lib/templateUtils"
 import { ErrorReportingContext } from "@/contexts/ErrorReportingContext.types"
 import { useSensitiveInputNames } from "@/contexts/useRunbook"
+import { optionMembershipError } from "../../../../../../src/domain/boilerplate/options"
 
 const NO_VARIABLES: BoilerplateVariable[] = []
 const NO_VALUES: Record<string, unknown> = {}
@@ -37,6 +40,11 @@ function missingBlockMessage(blockIds: string[], locked: boolean): string {
       ? `Uses an output of block ${quoted(blockIds)}, but no block on this page has that id, so it can't be filled in.`
       : `Uses outputs of blocks ${quoted(blockIds)}, but no blocks on this page have those ids, so it can't be filled in.`
   return locked ? message : `${message} Enter a value instead.`
+}
+
+/** The error on a field whose options come from an output of a block that isn't on the page. */
+function missingOptionsBlockMessage(blockIds: string[]): string {
+  return `Its options come from an output of block ${quoted(blockIds)}, but no block on this page has that id.`
 }
 
 /** The page-level report of a form's fields that use outputs of blocks that aren't on the page. */
@@ -138,6 +146,8 @@ interface VariableFieldProps {
   links: FieldLinks
   /** Puts the runbook's value back. Undefined while the field has it, or can't be changed. */
   onReset?: (() => void) | undefined
+  /** The blocks whose output the field's options come from, while they haven't produced it. */
+  optionsWaitingFor?: string[] | undefined
 }
 
 const VariableField: React.FC<VariableFieldProps> = ({
@@ -151,6 +161,7 @@ const VariableField: React.FC<VariableFieldProps> = ({
   readOnly,
   links,
   onReset,
+  optionsWaitingFor,
 }) => {
   const isBooleanType = variable.type === "bool"
   const disabled = readOnly !== undefined
@@ -192,18 +203,34 @@ const VariableField: React.FC<VariableFieldProps> = ({
           )}
         </div>
 
-        <FormControl
-          variable={variable}
-          value={value}
-          resolvedValue={resolvedValue}
-          error={error}
-          onChange={disabled ? () => {} : onChange}
-          onBlur={onBlur}
-          id={id}
-          disabled={disabled}
-          readOnlyLabel={readOnly}
-          links={links}
-        />
+        {optionsWaitingFor ? (
+          <p
+            className="text-sm text-warning-foreground"
+            data-testid={`options-waiting-${variable.name}`}
+          >
+            Waiting for{" "}
+            {optionsWaitingFor.map((blockId, i) => (
+              <React.Fragment key={blockId}>
+                {i > 0 && ", "}
+                <BlockLink blockId={blockId} />
+              </React.Fragment>
+            ))}{" "}
+            to run. The options come from its output.
+          </p>
+        ) : (
+          <FormControl
+            variable={variable}
+            value={value}
+            resolvedValue={resolvedValue}
+            error={error}
+            onChange={disabled ? () => {} : onChange}
+            onBlur={onBlur}
+            id={id}
+            disabled={disabled}
+            readOnlyLabel={readOnly}
+            links={links}
+          />
+        )}
 
         {variable.description && (
           <p className={`text-sm text-muted-foreground ${isBooleanType ? "w-full" : ""}`}>
@@ -252,9 +279,17 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // Track whether submit was attempted (to show validation error summary near button)
   const [submitAttempted, setSubmitAttempted] = useState(false)
 
+  // Options that come from a block's output, read from it now. Validation
+  // and the controls use these; form state keeps the config as written.
+  const outputOptions = useOutputOptions(boilerplateConfig?.variables ?? NO_VARIABLES)
+  const optionsConfig = useMemo(
+    () => boilerplateConfig && { ...boilerplateConfig, variables: outputOptions.variables },
+    [boilerplateConfig, outputOptions.variables],
+  )
+
   // Use validation hook first so we can use isFormValid in the wrapped callback
   const { visibleErrors, validateForm, validateField, isFormValid, markFieldTouched } =
-    useFormValidation(boilerplateConfig)
+    useFormValidation(optionsConfig)
 
   // Always call onAutoRender so that variables are published to context
   // This allows Command/Check components to react to empty/invalid values
@@ -291,8 +326,31 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     missingByField[variable.name] = missing
     missingBlockErrors[variable.name] = missingBlockMessage(missing, variable.locked === true)
   }
+
+  // A field whose options come from an output waits for its block, shows an
+  // output that isn't a list of options as its error, and once it has the
+  // options, a value that isn't one of them (a default, say) from the start.
+  // An inherited field is left to the block it comes from.
+  const optionsWaiting: Record<string, string[]> = {}
+  const optionErrors: Record<string, string> = {}
+  for (const variable of outputOptions.variables) {
+    const status: OutputOptionsStatus | undefined = outputOptions.status[variable.name]
+    if (!status || sharedVarNames.has(variable.name)) continue
+    if (status.kind === "waiting") optionsWaiting[variable.name] = status.waitingFor
+    else if (status.kind === "missing") {
+      missingByField[variable.name] = [...(missingByField[variable.name] ?? []), ...status.missing]
+      missingBlockErrors[variable.name] ??= missingOptionsBlockMessage(status.missing)
+    } else if (status.kind === "error") optionErrors[variable.name] = status.message
+    else {
+      const error = optionMembershipError(variable, formData[variable.name])
+      if (error) optionErrors[variable.name] = error
+    }
+  }
+  const hasOptionProblems =
+    Object.keys(optionsWaiting).length > 0 || Object.keys(optionErrors).length > 0
+
   const hasMissingBlocks = Object.keys(missingBlockErrors).length > 0
-  const shownErrors = { ...visibleErrors, ...missingBlockErrors }
+  const shownErrors = { ...visibleErrors, ...optionErrors, ...missingBlockErrors }
 
   // It's a mistake in the runbook, so the page-level error report counts it
   // too. Under its own key: the block reports (and clears) its own errors
@@ -334,11 +392,12 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     }
   }, [sharedVarNames, liveVarValues, formData, updateFields])
 
-  // Create a map of variable name to variable for quick lookup
-  const variablesByName = useMemo(() => {
-    if (!boilerplateConfig) return new Map<string, BoilerplateVariable>()
-    return new Map(boilerplateConfig.variables.map((v) => [v.name, v]))
-  }, [boilerplateConfig])
+  // Create a map of variable name to variable for quick lookup, with the
+  // options read from outputs
+  const variablesByName = useMemo(
+    () => new Map(outputOptions.variables.map((v) => [v.name, v])),
+    [outputOptions.variables],
+  )
 
   // The form's sections, in order. A config without any (one built in code)
   // shows its variables as one unnamed section.
@@ -401,7 +460,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!validateForm(formData) || hasMissingBlocks) {
+    if (!validateForm(formData) || hasMissingBlocks || hasOptionProblems) {
       setSubmitAttempted(true)
       return
     }
@@ -467,6 +526,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           enter: (key, value) => enteredValues.enter(variable.name, key, value),
           reset: (key) => enteredValues.reset(variable.name, key),
         }}
+        optionsWaitingFor={optionsWaiting[variable.name]}
         onReset={
           readOnly === undefined && changed
             ? () => enteredValues.replace(variable.name, defaultValue(variable))
@@ -529,7 +589,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const shouldShowSubmitButton = variant !== "embedded" && showSubmitButton
 
   // Check if form is currently valid (for FormStatus)
-  const formIsValid = isFormValid(formData) && !hasMissingBlocks
+  const formIsValid = isFormValid(formData) && !hasMissingBlocks && !hasOptionProblems
 
   // Once the form has generated successfully, highlight the block green to
   // match the success styling of run-based blocks (Command, Check, etc.).
@@ -574,7 +634,12 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 <Button
                   type="submit"
                   variant="default"
-                  disabled={isGenerating || isAutoRendering || unmetOutputDependencies.length > 0}
+                  disabled={
+                    isGenerating ||
+                    isAutoRendering ||
+                    unmetOutputDependencies.length > 0 ||
+                    Object.keys(optionsWaiting).length > 0
+                  }
                 >
                   {effectiveButtonText}
                 </Button>

@@ -75,6 +75,11 @@ import {
 } from "../../src/domain/gitlab/auth.ts"
 import { redactSecrets } from "../../src/domain/vcs/redact.ts"
 import { untouchedValue } from "../../src/domain/boilerplate/untouchedValue.ts"
+import {
+  optionFields,
+  optionMembershipError,
+  parseOutputOptions,
+} from "../../src/domain/boilerplate/options.ts"
 import type { Executable } from "../../src/types.ts"
 
 import type { TestCase, TestStep, ExpectedStatus, TestResult, StepResult } from "./config.ts"
@@ -294,6 +299,9 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
   }
   return current
 }
+
+/** The blocks whose templates read inputs, and so check options that come from an output before they run. */
+const OPTION_READING_BLOCK_TYPES = new Set(["Template", "TemplateInline", "Check", "Command"])
 
 // ---------------------------------------------------------------------------
 // Executor options
@@ -798,6 +806,21 @@ export class TestExecutor {
       result.error = `Failed to render template in block props: ${errorMessage(e)}`
       result.duration = Date.now() - start
       return result
+    }
+
+    // The inputs a block reads whose options come from a block's output can
+    // only be checked once that output exists, so they are checked here, as
+    // the form checks them once the block that lists them has run.
+    if (OPTION_READING_BLOCK_TYPES.has(block.type)) {
+      const optionErrors = this.outputOptionErrors(block.id)
+      if (optionErrors.length > 0) {
+        result.passed = false
+        result.actualStatus = "error"
+        result.error =
+          "Input validation failed:\n" + optionErrors.map((error) => `  - ${error}`).join("\n")
+        result.duration = Date.now() - start
+        return result
+      }
     }
 
     switch (block.type) {
@@ -2207,6 +2230,40 @@ export class TestExecutor {
       for (const varName of schema.variables.keys()) valueOf(blockId, varName)
     }
     return filled
+  }
+
+  /**
+   * Problems with the inputs block `blockId` reads (those of the blocks it
+   * imports, in turn) whose options come from a block's output: an output
+   * that isn't a list of options, or a value that isn't one of them. As
+   * `<input key>: <message>`.
+   */
+  private outputOptionErrors(blockId: string): string[] {
+    const schemas = this.validator.getAllSchemas()
+    const outputs = this.templateOutputs()
+    const errors: string[] = []
+    const seen = new Set<string>()
+    const visit = (id: string) => {
+      if (seen.has(id)) return
+      seen.add(id)
+      for (const importedId of this.templates.get(id)?.inputsIds ?? []) visit(importedId)
+      for (const [name, variable] of schemas.get(id)?.variables ?? []) {
+        const reference = variable.optionsFrom
+        if (!reference) continue
+        const key = `${id}.${name}`
+        const output = outputs[normalizeBlockId(reference.blockId)]?.[reference.outputName]
+        const parsed = parseOutputOptions(reference, output)
+        if (!parsed.ok) {
+          errors.push(`${key}: ${parsed.error}`)
+          continue
+        }
+        const resolved = { ...variable, ...optionFields(parsed.items) }
+        const error = optionMembershipError(resolved, this.testInputs[key])
+        if (error) errors.push(`${key}: ${error}`)
+      }
+    }
+    for (const id of this.inputsIds.get(blockId) ?? []) visit(id)
+    return errors
   }
 
   /**

@@ -1,3 +1,4 @@
+import type { OptionsReference } from "./domain/boilerplate/options.ts"
 import type { BlockEnv } from "./domain/exec/blockEnv.ts"
 import type { OutputValues } from "./domain/exec/outputValues.ts"
 
@@ -69,7 +70,12 @@ export interface BoilerplateVariable {
   type: BoilerplateVarType
   default?: unknown
   required: boolean
+  /** The values of an enum's options or a list's x-options */
   options?: string[]
+  /** The text each option is shown as, by value, when any differs from its value */
+  optionLabels?: Record<string, string>
+  /** The block output the options come from, when they aren't written in the YAML */
+  optionsFrom?: OptionsReference
   validations: ValidationRule[]
   sensitive: boolean
   schema?: Record<string, string>

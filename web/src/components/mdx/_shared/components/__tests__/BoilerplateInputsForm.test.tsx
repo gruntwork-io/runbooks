@@ -1090,3 +1090,134 @@ describe("BoilerplateInputsForm linked default using a block that isn't on the p
     expect(onGenerate).toHaveBeenCalled()
   })
 })
+
+// A dropdown's or multi-select's options can come from a block's output.
+describe("BoilerplateInputsForm options from a block's output", () => {
+  const optionsFrom = {
+    expression: "{{ fromJson .outputs.list_regions.regions }}",
+    blockId: "list_regions",
+    outputName: "regions",
+  }
+  const regionsConfig: BoilerplateConfig = {
+    variables: [
+      {
+        name: "Location",
+        type: "enum",
+        description: "",
+        default: "eastus",
+        optionsFrom,
+      },
+    ],
+  }
+
+  const regionOutputs = (regions: string): RunbookContextType["blockOutputs"] => ({
+    list_regions: { values: { regions }, timestamp: "" },
+  })
+
+  function renderRegions(
+    blockOutputs: RunbookContextType["blockOutputs"],
+    boilerplateConfig: BoilerplateConfig = regionsConfig,
+  ) {
+    const onGenerate = vi.fn()
+    const form = (outputs: RunbookContextType["blockOutputs"]) => (
+      <RunbookStateStub blockOutputs={outputs}>
+        <BoilerplateInputsForm
+          id="tpl"
+          blockType="Template"
+          boilerplateConfig={boilerplateConfig}
+          onGenerate={onGenerate}
+          enableAutoRender={false}
+          variant="standard"
+        />
+      </RunbookStateStub>
+    )
+    const utils = render(form(blockOutputs))
+    return { ...utils, onGenerate, rerunWith: (o: typeof blockOutputs) => utils.rerender(form(o)) }
+  }
+
+  it("waits for the block, with a link to it, and can't generate until it runs", () => {
+    const { onGenerate } = renderRegions({})
+
+    const waiting = screen.getByTestId("options-waiting-Location")
+    expect(waiting).toHaveTextContent(
+      "Waiting for list_regions to run. The options come from its output.",
+    )
+    expect(within(waiting).getByRole("button", { name: "list_regions" })).toBeInTheDocument()
+    expect(screen.queryByRole("combobox")).toBeNull()
+
+    const generate = screen.getByRole("button", { name: "Generate" })
+    expect(generate).toBeDisabled()
+    fireEvent.click(generate)
+    expect(onGenerate).not.toHaveBeenCalled()
+  })
+
+  it("shows the options once the block has run, and updates them when it runs again", () => {
+    const { rerunWith, onGenerate } = renderRegions(
+      regionOutputs('[{"value":"eastus","label":"East US"},{"value":"westus","label":"West US"}]'),
+    )
+
+    expect(screen.queryByTestId("options-waiting-Location")).toBeNull()
+    const select = screen.getByRole("combobox") as HTMLSelectElement
+    expect(select.value).toBe("eastus")
+    expect(screen.getByRole("option", { name: "East US" })).toHaveValue("eastus")
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalledWith({ Location: "eastus" })
+
+    rerunWith(regionOutputs('["eastus","centralus"]'))
+    expect(screen.getByRole("option", { name: "centralus" })).toBeInTheDocument()
+    expect(screen.queryByRole("option", { name: "West US" })).toBeNull()
+  })
+
+  it("shows a default that isn't one of the options as an error, until a valid value is picked", () => {
+    const { onGenerate } = renderRegions(regionOutputs('["westus","centralus"]'))
+
+    expect(screen.getByText(`"eastus" isn't one of the options.`)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "westus" } })
+    expect(screen.queryByText(`"eastus" isn't one of the options.`)).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalledWith({ Location: "westus" })
+  })
+
+  it("shows an output that isn't a list of options as an error naming the block and output", () => {
+    const { onGenerate } = renderRegions(regionOutputs('{"eastus": "East US"}'))
+
+    expect(
+      screen.getByText(
+        'The options come from output "regions" of block "list_regions", which must be a JSON array of strings or { "value", "label" } objects, but it is an object without a string value.',
+      ),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).not.toHaveBeenCalled()
+  })
+
+  it("doesn't show a sensitive output as options", () => {
+    renderRegions({
+      list_regions: { values: { regions: sensitiveOutput('["eastus"]') }, timestamp: "" },
+    })
+    expect(
+      screen.getByText(/which is sensitive, so it can't be shown as options/),
+    ).toBeInTheDocument()
+    // Only the default, shown as a value that isn't one of the options
+    for (const option of screen.getAllByRole("option")) expect(option).toBeDisabled()
+  })
+
+  it("checks a multi-select's picks against the options", () => {
+    renderRegions(regionOutputs('["eastus","westus"]'), {
+      variables: [
+        {
+          name: "AllowedLocations",
+          type: "list",
+          description: "",
+          default: ["eastus", "northeurope"],
+          optionsFrom,
+        },
+      ],
+    })
+    expect(screen.getByText(`"northeurope" isn't one of the options.`)).toBeInTheDocument()
+    expect(screen.getByRole("combobox")).toHaveTextContent("2 selected")
+  })
+})

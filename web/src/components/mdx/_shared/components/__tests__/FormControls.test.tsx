@@ -845,3 +845,104 @@ describe("FormControls template-valued values", () => {
     expect(select.selectedOptions[0]!.text).toBe("Same as Default Env")
   })
 })
+
+// An option can carry a label: it is shown as its label and stored as its value.
+describe("FormControls labelled options", () => {
+  const labels = { eastus: "East US", westus: "West US" }
+
+  it("shows an enum's options by label and picks their values", () => {
+    const variable: BoilerplateVariable = {
+      name: "Location",
+      type: "enum",
+      description: "",
+      options: ["eastus", "westus"],
+      optionLabels: labels,
+    }
+    const onChange = vi.fn()
+    render(<FormControl id="f" variable={variable} value="eastus" onChange={onChange} />)
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement
+    expect(screen.getByRole("option", { name: "East US" })).toHaveValue("eastus")
+    expect(select.value).toBe("eastus")
+
+    fireEvent.change(select, { target: { value: "westus" } })
+    expect(onChange).toHaveBeenCalledWith("westus")
+  })
+
+  it("shows a linked value that comes to a listed option once, by that option's label", () => {
+    const variable: BoilerplateVariable = {
+      name: "Location",
+      type: "enum",
+      description: "",
+      options: ["eastus", "westus"],
+      optionLabels: labels,
+    }
+    const onChange = vi.fn()
+    render(
+      <FormControl
+        id="f"
+        variable={variable}
+        value="{{ .outputs.sign_in.REGION }}"
+        resolvedValue="eastus"
+        onChange={onChange}
+      />,
+    )
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement
+    // No second "eastus" entry: the link is shown as East US, and kept as the value
+    expect(Array.from(select.options).map((o) => o.text)).toEqual(["East US", "West US"])
+    expect(select.selectedOptions[0]!.text).toBe("East US")
+    expect(select.value).toBe("{{ .outputs.sign_in.REGION }}")
+
+    fireEvent.change(select, { target: { value: "westus" } })
+    expect(onChange).toHaveBeenCalledWith("westus")
+  })
+
+  it("searches a multi-select's options by label and by value, and shows picks by label", async () => {
+    const user = userEvent.setup()
+    const variable: BoilerplateVariable = {
+      name: "Regions",
+      type: "list",
+      description: "",
+      options: ["eastus", "westus", "northeurope"],
+      optionLabels: { ...labels, northeurope: "North Europe" },
+    }
+    const onChange = vi.fn()
+    render(<FormControl id="f" variable={variable} value={["westus"]} onChange={onChange} />)
+
+    // The pick is shown by its label
+    expect(screen.getByRole("button", { name: "Remove West US" })).toBeInTheDocument()
+
+    await user.click(screen.getByRole("combobox"))
+    const search = screen.getByPlaceholderText("Search options...")
+
+    await user.type(search, "east us")
+    expect(screen.getByRole("option", { name: "East US" })).toBeInTheDocument()
+    expect(screen.queryByRole("option", { name: "North Europe" })).toBeNull()
+
+    await user.clear(search)
+    await user.type(search, "northeu")
+    expect(screen.getByRole("option", { name: "North Europe" })).toBeInTheDocument()
+    expect(screen.queryByRole("option", { name: "East US" })).toBeNull()
+
+    await user.click(screen.getByRole("option", { name: "North Europe" }))
+    expect(onChange).toHaveBeenCalledWith(["westus", "northeurope"])
+  })
+
+  it("shows a list whose options come from an output as a multi-select, even with none", () => {
+    const variable: BoilerplateVariable = {
+      name: "Regions",
+      type: "list",
+      description: "",
+      options: [],
+      optionsFrom: {
+        expression: "{{ fromJson .outputs.list_regions.regions }}",
+        blockId: "list_regions",
+        outputName: "regions",
+      },
+    }
+    render(<FormControl id="f" variable={variable} value={[]} onChange={vi.fn()} />)
+    expect(screen.getByRole("combobox")).toHaveTextContent("Select options...")
+    expect(screen.queryByPlaceholderText("Type an entry and press Enter...")).toBeNull()
+  })
+})

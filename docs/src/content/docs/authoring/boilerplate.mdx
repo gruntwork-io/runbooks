@@ -112,7 +112,7 @@ Each variable supports these properties:
 | `type` | No | Data type: `string`, `int`, `float`, `bool`, `enum`, `list`, `map` (defaults to `string`). Write it in lowercase. The form shows a field of any other type as text, but Boilerplate rejects it, so a `<Template>` that uses it fails |
 | `description` | No | Help text shown in the form |
 | `default` | No | Default value. Once a field's value differs from it, a **Reset** button next to the field's name puts it back |
-| `options` | For `enum` | List of allowed values for dropdowns |
+| `options` | For `enum` | The dropdown's options: a list, or a block output that holds one. See [Options](#options) |
 | `validations` | No | [Validation rules](#validations) |
 | `sensitive` | No | For a `string`, masks the field like a password input, with a button to show the value |
 | `order` | No | An integer that places the field in the form, lowest first. See [Field order](#field-order) |
@@ -258,6 +258,52 @@ Dropdown select from predefined options. Without a `default`, the dropdown start
     - eu-west-1
   default: us-east-1
 ```
+
+### Options
+
+An option is a string, shown and stored as it is, or a `value` with a `label`, shown as its label and stored as its value. A list can mix the two:
+
+```yaml
+- name: InstanceSize
+  type: enum
+  options:
+    - value: small
+      label: Small (2 vCPU, 4 GiB)
+    - value: large
+      label: Large (8 vCPU, 32 GiB)
+    - xlarge
+  default: small
+```
+
+Templates get the value, so `{{ .InstanceSize }}` renders `small`. Labels work the same way in a `list`'s [`x-options`](#x-options), where the picker's search matches both labels and values.
+
+#### Options from a block's output
+
+When the options live somewhere that changes, such as the regions a cloud account can use, a script can list them and the field can read them. Write the options as a reference to a block's output, instead of a list:
+
+```yaml
+- name: Location
+  type: enum
+  options: "{{ fromJson .outputs.list_regions.regions }}"
+  default: eastus
+```
+
+The output must be a JSON array of options: strings, `{ "value": ..., "label": ... }` objects, or both. A `<Command>` with the id `list-regions` could write it like this:
+
+```bash
+echo 'regions=[{"value":"eastus","label":"East US"},{"value":"westus2","label":"West US 2"}]' >> "$RUNBOOK_OUTPUT"
+```
+
+The reference is `{{ fromJson .outputs.<block_id>.<output_name> }}` or `{{ .outputs.<block_id>.<output_name> }}`, alone. The field then behaves like a [default that uses a block output](#defaults-that-use-other-variables):
+
+- Until the block has run, the field says it's waiting for that block, with a link to it, and the block's Generate or Submit button stays disabled. When the block runs again with another list, the options follow.
+- A value that isn't one of the options, such as a `default` the list doesn't have, is an error on the field until you pick one that is.
+- If the output isn't a JSON array of options, the field shows an error that names the block and the output. A [sensitive](/authoring/inputs-and-outputs/#sensitive-outputs) output can't be shown as options, so it's an error too.
+- If no block on the page has the id, the field shows an error and the block is red, as for a default.
+
+A `<Template>` renders with the Boilerplate CLI, which takes only a list of strings as `options`. Runbooks checks the value against the options, then gives Boilerplate the field as a `string` and labelled options as their values, so the template renders the same way. The Boilerplate CLI on its own can't render a template whose options come from an output. [`runbooks test`](/authoring/testing/) reads the output once the block that produces it has run, and fails the test if an input isn't one of the options.
+
+The [output-options demo runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/output-options) has a dropdown and a multi-select picker that read a script's output.
 
 ### `list`
 
@@ -580,6 +626,16 @@ Lists the allowed values for a `list` variable. The form then renders a multi-se
     - us-west-2
     - eu-west-1
 ```
+
+Like an `enum`'s `options`, an option can have a [label](#options), and the list can come from [a block's output](#options-from-a-blocks-output):
+
+```yaml
+- name: AllowedLocations
+  type: list
+  x-options: "{{ fromJson .outputs.list_regions.regions }}"
+```
+
+The picker then waits for that block, and each value picked must be one of the options it output.
 
 ### `x-schema`
 

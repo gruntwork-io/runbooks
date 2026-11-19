@@ -1,3 +1,5 @@
+import type { OptionsReference } from "../../../src/domain/boilerplate/options"
+
 // API response for an individual boilerplate variable
 export interface BoilerplateVariable {
   name: string
@@ -5,7 +7,9 @@ export interface BoilerplateVariable {
   type: BoilerplateVariableType | string
   default?: unknown
   required?: boolean
-  options?: string[]
+  options?: string[] // Values of an enum's options or a list's x-options
+  optionLabels?: Record<string, string> // Text each option is shown as, by value, when any differs from its value
+  optionsFrom?: OptionsReference // The block output the options come from (see parseOptionsReference)
   validations?: ValidationRule[]
   sensitive?: boolean
   // Runbooks extensions (x- prefixed in YAML, ignored by Boilerplate)

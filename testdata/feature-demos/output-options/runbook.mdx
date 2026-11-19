@@ -1,0 +1,47 @@
+# Options From a Block's Output
+
+A dropdown (an `enum`'s `options`) or a multi-select picker (a `list`'s `x-options`) can list options that a script outputs, rather than a fixed list in the YAML. That keeps a list that lives in a cloud API, like the regions an account can use, from going stale.
+
+Write the options as a reference to the output, which must be a JSON array:
+
+```yaml
+options: "{{ fromJson .outputs.list_regions.regions }}"
+```
+
+Each option is a string, or `{ "value": "eastus", "label": "East US (eastus)" }`. The form shows an option's label and stores its value.
+
+## List the regions
+
+Until this script has run, the fields below say they're waiting for it, and the Template can't generate. Run it and they list the regions it output. Run it again with another list and the options follow.
+
+<Command
+  id="list-regions"
+  path="scripts/list-regions.sh"
+  title="List Regions"
+  description="Outputs the available regions as a JSON array of { value, label } objects"
+/>
+
+## In a Template
+
+`Location` is a dropdown and `AllowedLocations` a multi-select picker, both of the regions above. `Size` has labels written in the YAML. A default that isn't one of the options is an error on its field until you pick one that is.
+
+<Template id="region-settings" path="templates/region-settings" />
+
+## In an Inputs block
+
+<Inputs id="backup">
+```yaml
+variables:
+  - name: BackupLocation
+    type: enum
+    description: Where to keep backups
+    options: "{{ fromJson .outputs.list_regions.regions }}"
+    default: northeurope
+```
+</Inputs>
+
+<TemplateInline id="backup-preview" inputsId="backup" outputPath="backup.txt" generateFile={true}>
+```txt
+Backups go to {{ .inputs.BackupLocation }}
+```
+</TemplateInline>

@@ -6,6 +6,7 @@ import { useRunbookContext, flattenInputs } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import Inputs from "../Inputs"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
+import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 
 // ---------------------------------------------------------------------------
 // Mock useApiGetBoilerplateConfig — controls config loading
@@ -278,4 +279,64 @@ describe("Inputs", () => {
       expect(flattenInputs(ctx!.getInputs("test-inputs"))).toEqual({ dry_run: false })
     },
   )
+})
+
+describe("Inputs with options from a block's output", () => {
+  beforeEach(() => {
+    mockApiReturn = {
+      data: {
+        variables: [
+          {
+            name: "Location",
+            type: "enum",
+            description: "",
+            default: "eastus",
+            optionsFrom: {
+              expression: "{{ fromJson .outputs.list_regions.regions }}",
+              blockId: "list_regions",
+              outputName: "regions",
+            },
+          },
+        ],
+        outputDependencies: [
+          {
+            blockId: "list_regions",
+            outputName: "regions",
+            fullPath: "outputs.list_regions.regions",
+          },
+        ],
+      },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      silentRefetch: vi.fn(),
+    }
+  })
+
+  function ListRegions() {
+    useComponentIdRegistry("list_regions", "Command")
+    return null
+  }
+
+  it("waits for the block, and can't be submitted until it runs", () => {
+    render(
+      <TestWrapper>
+        <ListRegions />
+        <Inputs id="test-inputs" path="boilerplate.yml" />
+      </TestWrapper>,
+    )
+    expect(screen.getByTestId("options-waiting-Location")).toHaveTextContent(
+      "Waiting for list_regions to run.",
+    )
+    expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled()
+  })
+
+  it("says so when no block on the page has the id", () => {
+    renderInputs()
+    expect(
+      screen.getByText(
+        'Its options come from an output of block "list_regions", but no block on this page has that id.',
+      ),
+    ).toBeInTheDocument()
+  })
 })

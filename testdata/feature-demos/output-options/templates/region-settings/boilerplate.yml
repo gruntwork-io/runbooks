@@ -1,0 +1,27 @@
+variables:
+  # A dropdown whose options are the regions the List Regions script output.
+  - name: Location
+    type: enum
+    description: Where to deploy
+    options: "{{ fromJson .outputs.list_regions.regions }}"
+    default: eastus
+
+  # A multi-select picker whose options come from the same output.
+  - name: AllowedLocations
+    type: list
+    description: Regions resources may be created in
+    x-options: "{{ fromJson .outputs.list_regions.regions }}"
+    default:
+      - eastus
+      - westus2
+
+  # Options written in the YAML can have labels too.
+  - name: Size
+    type: enum
+    description: Instance size
+    options:
+      - value: small
+        label: Small (2 vCPU, 4 GiB)
+      - value: large
+        label: Large (8 vCPU, 32 GiB)
+    default: small
