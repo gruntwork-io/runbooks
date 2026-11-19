@@ -8,6 +8,11 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { Effect, Result } from "effect"
 import { parseBoilerplateConfig } from "../../src/domain/boilerplate/config.ts"
+import {
+  hiddenVariables,
+  showWhenProblems,
+  withHiddenDefaults,
+} from "../../src/domain/boilerplate/showWhen.ts"
 import { isTemplateString } from "../../src/domain/boilerplate/templateString.ts"
 import { validateVariableValue } from "../../src/domain/boilerplate/validators.ts"
 import { findComponents, type ParsedComponent } from "../../src/domain/registry/executable.ts"
@@ -149,11 +154,16 @@ export class InputValidator {
     return ""
   }
 
-  /** Validate test input values against discovered boilerplate schemas. */
+  /**
+   * Validate test input values against discovered boilerplate schemas. A
+   * variable that x-show-when hides isn't validated, as the form doesn't ask for it.
+   */
   validateInputValues(inputs: Record<string, unknown>): ValidationError[] {
     const errors: ValidationError[] = []
+    const hidden = this.hiddenInputs(inputs)
 
     for (const [key, value] of Object.entries(inputs)) {
+      if (hidden.has(key)) continue
       const [inputsId, varName] = key.split(".", 2)
       if (inputsId === undefined || varName === undefined) continue
 
@@ -167,6 +177,60 @@ export class InputValidator {
     }
 
     return errors
+  }
+
+  /**
+   * The inputs with each variable that x-show-when hides set to its default,
+   * as the form reports it: never a value set for a field nobody is asked for.
+   */
+  withHiddenDefaults(inputs: Record<string, unknown>): Record<string, unknown> {
+    const result = { ...inputs }
+    for (const [blockId, schema] of this.schemas) {
+      const variables = [...schema.variables.values()]
+      const values = this.blockValues(blockId, inputs)
+      const hidden = hiddenVariables(variables, values)
+      for (const [name, value] of Object.entries(withHiddenDefaults(variables, values, hidden))) {
+        if (hidden.has(name)) result[`${blockId}.${name}`] = value
+      }
+    }
+    return result
+  }
+
+  /** The keys ("blockId.VarName") of the inputs that x-show-when hides. */
+  private hiddenInputs(inputs: Record<string, unknown>): Set<string> {
+    const keys = new Set<string>()
+    for (const [blockId, schema] of this.schemas) {
+      const hidden = hiddenVariables(
+        [...schema.variables.values()],
+        this.blockValues(blockId, inputs),
+      )
+      for (const name of hidden) keys.add(`${blockId}.${name}`)
+    }
+    return keys
+  }
+
+  /** Block `blockId`'s values in `inputs`, by variable name. */
+  private blockValues(blockId: string, inputs: Record<string, unknown>): Record<string, unknown> {
+    const values: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(inputs)) {
+      const [inputsId, name] = key.split(".", 2)
+      if (inputsId === blockId && name !== undefined) values[name] = value
+    }
+    return values
+  }
+
+  /** Add a block's variables to its schema, and its x-show-when mistakes to the config errors. */
+  private addVariables(
+    schema: InputsBlockSchema,
+    componentType: "Inputs" | "Template",
+    cfg: BoilerplateConfig,
+  ): void {
+    for (const v of cfg.variables) {
+      schema.variables.set(v.name, v)
+    }
+    for (const message of showWhenProblems(cfg.variables)) {
+      this.configErrors.push({ componentType, componentId: schema.id, message })
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -207,10 +271,7 @@ export class InputValidator {
       if (configPath) {
         const boilerplatePath = resolveBoilerplatePath(runbookDir, configPath)
         try {
-          const cfg = loadBoilerplateConfig(boilerplatePath)
-          for (const v of cfg.variables) {
-            schema.variables.set(v.name, v)
-          }
+          this.addVariables(schema, "Inputs", loadBoilerplateConfig(boilerplatePath))
         } catch (e: unknown) {
           this.configErrors.push({
             componentType: "Inputs",
@@ -228,10 +289,7 @@ export class InputValidator {
           })
         } else if (yamlContent) {
           try {
-            const cfg = parseConfig(yamlContent)
-            for (const v of cfg.variables) {
-              schema.variables.set(v.name, v)
-            }
+            this.addVariables(schema, "Inputs", parseConfig(yamlContent))
           } catch (e: unknown) {
             this.configErrors.push({
               componentType: "Inputs",
@@ -289,11 +347,8 @@ export class InputValidator {
 
       const boilerplatePath = resolveBoilerplatePath(runbookDir, templatePath)
       try {
-        const cfg = loadBoilerplateConfig(boilerplatePath)
         const schema: InputsBlockSchema = { id: comp.id, variables: new Map() }
-        for (const v of cfg.variables) {
-          schema.variables.set(v.name, v)
-        }
+        this.addVariables(schema, "Template", loadBoilerplateConfig(boilerplatePath))
         this.schemas.set(comp.id, schema)
       } catch (e: unknown) {
         this.configErrors.push({

@@ -507,8 +507,12 @@ export class TestExecutor {
       return result
     }
 
-    // Fill in the variables the test doesn't set
-    resolvedInputs = { ...this.fillUnsetInputs(resolvedInputs), ...resolvedInputs }
+    // Fill in the variables the test doesn't set. A variable x-show-when
+    // hides gets its default, as the form reports it.
+    resolvedInputs = this.validator.withHiddenDefaults({
+      ...this.fillUnsetInputs(resolvedInputs),
+      ...resolvedInputs,
+    })
 
     // 2. Validate inputs against schemas
     const validationErrors = this.validator.validateInputValues(resolvedInputs)

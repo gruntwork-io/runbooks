@@ -15,6 +15,14 @@ import { useOutputOptions, type OutputOptionsStatus } from "../hooks/useOutputOp
 import { useEnteredValues } from "../hooks/useEnteredValues"
 import { containsTemplateValue, isTemplateValue } from "../lib/templateValue"
 import { untouchedValue } from "../lib/untouchedValue"
+import {
+  describeShowWhen,
+  emptyValue,
+  hiddenVariables,
+  showWhenProblems,
+  withHiddenDefaults,
+} from "../lib/showWhen"
+import { InstructionModeContext } from "@/contexts/InstructionModeContext.types"
 import { markKeystroke } from "@/lib/renderPerf"
 import { FormStatus } from "./FormStatus"
 import { UnmetDependenciesWarning } from "./UnmetDependenciesWarning"
@@ -65,7 +73,9 @@ function missingBlocksReport(missingByField: Record<string, string[]>): string |
  * boilerplate variable types. It handles form state, validation, and submission.
  * Variables can be grouped into sections using the x-section YAML property,
  * which x-sections can fold. An x-locked variable is shown read-only, and an
- * x-hidden one isn't shown at all unless it has an error.
+ * x-hidden one isn't shown at all unless it has an error. A variable with
+ * x-show-when shows only while its conditions hold; while hidden it isn't
+ * validated, and the values the form reports have its default.
  *
  * @param props - Form configuration object containing:
  *   - `id`: Unique identifier for the form
@@ -149,6 +159,8 @@ interface VariableFieldProps {
   onReset?: (() => void) | undefined
   /** The blocks whose output the field's options come from, while they haven't produced it. */
   optionsWaitingFor?: string[] | undefined
+  /** When the field shows, in words (instruction mode states its x-show-when) */
+  condition?: string | undefined
 }
 
 const VariableField: React.FC<VariableFieldProps> = ({
@@ -163,6 +175,7 @@ const VariableField: React.FC<VariableFieldProps> = ({
   links,
   onReset,
   optionsWaitingFor,
+  condition,
 }) => {
   const isBooleanType = variable.type === "bool"
   const disabled = readOnly !== undefined
@@ -239,6 +252,12 @@ const VariableField: React.FC<VariableFieldProps> = ({
           </DescriptionMarkdown>
         )}
 
+        {condition && (
+          <p className={`text-sm text-muted-foreground italic ${isBooleanType ? "w-full" : ""}`}>
+            {condition}
+          </p>
+        )}
+
         {/* The block an inherited field is imported from shows its error */}
         {error && readOnly !== "inherited" && (
           <p className={`text-sm text-destructive ${isBooleanType ? "w-full" : ""}`}>{error}</p>
@@ -288,9 +307,29 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     [boilerplateConfig, outputOptions.variables],
   )
 
-  // Use validation hook first so we can use isFormValid in the wrapped callback
-  const { visibleErrors, validateForm, validateField, isFormValid, markFieldTouched } =
-    useFormValidation(optionsConfig)
+  const allVariables = boilerplateConfig?.variables ?? NO_VARIABLES
+
+  // What a field resets to (see the `defaults` prop)
+  const defaultValue = (variable: BoilerplateVariable): unknown =>
+    defaults?.[variable.name] ?? variable.default ?? untouchedValue(variable)
+
+  // What a field x-show-when hides comes to: an imported field the value it
+  // imports, any other its default, or an empty value without one. Never
+  // what was entered before it hid.
+  const hiddenValue = (variable: BoilerplateVariable): unknown =>
+    sharedVarNames.has(variable.name) && liveVarValues[variable.name] !== undefined
+      ? liveVarValues[variable.name]
+      : (defaultValue(variable) ?? emptyValue(variable))
+
+  // The values the form reports: its own, with each hidden field's replaced.
+  // The form keeps what was entered, so a field that shows again has it back.
+  const reported = (data: Record<string, unknown>): Record<string, unknown> =>
+    withHiddenDefaults(
+      allVariables,
+      data,
+      hiddenVariables(allVariables, data, hiddenValue),
+      hiddenValue,
+    )
 
   // Always call onAutoRender so that variables are published to context
   // This allows Command/Check components to react to empty/invalid values
@@ -300,10 +339,16 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const { formData, updateField, updateFields } = useFormState(
     boilerplateConfig,
     initialData,
-    onFormChange,
-    onAutoRender,
+    onFormChange && ((data) => onFormChange(reported(data))),
+    onAutoRender && ((data) => onAutoRender(reported(data))),
     enableAutoRender,
   )
+
+  // The fields x-show-when hides right now. They aren't validated or shown.
+  const hidden = hiddenVariables(allVariables, formData, hiddenValue)
+
+  const { visibleErrors, validateForm, validateField, isFormValid, markFieldTouched } =
+    useFormValidation(optionsConfig, hidden)
 
   // What each linked (template) value comes to, shown in place of its tokens
   const resolvedValues = useResolvedTemplateValues(
@@ -320,8 +365,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const outputStatus = useOutputDependencyStatus()
   const missingByField: Record<string, string[]> = {}
   const missingBlockErrors: Record<string, string> = {}
-  for (const variable of boilerplateConfig?.variables ?? NO_VARIABLES) {
-    if (sharedVarNames.has(variable.name)) continue
+  for (const variable of allVariables) {
+    if (sharedVarNames.has(variable.name) || hidden.has(variable.name)) continue
     const { missing } = outputStatus(formData[variable.name])
     if (missing.length === 0) continue
     missingByField[variable.name] = missing
@@ -336,7 +381,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const optionErrors: Record<string, string> = {}
   for (const variable of outputOptions.variables) {
     const status: OutputOptionsStatus | undefined = outputOptions.status[variable.name]
-    if (!status || sharedVarNames.has(variable.name)) continue
+    // A field x-show-when hides isn't asked for, so its options can't hold the form up either
+    if (!status || sharedVarNames.has(variable.name) || hidden.has(variable.name)) continue
     if (status.kind === "waiting") optionsWaiting[variable.name] = status.waitingFor
     else if (status.kind === "missing") {
       missingByField[variable.name] = [...(missingByField[variable.name] ?? []), ...status.missing]
@@ -351,7 +397,12 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     Object.keys(optionsWaiting).length > 0 || Object.keys(optionErrors).length > 0
 
   const hasMissingBlocks = Object.keys(missingBlockErrors).length > 0
-  const shownErrors = { ...visibleErrors, ...optionErrors, ...missingBlockErrors }
+  // A hidden field keeps no error from before it hid
+  const shownErrors = Object.fromEntries(
+    Object.entries({ ...visibleErrors, ...optionErrors, ...missingBlockErrors }).filter(
+      ([name]) => !hidden.has(name),
+    ),
+  )
 
   // It's a mistake in the runbook, so the page-level error report counts it
   // too. Under its own key: the block reports (and clears) its own errors
@@ -371,6 +422,25 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     })
     return () => clearError(componentId)
   }, [id, blockType, missingReport, reportError, clearError])
+
+  // Mistakes in the x-show-when conditions, such as one on a variable the
+  // form doesn't have, are mistakes in the runbook too
+  const showWhenReport = showWhenProblems(allVariables).join(" ") || undefined
+  useEffect(() => {
+    if (!reportError || !clearError || !showWhenReport) return
+    const componentId = `${id}:show-when`
+    reportError({
+      componentId,
+      componentType: blockType,
+      severity: "error",
+      message: showWhenReport,
+    })
+    return () => clearError(componentId)
+  }, [id, blockType, showWhenReport, reportError, clearError])
+
+  // Instruction mode states when a conditional field shows. Optional, as the
+  // form can render without the provider.
+  const instructionMode = useContext(InstructionModeContext)?.enabled === true
 
   // Sync live variable values when they change (for shared variables)
   // Shared variables are read-only in the form and stay live-synced to imported values
@@ -407,12 +477,15 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
       ? boilerplateConfig.sections
       : [{ name: "", variables: (boilerplateConfig?.variables ?? NO_VARIABLES).map((v) => v.name) }]
 
-  // A hidden field stays out of the form unless it has an error to show: the
-  // form never fails on something nobody can see. It shows locked, as it is.
+  // An x-hidden field stays out of the form unless it has an error to show:
+  // the form never fails on something nobody can see. It shows locked, as it
+  // is. One x-show-when hides isn't asked for, so has no error to show.
   const shownVariables = (section: Section): BoilerplateVariable[] =>
     section.variables.flatMap((name) => {
       const variable = variablesByName.get(name)
-      return variable && (!variable.hidden || shownErrors[name] !== undefined) ? [variable] : []
+      return variable && !hidden.has(name) && (!variable.hidden || shownErrors[name] !== undefined)
+        ? [variable]
+        : []
     })
 
   // The collapsed sections that are open. One with an error opens, and stays
@@ -471,7 +544,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     setSubmitAttempted(false)
 
     if (onGenerate) {
-      onGenerate(formData)
+      onGenerate(reported(formData))
     }
   }
 
@@ -485,15 +558,17 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     sensitiveElsewhere.has(name) || variablesByName.get(name)?.sensitive === true
   const variableValue = (name: string): string | undefined => {
     if (isSensitive(name)) return undefined
-    const value = Object.hasOwn(formData, name) ? formData[name] : importedValues[name]
+    const variable = variablesByName.get(name)
+    const value =
+      variable && hidden.has(name)
+        ? hiddenValue(variable)
+        : Object.hasOwn(formData, name)
+          ? formData[name]
+          : importedValues[name]
     const known = containsTemplateValue(value) ? resolvedValues[name] : value
     if (typeof known === "string") return isTemplateValue(known) ? undefined : known
     return typeof known === "number" || typeof known === "boolean" ? String(known) : undefined
   }
-
-  // What a field resets to (see the `defaults` prop)
-  const defaultValue = (variable: BoilerplateVariable): unknown =>
-    defaults?.[variable.name] ?? variable.default ?? untouchedValue(variable)
 
   /**
    * Renders a variable's field
@@ -532,6 +607,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           readOnly === undefined && changed
             ? () => enteredValues.replace(variable.name, defaultValue(variable))
             : undefined
+        }
+        condition={
+          instructionMode && variable.showWhen ? describeShowWhen(variable.showWhen) : undefined
         }
       />
     )

@@ -1,0 +1,57 @@
+# Conditional Fields
+
+A field can show only while other fields have certain values. Give its variable an `x-show-when`, mapping the other variables' names to the value, or list of values, each must have:
+
+```yaml
+- name: IdentitySubscriptionId
+  type: string
+  x-show-when:
+    SubscriptionLayout: caf
+```
+
+While a field is hidden, the form doesn't ask for it: a `required` one doesn't stop you generating, and the template gets the field's default (empty when it has none), not a value you entered before it hid. A section whose fields are all hidden doesn't appear.
+
+## Choose a contact method
+
+The field for the address shows only for the method you pick.
+
+<Inputs id="contact">
+```yaml
+variables:
+  - name: ContactMethod
+    type: enum
+    options: [email, slack]
+    default: email
+  - name: EmailAddress
+    type: string
+    validations:
+      - required
+    x-show-when:
+      ContactMethod: email
+  - name: SlackChannel
+    type: string
+    validations:
+      - required
+    x-show-when:
+      ContactMethod: slack
+```
+</Inputs>
+
+<Command
+  id="show-contact"
+  inputsId="contact"
+  title="Show the contact"
+  env={{ METHOD: "{{ .inputs.ContactMethod }}", EMAIL: "{{ .inputs.EmailAddress }}", CHANNEL: "{{ .inputs.SlackChannel }}" }}
+  command='echo "contact=$METHOD:$EMAIL$CHANNEL" >> "$RUNBOOK_OUTPUT"'
+/>
+
+## Lay out the subscriptions
+
+This template's `boilerplate.yml`:
+
+- Shows the **CAF Subscriptions** section only when **Subscription Layout** is `caf`. With `single`, the section disappears and its required fields don't stop you generating.
+- Shows **Firewall Sku** only when the layout is `caf` and **Deploy Firewall** is checked. Uncheck it and `subscriptions.yml` gets the default tier, `Standard`, whatever you picked.
+
+Generate it, switch the layout, and look at `subscriptions.yml`.
+
+<Template id="subscriptions" path="templates/subscriptions" />

@@ -749,3 +749,79 @@ describe("InputValidator.validateInputValues", () => {
     expect(err?.message).toContain("Failed to parse inline YAML")
   })
 })
+
+describe("InputValidator x-show-when", () => {
+  const conditional = `
+<Inputs id="i1">
+\`\`\`yaml
+variables:
+  - name: Layout
+    type: enum
+    options: [single, caf]
+    default: single
+  - name: Identity
+    type: string
+    validations:
+      - required
+    x-show-when:
+      Layout: caf
+  - name: Sku
+    type: enum
+    options: [Standard, Premium]
+    default: Standard
+    x-show-when:
+      Layout: caf
+\`\`\`
+</Inputs>
+`
+
+  it("skips validating a hidden variable", () => {
+    const v = new InputValidator(writeRunbook(conditional))
+    v.init()
+    expect(v.getConfigErrors()).toEqual([])
+    expect(v.validateInputValues({ "i1.Layout": "single", "i1.Identity": "" })).toEqual([])
+
+    const errs = v.validateInputValues({ "i1.Layout": "caf", "i1.Identity": "" })
+    expect(errs.map((e) => e.inputKey)).toEqual(["i1.Identity"])
+  })
+
+  it("gives a hidden variable its default, or an empty value", () => {
+    const v = new InputValidator(writeRunbook(conditional))
+    v.init()
+    expect(
+      v.withHiddenDefaults({ "i1.Layout": "single", "i1.Identity": "x", "i1.Sku": "Premium" }),
+    ).toEqual({ "i1.Layout": "single", "i1.Identity": "", "i1.Sku": "Standard" })
+    expect(
+      v.withHiddenDefaults({ "i1.Layout": "caf", "i1.Identity": "x", "i1.Sku": "Premium" }),
+    ).toEqual({ "i1.Layout": "caf", "i1.Identity": "x", "i1.Sku": "Premium" })
+  })
+
+  it("reports a condition on an unknown variable or an option the enum doesn't have", () => {
+    const v = new InputValidator(
+      writeRunbook(`
+<Inputs id="i1">
+\`\`\`yaml
+variables:
+  - name: Layout
+    type: enum
+    options: [single, caf]
+  - name: Identity
+    x-show-when:
+      Layout: custom
+  - name: Region
+    x-show-when:
+      Cloud: aws
+\`\`\`
+</Inputs>
+`),
+    )
+    v.init()
+    expect(v.getConfigErrors().map((e) => [e.componentId, e.message])).toEqual([
+      [
+        "i1",
+        'Identity: x-show-when gives Layout the value "custom", which isn\'t one of its options (single, caf).',
+      ],
+      ["i1", "Region: x-show-when names Cloud, which isn't a variable here."],
+    ])
+  })
+})

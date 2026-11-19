@@ -545,7 +545,7 @@ With `ProjectName: "vpc"` and `Environment: "prod"`, this generates:
 
 Runbooks reads extra YAML properties, prefixed with `x-`, that change how the form renders. The Boilerplate CLI ignores them.
 
-Together with [`order`](#field-order), they lay the form out for the person filling it in: [`x-section`](#x-section) groups fields under headings, [`x-sections`](#x-sections) folds the groups they rarely need, and [`x-locked`](#x-locked) and [`x-hidden`](#x-hidden) keep them from changing values the runbook sets itself. The [form-layout demo runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/form-layout) uses each one.
+Together with [`order`](#field-order), they lay the form out for the person filling it in: [`x-section`](#x-section) groups fields under headings, [`x-sections`](#x-sections) folds the groups they rarely need, [`x-locked`](#x-locked) and [`x-hidden`](#x-hidden) keep them from changing values the runbook sets itself, and [`x-show-when`](#x-show-when) shows a field only when it applies. The [form-layout demo runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/form-layout) uses each of the others.
 
 ### `x-section`
 
@@ -631,6 +631,48 @@ When a session is resumed, a locked field starts from the runbook's value, not f
 ```
 
 A hidden field is still validated. If its value is invalid, for example because it's `required` and empty, the form shows the field, locked, with its error, so the block never fails on something you can't see. A section whose fields are all hidden doesn't appear.
+
+### `x-show-when`
+
+`x-show-when` shows a field only while other fields have certain values. It maps each of those variables to a value, or to a list of values any of which matches. The field shows while every condition holds, and the form updates as you change the other fields.
+
+In this form, **Subscription Layout** is `single` or `caf`. The identity subscription applies only to `caf`, so it shows only then:
+
+```yaml
+- name: SubscriptionLayout
+  type: enum
+  options: [single, caf]
+  default: single
+
+- name: IdentitySubscriptionId
+  type: string
+  x-show-when:
+    SubscriptionLayout: caf
+```
+
+A list matches any of its values, and several conditions must all hold:
+
+```yaml
+- name: FirewallSku
+  type: enum
+  options: [Standard, Premium]
+  default: Standard
+  x-show-when:
+    SubscriptionLayout: [caf, custom]
+    DeployFirewall: true
+```
+
+A value is compared as text, so `true` matches a checked `bool`, and a `list` with [`x-options`](#x-options) matches when any of its selected values does.
+
+While a field is hidden, the form doesn't ask for it:
+
+- It isn't validated, so a `required` field doesn't stop you generating.
+- The block uses its `default`, not a value you entered before it was hidden. Without a `default`, it gets an empty value: `""`, `false` for a `bool`, `0` for a number, or an empty list or map. Boilerplate rejects an `enum` value that isn't one of its options, so give a conditional `enum` a `default`.
+- A section whose fields are all hidden doesn't appear.
+
+If the field shows again, it has the value you entered. In [instruction mode](/intro/instruction-mode/), each conditional field states when it applies, such as "Only when Subscription Layout is caf". [`runbooks test`](/authoring/testing/) does the same as the form: it skips validating a hidden field and gives it its `default`, whatever the test sets for it.
+
+The block reports a configuration error for a condition that names a variable the form doesn't have, gives a value that isn't one of an `enum`'s options, or depends on itself through other conditions. The [conditional-fields demo runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/conditional-fields) shows `x-show-when` in a `<Template>` and an `<Inputs>` block.
 
 ### `x-options`
 

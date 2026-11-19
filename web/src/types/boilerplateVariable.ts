@@ -19,6 +19,9 @@ export interface BoilerplateVariable {
   sectionName?: string // (YAML: x-section)
   locked?: boolean // Shown, but nobody can change its value (YAML: x-locked, or x-hidden)
   hidden?: boolean // Not shown in the form; a hidden field is locked too (YAML: x-hidden)
+  // Shown only while each named variable has one of its listed values; otherwise not
+  // validated, and the block uses the default (YAML: x-show-when)
+  showWhen?: Record<string, string[]>
 }
 
 export enum BoilerplateVariableType {
