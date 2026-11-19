@@ -6,6 +6,7 @@ export type AzureAuthType = "cli" | "device_code" | "service_principal"
 type AzureEnvVar = (typeof AZURE_AUTH_ENV_VARS)[number]
 
 export const AZURE_CREDENTIAL_ENV_VARS = [
+  "ARM_TENANT_ID",
   "AZURE_SUBSCRIPTION_ID",
   "ARM_SUBSCRIPTION_ID",
   "ARM_USE_CLI",
@@ -34,7 +35,6 @@ export function azureSessionEnv(input: {
     AZURE_CONFIG_DIR: input.configDir,
     AZURE_EXTENSION_DIR: input.extensionDir ?? `${input.configDir}/cliextensions`,
     AZURE_TENANT_ID: input.tenantId,
-    ARM_TENANT_ID: input.tenantId,
     AZURE_AUTH_TYPE: input.authType,
     AZURE_PRINCIPAL_NAME: input.principal.name,
     AZURE_PRINCIPAL_OBJECT_ID: input.principal.objectId,
@@ -51,7 +51,11 @@ export function azureSessionEnv(input: {
   if (input.authType === "service_principal" && input.clientSecret) {
     set.ARM_CLIENT_SECRET = input.clientSecret
     set.AZURE_CLIENT_SECRET = input.clientSecret
+    set.ARM_TENANT_ID = input.tenantId
   } else {
+    // No ARM_TENANT_ID: the azurerm backend passes it to `az account get-access-token`
+    // as --tenant alongside --subscription, which Azure CLI refuses. The CLI's sign-in in
+    // AZURE_CONFIG_DIR already has the tenant.
     set.ARM_USE_CLI = "true"
     if (input.certificatePath) set.AZURE_CLIENT_CERTIFICATE_PATH = input.certificatePath
   }

@@ -1896,8 +1896,9 @@ export class TestExecutor {
       creds["ARM_USE_CLI"] = "true"
     }
     if (tenantId) {
-      creds["ARM_TENANT_ID"] = tenantId
       creds["AZURE_TENANT_ID"] = tenantId
+      // Same rule as azureSessionEnv: no ARM_TENANT_ID with the CLI's sign-in
+      if (creds["ARM_USE_CLI"] !== "true") creds["ARM_TENANT_ID"] = tenantId
     }
     if (subscriptionId) {
       creds["ARM_SUBSCRIPTION_ID"] = subscriptionId

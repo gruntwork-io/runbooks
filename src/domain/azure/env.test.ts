@@ -17,7 +17,7 @@ const SP: AzurePrincipal = {
 }
 
 describe("azureSessionEnv", () => {
-  it("points a CLI sign-in at its config dir and turns on ARM_USE_CLI", () => {
+  it("points a CLI sign-in at its config dir and turns on ARM_USE_CLI, without ARM_TENANT_ID", () => {
     const { set, clear } = azureSessionEnv({
       authType: "cli",
       configDir: "/tmp/runbooks-azure-1",
@@ -29,7 +29,6 @@ describe("azureSessionEnv", () => {
       AZURE_CONFIG_DIR: "/tmp/runbooks-azure-1",
       AZURE_EXTENSION_DIR: "/tmp/runbooks-azure-1/cliextensions",
       AZURE_TENANT_ID: "tenant-1",
-      ARM_TENANT_ID: "tenant-1",
       AZURE_SUBSCRIPTION_ID: "sub-1",
       ARM_SUBSCRIPTION_ID: "sub-1",
       ARM_USE_CLI: "true",
@@ -39,6 +38,7 @@ describe("azureSessionEnv", () => {
       AZURE_PRINCIPAL_TYPE: "user",
     })
     expect(clear).toEqual([
+      "ARM_TENANT_ID",
       "ARM_CLIENT_ID",
       "ARM_CLIENT_SECRET",
       "ARM_CLIENT_CERTIFICATE_PATH",
@@ -56,20 +56,26 @@ describe("azureSessionEnv", () => {
       tenantId: "tenant-1",
     })
     expect(set.ARM_SUBSCRIPTION_ID).toBeUndefined()
+    expect(set.ARM_TENANT_ID).toBeUndefined()
+    expect(set.AZURE_TENANT_ID).toBe("tenant-1")
     expect(set.AZURE_PRINCIPAL_TYPE).toBe("guest")
     expect(clear).toContain("ARM_SUBSCRIPTION_ID")
     expect(clear).toContain("AZURE_SUBSCRIPTION_ID")
   })
 
-  it("passes a service principal's secret under the azurerm and SDK names, without ARM_USE_CLI", () => {
+  it("passes a service principal's secret and tenant under the azurerm and SDK names, without ARM_USE_CLI", () => {
     const { set, clear } = azureSessionEnv({
       authType: "service_principal",
       configDir: "/d",
       principal: SP,
       tenantId: "tenant-1",
+      subscriptionId: "sub-1",
       clientId: "app-id",
       clientSecret: "s3cret",
     })
+    expect(set.ARM_TENANT_ID).toBe("tenant-1")
+    expect(set.AZURE_TENANT_ID).toBe("tenant-1")
+    expect(set.ARM_SUBSCRIPTION_ID).toBe("sub-1")
     expect(set.ARM_CLIENT_ID).toBe("app-id")
     expect(set.ARM_CLIENT_SECRET).toBe("s3cret")
     expect(set.AZURE_CLIENT_SECRET).toBe("s3cret")
@@ -89,6 +95,31 @@ describe("azureSessionEnv", () => {
     expect(set.AZURE_CLIENT_CERTIFICATE_PATH).toBe("/keys/sp.pem")
     expect(set.ARM_CLIENT_CERTIFICATE_PATH).toBeUndefined()
     expect(set.ARM_USE_CLI).toBe("true")
+  })
+
+  it("never pairs ARM_USE_CLI with ARM_TENANT_ID, which the azurerm backend would pass to az with the subscription", () => {
+    const signIns = [
+      { authType: "cli", principal: USER },
+      { authType: "device_code", principal: USER },
+      { authType: "service_principal", principal: SP, clientId: "c", clientSecret: "x" },
+      { authType: "service_principal", principal: SP, clientId: "c", certificatePath: "/k.pem" },
+    ] as const
+    for (const signIn of signIns) {
+      const { set, clear } = azureSessionEnv({
+        ...signIn,
+        configDir: "/d",
+        tenantId: "t",
+        subscriptionId: "s",
+      })
+      expect(set.AZURE_TENANT_ID).toBe("t")
+      expect(set.ARM_SUBSCRIPTION_ID).toBe("s")
+      if (set.ARM_USE_CLI === "true") {
+        expect(set.ARM_TENANT_ID).toBeUndefined()
+        expect(clear).toContain("ARM_TENANT_ID")
+      } else {
+        expect(set.ARM_TENANT_ID).toBe("t")
+      }
+    }
   })
 
   it("only ever names vars an azureAuthId step may pass", () => {

@@ -140,6 +140,7 @@ describe("azure:service-principal", () => {
     const env = sessionEnv()
     expect(env.AZURE_CONFIG_DIR).toBe(result.configDir)
     expect(env.ARM_CLIENT_ID).toBe("app-id")
+    expect(env.ARM_TENANT_ID).toBe(GUEST_TENANT)
     expect(env.ARM_USE_CLI).toBeUndefined()
 
     const login = spawner.calls.find((call) => call.args[0] === "login")!
@@ -216,11 +217,13 @@ describe("tenant and subscription choice", () => {
     expect(result.tenantName).toBe("LZ Testing")
     expect(result.authType).toBe("cli")
     expect(sessionEnv()).toMatchObject({
-      ARM_TENANT_ID: GUEST_TENANT,
+      AZURE_TENANT_ID: GUEST_TENANT,
       ARM_SUBSCRIPTION_ID: "sub-1",
       ARM_USE_CLI: "true",
       AZURE_PRINCIPAL_TYPE: "guest",
     })
+    expect(sessionEnv().ARM_TENANT_ID).toBeUndefined()
+    expect(result.env.ARM_TENANT_ID).toBeUndefined()
     const set = spawner.calls.find((call) => call.args[1] === "set")!
     expect(set.args).toEqual(expect.arrayContaining(["--subscription", "sub-1"]))
   })
@@ -412,6 +415,41 @@ describe("detection", () => {
       const used = spawner.calls[0]!.env!.AZURE_CONFIG_DIR!
       expect(used).not.toBe(userDir)
       expect(fs.existsSync(used)).toBe(false)
+    } finally {
+      if (previous === undefined) delete process.env.AZURE_CONFIG_DIR
+      else process.env.AZURE_CONFIG_DIR = previous
+      fs.rmSync(userDir, { recursive: true, force: true })
+    }
+  })
+
+  it("signs in with the user's own az login without ARM_TENANT_ID, and removes one an earlier block set", async () => {
+    authenticated(
+      await handleServicePrincipal({
+        blockId: "sp",
+        clientId: "app",
+        tenantId: GUEST_TENANT,
+        clientSecret: "x",
+      }),
+    )
+    expect(sessionEnv().ARM_TENANT_ID).toBe(GUEST_TENANT)
+
+    const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "user-azure-"))
+    fs.writeFileSync(path.join(userDir, "azureProfile.json"), "{}")
+    const previous = process.env.AZURE_CONFIG_DIR
+    process.env.AZURE_CONFIG_DIR = userDir
+    try {
+      const result = authenticated(
+        await handleConfirmDetected({ blockId: "cli", source: "cli", subscriptionId: "sub-1" }),
+      )
+      expect(result.authType).toBe("cli")
+      expect(result.env.ARM_TENANT_ID).toBeUndefined()
+      const env = sessionEnv()
+      expect(env.ARM_TENANT_ID).toBeUndefined()
+      expect(env).toMatchObject({
+        AZURE_TENANT_ID: GUEST_TENANT,
+        ARM_SUBSCRIPTION_ID: "sub-1",
+        ARM_USE_CLI: "true",
+      })
     } finally {
       if (previous === undefined) delete process.env.AZURE_CONFIG_DIR
       else process.env.AZURE_CONFIG_DIR = previous

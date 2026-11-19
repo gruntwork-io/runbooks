@@ -210,7 +210,7 @@ describe("buildAzureAuthEnvVars — one AzureAuth block per run", () => {
     tenant_a: {
       values: {
         AZURE_CONFIG_DIR: "/tmp/runbooks-azure-a",
-        ARM_TENANT_ID: "a",
+        AZURE_TENANT_ID: "a",
         ARM_SUBSCRIPTION_ID: "sub-a",
         ARM_USE_CLI: "true",
         AZURE_TENANT_NAME: "Tenant A",
@@ -231,6 +231,9 @@ describe("buildAzureAuthEnvVars — one AzureAuth block per run", () => {
     // Another block's service principal in the session env must not win.
     expect(envVars.ARM_CLIENT_SECRET).toBe("")
     expect(envVars.ARM_CLIENT_ID).toBe("")
+    // Nor its ARM_TENANT_ID, which the azurerm backend would pass to az with the subscription.
+    expect(envVars.AZURE_TENANT_ID).toBe("a")
+    expect(envVars.ARM_TENANT_ID).toBe("")
     // Outputs that aren't env vars aren't passed.
     expect(envVars.AZURE_TENANT_NAME).toBeUndefined()
   })

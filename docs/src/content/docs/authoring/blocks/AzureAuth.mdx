@@ -67,7 +67,8 @@ When the sign-in succeeds, these variables are set in the session environment fo
 |----------|-------|
 | `AZURE_CONFIG_DIR` | The block's own Azure CLI config directory, holding its sign-in. A bare `az` uses it |
 | `AZURE_EXTENSION_DIR` | Where `az` finds extensions: your own extensions when the block copied your `az login`, else the block's directory |
-| `AZURE_TENANT_ID`, `ARM_TENANT_ID` | The tenant |
+| `AZURE_TENANT_ID` | The tenant |
+| `ARM_TENANT_ID` | The tenant. Service principal with a secret only: see below |
 | `AZURE_SUBSCRIPTION_ID`, `ARM_SUBSCRIPTION_ID` | The subscription. Not set for a tenant-level sign-in |
 | `ARM_USE_CLI` | `true` unless the sign-in is a service principal with a secret: `azurerm` and `azuread` use the Azure CLI's sign-in |
 | `ARM_CLIENT_ID`, `AZURE_CLIENT_ID` | Service principal only. The client (app) ID |
@@ -79,6 +80,8 @@ When the sign-in succeeds, these variables are set in the session environment fo
 | `AZURE_PRINCIPAL_TYPE` | `user`, `guest` or `servicePrincipal` |
 
 A variable the sign-in has no value for is removed from the session, so a client secret from an earlier AzureAuth block doesn't linger.
+
+`ARM_TENANT_ID` isn't set when `ARM_USE_CLI` is (an Azure CLI sign-in, device code, a detected `az login`, or a service principal with a certificate). The `azurerm` state backend passes `ARM_TENANT_ID` to `az account get-access-token` as `--tenant`, alongside its `subscription_id` as `--subscription`, and Azure CLI refuses both together. The block's `AZURE_CONFIG_DIR` is already signed in to the chosen tenant, with the chosen subscription as its default, so `azurerm`, `azuread` and the backend get the tenant from the Azure CLI. Use `AZURE_TENANT_ID` in your own scripts.
 
 ## Block outputs
 
@@ -121,7 +124,7 @@ To bind a block to one specific AzureAuth block, use the `azureAuthId` prop. The
 />
 ```
 
-An `azureAuthId` step also gets the client ID, secret and certificate variables blank when the block has none. That stops a service principal from another block in the session taking precedence: `azurerm` prefers a client secret to the Azure CLI.
+An `azureAuthId` step also gets the client ID, secret, certificate and `ARM_TENANT_ID` variables blank when the block has none. That stops a service principal from another block in the session taking precedence: `azurerm` prefers a client secret to the Azure CLI.
 
 ## Several tenants or subscriptions
 
@@ -218,4 +221,5 @@ In [instruction mode](/intro/instruction-mode/), AzureAuth shows a "Sign in to A
 | A tenant is missing from the picker | You may need to sign in to it directly: enter its tenant ID and sign in again. See [Guest accounts](#guest-accounts) |
 | *Subscription ... isn't one this account can use* | The `subscriptionId` prop names a subscription the account can't see (in the pinned tenant, when one is set) |
 | *... is missing the required role* | Ask an administrator for the role, then sign in again |
+| *AzureCLICredential: ERROR: Please specify only one of subscription and tenant, not both* | Something set `ARM_TENANT_ID` with the Azure CLI's sign-in, or the `azurerm` backend config sets `tenant_id`. Remove it: the tenant comes from the Azure CLI. See [Environment variables](#environment-variables) |
 | A Command's **Run** button stays disabled | Its `azureAuthId` names an AzureAuth block that hasn't signed in, or an ID that doesn't exist |

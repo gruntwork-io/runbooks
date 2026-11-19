@@ -67,7 +67,7 @@ const AUTHENTICATED = {
   configDir: "/tmp/runbooks-azure-1",
   env: {
     AZURE_CONFIG_DIR: "/tmp/runbooks-azure-1",
-    ARM_TENANT_ID: GUEST.tenantId,
+    AZURE_TENANT_ID: GUEST.tenantId,
     ARM_SUBSCRIPTION_ID: "sub-1",
     ARM_USE_CLI: "true",
     AZURE_PRINCIPAL_TYPE: "guest",
