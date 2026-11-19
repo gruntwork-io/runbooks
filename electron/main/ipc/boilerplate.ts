@@ -422,9 +422,14 @@ export function registerBoilerplateHandlers(): void {
       //                   ∪ (analyzer's known set).
       // For each path:
       //   - In contentMap → use the freshly-computed hash
-      //   - Else in prev manifest → carry forward the prev hash (file
-      //     wasn't re-rendered because no relevant var changed)
-      //   - Else (analyzer ghost: in `files` but never produced) → skip
+      //   - Else in prev manifest and not rendered this call → carry
+      //     forward the prev hash (no relevant var changed)
+      //   - Else → drop it, so a file the previous render wrote becomes
+      //     an orphan and is deleted. That is a path this call rendered
+      //     without producing it (skip_files now excludes it), or any
+      //     path missing from a cold render, which covers the whole
+      //     template. Also covers analyzer ghosts (in `files` but never
+      //     produced).
       const tManifest = Date.now()
       const oldManifest = manifestStore.get(templateId)
       const oldEntries = oldManifest?.files ?? []
@@ -436,14 +441,18 @@ export function registerBoilerplateHandlers(): void {
       for (const p of contentMap.keys()) universe.add(p)
       for (const p of prevByPath.keys()) universe.add(p)
 
+      const renderedThisCall = new Set(warmResult.attemptedPaths)
+      const wasRendered = (path: string) => needsCold || renderedThisCall.has(path)
+
       const newEntries: ManifestEntry[] = []
       for (const path of universe) {
-        if (contentMap.has(path)) {
-          newEntries.push({ path, contentHash: hashFileContent(contentMap.get(path)!) })
-        } else if (prevByPath.has(path)) {
-          newEntries.push({ path, contentHash: prevByPath.get(path)! })
+        const content = contentMap.get(path)
+        const prevHash = prevByPath.get(path)
+        if (content !== undefined) {
+          newEntries.push({ path, contentHash: hashFileContent(content) })
+        } else if (prevHash !== undefined && !wasRendered(path)) {
+          newEntries.push({ path, contentHash: prevHash })
         }
-        // else: analyzer ghost — never rendered, no prev. Skip.
       }
       newEntries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
       const dManifest = Date.now() - tManifest
