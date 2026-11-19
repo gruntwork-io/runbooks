@@ -35,13 +35,16 @@ export function runQuery(db: SqlDatabase, sql: string, params: SqlParam[] = []) 
       const stmt = db.prepare(sql)
       const cols = stmt.columns()
       if (cols.length > 0) {
-        const rawRows = stmt.all(...values) as Record<string, unknown>[]
-        // stmt.all() returns objects keyed by column name, so duplicate names
-        // (SELECT 1 AS a, 2 AS a) collapse: the object keeps only the last
-        // value, and this Node version has no positional row access
-        // (setReturnArrays needs Node 25.9). Dedupe the displayed names so a
-        // generated alias (a_2) can't collide with an existing one; cells of
-        // a duplicated name all show the last value (documented limitation).
+        // Positional rows when the runtime supports it (node:sqlite
+        // setReturnArrays, Node 22.16+ / Electron's bundled Node): duplicate
+        // column names (SELECT 1 AS a, 2 AS a) keep each value. Otherwise
+        // all() returns objects keyed by name and duplicates collapse to the
+        // last value; dedupe the displayed names so a generated alias (a_2)
+        // can't collide with an existing one.
+        const setReturnArrays = stmt.setReturnArrays
+        const positional = typeof setReturnArrays === "function"
+        if (positional) setReturnArrays.call(stmt, true)
+        const rawRows = stmt.all(...values)
         const reserved = new Set(cols.map((c) => c.name))
         const seen = new Map<string, number>()
         const columns = cols.map((c) => {
@@ -53,7 +56,9 @@ export function runQuery(db: SqlDatabase, sql: string, params: SqlParam[] = []) 
           reserved.add(candidate)
           return candidate
         })
-        const rows = rawRows.map((row) => cols.map((c) => row[c.name]))
+        const rows = positional
+          ? (rawRows as unknown[][])
+          : (rawRows as Record<string, unknown>[]).map((row) => cols.map((c) => row[c.name]))
         return {
           columns,
           rows,

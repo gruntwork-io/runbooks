@@ -82,6 +82,16 @@ describe("runQuery", () => {
     })
   })
 
+  it("preserves each value of duplicate column names via positional rows", async () => {
+    await withDb(async (db) => {
+      const result = await run(runQuery(db, "SELECT 1 AS a, 2 AS a"))
+      // setReturnArrays (Node 22.16+ / Electron's Node / Bun) returns rows as
+      // arrays, so both values survive instead of collapsing to the last one.
+      expect(result.rows).toEqual([[1, 2]])
+      expect(result.columns).toEqual(["a", "a_2"])
+    })
+  })
+
   it("returns empty rows for a SELECT that matches nothing", async () => {
     await withDb(async (db) => {
       await run(runQuery(db, "CREATE TABLE t (x INTEGER)"))
