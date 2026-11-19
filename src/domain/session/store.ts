@@ -19,6 +19,13 @@ export interface SqlStatement {
   all(...params: SqlValue[]): unknown[]
   /** Column metadata for statements that return a result set; empty for writes. */
   columns(): { name: string }[]
+  /**
+   * Node 22.16+ / Electron's bundled Node: make all()/get() return rows as
+   * arrays (positional access) instead of objects keyed by column name.
+   * Optional: older runtimes lack it, and duplicate column names then
+   * collapse in object rows.
+   */
+  setReturnArrays?(arrays: boolean): void
 }
 
 export interface SqlDatabase {

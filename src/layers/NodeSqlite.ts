@@ -32,6 +32,11 @@ export function openSqliteDatabase(file: string): SqlDatabase {
         get: (...params) => statement.get(...params),
         all: (...params) => statement.all(...params),
         columns: () => statement.columns().map((c) => ({ name: c.name })),
+        // Present on Node 22.16+ and Bun; lets the domain read rows
+        // positionally so duplicate column names keep each value.
+        ...(typeof statement.setReturnArrays === "function"
+          ? { setReturnArrays: (arrays: boolean) => statement.setReturnArrays(arrays) }
+          : {}),
       }
     },
     close: () => {
