@@ -5,6 +5,7 @@ import type { BoilerplateVariable } from "@/types/boilerplateVariable"
 import type { BoilerplateConfig, Section } from "@/types/boilerplateConfig"
 import { formatVariableLabel } from "../lib/formatVariableLabel"
 import { FormControl } from "./FormControls"
+import { DescriptionMarkdown } from "./InlineMarkdown"
 import type { FieldLinks } from "./TemplateValue"
 import { useFormState } from "../hooks/useFormState"
 import { useFormValidation } from "../hooks/useFormValidation"
@@ -233,9 +234,9 @@ const VariableField: React.FC<VariableFieldProps> = ({
         )}
 
         {variable.description && (
-          <p className={`text-sm text-muted-foreground ${isBooleanType ? "w-full" : ""}`}>
+          <DescriptionMarkdown className={isBooleanType ? "w-full" : ""}>
             {variable.description}
-          </p>
+          </DescriptionMarkdown>
         )}
 
         {/* The block an inherited field is imported from shows its error */}

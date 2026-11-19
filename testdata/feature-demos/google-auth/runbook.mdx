@@ -242,9 +242,9 @@ This is the service account impersonation analogue of `sts assume-role`: a short
         type: string
         description: >
           The service account to impersonate. Your current principal needs
-          roles/iam.serviceAccountTokenCreator on it. To grant it, run:
-          gcloud iam service-accounts add-iam-policy-binding TARGET_SA
-          --member="user:you@example.com" --role="roles/iam.serviceAccountTokenCreator"
+          `roles/iam.serviceAccountTokenCreator` on it. To grant it, run:
+          `gcloud iam service-accounts add-iam-policy-binding TARGET_SA
+          --member="user:you@example.com" --role="roles/iam.serviceAccountTokenCreator"`
         default: "runbooks-demo@gruntwork-runbooks-demo.iam.gserviceaccount.com"
       - name: Lifetime
         type: int

@@ -1221,3 +1221,42 @@ describe("BoilerplateInputsForm options from a block's output", () => {
     expect(screen.getByRole("combobox")).toHaveTextContent("2 selected")
   })
 })
+
+// Descriptions are markdown wherever a field shows, read-only fields included
+describe("BoilerplateInputsForm field descriptions", () => {
+  it("renders each field's description as markdown, for editable and locked fields", () => {
+    renderForm({
+      boilerplateConfig: {
+        variables: [
+          {
+            name: "Layout",
+            type: "string",
+            description: "Pick **single** or see [the docs](https://example.com/docs).",
+            default: "single",
+          },
+          {
+            name: "Provider",
+            type: "string",
+            description: "Set by the runbook:\n- `github`",
+            default: "github",
+            locked: true,
+          },
+          { name: "Enabled", type: "bool", description: "Turn it *on*.", default: false },
+        ],
+      },
+    })
+
+    const layout = screen.getByTestId("field-Layout")
+    expect(within(layout).getByText("single", { selector: "strong" })).toBeInTheDocument()
+    expect(within(layout).getByRole("link", { name: "the docs" })).toHaveAttribute(
+      "href",
+      "https://example.com/docs",
+    )
+    const provider = screen.getByTestId("field-Provider")
+    expect(provider).toHaveTextContent("(locked)")
+    expect(within(provider).getByRole("listitem")).toHaveTextContent("github")
+    expect(
+      within(screen.getByTestId("field-Enabled")).getByText("on", { selector: "em" }),
+    ).toBeInTheDocument()
+  })
+})

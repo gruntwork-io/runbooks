@@ -6,6 +6,7 @@ A `boilerplate.yml` decides more than which fields a form has. It also decides w
 - `x-section` groups fields under a heading. A top-level `x-sections` list can fold a section with `collapsed: true`.
 - `x-locked: true` shows a field read-only. Nobody filling in the form can change it.
 - `x-hidden: true` leaves a field out of the form. The template still gets its value.
+- `description` is markdown. It can bold a word, link to docs, or list a field's options on separate lines.
 
 ## Detect the Git provider
 
@@ -26,6 +27,7 @@ This template's `boilerplate.yml`:
 - Folds **Advanced Settings** until you open it.
 - Locks `Team`, which shows but can't be changed.
 - Hides `GitProvider`, which comes from the script above, and `ManagedBy`.
+- Formats the descriptions of `Team` and `LogLevel` (under **Advanced Settings**) with markdown.
 
 Generate it and look at `service.yml`. It has every value, the hidden ones included.
 
