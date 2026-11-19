@@ -188,6 +188,13 @@ const SavedAzureAuthSchema = z.discriminatedUnion("status", [
     subscriptionName: z.string().optional(),
     configDir: z.string(),
     env: z.record(z.string(), z.string()),
+    /**
+     * The existing sign-in the user accepted, when they did: the block's
+     * config dir doesn't outlive Runbooks, so a resume detects it again.
+     */
+    detected: z
+      .object({ source: z.enum(["cli", "env"]), prefix: z.string().optional() })
+      .optional(),
   }),
 ])
 

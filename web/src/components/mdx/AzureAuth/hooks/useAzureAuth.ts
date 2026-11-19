@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useEffectEvent, useRef, useState } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
@@ -32,8 +32,12 @@ interface UseAzureAuthOptions {
 }
 
 type Authenticated = Extract<AzureSignInResultIpc, { status: "authenticated" }>
+type SavedSignIn = Extract<SavedAzureAuth, { status: "signed-in" }>
+type DetectedFrom = NonNullable<SavedSignIn["detected"]>
 
 const POLL_INTERVAL_MS = 2000
+
+const RESTARTED_MESSAGE = "Runbooks was restarted, so sign in again."
 
 const SECRET_NAMES = new Set<string>(AZURE_SECRET_ENV_VARS)
 
@@ -88,6 +92,7 @@ export function useAzureAuth({
     restoredAtMount ? "authenticated" : "pending",
   )
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [cliMissing, setCliMissing] = useState(false)
   const [signInInfo, setSignInInfo] = useState<AzureSignInInfo | null>(
@@ -122,6 +127,11 @@ export function useAzureAuth({
 
   const flowRef = useRef(0)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The existing sign-in the current sign-in came from, saved with it.
+  const detectedFromRef = useRef<DetectedFrom | undefined>(restoredAtMount?.detected)
+  // A restored sign-in whose config dir ended with Runbooks: the next detection
+  // signs in with it again, without asking, if it finds the same sign-in.
+  const resumeFromRef = useRef<SavedSignIn | undefined>(undefined)
 
   const roles = requiredRoles && requiredRoles.length > 0 ? { requiredRoles } : {}
   const pins = {
@@ -153,12 +163,15 @@ export function useAzureAuth({
     setSignInInfo(info)
     setAuthStatus("authenticated")
     setErrorMessage(null)
+    setNotice(null)
     setWarningMessage(result.sessionEnvWarning ?? null)
     const { status: _status, sessionEnvWarning: _warning, ...saved } = result
+    const detectedFrom = detectedFromRef.current
     history.record(id, "auth", {
       status: "signed-in",
       block: "azure",
       ...saved,
+      ...(detectedFrom ? { detected: detectedFrom } : {}),
     } satisfies SavedAzureAuth)
   }
 
@@ -197,6 +210,58 @@ export function useAzureAuth({
     }
   }
 
+  /**
+   * Sign in again, without asking, with the detected sign-in a restored one
+   * came from: the same principal, in the saved tenant and subscription (or
+   * the block's pins), with the required roles checked again. True when that
+   * settled the block; false when something changed, and the user is asked.
+   */
+  const resumeDetected = useEffectEvent(async function resumeDetected(
+    found: DetectedAzureCredentials,
+    saved: SavedSignIn,
+    cancelled: () => boolean,
+  ): Promise<boolean> {
+    const flow = ++flowRef.current
+    setAuthStatus("authenticating")
+    const pinnedSubscription = subscriptionId ?? saved.subscriptionId
+    let result: AzureSignInResultIpc | undefined
+    try {
+      result = await api.invoke("azure:confirm-detected", {
+        blockId: id,
+        source: found.source,
+        ...(found.prefix ? { prefix: found.prefix } : {}),
+        tenantId: tenantId ?? saved.tenantId,
+        ...(pinnedSubscription ? { subscriptionId: pinnedSubscription } : {}),
+        ...roles,
+        principalObjectId: saved.principal.objectId,
+      })
+    } catch {
+      result = undefined
+    }
+    if (cancelled() || flowRef.current !== flow) return true
+    // Missing roles are the answer for this principal; anything else (another
+    // principal, a tenant or subscription it can't see) is for the user.
+    const settled =
+      result?.status === "authenticated" || (result?.status === "failed" && !!result.missingRoles)
+    if (!result || !settled) {
+      setAuthStatus("pending")
+      return false
+    }
+    detectedFromRef.current = {
+      source: found.source,
+      ...(found.prefix ? { prefix: found.prefix } : {}),
+    }
+    setDetectionStatus("done")
+    handleResult(result)
+    return true
+  })
+
+  // A restored sign-in is published at once, then checked. Its config dir is
+  // gone once Runbooks has quit, which is expected: the block starts over as
+  // a new one would, saying why, and its detection signs in again without
+  // asking when it finds the sign-in the user accepted before. A sign-in that
+  // is still there but refused is an error.
+  const detects = plan.length > 0
   useEffect(() => {
     if (!restoredAtMount) return
     registerOutputs(id, outputsFor(restoredAtMount.env, infoOf(restoredAtMount)))
@@ -213,12 +278,22 @@ export function useAzureAuth({
         registerOutputs(id, { __AUTHENTICATED: "false" })
         history.record(id, "auth", { status: "signed-out" } satisfies SavedAzureAuth)
         setSignInInfo(null)
-        fail(
-          `The saved Azure sign-in no longer works (${data.error ?? "it was refused"}). Sign in again.`,
-        )
+        if (!data.ended) {
+          return fail(
+            `The saved Azure sign-in no longer works (${data.error ?? "it was refused"}). Sign in again.`,
+          )
+        }
+        detectedFromRef.current = undefined
+        resumeFromRef.current = restoredAtMount.detected ? restoredAtMount : undefined
+        setAuthStatus("pending")
+        setNotice(RESTARTED_MESSAGE)
+        if (detects) {
+          setDetectionStatus("pending")
+          setDetectionAttempt((n) => Math.max(n, 0) + 1)
+        }
       })
       .catch(() => {})
-  }, [api, id, history, registerOutputs, restoredAtMount])
+  }, [api, id, history, registerOutputs, restoredAtMount, detects])
 
   const planKey = JSON.stringify(plan)
   useEffect(() => {
@@ -237,7 +312,7 @@ export function useAzureAuth({
           if (cancelled) return
           if (data.cliMissing) setCliMissing(true)
           if (data.found && data.source && data.principalName) {
-            setDetected({
+            const found: DetectedAzureCredentials = {
               source: data.source,
               prefix: step.prefix,
               principalName: data.principalName,
@@ -245,9 +320,19 @@ export function useAzureAuth({
               subscriptionId: data.subscriptionId,
               subscriptionName: data.subscriptionName,
               envVarPrefix: data.envVarPrefix,
-            })
+            }
             setDetectionWarning(null)
             setNothingDetected(false)
+            const resume = resumeFromRef.current
+            resumeFromRef.current = undefined
+            if (
+              resume?.detected?.source === found.source &&
+              (resume.detected.prefix ?? "") === (found.prefix ?? "")
+            ) {
+              if (await resumeDetected(found, resume, () => cancelled)) return
+            }
+            if (cancelled) return
+            setDetected(found)
             setDetectionStatus("detected")
             return
           }
@@ -258,6 +343,7 @@ export function useAzureAuth({
         }
       }
       if (cancelled) return
+      resumeFromRef.current = undefined
       setDetectionWarning(warnings[0] ?? null)
       setNothingDetected(warnings.length === 0)
       setDetectionStatus("done")
@@ -270,6 +356,7 @@ export function useAzureAuth({
   function handleConfirmDetected() {
     if (!detected) return
     const { source, prefix } = detected
+    detectedFromRef.current = { source, ...(prefix ? { prefix } : {}) }
     void run(() =>
       api.invoke("azure:confirm-detected", {
         blockId: id,
@@ -297,6 +384,7 @@ export function useAzureAuth({
 
   async function startLogin(useDeviceCode: boolean) {
     stopAttempt()
+    detectedFromRef.current = undefined
     const flow = flowRef.current
     setAuthStatus("authenticating")
     setErrorMessage(null)
@@ -341,6 +429,7 @@ export function useAzureAuth({
   }
 
   function handleServicePrincipal() {
+    detectedFromRef.current = undefined
     void run(() =>
       api.invoke("azure:service-principal", {
         blockId: id,
@@ -387,9 +476,12 @@ export function useAzureAuth({
     history.record(id, "auth", { status: "signed-out" } satisfies SavedAzureAuth)
     setAuthStatus("pending")
     setErrorMessage(null)
+    setNotice(null)
     setWarningMessage(null)
     setSignInInfo(null)
     setSelecting(false)
+    detectedFromRef.current = undefined
+    resumeFromRef.current = undefined
     setDetected(null)
     setDetectionWarning(null)
     setNothingDetected(false)
@@ -401,6 +493,7 @@ export function useAzureAuth({
     setAuthMethod,
     authStatus,
     errorMessage,
+    notice,
     warningMessage,
     cliMissing,
     signInInfo,
