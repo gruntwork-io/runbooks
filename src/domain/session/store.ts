@@ -379,6 +379,18 @@ export class SessionStore {
     })
   }
 
+  deleteEvents(
+    sessionId: string,
+    blockId: string,
+    kind: string,
+  ): Effect.Effect<void, SessionStoreError> {
+    return attempt("delete session events", () => {
+      this.db
+        .prepare("DELETE FROM session_events WHERE session_id = ? AND block_id = ? AND kind = ?")
+        .run(sessionId, blockId, kind)
+    })
+  }
+
   /**
    * The newest event of each kind for each of the session's blocks, oldest
    * first: what each block was left as.
