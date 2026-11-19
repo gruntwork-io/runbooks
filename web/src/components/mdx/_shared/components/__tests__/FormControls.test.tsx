@@ -869,6 +869,35 @@ describe("FormControls labelled options", () => {
     expect(onChange).toHaveBeenCalledWith("westus")
   })
 
+  it("shows a linked value that comes to a listed option once, by that option's label", () => {
+    const variable: BoilerplateVariable = {
+      name: "Location",
+      type: "enum",
+      description: "",
+      options: ["eastus", "westus"],
+      optionLabels: labels,
+    }
+    const onChange = vi.fn()
+    render(
+      <FormControl
+        id="f"
+        variable={variable}
+        value="{{ .outputs.sign_in.REGION }}"
+        resolvedValue="eastus"
+        onChange={onChange}
+      />,
+    )
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement
+    // No second "eastus" entry: the link is shown as East US, and kept as the value
+    expect(Array.from(select.options).map((o) => o.text)).toEqual(["East US", "West US"])
+    expect(select.selectedOptions[0]!.text).toBe("East US")
+    expect(select.value).toBe("{{ .outputs.sign_in.REGION }}")
+
+    fireEvent.change(select, { target: { value: "westus" } })
+    expect(onChange).toHaveBeenCalledWith("westus")
+  })
+
   it("searches a multi-select's options by label and by value, and shows picks by label", async () => {
     const user = userEvent.setup()
     const variable: BoilerplateVariable = {

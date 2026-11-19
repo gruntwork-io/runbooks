@@ -318,6 +318,11 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({
   const options = items.map((item) => item.value)
   const showPlaceholder = current === "" && (value == null || !options.includes(""))
   const isUnlistedValue = current !== "" && !options.includes(current)
+  // A linked value that comes to a listed option is shown as that option, once, with its label. The
+  // link stays the value, so it keeps following what it links to until the user picks something else.
+  const resolvedText = isTemplateValue(current) ? resolvedValueText(resolvedValue) : undefined
+  const linkedItem =
+    resolvedText === undefined ? undefined : items.find((item) => item.value === resolvedText)
   return (
     <select
       id={`${id}-${variable.name}`}
@@ -334,16 +339,20 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({
       )}
       {isUnlistedValue && (
         <option value={current} disabled>
-          {isTemplateValue(current)
-            ? (resolvedValueText(resolvedValue) ?? summarizeTemplateValue(current))
-            : current}
+          {linkedItem
+            ? linkedItem.label
+            : isTemplateValue(current)
+              ? (resolvedText ?? summarizeTemplateValue(current))
+              : current}
         </option>
       )}
-      {items.map((item) => (
-        <option key={item.value} value={item.value}>
-          {item.label}
-        </option>
-      ))}
+      {items
+        .filter((item) => item !== linkedItem)
+        .map((item) => (
+          <option key={item.value} value={item.value}>
+            {item.label}
+          </option>
+        ))}
     </select>
   )
 }
