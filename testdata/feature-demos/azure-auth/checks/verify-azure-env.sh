@@ -3,8 +3,14 @@ set -uo pipefail
 
 fail() { echo "FAIL: $*"; exit 1; }
 
-[[ -n "${ARM_TENANT_ID:-}" ]] || fail "ARM_TENANT_ID is not set"
-[[ "${AZURE_TENANT_ID:-}" == "${ARM_TENANT_ID}" ]] || fail "AZURE_TENANT_ID doesn't match ARM_TENANT_ID"
+[[ -n "${AZURE_TENANT_ID:-}" ]] || fail "AZURE_TENANT_ID is not set"
+# With the Azure CLI's sign-in, azurerm gets the tenant from the CLI: an ARM_TENANT_ID would make
+# the azurerm backend pass both --tenant and --subscription to az, which refuses them.
+if [[ "${ARM_USE_CLI:-}" == "true" ]]; then
+  [[ -z "${ARM_TENANT_ID:-}" ]] || fail "ARM_TENANT_ID is set with ARM_USE_CLI"
+else
+  [[ "${ARM_TENANT_ID:-}" == "${AZURE_TENANT_ID}" ]] || fail "ARM_TENANT_ID doesn't match AZURE_TENANT_ID"
+fi
 [[ "${AZURE_SUBSCRIPTION_ID:-}" == "${ARM_SUBSCRIPTION_ID:-}" ]] || fail "AZURE_SUBSCRIPTION_ID doesn't match ARM_SUBSCRIPTION_ID"
 
 case "${AZURE_AUTH_TYPE:-}" in
@@ -23,4 +29,4 @@ case "${AZURE_AUTH_TYPE:-}" in
     ;;
 esac
 
-echo "Azure variables OK (${AZURE_AUTH_TYPE}, tenant ${ARM_TENANT_ID})"
+echo "Azure variables OK (${AZURE_AUTH_TYPE}, tenant ${AZURE_TENANT_ID})"

@@ -2832,3 +2832,66 @@ describe("TestExecutor — options from a block's output", () => {
     )
   })
 })
+
+describe("TestExecutor — AzureAuth env", () => {
+  const TENANT = "00000000-0000-0000-0000-00000000000a"
+  const SUBSCRIPTION = "00000000-0000-0000-0000-00000000000b"
+  let tmp: string
+  let marker: string
+
+  const run = async (env: Record<string, string>) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      `# Azure\n\n<AzureAuth id="azure" />\n\n<Command id="show" azureAuthId="azure" command='echo "\${ARM_TENANT_ID:-unset} \${AZURE_TENANT_ID:-unset} \${ARM_SUBSCRIPTION_ID:-unset} \${ARM_USE_CLI:-unset}" > "${marker}"' />\n`,
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    const blank = Object.fromEntries(
+      ["ARM", "AZURE"].flatMap((family) =>
+        [
+          "CLIENT_ID",
+          "TENANT_ID",
+          "CLIENT_SECRET",
+          "CLIENT_CERTIFICATE_PATH",
+          "SUBSCRIPTION_ID",
+        ].map((name) => [`${family}_${name}`, ""]),
+      ),
+    )
+    const result = executor.runTest({ name: "azure", env: { ...blank, ...env } })
+    expect(result.status).toBe("passed")
+    return fs.readFileSync(marker, "utf-8").trim()
+  }
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-azure-"))
+    marker = path.join(tmp, "marker")
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("gives an Azure CLI sign-in the tenant as AZURE_TENANT_ID only", async () => {
+    const configDir = path.join(tmp, "azure")
+    fs.mkdirSync(configDir)
+    fs.writeFileSync(
+      path.join(configDir, "azureProfile.json"),
+      JSON.stringify({
+        subscriptions: [{ id: SUBSCRIPTION, tenantId: TENANT, name: "Sub", isDefault: true }],
+      }),
+    )
+    expect(await run({ AZURE_CONFIG_DIR: configDir })).toBe(`unset ${TENANT} ${SUBSCRIPTION} true`)
+  })
+
+  it("gives a service principal with a secret ARM_TENANT_ID", async () => {
+    expect(
+      await run({
+        AZURE_CONFIG_DIR: "",
+        AZURE_CLIENT_ID: "app",
+        AZURE_TENANT_ID: TENANT,
+        AZURE_CLIENT_SECRET: "not-a-real-secret",
+        AZURE_SUBSCRIPTION_ID: SUBSCRIPTION,
+      }),
+    ).toBe(`${TENANT} ${TENANT} ${SUBSCRIPTION} unset`)
+  })
+})
