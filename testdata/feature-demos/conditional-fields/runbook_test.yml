@@ -1,0 +1,70 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+  parallelizable: true
+
+tests:
+  - name: single-layout-skips-caf-fields
+    description: |
+      With the single layout, the CAF fields are hidden: their required
+      validation is skipped, and they render empty, or as their default.
+    inputs:
+      contact.EmailAddress: ops@example.com
+      subscriptions.ManagementSubscriptionId: sub-mgmt
+      # Set, but hidden, so the template gets the default instead
+      subscriptions.FirewallSku: Premium
+    assertions:
+      - type: file_contains
+        path: subscriptions.yml
+        contains: "layout: single"
+      - type: file_contains
+        path: subscriptions.yml
+        contains: "management: sub-mgmt"
+      - type: file_contains
+        path: subscriptions.yml
+        contains: "firewall_sku: Standard"
+      - type: file_not_contains
+        path: subscriptions.yml
+        contains: "Premium"
+      - type: output_equals
+        block: show-contact
+        output: contact
+        value: "email:ops@example.com"
+
+  - name: caf-layout-asks-for-caf-fields
+    description: |
+      With the caf layout, the CAF fields show and render what was entered.
+    inputs:
+      contact.EmailAddress: ops@example.com
+      subscriptions.SubscriptionLayout: caf
+      subscriptions.ManagementSubscriptionId: sub-mgmt
+      subscriptions.IdentitySubscriptionId: sub-identity
+      subscriptions.ConnectivitySubscriptionId: sub-connectivity
+      subscriptions.FirewallSku: Premium
+    assertions:
+      - type: file_contains
+        path: subscriptions.yml
+        contains: "identity: sub-identity"
+      - type: file_contains
+        path: subscriptions.yml
+        contains: "connectivity: sub-connectivity"
+      - type: file_contains
+        path: subscriptions.yml
+        contains: "firewall_sku: Premium"
+
+  - name: slack-hides-the-email
+    description: |
+      Picking Slack hides the email address, so the value set for it doesn't
+      reach the script, and asks for the channel instead.
+    inputs:
+      subscriptions.ManagementSubscriptionId: sub-mgmt
+      contact.ContactMethod: slack
+      contact.EmailAddress: ops@example.com
+      contact.SlackChannel: "#ops"
+    assertions:
+      - type: output_equals
+        block: show-contact
+        output: contact
+        value: "slack:#ops"

@@ -4,6 +4,8 @@ import { validateVariableValue } from "../lib/validators"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import type { BoilerplateVariable } from "@/types/boilerplateVariable"
 
+const NOTHING_HIDDEN: ReadonlySet<string> = new Set()
+
 /**
  * Interface for validation error messages
  */
@@ -26,9 +28,13 @@ interface TouchedFields {
  * 2. On-submit validation: Shows all errors when the form is submitted
  *
  * @param boilerplateConfig - The boilerplate configuration containing variable definitions
+ * @param hidden - The fields x-show-when hides, which aren't validated
  * @returns Object containing validation state and methods
  */
-export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) => {
+export const useFormValidation = (
+  boilerplateConfig: BoilerplateConfig | null,
+  hidden: ReadonlySet<string> = NOTHING_HIDDEN,
+) => {
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({})
   const [touchedFields, setTouchedFields] = useState<TouchedFields>({})
 
@@ -49,11 +55,11 @@ export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) =
   const getFieldError = useCallback(
     (fieldName: string, value: unknown): string | undefined => {
       const variable = variablesByName.get(fieldName)
-      if (!variable) return undefined
+      if (!variable || hidden.has(fieldName)) return undefined
 
       return validateVariableValue(variable, value, formatVariableLabel(variable.name))
     },
-    [variablesByName],
+    [variablesByName, hidden],
   )
 
   /**

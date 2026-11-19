@@ -11,6 +11,7 @@ import { BoilerplateConfigError } from "../../errors/index.js"
 import { errorMessage } from "../../errors/message.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { BATCH_IO_CONCURRENCY } from "../files/manifest.ts"
+import { parseShowWhen } from "./showWhen.ts"
 import { extractTemplateDependenciesFromString } from "./templateDependencies.ts"
 import {
   optionFields,
@@ -65,6 +66,7 @@ interface RawVariable {
   "x-options"?: unknown
   "x-locked"?: unknown
   "x-hidden"?: unknown
+  "x-show-when"?: unknown
 }
 
 interface RawSkipFile {
@@ -462,6 +464,13 @@ export function parseBoilerplateConfig(
       }
       if (hidden) {
         variable.hidden = true
+      }
+
+      const { showWhen, problem } = parseShowWhen(rv["x-show-when"])
+      if (problem) {
+        console.warn(`[boilerplate config] variable "${rv.name}": ${problem}; ignoring.`)
+      } else if (showWhen) {
+        variable.showWhen = showWhen
       }
 
       variables.push(variable)

@@ -1,0 +1,6 @@
+layout: {{ .SubscriptionLayout }}
+management: {{ .ManagementSubscriptionId }}
+identity: {{ .IdentitySubscriptionId }}
+connectivity: {{ .ConnectivitySubscriptionId }}
+firewall: {{ .DeployFirewall }}
+firewall_sku: {{ .FirewallSku }}

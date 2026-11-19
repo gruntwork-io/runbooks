@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback, startTransition } from "react"
 import { BoilerplateInputsForm } from "../_shared/components/BoilerplateInputsForm"
+import { hiddenVariables } from "../_shared/lib/showWhen"
 import { ErrorDisplay } from "../_shared/components/ErrorDisplay"
 import { LoadingDisplay } from "../_shared/components/LoadingDisplay"
 import type { AppError } from "@/types/error"
@@ -218,13 +219,14 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     return () => cancelAnimationFrame(raf)
   }, [renderResult, id])
 
-  // Check if form data has all required values filled
+  // Check if form data has all required values filled. One x-show-when hides isn't asked for.
   const hasAllRequiredValues = useCallback(
     (localVarValues: Record<string, unknown>): boolean => {
       if (!boilerplateConfig) return false
+      const hidden = hiddenVariables(boilerplateConfig.variables, localVarValues)
       return boilerplateConfig.variables.every((variable) => {
         const isRequired = variable.validations?.some((v) => v.type === "required")
-        if (!isRequired) return true
+        if (!isRequired || hidden.has(variable.name)) return true
 
         const value = localVarValues[variable.name]
         return value !== undefined && value !== null && value !== ""

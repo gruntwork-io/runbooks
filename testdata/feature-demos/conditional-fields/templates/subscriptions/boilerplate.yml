@@ -1,0 +1,55 @@
+variables:
+  - name: SubscriptionLayout
+    type: enum
+    description: One subscription for everything, or one per platform area (CAF)
+    options:
+      - single
+      - caf
+    default: single
+
+  - name: ManagementSubscriptionId
+    type: string
+    description: The subscription for management resources, or for everything with the single layout
+    validations:
+      - required
+
+  # Shown, and required, only with the caf layout. With single, they aren't
+  # asked for and render empty.
+  - name: IdentitySubscriptionId
+    type: string
+    description: The subscription for identity resources
+    validations:
+      - required
+    x-section: CAF Subscriptions
+    x-show-when:
+      SubscriptionLayout: caf
+
+  - name: ConnectivitySubscriptionId
+    type: string
+    description: The subscription for networking resources
+    validations:
+      - required
+    x-section: CAF Subscriptions
+    x-show-when:
+      SubscriptionLayout: caf
+
+  # A list of values matches any of them, and a hidden field renders its default.
+  - name: FirewallSku
+    type: enum
+    description: The Azure Firewall tier for the hub network
+    options:
+      - Standard
+      - Premium
+    default: Standard
+    x-section: CAF Subscriptions
+    x-show-when:
+      SubscriptionLayout: [caf]
+      DeployFirewall: true
+
+  - name: DeployFirewall
+    type: bool
+    description: Deploy an Azure Firewall in the hub network
+    default: true
+    x-section: CAF Subscriptions
+    x-show-when:
+      SubscriptionLayout: caf

@@ -16,6 +16,7 @@ import type { ReportedError } from "@/contexts/ErrorReportingContext.types"
 import { sensitiveOutput } from "@/lib/outputValues"
 import userEvent from "@testing-library/user-event"
 import { SessionHistoryContext, type SessionHistory } from "@/contexts/SessionHistoryContext.types"
+import { InstructionModeContext } from "@/contexts/InstructionModeContext.types"
 
 const config: BoilerplateConfig = {
   variables: [{ name: "region", type: "string", description: "", default: "us-east-1" }],
@@ -1258,5 +1259,197 @@ describe("BoilerplateInputsForm field descriptions", () => {
     expect(
       within(screen.getByTestId("field-Enabled")).getByText("on", { selector: "em" }),
     ).toBeInTheDocument()
+  })
+})
+
+const INSTRUCTION_MODE_ON = { enabled: true, setEnabled: () => {} }
+
+// x-show-when shows a field only while other fields have certain values. A
+// hidden one isn't asked for: it isn't validated, and the form reports its
+// default (or an empty value), never what was entered before it hid.
+describe("BoilerplateInputsForm conditional fields", () => {
+  const required = [{ type: BoilerplateValidationType.Required }]
+  const layoutConfig: BoilerplateConfig = {
+    variables: [
+      {
+        name: "SubscriptionLayout",
+        type: "enum",
+        description: "",
+        options: ["single", "caf"],
+        default: "single",
+      },
+      {
+        name: "IdentitySubscriptionId",
+        type: "string",
+        description: "",
+        required: true,
+        validations: required,
+        sectionName: "CAF",
+        showWhen: { SubscriptionLayout: ["caf"] },
+      },
+      {
+        name: "FirewallSku",
+        type: "enum",
+        description: "",
+        options: ["Standard", "Premium"],
+        default: "Standard",
+        sectionName: "CAF",
+        showWhen: { SubscriptionLayout: ["caf"] },
+      },
+    ],
+    sections: [
+      { name: "", variables: ["SubscriptionLayout"] },
+      { name: "CAF", variables: ["IdentitySubscriptionId", "FirewallSku"] },
+    ],
+  }
+  const layout = () => screen.getByLabelText("Subscription Layout")
+
+  it("shows a field only while its condition holds, and updates as the other field changes", () => {
+    renderForm({ boilerplateConfig: layoutConfig })
+
+    expect(screen.queryByTestId("field-IdentitySubscriptionId")).toBeNull()
+    // A section whose fields are all hidden doesn't appear
+    expect(screen.queryByText("CAF")).toBeNull()
+
+    fireEvent.change(layout(), { target: { value: "caf" } })
+    expect(screen.getByTestId("field-IdentitySubscriptionId")).toBeInTheDocument()
+    expect(screen.getByText("CAF")).toBeInTheDocument()
+
+    fireEvent.change(layout(), { target: { value: "single" } })
+    expect(screen.queryByTestId("field-IdentitySubscriptionId")).toBeNull()
+  })
+
+  it("doesn't validate a hidden field, so a required one doesn't block the form", () => {
+    const { onGenerate } = renderForm({ boilerplateConfig: layoutConfig })
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalledWith({
+      SubscriptionLayout: "single",
+      IdentitySubscriptionId: "",
+      FirewallSku: "Standard",
+    })
+
+    // Shown, the same field is required
+    onGenerate.mockClear()
+    fireEvent.change(layout(), { target: { value: "caf" } })
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).not.toHaveBeenCalled()
+    expect(screen.getByTestId("field-IdentitySubscriptionId")).toHaveTextContent(
+      "Identity Subscription ID is required",
+    )
+
+    // Hiding it again drops its error
+    fireEvent.change(layout(), { target: { value: "single" } })
+    expect(screen.queryByText(/validation error/)).toBeNull()
+  })
+
+  it("reports a hidden field's default, not what was entered before it hid, and keeps the entry", () => {
+    const { onGenerate } = renderForm({ boilerplateConfig: layoutConfig })
+
+    fireEvent.change(layout(), { target: { value: "caf" } })
+    fireEvent.change(screen.getByLabelText(/^Identity Subscription ID/), {
+      target: { value: "sub-identity" },
+    })
+    fireEvent.change(screen.getByLabelText("Firewall Sku"), { target: { value: "Premium" } })
+
+    fireEvent.change(layout(), { target: { value: "single" } })
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenLastCalledWith({
+      SubscriptionLayout: "single",
+      IdentitySubscriptionId: "",
+      FirewallSku: "Standard",
+    })
+
+    // Shown again, the fields have what was entered
+    fireEvent.change(layout(), { target: { value: "caf" } })
+    expect(screen.getByLabelText(/^Identity Subscription ID/)).toHaveValue("sub-identity")
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenLastCalledWith({
+      SubscriptionLayout: "caf",
+      IdentitySubscriptionId: "sub-identity",
+      FirewallSku: "Premium",
+    })
+  })
+
+  it("reports the hidden field's value to auto-render too", async () => {
+    const onAutoRender = vi.fn()
+    renderForm({
+      boilerplateConfig: layoutConfig,
+      initialData: { SubscriptionLayout: "single", FirewallSku: "Premium" },
+      enableAutoRender: true,
+      onAutoRender,
+    })
+
+    await waitFor(() =>
+      expect(onAutoRender).toHaveBeenLastCalledWith({
+        SubscriptionLayout: "single",
+        IdentitySubscriptionId: "",
+        FirewallSku: "Standard",
+      }),
+    )
+  })
+
+  it("states the condition in instruction mode", () => {
+    render(
+      <InstructionModeContext.Provider value={INSTRUCTION_MODE_ON}>
+        <BoilerplateInputsForm
+          id="tpl"
+          blockType="Template"
+          boilerplateConfig={layoutConfig}
+          initialData={{ SubscriptionLayout: "caf" }}
+          enableAutoRender={false}
+          showSubmitButton={false}
+        />
+      </InstructionModeContext.Provider>,
+    )
+
+    expect(screen.getByTestId("field-IdentitySubscriptionId")).toHaveTextContent(
+      "Only when Subscription Layout is caf",
+    )
+    expect(screen.getByTestId("field-SubscriptionLayout")).not.toHaveTextContent("Only when")
+  })
+
+  it("doesn't state the condition outside instruction mode", () => {
+    renderForm({ boilerplateConfig: layoutConfig, initialData: { SubscriptionLayout: "caf" } })
+
+    expect(screen.getByTestId("field-IdentitySubscriptionId")).not.toHaveTextContent("Only when")
+  })
+
+  it("reports a condition on a variable the form doesn't have, or a value that isn't an option", async () => {
+    let reported: ReportedError[] = []
+    function ReportProbe() {
+      reported = useErrorReporting().errors
+      return null
+    }
+    render(
+      <ErrorReportingProvider>
+        <BoilerplateInputsForm
+          id="tpl"
+          blockType="Template"
+          boilerplateConfig={{
+            variables: [
+              ...layoutConfig.variables.slice(0, 1),
+              {
+                name: "Identity",
+                type: "string",
+                description: "",
+                showWhen: { SubscriptionLayout: ["custom"], Layout: ["caf"] },
+              },
+            ],
+          }}
+          enableAutoRender={false}
+        />
+        <ReportProbe />
+      </ErrorReportingProvider>,
+    )
+
+    await waitFor(() => expect(reported).toHaveLength(1))
+    expect(reported[0]).toMatchObject({ componentId: "tpl:show-when", severity: "error" })
+    expect(reported[0]!.message).toContain(
+      'Identity: x-show-when gives SubscriptionLayout the value "custom", which isn\'t one of its options (single, caf).',
+    )
+    expect(reported[0]!.message).toContain(
+      "Identity: x-show-when names Layout, which isn't a variable here.",
+    )
   })
 })

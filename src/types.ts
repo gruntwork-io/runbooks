@@ -85,6 +85,12 @@ export interface BoilerplateVariable {
   locked?: boolean
   /** The form doesn't show the field (x-hidden). A hidden field is locked too. */
   hidden?: boolean
+  /**
+   * The form shows the field only while each variable named here has one of
+   * the values listed for it (x-show-when). Otherwise the field isn't asked
+   * for: it isn't validated, and the block uses its default.
+   */
+  showWhen?: Record<string, string[]>
 }
 
 export interface Section {

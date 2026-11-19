@@ -476,6 +476,39 @@ variables:
     expect(byName.get("not_locked")).not.toHaveProperty("locked")
   })
 
+  it("reads x-show-when as the values each variable must have, as strings", async () => {
+    const result = await parse(`
+variables:
+  - name: Layout
+    type: enum
+    options: [single, caf]
+  - name: Firewall
+    type: bool
+  - name: Identity
+    x-show-when:
+      Layout: caf
+  - name: Sku
+    x-show-when:
+      Layout: [caf, single]
+      Firewall: true
+  - name: Always
+`)
+    const byName = new Map(result.variables.map((v) => [v.name, v]))
+    expect(byName.get("Identity")?.showWhen).toEqual({ Layout: ["caf"] })
+    expect(byName.get("Sku")?.showWhen).toEqual({ Layout: ["caf", "single"], Firewall: ["true"] })
+    expect(byName.get("Always")).not.toHaveProperty("showWhen")
+  })
+
+  it("ignores a malformed x-show-when, and warns", async () => {
+    const { result, warnings } = await parseWarning(`
+variables:
+  - name: a
+    x-show-when: caf
+`)
+    expect(result.variables[0]).not.toHaveProperty("showWhen")
+    expect(warnings.some((w) => w.includes('variable "a": x-show-when must map'))).toBe(true)
+  })
+
   it("ignores an x-hidden or x-locked that isn't true or false, and warns", async () => {
     const { result, warnings } = await parseWarning(`
 variables:
