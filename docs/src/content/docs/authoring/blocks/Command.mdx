@@ -612,8 +612,11 @@ While a command runs, its output streams into the collapsible **View Logs** pane
 
 - **Copy log file path.** Every run also writes its output to a log file in the [session's directory](/commands/sessions/#where-sessions-are-stored), which you can open or tail with other tools.
 - **Copy prompt for LLM.** Copies a ready-to-paste prompt for an AI assistant. It names the block's ID, the runbook file and the log file, and ends with an instruction that matches the block's status. When the block has failed, for example, it asks the assistant to analyze the failure and suggest a fix. The prompt points at the log file rather than including the logs, so it works best with assistants that can read local files, such as Claude Code or Cursor.
+- **Search** the logs. Click the search button, or click into the logs and press **Cmd+F** on macOS, or **Ctrl+F** on Windows and Linux. The search covers the whole log, including lines that arrive while it's open, but not the timestamps. Its toggles match case (**Alt+C**), read the search as a regular expression (**Alt+R**), and show only the matching lines (**Alt+L**). Press **Enter** / **Shift+Enter** (or **Cmd/Ctrl+G** / **Shift+Cmd/Ctrl+G**) to move between matches, and **Esc** to close the search.
 - **Wrap** long lines, **copy** the logs as plain text, or **download** them as raw (`.log`) or structured (`.json`) logs.
 - **Maximize** the logs to fill the screen.
+
+Once you scroll down a long log, a **Jump to top** button appears in its corner, and a **Jump to bottom** button appears whenever you're above the end. After you click into the logs, **Home** and **End** do the same. While a command runs, the logs follow its output until you scroll up. The bottom button then counts the lines that have arrived since, and clicking it goes back to following.
 
 Blocks that don't write a log file, such as [`<GitClone>`](/authoring/blocks/gitclone/) and [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/), put the last 200 lines of their logs in the prompt instead.
 
