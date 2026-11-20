@@ -14,6 +14,11 @@ import {
   withHiddenDefaults,
 } from "../../src/domain/boilerplate/showWhen.ts"
 import { isTemplateString } from "../../src/domain/boilerplate/templateString.ts"
+import {
+  SHOW_WHEN_BLOCK_TARGET_TYPES,
+  parseShowWhenBlock,
+  type ShowWhenBlock,
+} from "../../src/domain/exec/showWhenBlock.ts"
 import { validateVariableValue } from "../../src/domain/boilerplate/validators.ts"
 import { findComponents, type ParsedComponent } from "../../src/domain/registry/executable.ts"
 import { parseMdx, stringProp, type MdxElement, type Props } from "../../src/mdx.ts"
@@ -126,6 +131,8 @@ export class InputValidator {
     // Sort by document position (each component's own offset in the source)
     components.sort((a, b) => a.index - b.index)
 
+    this.validateShowWhenBlocks(components)
+
     this.allComponents = components
   }
 
@@ -230,6 +237,36 @@ export class InputValidator {
     }
     for (const message of showWhenProblems(cfg.variables)) {
       this.configErrors.push({ componentType, componentId: schema.id, message })
+    }
+  }
+
+  /**
+   * Add a config error for each Check, Command or Finish whose `showWhenBlock`
+   * isn't valid, or names no block with runs, or the block itself.
+   */
+  private validateShowWhenBlocks(components: readonly ParsedComponent[]): void {
+    const targetTypes = new Set<string>(SHOW_WHEN_BLOCK_TARGET_TYPES)
+    const targetIds = new Set(
+      components
+        .filter((comp) => comp.hasExplicitId && targetTypes.has(comp.type))
+        .map((comp) => normalizeId(comp.id)),
+    )
+    for (const comp of components) {
+      if (!(RUN_DEPENDENT_TYPES as readonly string[]).includes(comp.type)) continue
+      const parsed = parseShowWhenBlock(comp.props.showWhenBlock)
+      let message: string | null = null
+      if (!parsed.ok) {
+        message = parsed.error
+      } else if (parsed.condition) {
+        const { id } = parsed.condition
+        if (normalizeId(id) === normalizeId(comp.id)) {
+          message = "showWhenBlock can't name the block itself."
+        } else if (!targetIds.has(normalizeId(id))) {
+          message = `showWhenBlock names "${id}", but no Check, Command, Finish or Prerequisites block has that id.`
+        }
+      }
+      if (message)
+        this.configErrors.push({ componentType: comp.type, componentId: comp.id, message })
     }
   }
 
@@ -438,6 +475,27 @@ export function parseRunDependencies(runbookPath: string): Map<string, string[]>
   }
 
   return deps
+}
+
+/**
+ * The `showWhenBlock` condition of each Check, Command and Finish block that
+ * has a valid one, by block id. A block with an invalid one gets a config
+ * error from InputValidator instead.
+ */
+export function parseShowWhenBlocks(runbookPath: string): Map<string, ShowWhenBlock> {
+  const elements = readRunbookElements(runbookPath)
+  const conditions = new Map<string, ShowWhenBlock>()
+
+  for (const blockType of RUN_DEPENDENT_TYPES) {
+    for (const comp of findComponents(elements, blockType)) {
+      const parsed = parseShowWhenBlock(comp.props.showWhenBlock)
+      if (comp.hasExplicitId && parsed.ok && parsed.condition) {
+        conditions.set(comp.id, parsed.condition)
+      }
+    }
+  }
+
+  return conditions
 }
 
 // ---------------------------------------------------------------------------
@@ -709,6 +767,11 @@ function parseConfig(yamlContent: string): BoilerplateConfig {
   const result = Effect.runSync(Effect.result(parseBoilerplateConfig(yamlContent)))
   if (Result.isFailure(result)) throw result.failure
   return result.success
+}
+
+/** A block id as templates name it, with hyphens turned into underscores. */
+function normalizeId(id: string): string {
+  return id.replace(/-/g, "_")
 }
 
 export function lowercaseFirst(s: string): string {
