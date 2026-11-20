@@ -163,6 +163,7 @@ describe("AgentBridgeProvider", () => {
         status: "pending",
         blockedBy: [],
         controllable: true,
+        actions: ["run"],
       },
     ])
   })
@@ -171,7 +172,7 @@ describe("AgentBridgeProvider", () => {
     renderPage()
     await waitFor(() => expect(testApi.callsTo("agent:status").length).toBe(1))
     const { result } = await ask({ op: "run_block", blockId: "deploy_app" })
-    expect(result).toEqual({ started: true })
+    expect(result).toMatchObject({ started: true })
     expect(mockExecution.execute).toHaveBeenCalledTimes(1)
   })
 
@@ -188,33 +189,64 @@ describe("AgentBridgeProvider", () => {
     expect(mockExecution.execute).not.toHaveBeenCalled()
   })
 
-  it("asks the user first when they want it to, and respects a no", async () => {
+  it("says a run awaits approval, reports it, and respects a no", async () => {
     status = { enabled: true, confirmRuns: true }
     renderPage()
     await waitFor(() => expect(testApi.callsTo("agent:status").length).toBe(1))
-    const before = testApi.callsTo("agent:respond").length
-    act(() =>
-      testApi.emit("agent:request", {
-        requestId: "confirm-1",
-        request: { op: "run_block", blockId: "deploy-app" },
-      }),
-    )
-    fireEvent.click(await screen.findByText("Don't run"))
-    await waitFor(() => expect(testApi.callsTo("agent:respond").length).toBeGreaterThan(before))
-    expect(testApi.callsTo("agent:respond").at(-1)).toMatchObject({
-      requestId: "confirm-1",
-      result: { started: false, reason: expect.stringContaining("declined") },
+
+    // Answered at once: the run waits for the user
+    const first = await ask({ op: "run_block", blockId: "deploy-app" })
+    expect(first.result).toMatchObject({ started: false, awaitingApproval: true })
+    const waiting = await ask({ op: "get_block", blockId: "deploy-app" })
+    expect(waiting.result).toMatchObject({
+      status: "awaiting_approval",
+      needsHuman: expect.stringContaining("Approve or decline"),
     })
     expect(mockExecution.execute).not.toHaveBeenCalled()
 
-    act(() =>
-      testApi.emit("agent:request", {
-        requestId: "confirm-2",
-        request: { op: "run_block", blockId: "deploy-app" },
-      }),
-    )
+    fireEvent.click(await screen.findByText("Don't run"))
+    await waitFor(async () => {
+      const after = await ask({ op: "get_block", blockId: "deploy-app" })
+      expect(after.result).toMatchObject({
+        status: "pending",
+        note: expect.stringContaining("declined"),
+      })
+    })
+    expect(mockExecution.execute).not.toHaveBeenCalled()
+
+    // Approved: the run starts
+    expect((await ask({ op: "run_block", blockId: "deploy-app" })).result).toMatchObject({
+      awaitingApproval: true,
+    })
     fireEvent.click(await screen.findByTestId("agent-confirm-run"))
     await waitFor(() => expect(mockExecution.execute).toHaveBeenCalledTimes(1))
+  })
+
+  it("reports a real status for a block without controls", async () => {
+    function Shown() {
+      useAgentPresence("note", "Admonition", undefined)
+      return null
+    }
+    render(
+      <ApiProvider api={testApi.api}>
+        <AgentBridgeProvider session={{ runbook: "demo", sessionName: "s", sessionId: "s1" }}>
+          <TestWrapper>
+            <Shown />
+          </TestWrapper>
+        </AgentBridgeProvider>
+      </ApiProvider>,
+    )
+    const { result } = await ask({ op: "get_session" })
+    expect(result.blocks).toEqual([
+      {
+        id: "note",
+        type: "Admonition",
+        status: "pending",
+        blockedBy: [],
+        controllable: false,
+        actions: [],
+      },
+    ])
   })
 
   it("reads logs from an offset and masks sensitive outputs", async () => {
@@ -281,7 +313,7 @@ describe("AgentBridgeProvider", () => {
 
     const confirmed = await ask({ op: "confirm_inputs", blockId: "config" })
     expect(confirmed.result.fields[0].reviewed).toBe(true)
-    expect((await ask({ op: "run_block", blockId: "deploy-app" })).result).toEqual({
+    expect((await ask({ op: "run_block", blockId: "deploy-app" })).result).toMatchObject({
       started: true,
     })
     expect(mockExecution.execute).toHaveBeenCalledTimes(1)

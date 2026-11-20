@@ -128,7 +128,13 @@ test("an MCP client fills in a form and runs a block in the open session", async
   try {
     const session = await call("get_session")
     expect(session.open).toBe(true)
-    expect(session.blocks.map((b: { id: string }) => b.id)).toEqual(["config", "greet"])
+    const blocks = session.blocks.filter((b: { type: string }) => b.type !== "Admonition")
+    expect(blocks.map((b: { id: string }) => b.id)).toEqual(["config", "greet"])
+    // The trust banner reports its state too, and is the person's to confirm
+    expect(session.blocks.find((b: { type: string }) => b.type === "Admonition")).toMatchObject({
+      status: expect.any(String),
+      actions: [],
+    })
     const greet = session.blocks.find((b: { id: string }) => b.id === "greet")
     expect(greet.blockedBy.join()).toContain("Name")
 
@@ -151,9 +157,15 @@ test("an MCP client fills in a form and runs a block in the open session", async
       .toEqual([])
 
     // The user approves the run in the window
-    const run = call("run_block", { block_id: "greet" })
+    // Answered at once: the run waits for the user's approval, and says so
+    expect(await call("run_block", { block_id: "greet" })).toMatchObject({
+      started: false,
+      awaitingApproval: true,
+    })
+    expect(await call("get_block", { block_id: "greet" })).toMatchObject({
+      status: "awaiting_approval",
+    })
     await page.getByTestId("agent-confirm-run").click()
-    expect(await run).toEqual({ started: true })
 
     const done = await call("wait_for_block", { block_id: "greet", timeout_seconds: 30 })
     expect(done.status).toBe("success")

@@ -31,6 +31,12 @@ import {
   type AgentSession,
 } from "../../../src/domain/agent/protocol"
 
+/** A request's answer, and the work an approval may still hold back. */
+interface Queued<T> {
+  answer: T
+  done?: Promise<unknown>
+}
+
 /** How long after an agent's last request the window still says one is connected. */
 const ACTIVE_FOR_MS = 2 * 60 * 1000
 /** How long run_block waits to see the run start before it answers. */
@@ -90,6 +96,10 @@ export function AgentBridgeProvider({
   // run_block requests run one at a time: each waits until the run before it
   // shows in the window, so its blockers (exclusive, dependsOn) see that run
   const runQueueRef = useRef<Promise<unknown>>(Promise.resolve())
+  // Blocks with an agent's run or action waiting for the user's approval, and what it is
+  const awaitingRef = useRef(new Map<string, string>())
+  // Blocks whose last agent request the user declined (or didn't answer)
+  const declinedRef = useRef(new Map<string, string>())
   const revealElement = useRevealElement()
   const revealRef = useRef(revealElement)
   useEffect(() => {
@@ -191,25 +201,42 @@ export function AgentBridgeProvider({
       const adapter = blocksRef.current.get(key)
       const presence = presenceRef.current.get(key)
       const id = writtenIdsRef.current.get(key) ?? key
+      const awaiting = awaitingRef.current.get(key)
       if (!adapter) {
+        // A block without an adapter still has a state: what it published
+        const outputs = outputsRef.current?.()[key]
+        const done = outputs !== undefined && Object.keys(outputs).length > 0
         return {
           id,
           type: presence?.type ?? "unknown",
-          status: "not_controllable",
+          status: done ? "success" : "pending",
           blockedBy: [],
           controllable: false,
+          actions: [],
+          ...(outputs ? { state: { outputs } } : {}),
         }
       }
       const fields = formFields(key)
+      const actions = [
+        ...(adapter.canRun !== false && adapter.run ? ["run"] : []),
+        ...(fields ? ["set_inputs", "confirm_inputs"] : []),
+        ...(adapter.actions?.() ?? []).filter((a) => !a.unavailable).map((a) => a.name),
+      ]
+      const needsHuman = awaiting
+        ? `Approve or decline the agent's request in the Runbooks window: ${awaiting}.`
+        : adapter.needsHuman?.()
+      const state = adapter.detail(0, 0).state
       return {
         id,
         type: adapter.type,
         title: adapter.title,
-        status: adapter.status(),
+        status: awaiting ? "awaiting_approval" : adapter.status(),
         blockedBy: adapter.blockedBy(),
-        controllable: true,
+        controllable: actions.length > 0,
+        actions,
+        ...(state ? { state } : {}),
         ...(fields && unreviewed(key, fields).length > 0 ? { needsReview: true } : {}),
-        ...(adapter.needsHuman?.() ? { needsHuman: adapter.needsHuman() } : {}),
+        ...(needsHuman ? { needsHuman } : {}),
       }
     }
 
@@ -307,87 +334,141 @@ export function AgentBridgeProvider({
       blockId: string,
       action: string,
       params: Record<string, unknown>,
-    ): Promise<AgentActResult & { block?: AgentBlockSummary }> => {
+    ): Promise<Queued<AgentActResult & { block?: AgentBlockSummary }>> => {
       const key = find(blockId)
       const adapter = blocksRef.current.get(key)
-      if (!adapter?.act) return { ok: false, reason: NOT_CONTROLLABLE_NOTE }
+      if (!adapter?.act) return { answer: { ok: false, reason: NOT_CONTROLLABLE_NOTE } }
       const actions = adapter.actions?.() ?? []
       const spec = actions.find((a) => a.name === action)
       if (!spec) {
         return {
-          ok: false,
-          reason: `Block "${blockId}" has no action "${action}". Its actions: ${
-            actions.map((a) => a.name).join(", ") || "(none)"
-          }.`,
+          answer: {
+            ok: false,
+            reason: `Block "${blockId}" has no action "${action}". Its actions: ${
+              actions.map((a) => a.name).join(", ") || "(none)"
+            }.`,
+          },
         }
       }
-      if (spec.unavailable) return { ok: false, reason: spec.unavailable }
+      if (spec.unavailable) return { answer: { ok: false, reason: spec.unavailable } }
       const missing = Object.entries(spec.params ?? {})
         .filter(
           ([name, param]) => param.required && (params[name] === undefined || params[name] === ""),
         )
         .map(([name]) => name)
-      if (missing.length > 0) return { ok: false, reason: `Missing params: ${missing.join(", ")}` }
+      if (missing.length > 0) {
+        return { answer: { ok: false, reason: `Missing params: ${missing.join(", ")}` } }
+      }
       if (spec.changes) {
         const review = reviewNeeded(key)
-        if (review) return { ok: false, reason: review.message }
+        if (review) return { answer: { ok: false, reason: review.message } }
       }
       reveal(key)
-      if (
-        spec.changes &&
-        statusRef.current?.confirmRuns !== false &&
-        !(await askUser(blockId, spec.description))
-      ) {
-        return { ok: false, reason: "The user declined in the Runbooks window, or didn't answer." }
+      const proceed = async (): Promise<AgentActResult & { block?: AgentBlockSummary }> => {
+        const before = adapter.status()
+        const result = await adapter.act!(action, params)
+        if (!result.ok) return result
+        setLastAction(`${action} on ${blockId}`)
+        // Answer once the window shows the change, so get_block sees it
+        const deadline = Date.now() + RUN_START_WAIT_MS
+        while (spec.changes && Date.now() < deadline && adapter.status() === before) await sleep(50)
+        return { ...result, block: summary(key) }
       }
-      if (statusRef.current?.enabled !== true) {
-        return { ok: false, reason: "AI agent access was turned off in the Runbooks window." }
-      }
-      const before = adapter.status()
-      const result = await adapter.act(action, params)
-      if (!result.ok) return result
-      setLastAction(`${action} on ${blockId}`)
-      // Answer once the window shows the change, so get_block sees it
-      const deadline = Date.now() + RUN_START_WAIT_MS
-      while (spec.changes && Date.now() < deadline && adapter.status() === before) await sleep(50)
-      return { ...result, block: summary(key) }
+      if (!spec.changes) return { answer: await proceed() }
+      return approveThen(key, blockId, spec.description, proceed, (reason) => ({
+        ok: false,
+        reason,
+        awaitingApproval: true,
+      }))
     }
 
-    const runBlock = async (blockId: string): Promise<AgentRunResult> => {
+    /**
+     * Run `proceed` once the user approves, when the window asks first. The
+     * request is answered at once (`refused`, saying approval is pending); the
+     * block reports awaiting_approval until the user answers, and `done`
+     * settles once the approved work has started or the user declined.
+     */
+    function approveThen<T>(
+      key: string,
+      blockId: string,
+      label: string | undefined,
+      proceed: () => Promise<T>,
+      refused: (reason: string) => T,
+    ): Promise<Queued<T>> | Queued<T> {
+      declinedRef.current.delete(key)
+      if (statusRef.current?.confirmRuns === false) {
+        return proceed().then((answer) => ({ answer }))
+      }
+      awaitingRef.current.set(key, label ?? "run this block")
+      const done = askUser(blockId, label).then(async (ok) => {
+        awaitingRef.current.delete(key)
+        if (!ok) {
+          declinedRef.current.set(
+            key,
+            "The user declined the agent's last request in the Runbooks window, or didn't answer in time.",
+          )
+          return
+        }
+        // Access may have been turned off while the approval was open
+        if (statusRef.current?.enabled !== true) {
+          declinedRef.current.set(
+            key,
+            "AI agent access was turned off before the request was approved.",
+          )
+          return
+        }
+        await proceed()
+      })
+      return {
+        answer: refused(
+          "Waiting for the user to approve this in the Runbooks window. The block reports awaiting_approval until they answer; wait_for_block waits through it.",
+        ),
+        done,
+      }
+    }
+
+    const runBlock = async (blockId: string): Promise<Queued<AgentRunResult>> => {
       const key = find(blockId)
       const adapter = blocksRef.current.get(key)
-      if (!adapter?.run) return { started: false, reason: NOT_CONTROLLABLE_NOTE }
+      if (!adapter?.run || adapter.canRun === false) {
+        return { answer: { started: false, reason: NOT_CONTROLLABLE_NOTE } }
+      }
       const review = reviewNeeded(key)
-      if (review) return { started: false, reason: review.message, needsReview: review }
+      if (review) return { answer: { started: false, reason: review.message, needsReview: review } }
       const blocked = adapter.blockedBy()
-      if (blocked.length > 0) return { started: false, reason: blocked.join("; ") }
+      if (blocked.length > 0) return { answer: { started: false, reason: blocked.join("; ") } }
       reveal(key)
-      if (
-        adapter.runIsAction !== false &&
-        statusRef.current?.confirmRuns !== false &&
-        !(await askUser(blockId))
-      ) {
+      const proceed = async (): Promise<AgentRunResult> => {
+        const before = adapter.status()
+        const result = adapter.run!()
+        if (!result.started) return result
+        setLastAction(`Ran ${blockId}`)
+        // Answer once the window shows the run, so wait_for_block sees it running
+        const deadline = Date.now() + RUN_START_WAIT_MS
+        while (Date.now() < deadline) {
+          const current = adapter.status()
+          if (current === "running" || current !== before) return result
+          await sleep(50)
+        }
         return {
-          started: false,
-          reason: "The user declined the run in the Runbooks window, or didn't answer.",
+          ...result,
+          note: "The window doesn't show the run yet. Check get_block for what it waits for.",
         }
       }
-      // Access may have been turned off while the approval was open
-      if (statusRef.current?.enabled !== true) {
-        return { started: false, reason: "AI agent access was turned off in the Runbooks window." }
-      }
-      const before = adapter.status()
-      const result = adapter.run()
-      if (!result.started) return result
-      setLastAction(`Ran ${blockId}`)
-      // Answer once the window shows the run, so wait_for_block sees it running
-      const deadline = Date.now() + RUN_START_WAIT_MS
-      while (Date.now() < deadline) {
-        const current = adapter.status()
-        if (current === "running" || current !== before) break
-        await sleep(50)
-      }
-      return result
+      if (adapter.runIsAction === false) return { answer: await proceed() }
+      return approveThen(key, blockId, undefined, proceed, (reason) => ({
+        started: false,
+        reason,
+        awaitingApproval: true,
+      }))
+    }
+
+    // Runs and actions go one at a time; the next waits until an approved one
+    // has started, or its approval was declined
+    const enqueue = <T,>(start: () => Promise<Queued<T>> | Queued<T>): Promise<T> => {
+      const step = runQueueRef.current.then(start)
+      runQueueRef.current = step.then((queued) => queued.done).catch(() => {})
+      return step.then((queued) => queued.answer)
     }
 
     const handle = async (request: AgentRequest): Promise<unknown> => {
@@ -408,15 +489,20 @@ export function AgentBridgeProvider({
           const key = find(request.blockId)
           const adapter = blocksRef.current.get(key)
           const fields = formFields(key)
+          const base = summary(key)
+          const declined = declinedRef.current.get(key)
           const detail: AgentBlockDetail = {
-            ...summary(key),
+            ...base,
             ...(adapter
               ? adapter.detail(request.logOffset ?? 0, request.logLimit ?? 200)
               : { note: NOT_CONTROLLABLE_NOTE }),
+            // The summary's status wins: it includes awaiting_approval
+            status: base.status,
             ...(fields ? { inputs: fields } : {}),
             ...(adapter?.actions && adapter.actions().length > 0
-              ? { actions: adapter.actions() }
+              ? { actionSpecs: adapter.actions() }
               : {}),
+            ...(declined ? { note: declined } : {}),
             sessionId: sessionRef.current.sessionId,
           }
           return detail
@@ -448,18 +534,10 @@ export function AgentBridgeProvider({
           setLastAction(`Confirmed ${request.blockId}`)
           return { confirmed: writtenIdsRef.current.get(key) ?? key, fields: formFields(key) ?? [] }
         }
-        case "run_block": {
-          const run = runQueueRef.current.then(() => runBlock(request.blockId))
-          runQueueRef.current = run.catch(() => {})
-          return run
-        }
-        case "act_on_block": {
-          const act = runQueueRef.current.then(() =>
-            actOnBlock(request.blockId, request.action, request.params),
-          )
-          runQueueRef.current = act.catch(() => {})
-          return act
-        }
+        case "run_block":
+          return enqueue(() => runBlock(request.blockId))
+        case "act_on_block":
+          return enqueue(() => actOnBlock(request.blockId, request.action, request.params))
         case "cancel_block": {
           const key = find(request.blockId)
           const adapter = blocksRef.current.get(key)

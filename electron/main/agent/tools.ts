@@ -160,7 +160,7 @@ export function createAgentMcpServer(bridge: AgentBridge, version: string): McpS
     "run_block",
     {
       title: "Run a block",
-      description: `Start a Command, Check or Finish block, generate a Template or submit an Inputs form, through the same code path as its button in the window, and return once it has started. Follow with wait_for_block or get_block. Refused, with the reason, while the block is blocked, when the user declines in the window, or while a form the block reads (itself, for a form) has fields you haven't set or confirmed: then needsReview holds that form's fields, defaults and validations. ${RUNS_SCRIPTS}`,
+      description: `Start a Command, Check or Finish block, generate a Template or submit an Inputs form, through the same code path as its button in the window, and return once it has started. Follow with wait_for_block or get_block. When the window asks the user to approve the run, it answers at once with awaitingApproval: true and the block reports status awaiting_approval until the user answers; wait_for_block waits through it. Refused, with the reason, while the block is blocked, or while a form the block reads (itself, for a form) has fields you haven't set or confirmed: then needsReview holds that form's fields, defaults and validations. ${RUNS_SCRIPTS}`,
       inputSchema: z.object({ block_id: blockId }),
       annotations: { destructiveHint: true, openWorldHint: true },
     },
@@ -179,7 +179,7 @@ export function createAgentMcpServer(bridge: AgentBridge, version: string): McpS
     "act_on_block",
     {
       title: "Act on a block",
-      description: `Use one of a block's controls other than its Run button: accept a detected credential, start a sign-in, pick a tenant, subscription, profile or project, clone a repository or use a local checkout, fill in and create a pull request, pick a directory, and so on. get_block lists each block's actions with their params; actions marked changes: true can change real things and may need the user's approval in the window, like run_block. When an action needs the person at the window (a browser sign-in, MFA), the block's needsHuman says what they must do. ${RUNS_SCRIPTS}`,
+      description: `Use one of a block's controls other than its Run button: accept a detected credential, start a sign-in, pick a tenant, subscription, profile or project, clone a repository or use a local checkout, fill in and create a pull request, pick a directory, and so on. get_block lists each block's actionSpecs with their params; actions marked changes: true can change real things and may need the user's approval in the window, like run_block. When an action needs the person at the window (a browser sign-in, MFA), the block's needsHuman says what they must do. ${RUNS_SCRIPTS}`,
       inputSchema: z.object({
         block_id: blockId,
         action: z.string().describe("An action name from get_block's actions"),
@@ -208,7 +208,7 @@ export function createAgentMcpServer(bridge: AgentBridge, version: string): McpS
     "wait_for_block",
     {
       title: "Wait for a block",
-      description: `Wait until a block's run ends, or timeout_seconds pass (at most ${MAX_WAIT_SECONDS}), then return it as get_block does, with timed_out. Long runs: call it again until timed_out is false, passing the previous call's nextLogOffset as log_offset to get only new log lines. Fails if the window switches to another session meanwhile.`,
+      description: `Wait until a block's run ends (including while it awaits the user's approval), or timeout_seconds pass (at most ${MAX_WAIT_SECONDS}), then return it as get_block does, with timed_out. Long runs: call it again until timed_out is false, passing the previous call's nextLogOffset as log_offset to get only new log lines. Fails if the window switches to another session meanwhile.`,
       inputSchema: z.object({
         block_id: blockId,
         timeout_seconds: z.number().int().min(1).max(MAX_WAIT_SECONDS).optional(),
@@ -233,18 +233,21 @@ export function createAgentMcpServer(bridge: AgentBridge, version: string): McpS
           }
           return next
         }
+        // A run that waits for the user's approval hasn't ended either
+        const waiting = (d: AgentBlockDetail) =>
+          d.status === "running" || d.status === "awaiting_approval"
         let detail: AgentBlockDetail = await read(0)
         const session = detail.sessionId
         try {
-          while (detail.status === "running" && Date.now() < deadline) {
+          while (waiting(detail) && Date.now() < deadline) {
             await sleep(POLL_MS)
             detail = await read(0, session)
           }
           const final = await read(args.log_limit, session)
-          return { ...final, timed_out: final.status === "running" }
+          return { ...final, timed_out: waiting(final) }
         } catch (err: unknown) {
           // The window didn't answer before the wait ran out: report what was last seen
-          if (!switched && Date.now() >= deadline && detail.status === "running") {
+          if (!switched && Date.now() >= deadline && waiting(detail)) {
             return { ...detail, timed_out: true }
           }
           throw err

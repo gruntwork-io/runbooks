@@ -84,7 +84,7 @@ describe("AwsAuth agent adapter", () => {
     const api = renderWithAgent(<AwsAuth id="aws" detectCredentials={false} />)
     const detail = await askAgent(api, { op: "get_block", blockId: "aws" })
     expect(
-      detail.actions.find((a: { name: string }) => a.name === "start_sso_sign_in").unavailable,
+      detail.actionSpecs.find((a: { name: string }) => a.name === "start_sso_sign_in").unavailable,
     ).toContain("ssoStartUrl")
   })
 })

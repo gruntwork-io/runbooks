@@ -34,6 +34,8 @@ const AGENT_BLOCKS = [
   "GitLabMergeRequest",
   "DirPicker",
   "Iframe",
+  "Admonition",
+  "Chapter",
 ] as const
 
 // Blocks whose adapter lives in a file other than `<Block>/<Block>.tsx`.
@@ -49,13 +51,9 @@ const ADAPTER_SOURCE: Record<string, string> = {
   Template: "_shared/components/BoilerplateInputsForm.tsx",
 }
 
-// Entries with nothing for an agent to do:
-// - Admonition only shows a note; its buttons dismiss or acknowledge it, which
-//   nothing else waits for, and it has no id to address it by.
-// - Chapter only groups blocks; when an agent acts on a block in a hidden
-//   chapter, the bridge shows that chapter first.
-// - `a`, `pre` and `input` override plain elements.
-const NOT_AGENT_BLOCKS = ["Admonition", "Chapter", "a", "pre", "input"] as const
+// Entries that aren't blocks: `a`, `pre` and `input` override plain elements.
+// Every block, controls or not, reports its status through an adapter.
+const NOT_AGENT_BLOCKS = ["a", "pre", "input"] as const
 
 describe("agent adapters — MDX registry coverage", () => {
   it("every registry entry is classified (a new block forces a decision)", () => {
@@ -71,9 +69,12 @@ describe("agent adapters — MDX registry coverage", () => {
     }
   })
 
-  it.each(AGENT_BLOCKS)("%s registers an agent adapter", (block) => {
+  it.each(AGENT_BLOCKS)("%s registers an agent adapter with a real status", (block) => {
     const relativePath = ADAPTER_SOURCE[block] ?? `${block}/${block}.tsx`
     const source = readFileSync(resolve(__dirname, "..", relativePath), "utf8")
     expect(source).toContain("useAgentBlock(")
+    // The block's own status, never a placeholder for whether an agent can act on it
+    expect(source).toMatch(/useAgentBlock\([\s\S]*?status: \(\) =>/)
+    expect(source).not.toContain("not_controllable")
   })
 })

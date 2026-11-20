@@ -5,7 +5,7 @@ import { ApiProvider } from "@/contexts/ApiContext"
 import { AgentBridgeProvider } from "@/contexts/AgentBridgeContext"
 import { TestWrapper } from "@/test/test-utils"
 import { makeTestApi, type Handlers, type TestApi } from "@/test/test-api"
-import type { AgentRequest } from "../../../src/domain/agent/protocol"
+import { AGENT_BLOCK_STATUSES, type AgentRequest } from "../../../src/domain/agent/protocol"
 
 /**
  * Test harness for blocks' agent adapters: renders blocks under the agent
@@ -49,12 +49,19 @@ export async function askAgent(
     { timeout },
   )
   if (!response!.ok) throw new Error(response!.error)
+  // Every block reports one of the real statuses, whether or not an agent can act on it
+  const result = response!.result as { status?: string; blocks?: Array<{ status: string }> }
+  for (const status of [result.status, ...(result.blocks ?? []).map((b) => b.status)]) {
+    if (status !== undefined && (request.op === "get_block" || request.op === "get_session")) {
+      expect(AGENT_BLOCK_STATUSES).toContain(status)
+    }
+  }
   return response!.result
 }
 
 /** The names of the actions get_block says are available now. */
 export function availableActions(detail: {
-  actions?: Array<{ name: string; unavailable?: string }>
+  actionSpecs?: Array<{ name: string; unavailable?: string }>
 }) {
-  return (detail.actions ?? []).filter((a) => !a.unavailable).map((a) => a.name)
+  return (detail.actionSpecs ?? []).filter((a) => !a.unavailable).map((a) => a.name)
 }

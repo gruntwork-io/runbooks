@@ -41,7 +41,9 @@ describe("Prerequisites agent adapter", () => {
         </pre>
       </Prerequisites>,
     )
-    expect(await askAgent(api, { op: "run_block", blockId: "tools" })).toEqual({ started: true })
+    expect(await askAgent(api, { op: "run_block", blockId: "tools" })).toMatchObject({
+      started: true,
+    })
     expect(check).toHaveBeenCalledTimes(1)
     const detail = await askAgent(api, { op: "get_block", blockId: "tools" })
     expect(detail.logs).toEqual(["git 2.50.1"])

@@ -26,6 +26,9 @@ export function useAgentBlock(id: string, adapter: AgentBlockAdapter): void {
       get runIsAction() {
         return current().runIsAction
       },
+      get canRun() {
+        return current().run !== undefined
+      },
       status: () => current().status(),
       blockedBy: () => current().blockedBy(),
       detail: (offset, limit) => current().detail(offset, limit),

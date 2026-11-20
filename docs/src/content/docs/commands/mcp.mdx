@@ -73,7 +73,7 @@ A default is a value nobody chose for this run. Some defaults have consequences 
 
 ### Every block can be driven
 
-Every block with a button, picker or form gives an agent the same controls it gives you, through the same code the window uses. `get_block` lists a block's `actions`, each with its params, whether it `changes` something outside the window, and why it is `unavailable` right now if it is. `act_on_block` uses one. Actions that change something, such as signing in, cloning or opening a pull request, ask for your approval the same way runs do.
+Every block with a button, picker or form gives an agent the same controls it gives you, through the same code the window uses. `get_block` lists a block's `actionSpecs`, each with its params, whether it `changes` something outside the window, and why it is `unavailable` right now if it is. `act_on_block` uses one. Actions that change something, such as signing in, cloning or opening a pull request, ask for your approval the same way runs do.
 
 | Block | Actions |
 |---|---|
@@ -90,13 +90,19 @@ Every block with a button, picker or form gives an agent the same controls it gi
 
 Some steps need the person at the window: a browser sign-in, an MFA prompt, a device code, or a page in an `<Iframe>`. Then the block's `needsHuman` says what to do, such as "open https://microsoft.com/devicelogin and enter the code XYZ123", and the agent tells you and waits. An agent can sign in with a personal access token, but it never types other secrets, such as an access key or a client secret: use a credential the environment already has, or enter it in the window yourself.
 
-`<TemplateInline>` has no button. An agent sees its status and what it waits for. `<Admonition>` and `<Chapter>` aren't steps: when an agent acts on a block in a hidden chapter, the window shows that chapter first.
+`<TemplateInline>` has no button. An agent sees its status and what it waits for. An `<Admonition>` reports its status, and one with a confirmation button can be confirmed, except the trust banner, which is yours to confirm. A `<Chapter>` reports its steps' progress and can be shown. When an agent acts on a block in a hidden chapter, the window shows that chapter first.
 
 ### Long runs and logs
 
 `run_block` returns as soon as a run starts, so a long `apply` never runs into the agent's tool timeout. The agent follows it with `wait_for_block`. Logs come a page at a time: each answer has `nextLogOffset`, where the next page starts, and `logTotal`, how many lines there are so far. Passing `nextLogOffset` as `log_offset` gets the lines not yet read. `wait_for_block` fails if the window switches to another session while it waits.
 
-If the window asks you to approve a run, it waits up to 5 minutes for an answer and then declines. Turning agent access off declines an approval that is still open.
+If the window asks you to approve a run or action, `run_block` and `act_on_block` answer at once with `awaitingApproval: true`, and the block's status is `awaiting_approval`, with `needsHuman` saying to approve or decline it in the window, until you answer. `wait_for_block` waits through it. The window waits up to 5 minutes for an answer and then declines; a declined request shows in `get_block`'s `note`. Turning agent access off declines an approval that is still open.
+
+### What a block reports
+
+Every block reports its own `status`, whether or not an agent can act on it: `pending`, `running`, `success`, `warn`, `fail`, `generated` (a Template), `submitted` (an Inputs form), `awaiting_approval`, or `info` (a note with nothing to finish). Separately, `controllable` says whether an agent can act on it, and `actions` lists what it can do now (`run`, `set_inputs`, and action names). `state` holds what the block knows, such as the signed-in account, the tenant and subscription, the cloned path or the pull request's URL. `get_block` adds `actionSpecs`, each action's params and why it is unavailable now if it is.
+
+A form field whose value links to other values, such as `{{ .outputs.query_config.tenant_id }}`, comes back with `value` as written and `resolvedValue`, what it comes to, as the form's chip shows it. A reference that can't be resolved yet is listed in `unresolved`, with the reason.
 
 `run_block` refuses a block whose button is disabled in the window, and says why: an input without a value, an output it waits for, an auth block that hasn't signed in, a `dependsOn` block that hasn't succeeded, or a block that is already running.
 

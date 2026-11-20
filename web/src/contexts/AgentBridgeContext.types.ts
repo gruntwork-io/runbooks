@@ -22,6 +22,8 @@ export interface AgentBlockAdapter {
   /** The rest of get_block's answer: logs from `logOffset`, outputs, fields. */
   detail: (logOffset: number, logLimit: number) => Partial<AgentBlockDetail>
   run?: () => AgentRunResult
+  /** False when `run` is only the stand-in useAgentBlock puts in for a block without a Run button. */
+  canRun?: boolean | undefined
   /** Whether run() runs a script or writes files, so the user may want to approve it first. */
   runIsAction?: boolean | undefined
   cancel?: () => boolean

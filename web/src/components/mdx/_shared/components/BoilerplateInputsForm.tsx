@@ -600,6 +600,23 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     }
     return errors
   }
+  // What a linked value comes to, as its chip shows it, and what in it can't
+  // be worked out yet. Nothing for a plain value.
+  const agentResolution = (name: string, value: unknown, sensitive: boolean) => {
+    if (!containsTemplateValue(value)) return {}
+    const { waitingFor, missing } = outputStatus(value)
+    const unresolved = [
+      ...waitingFor.map((blockId) => `waiting for an output of block "${blockId}"`),
+      ...missing.map((blockId) => `no block "${blockId}" on the page`),
+    ]
+    // A result that still holds a template didn't resolve, as the chip treats it
+    const known = name in resolvedValues && !containsTemplateValue(resolvedValues[name])
+    if (!known && unresolved.length === 0) unresolved.push("not resolved yet")
+    return {
+      ...(known ? { resolvedValue: sensitive ? "<redacted>" : resolvedValues[name] } : {}),
+      ...(unresolved.length > 0 ? { unresolved } : {}),
+    }
+  }
   useAgentBlock(id, {
     type: blockType,
     status: () =>
@@ -636,6 +653,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                   : undefined,
               readOnly: agentReadOnly(variable) || undefined,
               error: errors[variable.name],
+              ...agentResolution(variable.name, value, sensitive),
             }
           }),
       }

@@ -5,7 +5,10 @@
  * (`agent:request`), answered with `agent:respond`.
  */
 
-/** A block's state as the window shows it. */
+/**
+ * A block's state as the window shows it. Always the block's real state,
+ * whether or not an agent can act on it (that is `controllable`).
+ */
 export type AgentBlockStatus =
   | "pending"
   | "running"
@@ -14,7 +17,23 @@ export type AgentBlockStatus =
   | "fail"
   | "generated"
   | "submitted"
-  | "not_controllable"
+  /** An agent's run or action on the block waits for the user's approval in the window. */
+  | "awaiting_approval"
+  /** The block only shows something (a note); there is nothing for it to finish. */
+  | "info"
+
+/** Every AgentBlockStatus, for checking a status at runtime. */
+export const AGENT_BLOCK_STATUSES: readonly AgentBlockStatus[] = [
+  "pending",
+  "running",
+  "success",
+  "warn",
+  "fail",
+  "generated",
+  "submitted",
+  "awaiting_approval",
+  "info",
+]
 
 export interface AgentBlockSummary {
   id: string
@@ -23,8 +42,12 @@ export interface AgentBlockSummary {
   status: AgentBlockStatus
   /** Why the window's Run (or Generate) button is disabled. Empty when it isn't. */
   blockedBy: string[]
-  /** Whether an agent can run or fill the block; false for blocks that need the user. */
+  /** Whether an agent can act on the block at all (run it, fill it in, or use an action). */
   controllable: boolean
+  /** What an agent can do to it now: "run" (run_block), "set_inputs", and act_on_block action names. */
+  actions: string[]
+  /** What the block holds: the signed-in account, tenant and subscription, cloned path, PR URL. */
+  state?: Record<string, unknown> | undefined
   /** For a form: some of its fields haven't been set or confirmed by the agent. */
   needsReview?: boolean | undefined
   /** What the person at the window has to do before the block can go on (a browser sign-in, MFA, a page). */
@@ -52,7 +75,9 @@ export interface AgentActionSpec {
   unavailable?: string | undefined
 }
 
-export type AgentActResult = { ok: true; note?: string | undefined } | { ok: false; reason: string }
+export type AgentActResult =
+  | { ok: true; note?: string | undefined }
+  | { ok: false; reason: string; awaitingApproval?: true | undefined }
 
 export interface AgentInputVariable {
   name: string
@@ -71,6 +96,13 @@ export interface AgentInputVariable {
   validations?: Array<{ type: string; args?: unknown[] | undefined }> | undefined
   /** The agent set or confirmed this field. A default nobody looked at is unreviewed. */
   reviewed?: boolean | undefined
+  /**
+   * For a value that links to other values ({{ .outputs.block.name }}, {{ .inputs.X }}):
+   * what it comes to, as the form's chip shows it. Absent while it can't be worked out.
+   */
+  resolvedValue?: unknown
+  /** The references in the value that can't be resolved yet, and why. */
+  unresolved?: string[] | undefined
 }
 
 /** A form an agent has to review before a block that reads it runs. */
@@ -102,8 +134,8 @@ export interface AgentBlockDetail extends AgentBlockSummary {
   inputs?: AgentInputVariable[] | undefined
   /** What the user has to do for a block an agent can't run. */
   note?: string | undefined
-  /** What act_on_block can do to the block now. */
-  actions?: AgentActionSpec[] | undefined
+  /** Every act_on_block action of the block, with its params and why it is unavailable now, if it is. */
+  actionSpecs?: AgentActionSpec[] | undefined
   /** Block-specific state: the signed-in account, the cloned path, the pull request's URL, pickers' choices. */
   state?: Record<string, unknown> | undefined
 }
@@ -128,8 +160,14 @@ export type AgentRequest =
   | { op: "get_outputs" }
 
 export type AgentRunResult =
-  | { started: true }
-  | { started: false; reason: string; needsReview?: AgentFormReview | undefined }
+  | { started: true; note?: string | undefined }
+  | {
+      started: false
+      reason: string
+      needsReview?: AgentFormReview | undefined
+      /** The window is asking the user to approve the run; it starts once they do. */
+      awaitingApproval?: true | undefined
+    }
 
 /**
  * How long the window waits for the user to approve a run an agent asked
