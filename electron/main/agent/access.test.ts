@@ -50,6 +50,28 @@ describe("AgentAccess", () => {
     expect(fs.existsSync(file)).toBe(false)
   })
 
+  it("ends turned off when turned off while it was still starting", async () => {
+    const on = access.update({ enabled: true })
+    const off = access.update({ enabled: false })
+    await on
+    const status = await off
+    expect(status.enabled).toBe(false)
+    expect(status.url).toBeUndefined()
+    expect(fs.existsSync(path.join(dataDir, HEADERS_FILE))).toBe(false)
+  })
+
+  it("keeps asking before runs when the change can't be saved", async () => {
+    if (process.platform === "win32" || process.getuid?.() === 0) return
+    await access.init()
+    fs.chmodSync(dataDir, 0o500)
+    try {
+      await expect(access.update({ confirmRuns: false })).rejects.toThrow()
+    } finally {
+      fs.chmodSync(dataDir, 0o700)
+    }
+    expect(access.status().confirmRuns).toBe(true)
+  })
+
   it("remembers the setting", async () => {
     await access.update({ enabled: true, confirmRuns: false })
     await access.stop()

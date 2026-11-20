@@ -3,6 +3,7 @@
  * renderer as the right request. A fake bridge stands in for the window.
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import * as net from "node:net"
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client"
 import type { AgentRequest, AgentBlockDetail } from "../../../src/domain/agent/protocol.ts"
 import type { AgentBridge } from "./bridge.ts"
@@ -71,6 +72,8 @@ beforeEach(async () => {
         return { cancelled: true }
       case "get_outputs":
         return {}
+      case "confirm_inputs":
+        return { confirmed: request.blockId, fields: [] }
     }
   })
   requests = fake.requests
@@ -112,6 +115,24 @@ describe("requests it refuses", () => {
     expect(res.status).toBe(403)
   })
 
+  it("with a request target that isn't a valid URL, without crashing", async () => {
+    const port = new URL(server.url).port
+    const reply = await new Promise<string>((resolve, reject) => {
+      const socket = net.connect(Number(port), "127.0.0.1", () => {
+        socket.write(
+          `POST //[ HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`,
+        )
+      })
+      let data = ""
+      socket.on("data", (chunk) => (data += chunk.toString()))
+      socket.on("end", () => resolve(data))
+      socket.on("error", reject)
+    })
+    expect(reply).toStartWith("HTTP/1.1 400")
+    // Still serving
+    expect((await post({})).status).toBe(401)
+  })
+
   it("on another path", async () => {
     const res = await post(
       { authorization: `Bearer ${TOKEN}` },
@@ -151,6 +172,7 @@ describe("tools", () => {
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual([
       "cancel_block",
+      "confirm_inputs",
       "get_block",
       "get_outputs",
       "get_session",
@@ -171,6 +193,7 @@ describe("tools", () => {
     ])
     await call("set_inputs", { block_id: "config", values: { Region: "eastus" } })
     await call("cancel_block", { block_id: "deploy" })
+    await call("confirm_inputs", { block_id: "config" })
     await call("get_outputs")
     expect(requests).toContainEqual({ op: "get_session" })
     expect(requests).toContainEqual({
@@ -180,6 +203,7 @@ describe("tools", () => {
     })
     expect(requests).toContainEqual({ op: "cancel_block", blockId: "deploy" })
     expect(requests).toContainEqual({ op: "get_outputs" })
+    expect(requests).toContainEqual({ op: "confirm_inputs", blockId: "config" })
   })
 
   it("starts a run, then waits for it to end", async () => {
@@ -194,5 +218,79 @@ describe("tools", () => {
     blockStatus = "running"
     const waited = await call("wait_for_block", { block_id: "deploy", timeout_seconds: 1 })
     expect(waited.timed_out).toBe(true)
+  })
+})
+
+describe("wait_for_block against a window that misbehaves", () => {
+  /** A server over `answer`, and a connected client. */
+  async function serve(answer: (request: AgentRequest) => Promise<unknown>) {
+    // Gives up after timeoutMs, as RendererBridge does
+    const bridge: AgentBridge = {
+      request: (request, timeoutMs = 20_000) =>
+        Promise.race([
+          answer(request),
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error("The Runbooks window didn't answer.")), timeoutMs)
+          }),
+        ]) as never,
+    }
+    const own = await startAgentServer({
+      port: 0,
+      token: TOKEN,
+      createServer: () => createAgentMcpServer(bridge, "test"),
+    })
+    const c = new Client({ name: "test", version: "0" })
+    await c.connect(
+      new StreamableHTTPClientTransport(new URL(own.url), {
+        requestInit: { headers: { authorization: `Bearer ${TOKEN}` } },
+      }),
+    )
+    return { own, c }
+  }
+  const running = (sessionId: string) => ({
+    id: "deploy",
+    type: "Command",
+    status: "running",
+    blockedBy: [],
+    controllable: true,
+    sessionId,
+  })
+
+  it("keeps to its deadline when the window stops answering", async () => {
+    let reads = 0
+    const { own, c } = await serve(() => {
+      reads++
+      // The first read answers; every later one hangs, as a frozen window would
+      return reads === 1 ? Promise.resolve(running("s1")) : new Promise(() => {})
+    })
+    try {
+      const started = Date.now()
+      const result = await c.callTool({
+        name: "wait_for_block",
+        arguments: { block_id: "deploy", timeout_seconds: 2 },
+      })
+      const body = JSON.parse((result.content as Array<{ text: string }>)[0]!.text)
+      expect(body).toMatchObject({ status: "running", timed_out: true })
+      expect(Date.now() - started).toBeLessThan(6000)
+    } finally {
+      await c.close()
+      await own.close()
+    }
+  })
+
+  it("fails when the window switches to another session", async () => {
+    let reads = 0
+    const { own, c } = await serve(() => Promise.resolve(running(++reads === 1 ? "s1" : "s2")))
+    try {
+      const result = await c.callTool({
+        name: "wait_for_block",
+        arguments: { block_id: "deploy", timeout_seconds: 5 },
+      })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]!.text).toContain("another session")
+    } finally {
+      await c.close()
+      await own.close()
+    }
   })
 })

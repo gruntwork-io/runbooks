@@ -27,6 +27,15 @@ describe("RendererBridge", () => {
     await expect(pending).rejects.toThrow('No block "x"')
   })
 
+  it("cleans up when sending throws, and honors a per-request timeout", async () => {
+    const throwing = new RendererBridge(() => {
+      throw new Error("webContents destroyed")
+    })
+    await expect(throwing.request({ op: "get_session" })).rejects.toThrow("webContents destroyed")
+    const slow = new RendererBridge(() => true, 60_000)
+    await expect(slow.request({ op: "get_session" }, 20)).rejects.toThrow("didn't answer")
+  })
+
   it("rejects when there is no window, or it doesn't answer", async () => {
     await expect(new RendererBridge(() => false).request({ op: "get_session" })).rejects.toThrow(
       "isn't open",

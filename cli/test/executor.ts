@@ -846,6 +846,8 @@ export class TestExecutor {
           return
         }
         for (const entry of entries) {
+          // The files renderTemplateDir skips aren't rendered, so they wait for nothing
+          if (entry.name === "boilerplate.yml" || entry.name.startsWith(".")) continue
           const full = path.join(dir, entry.name)
           if (entry.isDirectory()) walk(full)
           else
@@ -857,6 +859,91 @@ export class TestExecutor {
       walk(path.join(path.dirname(this.runbookPath), tmpl.templatePath))
     }
     return sources
+  }
+
+  /** `text` with the value of every sensitive input replaced by `<redacted>`. */
+  redactSensitiveInputs(text: string): string {
+    const secrets: string[] = []
+    for (const [blockId, schema] of this.validator.getAllSchemas()) {
+      for (const variable of schema.variables.values()) {
+        if (!variable.sensitive) continue
+        const value = this.testInputs[`${blockId}.${variable.name}`]
+        if (typeof value === "string" && value !== "") secrets.push(value)
+      }
+    }
+    // Longest first, so a secret that contains another is replaced whole
+    secrets.sort((a, b) => b.length - a.length)
+    return secrets.reduce((out, secret) => out.split(secret).join("<redacted>"), text)
+  }
+
+  /**
+   * The Inputs and Template blocks whose values block `blockId` reads, itself
+   * included for an Inputs or Template block, following Templates' imports.
+   * In document order.
+   */
+  formsReadBy(blockId: string): string[] {
+    const schemas = this.validator.getAllSchemas()
+    const found = new Set<string>()
+    const visit = (id: string) => {
+      if (found.has(id)) return
+      found.add(id)
+      for (const importedId of this.templates.get(id)?.inputsIds ?? []) visit(importedId)
+    }
+    const block = this.getBlocks().find((b) => b.id === blockId)
+    if (block && schemas.has(blockId)) visit(blockId)
+    for (const id of this.inputsIds.get(blockId) ?? []) visit(id)
+    const order = this.getBlocks().map((b) => b.id)
+    return [...found]
+      .filter((id) => schemas.has(id))
+      .sort((a, b) => order.indexOf(a) - order.indexOf(b))
+  }
+
+  /**
+   * The variables of form `formId` that the form itself asks for: not
+   * x-hidden, not locked, and for a Template not one a block it imports also
+   * declares (the app shows those read-only, with the imported value).
+   */
+  formOwnVariables(formId: string): string[] {
+    const schemas = this.validator.getAllSchemas()
+    const imported = new Set<string>()
+    for (const id of this.templates.get(formId)?.inputsIds ?? []) {
+      for (const name of schemas.get(id)?.variables.keys() ?? []) imported.add(name)
+    }
+    return [...(schemas.get(formId)?.variables.values() ?? [])]
+      .filter((v) => !v.hidden && !v.locked && !imported.has(v.name))
+      .map((v) => v.name)
+  }
+
+  /**
+   * The blocks that wait on block `blockId`: those whose templates read its
+   * outputs (and which ones), those that name it in `dependsOn`, and those
+   * that use it as their auth block.
+   */
+  dependentsOf(
+    blockId: string,
+  ): Array<{ block: string; outputs?: string[]; dependsOn?: true; authBlock?: true }> {
+    const target = normalizeBlockId(blockId)
+    const result: Array<{ block: string; outputs?: string[]; dependsOn?: true; authBlock?: true }> =
+      []
+    for (const block of this.getBlocks()) {
+      if (block.id === blockId) continue
+      const outputs = new Set<string>()
+      for (const dep of extractOutputDependencies(...this.blockSources(block))) {
+        if (normalizeBlockId(dep.blockId) === target) outputs.add(dep.outputName)
+      }
+      const dependsOn = (this.runDeps.get(block.id) ?? []).some(
+        (id) => normalizeBlockId(id) === target,
+      )
+      const authBlock = this.authDeps.get(block.id)?.authBlockId === blockId
+      if (outputs.size === 0 && !dependsOn && !authBlock) continue
+      result.push({
+        block: block.id,
+        ...(outputs.size > 0 ? { outputs: [...outputs] } : {}),
+        ...(dependsOn ? { dependsOn: true as const } : {}),
+        ...(authBlock ? { authBlock: true as const } : {}),
+      })
+    }
+    return result
   }
 
   // -----------------------------------------------------------------------
@@ -1181,6 +1268,10 @@ export class TestExecutor {
       result.duration = Date.now() - start
       return result
     }
+
+    // A new attempt replaces the last one's outputs: until it succeeds or
+    // warns, the block has none, so nothing reads a stale value
+    this.blockOutputs.delete(block.id)
 
     // Render template vars in script content, and the block's env with the
     // same values
@@ -1537,7 +1628,9 @@ export class TestExecutor {
     }
 
     // The masked context has the same keys, so this renders whenever the real one does
-    const shown = renderGoTemplate(block.content, this.buildTemplateVars(block.id, maskOutputs))
+    const shown = this.redactSensitiveInputs(
+      renderGoTemplate(block.content, this.buildTemplateVars(block.id, maskOutputs)),
+    )
 
     // Write file if generateFile is set
     if (block.generateFile && block.outputPath) {

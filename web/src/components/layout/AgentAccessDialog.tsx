@@ -48,7 +48,10 @@ export function AgentAccessDialog({ open, onOpenChange }: AgentAccessDialogProps
       .finally(() => setBusy(false))
   }
 
-  const helper = status?.headersFile ? `cat '${status.headersFile}'` : undefined
+  // Single-quoted for the shell, with any ' in the path closed, escaped and reopened
+  const helper = status?.headersFile
+    ? `cat '${status.headersFile.replaceAll("'", "'\\''")}'`
+    : undefined
   const mcpJson =
     status?.url && helper
       ? JSON.stringify(

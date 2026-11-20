@@ -115,6 +115,11 @@ test("an MCP client fills in a form and runs a block in the open session", async
     const greet = session.blocks.find((b: { id: string }) => b.id === "greet")
     expect(greet.blockedBy.join()).toContain("Name")
 
+    // Stopped at the form the Command reads, until the agent reviews it
+    const early = await call("run_block", { block_id: "greet" })
+    expect(early.started).toBe(false)
+    expect(early.needsReview).toMatchObject({ form: "config", unreviewed: ["Name"] })
+
     const filled = await call("set_inputs", { block_id: "config", values: { Name: "e2e" } })
     expect(filled.errors).toEqual({})
     // Typed into the window's form

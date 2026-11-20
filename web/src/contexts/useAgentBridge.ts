@@ -32,6 +32,7 @@ export function useAgentBlock(id: string, adapter: AgentBlockAdapter): void {
       run: () =>
         current().run?.() ?? { started: false, reason: "This block can't be run by an agent." },
       cancel: () => current().cancel?.() ?? false,
+      readsForms: () => current().readsForms?.() ?? [],
       setInputs: (values) => {
         const setInputs = current().setInputs
         if (!setInputs) throw new Error(`Block "${id}" has no form to fill in.`)

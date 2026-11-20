@@ -9,6 +9,8 @@ import { act, render, screen, waitFor, fireEvent } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { AgentBridgeProvider } from "@/contexts/AgentBridgeContext"
 import { TestWrapper } from "@/test/test-utils"
+import { useState } from "react"
+import { useAgentBlock, useAgentPresence } from "@/contexts/useAgentBridge"
 import { makeTestApi, type TestApi } from "@/test/test-api"
 import Command from "@/components/mdx/Command/Command"
 import { sensitiveOutput, type OutputValues } from "@/lib/outputValues"
@@ -68,14 +70,47 @@ vi.mock("@/contexts/useLogs", () => ({
 let testApi: TestApi
 let status: AgentServerStatus
 
-function renderPage() {
+/**
+ * A stand-in for an Inputs block's form (the real one needs boilerplate over
+ * IPC): one field whose default, an empty list, has consequences.
+ */
+function FakeForm() {
+  const [regions, setRegions] = useState<unknown>([])
+  useAgentPresence("config", "Inputs", undefined)
+  useAgentBlock("config", {
+    type: "Inputs",
+    status: () => "pending",
+    blockedBy: () => [],
+    detail: () => ({
+      inputs: [
+        {
+          name: "OptInRegions",
+          type: "list",
+          description: "Regions to opt in to. Empty means none.",
+          value: regions,
+          default: [],
+        },
+      ],
+    }),
+    setInputs: (values) => {
+      if ("OptInRegions" in values) setRegions(values.OptInRegions)
+      return { errors: {}, rejected: {} }
+    },
+    runIsAction: false,
+    run: () => ({ started: true }),
+  })
+  return null
+}
+
+function renderPage(commandProps: Partial<React.ComponentProps<typeof Command>> = {}) {
   return render(
     <ApiProvider api={testApi.api}>
       <AgentBridgeProvider
         session={{ runbook: "demo", sessionName: "elegant-elephant", sessionId: "s1" }}
       >
         <TestWrapper>
-          <Command id="deploy-app" command="echo hi" title="Deploy" />
+          <FakeForm />
+          <Command id="deploy-app" command="echo hi" title="Deploy" {...commandProps} />
         </TestWrapper>
       </AgentBridgeProvider>
     </ApiProvider>,
@@ -83,14 +118,22 @@ function renderPage() {
 }
 
 /** Send `request` as main would, and resolve with the renderer's answer. */
-async function ask(request: AgentRequest): Promise<{ ok: boolean; result?: any; error?: string }> {
+let requestSeq = 0
+
+async function ask(
+  request: AgentRequest,
+  timeout = 5000,
+): Promise<{ ok: boolean; result?: any; error?: string }> {
   const before = testApi.callsTo("agent:respond").length
-  const requestId = `r${before}`
+  const requestId = `r${++requestSeq}`
   act(() => testApi.emit("agent:request", { requestId, request }))
   // run_block answers once the window shows the run, or after a few seconds
-  await waitFor(() => expect(testApi.callsTo("agent:respond").length).toBeGreaterThan(before), {
-    timeout: 5000,
-  })
+  await waitFor(
+    () =>
+      expect(testApi.callsTo("agent:respond").some((r) => r.requestId === requestId)).toBe(true),
+    { timeout },
+  )
+  void before
   const response = testApi.callsTo("agent:respond").find((r) => r.requestId === requestId)!
   return response as never
 }
@@ -111,7 +154,8 @@ describe("AgentBridgeProvider", () => {
     const { ok, result } = await ask({ op: "get_session" })
     expect(ok).toBe(true)
     expect(result).toMatchObject({ open: true, runbook: "demo", sessionName: "elegant-elephant" })
-    expect(result.blocks).toEqual([
+    expect(result.blocks.find((b: any) => b.id === "config")).toMatchObject({ needsReview: true })
+    expect(result.blocks.filter((b: any) => b.id !== "config")).toEqual([
       {
         id: "deploy-app",
         type: "Command",
@@ -220,5 +264,106 @@ describe("AgentBridgeProvider", () => {
     expect(indicator.textContent).toContain("AI agent connected")
     fireEvent.click(screen.getByTitle("Turn off AI agent access"))
     await waitFor(() => expect(testApi.callsTo("agent:update")).toEqual([{ enabled: false }]))
+  })
+
+  it("stops a block at the form it reads until the agent reviews the form, defaults included", async () => {
+    renderPage({ inputsId: "config" })
+    await waitFor(() => expect(testApi.callsTo("agent:status").length).toBe(1))
+    const first = await ask({ op: "run_block", blockId: "deploy-app" })
+    expect(first.result.started).toBe(false)
+    expect(first.result.needsReview).toMatchObject({
+      form: "config",
+      unreviewed: ["OptInRegions"],
+      fields: [{ name: "OptInRegions", default: [], reviewed: false }],
+    })
+    expect(first.result.reason).toContain("Defaults count as unreviewed")
+    expect(mockExecution.execute).not.toHaveBeenCalled()
+
+    const confirmed = await ask({ op: "confirm_inputs", blockId: "config" })
+    expect(confirmed.result.fields[0].reviewed).toBe(true)
+    expect((await ask({ op: "run_block", blockId: "deploy-app" })).result).toEqual({
+      started: true,
+    })
+    expect(mockExecution.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it("counts a value the agent sets as reviewed", async () => {
+    renderPage({ inputsId: "config" })
+    const set = await ask({
+      op: "set_inputs",
+      blockId: "config",
+      values: { OptInRegions: ["us-east-1"] },
+    })
+    expect(set.result.unreviewed).toEqual([])
+    const form = await ask({ op: "get_block", blockId: "config" })
+    expect(form.result.inputs[0]).toMatchObject({ value: ["us-east-1"], reviewed: true })
+  })
+
+  it("starts a block once when two runs are asked for at once", async () => {
+    renderPage()
+    await waitFor(() => expect(testApi.callsTo("agent:status").length).toBe(1))
+    act(() => {
+      testApi.emit("agent:request", {
+        requestId: "twice-1",
+        request: { op: "run_block", blockId: "deploy-app" },
+      })
+      testApi.emit("agent:request", {
+        requestId: "twice-2",
+        request: { op: "run_block", blockId: "deploy-app" },
+      })
+    })
+    await waitFor(
+      () =>
+        expect(
+          testApi.callsTo("agent:respond").filter((r) => r.requestId.startsWith("twice")).length,
+        ).toBe(2),
+      { timeout: 10_000 },
+    )
+    const second = testApi.callsTo("agent:respond").find((r) => r.requestId === "twice-2")!
+    expect(second).toMatchObject({
+      result: { started: false, reason: "A run is already starting" },
+    })
+    expect(mockExecution.execute).toHaveBeenCalledTimes(1)
+  }, 15_000)
+
+  it("declines an open approval when access is turned off", async () => {
+    status = { enabled: true, confirmRuns: true }
+    renderPage()
+    await waitFor(() => expect(testApi.callsTo("agent:status").length).toBe(1))
+    act(() =>
+      testApi.emit("agent:request", {
+        requestId: "off-1",
+        request: { op: "run_block", blockId: "deploy-app" },
+      }),
+    )
+    await screen.findByTestId("agent-confirm-run")
+    act(() => testApi.emit("agent:status-changed", { enabled: false, confirmRuns: true }))
+    await waitFor(() =>
+      expect(testApi.callsTo("agent:respond").find((r) => r.requestId === "off-1")).toMatchObject({
+        result: { started: false },
+      }),
+    )
+    expect(mockExecution.execute).not.toHaveBeenCalled()
+  })
+
+  it("pages logs with nextLogOffset and names the session", async () => {
+    mockExecution = {
+      ...mockExecution,
+      status: "running",
+      logs: ["a", "b", "c", "d"].map((line) => ({ line, timestamp: "" })),
+    }
+    renderPage()
+    const { result } = await ask({
+      op: "get_block",
+      blockId: "deploy-app",
+      logOffset: 1,
+      logLimit: 2,
+    })
+    expect(result).toMatchObject({
+      logs: ["b", "c"],
+      nextLogOffset: 3,
+      logTotal: 4,
+      sessionId: "s1",
+    })
   })
 })

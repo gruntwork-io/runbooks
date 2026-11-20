@@ -65,8 +65,16 @@ export class AgentAccess {
     }
   }
 
-  private save(): void {
-    fs.writeFileSync(path.join(this.opts.dataDir, SETTING_FILE), JSON.stringify(this.settings))
+  private save(settings: Settings): void {
+    fs.writeFileSync(path.join(this.opts.dataDir, SETTING_FILE), JSON.stringify(settings))
+  }
+
+  /** Changes run one after another, so a start never finishes after a later stop. */
+  private queue: Promise<unknown> = Promise.resolve()
+  private serialized<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(fn)
+    this.queue = next.catch(() => {})
+    return next
   }
 
   get headersFile(): string {
@@ -94,24 +102,34 @@ export class AgentAccess {
   }
 
   /** Start the server if the saved setting says so. Call once the app is ready. */
-  async init(): Promise<AgentServerStatus> {
-    if (this.settings.enabled) await this.start()
-    return this.status()
+  init(): Promise<AgentServerStatus> {
+    return this.serialized(async () => {
+      if (this.settings.enabled) await this.start()
+      return this.status()
+    })
   }
 
-  async update(change: Partial<Settings>): Promise<AgentServerStatus> {
-    this.settings = { ...this.settings, ...change }
-    this.save()
-    if (this.settings.enabled && !this.server) await this.start()
-    if (!this.settings.enabled && this.server) await this.stop()
-    if (!this.settings.enabled) this.error = undefined
-    const status = this.status()
-    this.opts.onStatus?.(status)
-    return status
+  /**
+   * Change the setting. It is saved first and applies only once saved, so a
+   * failed save leaves access (and asking before runs) as it was.
+   */
+  update(change: Partial<Settings>): Promise<AgentServerStatus> {
+    return this.serialized(async () => {
+      const next = { ...this.settings, ...change }
+      this.save(next)
+      this.settings = next
+      if (next.enabled && !this.server) await this.start()
+      if (!next.enabled && this.server) await this.stopServer()
+      if (!next.enabled) this.error = undefined
+      const status = this.status()
+      this.opts.onStatus?.(status)
+      return status
+    })
   }
 
   private async start(): Promise<void> {
     this.error = undefined
+    let wroteHeaders = false
     try {
       this.server = await startAgentServer({
         port: this.opts.port ?? DEFAULT_PORT,
@@ -124,17 +142,24 @@ export class AgentAccess {
         JSON.stringify({ Authorization: `Bearer ${this.token}` }) + "\n",
         { mode: 0o600 },
       )
+      wroteHeaders = true
       // writeFileSync's mode applies only to a new file
       fs.chmodSync(this.headersFile, 0o600)
     } catch (err: unknown) {
       this.error = `Couldn't start the MCP server: ${errorMessage(err)}`
+      // No credentials left behind for an endpoint that isn't listening
+      if (wroteHeaders) fs.rmSync(this.headersFile, { force: true })
       if (this.server) await this.server.close()
       this.server = null
     }
   }
 
   /** Stop the server and remove the headers file. Also called on quit. */
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    return this.serialized(() => this.stopServer())
+  }
+
+  private async stopServer(): Promise<void> {
     const server = this.server
     this.server = null
     try {

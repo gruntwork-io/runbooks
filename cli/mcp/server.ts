@@ -12,7 +12,8 @@ import { errorMessage } from "../../src/errors/message.ts"
 import { RunbookSession, DEFAULT_TIMEOUT_MS } from "./session.ts"
 
 const SERVER_INSTRUCTIONS = `Runs Gruntwork Runbooks (runbook.mdx) headless, one block at a time.
-Workflow: open_runbook -> read blocks and inputs -> set_inputs -> run_block / run_all -> get_block for logs, outputs and blocked_by -> close_runbook.
+Workflow: open_runbook -> run_block / run_all, which stop at each Inputs or Template form you haven't reviewed -> read that form's fields, descriptions and defaults, then set_inputs or confirm_inputs -> continue -> get_block for logs, outputs and blocked_by -> close_runbook.
+Review each form in the context of the block that uses it: defaults are not reviewed values, and some (an empty list of regions, say) have consequences the field's description explains. Ask the user when a value isn't clear.
 Blocks run real scripts on this machine with the user's credentials and can create, change or destroy real cloud resources. Opening a runbook runs nothing. Confirm with the user before running blocks that change infrastructure.
 Results come from the Runbooks test runner's engine, which differs from the desktop app in places; every open_runbook result lists the limitations.`
 
@@ -127,7 +128,7 @@ export function createMcpServer(): McpServer {
     {
       title: "Set input values",
       description:
-        'Set input variables, keyed inputsBlockId.VariableName (e.g. {"config.Region": "eastus"}). Merges with values set before unless replace is true; variables never set keep their defaults. Returns validation errors for every value and the inputs as they now stand. Runs nothing.',
+        'Set input variables, keyed inputsBlockId.VariableName (e.g. {"config.Region": "eastus"}). Merges with values set before unless replace is true; variables never set keep their defaults. Each value set counts as reviewed; with replace, only the values given do. Returns validation errors for every value and the inputs as they now stand. Runs nothing.',
       inputSchema: z.object({
         session_id: sessionId,
         values: z.record(z.string(), z.unknown()).describe("Values by inputsBlockId.VariableName"),
@@ -139,10 +140,25 @@ export function createMcpServer(): McpServer {
   )
 
   server.registerTool(
+    "confirm_inputs",
+    {
+      title: "Confirm a form",
+      description:
+        "Accept an Inputs or Template form's values as they stand, defaults included, as a person does by reading the form and moving on. Only after reading each field's description: run_block and run_all stop at a form until its values are set or confirmed. Runs nothing.",
+      inputSchema: z.object({
+        session_id: sessionId,
+        block_id: z.string().describe("The Inputs or Template block's id"),
+      }),
+      annotations: { readOnlyHint: true },
+    },
+    (args) => run(() => session(args.session_id).confirmInputs(args.block_id)),
+  )
+
+  server.registerTool(
     "run_block",
     {
       title: "Run one block",
-      description: `Run one block and wait for it to finish, then return its status (success, warn, fail, timeout, skipped, blocked, error, config_error, valid, unsupported), exit code, logs, outputs and blocked_by. A blocked block, or one that can't run headless (pull request blocks), is not run and the result says why. ${RUNS_SCRIPTS}`,
+      description: `Run one block and wait for it to finish, then return its status (success, warn, fail, timeout, skipped, blocked, error, config_error, valid, unsupported), exit code, logs, outputs and blocked_by. A blocked block, or one that can't run headless (pull request blocks), is not run and the result says why. Neither is a block that reads a form (Inputs or Template, itself included) whose values haven't all been set or confirmed: it returns status needs_review with that form's fields. ${RUNS_SCRIPTS}`,
       inputSchema: z.object({
         session_id: sessionId,
         block_id: z.string().describe("The block's id prop"),
@@ -172,7 +188,7 @@ export function createMcpServer(): McpServer {
     "run_all",
     {
       title: "Run blocks in order",
-      description: `Run blocks in document order, from from_block (default the first), one after another, skipping blocks that already succeeded or were skipped unless rerun is true. Stops at the first block that fails, times out, is blocked or errors, and says which. Pull request blocks are not run and are reported as unsupported. ${RUNS_SCRIPTS} Prefer run_block when each step needs review.`,
+      description: `Run blocks in document order, from from_block (default the first), one after another, skipping blocks that already succeeded or were skipped unless rerun is true. Stops at the first block that fails, times out, is blocked or errors, and says which. Also stops at each form (Inputs or Template) whose values, defaults included, haven't been set or confirmed, before anything that reads it runs, and returns the form's fields to review. Pull request blocks are not run and are reported as unsupported. ${RUNS_SCRIPTS} Prefer run_block when each step needs review.`,
       inputSchema: z.object({
         session_id: sessionId,
         from_block: z.string().optional().describe("Block id to start from"),
@@ -194,7 +210,7 @@ export function createMcpServer(): McpServer {
     {
       title: "Skip a block",
       description:
-        "Mark a block as skipped without running it. Blocks that reference a skipped auth block become blocked. Use it for pull request blocks and for checks that don't apply.",
+        "Mark a block as skipped without running it or checking its configuration. Use it for pull request blocks and for checks that don't apply. Refused for auth blocks (the blocks that use them would stay blocked or run without credentials), for Inputs blocks (review them instead), and for a block that already ran to completion (its outputs may be in use). The result lists the blocks that wait on the skipped one and which of its outputs they read: they stay blocked unless those values come from elsewhere.",
       inputSchema: z.object({ session_id: sessionId, block_id: z.string() }),
       annotations: { readOnlyHint: true },
     },

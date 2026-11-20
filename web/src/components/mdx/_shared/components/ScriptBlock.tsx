@@ -457,27 +457,40 @@ export function ScriptBlock({
     if (scriptless && status === "success") reasons.push("Already done")
     return reasons
   }
+  // Set when an agent starts a run, until the block's status shows it: a
+  // second start in that gap would cancel the first run partway
+  const agentRunPendingRef = useRef(false)
+  useEffect(() => {
+    agentRunPendingRef.current = false
+  }, [status])
   useAgentBlock(id, {
     type: variant.name,
+    readsForms: () => [...[inputsId ?? []].flat(), ...(inlineInputsId ? [inlineInputsId] : [])],
     title: resolvedTitle,
     status: () => status,
     blockedBy: agentBlockedBy,
-    detail: (logOffset, logLimit) => ({
-      logs: logs.slice(logOffset, logOffset + logLimit).map((entry) => entry.line),
-      logOffset,
-      logTotal: logs.length,
-      outputs: outputs ? maskOutputs(outputs) : {},
-      ...(execError
-        ? {
-            error: execError.details
-              ? `${execError.message}: ${execError.details}`
-              : execError.message,
-          }
-        : {}),
-    }),
+    detail: (logOffset, logLimit) => {
+      const page = logs.slice(logOffset, logOffset + logLimit).map((entry) => entry.line)
+      return {
+        logs: page,
+        logOffset,
+        logTotal: logs.length,
+        nextLogOffset: Math.min(logOffset, logs.length) + page.length,
+        outputs: outputs ? maskOutputs(outputs) : {},
+        ...(execError
+          ? {
+              error: execError.details
+                ? `${execError.message}: ${execError.details}`
+                : execError.message,
+            }
+          : {}),
+      }
+    },
     run: () => {
+      if (agentRunPendingRef.current) return { started: false, reason: "A run is already starting" }
       const blocked = agentBlockedBy()
       if (blocked.length > 0) return { started: false, reason: blocked.join("; ") }
+      agentRunPendingRef.current = true
       if (scriptless) completeScriptless()
       else handleExecute()
       return { started: true }

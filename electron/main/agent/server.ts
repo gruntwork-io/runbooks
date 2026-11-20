@@ -15,6 +15,9 @@
 import * as http from "node:http"
 import { timingSafeEqual } from "node:crypto"
 import type { AddressInfo } from "node:net"
+import { Readable } from "node:stream"
+import { pipeline } from "node:stream/promises"
+import type { ReadableStream as NodeReadableStream } from "node:stream/web"
 import { createMcpHandler, type McpServer } from "@modelcontextprotocol/server"
 
 export const MCP_PATH = "/mcp"
@@ -48,8 +51,13 @@ export function rejectReason(
   port: number,
   token: string,
 ): [number, string] | null {
-  const url = new URL(req.url ?? "/", "http://127.0.0.1")
-  if (url.pathname !== MCP_PATH) return [404, "Not found"]
+  let pathname: string
+  try {
+    pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname
+  } catch {
+    return [400, "Bad request target"]
+  }
+  if (pathname !== MCP_PATH) return [404, "Not found"]
   const host = req.headers.host
   if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) {
     return [403, "Host not allowed"]
@@ -95,7 +103,8 @@ export function startAgentServer(opts: AgentServerOptions): Promise<RunningAgent
           if (Array.isArray(value)) value.forEach((v) => headers.append(name, v))
           else if (value !== undefined) headers.set(name, value)
         }
-        const request = new Request(`http://${req.headers.host}${req.url}`, {
+        // The checks above allow only MCP_PATH on this host and port
+        const request = new Request(`http://127.0.0.1:${actualPort()}${MCP_PATH}`, {
           method: req.method ?? "GET",
           headers,
           ...(body.length > 0 ? { body } : {}),
@@ -103,9 +112,11 @@ export function startAgentServer(opts: AgentServerOptions): Promise<RunningAgent
         const response = await handler.fetch(request)
         res.writeHead(response.status, Object.fromEntries(response.headers.entries()))
         if (response.body) {
-          for await (const chunk of response.body) res.write(chunk)
+          // Pauses while the client is slow to read, and cancels the body if it goes away
+          await pipeline(Readable.fromWeb(response.body as NodeReadableStream), res)
+        } else {
+          res.end()
         }
-        res.end()
       } catch (err: unknown) {
         if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain" })
         res.end(err instanceof Error ? err.message : "Internal error")

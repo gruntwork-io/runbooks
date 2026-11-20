@@ -17,12 +17,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import type {
-  AgentBlockDetail,
-  AgentBlockSummary,
-  AgentRequest,
-  AgentServerStatus,
-  AgentSession,
+import {
+  AGENT_APPROVAL_TIMEOUT_MS,
+  type AgentBlockDetail,
+  type AgentBlockSummary,
+  type AgentFormReview,
+  type AgentInputVariable,
+  type AgentRequest,
+  type AgentRunResult,
+  type AgentServerStatus,
+  type AgentSession,
 } from "../../../src/domain/agent/protocol"
 
 /** How long after an agent's last request the window still says one is connected. */
@@ -75,6 +79,15 @@ export function AgentBridgeProvider({
   useEffect(() => {
     sessionRef.current = session
   }, [session])
+  // The fields (by form, normalized) the agent set or confirmed. A field
+  // nobody touched, default included, is unreviewed. Per session.
+  const reviewedRef = useRef(new Map<string, Set<string>>())
+  useEffect(() => {
+    reviewedRef.current = new Map()
+  }, [session.sessionId])
+  // run_block requests run one at a time: each waits until the run before it
+  // shows in the window, so its blockers (exclusive, dependsOn) see that run
+  const runQueueRef = useRef<Promise<unknown>>(Promise.resolve())
 
   const [status, setStatus] = useState<AgentServerStatus | null>(null)
   const statusRef = useRef(status)
@@ -88,13 +101,25 @@ export function AgentBridgeProvider({
     blockId: string
     resolve: (ok: boolean) => void
   } | null>(null)
+  const confirmRef = useRef(confirm)
+  useEffect(() => {
+    confirmRef.current = confirm
+  }, [confirm])
+  // An approval still open when the provider goes away is a no
+  useEffect(() => () => confirmRef.current?.resolve(false), [])
+  // A new status from main. Turning access off declines an approval that is still open.
+  const applyStatus = useCallback((next: AgentServerStatus) => {
+    statusRef.current = next
+    setStatus(next)
+    if (!next.enabled) confirmRef.current?.resolve(false)
+  }, [])
 
   useEffect(() => {
     api
       .invoke("agent:status")
-      .then(setStatus)
+      .then(applyStatus)
       .catch(() => {})
-    const offStatus = api.on("agent:status-changed", setStatus)
+    const offStatus = api.on("agent:status-changed", applyStatus)
     const offActivity = api.on("agent:activity", () => {
       const t = Date.now()
       setLastActivity(t)
@@ -104,7 +129,7 @@ export function AgentBridgeProvider({
       offStatus()
       offActivity()
     }
-  }, [api])
+  }, [api, applyStatus])
 
   // Let the indicator lapse once the agent has gone quiet
   useEffect(() => {
@@ -166,13 +191,15 @@ export function AgentBridgeProvider({
           controllable: false,
         }
       }
+      const fields = formFields(key)
       return {
         id,
         type: adapter.type,
         title: adapter.title,
         status: adapter.status(),
         blockedBy: adapter.blockedBy(),
-        controllable: adapter.run !== undefined || adapter.setInputs !== undefined,
+        controllable: true,
+        ...(fields && unreviewed(key, fields).length > 0 ? { needsReview: true } : {}),
       }
     }
 
@@ -194,10 +221,114 @@ export function AgentBridgeProvider({
         ?.element?.current?.scrollIntoView?.({ behavior: "smooth", block: "center" })
     }
 
+    /** A form's fields, with whether the agent reviewed each; undefined for a block without a form. */
+    function formFields(key: string): AgentInputVariable[] | undefined {
+      const inputs = blocksRef.current.get(key)?.detail(0, 0).inputs
+      if (!inputs) return undefined
+      const reviewed = reviewedRef.current.get(key)
+      return inputs.map((field) => ({
+        ...field,
+        reviewed: field.readOnly || reviewed?.has(field.name) === true,
+      }))
+    }
+
+    function unreviewed(_key: string, fields: AgentInputVariable[]): string[] {
+      return fields.filter((field) => !field.reviewed).map((field) => field.name)
+    }
+
+    const markReviewed = (key: string, names: Iterable<string>) => {
+      const set = reviewedRef.current.get(key) ?? new Set<string>()
+      for (const name of names) set.add(name)
+      reviewedRef.current.set(key, set)
+    }
+
+    /**
+     * The first form block `key` reads (itself, for a form; following each
+     * form's imports) with fields the agent hasn't set or confirmed.
+     */
+    const reviewNeeded = (key: string): AgentFormReview | undefined => {
+      const seen = new Set<string>()
+      const order: string[] = []
+      const visit = (k: string) => {
+        if (seen.has(k)) return
+        seen.add(k)
+        for (const id of blocksRef.current.get(k)?.readsForms?.() ?? []) visit(normalizeBlockId(id))
+        order.push(k)
+      }
+      visit(key)
+      for (const formKey of order) {
+        const fields = formFields(formKey)
+        if (!fields) continue
+        const pending = unreviewed(formKey, fields)
+        if (pending.length === 0) continue
+        const form = writtenIdsRef.current.get(formKey) ?? formKey
+        const target = writtenIdsRef.current.get(key) ?? key
+        return {
+          form,
+          type: blocksRef.current.get(formKey)?.type ?? "Inputs",
+          fields,
+          unreviewed: pending,
+          message:
+            `Review form "${form}" before ${formKey === key ? "it is used" : `"${target}" runs`}: ` +
+            "its values, defaults included, haven't been set or confirmed by you. Defaults count as unreviewed. " +
+            "Read each field's description, then call set_inputs with the values to use, or confirm_inputs to accept them as shown.",
+        }
+      }
+      return undefined
+    }
+
+    // Declined if the user doesn't answer in time, so an approval can't start
+    // a run after the server has given up on the request
     const askUser = (blockId: string) =>
       new Promise<boolean>((resolve) => {
-        setConfirm({ blockId, resolve })
+        let settled = false
+        const settle = (ok: boolean) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          setConfirm((current) => (current?.resolve === settle ? null : current))
+          resolve(ok)
+        }
+        const timer = setTimeout(() => settle(false), AGENT_APPROVAL_TIMEOUT_MS)
+        setConfirm({ blockId, resolve: settle })
       })
+
+    const runBlock = async (blockId: string): Promise<AgentRunResult> => {
+      const key = find(blockId)
+      const adapter = blocksRef.current.get(key)
+      if (!adapter?.run) return { started: false, reason: NOT_CONTROLLABLE_NOTE }
+      const review = reviewNeeded(key)
+      if (review) return { started: false, reason: review.message, needsReview: review }
+      const blocked = adapter.blockedBy()
+      if (blocked.length > 0) return { started: false, reason: blocked.join("; ") }
+      reveal(key)
+      if (
+        adapter.runIsAction !== false &&
+        statusRef.current?.confirmRuns !== false &&
+        !(await askUser(blockId))
+      ) {
+        return {
+          started: false,
+          reason: "The user declined the run in the Runbooks window, or didn't answer.",
+        }
+      }
+      // Access may have been turned off while the approval was open
+      if (statusRef.current?.enabled !== true) {
+        return { started: false, reason: "AI agent access was turned off in the Runbooks window." }
+      }
+      const before = adapter.status()
+      const result = adapter.run()
+      if (!result.started) return result
+      setLastAction(`Ran ${blockId}`)
+      // Answer once the window shows the run, so wait_for_block sees it running
+      const deadline = Date.now() + RUN_START_WAIT_MS
+      while (Date.now() < deadline) {
+        const current = adapter.status()
+        if (current === "running" || current !== before) break
+        await sleep(50)
+      }
+      return result
+    }
 
     const handle = async (request: AgentRequest): Promise<unknown> => {
       switch (request.op) {
@@ -216,11 +347,14 @@ export function AgentBridgeProvider({
         case "get_block": {
           const key = find(request.blockId)
           const adapter = blocksRef.current.get(key)
+          const fields = formFields(key)
           const detail: AgentBlockDetail = {
             ...summary(key),
             ...(adapter
               ? adapter.detail(request.logOffset ?? 0, request.logLimit ?? 200)
               : { note: NOT_CONTROLLABLE_NOTE }),
+            ...(fields ? { inputs: fields } : {}),
+            sessionId: sessionRef.current.sessionId,
           }
           return detail
         }
@@ -231,34 +365,30 @@ export function AgentBridgeProvider({
             throw new Error(`Block "${request.blockId}" has no form to fill in.`)
           reveal(key)
           setLastAction(`Filled in ${request.blockId}`)
-          return adapter.setInputs(request.values)
+          const result = adapter.setInputs(request.values)
+          markReviewed(
+            key,
+            Object.keys(request.values).filter((name) => !(name in result.rejected)),
+          )
+          const fields = formFields(key) ?? []
+          return { ...result, unreviewed: unreviewed(key, fields) }
+        }
+        case "confirm_inputs": {
+          const key = find(request.blockId)
+          const fields = formFields(key)
+          if (!fields) throw new Error(`Block "${request.blockId}" has no form to confirm.`)
+          reveal(key)
+          markReviewed(
+            key,
+            fields.map((field) => field.name),
+          )
+          setLastAction(`Confirmed ${request.blockId}`)
+          return { confirmed: writtenIdsRef.current.get(key) ?? key, fields: formFields(key) ?? [] }
         }
         case "run_block": {
-          const key = find(request.blockId)
-          const adapter = blocksRef.current.get(key)
-          if (!adapter?.run) return { started: false, reason: NOT_CONTROLLABLE_NOTE }
-          const blocked = adapter.blockedBy()
-          if (blocked.length > 0) return { started: false, reason: blocked.join("; ") }
-          reveal(key)
-          if (
-            adapter.runIsAction !== false &&
-            statusRef.current?.confirmRuns !== false &&
-            !(await askUser(request.blockId))
-          ) {
-            return { started: false, reason: "The user declined the run in the Runbooks window." }
-          }
-          const before = adapter.status()
-          const result = adapter.run()
-          if (!result.started) return result
-          setLastAction(`Ran ${request.blockId}`)
-          // Answer once the window shows the run, so wait_for_block sees it running
-          const deadline = Date.now() + RUN_START_WAIT_MS
-          while (Date.now() < deadline) {
-            const current = adapter.status()
-            if (current === "running" || current !== before) break
-            await sleep(50)
-          }
-          return result
+          const run = runQueueRef.current.then(() => runBlock(request.blockId))
+          runQueueRef.current = run.catch(() => {})
+          return run
         }
         case "cancel_block": {
           const key = find(request.blockId)
@@ -319,7 +449,7 @@ export function AgentBridgeProvider({
             onClick={() => {
               api
                 .invoke("agent:update", { enabled: false })
-                .then(setStatus)
+                .then(applyStatus)
                 .catch(() => {})
             }}
           >

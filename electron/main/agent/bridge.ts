@@ -11,12 +11,17 @@ import type {
   AgentResponse,
   AgentResponseMap,
 } from "../../../src/domain/agent/protocol.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 /** How long the renderer has to answer one request. Runs don't wait: run_block answers once the run starts. */
 const DEFAULT_TIMEOUT_MS = 20_000
 
 export interface AgentBridge {
-  request<R extends AgentRequest>(request: R): Promise<AgentResponseMap[R["op"]]>
+  /** Ask the renderer; `timeoutMs` overrides how long it has to answer. */
+  request<R extends AgentRequest>(
+    request: R,
+    timeoutMs?: number,
+  ): Promise<AgentResponseMap[R["op"]]>
 }
 
 interface Pending {
@@ -38,7 +43,10 @@ export class RendererBridge implements AgentBridge {
     private timeoutMs = DEFAULT_TIMEOUT_MS,
   ) {}
 
-  request<R extends AgentRequest>(request: R): Promise<AgentResponseMap[R["op"]]> {
+  request<R extends AgentRequest>(
+    request: R,
+    timeoutMs = this.timeoutMs,
+  ): Promise<AgentResponseMap[R["op"]]> {
     const requestId = `agent-${++this.seq}`
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -48,16 +56,21 @@ export class RendererBridge implements AgentBridge {
             "The Runbooks window didn't answer. Is a runbook open and the window responsive?",
           ),
         )
-      }, this.timeoutMs)
+      }, timeoutMs)
       this.pending.set(requestId, {
         resolve: resolve as (result: unknown) => void,
         reject,
         timer,
       })
-      if (!this.send({ requestId, request })) {
+      const fail = (error: Error) => {
         clearTimeout(timer)
         this.pending.delete(requestId)
-        reject(new Error("The Runbooks window isn't open."))
+        reject(error)
+      }
+      try {
+        if (!this.send({ requestId, request })) fail(new Error("The Runbooks window isn't open."))
+      } catch (err: unknown) {
+        fail(new Error(`Couldn't reach the Runbooks window: ${errorMessage(err)}`))
       }
     })
   }

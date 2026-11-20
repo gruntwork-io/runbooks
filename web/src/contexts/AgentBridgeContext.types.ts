@@ -23,6 +23,8 @@ export interface AgentBlockAdapter {
   /** Whether run() runs a script or writes files, so the user may want to approve it first. */
   runIsAction?: boolean | undefined
   cancel?: () => boolean
+  /** The Inputs and Template blocks whose values this block reads (for a form, the ones it imports). */
+  readsForms?: () => string[]
   setInputs?: (values: Record<string, unknown>) => AgentSetInputsResult
 }
 

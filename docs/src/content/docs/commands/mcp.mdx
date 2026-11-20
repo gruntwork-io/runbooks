@@ -52,8 +52,9 @@ On Windows, use `type` with the file's path in place of `cat`. Run `claude mcp l
 |------|--------------|
 | `list_sessions` | The session open in the app: runbook, session name, number of blocks. |
 | `get_session` | Every block on the page, in order, with its status, why it's blocked, and whether an agent can control it. |
-| `get_block` | One block: status, why it's blocked, its latest run's log lines (from an offset), error, exit code and outputs, and for an `<Inputs>` or `<Template>` block its fields and their errors. |
-| `set_inputs` | Types values into an `<Inputs>` or `<Template>` form, by variable name. Read-only fields are left alone. |
+| `get_block` | One block: status, why it's blocked, a page of its latest run's log lines, error, exit code and outputs, and for an `<Inputs>` or `<Template>` block its fields with their descriptions, defaults, validations, errors and whether the agent reviewed them. |
+| `set_inputs` | Types values into an `<Inputs>` or `<Template>` form, by variable name. Read-only fields are left alone. Each value typed counts as reviewed. |
+| `confirm_inputs` | Accepts a form's values as shown, defaults included, as you would by reading the form and moving on. |
 | `run_block` | Presses the block's own button: **Run** for a `<Command>`, `<Check>` or `<Finish>`, **Generate** for a `<Template>`, **Submit** for an `<Inputs>`. Returns once the run has started. |
 | `wait_for_block` | Waits up to 120 seconds for a run to end, then returns the block with `timed_out`. Call it again for longer runs. |
 | `cancel_block` | Presses the block's **Stop** button. |
@@ -61,7 +62,19 @@ On Windows, use `type` with the file's path in place of `cat`. Run `claude mcp l
 
 An `<Inputs>` block's values reach the blocks that use them once the form is submitted, as in the window, so an agent calls `set_inputs` and then `run_block` on the `<Inputs>` block.
 
-`run_block` returns as soon as a run starts, so a long `apply` never runs into the agent's tool timeout. The agent follows it with `wait_for_block`, passing the previous call's `logTotal` as `log_offset` to get only the new log lines.
+### Reviewing forms
+
+A default is a value nobody chose for this run. Some defaults have consequences that only the field's description explains, such as an empty list of regions to opt in to. So an agent has to review every form before anything reads it:
+
+- `run_block` refuses a block while a form it reads has fields the agent hasn't set or confirmed. That includes the block's own form, and the forms a `<Template>` imports with `inputsId`. It stops at the form the values come from, not at the block that uses them. The answer's `needsReview` holds that form's fields with their descriptions, defaults and validations.
+- The agent reviews a field by typing a value with `set_inputs`, or accepts the whole form as shown with `confirm_inputs`. A default doesn't count as reviewed until then, even when you typed the values yourself in the window.
+- `get_session` marks each form that still needs review with `needsReview`.
+
+### Long runs and logs
+
+`run_block` returns as soon as a run starts, so a long `apply` never runs into the agent's tool timeout. The agent follows it with `wait_for_block`. Logs come a page at a time: each answer has `nextLogOffset`, where the next page starts, and `logTotal`, how many lines there are so far. Passing `nextLogOffset` as `log_offset` gets the lines not yet read. `wait_for_block` fails if the window switches to another session while it waits.
+
+If the window asks you to approve a run, it waits up to 5 minutes for an answer and then declines. Turning agent access off declines an approval that is still open.
 
 `run_block` refuses a block whose button is disabled in the window, and says why: an input without a value, an output it waits for, an auth block that hasn't signed in, a `dependsOn` block that hasn't succeeded, or a block that is already running.
 
@@ -74,7 +87,7 @@ An `<Inputs>` block's values reach the blocks that use them once the form is sub
 
 ## Without the app
 
-`runbooks-cli mcp` serves similar tools over stdio for runs without the desktop app, such as in CI. It runs blocks with the [test runner's](/authoring/testing/) engine, not the app's, so it shares the runner's [differences from the app](/authoring/testing/#how-tests-differ-from-the-app). Its auth blocks pick up credentials from the environment or an existing CLI sign-in without contacting the cloud, and it can't run pull request blocks.
+`runbooks-cli mcp` serves similar tools over stdio for runs without the desktop app, such as in CI. It runs blocks with the [test runner's](/authoring/testing/) engine, not the app's, so it shares the runner's [differences from the app](/authoring/testing/#how-tests-differ-from-the-app). Its auth blocks pick up credentials from the environment or an existing CLI sign-in without contacting the cloud, and it can't run pull request blocks. For an AWS SSO sign-in, run `aws sso login` and export `AWS_PROFILE` (for example `AWS_PROFILE=default`) before you start the agent: the cached sign-in alone doesn't name a profile, so `<AwsAuth>` would find no credentials.
 
 Build it from the [Runbooks repository](https://github.com/gruntwork-io/runbooks) with `just compile-test-cli`, then register it:
 
@@ -82,4 +95,14 @@ Build it from the [Runbooks repository](https://github.com/gruntwork-io/runbooks
 claude mcp add runbooks-headless -- /path/to/runbooks/resources/bin/runbooks-test mcp
 ```
 
-Its tools are `open_runbook` (a local path; runs nothing), `get_runbook`, `set_inputs` (keyed `inputsBlockId.VariableName`), `run_block` and `run_all` (each waits for the run to end), `skip_block`, `get_block`, `get_outputs` and `close_runbook`. Each `open_runbook` result lists the limitations of running headless.
+Its tools are `open_runbook` (a local path; runs nothing), `get_runbook`, `set_inputs` (keyed `inputsBlockId.VariableName`), `confirm_inputs`, `run_block` and `run_all` (each waits for the run to end), `skip_block`, `get_block`, `get_outputs` and `close_runbook`. Each `open_runbook` result lists the limitations of running headless.
+
+Forms are reviewed as in the app: `run_block` and `run_all` stop at each `<Inputs>` or `<Template>` form whose values haven't been set with `set_inputs` (or `open_runbook`'s `inputs`) or accepted with `confirm_inputs`, before anything that reads it runs, and return the form's fields with their descriptions, defaults and validations.
+
+`skip_block` marks a block skipped without running it or checking its configuration. It refuses:
+
+- auth blocks, since the blocks that use their credentials would stay blocked or run without them;
+- `<Inputs>` blocks, since other blocks read their values (review them instead);
+- a block that already ran to completion, since blocks after it may already use its outputs.
+
+Its answer lists the blocks that wait on the skipped block, and which of its outputs each one reads. Those blocks stay blocked unless the values come from somewhere else, for example an environment variable their scripts read.

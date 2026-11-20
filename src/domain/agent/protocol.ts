@@ -25,6 +25,8 @@ export interface AgentBlockSummary {
   blockedBy: string[]
   /** Whether an agent can run or fill the block; false for blocks that need the user. */
   controllable: boolean
+  /** For a form: some of its fields haven't been set or confirmed by the agent. */
+  needsReview?: boolean | undefined
 }
 
 export interface AgentInputVariable {
@@ -39,6 +41,21 @@ export interface AgentInputVariable {
   /** The field is read-only in the form (imported from another block, or locked). */
   readOnly?: boolean | undefined
   error?: string | undefined
+  /** The runbook's default; a sensitive one is left out. */
+  default?: unknown
+  validations?: Array<{ type: string; args?: unknown[] | undefined }> | undefined
+  /** The agent set or confirmed this field. A default nobody looked at is unreviewed. */
+  reviewed?: boolean | undefined
+}
+
+/** A form an agent has to review before a block that reads it runs. */
+export interface AgentFormReview {
+  form: string
+  type: string
+  fields: AgentInputVariable[]
+  /** The fields not yet set or confirmed. */
+  unreviewed: string[]
+  message: string
 }
 
 export interface AgentBlockDetail extends AgentBlockSummary {
@@ -46,8 +63,12 @@ export interface AgentBlockDetail extends AgentBlockSummary {
   logs?: string[] | undefined
   /** Index of the first line in `logs`. */
   logOffset?: number | undefined
-  /** How many log lines the run has so far. Ask again from here for more. */
+  /** How many log lines the run has so far. */
   logTotal?: number | undefined
+  /** Where the next page of log lines starts: logOffset + logs.length. */
+  nextLogOffset?: number | undefined
+  /** The session the block belongs to. */
+  sessionId?: string | undefined
   /** The latest run's outputs; sensitive ones are `<redacted>`. */
   outputs?: Record<string, string> | undefined
   error?: string | undefined
@@ -71,17 +92,29 @@ export type AgentRequest =
   | { op: "get_session" }
   | { op: "get_block"; blockId: string; logOffset?: number; logLimit?: number }
   | { op: "set_inputs"; blockId: string; values: Record<string, unknown> }
+  | { op: "confirm_inputs"; blockId: string }
   | { op: "run_block"; blockId: string }
   | { op: "cancel_block"; blockId: string }
   | { op: "get_outputs" }
 
-export type AgentRunResult = { started: true } | { started: false; reason: string }
+export type AgentRunResult =
+  | { started: true }
+  | { started: false; reason: string; needsReview?: AgentFormReview | undefined }
+
+/**
+ * How long the window waits for the user to approve a run an agent asked
+ * for. The server waits a little longer for the answer, so an approval can
+ * never arrive after the agent was told the request failed.
+ */
+export const AGENT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000
 
 export interface AgentSetInputsResult {
   /** Field errors after the values were entered, by variable name. */
   errors: Record<string, string>
   /** Values that weren't entered, and why (unknown or read-only field). */
   rejected: Record<string, string>
+  /** The form's fields still not set or confirmed. */
+  unreviewed?: string[] | undefined
 }
 
 /** The answer to each request's op. */
@@ -89,6 +122,7 @@ export interface AgentResponseMap {
   get_session: AgentSession
   get_block: AgentBlockDetail
   set_inputs: AgentSetInputsResult
+  confirm_inputs: { confirmed: string; fields: AgentInputVariable[] }
   run_block: AgentRunResult
   cancel_block: { cancelled: boolean }
   get_outputs: Record<string, Record<string, string>>

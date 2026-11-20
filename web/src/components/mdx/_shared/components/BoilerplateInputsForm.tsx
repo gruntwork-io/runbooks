@@ -37,6 +37,7 @@ import { validateVariableValue } from "../lib/validators"
 import { optionMembershipError } from "../../../../../../src/domain/boilerplate/options"
 
 const NO_VARIABLES: BoilerplateVariable[] = []
+const NO_IDS: string[] = []
 const NO_VALUES: Record<string, unknown> = {}
 
 const quoted = (blockIds: string[]) => blockIds.map((blockId) => `"${blockId}"`).join(", ")
@@ -135,6 +136,8 @@ interface BoilerplateInputsFormProps {
    * the runbook's own.
    */
   defaults?: Record<string, unknown>
+  /** The blocks a Template imports values from (its inputsId), for AI agents' form review. */
+  importsFrom?: string[]
 }
 
 /**
@@ -291,6 +294,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   unmetOutputDependencies = [],
   importedValues = NO_VALUES,
   defaults,
+  importsFrom = NO_IDS,
 }) => {
   // Default button text depends on mode
   const effectiveButtonText = submitButtonText ?? (isInlineMode ? "Submit" : "Generate")
@@ -553,24 +557,44 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // The values entered in place of the chips of linked values
   const enteredValues = useEnteredValues(id, formData, handleInputChange)
 
+  // What a chip linked to a variable shows: the variable's value, or what it
+  // comes to when it is a template. Never a sensitive one's.
+  const sensitiveElsewhere = useSensitiveInputNames()
+  const isSensitive = (name: string) =>
+    sensitiveElsewhere.has(name) || variablesByName.get(name)?.sensitive === true
+
   // What an AI agent sees of this form and does to it, through the app's MCP
   // server: set_inputs types into the fields, and run_block on a Template is
   // its Generate button.
   const agentReadOnly = (variable: BoilerplateVariable): boolean =>
     sharedVarNames.has(variable.name) || variable.locked === true
   const agentBlockedBy = (): string[] => [
+    ...unmetOutputDependencies.map(
+      (dep) => `Waiting for outputs of "${dep.blockId}": ${dep.outputNames.join(", ")}`,
+    ),
     ...Object.entries(missingBlockErrors).map(([name, message]) => `${name}: ${message}`),
     ...Object.entries(optionsWaiting).map(
       ([name, ids]) => `${name}: waiting for the options from ${ids.join(", ")}`,
     ),
   ]
+  // The errors `data` would have: computed from `data` alone (which fields
+  // it hides, which values an output's options rule out), never from the
+  // values the form holds now
   const agentErrors = (data: Record<string, unknown>): Record<string, string> => {
     const errors: Record<string, string> = {}
+    const hiddenInData = hiddenVariables(allVariables, data, hiddenValue)
     for (const variable of outputOptions.variables) {
-      if (hidden.has(variable.name) || sharedVarNames.has(variable.name)) continue
+      if (hiddenInData.has(variable.name) || sharedVarNames.has(variable.name)) continue
+      const status = outputOptions.status[variable.name]
+      const optionError =
+        status?.kind === "error"
+          ? status.message
+          : status === undefined || status.kind === "resolved"
+            ? optionMembershipError(variable, data[variable.name])
+            : undefined
       const error =
         validateVariableValue(variable, data[variable.name], formatVariableLabel(variable.name)) ??
-        optionErrors[variable.name] ??
+        optionError ??
         missingBlockErrors[variable.name]
       if (error) errors[variable.name] = error
     }
@@ -595,21 +619,28 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           .map((variable) => {
             const shown = variablesByName.get(variable.name) ?? variable
             const value = formData[variable.name]
+            // Sensitive here or in any block that shares the field
+            const sensitive = isSensitive(variable.name)
             return {
               name: variable.name,
               type: variable.type,
               description: variable.description || undefined,
               required: variable.validations?.some((rule) => rule.type === "required") || undefined,
-              sensitive: variable.sensitive || undefined,
+              sensitive: sensitive || undefined,
               options: shown.options,
-              value:
-                variable.sensitive && value !== undefined && value !== "" ? "<redacted>" : value,
+              value: sensitive && value !== undefined && value !== "" ? "<redacted>" : value,
+              default: sensitive ? undefined : defaultValue(variable),
+              validations:
+                variable.validations && variable.validations.length > 0
+                  ? variable.validations.map((rule) => ({ type: rule.type, args: rule.args }))
+                  : undefined,
               readOnly: agentReadOnly(variable) || undefined,
               error: errors[variable.name],
             }
           }),
       }
     },
+    readsForms: () => importsFrom,
     setInputs: (values) => {
       const accepted: Record<string, unknown> = {}
       const rejected: Record<string, string> = {}
@@ -652,11 +683,6 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
       : {}),
   })
 
-  // What a chip linked to a variable shows: the variable's value, or what it
-  // comes to when it is a template. Never a sensitive one's.
-  const sensitiveElsewhere = useSensitiveInputNames()
-  const isSensitive = (name: string) =>
-    sensitiveElsewhere.has(name) || variablesByName.get(name)?.sensitive === true
   const variableValue = (name: string): string | undefined => {
     if (isSensitive(name)) return undefined
     const variable = variablesByName.get(name)
