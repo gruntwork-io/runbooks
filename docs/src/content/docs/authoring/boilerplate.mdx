@@ -299,7 +299,7 @@ Templates get the value, so `{{ .InstanceSize }}` renders `small`. Labels work t
 #### Options from a block's output
 
 <Aside type="note">
-Options from a block's output need Runbooks 0.31 or later. Earlier versions can't show a dropdown whose options come from an output, and show a multi-select as a plain list. To have them say the runbook needs a later version instead, [require it](/authoring/runbook-structure/#requiring-a-version-of-runbooks) in the front matter: `runbooks: ">= 0.31"`.
+Options from a block's output need Runbooks 0.31 or later. To keep an earlier version from opening the runbook, [require a version of Runbooks](/authoring/runbook-structure/#requiring-a-version-of-runbooks).
 </Aside>
 
 When the options live somewhere that changes, such as the regions a cloud account can use, a script can list them and the field can read them. Write the options as a reference to a block's output, instead of a list:
