@@ -45,7 +45,7 @@ Users often already have the repository cloned, such as a long-lived `infrastruc
 
 Choosing a directory only inspects it. The block resolves the repository root, so any subdirectory of the checkout works. It then reads the repository's remote and current branch and counts its tracked files. Nothing is fetched, pulled, modified, or registered at this point.
 
-Using a local checkout needs Git 2.38 or later. With an older Git, the block reports the version it found and doesn't inspect the directory. See [Git commands](/security/execution-model/#git-commands) for the reason.
+Using a local checkout needs Git 2.31 or later. With an older Git, the block reports the version it found and doesn't inspect the directory. With Git 2.31 to 2.37, it also refuses a directory that Git would open as a bare repository. See [Git commands](/security/execution-model/#git-commands) for the reason.
 
 Confirming with **Use This Repo** registers the checkout and produces the block's outputs, as a completed clone does. Until then, any later block referencing its outputs reports them as missing. To undo the choice, use **Stop using this repo** in the result panel (see [Cancelling and starting over](#cancelling-and-starting-over)).
 
