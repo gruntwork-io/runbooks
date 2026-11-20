@@ -1105,5 +1105,124 @@ describe("SessionPersistence", () => {
 
       expect(saveErrors).toEqual([])
     })
+
+    describe("template manifests", () => {
+      const manifest = (contentHash: string) => ({
+        templateId: "app",
+        outputDir: "/session/generated",
+        files: [{ path: "main.tf", contentHash }],
+      })
+
+      const save = (app: App, sessionId: string, saved: ReturnType<typeof manifest>) =>
+        app.persistence.saveTemplateManifest(sessionId, saved)
+
+      const list = (app: App, sessionId: string) =>
+        run(app.persistence.listTemplateManifests(sessionId))
+
+      it("returns a template's latest manifest after a restart", async () => {
+        const first = startApp()
+        const session = await first.open()
+        save(first, session.id, manifest("v1"))
+        await record(first, session.id, "app", "render", { writtenHash: "w1" })
+        save(first, session.id, manifest("v2"))
+        first.quit()
+
+        const second = startApp()
+        await second.open()
+
+        expect(await list(second, session.id)).toEqual([manifest("v2")])
+        expect(storedEvents().map((row) => row.event)).toEqual([
+          "app render",
+          "app template-manifest",
+        ])
+        expect(new TextDecoder().decode(storedEvents()[1]!.payload)).not.toContain("main.tf")
+        expect(saveErrors).toEqual([])
+      })
+
+      it("leaves no manifest, rather than an out-of-date one, when a newer one fails to save", async () => {
+        let failing = false
+        const app = startApp({
+          ...reversingCipher,
+          encrypt: (plaintext) => {
+            if (failing) throw new Error("keychain access denied")
+            return reversingCipher.encrypt(plaintext)
+          },
+        })
+        const session = await app.open()
+        save(app, session.id, manifest("v1"))
+
+        failing = true
+        save(app, session.id, manifest("v2"))
+
+        expect(await list(app, session.id)).toEqual([])
+        expect(saveErrors).toHaveLength(1)
+      })
+
+      it("does not send template manifests to the renderer", async () => {
+        const app = startApp()
+        const session = await app.open()
+
+        save(app, session.id, manifest("v1"))
+
+        expect(await run(app.persistence.blockStates())).toEqual([])
+      })
+
+      it("refuses a template manifest recorded by the renderer", async () => {
+        const app = startApp()
+        const session = await app.open()
+
+        await expect(
+          record(app, session.id, "app", "template-manifest", manifest("forged")),
+        ).rejects.toThrow(/must be one of/)
+
+        expect(storedEvents()).toEqual([])
+      })
+
+      it("does not save a manifest for a session that is no longer current", async () => {
+        const app = startApp()
+        const replaced = await app.open()
+        await app.open({ startNew: true })
+
+        save(app, replaced.id, manifest("v1"))
+
+        expect(storedEvents()).toEqual([])
+      })
+
+      it("skips a saved manifest it can't parse", async () => {
+        const app = startApp()
+        const session = await app.open()
+        const saveUnparsable = (blockId: string, payload: unknown) =>
+          Effect.runSync(
+            app.store.appendEvent(
+              {
+                sessionId: session.id,
+                at: "2030-01-01T00:00:00.000Z",
+                blockId,
+                kind: "template-manifest",
+                payload: reversingCipher.encrypt(JSON.stringify(payload))!,
+              },
+              { replacePrevious: false },
+            ),
+          )
+        saveUnparsable("no-files", { outputDir: "/out" })
+        saveUnparsable("bad-entry", { outputDir: "/out", files: [{ path: "a.tf" }] })
+        saveUnparsable("not-an-object", "manifest")
+        save(app, session.id, manifest("v1"))
+
+        expect(await list(app, session.id)).toEqual([manifest("v1")])
+      })
+
+      it("skips a saved manifest it can't decrypt", async () => {
+        const first = startApp()
+        const session = await first.open()
+        save(first, session.id, manifest("v1"))
+        first.quit()
+
+        const undecryptable = startApp({ ...reversingCipher, decrypt: () => undefined })
+        await undecryptable.open()
+
+        expect(await list(undecryptable, session.id)).toEqual([])
+      })
+    })
   })
 })

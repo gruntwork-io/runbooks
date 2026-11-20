@@ -6,7 +6,7 @@
  */
 import { Cause, Effect, Exit, Fiber, Semaphore } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager, manifestStore } from "./runtime.ts"
+import { runtime, sessionManager, sessionPersistence, manifestStore } from "./runtime.ts"
 import {
   parseBoilerplateConfig,
   extractOutputDependencies,
@@ -216,6 +216,7 @@ export function registerBoilerplateHandlers(): void {
     // different runbook opens. Captured before the first await, so a render
     // still in flight from the old runbook can tell (see runbookChanged).
     const generation = sessionManager.getGeneration()
+    const sessionId = sessionPersistence?.currentSession()?.id
     const t0 = Date.now()
     const perf = params.perf
     const perfTag = perf ? `[perf seq=${perf.seq}]` : ""
@@ -462,7 +463,8 @@ export function registerBoilerplateHandlers(): void {
       // A different runbook opened while this render ran. End as superseded
       // instead of writing the old runbook's output or putting its manifest
       // back after runbook:get cleared them. Checked in the same synchronous
-      // step as the write and as the manifest update, since the write yields.
+      // step as the write and as the manifest update and save, since the
+      // write yields.
       const runbookChanged = () => !sessionManager.isCurrentGeneration(generation)
 
       const tApply = Date.now()
@@ -476,7 +478,9 @@ export function registerBoilerplateHandlers(): void {
       const dApply = Date.now() - tApply
 
       if (runbookChanged()) return yield* Effect.interrupt
-      manifestStore.set(templateId, { templateId, outputDir, files: newEntries })
+      const manifest = { templateId, outputDir, files: newEntries }
+      manifestStore.set(templateId, manifest)
+      if (sessionId !== undefined) sessionPersistence?.saveTemplateManifest(sessionId, manifest)
       // The output for these vars is now on disk, so the next render can
       // diff against them. A render superseded or failed before this point
       // never commits, and the next dirty set still covers its change.

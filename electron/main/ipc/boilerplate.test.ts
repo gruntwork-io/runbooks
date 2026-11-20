@@ -30,6 +30,8 @@ mockElectron({
 const { registerBoilerplateHandlers } = await import("./boilerplate.ts")
 const runtimeModule = await import("./runtime.ts")
 const { runtime, sessionManager, manifestStore, setRunbookConfig } = runtimeModule
+const { installTestSessionPersistence } = await import("../test-utils/session-persistence.ts")
+type TestSessionPersistence = ReturnType<typeof installTestSessionPersistence>
 
 registerBoilerplateHandlers()
 
@@ -345,6 +347,70 @@ describe("boilerplate:render", () => {
     expect(error.message).toBe(
       "Template render failed: f1.tf: boom; f2.tf: boom; f3.tf: boom; f4.tf: boom; f5.tf: boom (and 3 more)",
     )
+  })
+
+  describe("in a saved session", () => {
+    let sessions: TestSessionPersistence
+    let sessionId: string
+
+    const savedManifests = () =>
+      runtime.runPromise(sessions.persistence.listTemplateManifests(sessionId))
+
+    const restoreManifestsAsAfterRestart = async () => {
+      manifestStore.clear()
+      for (const saved of await savedManifests()) manifestStore.set(saved.templateId, saved)
+    }
+
+    const warmFiles = (files: Record<string, string>) =>
+      warmResult({
+        files: Object.entries(files).map(([filePath, content]) => ({ path: filePath, content })),
+        allKnownPaths: Object.keys(files),
+        attemptedPaths: Object.keys(files),
+      })
+
+    beforeEach(async () => {
+      sessions = installTestSessionPersistence()
+      const session = await runtime.runPromise(
+        sessions.persistence.open({
+          runbook: { path: path.join(tmp, "runbook.mdx"), remoteSource: undefined },
+          launchDir: undefined,
+          sessionId: undefined,
+          startNew: false,
+        }),
+      )
+      sessionId = session.id
+      generatedDir = path.join(session.dir, DEFAULT_GENERATED_DIR)
+    })
+
+    afterEach(() => {
+      sessions.cleanup()
+    })
+
+    it("saves each render's manifest to the session", async () => {
+      spy.warm = warmFiles({ "main.tf": "ok" })
+
+      await render()
+
+      expect(manifestStore.get(TEMPLATE_ID)?.outputDir).toBe(generatedDir)
+      expect(await savedManifests()).toEqual([manifestStore.get(TEMPLATE_ID)!])
+    })
+
+    it("keeps a later step's edit to an unchanged file after a restart", async () => {
+      spy.warm = warmFiles({ "main.tf": "main v1", "vars.tf": "vars v1" })
+      await render()
+      fs.writeFileSync(path.join(generatedDir, "main.tf"), "main v1, edited by a later step")
+
+      await restoreManifestsAsAfterRestart()
+      spy.warm = warmFiles({ "main.tf": "main v1", "vars.tf": "vars v2" })
+      const result = (await render()) as { createdFiles: string[]; modifiedFiles: string[] }
+
+      expect(result.createdFiles).toEqual([])
+      expect(result.modifiedFiles).toEqual(["vars.tf"])
+      expect(fs.readFileSync(path.join(generatedDir, "main.tf"), "utf8")).toBe(
+        "main v1, edited by a later step",
+      )
+      expect(fs.readFileSync(path.join(generatedDir, "vars.tf"), "utf8")).toBe("vars v2")
+    })
   })
 })
 

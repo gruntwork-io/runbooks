@@ -163,6 +163,15 @@ describe("runbook IPC handlers", () => {
     let dirB: string
     let sessions: TestSessionPersistence
 
+    const templateManifest = {
+      templateId: "app",
+      outputDir: "/out",
+      files: [{ path: "main.tf", contentHash: "h" }],
+    }
+
+    const saveManifest = (sessionId: string) =>
+      sessions.persistence.saveTemplateManifest(sessionId, templateManifest)
+
     beforeEach(() => {
       sessions = installTestSessionPersistence()
       tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbook-ipc-")))
@@ -182,6 +191,7 @@ describe("runbook IPC handlers", () => {
       markRunbookClosed()
       sessionManager.deleteSession()
       setExecutableRegistry(null)
+      runtimeModule.manifestStore.clear()
       sessions.cleanup()
       fs.rmSync(tmp, { recursive: true, force: true })
     })
@@ -325,8 +335,9 @@ describe("runbook IPC handlers", () => {
       }
 
       // Opening A in a new session awaits resolving its path (call 1), reading
-      // it (2), creating its session (3), resetting the warm renders (4) and
-      // building its registry (5). createSession makes the session as soon as
+      // it (2), creating its session (3), resetting the warm renders (4),
+      // reading its saved template manifests (5) and building its registry
+      // (6). createSession makes the session as soon as
       // it's called, so the resets' await a newer load can start in is 4.
       for (const [awaiting, heldCall] of [
         ["reading it", 2],
@@ -379,6 +390,20 @@ describe("runbook IPC handlers", () => {
         expect(sessionManager.getRunbookPath()).toBe(b.path)
         expect(sessions.persistence.currentSession()?.id).toBe(b.sessionId)
         expect(runtimeModule.runbookConfig.localPath).toBe(b.path)
+      })
+
+      it("does not overwrite a newer load's template manifests with an overtaken load's", async () => {
+        const b = await getRunbook(dirB)
+        saveManifest(b.sessionId)
+        // Call 5 of opening A in a new session reads its saved template manifests.
+        const hold = holdRunPromiseCall(5)
+        const openA = getRunbook(dirA)
+        await hold.held
+        await getRunbook(dirB)
+        hold.release()
+
+        expect<unknown>(await openA).toEqual({ superseded: true })
+        expect(runtimeModule.manifestStore.get("app")).toEqual(templateManifest)
       })
 
       it("starts no session for a load overtaken while it waits for its turn", async () => {
@@ -567,6 +592,43 @@ describe("runbook IPC handlers", () => {
             payload: { values: { region: "eu-west-1" }, submitted: false },
           },
         ])
+      })
+
+      it("restores a session's template manifests when it is resumed", async () => {
+        const { manifestStore } = runtimeModule
+        const a = await getRunbook(dirA)
+        saveManifest(a.sessionId)
+        restartApp()
+        manifestStore.clear()
+
+        await getRunbook(dirA)
+        expect(manifestStore.get("app")).toEqual(templateManifest)
+
+        await getRunbook(dirB)
+        await getRunbook(dirA)
+        expect(manifestStore.get("app")).toEqual(templateManifest)
+      })
+
+      it("starts a new session with no template manifests", async () => {
+        const { manifestStore } = runtimeModule
+        const a = await getRunbook(dirA)
+        saveManifest(a.sessionId)
+        manifestStore.set("app", templateManifest)
+
+        await getRunbook(dirB)
+        expect(manifestStore.get("app")).toBeUndefined()
+
+        await getRunbook(dirA)
+        resetToNewSession()
+        await getRunbook(dirA)
+        expect(manifestStore.get("app")).toBeUndefined()
+      })
+
+      it("does not send template manifests to the renderer", async () => {
+        const a = await getRunbook(dirA)
+        saveManifest(a.sessionId)
+
+        expect((await getRunbook(dirA)).blockStates).toEqual([])
       })
 
       it("says when a resumed session was last used, on the load that resumed it only", async () => {

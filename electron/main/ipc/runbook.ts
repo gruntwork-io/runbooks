@@ -28,8 +28,9 @@ import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { protectedEnvVarsForRunbook } from "../../../src/domain/aws/protected-env.ts"
 import { readFileMetadata, resolveRunbookPath } from "../../../src/domain/workspace/file.ts"
 import { WarmRenderDispatcher } from "../../../src/services/WarmRenderDispatcher.ts"
-import type { RunbookConfig } from "../../../src/types.ts"
+import type { RunbookConfig, TemplateManifest } from "../../../src/types.ts"
 import type { SessionNotFoundError } from "../../../src/errors/index.ts"
+import type { SessionPersistence } from "../../../src/domain/session/persistence.ts"
 import { registerSecret, VCS_TOKEN_ENV_VARS } from "../../../src/domain/vcs/redact.ts"
 import type { OpenRunbookPayload } from "../open-runbook.ts"
 import { resolveRemoteRunbook } from "../remote.ts"
@@ -174,6 +175,37 @@ function registerSessionSecrets(): Effect.Effect<void, SessionNotFoundError> {
   })
 }
 
+/**
+ * Does nothing when a newer load opens another session while this one reads
+ * the saved manifests. That load restores its own.
+ */
+async function restoreTemplateManifests(persistence: SessionPersistence): Promise<void> {
+  const sessionId = persistence.currentSession()?.id
+  const saved =
+    sessionId === undefined ? [] : await listTemplateManifestsOrNone(persistence, sessionId)
+  if (persistence.currentSession()?.id !== sessionId) return
+  manifestStore.clear()
+  for (const manifest of saved) manifestStore.set(manifest.templateId, manifest)
+}
+
+/**
+ * Returns none when it can't read the history. Every template then writes all
+ * its files on its next render.
+ */
+function listTemplateManifestsOrNone(
+  persistence: SessionPersistence,
+  sessionId: string,
+): Promise<TemplateManifest[]> {
+  return runtime.runPromise(
+    persistence.listTemplateManifests(sessionId).pipe(
+      Effect.catch((err) => {
+        log.warn("failed to read the session's template manifests:", err.message)
+        return Effect.succeed([])
+      }),
+    ),
+  )
+}
+
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
@@ -313,9 +345,11 @@ export function registerRunbookHandlers(): void {
         // Template render state is keyed by the author-chosen Template id,
         // which the next runbook may reuse for a different template or
         // output dir. Drop the warm-render bundles, handles and vars
-        // baselines, and the file manifests, so its first render starts clean.
+        // baselines. Replace the file manifests with the ones the session
+        // saved. A resumed template's first render then writes only the
+        // files whose content changed and keeps edits to the rest.
         await runtime.runPromise(Effect.flatMap(WarmRenderDispatcher, (d) => d.reset))
-        manifestStore.clear()
+        await restoreTemplateManifests(persistence)
       } else if (launch) {
         // `runbooks <this runbook>` run again, perhaps from another directory.
         await runtime.runPromise(persistence.recordLaunch(runbookPath, launch.launchDir))
