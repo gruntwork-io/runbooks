@@ -1,5 +1,6 @@
 import { XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 
 interface DuplicateIdErrorProps {
   id: string
@@ -32,6 +33,7 @@ export function DuplicateIdError({
 }: DuplicateIdErrorProps) {
   return (
     <div
+      {...issueAnchor(id)}
       className={cn(
         "relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4",
         className,

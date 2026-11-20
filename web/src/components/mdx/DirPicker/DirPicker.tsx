@@ -3,10 +3,12 @@ import { useEffect, useMemo, useRef } from "react"
 import { InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { useDirPicker } from "./hooks/useDirPicker"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -128,9 +130,17 @@ function DirPickerInteractive({
     return <ErrorDisplay error={validationError} />
   }
 
-  // Don't render if duplicate
   if (isDuplicate || isNormalizedCollision) {
-    return null
+    return (
+      <DuplicateIdError
+        id={id}
+        isNormalizedCollision={isNormalizedCollision}
+        collidingId={collidingId}
+        componentName={"DirPicker"}
+        showUniquenessHint
+        className="runbook-block"
+      />
+    )
   }
 
   const hasError = error || missingRootConfig
@@ -173,7 +183,7 @@ function DirPickerInteractive({
 
           {/* Missing configuration: neither rootDir nor gitCloneId */}
           {missingRootConfig && (
-            <div className="text-sm text-destructive flex items-start gap-2">
+            <div {...issueAnchor(id)} className="text-sm text-destructive flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <span>
                 DirPicker requires either a{" "}

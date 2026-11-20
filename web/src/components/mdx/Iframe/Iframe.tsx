@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useId, useState } from "react"
 import { AlertCircle, ExternalLink, FileCode, Globe, RotateCw } from "lucide-react"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { RunbookContext } from "@/contexts/RunbookContext"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { runbookAssetOrigin, toRunbookAssetUrl } from "@/lib/assetPaths"
@@ -108,7 +109,10 @@ export function Iframe({
 
   if (error || "error" in source || cssHeight === null) {
     return (
-      <div className="runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5 bg-destructive-muted border-destructive/30 text-destructive">
+      <div
+        {...issueAnchor(componentId)}
+        className="runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5 bg-destructive-muted border-destructive/30 text-destructive"
+      >
         <AlertCircle className="size-4 mt-0.5 flex-shrink-0" />
         <div>
           <div className="text-md font-bold mb-1">Invalid Iframe</div>

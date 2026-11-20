@@ -598,8 +598,9 @@ describe("DirPicker — duplicate ids", () => {
 
     addDuplicate()
 
-    // The later instance is flagged as a duplicate and renders nothing.
+    // The later instance is flagged as a duplicate and shows that instead of a picker.
     await waitFor(() => expect(screen.getAllByTestId("dp")).toHaveLength(1))
+    expect(screen.getByText("Duplicate Component ID:")).toBeInTheDocument()
     expect(pathInput().value).toBe("prod")
     expect(publishedValues()).toEqual({ PATH: "prod" })
     expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining("Maximum update depth"))

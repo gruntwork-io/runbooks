@@ -232,7 +232,7 @@ function GitAuthInteractive({
 
   // Early return for validation errors (e.g. missing id prop, invalid host)
   if (configError) {
-    return <ErrorDisplay error={configError} />
+    return <ErrorDisplay error={configError} issueId={id} />
   }
 
   // Early return for duplicate ID

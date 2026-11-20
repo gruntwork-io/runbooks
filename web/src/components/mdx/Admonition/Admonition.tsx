@@ -5,6 +5,7 @@ import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdo
 import { MarkdownChildren } from "@/components/mdx/_shared/components/MarkdownChildren"
 import { shouldShowAlert, setDontShowAgain as saveHidePreference } from "@/lib/localStorage"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 
@@ -158,6 +159,7 @@ export function Admonition({
     const validTypes = VALID_ADMONITION_TYPES.map((t) => `"${t}"`).join(", ")
     return (
       <div
+        {...issueAnchor(componentId)}
         className={cn(
           "runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5",
           "bg-destructive-muted border-destructive/30 text-destructive",

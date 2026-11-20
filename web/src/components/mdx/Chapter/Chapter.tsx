@@ -1,6 +1,7 @@
 import { useContext, useEffect, useId, useLayoutEffect, useRef, type ReactNode } from "react"
 import { AlertCircle } from "lucide-react"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { ProgressRegistryContext } from "@/contexts/RunbookProgressContext.types"
 import { CHAPTER_INDEX_ATTRIBUTE } from "@/contexts/RunbookChaptersContext.types"
 import { useChaptersControl, useRunbookChapters } from "@/contexts/useRunbookChapters"
@@ -77,7 +78,10 @@ export function Chapter({ title, chapterIndex, children }: ChapterProps) {
   }, [navigation, isCurrent])
 
   const errorBox = configError && (
-    <div className="runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5 bg-destructive-muted border-destructive/30 text-destructive">
+    <div
+      {...issueAnchor(errorId)}
+      className="runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5 bg-destructive-muted border-destructive/30 text-destructive"
+    >
       <AlertCircle className="size-4 mt-0.5 flex-shrink-0" />
       <div>
         <div className="text-md font-bold mb-1">Invalid Chapter</div>

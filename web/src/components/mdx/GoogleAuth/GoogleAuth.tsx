@@ -4,6 +4,7 @@ import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdo
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
@@ -189,7 +190,10 @@ function GoogleAuthInteractive({
 
   if (hasMultipleBlockSources) {
     return (
-      <div className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+      <div
+        {...issueAnchor(id)}
+        className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4"
+      >
         <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
@@ -207,7 +211,10 @@ function GoogleAuthInteractive({
 
   if (hasOauthClientFileConflict) {
     return (
-      <div className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+      <div
+        {...issueAnchor(id)}
+        className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4"
+      >
         <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
