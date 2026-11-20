@@ -94,17 +94,17 @@ export function PRResultDisplay({
         </button>
       </div>
 
-      {/* What will Git Push commit? (collapsible) */}
+      {/* What will Git Push do? (collapsible) */}
       <CollapsibleToggle
         expanded={whatFilesExpanded}
         onToggle={() => setWhatFilesExpanded(!whatFilesExpanded)}
-        label="What will Git Push commit?"
+        label="What will Git Push do?"
         icon={<CircleHelp className="size-3.5" />}
       >
         <div className="mt-1.5 ml-5 text-xs text-muted-foreground leading-relaxed">
           {changeSummary && changeSummary.fileCount > 0 ? (
             <p className="m-0">
-              Git Push will commit and push{" "}
+              Git Push will not commit {changeSummary.fileCount === 1 ? "this" : "these"}{" "}
               <span className="font-medium">{changeSummary.fileCount}</span>{" "}
               {changeSummary.fileCount === 1 ? "file" : "files"}
               {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
@@ -122,16 +122,16 @@ export function PRResultDisplay({
                   )}
                   )
                 </>
-              )}{" "}
-              to the{" "}
+              )}
+              . It pushes only the commits on the{" "}
               <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>{" "}
               branch. Review your changes in the{" "}
               <span className="font-semibold">Changed files</span> tab of the workspace panel.
             </p>
           ) : (
             <p className="m-0">
-              No new file changes detected. If you make additional changes to the cloned repository,
-              use Git Push to add them to the existing {noun.lower} on the{" "}
+              No new file changes detected. If you commit additional changes to the cloned
+              repository, use Git Push to add them to the existing {noun.lower} on the{" "}
               <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>{" "}
               branch.
             </p>
