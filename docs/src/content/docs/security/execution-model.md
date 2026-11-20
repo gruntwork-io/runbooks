@@ -47,6 +47,8 @@ Runbooks runs `git` itself to clone repositories and to look at a local checkout
 - `core.fsmonitor` is off. It can name a command that `git status` and `git ls-files` run.
 - `safe.bareRepository` is `explicit`. A directory that only holds a repository's files (`HEAD`, `objects/`, `refs/`), which a clone can contain as ordinary committed files, is not opened as a repository. A `.git` directory, a linked worktree and a submodule work as usual.
 
+Git older than 2.38 ignores one or both settings without saying so. Runbooks checks the Git version before it looks at a local checkout, and refuses with a message if Git is older than 2.38.
+
 This covers the `git` commands Runbooks runs. A script that runs `git` gets your own git configuration.
 
 ## When the registry is built

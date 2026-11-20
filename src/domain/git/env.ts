@@ -18,11 +18,22 @@ import { withGitConfig } from "./url.ts"
  *    `HEAD`, `objects/` and `refs/` in it as a repository, so a clone can
  *    carry one, config included, as ordinary committed files. A `.git`
  *    directory, a linked worktree and a submodule still work.
+ *
+ * A git older than MIN_UNTRUSTED_REPO_GIT_VERSION ignores some or all of this
+ * without a word, so code that points git at a directory the user has not
+ * chosen yet checks the version first (inspectLocalRepo).
  */
 const UNTRUSTED_REPO_CONFIG = [
   ["core.fsmonitor", "false"],
   ["safe.bareRepository", "explicit"],
 ] as const
+
+/**
+ * The oldest git that honours all of UNTRUSTED_REPO_CONFIG. Command-scope
+ * config from the environment (GIT_CONFIG_COUNT) arrived in 2.31 and
+ * `safe.bareRepository` in 2.38.
+ */
+export const MIN_UNTRUSTED_REPO_GIT_VERSION = "2.38"
 
 /** ssh options that make it fail instead of prompting (see gitSpawnEnv). */
 const SSH_BATCH_OPTIONS = "-o BatchMode=yes -o StrictHostKeyChecking=yes"

@@ -34,6 +34,22 @@ function isolateEnv(keys: string[]): void {
 }
 
 /**
+ * Variables that point git at a repository other than the one in its cwd. A
+ * git hook exports some of them, so a test run started from one would write
+ * its config into the developer's repository instead of its temp directory.
+ */
+const GIT_REPO_LOCATION_ENV = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_COMMON_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_NAMESPACE",
+  "GIT_CEILING_DIRECTORIES",
+]
+
+/**
  * A stand-in ssh that appends its arguments to `log` and fails the way an
  * unreachable host would. Named `ssh` so git treats it as OpenSSH.
  */
@@ -188,6 +204,7 @@ describe("gitSpawnEnv repository config (real git)", () => {
     "GIT_CONFIG_COUNT",
     "GIT_CONFIG_KEY_0",
     "GIT_CONFIG_VALUE_0",
+    ...GIT_REPO_LOCATION_ENV,
   ])
   let tmp: string
 
@@ -265,7 +282,7 @@ describe("gitSpawnEnv repository config (real git)", () => {
 
 describe("resolveSshCommand (real git)", () => {
   // Only the config each test writes decides the answer.
-  isolateEnv(["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"])
+  isolateEnv(["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", ...GIT_REPO_LOCATION_ENV])
   let tmp: string
 
   beforeEach(() => {
