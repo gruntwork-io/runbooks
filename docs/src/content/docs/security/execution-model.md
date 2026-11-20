@@ -40,6 +40,17 @@ The renderer runs with `sandbox: true`, `contextIsolation: true` and `nodeIntegr
 
 `webviewTag` is enabled so the [Iframe block](/authoring/blocks/iframe/) can embed pages in `<webview>` guests. Before a guest attaches, the main process removes its preload script and denies dialogs, downloads, `window.open` and permission requests from the embedded page.
 
+## Git commands
+
+Runbooks runs `git` itself to clone repositories and to look at a local checkout, including one a `<GitClone>` block names before you have chosen it. A repository's own config can name commands for git to run, and that config arrives with the directory, so Runbooks overrides two settings for every `git` it runs:
+
+- `core.fsmonitor` is off. It can name a command that `git status` and `git ls-files` run.
+- `safe.bareRepository` is `explicit`. A directory that only holds a repository's files (`HEAD`, `objects/`, `refs/`), which a clone can contain as ordinary committed files, is not opened as a repository. A `.git` directory, a linked worktree and a submodule work as usual.
+
+Git older than 2.38 ignores one or both settings without saying so. Runbooks checks the Git version before it looks at a local checkout, and refuses with a message if Git is older than 2.38.
+
+This covers the `git` commands Runbooks runs. A script that runs `git` gets your own git configuration.
+
 ## When the registry is built
 
 Every script Runbooks runs comes from the registry. The ways of opening a runbook differ in when the registry is rebuilt from the files on disk.

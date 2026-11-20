@@ -13,9 +13,10 @@ import { Effect, Stream } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
 import type { GitInfo } from "../../services/GitClient.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
+import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
-import { gitSpawnEnv } from "./env.ts"
+import { compareVersions, extractVersion, parseVersion } from "../prerequisites/version.ts"
+import { MIN_UNTRUSTED_REPO_GIT_VERSION, gitSpawnEnv } from "./env.ts"
 import { countFiles, parseOwnerRepoFromURL } from "./operations.ts"
 import { stripUrlCredentials } from "./url.ts"
 
@@ -93,6 +94,10 @@ export const inspectLocalRepo = (
       })
     }
 
+    // Before any git runs in the directory: an older git would run there
+    // without the settings that keep the directory's own config in check.
+    yield* requireGitVersion
+
     // Resolve the work tree root, so picking a subdirectory of a checkout
     // still registers the repository itself.
     const git = yield* GitClient
@@ -146,6 +151,45 @@ export const inspectLocalRepo = (
       repo: parsed?.repo,
     } satisfies LocalRepoInfo
   })
+
+/** How long `git --version` gets to answer. */
+const GIT_VERSION_TIMEOUT_MS = 5_000
+
+/**
+ * Fail unless the installed git is new enough to honour the config gitSpawnEnv
+ * sets (MIN_UNTRUSTED_REPO_GIT_VERSION). git ignores settings it doesn't know,
+ * so an older one would look at the directory unprotected and say nothing.
+ * A git whose version can't be read fails too.
+ *
+ * `git --version` runs without a cwd: it reads no repository, and it must not
+ * be the first git to run in the directory being checked.
+ */
+const requireGitVersion = Effect.gen(function* () {
+  const spawner = yield* ProcessSpawner
+  const fail = (stderr: string) => new GitError({ command: "git --version", stderr, exitCode: 1 })
+
+  const output = yield* spawner.spawn("git", ["--version"], { env: gitSpawnEnv() }).pipe(
+    Effect.flatMap((proc) => collectOutput(proc, GIT_VERSION_TIMEOUT_MS)),
+    Effect.mapError(() => fail("Could not run git. Install Git and try again.")),
+  )
+  const text = output.lines
+    .filter((l) => l.source === "stdout")
+    .map((l) => l.line)
+    .join("\n")
+  const found = output.exitCode === 0 ? extractVersion(text) : null
+  const version = found ? parseVersion(found) : null
+  const minimum = parseVersion(MIN_UNTRUSTED_REPO_GIT_VERSION)!
+  if (!found || !version) {
+    return yield* fail(
+      `Could not read the Git version. Using a local checkout needs Git ${MIN_UNTRUSTED_REPO_GIT_VERSION} or later.`,
+    )
+  }
+  if (compareVersions(version, minimum) < 0) {
+    return yield* fail(
+      `Using a local checkout needs Git ${MIN_UNTRUSTED_REPO_GIT_VERSION} or later. Found Git ${found}. Update Git and try again.`,
+    )
+  }
+})
 
 /**
  * URL of the first remote the repo has, or undefined when it has none. Only

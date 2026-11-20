@@ -15,6 +15,23 @@ const lsFiles = (names: string[]) => ({
   exitCode: 0,
 })
 
+const gitVersion = (output: string) => ({
+  command: "git",
+  args: ["--version"],
+  outputLines: [output],
+  exitCode: 0,
+})
+
+/**
+ * A layer whose git reports a current version unless the test's own
+ * `commands` answer `git --version` first.
+ */
+const layerFor = (options: TestLayerOptions) =>
+  makeTestLayer({
+    ...options,
+    commands: [...(options.commands ?? []), gitVersion("git version 2.54.0")],
+  })
+
 /**
  * Run inspectLocalRepo against a test layer, creating `dirs` first so the
  * stubbed FileSystem reports them as directories (it only knows about
@@ -22,7 +39,7 @@ const lsFiles = (names: string[]) => ({
  */
 const inspect = (dir: string, options: TestLayerOptions & { dirs?: string[] } = {}) => {
   const { dirs = [], ...layerOptions } = options
-  const layer = makeTestLayer(layerOptions)
+  const layer = layerFor(layerOptions)
   return Effect.runPromise(
     Effect.gen(function* () {
       const fs = yield* FileSystem
@@ -41,7 +58,7 @@ const inspectFailure = async (
   options: TestLayerOptions & { dirs?: string[] } = {},
 ): Promise<string> => {
   const { dirs = [], ...layerOptions } = options
-  const layer = makeTestLayer(layerOptions)
+  const layer = layerFor(layerOptions)
   const result = await Effect.runPromise(
     Effect.gen(function* () {
       const fs = yield* FileSystem
@@ -278,6 +295,62 @@ describe("inspectLocalRepo", () => {
     })
 
     expect(stderr).toBe("Not a git repository: /home/me/notes")
+  })
+
+  describe("git version", () => {
+    // getRepoRoot is the first git to run in the directory. Left unconfigured,
+    // it fails the test with "Not a git repository" if it is ever reached.
+    const repoRootCalls = (version: string | undefined) => {
+      let calls = 0
+      const failure = inspectFailure("/home/me/infra", {
+        dirs: ["/home/me/infra"],
+        commands: version === undefined ? [] : [gitVersion(version)],
+        git: {
+          getRepoRoot: () => {
+            calls++
+            return Effect.succeed("/home/me/infra")
+          },
+        },
+      })
+      return failure.then((stderr) => ({ stderr, calls }))
+    }
+
+    it("refuses a git too old for safe.bareRepository, before running it in the directory", async () => {
+      // Ubuntu 22.04's git: it takes config from the environment, but ignores
+      // safe.bareRepository.
+      const { stderr, calls } = await repoRootCalls("git version 2.34.1")
+      expect(stderr).toBe(
+        "Using a local checkout needs Git 2.38 or later. Found Git 2.34.1. Update Git and try again.",
+      )
+      expect(calls).toBe(0)
+    })
+
+    it("refuses a git too old to take config from the environment", async () => {
+      const { stderr, calls } = await repoRootCalls("git version 2.30.2")
+      expect(stderr).toContain("Found Git 2.30.2")
+      expect(calls).toBe(0)
+    })
+
+    it("refuses a git whose version it can't read", async () => {
+      const { stderr, calls } = await repoRootCalls("git: unexpected output")
+      expect(stderr).toBe(
+        "Could not read the Git version. Using a local checkout needs Git 2.38 or later.",
+      )
+      expect(calls).toBe(0)
+    })
+
+    it.each([
+      ["git version 2.38.0"],
+      ["git version 2.39.5 (Apple Git-154)"],
+      ["git version 2.47.0.windows.1"],
+    ])("accepts %s", async (version) => {
+      const info = await inspect("/home/me/infra", {
+        dirs: ["/home/me/infra"],
+        commands: [gitVersion(version), lsFiles(["main.tf"])],
+        git: { getRepoRoot: () => Effect.succeed("/home/me/infra") },
+      })
+      expect(info.absolutePath).toBe("/home/me/infra")
+    })
   })
 
   it("fails when the directory does not exist", async () => {

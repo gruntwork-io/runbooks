@@ -34,6 +34,22 @@ function isolateEnv(keys: string[]): void {
 }
 
 /**
+ * Variables that point git at a repository other than the one in its cwd. A
+ * git hook exports some of them, so a test run started from one would write
+ * its config into the developer's repository instead of its temp directory.
+ */
+const GIT_REPO_LOCATION_ENV = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_COMMON_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_NAMESPACE",
+  "GIT_CEILING_DIRECTORIES",
+]
+
+/**
  * A stand-in ssh that appends its arguments to `log` and fails the way an
  * unreachable host would. Named `ssh` so git treats it as OpenSSH.
  */
@@ -149,9 +165,124 @@ describe("gitSpawnEnv", () => {
   })
 })
 
+/** The `GIT_CONFIG_KEY_<n>` / `GIT_CONFIG_VALUE_<n>` pairs in `env`, in order. */
+function gitConfigEntries(env: Record<string, string | undefined>): Array<[string, string]> {
+  const count = Number.parseInt(env.GIT_CONFIG_COUNT ?? "0", 10)
+  return Array.from({ length: count }, (_, i) => [
+    env[`GIT_CONFIG_KEY_${i}`] ?? "",
+    env[`GIT_CONFIG_VALUE_${i}`] ?? "",
+  ])
+}
+
+describe("gitSpawnEnv repository config", () => {
+  isolateEnv(["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"])
+
+  it("turns off the settings that let a repository's own config run a command", () => {
+    expect(gitConfigEntries(gitSpawnEnv())).toEqual([
+      ["core.fsmonitor", "false"],
+      ["safe.bareRepository", "explicit"],
+    ])
+  })
+
+  it("adds them after config the environment already passes, so they win over it", () => {
+    process.env.GIT_CONFIG_COUNT = "1"
+    process.env.GIT_CONFIG_KEY_0 = "core.fsmonitor"
+    process.env.GIT_CONFIG_VALUE_0 = "/tmp/hook"
+    expect(gitConfigEntries(gitSpawnEnv())).toEqual([
+      ["core.fsmonitor", "/tmp/hook"],
+      ["core.fsmonitor", "false"],
+      ["safe.bareRepository", "explicit"],
+    ])
+  })
+})
+
+describe("gitSpawnEnv repository config (real git)", () => {
+  // Only the config each test writes, and gitSpawnEnv's, decides the result.
+  isolateEnv([
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_0",
+    "GIT_CONFIG_VALUE_0",
+    ...GIT_REPO_LOCATION_ENV,
+  ])
+  let tmp: string
+
+  beforeEach(() => {
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null"
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-repo-config-"))
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  /** Run git in `cwd`, as itself (`env` undefined) or as Runbooks spawns it. */
+  const git = (cwd: string, args: string[], env?: Record<string, string | undefined>) =>
+    execFileSync("git", args, { cwd, env: env ?? process.env, stdio: "pipe" }).toString()
+
+  it("does not run the command a repository's core.fsmonitor names", () => {
+    // What a <GitClone> block's local checkout can be: a directory someone
+    // else prepared. git runs core.fsmonitor from the work tree's root, so
+    // the command leaves its mark there.
+    git(tmp, ["init", "-q"])
+    git(tmp, ["config", "core.fsmonitor", "echo ran > fsmonitor-ran; false"])
+    const ran = () => fs.existsSync(path.join(tmp, "fsmonitor-ran"))
+
+    git(tmp, ["status", "--porcelain"], gitSpawnEnv())
+    git(tmp, ["ls-files"], gitSpawnEnv())
+    expect(ran()).toBe(false)
+
+    // The same repository does run it for a git without gitSpawnEnv's config,
+    // so the check above can't pass for want of a working command.
+    git(tmp, ["status", "--porcelain"])
+    expect(ran()).toBe(true)
+  })
+
+  it("does not take a plain directory of repository files for a repository", () => {
+    // A clone can carry these as committed files, config included, where a
+    // `.git` directory can't be committed. Without safe.bareRepository git
+    // opens the directory as a repository and reads that config.
+    const embedded = path.join(tmp, "embedded")
+    git(tmp, ["init", "-q", "--bare", embedded])
+    fs.mkdirSync(path.join(embedded, "wt"))
+    git(embedded, ["config", "core.bare", "false"])
+    git(embedded, ["config", "core.worktree", "wt"])
+
+    expect(git(embedded, ["rev-parse", "--show-toplevel"]).trim()).toContain("wt")
+    expect(() => git(embedded, ["rev-parse", "--show-toplevel"], gitSpawnEnv())).toThrow(
+      /safe\.bareRepository/,
+    )
+  })
+
+  it("still opens a checkout and a linked worktree of it", () => {
+    const repo = path.join(tmp, "repo")
+    const linked = path.join(tmp, "linked")
+    git(tmp, ["init", "-q", repo])
+    git(repo, [
+      "-c",
+      "user.name=test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ])
+    git(repo, ["worktree", "add", "-q", linked])
+
+    const toplevel = (cwd: string) =>
+      fs.realpathSync(git(cwd, ["rev-parse", "--show-toplevel"], gitSpawnEnv()).trim())
+    expect(toplevel(repo)).toBe(fs.realpathSync(repo))
+    expect(toplevel(linked)).toBe(fs.realpathSync(linked))
+  })
+})
+
 describe("resolveSshCommand (real git)", () => {
   // Only the config each test writes decides the answer.
-  isolateEnv(["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"])
+  isolateEnv(["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", ...GIT_REPO_LOCATION_ENV])
   let tmp: string
 
   beforeEach(() => {

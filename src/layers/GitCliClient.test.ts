@@ -24,6 +24,7 @@ import { GitError } from "../errors/index.ts"
 import { GitCliClientLive } from "./GitCliClient.ts"
 import { ChildProcessSpawnerLive } from "./ChildProcessSpawner.ts"
 import { buildCloneSteps } from "../domain/git/cloneSteps.ts"
+import { gitSpawnEnv } from "../domain/git/env.ts"
 
 const layer = GitCliClientLive.pipe(Layer.provide(ChildProcessSpawnerLive))
 
@@ -1279,8 +1280,9 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     )
 
     expect(server.seenAuthorization).not.toContain(basic("oauth2", TOKEN))
+    // No auth config appended: only what every git spawn carries.
     const push = spawns.find((s) => s.args[0] === "push")
-    expect(push?.env?.GIT_CONFIG_COUNT).toBe(process.env.GIT_CONFIG_COUNT)
+    expect(push?.env?.GIT_CONFIG_COUNT).toBe(gitSpawnEnv().GIT_CONFIG_COUNT)
   }, 30_000)
 
   it("never hands a rejected token's fallback to the user's credential helper", async () => {
@@ -1314,10 +1316,11 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
 
     expect(spawns.some((s) => s.args.includes("set-url"))).toBe(false)
     expect(tokenInAnyArg()).toBe(false)
-    // No auth config appended: the count is whatever the environment already
-    // carried (unset on most machines; some CI/sandbox shells export their own).
+    // No auth config appended: the count is what every git spawn carries, on
+    // top of whatever the environment already did (some CI/sandbox shells
+    // export their own).
     const push = spawns.find((s) => s.args[0] === "push")
-    expect(push?.env?.GIT_CONFIG_COUNT).toBe(process.env.GIT_CONFIG_COUNT)
+    expect(push?.env?.GIT_CONFIG_COUNT).toBe(gitSpawnEnv().GIT_CONFIG_COUNT)
     expect(gitOut(work, "remote", "get-url", "origin").trim()).toBe(sshUrl)
   }, 30_000)
 
