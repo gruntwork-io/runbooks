@@ -2,7 +2,7 @@
 title: Boilerplate Templates
 ---
 
-import { FileTree } from '@astrojs/starlight/components';
+import { Aside, FileTree } from '@astrojs/starlight/components';
 
 [Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) generates files and folders from templates. Runbooks takes two things from it: the `boilerplate.yml` schema that `<Inputs>` and `<Template>` build their forms from, and the Go template syntax that `<Template>`, `<TemplateInline>`, `<Command>`, and `<Check>` render.
 
@@ -280,7 +280,7 @@ Dropdown select from predefined options. Without a `default`, the dropdown start
 
 ### Options
 
-An option is a string, shown and stored as it is, or a `value` with a `label`, shown as its label and stored as its value. A list can mix the two:
+An option is a string, shown and stored as it is, or, from Runbooks 0.31, a `value` with a `label`, shown as its label and stored as its value. A list can mix the two:
 
 ```yaml
 - name: InstanceSize
@@ -297,6 +297,10 @@ An option is a string, shown and stored as it is, or a `value` with a `label`, s
 Templates get the value, so `{{ .InstanceSize }}` renders `small`. Labels work the same way in a `list`'s [`x-options`](#x-options), where the picker's search matches both labels and values.
 
 #### Options from a block's output
+
+<Aside type="note">
+Options from a block's output need Runbooks 0.31 or later. Earlier versions can't show a dropdown whose options come from an output, and show a multi-select as a plain list. To have them say the runbook needs a later version instead, [require it](/authoring/runbook-structure/#requiring-a-version-of-runbooks) in the front matter: `runbooks: ">= 0.31"`.
+</Aside>
 
 When the options live somewhere that changes, such as the regions a cloud account can use, a script can list them and the field can read them. Write the options as a reference to a block's output, instead of a list:
 
