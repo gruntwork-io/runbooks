@@ -16,7 +16,11 @@ import { FileSystem } from "../../services/FileSystem.ts"
 import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
 import { compareVersions, extractVersion, parseVersion } from "../prerequisites/version.ts"
-import { MIN_UNTRUSTED_REPO_GIT_VERSION, gitSpawnEnv } from "./env.ts"
+import {
+  MIN_UNTRUSTED_REPO_GIT_VERSION,
+  SAFE_BARE_REPOSITORY_GIT_VERSION,
+  gitSpawnEnv,
+} from "./env.ts"
 import { countFiles, parseOwnerRepoFromURL } from "./operations.ts"
 import { stripUrlCredentials } from "./url.ts"
 
@@ -96,7 +100,10 @@ export const inspectLocalRepo = (
 
     // Before any git runs in the directory: an older git would run there
     // without the settings that keep the directory's own config in check.
-    yield* requireGitVersion
+    const gitVersion = yield* requireGitVersion
+    if (!gitVersion.honoursSafeBareRepository) {
+      yield* refuseImplicitBareRepository(selected, gitVersion.found)
+    }
 
     // Resolve the work tree root, so picking a subdirectory of a checkout
     // still registers the repository itself.
@@ -156,10 +163,11 @@ export const inspectLocalRepo = (
 const GIT_VERSION_TIMEOUT_MS = 5_000
 
 /**
- * Fail unless the installed git is new enough to honour the config gitSpawnEnv
+ * Fail unless the installed git takes the command-scope config gitSpawnEnv
  * sets (MIN_UNTRUSTED_REPO_GIT_VERSION). git ignores settings it doesn't know,
  * so an older one would look at the directory unprotected and say nothing.
- * A git whose version can't be read fails too.
+ * A git whose version can't be read fails too. Also reports whether git honours
+ * `safe.bareRepository`, which arrived later (SAFE_BARE_REPOSITORY_GIT_VERSION).
  *
  * `git --version` runs without a cwd: it reads no repository, and it must not
  * be the first git to run in the directory being checked.
@@ -189,7 +197,56 @@ const requireGitVersion = Effect.gen(function* () {
       `Using a local checkout needs Git ${MIN_UNTRUSTED_REPO_GIT_VERSION} or later. Found Git ${found}. Update Git and try again.`,
     )
   }
+  const safeBare = parseVersion(SAFE_BARE_REPOSITORY_GIT_VERSION)!
+  return { found, honoursSafeBareRepository: compareVersions(version, safeBare) >= 0 }
 })
+
+/**
+ * What `safe.bareRepository=explicit` does, for a git too old to know it.
+ *
+ * Starting at the selected directory and walking up, git takes the first
+ * directory that has a `.git` (a directory or a gitfile) as the work tree, and
+ * otherwise opens a directory that itself looks like a repository (a `HEAD`
+ * file, an `objects/` and a `refs/` directory) as a bare repository, config
+ * included. A clone can carry such a directory as ordinary committed files, so
+ * refuse the selection if git would reach one before it reaches a `.git`.
+ */
+const refuseImplicitBareRepository = (selected: string, gitVersion: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem
+    const isDir = (p: string) =>
+      fs.stat(p).pipe(
+        Effect.map((s) => s.isDirectory),
+        Effect.orElseSucceed(() => false),
+      )
+    const isFile = (p: string) =>
+      fs.stat(p).pipe(
+        Effect.map((s) => s.isFile),
+        Effect.orElseSucceed(() => false),
+      )
+
+    let dir = selected
+    for (;;) {
+      if (yield* fs.exists(path.join(dir, ".git"))) return
+      const looksBare =
+        (yield* isFile(path.join(dir, "HEAD"))) &&
+        (yield* isDir(path.join(dir, "objects"))) &&
+        (yield* isDir(path.join(dir, "refs")))
+      if (looksBare) {
+        return yield* new GitError({
+          command: "git rev-parse --show-toplevel",
+          stderr:
+            `${dir} looks like a bare Git repository (it has HEAD, objects and refs, but no .git). ` +
+            `Git ${gitVersion} would open it with its own config, which can run commands, so Runbooks won't use it. ` +
+            `Choose the checkout's top directory, or update Git to ${SAFE_BARE_REPOSITORY_GIT_VERSION} or later.`,
+          exitCode: 1,
+        })
+      }
+      const parent = path.dirname(dir)
+      if (parent === dir) return
+      dir = parent
+    }
+  })
 
 /**
  * URL of the first remote the repo has, or undefined when it has none. Only

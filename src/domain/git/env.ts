@@ -19,9 +19,10 @@ import { withGitConfig } from "./url.ts"
  *    carry one, config included, as ordinary committed files. A `.git`
  *    directory, a linked worktree and a submodule still work.
  *
- * A git older than MIN_UNTRUSTED_REPO_GIT_VERSION ignores some or all of this
- * without a word, so code that points git at a directory the user has not
- * chosen yet checks the version first (inspectLocalRepo).
+ * An older git ignores some or all of this without a word, so code that points
+ * git at a directory the user has not chosen yet checks the version first
+ * (inspectLocalRepo), and does the bare-repository check itself on a git that
+ * ignores `safe.bareRepository`.
  */
 const UNTRUSTED_REPO_CONFIG = [
   ["core.fsmonitor", "false"],
@@ -29,11 +30,18 @@ const UNTRUSTED_REPO_CONFIG = [
 ] as const
 
 /**
- * The oldest git that honours all of UNTRUSTED_REPO_CONFIG. Command-scope
- * config from the environment (GIT_CONFIG_COUNT) arrived in 2.31 and
- * `safe.bareRepository` in 2.38.
+ * The oldest git that takes command-scope config from the environment
+ * (GIT_CONFIG_COUNT), so it honours `core.fsmonitor=false`. A git older than
+ * this can't be pointed at an untrusted directory at all.
  */
-export const MIN_UNTRUSTED_REPO_GIT_VERSION = "2.38"
+export const MIN_UNTRUSTED_REPO_GIT_VERSION = "2.31"
+
+/**
+ * The oldest git that honours `safe.bareRepository`. For a git between
+ * MIN_UNTRUSTED_REPO_GIT_VERSION and this one, inspectLocalRepo does git's
+ * bare-repository discovery check itself before running git in the directory.
+ */
+export const SAFE_BARE_REPOSITORY_GIT_VERSION = "2.38"
 
 /** ssh options that make it fail instead of prompting (see gitSpawnEnv). */
 const SSH_BATCH_OPTIONS = "-o BatchMode=yes -o StrictHostKeyChecking=yes"

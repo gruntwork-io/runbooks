@@ -315,14 +315,81 @@ describe("inspectLocalRepo", () => {
       return failure.then((stderr) => ({ stderr, calls }))
     }
 
-    it("refuses a git too old for safe.bareRepository, before running it in the directory", async () => {
+    it("accepts a git that ignores safe.bareRepository when no bare repository is in the way", async () => {
       // Ubuntu 22.04's git: it takes config from the environment, but ignores
-      // safe.bareRepository.
-      const { stderr, calls } = await repoRootCalls("git version 2.34.1")
-      expect(stderr).toBe(
-        "Using a local checkout needs Git 2.38 or later. Found Git 2.34.1. Update Git and try again.",
-      )
-      expect(calls).toBe(0)
+      // safe.bareRepository, so the check is done before git runs.
+      const info = await inspect("/home/me/infra", {
+        dirs: ["/home/me/infra", "/home/me/infra/.git"],
+        commands: [gitVersion("git version 2.34.1"), lsFiles(["main.tf"])],
+        git: { getRepoRoot: () => Effect.succeed("/home/me/infra") },
+      })
+      expect(info.absolutePath).toBe("/home/me/infra")
+    })
+
+    describe("with a git that ignores safe.bareRepository", () => {
+      const bareLike = (dir: string) => [dir, `${dir}/objects`, `${dir}/refs`]
+      const run = (selected: string, dirs: string[], head: string) => {
+        let calls = 0
+        return inspectFailure(selected, {
+          dirs,
+          files: { [head]: "ref: refs/heads/main\n" },
+          commands: [gitVersion("git version 2.34.1")],
+          git: {
+            getRepoRoot: () => {
+              calls++
+              return Effect.succeed(selected)
+            },
+          },
+        }).then((stderr) => ({ stderr, calls }))
+      }
+
+      it("refuses a selected directory that looks like a bare repository, before running git there", async () => {
+        const { stderr, calls } = await run(
+          "/home/me/clone/evil",
+          bareLike("/home/me/clone/evil"),
+          "/home/me/clone/evil/HEAD",
+        )
+        expect(stderr).toContain("/home/me/clone/evil looks like a bare Git repository")
+        expect(stderr).toContain("update Git to 2.38 or later")
+        expect(calls).toBe(0)
+      })
+
+      it("refuses a subdirectory of a bare-looking directory that git would reach before a .git", async () => {
+        const dirs = [
+          ...bareLike("/home/me/clone/evil"),
+          "/home/me/clone/evil/refs/heads",
+          "/home/me/clone/.git",
+        ]
+        const { stderr, calls } = await run(
+          "/home/me/clone/evil/refs/heads",
+          dirs,
+          "/home/me/clone/evil/HEAD",
+        )
+        expect(stderr).toContain("/home/me/clone/evil looks like a bare Git repository")
+        expect(calls).toBe(0)
+      })
+
+      it("ignores a bare-looking directory above the work tree's .git", async () => {
+        const dirs = [...bareLike("/home/me"), "/home/me/infra", "/home/me/infra/.git"]
+        const info = await inspect("/home/me/infra", {
+          dirs,
+          files: { "/home/me/HEAD": "ref: refs/heads/main\n" },
+          commands: [gitVersion("git version 2.34.1"), lsFiles(["main.tf"])],
+          git: { getRepoRoot: () => Effect.succeed("/home/me/infra") },
+        })
+        expect(info.absolutePath).toBe("/home/me/infra")
+      })
+
+      it("needs all of HEAD, objects and refs to call a directory bare", async () => {
+        const dirs = ["/home/me/infra", "/home/me/infra/objects", "/home/me/infra/.git"]
+        const info = await inspect("/home/me/infra", {
+          dirs,
+          files: { "/home/me/infra/HEAD": "ref: refs/heads/main\n" },
+          commands: [gitVersion("git version 2.34.1"), lsFiles(["main.tf"])],
+          git: { getRepoRoot: () => Effect.succeed("/home/me/infra") },
+        })
+        expect(info.absolutePath).toBe("/home/me/infra")
+      })
     })
 
     it("refuses a git too old to take config from the environment", async () => {
@@ -334,7 +401,7 @@ describe("inspectLocalRepo", () => {
     it("refuses a git whose version it can't read", async () => {
       const { stderr, calls } = await repoRootCalls("git: unexpected output")
       expect(stderr).toBe(
-        "Could not read the Git version. Using a local checkout needs Git 2.38 or later.",
+        "Could not read the Git version. Using a local checkout needs Git 2.31 or later.",
       )
       expect(calls).toBe(0)
     })
