@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Bot, X } from "lucide-react"
 import { useApi } from "./ApiContext"
+import { useRevealElement } from "./useRunbookChapters"
 import {
   AgentBridgeContext,
   type AgentBlockAdapter,
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import {
   AGENT_APPROVAL_TIMEOUT_MS,
+  type AgentActResult,
   type AgentBlockDetail,
   type AgentBlockSummary,
   type AgentFormReview,
@@ -36,7 +38,7 @@ const RUN_START_WAIT_MS = 3000
 
 /** What the user has to do for a block an agent can't control. */
 const NOT_CONTROLLABLE_NOTE =
-  "An agent can't run this block: it needs the user (a sign-in, a pull request, a picker or page). Ask the user to complete it in the Runbooks window."
+  "This block registered no agent controls, so an agent can't act on it. Ask the user to complete it in the Runbooks window."
 
 interface Presence {
   type: string
@@ -88,6 +90,11 @@ export function AgentBridgeProvider({
   // run_block requests run one at a time: each waits until the run before it
   // shows in the window, so its blockers (exclusive, dependsOn) see that run
   const runQueueRef = useRef<Promise<unknown>>(Promise.resolve())
+  const revealElement = useRevealElement()
+  const revealRef = useRef(revealElement)
+  useEffect(() => {
+    revealRef.current = revealElement
+  })
 
   const [status, setStatus] = useState<AgentServerStatus | null>(null)
   const statusRef = useRef(status)
@@ -99,6 +106,8 @@ export function AgentBridgeProvider({
   const [now, setNow] = useState(() => Date.now())
   const [confirm, setConfirm] = useState<{
     blockId: string
+    /** What the agent wants to do, when it isn't running the block. */
+    action?: string | undefined
     resolve: (ok: boolean) => void
   } | null>(null)
   const confirmRef = useRef(confirm)
@@ -200,6 +209,7 @@ export function AgentBridgeProvider({
         blockedBy: adapter.blockedBy(),
         controllable: true,
         ...(fields && unreviewed(key, fields).length > 0 ? { needsReview: true } : {}),
+        ...(adapter.needsHuman?.() ? { needsHuman: adapter.needsHuman() } : {}),
       }
     }
 
@@ -215,10 +225,10 @@ export function AgentBridgeProvider({
       )
     }
 
+    // Shows the block's chapter if it is hidden, and scrolls the block into view
     const reveal = (key: string) => {
-      presenceRef.current
-        .get(key)
-        ?.element?.current?.scrollIntoView?.({ behavior: "smooth", block: "center" })
+      const element = presenceRef.current.get(key)?.element?.current
+      if (element) revealRef.current(element)
     }
 
     /** A form's fields, with whether the agent reviewed each; undefined for a block without a form. */
@@ -279,7 +289,7 @@ export function AgentBridgeProvider({
 
     // Declined if the user doesn't answer in time, so an approval can't start
     // a run after the server has given up on the request
-    const askUser = (blockId: string) =>
+    const askUser = (blockId: string, action?: string) =>
       new Promise<boolean>((resolve) => {
         let settled = false
         const settle = (ok: boolean) => {
@@ -290,8 +300,58 @@ export function AgentBridgeProvider({
           resolve(ok)
         }
         const timer = setTimeout(() => settle(false), AGENT_APPROVAL_TIMEOUT_MS)
-        setConfirm({ blockId, resolve: settle })
+        setConfirm({ blockId, action, resolve: settle })
       })
+
+    const actOnBlock = async (
+      blockId: string,
+      action: string,
+      params: Record<string, unknown>,
+    ): Promise<AgentActResult & { block?: AgentBlockSummary }> => {
+      const key = find(blockId)
+      const adapter = blocksRef.current.get(key)
+      if (!adapter?.act) return { ok: false, reason: NOT_CONTROLLABLE_NOTE }
+      const actions = adapter.actions?.() ?? []
+      const spec = actions.find((a) => a.name === action)
+      if (!spec) {
+        return {
+          ok: false,
+          reason: `Block "${blockId}" has no action "${action}". Its actions: ${
+            actions.map((a) => a.name).join(", ") || "(none)"
+          }.`,
+        }
+      }
+      if (spec.unavailable) return { ok: false, reason: spec.unavailable }
+      const missing = Object.entries(spec.params ?? {})
+        .filter(
+          ([name, param]) => param.required && (params[name] === undefined || params[name] === ""),
+        )
+        .map(([name]) => name)
+      if (missing.length > 0) return { ok: false, reason: `Missing params: ${missing.join(", ")}` }
+      if (spec.changes) {
+        const review = reviewNeeded(key)
+        if (review) return { ok: false, reason: review.message }
+      }
+      reveal(key)
+      if (
+        spec.changes &&
+        statusRef.current?.confirmRuns !== false &&
+        !(await askUser(blockId, spec.description))
+      ) {
+        return { ok: false, reason: "The user declined in the Runbooks window, or didn't answer." }
+      }
+      if (statusRef.current?.enabled !== true) {
+        return { ok: false, reason: "AI agent access was turned off in the Runbooks window." }
+      }
+      const before = adapter.status()
+      const result = await adapter.act(action, params)
+      if (!result.ok) return result
+      setLastAction(`${action} on ${blockId}`)
+      // Answer once the window shows the change, so get_block sees it
+      const deadline = Date.now() + RUN_START_WAIT_MS
+      while (spec.changes && Date.now() < deadline && adapter.status() === before) await sleep(50)
+      return { ...result, block: summary(key) }
+    }
 
     const runBlock = async (blockId: string): Promise<AgentRunResult> => {
       const key = find(blockId)
@@ -354,6 +414,9 @@ export function AgentBridgeProvider({
               ? adapter.detail(request.logOffset ?? 0, request.logLimit ?? 200)
               : { note: NOT_CONTROLLABLE_NOTE }),
             ...(fields ? { inputs: fields } : {}),
+            ...(adapter?.actions && adapter.actions().length > 0
+              ? { actions: adapter.actions() }
+              : {}),
             sessionId: sessionRef.current.sessionId,
           }
           return detail
@@ -389,6 +452,13 @@ export function AgentBridgeProvider({
           const run = runQueueRef.current.then(() => runBlock(request.blockId))
           runQueueRef.current = run.catch(() => {})
           return run
+        }
+        case "act_on_block": {
+          const act = runQueueRef.current.then(() =>
+            actOnBlock(request.blockId, request.action, request.params),
+          )
+          runQueueRef.current = act.catch(() => {})
+          return act
         }
         case "cancel_block": {
           const key = find(request.blockId)
@@ -465,10 +535,15 @@ export function AgentBridgeProvider({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Let the AI agent run “{confirm?.blockId}”?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {confirm?.action
+                ? `Let the AI agent act on “${confirm.blockId}”?`
+                : `Let the AI agent run “${confirm?.blockId}”?`}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              An AI agent connected to Runbooks wants to run this block. Its script runs on this
-              machine with your credentials and can change real infrastructure.
+              {confirm?.action
+                ? `An AI agent connected to Runbooks wants to: ${confirm.action} This uses your credentials and can change real things, such as a repository or a cloud account.`
+                : "An AI agent connected to Runbooks wants to run this block. Its script runs on this machine with your credentials and can change real infrastructure."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

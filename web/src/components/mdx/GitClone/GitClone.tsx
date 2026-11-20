@@ -5,6 +5,8 @@ import { InfoTooltip } from "@/components/mdx/GitPullRequest/components/InfoTool
 import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
 import { LocalPathRow } from "@/components/artifacts/workspace/rows/LocalPathRow"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { stringParam, useAgentBlock } from "@/contexts/useAgentBridge"
+import { maskOutputs } from "@/lib/outputValues"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useOutputs } from "@/contexts/useRunbook"
@@ -558,6 +560,197 @@ function GitCloneInteractive({
   // block missing org_id/repo_id, which is precisely the parity with clone that
   // this source is supposed to keep.
   const isUseRepoDisabled = isFormDisabled || !gitHubAuthMet || localPreviewStatus !== "valid"
+
+  // What an AI agent sees of this block and does to it, through the app's MCP
+  // server: the same clone and local-checkout handlers as the block's buttons.
+  const agentBlockedBy = (): string[] => [
+    ...(validationError ? [validationError.message] : []),
+    ...(isDuplicate || isNormalizedCollision ? [`Duplicate block id "${id}"`] : []),
+    ...(unmetInputDeps.length > 0 ? [`Inputs without a value: ${unmetInputDeps.join(", ")}`] : []),
+    ...unmetOutputDeps.map(
+      (dep) => `Waiting for outputs of "${dep.blockId}": ${dep.outputNames.join(", ")}`,
+    ),
+    ...(authBlockId !== undefined && !gitHubAuthMet
+      ? [`Auth block "${authBlockId}" hasn't signed in`]
+      : []),
+    ...(cloneStatus === "running" ? ["Already cloning"] : []),
+  ]
+  const agentClone = async (
+    url: string,
+    cloneRef: string,
+    cloneRepoPath: string,
+    cloneLocalPath: string,
+    force?: boolean,
+  ) => {
+    setActiveSource("clone")
+    setGitUrl(url)
+    setRef(cloneRef)
+    setRepoPath(cloneRepoPath)
+    setLocalPath(cloneLocalPath)
+    setShowOverwriteConfirm(false)
+    setSubmittedForm({
+      gitUrl: url,
+      ref: cloneRef,
+      repoPath: cloneRepoPath,
+      localPath: cloneLocalPath,
+      repoDir,
+    })
+    const result = await clone(url, cloneRef, cloneRepoPath, cloneLocalPath, force)
+    if (result === "directory_exists") setShowOverwriteConfirm(true)
+    return result
+  }
+  useAgentBlock(id, {
+    type: "GitClone",
+    title: resolvedTitle,
+    status: () =>
+      cloneStatus === "success"
+        ? "success"
+        : cloneStatus === "running"
+          ? "running"
+          : cloneStatus === "fail"
+            ? "fail"
+            : "pending",
+    blockedBy: agentBlockedBy,
+    detail: (logOffset, logLimit) => {
+      const page = logs.slice(logOffset, logOffset + logLimit).map((entry) => entry.line)
+      return {
+        logs: page,
+        logOffset,
+        logTotal: logs.length,
+        nextLogOffset: Math.min(logOffset, logs.length) + page.length,
+        outputs: maskOutputs(registeredOutputs ?? publishedOutputs ?? {}),
+        ...(errorMessage ? { error: errorMessage } : {}),
+        state: {
+          source: activeSource,
+          url: gitUrl,
+          ref,
+          repoPath,
+          localPath,
+          localCheckoutDir: repoDir,
+          localCheckoutCheck: localPreviewStatus,
+          path: cloneResult?.absolutePath,
+          checkedOutRef: cloneResult?.ref,
+          directoryExists: showOverwriteConfirm || undefined,
+        },
+      }
+    },
+    actions: () => {
+      const blocked = agentBlockedBy().filter((reason) => reason !== "Already cloning")
+      const unavailable =
+        cloneStatus === "running"
+          ? "A clone is running."
+          : cloneStatus === "success"
+            ? "The repository is ready. Use start_over first to choose another."
+            : blocked.length > 0
+              ? blocked.join("; ")
+              : undefined
+      return [
+        {
+          name: "clone",
+          description:
+            "Clone a repository into the session's working directory, as the block's Clone button does.",
+          params: {
+            url: { type: "string", description: "Repository URL (default: the one in the form)" },
+            ref: {
+              type: "string",
+              description: "Branch, tag or commit (default: the remote's default branch)",
+            },
+            repo_path: {
+              type: "string",
+              description: "Only this path in the repository (sparse checkout)",
+            },
+            local_path: {
+              type: "string",
+              description: "Where to clone to (default: the repository's name)",
+            },
+            overwrite: {
+              type: "boolean",
+              description: "Replace a directory that is already there",
+            },
+          },
+          changes: true,
+          ...(unavailable ? { unavailable } : {}),
+        },
+        {
+          name: "use_local_checkout",
+          description:
+            "Use a repository already on this machine instead of cloning, as the block's Use local checkout does.",
+          params: {
+            path: { type: "string", description: "The checkout's directory", required: true },
+          },
+          changes: true,
+          ...(unavailable ? { unavailable } : {}),
+        },
+        {
+          name: "cancel",
+          description: "Stop the clone that is running, as the block's Cancel does.",
+          changes: false,
+          ...(cloneStatus === "running" ? {} : { unavailable: "Nothing is running." }),
+        },
+        {
+          name: "start_over",
+          description:
+            "Withdraw the repository from the blocks after this one and choose again, as the block's Clone again does.",
+          changes: true,
+          ...(cloneStatus === "success" || cloneStatus === "fail"
+            ? {}
+            : { unavailable: "Nothing to start over from." }),
+        },
+      ]
+    },
+    run: () => {
+      const blocked = agentBlockedBy()
+      if (blocked.length > 0) return { started: false, reason: blocked.join("; ") }
+      if (!gitUrl.trim())
+        return { started: false, reason: "No repository URL. Use act_on_block clone with url." }
+      void agentClone(gitUrl.trim(), ref.trim(), repoPath.trim(), localPath.trim())
+      return { started: true }
+    },
+    cancel: () => {
+      if (cloneStatus !== "running") return false
+      cancel()
+      return true
+    },
+    act: async (action, params) => {
+      switch (action) {
+        case "clone": {
+          const url = stringParam(params, "url") ?? gitUrl.trim()
+          if (!url) return { ok: false, reason: "No repository URL: pass url." }
+          void agentClone(
+            url,
+            stringParam(params, "ref") ?? ref.trim(),
+            stringParam(params, "repo_path") ?? repoPath.trim(),
+            stringParam(params, "local_path") ?? localPath.trim(),
+            params.overwrite === true,
+          )
+          return { ok: true, note: "Cloning; wait_for_block to see it end." }
+        }
+        case "use_local_checkout": {
+          const dir = stringParam(params, "path")
+          if (!dir) return { ok: false, reason: "path is required" }
+          setActiveSource("local")
+          setRepoDir(dir)
+          setSubmittedForm({ gitUrl, ref, repoPath, localPath, repoDir: dir })
+          const info = await selectLocalRepo(dir)
+          if (!info)
+            return {
+              ok: false,
+              reason: "That directory isn't a usable git checkout; see get_block's error.",
+            }
+          setSelectedLocalInfo(info)
+          return { ok: true }
+        }
+        case "cancel":
+          cancel()
+          return { ok: true }
+        case "start_over":
+          handleCloneAgain()
+          return { ok: true }
+        default:
+          return { ok: false, reason: `Unknown action "${action}"` }
+      }
+    },
+  })
 
   // Early return for validation errors (e.g. missing id prop)
   if (validationError) {

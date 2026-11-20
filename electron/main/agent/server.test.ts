@@ -74,6 +74,8 @@ beforeEach(async () => {
         return {}
       case "confirm_inputs":
         return { confirmed: request.blockId, fields: [] }
+      case "act_on_block":
+        return { ok: true }
     }
   })
   requests = fake.requests
@@ -171,6 +173,7 @@ describe("tools", () => {
   it("lists the tools, marking run_block destructive", async () => {
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "act_on_block",
       "cancel_block",
       "confirm_inputs",
       "get_block",
@@ -194,6 +197,7 @@ describe("tools", () => {
     await call("set_inputs", { block_id: "config", values: { Region: "eastus" } })
     await call("cancel_block", { block_id: "deploy" })
     await call("confirm_inputs", { block_id: "config" })
+    await call("act_on_block", { block_id: "repo", action: "clone", params: { url: "u" } })
     await call("get_outputs")
     expect(requests).toContainEqual({ op: "get_session" })
     expect(requests).toContainEqual({
@@ -204,6 +208,12 @@ describe("tools", () => {
     expect(requests).toContainEqual({ op: "cancel_block", blockId: "deploy" })
     expect(requests).toContainEqual({ op: "get_outputs" })
     expect(requests).toContainEqual({ op: "confirm_inputs", blockId: "config" })
+    expect(requests).toContainEqual({
+      op: "act_on_block",
+      blockId: "repo",
+      action: "clone",
+      params: { url: "u" },
+    })
   })
 
   it("starts a run, then waits for it to end", async () => {

@@ -2,6 +2,7 @@ import { FolderOpen, AlertTriangle } from "lucide-react"
 import { useEffect, useMemo, useRef } from "react"
 import { InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { stringParam, useAgentBlock } from "@/contexts/useAgentBridge"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useTemplateContext } from "@/contexts/useRunbook"
@@ -124,6 +125,85 @@ function DirPickerInteractive({
     reportError,
     clearError,
   ])
+
+  // What an AI agent sees of this block and does to it, through the app's MCP
+  // server: the same directory pickers and path field as the block's.
+  const agentBlockedBy = (): string[] => [
+    ...(validationError ? [validationError.message] : []),
+    ...(isDuplicate || isNormalizedCollision ? [`Duplicate block id "${id}"`] : []),
+    ...(missingRootConfig ? ["The block needs a rootDir or gitCloneId"] : []),
+    ...(!isWorkspaceReady && gitCloneId
+      ? [`Waiting for block "${gitCloneId}" to clone its repository`]
+      : []),
+  ]
+  useAgentBlock(id, {
+    type: "DirPicker",
+    title: resolvedTitle,
+    status: () => (manualPath ? "success" : "pending"),
+    blockedBy: agentBlockedBy,
+    detail: () => ({
+      outputs: manualPath ? { PATH: manualPath } : {},
+      ...(error ? { error } : {}),
+      state: {
+        path: manualPath,
+        levels: levels.map((level, index) => ({
+          level: index,
+          selected: level.selected,
+          choices: level.dirs,
+        })),
+      },
+    }),
+    actions: () => {
+      const blocked = agentBlockedBy()
+      const unavailable = blocked.length > 0 ? { unavailable: blocked.join("; ") } : {}
+      return [
+        {
+          name: "select_dir",
+          description:
+            "Pick a directory at one level of the pickers (state.levels), as the block's dropdowns do. Picking one opens the next level.",
+          params: {
+            level: { type: "number", description: "The level, from 0", required: true },
+            name: {
+              type: "string",
+              description: "A directory from that level's choices",
+              required: true,
+            },
+          },
+          changes: false,
+          ...unavailable,
+        },
+        {
+          name: "set_path",
+          description: "Type a path into the block's path field, relative to its root.",
+          params: { path: { type: "string", description: "The path", required: true } },
+          changes: false,
+          ...unavailable,
+        },
+      ]
+    },
+    act: async (action, params) => {
+      switch (action) {
+        case "select_dir": {
+          const level = typeof params.level === "number" ? params.level : Number(params.level)
+          const name = stringParam(params, "name")
+          if (!Number.isInteger(level) || !levels[level])
+            return { ok: false, reason: "level must be one of state.levels" }
+          if (!name || !levels[level]!.dirs.includes(name))
+            return { ok: false, reason: "name must be one of that level's choices" }
+          await selectDir(level, name)
+          return { ok: true }
+        }
+        case "set_path": {
+          const path = stringParam(params, "path")
+          if (!path) return { ok: false, reason: "path is required" }
+          setPath(path)
+          return { ok: true }
+        }
+        default:
+          return { ok: false, reason: `Unknown action "${action}"` }
+      }
+    },
+  })
 
   // Early return for validation errors (e.g. missing id prop)
   if (validationError) {

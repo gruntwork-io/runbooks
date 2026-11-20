@@ -1,5 +1,7 @@
 import { createContext, type RefObject } from "react"
 import type {
+  AgentActResult,
+  AgentActionSpec,
   AgentBlockDetail,
   AgentBlockStatus,
   AgentRunResult,
@@ -25,6 +27,15 @@ export interface AgentBlockAdapter {
   cancel?: () => boolean
   /** The Inputs and Template blocks whose values this block reads (for a form, the ones it imports). */
   readsForms?: () => string[]
+  /** What act_on_block can do to the block now: its buttons, pickers and fields. */
+  actions?: () => AgentActionSpec[]
+  /** Do one of `actions()`, through the handler the block's own control uses. */
+  act?: (
+    action: string,
+    params: Record<string, unknown>,
+  ) => AgentActResult | Promise<AgentActResult>
+  /** What the person at the window has to do before the block can go on, if anything. */
+  needsHuman?: () => string | undefined
   setInputs?: (values: Record<string, unknown>) => AgentSetInputsResult
 }
 

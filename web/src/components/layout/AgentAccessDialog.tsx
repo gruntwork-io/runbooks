@@ -63,8 +63,13 @@ export function AgentAccessDialog({ open, onOpenChange }: AgentAccessDialogProps
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      {/* One column that can shrink below its content, so long commands wrap
+          inside their boxes instead of widening the dialog past its edge */}
+      <DialogContent
+        className="sm:max-w-2xl grid-cols-[minmax(0,1fr)]"
+        data-testid="agent-access-dialog"
+      >
+        <DialogHeader className="min-w-0 pr-6">
           <DialogTitle>AI Agent Access</DialogTitle>
           <DialogDescription>
             Let an AI agent such as Claude Code read and run the runbook open in this window over
@@ -74,7 +79,7 @@ export function AgentAccessDialog({ open, onOpenChange }: AgentAccessDialogProps
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 text-sm" data-testid="agent-access">
+        <div className="min-w-0 space-y-4 text-sm" data-testid="agent-access">
           <label className="flex items-start gap-2">
             <input
               type="checkbox"
@@ -114,7 +119,7 @@ export function AgentAccessDialog({ open, onOpenChange }: AgentAccessDialogProps
               <div>
                 <p className="font-medium">Connect Claude Code for this launch</p>
                 <div className="flex items-start gap-2">
-                  <code className="block flex-1 break-all rounded bg-muted p-2 text-xs">
+                  <code className="block min-w-0 flex-1 whitespace-pre-wrap break-all rounded bg-muted p-2 text-xs">
                     {status.claudeCommand}
                   </code>
                   <CopyIconButton
@@ -133,7 +138,7 @@ export function AgentAccessDialog({ open, onOpenChange }: AgentAccessDialogProps
                     runs the <code>headersHelper</code> command to read the current token.
                   </p>
                   <div className="flex items-start gap-2">
-                    <pre className="flex-1 overflow-x-auto rounded bg-muted p-2 text-xs">
+                    <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-xs">
                       {mcpJson}
                     </pre>
                     <CopyIconButton

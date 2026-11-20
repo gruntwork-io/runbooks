@@ -88,6 +88,23 @@ test("an MCP client fills in a form and runs a block in the open session", async
   // Checked once main has started the server
   await enabled.click()
   await expect(enabled).toBeChecked()
+  // Everything stays inside the dialog: the long command and configuration
+  // wrap in their boxes, and nothing reaches under the close button
+  const overflow = await dialog.evaluate((panel) => {
+    const box = panel.getBoundingClientRect()
+    const close = panel.querySelector("[data-slot='dialog-close']")?.getBoundingClientRect()
+    const outside = [...panel.querySelectorAll("p, code, pre, label")]
+      .filter((el) => el.getBoundingClientRect().right > box.right + 1)
+      .map((el) => el.tagName)
+    const underClose = close
+      ? [...panel.querySelectorAll("h2, p")].filter((el) => {
+          const r = el.getBoundingClientRect()
+          return r.right > close.left && r.top < close.bottom && r.bottom > close.top
+        }).length
+      : 0
+    return { outside, underClose, scrolls: panel.scrollWidth > panel.clientWidth }
+  })
+  expect(overflow).toEqual({ outside: [], underClose: 0, scrolls: false })
   const command = await dialog.locator("code").first().textContent()
   const url = /(http:\/\/127\.0\.0\.1:\d+\/mcp)/.exec(command ?? "")![1]!
   await page.keyboard.press("Escape")

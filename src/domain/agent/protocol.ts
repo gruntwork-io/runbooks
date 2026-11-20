@@ -27,7 +27,32 @@ export interface AgentBlockSummary {
   controllable: boolean
   /** For a form: some of its fields haven't been set or confirmed by the agent. */
   needsReview?: boolean | undefined
+  /** What the person at the window has to do before the block can go on (a browser sign-in, MFA, a page). */
+  needsHuman?: string | undefined
 }
+
+/** A parameter of an action, as get_block describes it. */
+export interface AgentActionParam {
+  type: "string" | "boolean" | "number" | "string[]"
+  description: string
+  required?: boolean | undefined
+}
+
+/** Something an agent can do to a block with act_on_block: one of its buttons, pickers or fields. */
+export interface AgentActionSpec {
+  name: string
+  description: string
+  params?: Record<string, AgentActionParam> | undefined
+  /**
+   * The action runs something or changes something outside the window (signs
+   * in, clones, pushes, opens a pull request), so the window may ask the user first.
+   */
+  changes: boolean
+  /** Why the action can't be used now; absent when it can. */
+  unavailable?: string | undefined
+}
+
+export type AgentActResult = { ok: true; note?: string | undefined } | { ok: false; reason: string }
 
 export interface AgentInputVariable {
   name: string
@@ -77,6 +102,10 @@ export interface AgentBlockDetail extends AgentBlockSummary {
   inputs?: AgentInputVariable[] | undefined
   /** What the user has to do for a block an agent can't run. */
   note?: string | undefined
+  /** What act_on_block can do to the block now. */
+  actions?: AgentActionSpec[] | undefined
+  /** Block-specific state: the signed-in account, the cloned path, the pull request's URL, pickers' choices. */
+  state?: Record<string, unknown> | undefined
 }
 
 export interface AgentSession {
@@ -93,6 +122,7 @@ export type AgentRequest =
   | { op: "get_block"; blockId: string; logOffset?: number; logLimit?: number }
   | { op: "set_inputs"; blockId: string; values: Record<string, unknown> }
   | { op: "confirm_inputs"; blockId: string }
+  | { op: "act_on_block"; blockId: string; action: string; params: Record<string, unknown> }
   | { op: "run_block"; blockId: string }
   | { op: "cancel_block"; blockId: string }
   | { op: "get_outputs" }
@@ -123,6 +153,7 @@ export interface AgentResponseMap {
   get_block: AgentBlockDetail
   set_inputs: AgentSetInputsResult
   confirm_inputs: { confirmed: string; fields: AgentInputVariable[] }
+  act_on_block: AgentActResult & { block?: AgentBlockSummary | undefined }
   run_block: AgentRunResult
   cancel_block: { cancelled: boolean }
   get_outputs: Record<string, Record<string, string>>

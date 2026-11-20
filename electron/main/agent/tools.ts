@@ -18,7 +18,7 @@ const INSTRUCTIONS = `Drives the runbook open in the Gruntwork Runbooks desktop 
 Workflow: get_session -> run_block, which stops at each Inputs or Template form you haven't reviewed (needsReview) -> read that form's fields, descriptions and defaults, then set_inputs or confirm_inputs, and run_block on the Inputs block to submit it -> run_block -> wait_for_block (repeat until it ends) -> get_outputs.
 Review each form in the context of the block that uses it: defaults are not reviewed values, and some (an empty list of regions, say) have consequences the field's description explains. Ask the user when a value isn't clear.
 run_block runs real scripts on the user's machine with their credentials; they can create, change or destroy cloud resources. Confirm with the user before running blocks that change infrastructure. The app may also ask the user to approve each run.
-Blocks that need the user (sign-in, pull requests, directory pickers) are marked controllable: false; ask the user to do them in the window.`
+Every block on the page can be driven: run_block presses its main button, and act_on_block uses its other controls (get_block lists them). When a step truly needs the person at the window (a browser sign-in, MFA), the block reports needsHuman with what they must do: tell the user, then wait_for_block or get_block.`
 
 const RUNS_SCRIPTS =
   "WARNING: this runs the block for real, exactly as if the user clicked Run in the window: its script runs on the user's machine with their environment and credentials and can create, change or destroy real cloud resources."
@@ -170,6 +170,35 @@ export function createAgentMcpServer(bridge: AgentBridge, version: string): McpS
         // the window declines it before this runs out
         bridge.request(
           { op: "run_block", blockId: args.block_id },
+          AGENT_APPROVAL_TIMEOUT_MS + 30_000,
+        ),
+      ),
+  )
+
+  server.registerTool(
+    "act_on_block",
+    {
+      title: "Act on a block",
+      description: `Use one of a block's controls other than its Run button: accept a detected credential, start a sign-in, pick a tenant, subscription, profile or project, clone a repository or use a local checkout, fill in and create a pull request, pick a directory, and so on. get_block lists each block's actions with their params; actions marked changes: true can change real things and may need the user's approval in the window, like run_block. When an action needs the person at the window (a browser sign-in, MFA), the block's needsHuman says what they must do. ${RUNS_SCRIPTS}`,
+      inputSchema: z.object({
+        block_id: blockId,
+        action: z.string().describe("An action name from get_block's actions"),
+        params: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe("The action's params, as get_block describes them"),
+      }),
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    (args) =>
+      run(() =>
+        bridge.request(
+          {
+            op: "act_on_block",
+            blockId: args.block_id,
+            action: args.action,
+            params: args.params ?? {},
+          },
           AGENT_APPROVAL_TIMEOUT_MS + 30_000,
         ),
       ),
