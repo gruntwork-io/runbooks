@@ -8,7 +8,7 @@ import {
 import { WasmRuntime, type WasmRuntimeShape } from "../services/WasmRuntime.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { makeControlledSpawner, makeTestSpawner } from "../test-utils/TestSpawner.ts"
-import { resolveBoilerplateBinary, WasmBoilerplateLive } from "./WasmBoilerplate.ts"
+import { resolveBoilerplateBinary, varFileContent, WasmBoilerplateLive } from "./WasmBoilerplate.ts"
 
 // The main process always points BOILERPLATE_BIN at the vendored copy before
 // any render. An unset var is a wiring bug and must fail — never fall back to
@@ -130,7 +130,8 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
     )
     await until(() => spawner.processes.length === 1)
     const args = spawner.processes[0]!.args
-    expect(files[args[args.indexOf("--var-file") + 1]!]).toContain(title)
+    const varFile = JSON.parse(files[args[args.indexOf("--var-file") + 1]!]!)
+    expect(varFile.outputs.fetch_pr.TITLE).toBe(title)
     expect(args).toContain("--no-shell")
 
     spawner.processes[0]!.finish(0)
@@ -257,5 +258,28 @@ describe("WasmBoilerplateLive single-string renders", () => {
     const result = await run(layer, (r) => r.renderFileStrict("X", vars))
     expect(result).toEqual(Result.succeed("rendered"))
     expect(JSON.parse(seenVars)).toEqual(vars)
+  })
+})
+
+// boilerplate reads --var-file with a YAML 1.1 parser, which turns an unquoted
+// ISO date into a timestamp, `yes` into a bool and `0123` into an octal number.
+describe("varFileContent", () => {
+  it("quotes every string, so a YAML 1.1 reader keeps each value's type", async () => {
+    const YAML = await import("yaml")
+    const variables = {
+      BudgetStartDate: "2026-11-01T00:00:00Z",
+      Answer: "yes",
+      Code: "0123",
+      AllowedLocations: ["eastus", "eastus2"],
+      MonthlyBudgetAmount: 100,
+      Enabled: true,
+      Tags: { Team: "platform" },
+    }
+    const parsed = YAML.parse(varFileContent(variables), { version: "1.1" })
+    expect(parsed).toEqual(variables)
+  })
+
+  it("writes an empty map for no variables", () => {
+    expect(varFileContent(undefined)).toBe("{}\n")
   })
 })
