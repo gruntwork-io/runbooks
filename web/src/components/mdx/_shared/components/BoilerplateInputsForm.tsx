@@ -30,7 +30,7 @@ import { BlockIdLabel } from "./BlockIdLabel"
 import { BlockLink } from "./BlockLink"
 import { ProgressStep } from "./ProgressStep"
 import type { BlockOutput } from "@/lib/templateUtils"
-import { ErrorReportingContext } from "@/contexts/ErrorReportingContext.types"
+import { ErrorReportingContext, issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useSensitiveInputNames } from "@/contexts/useRunbook"
 import { optionMembershipError } from "../../../../../../src/domain/boilerplate/options"
 
@@ -411,32 +411,32 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const reportError = errorReporting?.reportError
   const clearError = errorReporting?.clearError
   const missingReport = missingBlocksReport(missingByField)
+  const missingBlocksIssueId = `${id}:missing-output-blocks`
   useEffect(() => {
     if (!reportError || !clearError || !missingReport) return
-    const componentId = `${id}:missing-output-blocks`
     reportError({
-      componentId,
+      componentId: missingBlocksIssueId,
       componentType: blockType,
       severity: "error",
       message: missingReport,
     })
-    return () => clearError(componentId)
-  }, [id, blockType, missingReport, reportError, clearError])
+    return () => clearError(missingBlocksIssueId)
+  }, [missingBlocksIssueId, blockType, missingReport, reportError, clearError])
 
   // Mistakes in the x-show-when conditions, such as one on a variable the
   // form doesn't have, are mistakes in the runbook too
   const showWhenReport = showWhenProblems(allVariables).join(" ") || undefined
+  const showWhenIssueId = `${id}:show-when`
   useEffect(() => {
     if (!reportError || !clearError || !showWhenReport) return
-    const componentId = `${id}:show-when`
     reportError({
-      componentId,
+      componentId: showWhenIssueId,
       componentType: blockType,
       severity: "error",
       message: showWhenReport,
     })
-    return () => clearError(componentId)
-  }, [id, blockType, showWhenReport, reportError, clearError])
+    return () => clearError(showWhenIssueId)
+  }, [showWhenIssueId, blockType, showWhenReport, reportError, clearError])
 
   // Instruction mode states when a conditional field shows. Optional, as the
   // form can render without the provider.
@@ -690,7 +690,12 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         }`
 
   return (
-    <div className={containerClasses}>
+    <div
+      // The form shows these errors as a whole: on the fields, and in its
+      // color, or (for the x-show-when ones) not at all
+      {...issueAnchor(missingReport && missingBlocksIssueId, showWhenReport && showWhenIssueId)}
+      className={containerClasses}
+    >
       {/* A form with its own Generate or Submit button is a step of the
           runbook, done while it shows its success styling */}
       {shouldShowSubmitButton && <ProgressStep done={showSuccess} />}

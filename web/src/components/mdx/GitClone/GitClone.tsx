@@ -31,6 +31,7 @@ import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTempl
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -563,9 +564,17 @@ function GitCloneInteractive({
     return <ErrorDisplay error={validationError} />
   }
 
-  // If configuration error, don't render the block
   if (isDuplicate || isNormalizedCollision) {
-    return null
+    return (
+      <DuplicateIdError
+        id={id}
+        isNormalizedCollision={isNormalizedCollision}
+        collidingId={collidingId}
+        componentName={"GitClone"}
+        showUniquenessHint
+        className="runbook-block"
+      />
+    )
   }
 
   const done = cloneStatus === "success" && !refMismatch

@@ -9,6 +9,7 @@ import { useApiBoilerplateRender } from "@/hooks/useApiBoilerplateRender"
 import { useRunbookContext, useInputs, useAllOutputs, flattenInputs } from "@/contexts/useRunbook"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import {
   buildRenderVariables,
   computeUnmetOutputDependencies,
@@ -415,7 +416,10 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
   // Early return for duplicate ID error
   if (isDuplicate) {
     return (
-      <div className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+      <div
+        {...issueAnchor(id)}
+        className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4"
+      >
         <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
@@ -448,12 +452,12 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
 
   // Early return for validation errors
   if (validationError) {
-    return <ErrorDisplay error={validationError} />
+    return <ErrorDisplay error={validationError} issueId={id} />
   }
 
   // Early return for API errors (config loading errors)
   if (apiError) {
-    return <ErrorDisplay error={apiError} />
+    return <ErrorDisplay error={apiError} issueId={id} />
   }
 
   // Render the form with output dependency warning and inline render errors

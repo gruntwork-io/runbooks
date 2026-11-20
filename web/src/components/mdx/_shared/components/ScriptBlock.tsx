@@ -27,6 +27,7 @@ import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useSessionHistory } from "@/contexts/useSessionHistory"
 import { runEnded } from "@/lib/sessionHistory"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
@@ -438,7 +439,10 @@ export function ScriptBlock({
   // Early return for file errors - show only error message
   if (getFileError) {
     return (
-      <div className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+      <div
+        {...issueAnchor(id)}
+        className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4"
+      >
         <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
@@ -460,7 +464,10 @@ export function ScriptBlock({
   // An env prop that isn't valid registers no script, so the block can't run
   if (envError) {
     return (
-      <div className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+      <div
+        {...issueAnchor(id)}
+        className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4"
+      >
         <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
@@ -476,7 +483,10 @@ export function ScriptBlock({
   // Check if command/script requires variables but none are configured
   if (missingInputsConfig) {
     return (
-      <div className="relative rounded-sm border bg-warning-muted border-warning/30 mb-5 p-4">
+      <div
+        {...issueAnchor(id)}
+        className="relative rounded-sm border bg-warning-muted border-warning/30 mb-5 p-4"
+      >
         <div className="flex items-center text-warning-foreground">
           <AlertTriangle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">

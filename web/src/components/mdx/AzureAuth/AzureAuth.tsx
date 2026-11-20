@@ -4,6 +4,7 @@ import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdo
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
@@ -134,6 +135,9 @@ function AzureAuthInteractive({
     <AutoCollapse enabled={autoCollapse} done={done}>
       <div
         ref={blockRef}
+        // The block shows no message for an invalid prop it reports, so the
+        // error summary goes to the block
+        {...issueAnchor((detectionInvalid || rolesInvalid) && id)}
         data-fold="path"
         data-testid={id}
         className={`runbook-block relative rounded-sm border ${getStatusClasses(status)} mb-5 p-4`}

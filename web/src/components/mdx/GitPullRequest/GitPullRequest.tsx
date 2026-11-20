@@ -44,6 +44,7 @@ import { PRForm } from "./components/PRForm"
 import { PRResultDisplay } from "./components/PRResult"
 import { WrongProviderError } from "./components/WrongProviderError"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
 import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
@@ -510,9 +511,17 @@ function GitPullRequestInteractive({
     return <ErrorDisplay error={validationError} />
   }
 
-  // If configuration error, don't render
   if (isDuplicate || isNormalizedCollision) {
-    return null
+    return (
+      <DuplicateIdError
+        id={id}
+        isNormalizedCollision={isNormalizedCollision}
+        collidingId={collidingId}
+        componentName={__registryType}
+        showUniquenessHint
+        className="runbook-block"
+      />
+    )
   }
 
   const done = effectiveStatus === "success"

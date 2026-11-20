@@ -32,3 +32,16 @@ export function useShowChapterOf(): (element: Element | null | undefined) => voi
     flushSync(() => show(Number(chapter.getAttribute(CHAPTER_INDEX_ATTRIBUTE))))
   }
 }
+
+/**
+ * Returns a function that scrolls an element to the middle of the view,
+ * showing the chapter it is in first if that is hidden. Call it from an
+ * event handler, as for useShowChapterOf.
+ */
+export function useRevealElement(): (element: Element | null | undefined) => void {
+  const showChapterOf = useShowChapterOf()
+  return (element) => {
+    showChapterOf(element)
+    element?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }
+}

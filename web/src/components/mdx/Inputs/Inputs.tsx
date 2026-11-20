@@ -182,10 +182,10 @@ function Inputs({
     return <LoadingDisplay message="Loading configuration..." />
   }
   if (validationError) {
-    return <ErrorDisplay error={validationError} />
+    return <ErrorDisplay error={validationError} issueId={id} />
   }
   if (inlineContentError) {
-    return <ErrorDisplay error={inlineContentError} />
+    return <ErrorDisplay error={inlineContentError} issueId={id} />
   }
   if (apiError) {
     return <ErrorDisplay error={apiError} />

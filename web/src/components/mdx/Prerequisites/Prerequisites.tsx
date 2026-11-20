@@ -200,7 +200,7 @@ function Prerequisites({
       />
     )
   }
-  if (!toolList.ok) return <ErrorDisplay error={toolList.error} />
+  if (!toolList.ok) return <ErrorDisplay error={toolList.error} issueId={id} />
   const { spec } = toolList
 
   // Instruction mode lists the tools, with every install hint, and the

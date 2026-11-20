@@ -10,7 +10,7 @@ import {
 } from "react"
 import type { ReactNode, RefObject } from "react"
 import { normalizeBlockId } from "../lib/utils"
-import { useShowChapterOf } from "./useRunbookChapters"
+import { useRevealElement } from "./useRunbookChapters"
 
 export type BlockComponentType =
   | "Command"
@@ -210,12 +210,8 @@ export function usePageBlocks(): PageBlocks {
  */
 export function useRevealBlock(): (templateId: string) => void {
   const elementOf = useContext(ComponentIdRegistryContext)?.elementOf
-  const showChapterOf = useShowChapterOf()
-  return (templateId) => {
-    const element = elementOf?.(templateId)
-    showChapterOf(element)
-    element?.scrollIntoView({ behavior: "smooth", block: "center" })
-  }
+  const revealElement = useRevealElement()
+  return (templateId) => revealElement(elementOf?.(templateId))
 }
 
 /**
