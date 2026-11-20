@@ -21,6 +21,8 @@ import { extractYamlFromChildren } from "@/components/mdx/_shared/lib/extractYam
 import { makeStatusStyles } from "@/components/mdx/_shared/lib/statusStyles"
 import type { ExecutionStatus } from "@/components/mdx/_shared/types"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useAgentBlock } from "@/contexts/useAgentBridge"
+import { maskOutputs } from "@/lib/outputValues"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { isRunBlocked } from "@/lib/blockRuns"
@@ -178,6 +180,52 @@ function Prerequisites({
       clearError(id)
     }
   }, [id, isDuplicate, configError, reportError, clearError])
+
+  // What an AI agent sees of this block and does to it, through the app's MCP
+  // server: Check and Stop are this block's own buttons.
+  const agentBlockedBy = (): string[] => [
+    ...(!id ? ["The block has no id"] : []),
+    ...(isDuplicate ? [`Duplicate block id "${id}"`] : []),
+    ...(configError ? [configError] : []),
+    ...(instructionMode
+      ? ["Instruction mode is on: blocks show instructions instead of running"]
+      : []),
+    ...(status === "running" ? ["Already checking"] : []),
+    ...blockers.running.map(
+      ({ run }) => `Block "${run.blockId}" is running, and one of the two is exclusive`,
+    ),
+  ]
+  useAgentBlock(id, {
+    type: "Prerequisites",
+    title,
+    status: () => status,
+    blockedBy: agentBlockedBy,
+    detail: (logOffset, logLimit) => {
+      const page = state.logs.slice(logOffset, logOffset + logLimit).map((entry) => entry.line)
+      return {
+        logs: page,
+        logOffset,
+        logTotal: state.logs.length,
+        nextLogOffset: Math.min(logOffset, state.logs.length) + page.length,
+        outputs: state.outputs ? maskOutputs(state.outputs) : {},
+        exitCode: state.exitCode,
+        ...(error
+          ? { error: error.details ? `${error.message}: ${error.details}` : error.message }
+          : {}),
+      }
+    },
+    run: () => {
+      const blocked = agentBlockedBy()
+      if (blocked.length > 0) return { started: false, reason: blocked.join("; ") }
+      check()
+      return { started: true }
+    },
+    cancel: () => {
+      if (status !== "running") return false
+      cancel()
+      return true
+    },
+  })
 
   if (!id) {
     return (

@@ -3,6 +3,7 @@ import { AlertTriangle, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { stringParam, useAgentBlock, useAgentDeferred, useLatest } from "@/contexts/useAgentBridge"
 import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTemplateContext } from "@/contexts/useRunbook"
@@ -231,6 +232,163 @@ function GitAuthInteractive({
   }, [id, isDuplicate, configError, reportError, clearError, __registryType])
 
   // Early return for validation errors (e.g. missing id prop, invalid host)
+  // What an AI agent sees of this block and does to it, through the app's MCP
+  // server: the same handlers as the block's own tabs, pickers and buttons.
+  const latestAuth = useLatest(auth)
+  const defer = useAgentDeferred()
+  const signedIn = auth.authStatus === "authenticated"
+  useAgentBlock(id, {
+    type: __registryType,
+    title: resolvedTitle,
+    status: () =>
+      auth.authStatus === "authenticated"
+        ? "success"
+        : auth.authStatus === "authenticating"
+          ? "running"
+          : auth.authStatus === "failed"
+            ? "fail"
+            : "pending",
+    blockedBy: () => [
+      ...(configError ? [configError.message] : []),
+      ...(isDuplicate ? [`Duplicate block id "${id}"`] : []),
+      ...(auth.waitingForBlockId
+        ? [`Waiting for block "${auth.waitingForBlockId}", whose credential it uses`]
+        : []),
+    ],
+    needsHuman: () =>
+      auth.authStatus === "authenticating" && auth.oauthUserCode && auth.oauthVerificationUri
+        ? `The person at the window must open ${auth.oauthVerificationUri} in a browser and enter the code ${auth.oauthUserCode} to finish signing in to ${providerConfig.label}.`
+        : undefined,
+    detail: () => ({
+      state: {
+        provider,
+        host: auth.selectedHost,
+        availableHosts: auth.availableHosts,
+        signedInAs: signedIn ? auth.userInfo?.login : undefined,
+        detectedFrom: auth.detectionSource ?? undefined,
+        authMethod: auth.authMethod,
+        error: auth.errorMessage ?? undefined,
+        unreachable: auth.unreachableInfo ?? undefined,
+        missingScope: auth.missingScope || undefined,
+      },
+    }),
+    actions: () => [
+      {
+        name: "reload_detection",
+        description: `Look again for a ${providerConfig.label} credential in the environment and the CLI's sign-in, as the block's Reload does.`,
+        changes: false,
+      },
+      {
+        name: "select_host",
+        description: "Pick the host to sign in to, as the block's host picker does.",
+        params: {
+          host: { type: "string", description: "A host from state.availableHosts", required: true },
+        },
+        changes: false,
+        ...(auth.hostSelectable ? {} : { unavailable: "This block's host is fixed." }),
+      },
+      {
+        name: "select_provider",
+        description: "Switch between GitHub and GitLab, as the block's provider picker does.",
+        params: {
+          provider: { type: "string", description: '"github" or "gitlab"', required: true },
+        },
+        changes: false,
+        ...(hideProviderSelect || signedIn
+          ? { unavailable: "The provider can't be changed now." }
+          : {}),
+      },
+      {
+        name: "start_browser_sign_in",
+        description: `Start signing in to ${providerConfig.label} in the browser. The person at the window then has to enter a code (see needsHuman).`,
+        changes: true,
+        ...(signedIn
+          ? { unavailable: "Already signed in." }
+          : !providerConfig.supportsOAuth
+            ? { unavailable: `${providerConfig.label} has no browser sign-in here; use a token.` }
+            : auth.oauthUnavailableReason
+              ? { unavailable: auth.oauthUnavailableReason }
+              : {}),
+      },
+      {
+        name: "cancel_sign_in",
+        description: "Stop a browser sign-in that is waiting.",
+        changes: false,
+        ...(auth.authStatus === "authenticating"
+          ? {}
+          : { unavailable: "No sign-in is in progress." }),
+      },
+      {
+        name: "sign_in_with_token",
+        description: `Sign in with a ${providerConfig.label} personal access token, as the block's token tab does. Prefer a credential the environment already has (reload_detection).`,
+        params: {
+          token: { type: "string", description: "The personal access token", required: true },
+        },
+        changes: true,
+        ...(signedIn ? { unavailable: "Already signed in." } : {}),
+      },
+      {
+        name: "sign_out",
+        description: "Forget this block's credential and start over, as the block's Sign out does.",
+        changes: true,
+        ...(signedIn ? {} : { unavailable: "Not signed in." }),
+      },
+      {
+        name: "retry",
+        description: "Try the unreachable host again.",
+        changes: false,
+        ...(auth.unreachableInfo ? {} : { unavailable: "The host isn't unreachable." }),
+      },
+    ],
+    act: (action, params) => {
+      switch (action) {
+        case "reload_detection":
+          auth.reloadDetection()
+          return { ok: true }
+        case "select_host": {
+          const pickedHost = stringParam(params, "host")
+          if (!pickedHost) return { ok: false, reason: "host is required" }
+          auth.handleHostSelect(pickedHost)
+          return { ok: true }
+        }
+        case "select_provider": {
+          const next = stringParam(params, "provider")
+          if (!next || !isGitProvider(next))
+            return { ok: false, reason: 'provider must be "github" or "gitlab"' }
+          handleSelectProvider(next)
+          return { ok: true }
+        }
+        case "start_browser_sign_in":
+          auth.setAuthMethod("oauth")
+          void auth.startOAuth()
+          return {
+            ok: true,
+            note: "Waiting for the person at the window to enter the code; see needsHuman.",
+          }
+        case "cancel_sign_in":
+          auth.cancelOAuth()
+          return { ok: true }
+        case "sign_in_with_token": {
+          const token = stringParam(params, "token")
+          if (!token) return { ok: false, reason: "token is required" }
+          auth.setAuthMethod("pat")
+          auth.setPatToken(token)
+          // The submit reads the token from state, so it waits for the render
+          defer(() => void latestAuth.current.handlePatSubmit())
+          return { ok: true }
+        }
+        case "sign_out":
+          auth.reAuthenticate()
+          return { ok: true }
+        case "retry":
+          auth.retryUnreachable()
+          return { ok: true }
+        default:
+          return { ok: false, reason: `Unknown action "${action}"` }
+      }
+    },
+  })
+
   if (configError) {
     return <ErrorDisplay error={configError} issueId={id} />
   }

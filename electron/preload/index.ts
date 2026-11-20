@@ -113,6 +113,9 @@ const INVOKE_CHANNELS = {
   "tls:custom-ca-status": true,
   "tls:choose-custom-ca": true,
   "tls:clear-custom-ca": true,
+  "agent:status": true,
+  "agent:update": true,
+  "agent:respond": true,
 } satisfies Record<InvokeChannel, true>
 
 const EVENT_CHANNELS = {
@@ -138,6 +141,9 @@ const EVENT_CHANNELS = {
   "menu:open-command-palette": true,
   "registry:updated": true,
   "vcs:session-changed": true,
+  "agent:request": true,
+  "agent:activity": true,
+  "agent:status-changed": true,
 } satisfies Record<EventChannel, true>
 
 const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set(Object.keys(INVOKE_CHANNELS))

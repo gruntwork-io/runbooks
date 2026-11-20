@@ -1,3 +1,4 @@
+import { useAgentPresence } from "./useAgentBridge"
 import {
   createContext,
   useContext,
@@ -225,6 +226,8 @@ export function useComponentIdRegistry(
   element?: RefObject<HTMLElement | null>,
 ) {
   const context = useContext(ComponentIdRegistryContext)
+  // Every block an AI agent can see, controllable or not
+  useAgentPresence(id, componentType, element)
   const instanceIdRef = useRef<string | null>(null)
   const [duplicateInfo, setDuplicateInfo] = useState<DuplicateInfo>({
     isDuplicate: false,

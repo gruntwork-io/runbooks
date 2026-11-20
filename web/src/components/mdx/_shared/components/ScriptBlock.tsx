@@ -29,6 +29,8 @@ import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { useAgentBlock } from "@/contexts/useAgentBridge"
+import { maskOutputs } from "@/lib/outputValues"
 import { runEnded } from "@/lib/sessionHistory"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import type { AppError } from "@/types/error"
@@ -414,6 +416,91 @@ export function ScriptBlock({
     clearError,
     variant.name,
   ])
+
+  // What an AI agent sees of this block and does to it, through the app's MCP
+  // server: Run and Stop are this block's own buttons.
+  const agentBlockedBy = (): string[] => {
+    const reasons: string[] = []
+    if (validationError) reasons.push(validationError.message)
+    if (getFileError) reasons.push(getFileError.message)
+    if (envError) reasons.push(envError)
+    if (isDuplicate) reasons.push(`Duplicate block id "${id}"`)
+    if (instructionMode)
+      reasons.push("Instruction mode is on: blocks show instructions instead of running")
+    if (status === "running") reasons.push("Already running")
+    if (isRendering) reasons.push("The script is still being rendered")
+    if (renderError) reasons.push(`The script couldn't be rendered: ${renderError.message}`)
+    if (inputDependencies.length > 0 && !hasAllInputDependencies) {
+      reasons.push(`Inputs without a value: ${unmetInputDependencies.join(", ")}`)
+    }
+    for (const dep of unmetOutputDependencies) {
+      reasons.push(`Waiting for outputs of "${dep.blockId}": ${dep.outputNames.join(", ")}`)
+    }
+    for (const dep of [
+      unmetAwsAuthDependency,
+      unmetGitHubAuthDependency,
+      unmetGoogleAuthDependency,
+      unmetAzureAuthDependency,
+    ]) {
+      if (dep) reasons.push(`Auth block "${dep.blockId}" hasn't authenticated`)
+    }
+    for (const { run, reason } of runBlockers.running) {
+      reasons.push(
+        reason === "exclusive"
+          ? `Block "${run.blockId}" is running, and one of the two is exclusive`
+          : `Block "${run.blockId}" it depends on is running`,
+      )
+    }
+    if (runBlockers.notSucceeded.length > 0) {
+      reasons.push(`dependsOn: ${runBlockers.notSucceeded.join(", ")} hasn't succeeded`)
+    }
+    if (scriptless && status === "success") reasons.push("Already done")
+    return reasons
+  }
+  // Set when an agent starts a run, until the block's status shows it: a
+  // second start in that gap would cancel the first run partway
+  const agentRunPendingRef = useRef(false)
+  useEffect(() => {
+    agentRunPendingRef.current = false
+  }, [status])
+  useAgentBlock(id, {
+    type: variant.name,
+    readsForms: () => [...[inputsId ?? []].flat(), ...(inlineInputsId ? [inlineInputsId] : [])],
+    title: resolvedTitle,
+    status: () => status,
+    blockedBy: agentBlockedBy,
+    detail: (logOffset, logLimit) => {
+      const page = logs.slice(logOffset, logOffset + logLimit).map((entry) => entry.line)
+      return {
+        logs: page,
+        logOffset,
+        logTotal: logs.length,
+        nextLogOffset: Math.min(logOffset, logs.length) + page.length,
+        outputs: outputs ? maskOutputs(outputs) : {},
+        ...(execError
+          ? {
+              error: execError.details
+                ? `${execError.message}: ${execError.details}`
+                : execError.message,
+            }
+          : {}),
+      }
+    },
+    run: () => {
+      if (agentRunPendingRef.current) return { started: false, reason: "A run is already starting" }
+      const blocked = agentBlockedBy()
+      if (blocked.length > 0) return { started: false, reason: blocked.join("; ") }
+      agentRunPendingRef.current = true
+      if (scriptless) completeScriptless()
+      else handleExecute()
+      return { started: true }
+    },
+    cancel: () => {
+      if (status !== "running") return false
+      cancel()
+      return true
+    },
+  })
 
   const statusClasses = variant.statusStyles.getStatusClasses(status)
   const iconClasses = variant.statusStyles.getStatusIconClasses(status)

@@ -32,9 +32,12 @@ import { ProgressStep } from "./ProgressStep"
 import type { BlockOutput } from "@/lib/templateUtils"
 import { ErrorReportingContext, issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useSensitiveInputNames } from "@/contexts/useRunbook"
+import { useAgentBlock } from "@/contexts/useAgentBridge"
+import { validateVariableValue } from "../lib/validators"
 import { optionMembershipError } from "../../../../../../src/domain/boilerplate/options"
 
 const NO_VARIABLES: BoilerplateVariable[] = []
+const NO_IDS: string[] = []
 const NO_VALUES: Record<string, unknown> = {}
 
 const quoted = (blockIds: string[]) => blockIds.map((blockId) => `"${blockId}"`).join(", ")
@@ -133,6 +136,8 @@ interface BoilerplateInputsFormProps {
    * the runbook's own.
    */
   defaults?: Record<string, unknown>
+  /** The blocks a Template imports values from (its inputsId), for AI agents' form review. */
+  importsFrom?: string[]
 }
 
 /**
@@ -289,6 +294,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   unmetOutputDependencies = [],
   importedValues = NO_VALUES,
   defaults,
+  importsFrom = NO_IDS,
 }) => {
   // Default button text depends on mode
   const effectiveButtonText = submitButtonText ?? (isInlineMode ? "Submit" : "Generate")
@@ -556,6 +562,145 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const sensitiveElsewhere = useSensitiveInputNames()
   const isSensitive = (name: string) =>
     sensitiveElsewhere.has(name) || variablesByName.get(name)?.sensitive === true
+
+  // What an AI agent sees of this form and does to it, through the app's MCP
+  // server: set_inputs types into the fields, and run_block on a Template is
+  // its Generate button.
+  const agentReadOnly = (variable: BoilerplateVariable): boolean =>
+    sharedVarNames.has(variable.name) || variable.locked === true
+  const agentBlockedBy = (): string[] => [
+    ...unmetOutputDependencies.map(
+      (dep) => `Waiting for outputs of "${dep.blockId}": ${dep.outputNames.join(", ")}`,
+    ),
+    ...Object.entries(missingBlockErrors).map(([name, message]) => `${name}: ${message}`),
+    ...Object.entries(optionsWaiting).map(
+      ([name, ids]) => `${name}: waiting for the options from ${ids.join(", ")}`,
+    ),
+  ]
+  // The errors `data` would have: computed from `data` alone (which fields
+  // it hides, which values an output's options rule out), never from the
+  // values the form holds now
+  const agentErrors = (data: Record<string, unknown>): Record<string, string> => {
+    const errors: Record<string, string> = {}
+    const hiddenInData = hiddenVariables(allVariables, data, hiddenValue)
+    for (const variable of outputOptions.variables) {
+      if (hiddenInData.has(variable.name) || sharedVarNames.has(variable.name)) continue
+      const status = outputOptions.status[variable.name]
+      const optionError =
+        status?.kind === "error"
+          ? status.message
+          : status === undefined || status.kind === "resolved"
+            ? optionMembershipError(variable, data[variable.name])
+            : undefined
+      const error =
+        validateVariableValue(variable, data[variable.name], formatVariableLabel(variable.name)) ??
+        optionError ??
+        missingBlockErrors[variable.name]
+      if (error) errors[variable.name] = error
+    }
+    return errors
+  }
+  // What a linked value comes to, as its chip shows it, and what in it can't
+  // be worked out yet. Nothing for a plain value.
+  const agentResolution = (name: string, value: unknown, sensitive: boolean) => {
+    if (!containsTemplateValue(value)) return {}
+    const { waitingFor, missing } = outputStatus(value)
+    const unresolved = [
+      ...waitingFor.map((blockId) => `waiting for an output of block "${blockId}"`),
+      ...missing.map((blockId) => `no block "${blockId}" on the page`),
+    ]
+    // A result that still holds a template didn't resolve, as the chip treats it
+    const known = name in resolvedValues && !containsTemplateValue(resolvedValues[name])
+    if (!known && unresolved.length === 0) unresolved.push("not resolved yet")
+    return {
+      ...(known ? { resolvedValue: sensitive ? "<redacted>" : resolvedValues[name] } : {}),
+      ...(unresolved.length > 0 ? { unresolved } : {}),
+    }
+  }
+  useAgentBlock(id, {
+    type: blockType,
+    status: () =>
+      isGenerating
+        ? "running"
+        : hasGenerated
+          ? blockType === "Inputs"
+            ? "submitted"
+            : "generated"
+          : "pending",
+    blockedBy: agentBlockedBy,
+    detail: () => {
+      const errors = agentErrors(formData)
+      return {
+        inputs: allVariables
+          .filter((variable) => !hidden.has(variable.name))
+          .map((variable) => {
+            const shown = variablesByName.get(variable.name) ?? variable
+            const value = formData[variable.name]
+            // Sensitive here or in any block that shares the field
+            const sensitive = isSensitive(variable.name)
+            return {
+              name: variable.name,
+              type: variable.type,
+              description: variable.description || undefined,
+              required: variable.validations?.some((rule) => rule.type === "required") || undefined,
+              sensitive: sensitive || undefined,
+              options: shown.options,
+              value: sensitive && value !== undefined && value !== "" ? "<redacted>" : value,
+              default: sensitive ? undefined : defaultValue(variable),
+              validations:
+                variable.validations && variable.validations.length > 0
+                  ? variable.validations.map((rule) => ({ type: rule.type, args: rule.args }))
+                  : undefined,
+              readOnly: agentReadOnly(variable) || undefined,
+              error: errors[variable.name],
+              ...agentResolution(variable.name, value, sensitive),
+            }
+          }),
+      }
+    },
+    readsForms: () => importsFrom,
+    setInputs: (values) => {
+      const accepted: Record<string, unknown> = {}
+      const rejected: Record<string, string> = {}
+      for (const [name, value] of Object.entries(values)) {
+        const variable = allVariables.find((v) => v.name === name)
+        if (!variable) rejected[name] = "The form has no such field"
+        else if (agentReadOnly(variable)) rejected[name] = "The field is read-only"
+        else accepted[name] = value
+      }
+      updateFields(accepted)
+      for (const [name, value] of Object.entries(accepted)) {
+        markFieldTouched(name)
+        validateField(name, value)
+      }
+      return { errors: agentErrors({ ...formData, ...accepted }), rejected }
+    },
+    ...(onGenerate && showSubmitButton
+      ? {
+          // Submitting an Inputs form only shares its values; a Template writes files
+          runIsAction: blockType === "Template",
+          run: () => {
+            const blocked = agentBlockedBy()
+            const errors = agentErrors(formData)
+            if (isGenerating) return { started: false, reason: "Already generating" }
+            if (blocked.length > 0 || Object.keys(errors).length > 0) {
+              validateForm(formData)
+              setSubmitAttempted(true)
+              return {
+                started: false,
+                reason: [
+                  ...blocked,
+                  ...Object.entries(errors).map(([name, error]) => `${name}: ${error}`),
+                ].join("; "),
+              }
+            }
+            onGenerate(reported(formData))
+            return { started: true }
+          },
+        }
+      : {}),
+  })
+
   const variableValue = (name: string): string | undefined => {
     if (isSensitive(name)) return undefined
     const variable = variablesByName.get(name)

@@ -31,6 +31,12 @@ import type { SavedBlockState, SessionEventKind } from "../../src/domain/session
 import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { CustomCaStatus } from "../../src/domain/tls/customCa.ts"
 export type { CustomCaStatus }
+import type {
+  AgentRequestEvent,
+  AgentResponse,
+  AgentServerStatus,
+} from "../../src/domain/agent/protocol.ts"
+export type { AgentRequestEvent, AgentResponse, AgentServerStatus }
 
 import type { AzurePrincipal } from "../../src/domain/azure/claims.ts"
 import type { AzureSubscription, AzureTenant, RequiredRole } from "../../src/domain/azure/auth.ts"
@@ -1126,6 +1132,16 @@ export interface IpcChannelMap {
    * removed everywhere, as a sentence fit to show the user; nothing changed.
    */
   "tls:clear-custom-ca": { params: void; result: { status: CustomCaStatus; rejected?: string } }
+  // AI agent access (electron/main/agent/): an MCP server on 127.0.0.1 that
+  // drives the open runbook through the renderer. Off by default.
+  "agent:status": { params: void; result: AgentServerStatus }
+  /** Turn agent access on or off, or ask (or not) before each run an agent starts. */
+  "agent:update": {
+    params: { enabled?: boolean; confirmRuns?: boolean }
+    result: AgentServerStatus
+  }
+  /** The renderer's answer to an agent:request. */
+  "agent:respond": { params: AgentResponse; result: { ok: true } }
 }
 
 // ---------------------------------------------------------------------------
@@ -1174,6 +1190,11 @@ export interface IpcEventMap {
   "menu:find": { action: FindAction }
   "menu:open-command-palette": void
   "registry:updated": void
+  /** The MCP server asks the renderer to read or act on the open runbook; answered with agent:respond. */
+  "agent:request": AgentRequestEvent
+  /** An agent's request passed the server's checks: show that an agent is connected. */
+  "agent:activity": void
+  "agent:status-changed": AgentServerStatus
   // Pushed by main on every VCS session-env write:
   // the session holds a single GITLAB_TOKEN/GITLAB_HOST pair, so a
   // second GitLab block authenticating a different host silently replaces the

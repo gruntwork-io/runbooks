@@ -3,6 +3,7 @@ import { XCircle, AlertTriangle, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { stringParam, useAgentBlock, useAgentDeferred, useLatest } from "@/contexts/useAgentBridge"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useTemplateContext } from "@/contexts/useRunbook"
@@ -171,6 +172,190 @@ function GoogleAuthInteractive({
     reportError,
     clearError,
   ])
+
+  // What an AI agent sees of this block and does to it, through the app's MCP
+  // server: the same handlers as the block's detection prompt, gcloud tab,
+  // browser sign-in and project picker.
+  const latestAuth = useLatest(auth)
+  const defer = useAgentDeferred()
+  const signedIn = auth.authStatus === "authenticated"
+  const signingIn = auth.authStatus === "authenticating"
+  const detectedPending = auth.detectionStatus === "detected" && auth.detectedCredentials !== null
+  useAgentBlock(id, {
+    type: "GoogleAuth",
+    title: resolvedTitle,
+    status: () =>
+      signedIn
+        ? "success"
+        : signingIn
+          ? "running"
+          : auth.authStatus === "failed"
+            ? "fail"
+            : "pending",
+    blockedBy: () => [
+      ...(validationError ? [validationError.message] : []),
+      ...(isDuplicate ? [`Duplicate block id "${id}"`] : []),
+      ...(hasMultipleBlockSources || hasOauthClientFileConflict
+        ? ["The block's configuration is invalid"]
+        : []),
+      ...(auth.waitingForBlockId
+        ? [`Waiting for block "${auth.waitingForBlockId}", whose credentials it uses`]
+        : []),
+    ],
+    needsHuman: () =>
+      signingIn && auth.oauthAuthUrl
+        ? `The person at the window must finish the Google sign-in in the browser (${auth.oauthAuthUrl}).`
+        : undefined,
+    detail: () => ({
+      state: {
+        signedInAs: signedIn ? auth.accountInfo?.principal : undefined,
+        projectId: auth.accountInfo?.projectId,
+        projectName: auth.accountInfo?.projectName,
+        region: auth.selectedRegion || undefined,
+        detected: detectedPending ? auth.detectedCredentials : undefined,
+        gcloudConfigs: auth.gcloudConfigs.map((c) => ({
+          name: c.name,
+          account: c.account,
+          active: c.isActive,
+        })),
+        projects:
+          auth.authStatus === "select_project"
+            ? auth.projects.map((p) => ({ id: p.projectId, name: p.displayName }))
+            : undefined,
+        error: auth.errorMessage ?? undefined,
+        warning: auth.warningMessage ?? undefined,
+      },
+    }),
+    actions: () => [
+      {
+        name: "confirm_detected",
+        description:
+          "Use the Google credentials the block detected (state.detected), as the block's Use these credentials does.",
+        changes: true,
+        ...(detectedPending
+          ? {}
+          : { unavailable: "No detected credential is waiting to be confirmed." }),
+      },
+      {
+        name: "reject_detected",
+        description: "Don't use the detected credentials; sign in another way.",
+        changes: false,
+        ...(detectedPending ? {} : { unavailable: "No detected credential is waiting." }),
+      },
+      {
+        name: "retry_detection",
+        description:
+          "Look again for Google credentials in the environment and gcloud's application default credentials.",
+        changes: false,
+        ...(signedIn ? { unavailable: "Already signed in." } : {}),
+      },
+      {
+        name: "sign_in_with_gcloud",
+        description: "Sign in with a gcloud configuration, as the block's gcloud tab does.",
+        params: {
+          config: {
+            type: "string",
+            description: "A configuration name (state.gcloudConfigs; loaded on first use)",
+            required: true,
+          },
+        },
+        changes: true,
+        ...(signedIn || signingIn ? { unavailable: "Already signed in or signing in." } : {}),
+      },
+      {
+        name: "start_browser_sign_in",
+        description:
+          "Start the block's Google sign-in in the browser. The person at the window has to finish it (see needsHuman).",
+        changes: true,
+        ...(signedIn || signingIn
+          ? { unavailable: "Already signed in or signing in." }
+          : auth.oauthUnavailable
+            ? { unavailable: "Browser sign-in isn't available for this block." }
+            : {}),
+      },
+      {
+        name: "cancel_sign_in",
+        description: "Stop a browser sign-in that is waiting.",
+        changes: false,
+        ...(signingIn ? {} : { unavailable: "No sign-in is in progress." }),
+      },
+      {
+        name: "select_project",
+        description:
+          "Pick the Google Cloud project to use, from state.projects, as the block's project picker does.",
+        params: { project_id: { type: "string", description: "A project id", required: true } },
+        changes: true,
+        ...(auth.authStatus === "select_project"
+          ? {}
+          : { unavailable: "There is no project to pick now." }),
+      },
+      {
+        name: "change_project",
+        description: "Choose another project for the signed-in account.",
+        changes: false,
+        ...(signedIn ? {} : { unavailable: "Not signed in." }),
+      },
+      {
+        name: "sign_out",
+        description:
+          "Forget this block's credentials and start over, as the block's Sign in another way does.",
+        changes: true,
+        ...(signedIn ? {} : { unavailable: "Not signed in." }),
+      },
+    ],
+    act: async (action, params) => {
+      switch (action) {
+        case "confirm_detected":
+          void auth.handleConfirmDetected()
+          return { ok: true }
+        case "reject_detected":
+          auth.handleRejectDetected()
+          return { ok: true }
+        case "retry_detection":
+          auth.handleRetryDetection()
+          return { ok: true }
+        case "sign_in_with_gcloud": {
+          const name = stringParam(params, "config")
+          if (!name) return { ok: false, reason: "config is required" }
+          auth.setAuthMethod("gcloud")
+          if (auth.gcloudConfigs.length === 0) await auth.loadGcloudConfigs()
+          defer(() => {
+            const config = latestAuth.current.gcloudConfigs.find((c) => c.name === name)
+            if (!config) return
+            latestAuth.current.setSelectedConfig(config)
+            defer(() => void latestAuth.current.handleGcloudAuth())
+          })
+          return {
+            ok: true,
+            note: "Signing in; get_block shows the result, or state.error if there is no such configuration.",
+          }
+        }
+        case "start_browser_sign_in":
+          auth.setAuthMethod("oauth")
+          void auth.handleOAuthLogin()
+          return { ok: true, note: "Waiting for the person at the window; see needsHuman." }
+        case "cancel_sign_in":
+          auth.handleCancelOAuth()
+          return { ok: true }
+        case "select_project": {
+          const picked = auth.projects.find(
+            (p) => p.projectId === stringParam(params, "project_id"),
+          )
+          if (!picked) return { ok: false, reason: "project_id must be one of state.projects" }
+          void auth.handleProjectSelect(picked)
+          return { ok: true }
+        }
+        case "change_project":
+          void auth.handleChangeProject()
+          return { ok: true }
+        case "sign_out":
+          auth.handleManualAuth()
+          return { ok: true }
+        default:
+          return { ok: false, reason: `Unknown action "${action}"` }
+      }
+    },
+  })
 
   if (validationError) {
     return <ErrorDisplay error={validationError} />

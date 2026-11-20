@@ -3,6 +3,7 @@ import { AlertTriangle, Cloud, Info, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { stringParam, useAgentBlock, useAgentDeferred, useLatest } from "@/contexts/useAgentBridge"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useTemplateContext } from "@/contexts/useRunbook"
@@ -103,6 +104,184 @@ function AzureAuthInteractive({
       clearError(id)
     }
   }, [id, isDuplicate, detectionInvalid, rolesInvalid, reportError, clearError])
+
+  // What an AI agent sees of this block and does to it, through the app's MCP
+  // server: the same handlers as the block's detection prompt, sign-in tabs
+  // and tenant and subscription picker.
+  const latestAuth = useLatest(auth)
+  const defer = useAgentDeferred()
+  const signedIn = auth.authStatus === "authenticated"
+  const signingIn = auth.authStatus === "authenticating"
+  const detectedPending = auth.detectionStatus === "detected" && auth.detected !== null
+  useAgentBlock(id, {
+    type: "AzureAuth",
+    title: resolvedTitle,
+    status: () =>
+      signedIn
+        ? "success"
+        : signingIn
+          ? "running"
+          : auth.authStatus === "failed"
+            ? "fail"
+            : "pending",
+    blockedBy: () => [
+      ...(isDuplicate ? [`Duplicate block id "${id}"`] : []),
+      ...(detectionInvalid || rolesInvalid ? ["The block's configuration is invalid"] : []),
+    ],
+    needsHuman: () => {
+      if (signingIn && auth.deviceCode) {
+        return `The person at the window must open ${auth.deviceCode.verificationUri} and enter the code ${auth.deviceCode.userCode} to finish signing in to Azure.`
+      }
+      if (signingIn)
+        return "The person at the window must finish signing in to Azure in the browser window az login opened."
+      return undefined
+    },
+    detail: () => ({
+      state: {
+        signedInAs: auth.signInInfo?.principal.name,
+        tenantId: auth.signInInfo?.tenantId,
+        tenantName: auth.signInInfo?.tenantName,
+        subscriptionId: auth.signInInfo?.subscriptionId,
+        subscriptionName: auth.signInInfo?.subscriptionName,
+        detected: detectedPending ? auth.detected : undefined,
+        choosing:
+          auth.authStatus === "select_context"
+            ? {
+                tenants: auth.tenants.map((t) => ({
+                  id: t.tenantId,
+                  name: t.displayName ?? t.defaultDomain,
+                })),
+                subscriptions: auth.subscriptions.map((sub) => ({
+                  id: sub.id,
+                  name: sub.name,
+                  tenantId: sub.tenantId,
+                })),
+                selectedTenantId: auth.selectedTenantId,
+                selectedSubscriptionId: auth.selectedSubscriptionId,
+              }
+            : undefined,
+        error: auth.errorMessage ?? undefined,
+        notice: auth.notice ?? undefined,
+        warning: auth.warningMessage ?? undefined,
+        azureCliMissing: auth.cliMissing || undefined,
+      },
+    }),
+    actions: () => [
+      {
+        name: "confirm_detected",
+        description:
+          "Use the Azure credential the block detected (state.detected), as the block's Use these credentials does.",
+        changes: true,
+        ...(detectedPending
+          ? {}
+          : { unavailable: "No detected credential is waiting to be confirmed." }),
+      },
+      {
+        name: "reject_detected",
+        description: "Don't use the detected credential; sign in another way.",
+        changes: false,
+        ...(detectedPending ? {} : { unavailable: "No detected credential is waiting." }),
+      },
+      {
+        name: "retry_detection",
+        description: "Look again for an Azure CLI sign-in or service principal in the environment.",
+        changes: false,
+        ...(signedIn ? { unavailable: "Already signed in." } : {}),
+      },
+      {
+        name: "start_browser_sign_in",
+        description:
+          "Run az login in the browser on this machine. The person at the window has to finish it (see needsHuman).",
+        changes: true,
+        ...(signedIn || signingIn ? { unavailable: "Already signed in or signing in." } : {}),
+      },
+      {
+        name: "start_device_code_sign_in",
+        description:
+          "Run az login with a device code. The person at the window has to enter the code (see needsHuman).",
+        changes: true,
+        ...(signedIn || signingIn ? { unavailable: "Already signed in or signing in." } : {}),
+      },
+      {
+        name: "cancel_sign_in",
+        description: "Stop a sign-in that is waiting.",
+        changes: false,
+        ...(signingIn ? {} : { unavailable: "No sign-in is in progress." }),
+      },
+      {
+        name: "select_context",
+        description:
+          "Choose the tenant and subscription to use, from state.choosing, as the block's picker does.",
+        params: {
+          tenant_id: {
+            type: "string",
+            description: "A tenant id from state.choosing.tenants",
+            required: true,
+          },
+          subscription_id: {
+            type: "string",
+            description: "A subscription id in that tenant (default: its default subscription)",
+          },
+        },
+        changes: true,
+        ...(auth.authStatus === "select_context"
+          ? {}
+          : { unavailable: "There is no tenant or subscription to choose now." }),
+      },
+      {
+        name: "sign_out",
+        description:
+          "Forget this block's sign-in and start over, as the block's Sign in another way does.",
+        changes: true,
+        ...(signedIn ? {} : { unavailable: "Not signed in." }),
+      },
+    ],
+    act: (action, params) => {
+      switch (action) {
+        case "confirm_detected":
+          auth.handleConfirmDetected()
+          return { ok: true }
+        case "reject_detected":
+          auth.handleRejectDetected()
+          return { ok: true }
+        case "retry_detection":
+          auth.handleRetryDetection()
+          return { ok: true }
+        case "start_browser_sign_in":
+          auth.startBrowserLogin()
+          return { ok: true, note: "Waiting for the person at the window; see needsHuman." }
+        case "start_device_code_sign_in":
+          auth.startDeviceCodeLogin()
+          return { ok: true, note: "Waiting for the person at the window; see needsHuman." }
+        case "cancel_sign_in":
+          auth.handleCancelLogin()
+          return { ok: true }
+        case "select_context": {
+          const tenant = stringParam(params, "tenant_id")
+          if (!tenant || !auth.tenants.some((t) => t.tenantId === tenant)) {
+            return { ok: false, reason: "tenant_id must be one of state.choosing.tenants" }
+          }
+          const subscription = stringParam(params, "subscription_id")
+          if (
+            subscription &&
+            !auth.subscriptions.some((sub) => sub.id === subscription && sub.tenantId === tenant)
+          ) {
+            return { ok: false, reason: "subscription_id must be a subscription in that tenant" }
+          }
+          auth.selectTenant(tenant)
+          if (subscription) auth.setSelectedSubscriptionId(subscription)
+          // The picker's Continue reads the choice from state, so it waits for the render
+          defer(() => latestAuth.current.handleSelectContext())
+          return { ok: true }
+        }
+        case "sign_out":
+          auth.handleManualAuth()
+          return { ok: true }
+        default:
+          return { ok: false, reason: `Unknown action "${action}"` }
+      }
+    },
+  })
 
   if (!id) {
     return (
