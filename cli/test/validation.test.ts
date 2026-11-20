@@ -7,6 +7,7 @@ import {
   inputsIdsOf,
   parseAuthDependencies,
   parseRunDependencies,
+  parseShowWhenBlocks,
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
 } from "./validation.ts"
@@ -192,6 +193,79 @@ describe("parseRunDependencies", () => {
     const p = writeRunbook('<Command id={"deploy"} command="true" dependsOn={`login`} />\n')
 
     expect([...parseRunDependencies(p)]).toEqual([["deploy", ["login"]]])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// showWhenBlock
+// ---------------------------------------------------------------------------
+
+describe("showWhenBlock", () => {
+  const configErrors = (content: string) => {
+    const v = new InputValidator(writeRunbook(content))
+    v.init()
+    return v.getConfigErrors()
+  }
+
+  it("reads each block's condition", () => {
+    const p = writeRunbook(`
+<Check id="check-plan" command="true" />
+<Command id="rerun-plan" command="true" showWhenBlock={{ id: "check-plan", status: "fail" }} />
+<Finish id="done" showWhenBlock={{ id: "check-plan", status: ["success", "warn"] }} />
+`)
+
+    expect([...parseShowWhenBlocks(p)]).toEqual([
+      ["rerun-plan", { id: "check-plan", statuses: ["fail"] }],
+      ["done", { id: "check-plan", statuses: ["success", "warn"] }],
+    ])
+  })
+
+  it("accepts a block that names a Check, Command, Finish or Prerequisites block", () => {
+    const errors = configErrors(`
+<Check id="check-plan" command="true" />
+<Command id="rerun-plan" command="true" showWhenBlock={{ id: "check_plan", status: "fail" }} />
+`)
+
+    expect(errors).toEqual([])
+  })
+
+  it("reports an id that no block with runs has", () => {
+    const errors = configErrors(`
+<Inputs id="config">
+\`\`\`yaml
+variables: []
+\`\`\`
+</Inputs>
+<Command id="a" command="true" showWhenBlock={{ id: "check-plan", status: "fail" }} />
+<Command id="b" command="true" showWhenBlock={{ id: "config", status: "fail" }} />
+`)
+
+    expect(errors).toEqual([
+      {
+        componentType: "Command",
+        componentId: "a",
+        message:
+          'showWhenBlock names "check-plan", but no Check, Command, Finish or Prerequisites block has that id.',
+      },
+      {
+        componentType: "Command",
+        componentId: "b",
+        message:
+          'showWhenBlock names "config", but no Check, Command, Finish or Prerequisites block has that id.',
+      },
+    ])
+  })
+
+  it("reports a block that names itself, and a prop that isn't valid", () => {
+    const errors = configErrors(`
+<Check id="check-plan" command="true" showWhenBlock={{ id: "check-plan", status: "fail" }} />
+<Command id="rerun-plan" command="true" showWhenBlock={{ id: "check-plan", status: "failed" }} />
+`)
+
+    expect(errors.map((e) => [e.componentId, e.message])).toEqual([
+      ["check-plan", "showWhenBlock can't name the block itself."],
+      ["rerun-plan", "showWhenBlock's status must be success, warn, fail, or a list of them."],
+    ])
   })
 })
 

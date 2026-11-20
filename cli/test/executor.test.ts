@@ -665,6 +665,83 @@ describe("TestExecutor — explicit steps", () => {
     expect(result.stepResults[1]?.actualStatus).toBe("blocked")
   })
 
+  const SHOW_WHEN_BLOCK_RUNBOOK = [
+    "# Show when block",
+    "",
+    `<Check id="check-plan" command="exit $PLAN_EXIT" />`,
+    "",
+    `<Command id="rerun-plan" showWhenBlock={{ id: "check-plan", status: "fail" }} command="echo rerun" />`,
+    "",
+  ].join("\n")
+
+  it("runs a block with showWhenBlock only while its condition holds", async () => {
+    const executor = await makeExecutor(SHOW_WHEN_BLOCK_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "show-when-block",
+      env: { PLAN_EXIT: "1" },
+      steps: [
+        { block: "rerun-plan", expect: "hidden" },
+        { block: "check-plan", expect: "fail" },
+        { block: "rerun-plan", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["command:rerun-plan", "hidden"],
+      ["check:check-plan", "fail"],
+      ["command:rerun-plan", "success"],
+    ])
+  })
+
+  it("fails a step that expects a hidden block to run", async () => {
+    const executor = await makeExecutor(SHOW_WHEN_BLOCK_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "hidden",
+      env: { PLAN_EXIT: "0" },
+      steps: [
+        { block: "check-plan", expect: "success" },
+        { block: "rerun-plan", expect: "success" },
+      ],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[1]?.actualStatus).toBe("hidden")
+    expect(result.stepResults[1]?.error).toBe(
+      'Block is hidden: it shows only when "check-plan" fails, and "check-plan" ended in success',
+    )
+  })
+
+  it("fails a step that expects a shown block to be hidden", async () => {
+    const executor = await makeExecutor(SHOW_WHEN_BLOCK_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "shown",
+      env: { PLAN_EXIT: "1" },
+      steps: [
+        { block: "check-plan", expect: "fail" },
+        { block: "rerun-plan", expect: "hidden" },
+      ],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[1]?.actualStatus).toBe("shown")
+  })
+
+  it("passes a hidden block in a test without steps", async () => {
+    const executor = await makeExecutor(SHOW_WHEN_BLOCK_RUNBOOK)
+
+    const result = executor.runTest({ name: "no-steps", env: { PLAN_EXIT: "0" } })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["check:check-plan", "success"],
+      ["command:rerun-plan", "hidden"],
+    ])
+  })
+
   it("skips a block whose auth block hasn't run when the step expects skip", async () => {
     const executor = await makeExecutor(
       `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" awsAuthId="aws" command="echo deploy" />\n`,

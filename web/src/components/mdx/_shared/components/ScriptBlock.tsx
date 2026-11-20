@@ -22,7 +22,9 @@ import { EnvVars } from "./EnvVars"
 import { ProgressStep } from "./ProgressStep"
 import { ScriptChangeNotice } from "./ScriptChangeNotice"
 import { useRunSequencing } from "../hooks/useRunSequencing"
-import { isRunBlocked } from "@/lib/blockRuns"
+import { isRunBlocked, showWhenBlockState } from "@/lib/blockRuns"
+import { useBlockRuns } from "@/contexts/useBlockRuns"
+import { usePageBlocks } from "@/contexts/ComponentIdRegistry"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -33,6 +35,10 @@ import { runEnded } from "@/lib/sessionHistory"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import type { AppError } from "@/types/error"
 import { scriptTemplateWarning } from "../../../../../../src/domain/exec/scriptTemplates.ts"
+import {
+  describeShowWhenBlock,
+  type ShowWhenBlockProp,
+} from "../../../../../../src/domain/exec/showWhenBlock.ts"
 import type { ComponentType, ExecutionStatus } from "../types"
 import type { StatusStyles } from "../lib/statusStyles"
 
@@ -117,6 +123,8 @@ export interface ScriptBlockProps {
   timeoutMs?: number | undefined
   /** IDs of Command or Check blocks that must have run successfully, and not be running, before this block can run. */
   dependsOn?: string | string[] | undefined
+  /** Shows the block only while another block's latest run ended a given way: `showWhenBlock={{ id: "check-plan", status: "fail" }}`. `status` is success, warn or fail, or a list of them. While the block runs it stays shown. */
+  showWhenBlock?: ShowWhenBlockProp | undefined
   /** Whether this block must run alone. While it runs no other Command or Check block can start, and it can't start while another one is running. */
   exclusive?: boolean | undefined
   /** Shown inside the block once it succeeds (Finish's next steps). In instruction mode it is always shown. */
@@ -157,6 +165,7 @@ export function ScriptBlock({
   usePty,
   timeoutMs,
   dependsOn,
+  showWhenBlock,
   exclusive = false,
   successContent,
   onComplete,
@@ -288,6 +297,17 @@ export function ScriptBlock({
     stop: cancel,
   })
 
+  const { runs } = useBlockRuns()
+  const pageBlocks = usePageBlocks()
+  const visibility = showWhenBlockState({
+    blockId: id,
+    value: showWhenBlock,
+    status,
+    runs,
+    isOnPage: showWhenBlock?.id ? pageBlocks.isOnPage(showWhenBlock.id) : undefined,
+  })
+  const showWhenBlockError = visibility.error
+
   // Clone children and add variant="embedded" prop if it's an Inputs component
   const childrenWithVariant = useMemo(() => {
     if (!children) return null
@@ -392,6 +412,13 @@ export function ScriptBlock({
         severity: "error",
         message: envError,
       })
+    } else if (showWhenBlockError) {
+      reportError({
+        componentId: id,
+        componentType: variant.name,
+        severity: "error",
+        message: showWhenBlockError,
+      })
     } else if (missingInputsConfig) {
       reportError({
         componentId: id,
@@ -408,6 +435,7 @@ export function ScriptBlock({
     isDuplicate,
     getFileError,
     envError,
+    showWhenBlockError,
     missingInputsConfig,
     inputDependencies,
     reportError,
@@ -480,6 +508,25 @@ export function ScriptBlock({
     )
   }
 
+  // A showWhenBlock prop that isn't valid can't decide when the block shows
+  if (showWhenBlockError) {
+    return (
+      <div
+        {...issueAnchor(id)}
+        className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4"
+      >
+        <div className="flex items-center text-destructive">
+          <XCircle className="size-6 mr-4 flex-shrink-0" />
+          <div className="text-md">
+            <strong>{variant.fileErrorHeading}:</strong>
+            <br />
+            {showWhenBlockError}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Check if command/script requires variables but none are configured
   if (missingInputsConfig) {
     return (
@@ -525,7 +572,15 @@ export function ScriptBlock({
   // from the raw script content so it works regardless of dependency state.
   // A nested <Inputs> stays a form: it is how the user supplies the values
   // substituted into the displayed command.
+  // A block with showWhenBlock is always shown, with its condition: nothing
+  // runs, so no block has a result to decide it.
   if (instructionMode) {
+    const condition = visibility.condition
+    const instructionDescription = condition
+      ? [`Only when ${describeShowWhenBlock(condition)}.`, resolvedDescription]
+          .filter(Boolean)
+          .join(" ")
+      : resolvedDescription
     return (
       <Instruction
         id={id}
@@ -533,7 +588,7 @@ export function ScriptBlock({
         title={
           resolvedTitle || (path ? variant.instructionPathTitle : variant.instructionInlineTitle)
         }
-        description={resolvedDescription}
+        description={instructionDescription}
         command={scriptless || path ? undefined : rawScriptContent}
         source={
           path
@@ -549,6 +604,10 @@ export function ScriptBlock({
       />
     )
   }
+
+  // Hidden by showWhenBlock. Without its ProgressStep, it isn't a step of the
+  // runbook's progress either.
+  if (!visibility.shown) return null
 
   // Determine if the action button should be disabled
   const isRunDisabled =
