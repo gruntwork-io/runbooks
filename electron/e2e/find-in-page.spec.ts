@@ -8,7 +8,8 @@
  * A long runbook checks what jsdom can't: that a search starts where the
  * reader is and that every match, even one far along a code line, scrolls
  * into view, including out from under the find bar, which floats over the
- * top of the runbook.
+ * top of the runbook. In maximized logs, Find… searches the logs instead,
+ * since the find bar can't open over the dialog.
  *
  * Prerequisites: run `electron-vite build` first (expects ./dist/main/index.js).
  *
@@ -63,6 +64,13 @@ const ROWS_RUNBOOK = [
   Array(NEEDLE_ROWS).fill("needle").join(" "),
   ...Array.from({ length: 40 }, (_, i) => `Paragraph ${i + 41}.`),
 ].join("\n\n")
+
+/** A command printing 200 lines, a needle on every tenth: lines 10, 20, … 200. */
+const LOG_RUNBOOK = `# Log search
+
+<Command id="print-lines" title="Print lines" command="seq -f 'line %g' 1 200 | sed 's/0$/0 needle/'" />
+`
+const LOG_NEEDLES = 20
 
 test.describe("Find in page", () => {
   let tmpDir: string
@@ -289,6 +297,60 @@ test.describe("Find in page", () => {
       }
     })
   }
+
+  test("searches maximized logs with Find…, where Escape closes the search first", async () => {
+    await launch(LOG_RUNBOOK, "Log search", "logs")
+    await page.getByRole("button", { name: "I trust this Runbook" }).click()
+    const block = page.getByTestId("print-lines")
+    await block.getByRole("button", { name: "Run" }).click()
+    await expect(block.getByTestId("icon-success")).toBeVisible({ timeout: 30_000 })
+
+    await block.getByRole("button", { name: "Maximize logs" }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByRole("region", { name: "Log output" })).toBeFocused()
+
+    // The reported bug: the find bar opened behind the dialog and closed again.
+    await clickMenuItem("find")
+    const input = dialog.getByRole("textbox", { name: "Find in logs" })
+    await expect(input).toBeFocused()
+    await expect(page.getByRole("textbox", { name: "Find in page" })).toHaveCount(0)
+
+    await page.keyboard.type("needle")
+    const status = dialog.getByRole("search").getByRole("status")
+    await expect(status).toHaveText(new RegExp(`^\\d+ of ${LOG_NEEDLES}$`))
+    // The logs open at their end, so the search starts on a needle there, on screen.
+    const start = Number((await status.textContent())!.split(" ")[0])
+    expect(start).toBeGreaterThan(LOG_NEEDLES / 2)
+    await expect.poll(currentLogMatchInView).toBe(true)
+
+    // Find Next and Find Previous step through the logs' matches.
+    await clickMenuItem("find-previous")
+    await expect(status).toHaveText(`${start - 1} of ${LOG_NEEDLES}`)
+    for (let i = 0; i < start - 2; i++) await page.keyboard.press("Shift+Enter")
+    await expect(status).toHaveText(`1 of ${LOG_NEEDLES}`)
+    await expect.poll(currentLogMatchInView).toBe(true)
+    await clickMenuItem("find-previous")
+    await expect(status).toHaveText(`${LOG_NEEDLES} of ${LOG_NEEDLES}`)
+    await expect.poll(currentLogMatchInView).toBe(true)
+
+    await page.keyboard.press("Escape")
+    await expect(dialog.getByRole("search")).toBeHidden()
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+  })
+
+  /** Whether the current log match is inside the maximized log's scrolling body. */
+  const currentLogMatchInView = () =>
+    page.evaluate(() => {
+      const active = CSS.highlights.get("runbooks-log-active") as Set<Range> | undefined
+      const body = document.querySelector('[role="dialog"] [aria-label="Log output"]')
+      const range = [...(active ?? [])].find((r) => body?.contains(r.startContainer))
+      if (!body || !range) return false
+      const rect = range.getBoundingClientRect()
+      const box = body.getBoundingClientRect()
+      return rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1
+    })
 
   test("stays clear of the narrow layout's Markdown/Code toggle", async () => {
     const launched = await launch(RUNBOOK, "Find in page")

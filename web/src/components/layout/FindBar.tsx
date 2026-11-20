@@ -15,6 +15,7 @@ import {
   findTextRanges,
   firstMatchInView,
   indexAtOrAfter,
+  offerFindToFocus,
   paintHighlights,
   scrollRangeIntoView,
 } from "@/lib/findInPage"
@@ -57,8 +58,9 @@ export interface FindBarHandle {
  * (the command palette). It searches the rendered page, highlights every
  * match, and steps through them with Enter / Shift+Enter, the buttons, or
  * Edit > Find Next / Find Previous (Cmd/Ctrl+G / Shift+Cmd/Ctrl+G). Escape
- * closes it. See lib/findInPage for why this doesn't use
- * webContents.findInPage.
+ * closes it. Those menu items go first to the focused element, so a log view
+ * with focus searches itself instead (offerFindToFocus). See lib/findInPage
+ * for why this doesn't use webContents.findInPage.
  */
 export function FindBar({ ref }: { ref?: Ref<FindBarHandle> }) {
   const api = useApi()
@@ -155,6 +157,7 @@ export function FindBar({ ref }: { ref?: Ref<FindBarHandle> }) {
   useEffect(
     () =>
       api.on("menu:find", ({ action }) => {
+        if (offerFindToFocus(action)) return
         if (action === "open" || !openRef.current) openBar()
         else step(action === "next" ? 1 : -1)
       }),
@@ -188,8 +191,8 @@ export function FindBar({ ref }: { ref?: Ref<FindBarHandle> }) {
     if (!input) return
     input.focus()
     input.select()
-    // A modal dialog (such as maximized logs) keeps focus inside itself, so
-    // the bar would sit unusable behind it.
+    // A modal dialog keeps focus inside itself, so the bar would sit unusable
+    // behind it. (Maximized logs take Find… for their own search.)
     if (document.activeElement !== input) close()
   }, [open, focusRequest, close])
 
@@ -293,7 +296,7 @@ export function FindBar({ ref }: { ref?: Ref<FindBarHandle> }) {
           e.preventDefault()
           step(e.shiftKey ? -1 : 1)
         }}
-        className="w-48 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+        className="w-48 rounded-sm bg-transparent px-1 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
       />
       <span
         role="status"

@@ -1,4 +1,5 @@
 import ansiToReact from "ansi-to-react"
+import { stripNonColorAnsi } from "@/lib/logs"
 import { LinkifiedText } from "../LinkifiedText"
 import "./TerminalText.css"
 
@@ -20,26 +21,14 @@ interface TerminalTextProps {
 }
 
 /**
- * Strip non-color ANSI sequences that ansi-to-react doesn't handle.
- * This includes character set designations (ESC(B from tput sgr0) and
- * OSC sequences (ESC ] ... BEL/ST, e.g. background color queries from gh CLI).
- */
-function stripNonColorAnsi(text: string): string {
-  /* eslint-disable no-control-regex */
-  const CHARSET_RE = /\x1b[()*/+-].?/g
-  const OSC_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g
-  /* eslint-enable no-control-regex */
-  return text.replace(CHARSET_RE, "").replace(OSC_RE, "")
-}
-
-/**
  * Renders terminal output text, handling both plain text and ANSI escape codes.
  *
  * - Plain text (no ANSI codes): Uses LinkifiedText for clickable URLs
  * - ANSI text (has escape codes): Uses ansi-to-react for colored output, with
  *   its built-in linkify for clickable URLs
  *
- * `linkify` applies to both paths.
+ * `linkify` applies to both paths. lib/logs' shownText is the text this
+ * shows, for search; change the two together.
  *
  * Usage:
  *   <TerminalText text="Plain text with https://example.com" />

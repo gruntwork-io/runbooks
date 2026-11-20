@@ -1,5 +1,14 @@
 import { describe, it, expect, afterEach, vi } from "vitest"
-import { findTextRanges, firstMatchInView, indexAtOrAfter, scrollRangeIntoView } from "./findInPage"
+import {
+  FIND_COMMAND_EVENT,
+  findTextRanges,
+  firstMatchInView,
+  indexAtOrAfter,
+  offerFindToFocus,
+  queryPattern,
+  scrollRangeIntoView,
+  type FindCommand,
+} from "./findInPage"
 
 function mount(html: string): HTMLElement {
   const root = document.createElement("div")
@@ -224,5 +233,76 @@ describe("scrollRangeIntoView", () => {
     const { range, scrollTop } = scrolledBox(10)
     scrollRangeIntoView(range, BAR)
     expect(scrollTop()).toBe(500)
+  })
+})
+
+describe("queryPattern", () => {
+  const matched = (pattern: RegExp | null, text: string) =>
+    pattern ? [...text.matchAll(pattern)].map((m) => m[0]) : []
+
+  it("matches literally and in any case by default", () => {
+    expect(matched(queryPattern("a.b"), "A.B axb")).toEqual(["A.B"])
+  })
+
+  it("matches case exactly when asked", () => {
+    expect(matched(queryPattern("Error", { matchCase: true }), "Error error ERROR")).toEqual([
+      "Error",
+    ])
+  })
+
+  it("reads a regular expression when asked, in any case unless asked", () => {
+    expect(matched(queryPattern("err(or)?|fail", { regex: true }), "ERR failed Error")).toEqual([
+      "ERR",
+      "fail",
+      "Error",
+    ])
+    expect(
+      matched(queryPattern("err(or)?", { regex: true, matchCase: true }), "ERR err error"),
+    ).toEqual(["err", "error"])
+  })
+
+  it("takes Unicode classes, and the looser syntax that Unicode mode refuses", () => {
+    expect(matched(queryPattern("\\p{Lu}+", { regex: true, matchCase: true }), "abc DEF")).toEqual([
+      "DEF",
+    ])
+    expect(matched(queryPattern("a\\-b", { regex: true }), "a-b")).toEqual(["a-b"])
+  })
+
+  it("throws for a regular expression that doesn't parse", () => {
+    expect(() => queryPattern("nat(", { regex: true })).toThrow(SyntaxError)
+  })
+
+  it("throws for a mistake in an escape only Unicode mode has, rather than searching for other text", () => {
+    // The looser syntax would read these as "p{Letterz}" and "u{110000}".
+    expect(() => queryPattern("\\p{Letterz}", { regex: true })).toThrow(SyntaxError)
+    expect(() => queryPattern("\\u{110000}", { regex: true })).toThrow(SyntaxError)
+    // An escaped backslash before p isn't such an escape.
+    expect(matched(queryPattern("\\\\p{x}", { regex: true }), "a\\p{x}")).toEqual(["\\p{x}"])
+  })
+
+  it("has no pattern for a blank query", () => {
+    expect(queryPattern("  ", { regex: true })).toBeNull()
+  })
+})
+
+describe("offerFindToFocus", () => {
+  it("sends the command to the focused element, and reports whether it was taken", () => {
+    const root = mount('<div><button type="button">Logs</button></div>')
+    const button = root.querySelector("button")!
+    button.focus()
+    const seen: FindCommand[] = []
+    const take = (event: Event) => {
+      seen.push((event as CustomEvent<FindCommand>).detail)
+      if (event.target === button) event.preventDefault()
+    }
+    document.addEventListener(FIND_COMMAND_EVENT, take)
+    try {
+      expect(offerFindToFocus("next")).toBe(true)
+      button.blur()
+      expect(offerFindToFocus("open")).toBe(false)
+    } finally {
+      document.removeEventListener(FIND_COMMAND_EVENT, take)
+    }
+    expect(seen).toEqual([{ action: "next" }, { action: "open" }])
   })
 })

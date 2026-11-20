@@ -1,0 +1,14 @@
+/*
+ * Log search matches, painted with the CSS Custom Highlight API (names from
+ * lib/logSearch.ts), in find in page's colors (FindBar.css): fixed, with
+ * black text, to read on the always-dark log box.
+ */
+::highlight(runbooks-log-match) {
+  background-color: #fde047; /* yellow-300 */
+  color: #000;
+}
+
+::highlight(runbooks-log-active) {
+  background-color: #fb923c; /* orange-400 */
+  color: #000;
+}

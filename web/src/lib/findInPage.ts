@@ -8,6 +8,8 @@
  * Highlight API, which moves neither focus nor the selection.
  */
 
+import type { FindAction } from "../../../electron/shared/channels.ts"
+
 /** CSS.highlights names; FindBar.css styles them with ::highlight(). */
 export const FIND_MATCH_HIGHLIGHT = "runbooks-find-match"
 export const FIND_ACTIVE_HIGHLIGHT = "runbooks-find-active"
@@ -74,18 +76,51 @@ const BLOCK_SELECTOR = [
  */
 export const FIND_IGNORE_ATTRIBUTE = "data-find-ignore"
 
-/**
- * A case-insensitive pattern for `query` that treats every character
- * literally, except that a run of whitespace matches any run of whitespace:
- * text nodes keep the line breaks and repeated spaces that render as one space.
- */
-function queryPattern(query: string): RegExp | null {
-  if (!query.trim()) return null
-  const source = query.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&").replace(/\s+/g, "\\s+")
-  return new RegExp(source, "giu")
+/** How a query matches text. Page find uses the defaults; log search offers both. */
+export interface QueryOptions {
+  /** Match upper and lower case exactly. */
+  matchCase?: boolean
+  /** Read the query as a regular expression. */
+  regex?: boolean
 }
 
-interface Run {
+/**
+ * A \p{…}, \P{…} or \u{…} escape (not an escaped backslash before one),
+ * which means something else outside Unicode mode: \p{L} matches "p{L}".
+ */
+const UNICODE_ESCAPE = /(?<!\\)(?:\\\\)*\\(?:[pP]|u\{)/
+
+/**
+ * The global pattern for `query`, or null for a blank one. By default it is
+ * case-insensitive and treats every character literally, except that a run
+ * of whitespace matches any run of whitespace: text nodes keep the line
+ * breaks and repeated spaces that render as one space. With `regex`, an
+ * invalid query throws a SyntaxError.
+ */
+export function queryPattern(
+  query: string,
+  { matchCase = false, regex = false }: QueryOptions = {},
+): RegExp | null {
+  if (!query.trim()) return null
+  const flags = matchCase ? "g" : "gi"
+  if (regex) {
+    // Unicode mode reads \p{…} and characters outside the BMP; the older
+    // syntax also takes the stray escapes and braces people type, like \- or {.
+    // A query with an escape only Unicode mode has stays there, so a mistake
+    // in one, like \p{Letterz}, is an error, not a search for other text.
+    try {
+      return new RegExp(query, `${flags}u`)
+    } catch (error) {
+      if (UNICODE_ESCAPE.test(query)) throw error
+      return new RegExp(query, flags)
+    }
+  }
+  const source = query.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&").replace(/\s+/g, "\\s+")
+  return new RegExp(source, `${flags}u`)
+}
+
+/** The text of a run of text nodes, as a search sees it. */
+export interface TextRun {
   text: string
   /** Each text node in the run and the offset of its first character in `text`. */
   nodes: { node: Text; start: number }[]
@@ -95,13 +130,23 @@ interface Run {
  * The text node holding `offset` of `run`; `end` picks the node a match ends in.
  * `run` has text, so it has at least one node.
  */
-function locate(run: Run, offset: number, end: boolean): { node: Text; offset: number } {
+function locate(run: TextRun, offset: number, end: boolean): { node: Text; offset: number } {
   const { nodes } = run
   for (let i = nodes.length - 1; i >= 0; i--) {
     const { node, start } = nodes[i]!
     if (end ? start < offset : start <= offset) return { node, offset: offset - start }
   }
   return { node: nodes[0]!.node, offset: 0 }
+}
+
+/** A Range over characters `start` to `end` of `run`'s text, which is not empty. */
+export function rangeInRun(run: TextRun, start: number, end: number): Range {
+  const from = locate(run, start, false)
+  const to = locate(run, end, true)
+  const range = run.nodes[0]!.node.ownerDocument.createRange()
+  range.setStart(from.node, from.offset)
+  range.setEnd(to.node, to.offset)
+  return range
 }
 
 /**
@@ -157,19 +202,14 @@ export function findTextRanges(root: Node, query: string): Range[] {
   })
 
   const ranges: Range[] = []
-  let run: Run = { text: "", nodes: [] }
+  let run: TextRun = { text: "", nodes: [] }
   let runContainer: Element | null = null
 
   const flush = () => {
     if (run.text) {
       pattern.lastIndex = 0
       for (let m = pattern.exec(run.text); m; m = pattern.exec(run.text)) {
-        const start = locate(run, m.index, false)
-        const end = locate(run, m.index + m[0].length, true)
-        const range = doc.createRange()
-        range.setStart(start.node, start.offset)
-        range.setEnd(end.node, end.offset)
-        ranges.push(range)
+        ranges.push(rangeInRun(run, m.index, m.index + m[0].length))
       }
     }
     run = { text: "", nodes: [] }
@@ -242,10 +282,10 @@ function covered(rect: Box, obstruction: Box | undefined): boolean {
 
 /**
  * The part of the window where `el`'s content can show: the viewport, cut
- * down by every ancestor that clips its overflow (the runbook and log boxes
- * scroll on their own).
+ * down by `el` and every ancestor that clips its overflow (the runbook and
+ * log boxes scroll on their own). `cache` saves work across calls in one pass.
  */
-function visibleArea(el: Element | null, cache: Map<Element, Box>): Box {
+export function visibleArea(el: Element | null, cache: Map<Element, Box>): Box {
   if (!el) {
     const view = document.documentElement
     return {
@@ -346,7 +386,7 @@ export function scrollRangeIntoView(range: Range, obstruction?: Box): void {
 }
 
 /** The page's highlight registry, when the Custom Highlight API exists (not in jsdom). */
-function highlightRegistry(): HighlightRegistry | null {
+export function highlightRegistry(): HighlightRegistry | null {
   return typeof CSS !== "undefined" && CSS.highlights && typeof Highlight === "function"
     ? CSS.highlights
     : null
@@ -372,4 +412,27 @@ export function clearHighlights(): void {
   const registry = highlightRegistry()
   registry?.delete(FIND_MATCH_HIGHLIGHT)
   registry?.delete(FIND_ACTIVE_HIGHLIGHT)
+}
+
+/**
+ * The event Edit > Find…, Find Next and Find Previous send to the focused
+ * element before the find bar acts on them. A part of the page with a search
+ * of its own, such as a log view, takes them while focus is inside it by
+ * calling preventDefault(). Its detail is a FindCommand.
+ */
+export const FIND_COMMAND_EVENT = "runbooks:find-command"
+
+export interface FindCommand {
+  action: FindAction
+}
+
+/** Offer `action` to the focused element; true when something there took it. */
+export function offerFindToFocus(action: FindAction): boolean {
+  const target = document.activeElement ?? document.body
+  const event = new CustomEvent<FindCommand>(FIND_COMMAND_EVENT, {
+    bubbles: true,
+    cancelable: true,
+    detail: { action },
+  })
+  return !target.dispatchEvent(event)
 }

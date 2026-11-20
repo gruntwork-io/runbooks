@@ -23,7 +23,7 @@ The Runbooks window opens and renders the runbook.
 So far the runbook is rendering markdown text.
 
 :::tip[Find in page]
-Runbooks can get long. Press **Cmd+F** on macOS, or **Ctrl+F** on Windows and Linux, to search the runbook and any logs or outputs you have expanded. Press **Enter** / **Shift+Enter** (or **Cmd/Ctrl+G** / **Shift+Cmd/Ctrl+G**) to move between matches, and **Esc** to close the find bar. Collapsed sections, such as logs you haven't opened, aren't searched, and neither is the text in form fields. In a runbook split into [chapters](/authoring/blocks/chapter/), only the chapter on screen is searched.
+Runbooks can get long. Press **Cmd+F** on macOS, or **Ctrl+F** on Windows and Linux, to search the runbook and any logs or outputs you have expanded. Press **Enter** / **Shift+Enter** (or **Cmd/Ctrl+G** / **Shift+Cmd/Ctrl+G**) to move between matches, and **Esc** to close the find bar. Collapsed sections, such as logs you haven't opened, aren't searched, and neither is the text in form fields. In a runbook split into [chapters](/authoring/blocks/chapter/), only the chapter on screen is searched. When a block's logs have focus, or are maximized, the same keys search just those logs. See [Viewing logs](/authoring/blocks/command/#viewing-logs).
 :::
 
 :::tip[Command palette]
