@@ -81,12 +81,15 @@ import {
   parseOutputOptions,
 } from "../../src/domain/boilerplate/options.ts"
 import type { Executable } from "../../src/types.ts"
+import { extractOutputDependencies } from "../../src/domain/boilerplate/config.ts"
 
 import type { TestCase, TestStep, ExpectedStatus, TestResult, StepResult } from "./config.ts"
 import { resolveTestInputs } from "./fuzz.ts"
 import { runAssertion, countFiles, envListToRecord, type AssertionContext } from "./assertions.ts"
 import {
   InputValidator,
+  type InputsBlockSchema,
+  type ValidationError,
   inputsIdsOf,
   parseAuthDependencies,
   parseRunDependencies,
@@ -485,10 +488,7 @@ export class TestExecutor {
     }
 
     // 0. Check for blocks this version doesn't have
-    const unknown = this.validator
-      .getConfigErrors()
-      .filter((err) => err.componentId === "(unknown)")
-      .map((err) => err.componentType)
+    const unknown = this.getUnknownBlockTypes()
     if (unknown.length > 0) {
       result.status = "failed"
       result.error = unknownBlocksError(unknown)
@@ -509,10 +509,7 @@ export class TestExecutor {
 
     // Fill in the variables the test doesn't set. A variable x-show-when
     // hides gets its default, as the form reports it.
-    resolvedInputs = this.validator.withHiddenDefaults({
-      ...this.fillUnsetInputs(resolvedInputs),
-      ...resolvedInputs,
-    })
+    resolvedInputs = this.completeInputs(resolvedInputs)
 
     // 2. Validate inputs against schemas
     const validationErrors = this.validator.validateInputValues(resolvedInputs)
@@ -535,18 +532,7 @@ export class TestExecutor {
       }
     }
 
-    this.testInputs = resolvedInputs
-    this.testEnv = tc.env ?? {}
-    this.workingDir = workingDir
-    this.sessionEnv = [...this.initialSessionEnv]
-    this.sessionWorkDir = workingDir
-    this.blockOutputs = new Map()
-    this.generatedFileCounts = new Map()
-    this.blockStates = new Map()
-    this.passedScripts = new Set()
-    this.authBlockCredentials = new Map()
-    this.gitAuthTokens = new Map()
-    this.activeWorkTreePath = ""
+    this.resetState(resolvedInputs, tc.env ?? {}, workingDir)
 
     // 3. Get all blocks in document order
     const allBlocks = this.validator.getComponents()
@@ -627,6 +613,250 @@ export class TestExecutor {
 
     result.duration = Date.now() - start
     return result
+  }
+
+  /** `set` with every variable it leaves out filled in, as the app's form starts them. */
+  private completeInputs(set: Record<string, unknown>): Record<string, unknown> {
+    return this.validator.withHiddenDefaults({ ...this.fillUnsetInputs(set), ...set })
+  }
+
+  /** Start over: no block has run, and the session env and cwd are the initial ones. */
+  private resetState(
+    inputs: Record<string, unknown>,
+    env: Record<string, string>,
+    workingDir: string,
+  ): void {
+    this.testInputs = inputs
+    this.testEnv = env
+    this.workingDir = workingDir
+    this.sessionEnv = [...this.initialSessionEnv]
+    this.sessionWorkDir = workingDir
+    this.blockOutputs = new Map()
+    this.generatedFileCounts = new Map()
+    this.blockStates = new Map()
+    this.passedScripts = new Set()
+    this.authBlockCredentials = new Map()
+    this.gitAuthTokens = new Map()
+    this.activeWorkTreePath = ""
+  }
+
+  // -----------------------------------------------------------------------
+  // Interactive sessions (runbooks-cli mcp)
+  //
+  // The same engine as runTest, one block at a time: a caller starts a
+  // session, sets inputs as it learns them, and runs the blocks it chooses.
+  // State carries from block to block as it does within a test case.
+  // -----------------------------------------------------------------------
+
+  /** The blocks the runner can run, in document order. */
+  getBlocks(): ParsedComponent[] {
+    return this.validator.getComponents()
+  }
+
+  /** The variables of each Inputs and Template block, by block ID. */
+  getInputSchemas(): Map<string, InputsBlockSchema> {
+    return this.validator.getAllSchemas()
+  }
+
+  /** The blocks block `blockId` reads `.inputs` from, in the order the app merges them. */
+  getInputsIds(blockId: string): string[] {
+    return this.inputsIds.get(blockId) ?? []
+  }
+
+  /** The blocks block `blockId` names in `dependsOn`. */
+  getRunDependencies(blockId: string): string[] {
+    return this.runDeps.get(blockId) ?? []
+  }
+
+  /** The auth block block `blockId` references, if any. */
+  getAuthDependency(blockId: string): AuthDependency | undefined {
+    return this.authDeps.get(blockId)
+  }
+
+  /** The configuration error the app would show in place of block `blockId`, or "". */
+  getBlockConfigError(block: ParsedComponent): string {
+    return this.getConfigErrorForBlock(block, this.registry.getWarnings())
+  }
+
+  /** The block types in the runbook that this version doesn't have. */
+  getUnknownBlockTypes(): string[] {
+    return this.validator
+      .getConfigErrors()
+      .filter((err) => err.componentId === "(unknown)")
+      .map((err) => err.componentType)
+  }
+
+  /**
+   * Start an interactive session in `workingDir`: no block has run yet.
+   * `inputs` are set as with setSessionInputs, and `env` goes on top of the
+   * environment, as a test case's `env` does.
+   */
+  beginSession(
+    inputs: Record<string, unknown>,
+    env: Record<string, string>,
+    workingDir: string,
+  ): ValidationError[] {
+    this.resetState({}, env, workingDir)
+    return this.setSessionInputs(inputs)
+  }
+
+  /**
+   * Replace the session's inputs (keys `inputsID.varName`) and fill in the
+   * rest as the form starts them. Returns the problems with the values set;
+   * the values are kept either way, so a caller can fix one at a time.
+   */
+  setSessionInputs(inputs: Record<string, unknown>): ValidationError[] {
+    this.testInputs = this.completeInputs(inputs)
+    return this.validator.validateInputValues(this.testInputs)
+  }
+
+  /** The session's inputs, every variable the form would start included. */
+  getSessionInputs(): Record<string, unknown> {
+    return { ...this.testInputs }
+  }
+
+  /** Every block's outputs so far, by block ID, a sensitive one as `<redacted>`. */
+  getSessionOutputs(): Record<string, Record<string, string>> {
+    const outputs: Record<string, Record<string, string>> = {}
+    for (const [blockId, blockOutputs] of this.blockOutputs) {
+      outputs[blockId] = maskOutputs(Object.fromEntries(blockOutputs))
+    }
+    return outputs
+  }
+
+  /** The directory generated files go to. */
+  getOutputDir(): string {
+    return this.resolveOutputPath()
+  }
+
+  /**
+   * Run one step in the session: a block, its expectation, and the step
+   * options (env_prefix, set_outputs). The result's actualStatus is what
+   * happened; `passed` compares it with `step.expect`.
+   */
+  runSessionStep(step: TestStep): StepResult {
+    const block = this.getBlocks().find((b) => b.id === step.block)
+    if (!block) {
+      const result = makeStepResult(step.block, step.expect)
+      result.passed = false
+      result.actualStatus = "error"
+      result.error = `The runbook has no block "${step.block}"`
+      return result
+    }
+    return this.processBlock(block, step, this.registry.getWarnings())
+  }
+
+  /**
+   * Why block `blockId` can't run yet, each reason a sentence; empty when
+   * nothing is missing. Covers what the app waits for before it enables the
+   * block's Run button: its auth block, its `dependsOn` blocks, the block
+   * outputs its templates read, and the inputs it reads that have no value
+   * or an invalid one.
+   */
+  blockedReasons(blockId: string): string[] {
+    const block = this.getBlocks().find((b) => b.id === blockId)
+    if (!block) return []
+    const reasons: string[] = []
+
+    const authDep = this.authDeps.get(blockId)
+    if (authDep) {
+      const state = this.blockStates.get(authDep.authBlockId)
+      if (state === undefined) {
+        reasons.push(`Auth block "${authDep.authBlockId}" hasn't run yet`)
+      } else if (state === "skipped") {
+        reasons.push(`Auth block "${authDep.authBlockId}" was skipped or found no credentials`)
+      }
+    }
+
+    const unmet = (this.runDeps.get(blockId) ?? []).filter(
+      (id) => !this.passedScripts.has(normalizeBlockId(id)),
+    )
+    if (unmet.length > 0) {
+      reasons.push(
+        `dependsOn: ${unmet.map((id) => `"${id}"`).join(", ")} hasn't run with success or warn`,
+      )
+    }
+
+    const outputs = this.templateOutputs()
+    const missingOutputs = new Set<string>()
+    for (const dep of extractOutputDependencies(...this.blockSources(block))) {
+      if (dep.optional) continue
+      const value = outputs[normalizeBlockId(dep.blockId)]?.[dep.outputName]
+      if (value === undefined) missingOutputs.add(`outputs.${dep.blockId}.${dep.outputName}`)
+    }
+    if (missingOutputs.size > 0) {
+      reasons.push(`Waiting for block outputs: ${[...missingOutputs].join(", ")}`)
+    }
+
+    const schemas = this.validator.getAllSchemas()
+    const unset: string[] = []
+    const imported = new Set<string>()
+    const visit = (id: string) => {
+      if (imported.has(id)) return
+      imported.add(id)
+      for (const importedId of this.templates.get(id)?.inputsIds ?? []) visit(importedId)
+    }
+    for (const id of this.inputsIds.get(blockId) ?? []) visit(id)
+    for (const id of imported) {
+      for (const name of schemas.get(id)?.variables.keys() ?? []) {
+        const key = `${id}.${name}`
+        if (this.testInputs[key] === undefined) unset.push(key)
+      }
+    }
+    if (unset.length > 0) reasons.push(`Inputs without a value: ${unset.join(", ")}`)
+    const invalid = this.validator
+      .validateInputValues(this.testInputs)
+      .filter((err) => imported.has(err.inputKey.split(".", 1)[0] ?? ""))
+    if (invalid.length > 0) {
+      reasons.push(
+        `Invalid inputs: ${invalid.map((err) => `${err.inputKey}: ${err.message}`).join("; ")}`,
+      )
+    }
+
+    return reasons
+  }
+
+  /**
+   * The text of block `block` that templates are rendered in: its props,
+   * its script and env for a script block, and its template's files.
+   */
+  blockSources(block: ParsedComponent): string[] {
+    const sources: string[] = []
+    const collect = (value: PropValue): void => {
+      if (typeof value === "string") sources.push(value)
+      else if (Array.isArray(value)) value.forEach(collect)
+      else if (typeof value === "object" && value !== null) Object.values(value).forEach(collect)
+    }
+    Object.values(block.props).forEach(collect)
+
+    for (const [id, entry] of Object.entries(this.registry.getAllExecutables())) {
+      if (entry.componentId !== block.id) continue
+      const executable = this.registry.getExecutableSync(id)
+      if (executable) sources.push(executable.content, ...Object.values(executable.env))
+    }
+    const inline = this.templateInlines.get(block.id)
+    if (inline) sources.push(inline.content)
+    const tmpl = this.templates.get(block.id)
+    if (tmpl) {
+      const walk = (dir: string): void => {
+        let entries: fs.Dirent[]
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true })
+        } catch {
+          return
+        }
+        for (const entry of entries) {
+          const full = path.join(dir, entry.name)
+          if (entry.isDirectory()) walk(full)
+          else
+            try {
+              sources.push(fs.readFileSync(full, "utf-8"))
+            } catch {}
+        }
+      }
+      walk(path.join(path.dirname(this.runbookPath), tmpl.templatePath))
+    }
+    return sources
   }
 
   // -----------------------------------------------------------------------

@@ -9,7 +9,7 @@
 ```
 /electron       — Main process, preload, IPC handlers, shared types
 /src            — Core backend (Effect services + domain modules), shared by Electron + CLI
-/cli            — Standalone test CLI (reuses src/ directly, no IPC)
+/cli            — Standalone test CLI and MCP server (reuse src/ directly, no IPC)
 /web            — Frontend: React 19 + TypeScript + Vite + Tailwind CSS 4
 /docs           — Documentation site (Astro + Starlight)
 /testdata       — Sample runbooks and test fixtures

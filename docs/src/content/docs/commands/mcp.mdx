@@ -1,0 +1,78 @@
+---
+title: MCP server for AI agents
+description: Let an AI agent such as Claude Code run a runbook headless, block by block, over the Model Context Protocol.
+sidebar:
+  order: 5
+---
+
+`runbooks-cli mcp` serves a runbook's blocks as [Model Context Protocol](https://modelcontextprotocol.io) (MCP) tools over stdio. An AI agent such as Claude Code can then open a runbook, read its blocks and inputs, set the inputs, run the blocks one at a time or in order, and read each block's status, logs and outputs, all without the desktop app.
+
+The server runs blocks with the same engine as [runbook tests](/authoring/testing/), so it shares their [differences from the app](/authoring/testing/#how-tests-differ-from-the-app). Read [Limitations](#limitations) before you point an agent at a runbook that changes real infrastructure.
+
+:::caution
+Blocks run real scripts on your machine, with your environment and your credentials. A runbook that creates cloud resources creates them when the agent runs it. Opening a runbook runs nothing, but nothing sandboxes a block once the agent runs it.
+:::
+
+## Set it up
+
+`runbooks-cli` is built from the [Runbooks repository](https://github.com/gruntwork-io/runbooks). From a checkout, `just compile-test-cli` builds it into a single binary at `resources/bin/runbooks-test`. You can also run it from source with `bun cli/index.ts`.
+
+Register it with Claude Code:
+
+```bash
+# The compiled binary
+claude mcp add runbooks -- /path/to/runbooks/resources/bin/runbooks-test mcp
+
+# Or from source
+claude mcp add runbooks -- bun /path/to/runbooks/cli/index.ts mcp
+```
+
+Add `--scope user` to make it available in every project. Run `claude mcp list` to check that it connected.
+
+Any MCP client that can start a stdio server works the same way: the command is `runbooks-test mcp` (or `bun cli/index.ts mcp`) with no other arguments.
+
+The server reads credentials the way [runbook tests](/authoring/testing/#testing-azureauth-blocks) do, from its own environment and from existing CLI sign-ins. Sign in before you start the agent, for example with `az login`, `aws sso login` or `gcloud auth application-default login`. Auth blocks never sign in themselves.
+
+## Tools
+
+| Tool | What it does |
+|------|--------------|
+| `open_runbook` | Opens a local `runbook.mdx`, or the directory that holds it, and returns a session ID, the blocks (ID, type, status, why each is blocked), the input variables with their types, defaults and values, and the limitations. Runs nothing. |
+| `get_runbook` | The same view as `open_runbook`, as the session stands now. |
+| `set_inputs` | Sets input values, keyed `inputsBlockId.VariableName`, and returns the validation errors. |
+| `run_block` | Runs one block and returns its status, exit code, logs, outputs and what it waits for. A blocked block isn't run. |
+| `run_all` | Runs blocks in document order and stops at the first one that fails or is blocked. Skips blocks that already succeeded. |
+| `skip_block` | Marks a block as skipped without running it. |
+| `get_block` | One block in full: its dependencies, why it's blocked, its last run's logs and its outputs. |
+| `get_outputs` | Every block's outputs so far. Sensitive outputs show as `<redacted>`. |
+| `close_runbook` | Ends the session. Files it generated stay. |
+
+`open_runbook` takes these options:
+
+- `working_dir`: the directory scripts start in. Generated files go in its `generated` subdirectory. By default each session gets a new temporary directory, which is kept after the session closes.
+- `timeout_seconds`: the time limit for each script, 30 minutes by default.
+- `env`: environment variables for every block, on top of the server's environment.
+- `inputs`: input values to start with, as `set_inputs` takes them.
+
+A block's status is one of `not_run`, `success`, `warn`, `fail`, `timeout`, `skipped`, `blocked`, `error`, `config_error`, `valid` (an `<Inputs>` block whose values passed validation) or `unsupported` (a block that can't run headless).
+
+### Why a block is blocked
+
+`get_block` and `get_runbook` list what each block waits for before it can run, as the app does before it enables a block's **Run** button:
+
+- the auth block it references, until that block has found credentials;
+- the blocks it names in `dependsOn`, until each has run with success or a warning;
+- the block outputs its templates read, until they exist;
+- the inputs it reads that have no value or an invalid one.
+
+`run_block` doesn't run a blocked block. It returns the reasons instead.
+
+## Limitations
+
+- **One engine, not the app's.** Blocks run with the test runner's engine. Templates use its [simplified renderer](/authoring/testing/#how-tests-differ-from-the-app), which handles `{{ .inputs.X }}`, `{{ .outputs.block.name }}`, a non-nested `{{ if }}`/`{{ else }}`/`{{ end }}` and `fromJson`, and leaves pipes, `eq` and other functions, `range`, `with` and `{{-`/`-}}` in the script as written. `get_block` lists any such syntax in a block under `template_warnings`.
+- **A block runs to the end before the tool returns.** Its logs arrive all at once. A running script can't be cancelled, only stopped by its timeout. For a long `apply`, raise the agent's tool timeout as well, for example with the `MCP_TOOL_TIMEOUT` environment variable (in milliseconds) for Claude Code.
+- **Auth blocks don't sign in or check credentials.** They find credentials in environment variables or an existing CLI sign-in and pass them to the blocks after them, without contacting the cloud or checking `requiredRoles`. A block that uses an expired sign-in fails when its script runs. See [Testing AzureAuth blocks](/authoring/testing/#testing-azureauth-blocks) and the sections around it for where each auth block looks.
+- **Pull request blocks never run.** `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>` report `unsupported`. Use `skip_block`, or open the pull request another way.
+- **No page or picker.** `<DirPicker>` blocks don't run, so blocks that read their output stay blocked. For an `<Iframe>`, pass the outputs its page would set in `run_block`'s `set_outputs`.
+- **Local runbooks only.** Clone a remote runbook's repository and open it by path.
+- **Scripts start in the working directory**, not in the [session directory](/commands/sessions/) the app uses, and a block's `timeoutMs` is ignored in favor of the session's timeout.
