@@ -7,7 +7,7 @@
 ## Project Structure
 
 ```
-/electron       — Main process, preload, IPC handlers, shared types
+/electron       — Main process, preload, IPC handlers, shared types, AI agent MCP server (main/agent/)
 /src            — Core backend (Effect services + domain modules), shared by Electron + CLI
 /cli            — Standalone test CLI and MCP server (reuse src/ directly, no IPC)
 /web            — Frontend: React 19 + TypeScript + Vite + Tailwind CSS 4

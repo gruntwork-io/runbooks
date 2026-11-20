@@ -27,6 +27,7 @@ function renderHeader(steps: boolean[]) {
             onOpenCommandPalette={vi.fn()}
             onOpenSessions={vi.fn()}
             onOpenCustomCa={vi.fn()}
+            onOpenAgentAccess={vi.fn()}
             onCloseRunbook={vi.fn()}
           />
           {steps.map((done, i) => (

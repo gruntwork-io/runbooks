@@ -13,6 +13,8 @@ import { SessionResumedNotice } from "./components/layout/SessionResumedNotice"
 import { FinishedSessionNotice } from "./components/layout/FinishedSessionNotice"
 import { SessionsDialog } from "./components/layout/SessionsDialog"
 import { CustomCaDialog } from "./components/layout/CustomCaDialog"
+import { AgentAccessDialog } from "./components/layout/AgentAccessDialog"
+import { AgentBridgeProvider } from "./contexts/AgentBridgeContext"
 import MDXContainer from "./components/MDXContainer"
 import { ArtifactsContainer } from "./components/layout/ArtifactsContainer"
 import { GeneratedFilesHistory } from "./components/layout/GeneratedFilesHistory"
@@ -83,6 +85,7 @@ function App() {
   const [isPaletteOpen, setIsPaletteOpen] = useState(false)
   const [isSessionsOpen, setIsSessionsOpen] = useState(false)
   const [isCustomCaOpen, setIsCustomCaOpen] = useState(false)
+  const [isAgentAccessOpen, setIsAgentAccessOpen] = useState(false)
   // The failed-open error the user dismissed from the inline banner. A new
   // failure is a new error object, so it shows the banner again.
   const [dismissedOpenError, setDismissedOpenError] = useState<AppError | null>(null)
@@ -415,133 +418,142 @@ function App() {
 
   return (
     <DisplayPathProvider sessionDir={getRunbookResult.data?.sessionDir}>
-      <ClearLogsOnRunbookChange sessionKey={loadedSessionKey} />
-      {/* The runbook scrolls inside its own pane, so a wheel gesture over the
+      <AgentBridgeProvider
+        session={{
+          runbook: runbookName,
+          runbookPath: getRunbookResult.data?.remoteSource ?? getRunbookResult.data?.path,
+          sessionName,
+          sessionId: loadedSessionId,
+        }}
+      >
+        <ClearLogsOnRunbookChange sessionKey={loadedSessionKey} />
+        {/* The runbook scrolls inside its own pane, so a wheel gesture over the
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
-      <div className="flex flex-col" onWheel={handleWheel}>
-        <Header
-          runbookName={runbookName}
-          runbookFilePath={getRunbookResult.data?.path}
-          remoteSource={getRunbookResult.data?.remoteSource}
-          sessionName={sessionName}
-          sessionDir={getRunbookResult.data?.sessionDir}
-          onSessionRenamed={(name) => setRenamed({ sessionId: loadedSessionId, name })}
-          onOpenCommandPalette={() => setIsPaletteOpen(true)}
-          onOpenSessions={() => setIsSessionsOpen(true)}
-          onOpenCustomCa={() => setIsCustomCaOpen(true)}
-          onCloseRunbook={handleCloseRunbook}
-        />
+        <div className="flex flex-col" onWheel={handleWheel}>
+          <Header
+            runbookName={runbookName}
+            runbookFilePath={getRunbookResult.data?.path}
+            remoteSource={getRunbookResult.data?.remoteSource}
+            sessionName={sessionName}
+            sessionDir={getRunbookResult.data?.sessionDir}
+            onSessionRenamed={(name) => setRenamed({ sessionId: loadedSessionId, name })}
+            onOpenCommandPalette={() => setIsPaletteOpen(true)}
+            onOpenSessions={() => setIsSessionsOpen(true)}
+            onOpenCustomCa={() => setIsCustomCaOpen(true)}
+            onOpenAgentAccess={() => setIsAgentAccessOpen(true)}
+            onCloseRunbook={handleCloseRunbook}
+          />
 
-        {/* Failed-open and Error Summary banners, stacked in one fixed
+          {/* Failed-open and Error Summary banners, stacked in one fixed
             container so they never overlap each other */}
-        {(showOpenErrorBanner || errorCount > 0 || warningCount > 0) && (
-          <div className="fixed top-15 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-2xl flex flex-col items-center gap-2 pointer-events-none">
-            {showOpenErrorBanner && openError && (
-              <RunbookOpenError
-                variant="inline"
-                message={openError.message}
-                currentPath={pathName}
-                onChooseAnother={handleOpenRunbook}
-                onRetry={() => getRunbookResult.refetch()}
-                onDismiss={() => setDismissedOpenError(openError)}
-                className="w-full shadow-md pointer-events-auto"
-              />
-            )}
-            {(errorCount > 0 || warningCount > 0) && (
-              <ErrorSummaryBanner
-                errors={errors}
-                errorCount={errorCount}
-                warningCount={warningCount}
-                className="shadow-md pointer-events-auto"
-              />
-            )}
-          </div>
-        )}
+          {(showOpenErrorBanner || errorCount > 0 || warningCount > 0) && (
+            <div className="fixed top-15 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-2xl flex flex-col items-center gap-2 pointer-events-none">
+              {showOpenErrorBanner && openError && (
+                <RunbookOpenError
+                  variant="inline"
+                  message={openError.message}
+                  currentPath={pathName}
+                  onChooseAnother={handleOpenRunbook}
+                  onRetry={() => getRunbookResult.refetch()}
+                  onDismiss={() => setDismissedOpenError(openError)}
+                  className="w-full shadow-md pointer-events-auto"
+                />
+              )}
+              {(errorCount > 0 || warningCount > 0) && (
+                <ErrorSummaryBanner
+                  errors={errors}
+                  errorCount={errorCount}
+                  warningCount={warningCount}
+                  className="shadow-md pointer-events-auto"
+                />
+              )}
+            </div>
+          )}
 
-        {/* Loading and Error States
+          {/* Loading and Error States
              Once content has successfully loaded (hasEverLoaded), skip these
              branches so MDXContainer is never unmounted. A transient isLoading
              flash (e.g. from useIpc effect re-firing) would otherwise destroy
              all block outputs and user-edited inputs stored in React state. */}
-        {getRunbookResult.isLoading && !hasEverLoaded ? (
-          <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-              <p className="text-muted-foreground">Loading runbook...</p>
-            </div>
-          </div>
-        ) : getRunbookResult.error && !hasEverLoaded ? (
-          <RunbookOpenError
-            variant="fullscreen"
-            message={getRunbookResult.error.message}
-            onChooseAnother={handleOpenRunbook}
-            onRetry={() => getRunbookResult.refetch()}
-          />
-        ) : !getRunbookResult.data && !hasEverLoaded ? (
-          <WelcomeScreen
-            onOpenUrl={() => setIsUrlModalOpen(true)}
-            onOpenRunbook={handleOpenRunbook}
-          />
-        ) : (
-          <>
-            {/* Mobile Navigation - Fixed position toggle, visible only on small screens.
-                data-find-ignore: find in page skips its always-visible labels. */}
-            <div
-              className="lg:hidden flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out z-10"
-              data-find-ignore=""
-            >
-              <div className="bg-muted border border-border inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
-                <ViewContainerToggle
-                  activeView={activeMobileSection}
-                  onViewChange={(view) => setActiveMobileSection(view as "markdown" | "code")}
-                  views={[
-                    { label: "Markdown", value: "markdown", icon: BookOpen },
-                    { label: "Code", value: "code", icon: Code },
-                  ]}
-                  className="w-full"
-                />
+          {getRunbookResult.isLoading && !hasEverLoaded ? (
+            <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                <p className="text-muted-foreground">Loading runbook...</p>
               </div>
             </div>
+          ) : getRunbookResult.error && !hasEverLoaded ? (
+            <RunbookOpenError
+              variant="fullscreen"
+              message={getRunbookResult.error.message}
+              onChooseAnother={handleOpenRunbook}
+              onRetry={() => getRunbookResult.refetch()}
+            />
+          ) : !getRunbookResult.data && !hasEverLoaded ? (
+            <WelcomeScreen
+              onOpenUrl={() => setIsUrlModalOpen(true)}
+              onOpenRunbook={handleOpenRunbook}
+            />
+          ) : (
+            <>
+              {/* Mobile Navigation - Fixed position toggle, visible only on small screens.
+                data-find-ignore: find in page skips its always-visible labels. */}
+              <div
+                className="lg:hidden flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out z-10"
+                data-find-ignore=""
+              >
+                <div className="bg-muted border border-border inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
+                  <ViewContainerToggle
+                    activeView={activeMobileSection}
+                    onViewChange={(view) => setActiveMobileSection(view as "markdown" | "code")}
+                    views={[
+                      { label: "Markdown", value: "markdown", icon: BookOpen },
+                      { label: "Code", value: "code", icon: Code },
+                    ]}
+                    className="w-full"
+                  />
+                </div>
+              </div>
 
-            {/* Single MDXContainer that adapts to screen size - used by both mobile and desktop views */}
-            <div className="lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20 pt-20 lg:pt-0">
-              {/* Desktop: capped at the widest the runbook (48rem), the handle
+              {/* Single MDXContainer that adapts to screen size - used by both mobile and desktop views */}
+              <div className="lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20 pt-20 lg:pt-0">
+                {/* Desktop: capped at the widest the runbook (48rem), the handle
                   (2rem) and the artifacts panel (80rem) grow to side by side,
                   so a runbook dragged for the first time keeps its place. */}
-              <div
-                ref={splitRef}
-                className={cn(
-                  "flex flex-col lg:flex-row gap-0 lg:h-[calc(100vh-5rem)] lg:max-w-[130rem] lg:mx-auto lg:overflow-hidden justify-start lg:justify-center",
-                  isResizingRunbook && "select-none",
-                )}
-              >
-                {/* MDX Container - Single instance with responsive visibility
+                <div
+                  ref={splitRef}
+                  className={cn(
+                    "flex flex-col lg:flex-row gap-0 lg:h-[calc(100vh-5rem)] lg:max-w-[130rem] lg:mx-auto lg:overflow-hidden justify-start lg:justify-center",
+                    isResizingRunbook && "select-none",
+                  )}
+                >
+                  {/* MDX Container - Single instance with responsive visibility
                     Desktop: always visible, sizing depends on artifacts panel
                     and on the width the runbook was dragged to beside it
                     Mobile: visible only when 'markdown' tab is active */}
-                <div
-                  ref={runbookPaneRef}
-                  style={runbookPaneStyle}
-                  className={cn("relative w-full lg:block", {
-                    "lg:flex-1 lg:max-w-3xl lg:min-w-xl": showArtifacts && !isRunbookDragged,
-                    "lg:flex-none lg:w-(--pane-width) lg:max-w-[calc(100%-27rem)]":
-                      showArtifacts && isRunbookDragged,
-                    "lg:w-full lg:max-w-4xl": !showArtifacts,
-                    hidden: activeMobileSection !== "markdown",
-                  })}
-                >
-                  {/* Keyed by the runbook's file path and session so opening
+                  <div
+                    ref={runbookPaneRef}
+                    style={runbookPaneStyle}
+                    className={cn("relative w-full lg:block", {
+                      "lg:flex-1 lg:max-w-3xl lg:min-w-xl": showArtifacts && !isRunbookDragged,
+                      "lg:flex-none lg:w-(--pane-width) lg:max-w-[calc(100%-27rem)]":
+                        showArtifacts && isRunbookDragged,
+                      "lg:w-full lg:max-w-4xl": !showArtifacts,
+                      hidden: activeMobileSection !== "markdown",
+                    })}
+                  >
+                    {/* Keyed by the runbook's file path and session so opening
                       a different runbook, or starting a new session, starts
                       from fresh block inputs/outputs and trust banner, while
                       same-path reloads keep them. The blocks start from
                       what the session's history says they were left as. */}
-                  <IpcSessionHistoryProvider
-                    key={loadedSessionKey}
-                    sessionId={getRunbookResult.data?.sessionId}
-                    blockStates={getRunbookResult.data?.blockStates}
-                  >
-                    <GeneratedFilesHistory resumedFiles={resumedFiles} />
-                    {/* The pane scrolls, not the runbook's box, so the
+                    <IpcSessionHistoryProvider
+                      key={loadedSessionKey}
+                      sessionId={getRunbookResult.data?.sessionId}
+                      blockStates={getRunbookResult.data?.blockStates}
+                    >
+                      <GeneratedFilesHistory resumedFiles={resumedFiles} />
+                      {/* The pane scrolls, not the runbook's box, so the
                         scrollbar sits at the pane's right edge, beside the
                         handle, outside the box and its padding. Keyed with
                         the runbook, so another runbook starts at the top.
@@ -555,155 +567,159 @@ function App() {
                         dark in the dark theme. In the narrow layout it ends
                         at the window's foot: it starts 9.75rem down, below
                         its wrapper's translate-y-19 and pt-20. */}
-                    <div
-                      ref={runbookScrollRef}
-                      data-testid="runbook-scroller"
-                      className="px-4 pb-3 lg:px-2 h-full max-h-[calc(100vh-9.75rem)] lg:max-h-full overflow-y-auto dark:scheme-dark"
-                    >
-                      <MDXContainer
-                        content={content}
-                        runbookPath={runbookPath}
-                        runbookFilePath={getRunbookResult.data?.path}
-                        remoteSource={getRunbookResult.data?.remoteSource}
-                        assetHost={getRunbookResult.data?.assetHost}
-                        banner={
-                          shownResumeNotice ? (
-                            <SessionResumedNotice
-                              sessionName={shownResumeNotice.sessionName}
-                              resumedFrom={shownResumeNotice.resumedFrom}
-                              finishedAt={shownResumeNotice.finishedAt}
-                              onStartNew={handleStartNewSession}
-                              onDismiss={() => setResumeNotice(null)}
-                            />
-                          ) : (
-                            shownFinishedNotice && (
-                              <FinishedSessionNotice
-                                sessionName={shownFinishedNotice.sessionName}
-                                finishedSession={shownFinishedNotice.finishedSession}
-                                onSwitchSession={() => setIsSessionsOpen(true)}
-                                onDismiss={() => setFinishedNotice(null)}
+                      <div
+                        ref={runbookScrollRef}
+                        data-testid="runbook-scroller"
+                        className="px-4 pb-3 lg:px-2 h-full max-h-[calc(100vh-9.75rem)] lg:max-h-full overflow-y-auto dark:scheme-dark"
+                      >
+                        <MDXContainer
+                          content={content}
+                          runbookPath={runbookPath}
+                          runbookFilePath={getRunbookResult.data?.path}
+                          remoteSource={getRunbookResult.data?.remoteSource}
+                          assetHost={getRunbookResult.data?.assetHost}
+                          banner={
+                            shownResumeNotice ? (
+                              <SessionResumedNotice
+                                sessionName={shownResumeNotice.sessionName}
+                                resumedFrom={shownResumeNotice.resumedFrom}
+                                finishedAt={shownResumeNotice.finishedAt}
+                                onStartNew={handleStartNewSession}
+                                onDismiss={() => setResumeNotice(null)}
                               />
+                            ) : (
+                              shownFinishedNotice && (
+                                <FinishedSessionNotice
+                                  sessionName={shownFinishedNotice.sessionName}
+                                  finishedSession={shownFinishedNotice.finishedSession}
+                                  onSwitchSession={() => setIsSessionsOpen(true)}
+                                  onDismiss={() => setFinishedNotice(null)}
+                                />
+                              )
                             )
-                          )
-                        }
-                        // At least as tall as the pane, so a short runbook's box still reaches its foot.
-                        className="p-6 lg:p-8 w-full min-h-full"
-                      />
-                    </div>
-                  </IpcSessionHistoryProvider>
+                          }
+                          // At least as tall as the pane, so a short runbook's box still reaches its foot.
+                          className="p-6 lg:p-8 w-full min-h-full"
+                        />
+                      </div>
+                    </IpcSessionHistoryProvider>
 
-                  {/* Show code icon button - desktop only, when artifacts panel is hidden */}
-                  {showCodeButton && (
-                    <button
-                      onClick={revealArtifacts}
-                      className="hidden lg:block absolute -right-14 top-0 p-3 border border-border rounded-lg hover:bg-accent transition-all duration-200 z-10 cursor-pointer"
-                      title="Show generated files"
-                    >
-                      <Code className="w-5 h-5 text-muted-foreground" />
-                    </button>
-                  )}
-                </div>
+                    {/* Show code icon button - desktop only, when artifacts panel is hidden */}
+                    {showCodeButton && (
+                      <button
+                        onClick={revealArtifacts}
+                        className="hidden lg:block absolute -right-14 top-0 p-3 border border-border rounded-lg hover:bg-accent transition-all duration-200 z-10 cursor-pointer"
+                        title="Show generated files"
+                      >
+                        <Code className="w-5 h-5 text-muted-foreground" />
+                      </button>
+                    )}
+                  </div>
 
-                {/* Drags the runbook's width beside the artifacts panel. While
+                  {/* Drags the runbook's width beside the artifacts panel. While
                     the panel is hidden, it's an inert gap. */}
-                <ResizeHandle
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="Resize the runbook"
-                  title="Drag to resize. Double-click to reset."
-                  tabIndex={0}
-                  subtle
-                  inert={!showArtifacts}
-                  className="hidden lg:flex w-8"
-                  {...splitHandleProps}
-                />
+                  <ResizeHandle
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize the runbook"
+                    title="Drag to resize. Double-click to reset."
+                    tabIndex={0}
+                    subtle
+                    inert={!showArtifacts}
+                    className="hidden lg:flex w-8"
+                    {...splitHandleProps}
+                  />
 
-                {/* Artifacts - Desktop layout (grows/shrinks width smoothly).
+                  {/* Artifacts - Desktop layout (grows/shrinks width smoothly).
                     Inert while hidden: it stays mounted at zero width, and
                     find in page and the keyboard must skip its content.
                     Beside a dragged runbook, it takes all the width left. */}
-                <div
-                  className={cn(
-                    "hidden lg:block relative transition-all duration-700 ease-in-out overflow-hidden",
-                    showArtifacts ? "flex-2" : "w-0",
-                    !isRunbookDragged && "max-w-7xl",
-                  )}
-                  inert={!showArtifacts}
-                >
-                  <ArtifactsContainer
-                    className="absolute top-0 left-0 right-0 h-full"
-                    onHide={() => setIsArtifactsHidden(true)}
-                    hideContent={!showArtifacts}
-                    absoluteOutputPath={generatedFilesCheck.data?.absoluteOutputPath}
-                    relativeOutputPath={generatedFilesCheck.data?.relativeOutputPath}
-                  />
-                </div>
-
-                {/* Artifacts - Mobile layout (shown when 'code' tab is active) */}
-                <div
-                  className={`lg:hidden px-4 ${activeMobileSection === "code" ? "block" : "hidden"}`}
-                >
-                  <div className="w-full h-[calc(100vh-12rem)] border border-border rounded-lg shadow-md overflow-hidden">
+                  <div
+                    className={cn(
+                      "hidden lg:block relative transition-all duration-700 ease-in-out overflow-hidden",
+                      showArtifacts ? "flex-2" : "w-0",
+                      !isRunbookDragged && "max-w-7xl",
+                    )}
+                    inert={!showArtifacts}
+                  >
                     <ArtifactsContainer
-                      className="w-full h-full"
+                      className="absolute top-0 left-0 right-0 h-full"
                       onHide={() => setIsArtifactsHidden(true)}
+                      hideContent={!showArtifacts}
                       absoluteOutputPath={generatedFilesCheck.data?.absoluteOutputPath}
                       relativeOutputPath={generatedFilesCheck.data?.relativeOutputPath}
                     />
                   </div>
+
+                  {/* Artifacts - Mobile layout (shown when 'code' tab is active) */}
+                  <div
+                    className={`lg:hidden px-4 ${activeMobileSection === "code" ? "block" : "hidden"}`}
+                  >
+                    <div className="w-full h-[calc(100vh-12rem)] border border-border rounded-lg shadow-md overflow-hidden">
+                      <ArtifactsContainer
+                        className="w-full h-full"
+                        onHide={() => setIsArtifactsHidden(true)}
+                        absoluteOutputPath={generatedFilesCheck.data?.absoluteOutputPath}
+                        relativeOutputPath={generatedFilesCheck.data?.relativeOutputPath}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </>
-        )}
-      </div>
+            </>
+          )}
+        </div>
 
-      {/* Generated Files Alert Dialog. Keyed like the runbook's blocks so the delete
+        {/* Generated Files Alert Dialog. Keyed like the runbook's blocks so the delete
           result (success or failure) from the previous runbook doesn't
           replace the next runbook's Keep/Delete prompt. */}
-      {generatedFilesCheck.data && (
-        <GeneratedFilesAlert
-          key={loadedSessionKey}
-          isOpen={showGeneratedFilesAlert}
-          fileCount={generatedFilesCheck.data.fileCount}
-          absoluteOutputPath={generatedFilesCheck.data.absoluteOutputPath}
-          onClose={handleCloseAlert}
-          onDeleted={handleFilesDeleted}
+        {generatedFilesCheck.data && (
+          <GeneratedFilesAlert
+            key={loadedSessionKey}
+            isOpen={showGeneratedFilesAlert}
+            fileCount={generatedFilesCheck.data.fileCount}
+            absoluteOutputPath={generatedFilesCheck.data.absoluteOutputPath}
+            onClose={handleCloseAlert}
+            onDeleted={handleFilesDeleted}
+          />
+        )}
+
+        {/* Open from URL Modal */}
+        <OpenUrlModal
+          open={isUrlModalOpen}
+          onOpenChange={setIsUrlModalOpen}
+          onOpened={getRunbookResult.openRunbook}
         />
-      )}
 
-      {/* Open from URL Modal */}
-      <OpenUrlModal
-        open={isUrlModalOpen}
-        onOpenChange={setIsUrlModalOpen}
-        onOpened={getRunbookResult.openRunbook}
-      />
+        {/* Edit > Find… (Cmd/Ctrl+F), also opened by the palette's Find in page */}
+        <FindBar ref={findBarRef} />
 
-      {/* Edit > Find… (Cmd/Ctrl+F), also opened by the palette's Find in page */}
-      <FindBar ref={findBarRef} />
+        {/* File > Switch Session… */}
+        <SessionsDialog open={isSessionsOpen} onOpenChange={setIsSessionsOpen} />
 
-      {/* File > Switch Session… */}
-      <SessionsDialog open={isSessionsOpen} onOpenChange={setIsSessionsOpen} />
+        {/* Custom CA Certificate… */}
+        <CustomCaDialog open={isCustomCaOpen} onOpenChange={setIsCustomCaOpen} />
 
-      {/* Custom CA Certificate… */}
-      <CustomCaDialog open={isCustomCaOpen} onOpenChange={setIsCustomCaOpen} />
+        {/* View > Command Palette… (Cmd/Ctrl+K) */}
+        <CommandPalette
+          open={isPaletteOpen}
+          onOpenChange={setIsPaletteOpen}
+          ctx={{
+            hasRunbookOpen: Boolean(getRunbookResult.data),
+            generatedFilesVisible,
+            onOpenRunbook: () => void handleOpenRunbook(),
+            onOpenUrl: () => setIsUrlModalOpen(true),
+            onCloseRunbook: handleCloseRunbook,
+            onToggleGeneratedFiles: toggleGeneratedFiles,
+            onRevealRunbook: () => setActiveMobileSection("markdown"),
+            onFind: (text) => findBarRef.current?.open(text),
+            onOpenCustomCa: () => setIsCustomCaOpen(true),
+          }}
+        />
 
-      {/* View > Command Palette… (Cmd/Ctrl+K) */}
-      <CommandPalette
-        open={isPaletteOpen}
-        onOpenChange={setIsPaletteOpen}
-        ctx={{
-          hasRunbookOpen: Boolean(getRunbookResult.data),
-          generatedFilesVisible,
-          onOpenRunbook: () => void handleOpenRunbook(),
-          onOpenUrl: () => setIsUrlModalOpen(true),
-          onCloseRunbook: handleCloseRunbook,
-          onToggleGeneratedFiles: toggleGeneratedFiles,
-          onRevealRunbook: () => setActiveMobileSection("markdown"),
-          onFind: (text) => findBarRef.current?.open(text),
-          onOpenCustomCa: () => setIsCustomCaOpen(true),
-        }}
-      />
+        {/* AI Agent Access… */}
+        <AgentAccessDialog open={isAgentAccessOpen} onOpenChange={setIsAgentAccessOpen} />
+      </AgentBridgeProvider>
     </DisplayPathProvider>
   )
 }

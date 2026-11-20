@@ -36,6 +36,7 @@ import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { cleanupAzureConfigDirs } from "./ipc/azure-config-dirs.ts"
 import { cancelAllExecutions } from "./ipc/exec.ts"
+import { initAgentAccess, stopAgentAccess } from "./ipc/agent.ts"
 import { resolveRunbookAssetPath, runbookAssetHost } from "./ipc/path-guard.ts"
 import { byteRangeResponse } from "./asset-range.ts"
 import { installClientCertificateHandler, installPermissionHandlers } from "./permissions.ts"
@@ -551,6 +552,8 @@ app
     registerAllIpcHandlers()
     const mainWindow = createMainWindow()
     initAutoUpdater()
+    // Off unless the user turned on AI agent access (AI Agent Access…)
+    void initAgentAccess()
 
     // View > Reload replaces the page without unmounting its blocks, so no
     // block cancels its run, and no block on the new page shows it or can stop
@@ -628,7 +631,7 @@ app.on("will-quit", (event) => {
   // file disappears. The wait is capped at 1 s so that cleanup still runs
   // inside the safety timeout.
   Promise.race([
-    cancelAllExecutions(),
+    Promise.all([cancelAllExecutions(), stopAgentAccess()]),
     new Promise<void>((resolve) => {
       setTimeout(resolve, 1000)
     }),

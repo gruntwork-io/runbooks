@@ -32,6 +32,8 @@ import { ProgressStep } from "./ProgressStep"
 import type { BlockOutput } from "@/lib/templateUtils"
 import { ErrorReportingContext, issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { useSensitiveInputNames } from "@/contexts/useRunbook"
+import { useAgentBlock } from "@/contexts/useAgentBridge"
+import { validateVariableValue } from "../lib/validators"
 import { optionMembershipError } from "../../../../../../src/domain/boilerplate/options"
 
 const NO_VARIABLES: BoilerplateVariable[] = []
@@ -550,6 +552,105 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
 
   // The values entered in place of the chips of linked values
   const enteredValues = useEnteredValues(id, formData, handleInputChange)
+
+  // What an AI agent sees of this form and does to it, through the app's MCP
+  // server: set_inputs types into the fields, and run_block on a Template is
+  // its Generate button.
+  const agentReadOnly = (variable: BoilerplateVariable): boolean =>
+    sharedVarNames.has(variable.name) || variable.locked === true
+  const agentBlockedBy = (): string[] => [
+    ...Object.entries(missingBlockErrors).map(([name, message]) => `${name}: ${message}`),
+    ...Object.entries(optionsWaiting).map(
+      ([name, ids]) => `${name}: waiting for the options from ${ids.join(", ")}`,
+    ),
+  ]
+  const agentErrors = (data: Record<string, unknown>): Record<string, string> => {
+    const errors: Record<string, string> = {}
+    for (const variable of outputOptions.variables) {
+      if (hidden.has(variable.name) || sharedVarNames.has(variable.name)) continue
+      const error =
+        validateVariableValue(variable, data[variable.name], formatVariableLabel(variable.name)) ??
+        optionErrors[variable.name] ??
+        missingBlockErrors[variable.name]
+      if (error) errors[variable.name] = error
+    }
+    return errors
+  }
+  useAgentBlock(id, {
+    type: blockType,
+    status: () =>
+      isGenerating
+        ? "running"
+        : hasGenerated
+          ? blockType === "Inputs"
+            ? "submitted"
+            : "generated"
+          : "pending",
+    blockedBy: agentBlockedBy,
+    detail: () => {
+      const errors = agentErrors(formData)
+      return {
+        inputs: allVariables
+          .filter((variable) => !hidden.has(variable.name))
+          .map((variable) => {
+            const shown = variablesByName.get(variable.name) ?? variable
+            const value = formData[variable.name]
+            return {
+              name: variable.name,
+              type: variable.type,
+              description: variable.description || undefined,
+              required: variable.validations?.some((rule) => rule.type === "required") || undefined,
+              sensitive: variable.sensitive || undefined,
+              options: shown.options,
+              value:
+                variable.sensitive && value !== undefined && value !== "" ? "<redacted>" : value,
+              readOnly: agentReadOnly(variable) || undefined,
+              error: errors[variable.name],
+            }
+          }),
+      }
+    },
+    setInputs: (values) => {
+      const accepted: Record<string, unknown> = {}
+      const rejected: Record<string, string> = {}
+      for (const [name, value] of Object.entries(values)) {
+        const variable = allVariables.find((v) => v.name === name)
+        if (!variable) rejected[name] = "The form has no such field"
+        else if (agentReadOnly(variable)) rejected[name] = "The field is read-only"
+        else accepted[name] = value
+      }
+      updateFields(accepted)
+      for (const [name, value] of Object.entries(accepted)) {
+        markFieldTouched(name)
+        validateField(name, value)
+      }
+      return { errors: agentErrors({ ...formData, ...accepted }), rejected }
+    },
+    ...(onGenerate && showSubmitButton
+      ? {
+          // Submitting an Inputs form only shares its values; a Template writes files
+          runIsAction: blockType === "Template",
+          run: () => {
+            const blocked = agentBlockedBy()
+            const errors = agentErrors(formData)
+            if (isGenerating) return { started: false, reason: "Already generating" }
+            if (blocked.length > 0 || Object.keys(errors).length > 0) {
+              validateForm(formData)
+              setSubmitAttempted(true)
+              return {
+                started: false,
+                reason: [
+                  ...blocked,
+                  ...Object.entries(errors).map(([name, error]) => `${name}: ${error}`),
+                ].join("; "),
+              }
+            }
+            onGenerate(reported(formData))
+            return { started: true }
+          },
+        }
+      : {}),
+  })
 
   // What a chip linked to a variable shows: the variable's value, or what it
   // comes to when it is a template. Never a sensitive one's.
