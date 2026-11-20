@@ -1,5 +1,28 @@
 import { Effect } from "effect"
 import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
+import { withGitConfig } from "./url.ts"
+
+/**
+ * Config every git Runbooks spawns runs with, whatever the repository's own
+ * config says. A repository's config comes with the directory: a checkout a
+ * runbook points a <GitClone> block at, or a directory inside a clone, was
+ * not written by the user, and git runs the commands some of its settings
+ * name. Passed as command-scope config (withGitConfig), which outranks the
+ * repository's.
+ *
+ *  - `core.fsmonitor=false`: the setting can name a command, which
+ *    `git status`, `git ls-files` and `git diff` run to ask which files
+ *    changed. Runbooks runs those to look at a directory before the user has
+ *    chosen it.
+ *  - `safe.bareRepository=explicit`: git otherwise treats any directory with
+ *    `HEAD`, `objects/` and `refs/` in it as a repository, so a clone can
+ *    carry one, config included, as ordinary committed files. A `.git`
+ *    directory, a linked worktree and a submodule still work.
+ */
+const UNTRUSTED_REPO_CONFIG = [
+  ["core.fsmonitor", "false"],
+  ["safe.bareRepository", "explicit"],
+] as const
 
 /** ssh options that make it fail instead of prompting (see gitSpawnEnv). */
 const SSH_BATCH_OPTIONS = "-o BatchMode=yes -o StrictHostKeyChecking=yes"
@@ -85,6 +108,9 @@ const withBatchMode = (command: string) => {
  * GIT_TERMINAL_PROMPT=0 makes git itself fail instead of prompting for
  * credentials on the terminal (the HTTPS equivalent of the SSH hang).
  *
+ * It also sets UNTRUSTED_REPO_CONFIG, so no git spawned here runs a command
+ * that a repository's own config names.
+ *
  * process.env is spread first so PATH, HOME, and SSH_AUTH_SOCK (the ssh-agent
  * socket) are preserved — passing an explicit env to spawn() replaces the
  * inherited one wholesale, so omitting these would break git and ssh entirely.
@@ -95,7 +121,7 @@ export const gitSpawnEnv = (sshCommand?: string): Record<string, string | undefi
   const command = GIT_SSH_COMMAND || sshCommand || (GIT_SSH ? gitSshCommand(GIT_SSH) : "ssh")
   if (command) env.GIT_SSH_COMMAND = withBatchMode(command)
   else delete env.GIT_SSH_COMMAND
-  return env
+  return withGitConfig(env, UNTRUSTED_REPO_CONFIG)
 }
 
 /** How long resolveSshCommand waits on `git config` before giving up. */
