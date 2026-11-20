@@ -95,6 +95,7 @@ const INVOKE_CHANNELS = {
   "workspace:set-active": true,
   "generated-files:check": true,
   "generated-files:delete": true,
+  "sqlite:query": true,
   "cli:check-install": true,
   "cli:install": true,
   "cli:install-with-dialog": true,

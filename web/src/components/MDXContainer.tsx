@@ -39,6 +39,7 @@ import { GitPullRequest } from "@/components/mdx/GitPullRequest"
 import { GitHubPullRequest } from "@/components/mdx/GitHubPullRequest"
 import { GitLabMergeRequest } from "@/components/mdx/GitLabMergeRequest"
 import { DirPicker } from "@/components/mdx/DirPicker"
+import { SQLite } from "@/components/mdx/SQLite"
 import { SmartLink } from "@/components/mdx/_shared/components/SmartLink"
 import { CodeBlock } from "@/components/mdx/_shared/components/CodeBlock"
 import { InstructionModeBanner } from "@/components/mdx/_shared/components/InstructionModeBanner"
@@ -371,6 +372,7 @@ export const MDX_COMPONENTS = {
   Admonition,
   Chapter,
   Iframe,
+  SQLite,
   a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
   pre: CodeBlock, // Code blocks with copy-on-hover button
   input: TaskListCheckbox, // Make GFM task-list checkboxes interactive + persistent

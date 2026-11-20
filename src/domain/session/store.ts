@@ -13,10 +13,19 @@ import { SessionStoreError } from "../../errors/index.ts"
 export type SqlValue = string | number | null | Uint8Array
 
 export interface SqlStatement {
-  run(...params: SqlValue[]): void
+  run(...params: SqlValue[]): { changes: number; lastInsertRowid: number | bigint }
   /** The first row, or undefined when there is none. */
   get(...params: SqlValue[]): unknown
   all(...params: SqlValue[]): unknown[]
+  /** Column metadata for statements that return a result set; empty for writes. */
+  columns(): { name: string }[]
+  /**
+   * Node 22.16+ / Electron's bundled Node: make all()/get() return rows as
+   * arrays (positional access) instead of objects keyed by column name.
+   * Optional: older runtimes lack it, and duplicate column names then
+   * collapse in object rows.
+   */
+  setReturnArrays?(arrays: boolean): void
 }
 
 export interface SqlDatabase {

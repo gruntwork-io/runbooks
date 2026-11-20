@@ -12,6 +12,7 @@ import {
   maskOutputs,
   maskOutput,
   revealOutputs,
+  revealOutput,
   type OutputValue,
   type OutputValues,
 } from "@/lib/outputValues"
@@ -304,6 +305,23 @@ export function extractInputValueReferences(text: string): InputName[] {
  * resolves to `<redacted>`, never its real value.
  */
 export function resolveTemplateReferences(text: string, ctx: TemplateContext): string {
+  return resolveTemplateReferencesWith(text, ctx, maskOutput)
+}
+
+/**
+ * Like resolveTemplateReferences, but a sensitive output resolves to its real
+ * value. For values that are executed or written to a file (e.g. a <SQLite>
+ * query's props), never for display.
+ */
+export function resolveTemplateReferencesRevealed(text: string, ctx: TemplateContext): string {
+  return resolveTemplateReferencesWith(text, ctx, revealOutput)
+}
+
+function resolveTemplateReferencesWith(
+  text: string,
+  ctx: TemplateContext,
+  renderOutput: (value: OutputValue) => string,
+): string {
   if (!text) return text
   return text.replace(VALUE_REFERENCE_PATTERN, (match, namespace, path) => {
     if (namespace === "inputs") {
@@ -322,7 +340,7 @@ export function resolveTemplateReferences(text: string, ctx: TemplateContext): s
         const blockId = normalizeBlockId(path.slice(0, dotIdx))
         const outputName = path.slice(dotIdx + 1)
         const value = ctx.outputs[blockId]?.[outputName]
-        return value !== undefined ? maskOutput(value) : `\`${match}\``
+        return value !== undefined ? renderOutput(value) : `\`${match}\``
       }
     }
     return `\`${match}\``

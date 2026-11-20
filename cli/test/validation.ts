@@ -111,6 +111,7 @@ export class InputValidator {
     components.push(...this.parseRunBlocks(elements, "Command"))
     components.push(...this.parseRunBlocks(elements, "Finish"))
     components.push(...this.parseRunBlocks(elements, "Prerequisites"))
+    components.push(...this.parseRunBlocks(elements, "SQLite"))
     components.push(...this.parseTemplateBlocks(elements, runbookDir))
     components.push(...this.parseTemplateInlineBlocks(elements))
     for (const authType of AUTH_BLOCK_TYPES) {
@@ -640,6 +641,40 @@ function validateComponent(comp: ParsedComponent): ConfigError[] {
       }
       const problem = toolListProblem(comp.content)
       if (problem) errors.push({ componentType: comp.type, componentId: comp.id, message: problem })
+      break
+    }
+
+    case "SQLite": {
+      if (!comp.hasExplicitId) {
+        errors.push({
+          componentType: "SQLite",
+          componentId: comp.id,
+          message: "The 'id' prop is required",
+        })
+      }
+      if (!stringProp(comp.props, "db")) {
+        errors.push({
+          componentType: "SQLite",
+          componentId: comp.id,
+          message: "The 'db' prop is required",
+        })
+      }
+      const hasQuery = Boolean(stringProp(comp.props, "query"))
+      const hasPath = Boolean(stringProp(comp.props, "path"))
+      if (!hasQuery && !hasPath) {
+        errors.push({
+          componentType: "SQLite",
+          componentId: comp.id,
+          message: "One of 'query' or 'path' is required",
+        })
+      }
+      if (hasQuery && hasPath) {
+        errors.push({
+          componentType: "SQLite",
+          componentId: comp.id,
+          message: "'query' and 'path' are mutually exclusive",
+        })
+      }
       break
     }
   }

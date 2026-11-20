@@ -32,6 +32,7 @@ export type BlockComponentType =
   | "GitLabMergeRequest"
   | "DirPicker"
   | "Iframe"
+  | "SQLite"
 
 interface ComponentRegistration {
   id: string

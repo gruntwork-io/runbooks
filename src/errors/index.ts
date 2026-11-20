@@ -183,6 +183,12 @@ export class SessionStoreError extends Data.TaggedError("SessionStoreError")<{
   readonly cause?: unknown
 }> {}
 
+// SQLite block
+export class SqliteQueryError extends Data.TaggedError("SqliteQueryError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
 /** The session has no credential it may send to the requested host. */
 export class MissingSessionCredentialError extends Data.TaggedError(
   "MissingSessionCredentialError",

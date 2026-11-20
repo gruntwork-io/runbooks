@@ -31,6 +31,7 @@ import type { SavedBlockState, SessionEventKind } from "../../src/domain/session
 import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { CustomCaStatus } from "../../src/domain/tls/customCa.ts"
 export type { CustomCaStatus }
+import type { SqlParam, SqlQueryResult } from "../../src/domain/sqlite/result.ts"
 
 import type { AzurePrincipal } from "../../src/domain/azure/claims.ts"
 import type { AzureSubscription, AzureTenant, RequiredRole } from "../../src/domain/azure/auth.ts"
@@ -1030,6 +1031,13 @@ export interface IpcChannelMap {
   }
   /** Main also reads an optional outputPath, as for generated-files:check; the renderer sends none. */
   "generated-files:delete": { params: void; result: GeneratedFilesDeleteResponse }
+
+  // SQLite block. Exactly one of `sql` (inline query) and `sqlPath` (a .sql
+  // file, resolved and validated like dbPath) is set.
+  "sqlite:query": {
+    params: { dbPath: string; sql?: string; sqlPath?: string; params?: SqlParam[] }
+    result: SqlQueryResult
+  }
 
   // File Operations
   /** The file at `path`, as readFileMetadata reads it. */
