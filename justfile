@@ -1,6 +1,6 @@
 # Pinned version of gruntwork-io/boilerplate to bundle.
 # Bump and re-run `just fetch-boilerplate` to pick up a new release.
-boilerplate_version := "v0.17.0"
+boilerplate_version := "v0.17.1"
 
 # Default recipe: show available commands
 default:
