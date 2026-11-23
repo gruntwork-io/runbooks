@@ -67,17 +67,24 @@ export function resolveBoilerplateBinary(): Effect.Effect<string, RenderError> {
 }
 
 /**
- * Write a YAML file containing the rendered variables for `--var-file`.
+ * Write the rendered variables for `--var-file`.
  *
- * Boilerplate accepts arbitrarily-nested YAML values, so we let the `yaml`
- * package handle all primitives + nested maps/arrays. The file is written to
- * a unique path under `os.tmpdir()` and is the caller's responsibility to rm.
+ * Written as JSON, which is valid YAML: every string is quoted, so boilerplate
+ * (whose YAML parser follows YAML 1.1) reads each value back with the type it
+ * had. Plain YAML leaves a string like `2026-11-01T00:00:00Z`, `yes` or `0123`
+ * unquoted, and boilerplate then reads a timestamp, a bool or an octal number,
+ * and rejects it for a string variable. The file is written to a unique path
+ * under `os.tmpdir()` and is the caller's responsibility to rm.
  */
+/** The `--var-file` text for `variables`: JSON, so every string stays a string. */
+export function varFileContent(variables: Record<string, unknown> | undefined): string {
+  return `${JSON.stringify(variables ?? {}, null, 2)}\n`
+}
+
 function writeVarFile(variables: Record<string, unknown>) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem
-    const YAML = yield* Effect.promise(() => import("yaml"))
-    const yamlText = YAML.stringify(variables ?? {})
+    const yamlText = varFileContent(variables)
     const tmpDir = yield* fs.mkdtemp("boilerplate-vars-").pipe(
       Effect.mapError(
         (err) =>
