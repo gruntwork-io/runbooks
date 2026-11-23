@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { computeRunBlockers, isRunBlocked } from "./blockRuns"
+import { computeRunBlockers, isRunBlocked, showWhenBlockState } from "./blockRuns"
 import type { BlockRun, BlockRunStatus } from "@/contexts/BlockRunsContext.types"
 
 function run(blockId: string, status: BlockRunStatus, exclusive = false): BlockRun {
@@ -139,5 +139,93 @@ describe("computeRunBlockers", () => {
     })
 
     expect(blockers.running).toEqual([])
+  })
+})
+
+describe("showWhenBlockState", () => {
+  const showBase = {
+    blockId: "rerun-plan",
+    value: { id: "check-plan", status: "fail" },
+    status: "pending" as BlockRunStatus,
+    isOnPage: true,
+  }
+
+  it("shows a block without the prop", () => {
+    expect(
+      showWhenBlockState({ ...showBase, value: undefined, runs: {}, isOnPage: undefined }),
+    ).toEqual({ shown: true, condition: null, error: null })
+  })
+
+  it("shows the block only while the named block's latest run ended as the prop says", () => {
+    const stateWhen = (status: BlockRunStatus) =>
+      showWhenBlockState({ ...showBase, runs: runsOf(run("check-plan", status)) }).shown
+
+    expect(stateWhen("pending")).toBe(false)
+    expect(stateWhen("running")).toBe(false)
+    expect(stateWhen("success")).toBe(false)
+    expect(stateWhen("warn")).toBe(false)
+    expect(stateWhen("fail")).toBe(true)
+  })
+
+  it("keeps a running block shown", () => {
+    const state = showWhenBlockState({
+      ...showBase,
+      status: "running",
+      runs: runsOf(run("check-plan", "success")),
+    })
+
+    expect(state.shown).toBe(true)
+  })
+
+  it("matches the id the way templates do, hyphens and underscores alike", () => {
+    const state = showWhenBlockState({
+      ...showBase,
+      value: { id: "check_plan", status: ["warn", "fail"] },
+      runs: runsOf(run("check-plan", "warn")),
+    })
+
+    expect(state).toEqual({
+      shown: true,
+      condition: { id: "check_plan", statuses: ["warn", "fail"] },
+      error: null,
+    })
+  })
+
+  it("reports an id no block on the page has", () => {
+    const state = showWhenBlockState({ ...showBase, runs: {}, isOnPage: false })
+
+    expect(state.shown).toBe(true)
+    expect(state.error).toBe(
+      'showWhenBlock names "check-plan", but no Check, Command, Finish or Prerequisites block has that id.',
+    )
+  })
+
+  it("reports a block that has no runs", () => {
+    const state = showWhenBlockState({ ...showBase, runs: {}, isOnPage: true })
+
+    expect(state.error).toContain("no Check, Command, Finish or Prerequisites block")
+  })
+
+  it("waits for the blocks to register before reporting a missing id", () => {
+    const state = showWhenBlockState({ ...showBase, runs: {}, isOnPage: undefined })
+
+    expect(state).toEqual({
+      shown: false,
+      condition: { id: "check-plan", statuses: ["fail"] },
+      error: null,
+    })
+  })
+
+  it("reports the block naming itself, and a prop that isn't valid", () => {
+    expect(
+      showWhenBlockState({
+        ...showBase,
+        value: { id: "rerun-plan", status: "fail" },
+        runs: runsOf(run("rerun-plan", "fail")),
+      }).error,
+    ).toBe("showWhenBlock can't name the block itself.")
+    expect(
+      showWhenBlockState({ ...showBase, value: { id: "check-plan" }, runs: {} }).error,
+    ).toContain("status must be")
   })
 })

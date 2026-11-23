@@ -46,7 +46,14 @@ export interface TestStep {
   set_outputs?: Record<string, string>
 }
 
-export type ExpectedStatus = "success" | "fail" | "warn" | "blocked" | "skip" | "config_error"
+export type ExpectedStatus =
+  | "success"
+  | "fail"
+  | "warn"
+  | "blocked"
+  | "skip"
+  | "hidden"
+  | "config_error"
 
 export interface TestAssertion {
   type: AssertionType
@@ -320,6 +327,7 @@ function validateConfig(config: TestConfig): void {
           "warn",
           "blocked",
           "skip",
+          "hidden",
           "config_error",
         ]
         if (!validStatuses.includes(step.expect)) {

@@ -53,6 +53,7 @@ Interactive blocks take an `id` prop, a unique identifier for the block. When on
 - `inputsId` uses the values collected by an `<Inputs>` or `<Template>` block. See [Wiring blocks with `inputsId`](/authoring/inputs-and-outputs/#wiring-blocks-with-inputsid).
 - `awsAuthId`, `azureAuthId`, `googleAuthId`, `gitAuthId` and `githubAuthId` choose which auth block's credentials a block uses.
 - `dependsOn` names the `<Command>` or `<Check>` blocks that must succeed before a `<Command>`, `<Check>` or `<Finish>` can run. A `<Check>` that ends with a warning counts too. See [Run order](/authoring/blocks/command/#run-order).
+- `showWhenBlock` shows a `<Command>`, `<Check>` or `<Finish>` only while another block's latest run ended a certain way. See [Showing a block after another one fails](/authoring/blocks/command/#showing-a-block-after-another-one-fails).
 - `gitCloneId` roots a `<DirPicker>` in the repository a `<GitClone>` block cloned.
 - `{{ .outputs.<block_id>.<output_name> }}` reads the outputs of a block that has already run. In template syntax, write any hyphens in the ID as underscores. See [Block outputs](/authoring/inputs-and-outputs/#block-outputs).
 

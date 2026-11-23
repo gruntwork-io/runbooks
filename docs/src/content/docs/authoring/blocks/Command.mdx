@@ -48,6 +48,7 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 - `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Raise it for scripts that run longer, for example `timeoutMs={7200000}` for a 2-hour deployment, or lower it so a hung script fails sooner. [Runbook tests](/authoring/testing/) ignore it and apply the test's `timeout` setting instead.
 - `dependsOn` (string | string[]): ID of a Command, Check or [Prerequisites](/authoring/blocks/prerequisites/) block, or an array of IDs, that must succeed before this block can run. A Check or Prerequisites block that ends with a warning counts too. See [Run order](#run-order).
 - `exclusive` (boolean): whether this block runs alone. Defaults to `false`. While it runs, no other Command or Check block can start, and it can't start while another one is running. See [Run order](#run-order).
+- `showWhenBlock` (`{ id: string, status: string | string[] }`): show this block only while the latest run of another Command, Check, Finish or Prerequisites block ended with `status`: `success`, `warn` or `fail`, or a list of them. See [Showing a block after another one fails](#showing-a-block-after-another-one-fails).
 
 ### Inline content
 
@@ -424,6 +425,31 @@ Command and Check blocks can run at the same time. A block's Run button is disab
 A block that is waiting names the blocks it is waiting for. Click a name to scroll to that block. For a block that is running, there is also a button to stop it.
 
 Each ID in `dependsOn` must name a Command, Check or [Prerequisites](/authoring/blocks/prerequisites/) block in the runbook. Runbooks doesn't report an ID that names another kind of block, or no block at all. The block just keeps waiting for it.
+
+#### Showing a block after another one fails
+
+`showWhenBlock` shows a Command, Check or Finish block only while the latest run of another block ended a certain way. Use it for a step that only applies after a failure, such as a button that re-runs a failed CI job right under the check that waits for it:
+
+```mdx
+<Check id="check-plan" title="Wait for the plan" path="scripts/check-plan.sh" />
+
+<Command
+  id="rerun-plan"
+  title="Re-run the plan"
+  showWhenBlock={{ id: "check-plan", status: "fail" }}
+  path="scripts/rerun-plan.sh"
+/>
+```
+
+`id` names a Command, Check, Finish or [Prerequisites](/authoring/blocks/prerequisites/) block. `status` is `success`, `warn` or `fail`, or a list of them, such as `status: ["warn", "fail"]`. A Command that exits 2 counts as `warn` here, as it does for `dependsOn`.
+
+- Until the named block has run, and while it is running, the block is hidden. A hidden block isn't counted in the runbook's progress.
+- The block follows the named block's latest run. In the example, running `check-plan` again and passing hides `rerun-plan` again.
+- A block that is running stays in view until it finishes, whatever the named block does.
+- A [resumed session](/commands/sessions/#resuming-a-session) brings back each block's last run, so the block shows or hides as it did before.
+- In [instruction mode](/intro/instruction-mode/), nothing runs, so the block is always shown, and states when it applies, such as "Only when "check-plan" fails."
+
+Runbooks reports a configuration error when `showWhenBlock` names the block itself, or an ID that no Command, Check, Finish or Prerequisites block has. In [runbook tests](/authoring/testing/#expected-status-values), a hidden block doesn't run and is reported as `hidden`.
 
 #### Background processes
 

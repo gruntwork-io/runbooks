@@ -1,0 +1,34 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+  parallelizable: true
+
+tests:
+  - name: plan-fails-then-passes
+    description: |
+      The re-run block shows only while the check has failed, and the apply
+      block only once it passes.
+    steps:
+      - block: rerun-plan
+        expect: hidden
+      - block: check-plan
+        expect: fail
+      - block: rerun-plan
+        expect: success
+      - block: apply
+        expect: hidden
+      - block: check-plan
+        expect: success
+      - block: rerun-plan
+        expect: hidden
+      - block: apply
+        expect: success
+
+  - name: plan-passes-first-time
+    description: |
+      Without steps, every block runs in document order. The re-run block is
+      hidden, as the check passes, and is reported as hidden.
+    env:
+      PLAN_FIXED: "1"
