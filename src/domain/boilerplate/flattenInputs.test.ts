@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import {
+  coerceToDeclaredTypes,
   flattenVariables,
   resolveInputTemplates,
   stripTemplateValues,
@@ -547,5 +548,64 @@ describe("flattenVariables", () => {
       inputs: { Foo: "lifted-loses" },
     })
     expect(result.Foo).toBe("root-wins")
+  })
+})
+
+describe("flattenVariables with declared types", () => {
+  it("turns output references to a list, a number and a bool into those types", async () => {
+    const result = await Effect.runPromise(
+      flattenVariables(
+        {
+          inputs: {
+            AllowedLocations: "{{ .outputs.query.AllowedLocations }}",
+            MonthlyBudgetAmount: "{{ .outputs.query.MonthlyBudgetAmount }}",
+            Enabled: "{{ .outputs.query.Enabled }}",
+            Name: "{{ .outputs.query.Name }}",
+          },
+          outputs: {
+            query: {
+              AllowedLocations: '["eastus","eastus2"]',
+              MonthlyBudgetAmount: "100",
+              Enabled: "true",
+              Name: "[not a list]",
+            },
+          },
+        },
+        { AllowedLocations: "list", MonthlyBudgetAmount: "int", Enabled: "bool", Name: "string" },
+      ).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    expect(result.inputs).toEqual({
+      AllowedLocations: ["eastus", "eastus2"],
+      MonthlyBudgetAmount: 100,
+      Enabled: true,
+      Name: "[not a list]",
+    })
+    // The lifted top-level copies get the same types.
+    expect(result.AllowedLocations).toEqual(["eastus", "eastus2"])
+  })
+})
+
+describe("coerceToDeclaredTypes", () => {
+  it("parses strings that match the declared type", () => {
+    expect(
+      coerceToDeclaredTypes(
+        { l: "[]", m: '{"a":"b"}', i: "-3", f: "1.5", b: "false" },
+        { l: "list", m: "map", i: "int", f: "float", b: "bool" },
+      ),
+    ).toEqual({ l: [], m: { a: "b" }, i: -3, f: 1.5, b: false })
+  })
+
+  it("leaves values that do not parse as the declared type, and undeclared names", () => {
+    const inputs = { l: "eastus", m: "[1]", i: "1.5", f: "", b: "yes", other: "[1]", already: [1] }
+    expect(
+      coerceToDeclaredTypes(inputs, {
+        l: "list",
+        m: "map",
+        i: "int",
+        f: "float",
+        b: "bool",
+        already: "list",
+      }),
+    ).toEqual(inputs)
   })
 })
