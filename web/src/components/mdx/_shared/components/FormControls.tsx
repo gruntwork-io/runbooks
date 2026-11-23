@@ -1047,6 +1047,29 @@ export const TupleInput: React.FC<BaseFormControlProps> = ({
 export const FormControl: React.FC<BaseFormControlProps> = (props) => {
   const { variable } = props
 
+  // A whole-field template value, such as a default of
+  // `{{ .outputs.read_config.Budget }}`, shows as its chip in a number, bool,
+  // list or map field too. Its X empties the field for a value of the user's
+  // own. String and enum fields show such a value themselves.
+  if (
+    variable.type !== BoilerplateVariableType.String &&
+    variable.type !== BoilerplateVariableType.Enum &&
+    isTemplateValue(props.value)
+  ) {
+    return (
+      <LinkedValueChip
+        id={`${props.id}-${variable.name}`}
+        expression={props.value}
+        resolved={props.resolvedValue}
+        error={props.error}
+        disabled={props.disabled}
+        sensitive={variable.sensitive}
+        links={props.links}
+        onClear={() => props.onChange(emptyValue(variable.type))}
+      />
+    )
+  }
+
   switch (variable.type) {
     case BoilerplateVariableType.String:
       return <StringInput {...props} />
@@ -1078,5 +1101,19 @@ export const FormControl: React.FC<BaseFormControlProps> = (props) => {
       )
     default:
       return <StringInput {...props} />
+  }
+}
+
+/** The value an emptied field of a given type holds. */
+function emptyValue(type: BoilerplateVariable["type"]): unknown {
+  switch (type) {
+    case BoilerplateVariableType.Bool:
+      return false
+    case BoilerplateVariableType.List:
+      return []
+    case BoilerplateVariableType.Map:
+      return {}
+    default:
+      return ""
   }
 }

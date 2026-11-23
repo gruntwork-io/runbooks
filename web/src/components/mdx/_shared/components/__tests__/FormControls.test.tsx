@@ -844,6 +844,31 @@ describe("FormControls template-valued values", () => {
     expect(select.value).toBe("{{ .DefaultEnv }}")
     expect(select.selectedOptions[0]!.text).toBe("Same as Default Env")
   })
+
+  it.each([
+    ["int", "{{ .outputs.read_config.Budget }}", ""],
+    ["list", "{{ .outputs.read_config.Prefixes }}", []],
+    ["map", "{{ .outputs.read_config.Tags }}", {}],
+    ["bool", "{{ .outputs.read_config.Enabled }}", false],
+  ] as const)("shows a linked %s value as a chip, whose X empties the field", async (type, value, empty) => {
+    const onChange = vi.fn()
+    const { container } = render(
+      <FormControl
+        id="f"
+        variable={stringVar({ name: "Setting", type })}
+        value={value}
+        resolvedValue="100"
+        onChange={onChange}
+        links={fieldLinks()}
+      />,
+    )
+
+    expect(container.querySelector("output#f-Setting")).not.toBeNull()
+    expectNoRawTemplateText(container)
+
+    await userEvent.click(screen.getByRole("button", { name: "Clear linked value" }))
+    expect(onChange).toHaveBeenCalledWith(empty)
+  })
 })
 
 // An option can carry a label: it is shown as its label and stored as its value.
