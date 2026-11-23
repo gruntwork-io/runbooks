@@ -38,6 +38,8 @@ A Check has a **Check** button where a Command has **Run**. It also accepts a `w
 - `path` (string): path to a script file, relative to the runbook's folder, such as `scripts/check.sh`. The file must be inside that folder, so a path with a `..` segment fails. Use either this or `command`.
 - `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones. A block that uses `{{ .inputs.* }}`, in `env` or in the script, needs this prop or a nested Inputs block. See [With variables](#with-variables).
 - `env` (object): environment variables the script runs with, by name, such as `env={{ BUCKET_NAME: "{{ .inputs.BucketName }}" }}`. Each value can reference inputs and block outputs. See [Passing values as environment variables](/authoring/blocks/command/#passing-values-as-environment-variables).
+- `workingDir` (string): the directory the script runs in, such as `workingDir="infra/live"`. A relative path is relative to the [session's directory](/commands/sessions/). Defaults to the session's directory. Like `env` values, it can use `{{ .inputs.X }}` and `{{ .outputs.block.key }}` templates. The directory must exist when the block runs. See [Working directory](/security/shell-execution-context/#working-directory).
+- `interpreter` (string): the program, with any arguments, that runs the script when it has no shebang, such as `interpreter="python3"`. A script with a shebang can't also set it. Defaults to the program for the script file's extension, or `bash`. See [How a script runs](/security/shell-execution-context/#how-a-script-runs).
 - `awsAuthId` (string): ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Check button is disabled until authentication completes.
 - `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block, for either provider. Its credentials are passed as environment variables (`GITHUB_TOKEN` and `GITHUB_USER`, or `GITLAB_TOKEN` and `GITLAB_USER`). The Check button is disabled until authentication completes.
 - `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block. GitHub only. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Check button is disabled until authentication completes. Prefer `gitAuthId`.
@@ -115,7 +117,7 @@ Inline scripts suit one-liners. For anything longer, use an external script file
 External scripts are plain bash scripts. The referenced `checks/aws-authenticated.sh` might look like:
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 
 log_info "Checking AWS authentication..."
 
@@ -174,14 +176,14 @@ See [With variables](/authoring/blocks/command/#with-variables) in the Command b
 
 ### Execution context
 
-Check scripts run in the same persistent, non-interactive shell environment as Command scripts. A check that exits 0 or 2 carries its `export`, `unset` and `cd` changes forward to later blocks. Like a Command script, it starts in the session's directory rather than the runbook's folder, and runs without a terminal or any input. See [Execution context](/authoring/blocks/command/#execution-context).
+Check scripts run in the same session environment and non-interactive shell as Command scripts. A check that exits 0 or 2 sets the variables it wrote to `$RUNBOOK_ENV` for later blocks. Like a Command script, it starts in the session's directory rather than the runbook's folder, unless its `workingDir` names another directory, and runs without a terminal or any input. See [Execution context](/authoring/blocks/command/#execution-context).
 
 ### Examples
 
 #### Basic validation script
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 # checks/tofu-installed.sh
 
 log_info "Checking for OpenTofu installation..."
@@ -198,7 +200,7 @@ fi
 #### Script with warning
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 # checks/disk-space.sh
 
 log_info "Checking available disk space..."
@@ -222,7 +224,7 @@ fi
 The `check-s3-bucket` block in [Inline content](#inline-content) sets `BUCKET_NAME` for this script with its `env` prop.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 # checks/s3-bucket-exists.sh
 
 log_info "Checking if S3 bucket exists..."
@@ -246,7 +248,7 @@ A check's output streams into the same **View Logs** panel as a command's. See [
 A check script can write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and later blocks reference them as `{{ .outputs.<block-id>.<key> }}`, or pass them to a script with [`env`](/authoring/blocks/command/#passing-values-as-environment-variables):
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 # Verify an account and output its ID
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
@@ -265,7 +267,7 @@ A check script can write to `$GENERATED_FILES` and read or modify `$REPO_FILES` 
 A check more often reads `$REPO_FILES` than writes to it:
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 # Validate a config file in the cloned repo
 if [ -z "${REPO_FILES:-}" ]; then
     log_error "No git worktree available. Clone a repo first."

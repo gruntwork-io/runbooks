@@ -86,26 +86,14 @@ describe("validateSessionPath", () => {
     expect((await validate(path.join(outside, "secret.txt")))._tag).toBe("Success")
   })
 
-  it("accepts the session's own directory after a script moved the working directory out of it", async () => {
-    // A saved session's directory is apart from the runbook's, and holds its
-    // generated files.
+  it("accepts the session's own directory, apart from the runbook's", async () => {
+    // A saved session's directory holds its generated files.
     const sessionDir = path.join(root, "sessions", "s1")
-    const release = path.join(sessionDir, "release")
-    fs.mkdirSync(release, { recursive: true })
+    fs.mkdirSync(sessionDir, { recursive: true })
     fs.symlinkSync(outside, path.join(sessionDir, "escape"))
     sessionManager.deleteSession()
     await Effect.runPromise(
       sessionManager.createSession(sessionDir, runbook).pipe(Effect.provide(makeTestEnvironment())),
-    )
-    const start = await Effect.runPromise(sessionManager.getExecContext())
-    await Effect.runPromise(
-      sessionManager.applyCapturedEnv({
-        before: start.env,
-        after: start.env,
-        startWorkDir: start.workDir,
-        pwd: release,
-        generation: start.generation,
-      }),
     )
 
     const generated = await validate(path.join(sessionDir, "generated"))

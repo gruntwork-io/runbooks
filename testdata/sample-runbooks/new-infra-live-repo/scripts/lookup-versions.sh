@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 # Look up the latest versions of OpenTofu and Terragrunt from GitHub releases.

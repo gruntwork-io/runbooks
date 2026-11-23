@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Generate a deployment configuration file.
 # Files written to $GENERATED_FILES are captured and appear in the Generated tab.
 

@@ -1,27 +1,18 @@
-#!/bin/bash
-# Modify environment variables to demonstrate propagation
+#!/usr/bin/env bash
+# Change the session's variables by writing new values to RUNBOOK_ENV
 
-echo "Modifying environment variables..."
-echo ""
-
-# Show current values
 echo "Current values:"
+echo "  DEMO_VAR=$DEMO_VAR"
 echo "  DEMO_COUNT=$DEMO_COUNT"
 echo ""
 
-# Increment DEMO_COUNT
-export DEMO_COUNT=$((DEMO_COUNT + 1))
+{
+  echo "DEMO_COUNT=$((DEMO_COUNT + 1))"
+  echo "DEMO_MODIFIED=modified-in-block-3"
+  echo "DEMO_VAR=updated-in-block-3"
+} >> "$RUNBOOK_ENV"
 
-# Add a new variable
-export DEMO_MODIFIED="modified-in-block-3"
-
-# Update DEMO_VAR
-export DEMO_VAR="updated-in-block-3"
-
-echo "New values:"
-echo "  DEMO_VAR=$DEMO_VAR (updated)"
-echo "  DEMO_COUNT=$DEMO_COUNT (incremented)"
-echo "  DEMO_MODIFIED=$DEMO_MODIFIED (new)"
-echo ""
-echo "These modifications will persist to subsequent blocks!"
-
+echo "New values for later blocks:"
+echo "  DEMO_VAR=updated-in-block-3 (updated)"
+echo "  DEMO_COUNT=$((DEMO_COUNT + 1)) (incremented)"
+echo "  DEMO_MODIFIED=modified-in-block-3 (new)"

@@ -22,7 +22,6 @@ function record(overrides: Partial<SessionRecord> = {}): SessionRecord {
     path: "/repo/runbook.mdx",
     remoteSource: undefined,
     dir: "/sessions/dirs/s1",
-    workingDir: "/sessions/dirs/s1",
     launchDir: undefined,
     env: undefined,
     worktrees: [],
@@ -160,7 +159,6 @@ describe("SessionStore", () => {
 
       run(
         store.saveState("s1", {
-          workingDir: "/sessions/dirs/s1/repo",
           env: new Uint8Array([9]),
           worktrees: ["/b"],
           activeWorktree: "/b",
@@ -172,7 +170,6 @@ describe("SessionStore", () => {
       expect(run(store.get("s1"))).toEqual(
         record({
           launchDir: "/home/me",
-          workingDir: "/sessions/dirs/s1/repo",
           env: new Uint8Array([9]),
           worktrees: ["/b"],
           activeWorktree: "/b",
@@ -187,7 +184,6 @@ describe("SessionStore", () => {
 
       run(
         store.saveState("s1", {
-          workingDir: "/w",
           env: undefined,
           worktrees: [],
           activeWorktree: "",
@@ -645,6 +641,39 @@ describe("SessionStore", () => {
       }
       db.close()
       expect(mode).toBe("wal")
+    })
+
+    it("keeps the sessions of a version 1 database, which has a working_dir column", () => {
+      const file = path.join(dir, "sessions.db")
+      const db = openSqliteDatabase(file)
+      db.exec(`CREATE TABLE sessions (
+         id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, runbook_path TEXT NOT NULL,
+         remote_source TEXT, dir TEXT NOT NULL, working_dir TEXT NOT NULL, launch_dir TEXT,
+         env BLOB, active_worktree TEXT NOT NULL, execution_count INTEGER NOT NULL,
+         created_at TEXT NOT NULL, last_launched_at TEXT NOT NULL, last_activity_at TEXT NOT NULL,
+         vcs_bindings TEXT NOT NULL, finished_at TEXT
+       ) STRICT;
+       CREATE TABLE session_worktrees (
+         session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+         position INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY (session_id, position)
+       ) STRICT;
+       CREATE TABLE session_events (
+         seq INTEGER PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+         at TEXT NOT NULL, block_id TEXT NOT NULL, kind TEXT NOT NULL, payload BLOB NOT NULL
+       ) STRICT;
+       CREATE INDEX session_events_by_session ON session_events (session_id, seq);
+       INSERT INTO sessions VALUES (
+         's1', 'calm-heron', '/runbooks/a/runbook.mdx', NULL, '/sessions/dirs/s1', '/tmp', NULL,
+         NULL, '', 3, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
+         '2026-01-01T00:00:00.000Z', '{}', NULL
+       );
+       PRAGMA user_version = 1;`)
+      db.close()
+
+      const upgraded = run(SessionStore.open(openSqliteDatabase(file)))
+
+      expect(run(upgraded.get("s1"))).toMatchObject({ dir: "/sessions/dirs/s1", executionCount: 3 })
+      run(upgraded.close())
     })
 
     it("refuses a database written by a newer schema version", () => {

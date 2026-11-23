@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Verify project was created correctly
 
 PROJECT_NAME="${PROJECT_NAME:-test-project}"

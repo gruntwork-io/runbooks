@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 # Verify that the scaffold PR has been merged. The Check's env prop sets

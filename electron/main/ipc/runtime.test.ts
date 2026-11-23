@@ -146,8 +146,8 @@ describe("getSessionTokenForHost — gitlab", () => {
     vcsSessionMeta.set("gitlab", { host, source: "manual" })
   }
 
-  /** A Command script's `export GITLAB_HOST=<value>`, captured into the session. */
-  const scriptExportsGitLabHost = (value: string) =>
+  /** A Command script that writes `GITLAB_HOST=<value>` to RUNBOOK_ENV. */
+  const scriptSetsGitLabHost = (value: string) =>
     Effect.runPromise(sessionManager.appendToEnv({ GITLAB_HOST: value }))
 
   it("without an auth block: releases GITLAB_TOKEN only for GITLAB_HOST (default gitlab.com)", async () => {
@@ -185,7 +185,7 @@ describe("getSessionTokenForHost — gitlab", () => {
   it("a script that points GITLAB_HOST at another host releases nothing (fail closed)", async () => {
     await setup({})
     await authGitLab("gitlab.com", "t_block")
-    await scriptExportsGitLabHost("gitlab.attacker.example")
+    await scriptSetsGitLabHost("gitlab.attacker.example")
     expect(vcsSessionMeta.get("gitlab")?.host).toBe("gitlab.com")
     expect(await tokenForHost("gitlab", "gitlab.attacker.example")).toBeUndefined()
     expect(await tokenForHost("gitlab", "gitlab.com")).toBeUndefined()
@@ -201,7 +201,7 @@ describe("getSessionTokenForHost — gitlab", () => {
   it("a script that names the same host in URL form keeps the binding", async () => {
     await setup({})
     await authGitLab(CORP, "t_block")
-    await scriptExportsGitLabHost(`https://${CORP.toUpperCase()}/`)
+    await scriptSetsGitLabHost(`https://${CORP.toUpperCase()}/`)
     expect(await tokenForHost("gitlab", CORP)).toBe("t_block")
     expect(await tokenForHost("gitlab", "gitlab.com")).toBeUndefined()
   })

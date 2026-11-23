@@ -1,5 +1,5 @@
-#!/bin/bash
-# Verify that modifications from Block 3 persisted
+#!/usr/bin/env bash
+# Verify that the new values Block 3 wrote to RUNBOOK_ENV are set
 
 echo "Checking for modified environment variables..."
 echo ""
@@ -33,10 +33,9 @@ fi
 echo ""
 
 if [ $errors -gt 0 ]; then
-    echo "Some modifications did not persist. Did you run Block 3?"
+    echo "Some new values are missing. Did you run Block 3?"
     exit 1
 fi
 
 echo "All modifications from Block 3 are present!"
-echo "Environment changes correctly propagate between blocks."
 

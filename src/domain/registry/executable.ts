@@ -20,7 +20,7 @@ import { computeContentHash } from "../workspace/file.js"
 import { ExecutableNotFoundError, ScriptReloadConflictError } from "../../errors/index.js"
 import { parseMdx, stringProp, type MdxElement, type Props } from "../../mdx.ts"
 import { extractToolList } from "../prerequisites/spec.ts"
-import { parseBlockEnv, type BlockEnv } from "../exec/blockEnv.ts"
+import { parseBlockEnv, parseBlockInterpreter, parseBlockWorkingDir } from "../exec/blockEnv.ts"
 import type { Executable, ExecutableType, ScriptFileChange } from "../../types.js"
 
 // ---------------------------------------------------------------------------
@@ -33,6 +33,12 @@ import type { Executable, ExecutableType, ScriptFileChange } from "../../types.j
  * renderer completes it without running anything.
  */
 const SCRIPT_COMPONENT_TYPES = ["Command", "Check", "Finish"] as const
+
+/**
+ * The props of a script block that decide how its script runs, checked but
+ * for `interpreter`, which parseBlockInterpreter checks against the script.
+ */
+type BlockRunProps = Pick<Executable, "env" | "workingDir"> & { readonly interpreter: unknown }
 
 // ---------------------------------------------------------------------------
 // ID computation
@@ -196,11 +202,29 @@ export class ExecutableRegistry {
             this.warnings.push(`<${componentType} id="${comp.id}">: ${env.error}`)
             continue
           }
+          const workingDir = parseBlockWorkingDir(comp.props.workingDir)
+          if (!workingDir.ok) {
+            this.warnings.push(`<${componentType} id="${comp.id}">: ${workingDir.error}`)
+            continue
+          }
 
+          // The interpreter prop is checked against the script, once it is read
+          const blockProps = {
+            env: env.env,
+            workingDir: workingDir.workingDir,
+            interpreter: comp.props.interpreter,
+          }
           if (commandProp) {
-            this.registerInlineEntry(comp.id, componentType, commandProp, env.env)
+            this.registerInlineEntry(comp.id, componentType, commandProp, blockProps)
           } else {
-            yield* this.registerFileEntry(fs, comp.id, componentType, pathProp, runbookDir, env.env)
+            yield* this.registerFileEntry(
+              fs,
+              comp.id,
+              componentType,
+              pathProp,
+              runbookDir,
+              blockProps,
+            )
           }
         }
       }
@@ -234,9 +258,10 @@ export class ExecutableRegistry {
       componentType: "prerequisites",
       content: toolList,
       contentHash: computeContentHash(toolList),
-      language: "yaml",
       templateVars: [],
       env: {},
+      workingDir: "",
+      interpreter: "",
     })
   }
 
@@ -248,8 +273,13 @@ export class ExecutableRegistry {
     componentId: string,
     componentType: string,
     scriptContent: string,
-    env: BlockEnv,
+    blockProps: BlockRunProps,
   ): void {
+    const interpreter = parseBlockInterpreter(blockProps.interpreter, scriptContent)
+    if (!interpreter.ok) {
+      this.warnings.push(`<${componentType} id="${componentId}">: ${interpreter.error}`)
+      return
+    }
     const entryId = computeExecutableId(componentId, scriptContent)
 
     if (this.entries.has(entryId)) {
@@ -264,9 +294,9 @@ export class ExecutableRegistry {
       componentType: componentType.toLowerCase(),
       content: scriptContent,
       contentHash: computeContentHash(scriptContent),
-      language: "",
       templateVars: extractTemplateVars(scriptContent),
-      env,
+      ...blockProps,
+      interpreter: interpreter.interpreter,
     })
   }
 
@@ -280,7 +310,7 @@ export class ExecutableRegistry {
     componentType: string,
     scriptPath: string,
     runbookDir: string,
-    env: BlockEnv,
+    blockProps: BlockRunProps,
   ) {
     return Effect.gen({ self: this }, function* () {
       const fullPath = path.join(runbookDir, scriptPath)
@@ -295,6 +325,11 @@ export class ExecutableRegistry {
 
       if (scriptContent === null) return
 
+      const interpreter = parseBlockInterpreter(blockProps.interpreter, scriptContent)
+      if (!interpreter.ok) {
+        this.warnings.push(`<${componentType} id="${componentId}">: ${interpreter.error}`)
+        return
+      }
       const entryId = computeExecutableId(componentId, scriptContent)
 
       if (this.entries.has(entryId)) {
@@ -309,10 +344,10 @@ export class ExecutableRegistry {
         componentType: componentType.toLowerCase(),
         content: scriptContent,
         contentHash: computeContentHash(scriptContent),
-        language: "",
         path: scriptPath,
         templateVars: extractTemplateVars(scriptContent),
-        env,
+        ...blockProps,
+        interpreter: interpreter.interpreter,
       })
       this.scriptPaths.set(entryId, fullPath)
     })

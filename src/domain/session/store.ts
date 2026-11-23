@@ -35,7 +35,6 @@ export interface RunbookSource {
 
 /** A session's state that changes while its runbook is open. */
 export interface StoredSessionState {
-  workingDir: string
   /** The session env's changes since it started, encrypted. Undefined when they could not be encrypted. */
   env: Uint8Array | undefined
   /** The git checkouts the session's GitClone blocks registered, oldest first. */
@@ -113,7 +112,6 @@ interface SessionRow {
   runbook_path: string
   remote_source: string | null
   dir: string
-  working_dir: string
   launch_dir: string | null
   env: Uint8Array | null
   active_worktree: string
@@ -158,6 +156,7 @@ const MIGRATIONS = [
      payload BLOB NOT NULL
    ) STRICT;
    CREATE INDEX session_events_by_session ON session_events (session_id, seq);`,
+  `ALTER TABLE sessions DROP COLUMN working_dir;`,
 ]
 
 /** A `session_events` row. */
@@ -216,10 +215,10 @@ export class SessionStore {
         this.db
           .prepare(
             `INSERT INTO sessions (
-               id, name, runbook_path, remote_source, dir, working_dir, launch_dir, env,
+               id, name, runbook_path, remote_source, dir, launch_dir, env,
                active_worktree, execution_count, created_at, last_launched_at, last_activity_at,
                vcs_bindings, finished_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             record.id,
@@ -227,7 +226,6 @@ export class SessionStore {
             record.path,
             record.remoteSource ?? null,
             record.dir,
-            record.workingDir,
             record.launchDir ?? null,
             record.env ?? null,
             record.activeWorktree,
@@ -325,12 +323,10 @@ export class SessionStore {
         this.db
           .prepare(
             `UPDATE sessions
-                SET working_dir = ?, env = ?, active_worktree = ?, execution_count = ?,
-                    last_activity_at = ?
+                SET env = ?, active_worktree = ?, execution_count = ?, last_activity_at = ?
               WHERE id = ?`,
           )
           .run(
-            state.workingDir,
             state.env ?? null,
             state.activeWorktree,
             state.executionCount,
@@ -498,7 +494,6 @@ export class SessionStore {
         path: row.runbook_path,
         remoteSource: row.remote_source ?? undefined,
         dir: row.dir,
-        workingDir: row.working_dir,
         launchDir: row.launch_dir ?? undefined,
         env: row.env ?? undefined,
         worktrees: worktrees.map((w) => w.path),

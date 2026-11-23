@@ -1,35 +1,29 @@
-#!/bin/bash
-# Demonstrate setting environment variables with multiline values
-# This tests that embedded newlines are correctly preserved across sessions
+#!/usr/bin/env bash
+# Set variables whose values have newlines in them. Each one is written as
+# NAME<<DELIMITER, then the value's lines, then the delimiter on a line of its own.
 
-# Simulate an RSA-style key with multiple lines
-export MULTILINE_KEY="-----BEGIN EXAMPLE KEY-----
+cat >> "$RUNBOOK_ENV" <<'ENVFILE'
+MULTILINE_KEY<<END_OF_VALUE
+-----BEGIN EXAMPLE KEY-----
 line1-of-key-content
 line2-of-key-content
 line3-of-key-content
------END EXAMPLE KEY-----"
-
-# JSON with newlines
-export JSON_CONFIG='{
+-----END EXAMPLE KEY-----
+END_OF_VALUE
+JSON_CONFIG<<END_OF_VALUE
+{
   "database": "postgres",
   "host": "localhost",
   "settings": {
     "timeout": 30
   }
-}'
-
-# Simple multiline string
-export MULTILINE_SIMPLE="first line
+}
+END_OF_VALUE
+MULTILINE_SIMPLE<<END_OF_VALUE
+first line
 second line
-third line"
+third line
+END_OF_VALUE
+ENVFILE
 
-echo "Set multiline environment variables:"
-echo ""
-echo "MULTILINE_KEY (5 lines):"
-echo "$MULTILINE_KEY"
-echo ""
-echo "JSON_CONFIG:"
-echo "$JSON_CONFIG"
-echo ""
-echo "MULTILINE_SIMPLE:"
-echo "$MULTILINE_SIMPLE"
+echo "Wrote MULTILINE_KEY, JSON_CONFIG and MULTILINE_SIMPLE to \$RUNBOOK_ENV."

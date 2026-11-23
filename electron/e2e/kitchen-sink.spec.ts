@@ -247,7 +247,7 @@ test.describe("Commands", () => {
 
   test("renders all environment and workdir commands", async () => {
     await expect(page.locator('[data-testid="set-env"]')).toBeVisible()
-    await expect(page.locator('[data-testid="change-dir"]')).toBeVisible()
+    await expect(page.locator('[data-testid="create-workdir"]')).toBeVisible()
     await expect(page.locator('[data-testid="capture-files"]')).toBeVisible()
     await expect(page.locator('[data-testid="logging-demo"]')).toBeVisible()
   })
@@ -503,7 +503,7 @@ test.describe("All Blocks Present", () => {
     "cmd-inline-inputs",
     "list-complex-data",
     "set-env",
-    "change-dir",
+    "create-workdir",
     "capture-files",
     "logging-demo",
     "merged-inputs-cmd",

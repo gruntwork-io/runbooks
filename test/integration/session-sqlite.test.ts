@@ -20,7 +20,6 @@ const session: SessionRecord = {
   path: "/repo/runbook.mdx",
   remoteSource: "https://github.com/acme/runbooks//deploy",
   dir: "/sessions/dirs/s1",
-  workingDir: "/sessions/dirs/s1/repo",
   launchDir: "/home/me/project",
   env: new Uint8Array([0, 1, 2, 255]),
   worktrees: ["/sessions/dirs/s1/repo"],
@@ -44,6 +43,50 @@ describe("SessionStore over node:sqlite", () => {
 
   afterEach(() => {
     fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it("drops the working_dir column of a version 1 database and keeps its sessions", () => {
+    const db = openSqliteDatabase(file)
+    db.exec(`PRAGMA foreign_keys = ON;
+       CREATE TABLE sessions (
+         id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, runbook_path TEXT NOT NULL,
+         remote_source TEXT, dir TEXT NOT NULL, working_dir TEXT NOT NULL, launch_dir TEXT,
+         env BLOB, active_worktree TEXT NOT NULL, execution_count INTEGER NOT NULL,
+         created_at TEXT NOT NULL, last_launched_at TEXT NOT NULL, last_activity_at TEXT NOT NULL,
+         vcs_bindings TEXT NOT NULL, finished_at TEXT
+       ) STRICT;
+       CREATE TABLE session_worktrees (
+         session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+         position INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY (session_id, position)
+       ) STRICT;
+       CREATE TABLE session_events (
+         seq INTEGER PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+         at TEXT NOT NULL, block_id TEXT NOT NULL, kind TEXT NOT NULL, payload BLOB NOT NULL
+       ) STRICT;
+       CREATE INDEX session_events_by_session ON session_events (session_id, seq);
+       INSERT INTO sessions VALUES (
+         's1', 'calm-heron', '/runbooks/a/runbook.mdx', NULL, '/sessions/dirs/s1', '/tmp', NULL,
+         NULL, '', 3, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
+         '2026-01-01T00:00:00.000Z', '{}', NULL
+       );
+       INSERT INTO session_worktrees VALUES ('s1', 0, '/sessions/dirs/s1/repo');
+       PRAGMA user_version = 1;`)
+    db.close()
+
+    const store = Effect.runSync(SessionStore.open(openSqliteDatabase(file)))
+    const found = Effect.runSync(store.get("s1"))
+    Effect.runSync(store.close())
+
+    expect(found).toMatchObject({ dir: "/sessions/dirs/s1", worktrees: ["/sessions/dirs/s1/repo"] })
+    const columns = (() => {
+      const check = openSqliteDatabase(file)
+      const names = (
+        check.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>
+      ).map((c) => c.name)
+      check.close()
+      return names
+    })()
+    expect(columns).not.toContain("working_dir")
   })
 
   it("returns a session as it was inserted, after the file is closed and reopened", () => {
@@ -88,7 +131,6 @@ describe("SessionStore over node:sqlite", () => {
 
     Effect.runSync(
       store.saveState("s2", {
-        workingDir: "/sessions/dirs/s2",
         env: new Uint8Array([7]),
         worktrees: [],
         activeWorktree: "",

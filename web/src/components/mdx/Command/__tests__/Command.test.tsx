@@ -17,6 +17,10 @@ const defaultScriptExecution = {
   envTemplates: {} as Record<string, string>,
   envVars: [] as Array<{ name: string; value: string }>,
   envError: null as string | null,
+  workingDirTemplate: "",
+  workingDirError: null as string | null,
+  interpreter: "",
+  interpreterError: null as string | null,
   inputValues: {},
   inputDependencies: [] as string[],
   unmetInputDependencies: [],
@@ -319,6 +323,66 @@ describe("Command", () => {
       screen.getByText(/RUNBOOK_OUTPUT in env is a variable Runbooks sets/),
     ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Run" })).toBeNull()
+  })
+
+  it("shows why a workingDir prop isn't valid, with no Run button", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      workingDirError: 'The workingDir prop must be a path, such as workingDir="infra/live".',
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand()
+    expect(screen.getByText(/The workingDir prop must be a path/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull()
+  })
+
+  it("shows the working dir as written, templates included, before Run", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      workingDirTemplate: "{{ .outputs.clone.clone_path }}/live",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand()
+    expect(screen.getByTestId("test-cmd-working-dir")).toHaveTextContent(
+      "Working directory{{ .outputs.clone.clone_path }}/live",
+    )
+    expect(screen.getByRole("button", { name: "Run" })).toBeInTheDocument()
+  })
+
+  it("shows no working dir when the block has none", () => {
+    renderCommand()
+    expect(screen.queryByTestId("test-cmd-working-dir")).toBeNull()
+  })
+
+  it("shows why an interpreter prop isn't valid, with no Run button", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      interpreterError:
+        "The script starts with a shebang line, and the block sets the interpreter prop. Remove one of them.",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand()
+    expect(screen.getByText(/starts with a shebang line/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull()
+  })
+
+  it("shows the program the interpreter prop runs the script with", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      interpreter: "python3",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand()
+    expect(screen.getByTestId("test-cmd-interpreter")).toHaveTextContent("Runs withpython3")
+  })
+
+  it("shows no interpreter when the block has none", () => {
+    renderCommand()
+    expect(screen.queryByTestId("test-cmd-interpreter")).toBeNull()
   })
 
   it("shows render error when template substitution fails", () => {

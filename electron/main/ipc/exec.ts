@@ -12,11 +12,15 @@ import * as nodePath from "node:path"
 import { Effect, Stream } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, executableRegistry } from "./runtime.ts"
-import { resolveGeneratedDir, resolveRunLogsDir } from "./path-guard.ts"
+import { resolveGeneratedDir, resolveRunLogsDir, resolveRunScriptsDir } from "./path-guard.ts"
 import { executeScript } from "../../../src/domain/exec/executor.ts"
 import { executePrerequisites } from "../../../src/domain/prerequisites/check.ts"
-import { appendPathEntries, filterCapturedEnv } from "../../../src/domain/session/manager.ts"
-import { renderBlockEnv, renderScriptForExec } from "../../../src/domain/exec/render.ts"
+import { appendPathEntries } from "../../../src/domain/session/manager.ts"
+import {
+  renderBlockEnv,
+  renderBlockWorkingDir,
+  renderScriptForExec,
+} from "../../../src/domain/exec/render.ts"
 import type { ExecRequest, ExecStatusEvent } from "../../../src/types.ts"
 import { encodeOutputs, type OutputValues } from "../../../src/domain/exec/outputValues.ts"
 import { PathRefreshError } from "../../../src/errors/index.ts"
@@ -151,6 +155,13 @@ export function registerExecHandlers(): void {
               (params.templateVarValues ?? {}) as Record<string, unknown>,
             )
 
+            // Rendered with the same values. A relative workingDir is inside
+            // the session's directory.
+            const workingDir = yield* renderBlockWorkingDir(
+              executable.workingDir,
+              (params.templateVarValues ?? {}) as Record<string, unknown>,
+            )
+            const workDir = nodePath.resolve(context.workDir, workingDir)
             const workTreePath = sessionManager.getActiveWorkTreePath()
             const outputPath = (yield* resolveGeneratedDir()).absolutePath
             const logsDir = yield* resolveRunLogsDir(executable.componentId)
@@ -166,12 +177,15 @@ export function registerExecHandlers(): void {
                 )
               : yield* executeScript(
                   scriptContent,
-                  executable.language,
+                  { path: executable.path ?? "", interpreter: executable.interpreter },
                   params,
-                  context,
-                  workTreePath,
-                  outputPath,
-                  logsDir,
+                  { ...context, workDir },
+                  {
+                    workTree: workTreePath,
+                    generated: outputPath,
+                    logs: logsDir,
+                    scripts: yield* resolveRunScriptsDir(),
+                  },
                   blockEnv,
                 )
 
@@ -209,29 +223,12 @@ export function registerExecHandlers(): void {
                 case "files_captured":
                   send("exec:files-captured", execEvent.event)
                   break
-                case "env_captured": {
-                  // Applied as a delta against the env the script started
-                  // with, not a replacement: auth blocks may have written to
-                  // the session while the script ran (see applyCapturedEnv).
-                  // That start env is the session snapshot plus this run's
-                  // block-scoped overrides (awsAuthId, githubAuthId, ...) and
-                  // `env` prop, filtered like the capture. Otherwise the
-                  // per-run credentials and variables read as exports and
-                  // land in the session, and keys the filter drops (BASH_*,
-                  // SHLVL, ...) read as unsets and are deleted from it.
-                  yield* sessionManager.applyCapturedEnv({
-                    before: filterCapturedEnv({
-                      ...context.env,
-                      ...params.envVarsOverride,
-                      ...blockEnv,
-                    }),
-                    after: filterCapturedEnv(execEvent.env),
-                    startWorkDir: context.workDir,
-                    pwd: execEvent.pwd,
+                case "session_env":
+                  yield* sessionManager.applyScriptEnv({
+                    env: execEvent.env,
                     generation: context.generation,
                   })
                   break
-                }
                 case "done":
                   break
               }

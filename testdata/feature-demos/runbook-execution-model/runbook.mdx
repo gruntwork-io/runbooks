@@ -1,97 +1,119 @@
-# Persistent Environment Model Demo
+# Session Environment Demo
 
-This runbook demonstrates the persistent execution environment model, where environment 
-variable changes made in one block persist to subsequent blocks within the same session.
+This runbook shows how blocks share one session environment. A script sets a variable
+for the blocks after it by writing `NAME=value` to the file named by `$RUNBOOK_ENV`.
+Anything it only `export`s, and any directory it `cd`s into, stays inside that script.
 
 ## Overview
 
 In this demo, we'll:
 1. Set environment variables in Block 1
-2. Read those variables in Block 2 to prove persistence
-3. Modify the variables in Block 3
-4. Verify the modifications in Block 4
-5. Change the working directory and verify persistence
+2. Read and set variables from Python
+3. Read the variables in a later block
+4. Change the variables and verify the new values
+5. Set variables with multiline values
+6. Run a block in another directory with `workingDir`
 
 ---
 
 ## 1. Set Initial Environment Variables
 
-Let's start by setting some environment variables. These will persist to all subsequent blocks.
+Let's start by writing some variables to `$RUNBOOK_ENV`. They're set for all subsequent blocks. The script also exports a variable, which later blocks won't see.
 
 <Command 
     id="set-initial-env"
     path="scripts/set-initial-env.sh"
     title="Set initial environment variables"
-    description="This command exports DEMO_VAR, DEMO_COUNT, and DEMO_PROJECT. These will be available in all subsequent blocks."
+    description="This command writes DEMO_VAR, DEMO_COUNT, and DEMO_PROJECT to $RUNBOOK_ENV. These will be available in all subsequent blocks."
     successMessage="Environment variables set successfully!"
     failMessage="Failed to set environment variables."
 />
 
 ---
 
-## 1.1 Python Can READ Bash-Set Environment Variables
+## 1.1 Python Can Read Session Variables
 
-Non-bash scripts like Python can **read** environment variables set by earlier bash scripts. This Python script verifies it can access DEMO_VAR, DEMO_COUNT, and DEMO_PROJECT set in Block 1.
+Non-bash scripts like Python can **read** variables set by earlier blocks. This Python script verifies it can access DEMO_VAR, DEMO_COUNT, and DEMO_PROJECT set in Block 1.
 
 <Command 
     id="python-test"
     path="scripts/python-test.py"
     title="Python reads bash env vars"
     description="This Python script reads and verifies the environment variables set by bash in Block 1."
-    successMessage="Python successfully read all bash-set environment variables!"
+    successMessage="Python successfully read all the session variables!"
     failMessage="Python could not read the environment variables. Run Block 1 first!"
 />
 
 ---
 
-## 1.2 Test Python Setting Environment Variables
+## 1.2 Python Can Set Session Variables
 
-Now let's test if a Python script can SET environment variables that persist to subsequent blocks.
+`$RUNBOOK_ENV` is a file, so a Python script can append to it too. A change to `os.environ` only affects the Python process.
 
 <Command 
     id="python-set-env"
     path="scripts/python-set-env.py"
     title="Set env vars from Python"
-    description="This Python script attempts to set PYTHON_SET_VAR, PYTHON_COUNT, and PYTHON_PROJECT using os.environ."
+    description="This Python script writes PYTHON_SET_VAR, PYTHON_COUNT, and PYTHON_PROJECT to $RUNBOOK_ENV."
     successMessage="Python script executed!"
     failMessage="Python script failed."
 />
 
 ---
 
-## 1.3 Demonstrate That Environment Variables Set By Python Do NOT Persist
+## 1.3 Verify the Python Script's Variables
 
-Let's check if the environment variables set by Python persisted to this block.
+Let's check that the variables the Python script wrote reached this block.
 
 <Check 
     id="verify-python-env"
     path="checks/verify-python-env.sh"
     title="Check Python env vars"
     description="This check verifies whether PYTHON_SET_VAR, PYTHON_COUNT, and PYTHON_PROJECT are available."
-    successMessage="Python environment variables persisted!"
-    failMessage="Python environment variables did NOT persist (expected - see explanation below)."
+    successMessage="The Python script's variables are set!"
+    failMessage="The Python script's variables are missing. Run Block 1.2 first."
 />
 
 ---
 
-## 2. Verify Environment Variables Persist
+## 1.4 Run an Inline Command with Python
 
-Now let's verify that the variables we set in Block 1 are available in this block.
+An inline `command` has no file extension, so it runs with bash unless it has a shebang. The `interpreter` prop names another program for it, without a shebang inside the string.
+
+<Command
+    id="python-inline"
+    interpreter="python3"
+    command={`import os, sys
+project = os.environ.get("DEMO_PROJECT")
+if not project:
+    sys.exit("DEMO_PROJECT is not set. Run Block 1 first!")
+print(f"Inline Python sees DEMO_PROJECT={project}")`}
+    title="Run inline Python"
+    description="This inline command runs with python3, which the block names in its interpreter prop."
+    successMessage="python3 ran the inline command!"
+    failMessage="The inline Python command failed. Run Block 1 first."
+/>
+
+---
+
+## 2. Verify Environment Variables
+
+Now let's verify that the variables Block 1 wrote are available in this block, and the one it only exported is not.
 
 <Check 
     id="verify-env-vars"
     path="checks/verify-env-vars.sh"
     title="Verify environment variables"
-    description="This check reads the environment variables set in the previous block. If they're present, the persistent environment is working!"
-    successMessage="Environment variables persisted successfully!"
-    failMessage="Environment variables did not persist. The session may not be working correctly."
+    description="This check reads the variables Block 1 wrote to $RUNBOOK_ENV."
+    successMessage="The session has Block 1's variables!"
+    failMessage="Block 1's variables are missing. Run Block 1 first."
 />
 
 ---
 
 ## 3. Modify Environment Variables
 
-Let's modify the environment variables to demonstrate that changes propagate forward.
+Writing a variable again gives it a new value for the blocks after this one.
 
 <Command 
     id="modify-env"
@@ -113,16 +135,16 @@ Let's verify that the modifications from Block 3 are visible.
     path="checks/verify-modified-env.sh"
     title="Verify modified environment"
     description="This check verifies that DEMO_COUNT was incremented and DEMO_MODIFIED exists."
-    successMessage="Environment modifications persisted!"
-    failMessage="Environment modifications did not persist."
+    successMessage="The new values are set!"
+    failMessage="The new values are missing. Run Block 3 first."
 />
 
 ---
 
 ## 5. Multiline Environment Variables
 
-Environment variables can contain embedded newlines (RSA keys, JSON configs, multiline strings).
-This section demonstrates that such values are correctly preserved across sessions.
+Variables can contain newlines (RSA keys, JSON configs, multiline strings). Write each one as
+`NAME<<DELIMITER`, then the value's lines, then the delimiter on a line of its own.
 
 <Command 
     id="set-multiline-env"
@@ -135,7 +157,7 @@ This section demonstrates that such values are correctly preserved across sessio
 
 ---
 
-## 5.1 Verify Multiline Values Persist
+## 5.1 Verify Multiline Values
 
 Let's verify that the multiline values were preserved correctly - not truncated at the first newline.
 
@@ -150,50 +172,58 @@ Let's verify that the multiline values were preserved correctly - not truncated 
 
 ---
 
-## 6. Change Working Directory
+## 6. Create a Working Directory
 
-The persistent environment also tracks the working directory. Let's change it.
+This block creates `demo-workdir` in the session's directory and `cd`s into it. The `cd` stays inside the script.
 
-<Command 
-    id="change-workdir"
-    path="scripts/change-workdir.sh"
-    title="Change working directory"
-    description="This command changes to /tmp and exports a marker variable."
-    successMessage="Working directory changed!"
-    failMessage="Failed to change working directory."
+<Command
+    id="create-workdir"
+    path="scripts/create-workdir.sh"
+    title="Create a working directory"
+    description="Creates demo-workdir in the session's directory and cd's into it."
+    successMessage="Created demo-workdir!"
+    failMessage="Failed to create demo-workdir."
 />
 
 ---
 
-## 7. Verify Working Directory
+## 7. A cd Stays in Its Script
 
-Let's verify that the working directory change persisted.
+This block has no `workingDir`, so it starts in the session's directory, not in `demo-workdir`.
 
-<Check 
+<Check
+    id="verify-cd-stays-in-script"
+    path="checks/verify-cd-stays-in-script.sh"
+    title="Verify the cd stayed in its script"
+    description="Checks that this block starts in the session's directory."
+    successMessage="This block starts in the session's directory!"
+    failMessage="This block didn't start in the session's directory."
+/>
+
+---
+
+## 8. Run a Block in Another Directory
+
+Set `workingDir` to run a block somewhere else. A relative path is relative to the session's directory.
+
+<Check
     id="verify-workdir"
     path="checks/verify-workdir.sh"
+    workingDir="demo-workdir"
     title="Verify working directory"
-    description="This check verifies we're now in /tmp."
-    successMessage="Working directory persisted!"
-    failMessage="Working directory did not persist."
+    description="This check runs with workingDir=demo-workdir."
+    successMessage="This block runs in demo-workdir!"
+    failMessage="This block didn't run in demo-workdir. Run Block 6 first."
 />
 
 ---
 
 ## Summary
 
-If all checks passed, you've successfully demonstrated the persistent environment model:
+If all checks passed, you've seen how blocks share the session:
 
-- **Environment variables** set in one block are available in subsequent blocks
-- **Modifications** to environment variables propagate forward
-- **Multiline values** (RSA keys, JSON, etc.) preserve embedded newlines correctly
-- **Working directory** changes persist across blocks
-
-This is similar to how Jupyter notebooks maintain state across cells, enabling complex 
-multi-step workflows where each step builds on the previous one.
-
-### Re-execution Note
-
-If you re-run Block 1 now, it will execute with the **current** environment state, 
-not a historical snapshot. The environment will be reset to the initial values specified 
-in that block.
+- **Variables** a script writes to `$RUNBOOK_ENV` are set for subsequent blocks, from any language
+- **Writing a variable again** gives later blocks its new value
+- **Multiline values** (RSA keys, JSON, etc.) keep their newlines
+- **`export` and `cd`** stay inside the script that runs them
+- **`workingDir`** picks the directory a block runs in

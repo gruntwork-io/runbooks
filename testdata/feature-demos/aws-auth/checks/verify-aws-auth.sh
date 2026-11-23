@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Verify AWS authentication by calling STS GetCallerIdentity
 
 set -e

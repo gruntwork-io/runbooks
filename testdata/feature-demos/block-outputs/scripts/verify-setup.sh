@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ACCOUNT_ID, REGION and ROLE_ARN are outputs of earlier blocks, which the
 # block's env prop passes in
 echo "Verifying setup..."

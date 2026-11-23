@@ -273,7 +273,6 @@ export interface Executable {
   componentType: string
   content: string
   contentHash: string
-  language: string
   path?: string
   templateVars: string[]
   /**
@@ -281,6 +280,16 @@ export interface Executable {
    * (see blockEnv.ts). Empty for a block without one.
    */
   env: BlockEnv
+  /**
+   * The block's `workingDir` prop: where its script runs, absolute or
+   * relative to the session's directory. Empty for the session's directory.
+   */
+  workingDir: string
+  /**
+   * The block's `interpreter` prop: the program, with optional args, that runs
+   * its script when the script has no shebang. Empty for none.
+   */
+  interpreter: string
 }
 
 /** A script file whose content on disk differs from the registry's copy of it. */
@@ -313,8 +322,9 @@ export interface SessionExecContext {
 
 /**
  * A SessionExecContext tagged with the session it was taken from. Anything
- * applied back to the session later (a script's captured env) carries the
- * generation so it can be dropped if the session was replaced in between.
+ * applied back to the session later (the variables a script wrote to
+ * RUNBOOK_ENV) carries the generation so it can be dropped if the session was
+ * replaced in between.
  */
 export interface SessionExecSnapshot extends SessionExecContext {
   generation: number

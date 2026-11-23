@@ -29,8 +29,8 @@ function resolveAgainstRunbook(p: string): string {
 }
 
 /**
- * Validate that a path is within the session working directory, the
- * session's own directory, a registered worktree, or the runbook directory.
+ * Validate that a path is within the session's directory, a registered
+ * worktree, or the runbook directory.
  * Relative paths are resolved against the runbook directory. Returns the
  * resolved absolute path.
  */
@@ -57,15 +57,8 @@ export const validateSessionPath = (p: string) =>
       }
     }
 
-    // Allow paths contained within the session working directory
+    // Allow paths contained within the session's directory
     if (yield* Effect.promise(() => isContainedInReal(resolved, session.workingDir))) {
-      return resolved
-    }
-
-    // Allow paths contained within the session's own directory, which holds
-    // its generated files: a script's `cd` moves the working directory away
-    // from it.
-    if (yield* Effect.promise(() => isContainedInReal(resolved, session.initialWorkDir))) {
       return resolved
     }
 
@@ -90,9 +83,8 @@ export const validateSessionPath = (p: string) =>
  *     the rm outside the session;
  *   - a strict subdirectory: ".", "./", "sub/.." and the working directory's
  *     own absolute path would otherwise delete the working directory itself;
- *   - not an ancestor of the open runbook. A Command block's `cd ..` moves the
- *     working directory (the script's final pwd is stored as the session
- *     working dir), and then the runbook's own directory passes both checks.
+ *   - not an ancestor of the open runbook, so Delete & Clone can't remove the
+ *     runbook itself.
  */
 export const validateCloneDestination = (
   absolutePath: string,
@@ -180,10 +172,7 @@ export async function resolveRunbookAssetPath(
  * capture, and the existing-files check and Delete action all go through
  * here so they agree on one directory.
  *
- * A relative `outputPath` resolves against the session's `initialWorkDir` (the
- * session's own directory), never the live `workingDir`: that follows a
- * script's `cd`, which would scatter output across whatever directories the
- * runbook's scripts happened to leave the session in.
+ * A relative `outputPath` resolves against the session's directory.
  *
  * Returns the base directory and relative path alongside the absolute path so
  * callers of `checkGeneratedFiles` / `deleteGeneratedFiles` can pass the same
@@ -192,10 +181,20 @@ export async function resolveRunbookAssetPath(
 export const resolveGeneratedDir = (outputPath: string = DEFAULT_GENERATED_DIR) =>
   Effect.gen(function* () {
     const session = yield* sessionManager.getSession()
-    const baseDir = session.initialWorkDir
+    const baseDir = session.workingDir
     const absolutePath = yield* resolveToAbsolutePath(baseDir, outputPath)
     return { baseDir, outputPath, absolutePath }
   })
+
+/**
+ * The directory runs write their script files to while they run:
+ * `.runbooks/scripts` in the session's own directory. Scripts run as files,
+ * and the OS temp directory may be mounted noexec.
+ */
+export const resolveRunScriptsDir = () =>
+  Effect.map(sessionManager.getSession(), (session) =>
+    path.join(session.workingDir, ".runbooks", "scripts"),
+  )
 
 /**
  * The directory the runs of block `blockId` write their logs to:
@@ -206,5 +205,5 @@ export const resolveGeneratedDir = (outputPath: string = DEFAULT_GENERATED_DIR) 
 export const resolveRunLogsDir = (blockId: string) =>
   Effect.map(sessionManager.getSession(), (session) => {
     const name = blockId.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+$/, "_") || "_"
-    return path.join(session.initialWorkDir, ".runbooks", "logs", name)
+    return path.join(session.workingDir, ".runbooks", "logs", name)
   })

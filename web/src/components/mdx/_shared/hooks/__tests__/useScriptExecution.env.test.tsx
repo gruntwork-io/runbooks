@@ -61,15 +61,21 @@ function Providers({ children }: { children: ReactNode }) {
 const config = makeConfig([{ name: "BucketName", type: BoilerplateVariableType.String }])
 const COMMAND = 'aws s3 mb "s3://$BUCKET"'
 
-function renderCommand(env: unknown) {
+function renderCommand(
+  env: unknown,
+  workingDir?: unknown,
+  { interpreter, command = COMMAND }: { interpreter?: unknown; command?: string } = {},
+) {
   return renderHook(
     () => ({
       exec: useScriptExecution({
         componentId: "make-bucket",
-        command: COMMAND,
+        command,
         inputsId: "form",
         componentType: "command",
         env,
+        workingDir,
+        interpreter,
       }),
       runbook: useRunbookContext(),
     }),
@@ -144,6 +150,8 @@ describe("useScriptExecution — env prop", () => {
       componentType: "command",
       contentHash: "hash-of-the-command",
       env: { BUCKET: "{{ .inputs.BucketName }}" },
+      workingDir: "",
+      interpreter: "",
     }
 
     registered = entry
@@ -155,6 +163,84 @@ describe("useScriptExecution — env prop", () => {
     expect(
       renderCommand({ BUCKET: "{{ .inputs.BucketName }}" }).result.current.exec.hasScriptDrift,
     ).toBe(true)
+  })
+
+  it("says why a workingDir prop isn't valid, and keeps none", () => {
+    for (const workingDir of [3, ""]) {
+      const { exec } = renderCommand(undefined, workingDir).result.current
+      expect(exec.workingDirError).toBe(
+        'The workingDir prop must be a path, such as workingDir="infra/live".',
+      )
+      expect(exec.workingDirTemplate).toBe("")
+    }
+
+    const { exec } = renderCommand(undefined, "{{ .inputs.Dir }}").result.current
+    expect(exec.workingDirError).toBeNull()
+    expect(exec.workingDirTemplate).toBe("{{ .inputs.Dir }}")
+  })
+
+  it("flags drift when the workingDir Run will use isn't the block's", () => {
+    const env = { BUCKET: "{{ .inputs.BucketName }}" }
+    registered = {
+      id: "e1",
+      type: "inline",
+      componentId: "make-bucket",
+      componentType: "command",
+      contentHash: "hash-of-the-command",
+      env,
+      workingDir: "infra",
+      interpreter: "",
+    }
+
+    expect(renderCommand(env, "infra").result.current.exec.hasScriptDrift).toBe(false)
+    expect(renderCommand(env, "infra/live").result.current.exec.hasScriptDrift).toBe(true)
+    expect(renderCommand(env).result.current.exec.hasScriptDrift).toBe(true)
+  })
+
+  it("says why an interpreter prop isn't valid, and keeps none", () => {
+    for (const interpreter of [3, "  "]) {
+      const { exec } = renderCommand(undefined, undefined, { interpreter }).result.current
+      expect(exec.interpreterError).toBe(
+        'The interpreter prop must name a program, such as interpreter="python3".',
+      )
+      expect(exec.interpreter).toBe("")
+    }
+
+    const { exec } = renderCommand(undefined, undefined, { interpreter: " deno run " }).result
+      .current
+    expect(exec.interpreterError).toBeNull()
+    expect(exec.interpreter).toBe("deno run")
+  })
+
+  it("refuses an interpreter prop on a script that has a shebang", () => {
+    const { exec } = renderCommand(undefined, undefined, {
+      interpreter: "python3",
+      command: "#!/usr/bin/env python3\nprint(1)",
+    }).result.current
+
+    expect(exec.interpreterError).toBe(
+      "The script starts with a shebang line, and the block sets the interpreter prop. Remove one of them.",
+    )
+  })
+
+  it("flags drift when the interpreter Run will use isn't the block's", () => {
+    const env = { BUCKET: "{{ .inputs.BucketName }}" }
+    registered = {
+      id: "e1",
+      type: "inline",
+      componentId: "make-bucket",
+      componentType: "command",
+      contentHash: "hash-of-the-command",
+      env,
+      workingDir: "",
+      interpreter: "python3",
+    }
+    const drift = (interpreter?: string) =>
+      renderCommand(env, undefined, { interpreter }).result.current.exec.hasScriptDrift
+
+    expect(drift("python3")).toBe(false)
+    expect(drift("node")).toBe(true)
+    expect(drift()).toBe(true)
   })
 })
 
@@ -236,6 +322,8 @@ describe("useScriptExecution — outputs entered by hand", () => {
       componentType: "command",
       contentHash: "hash-of-the-command",
       env: { PR_TITLE: "{{ .outputs.fetch-pr.title }}" },
+      workingDir: "",
+      interpreter: "",
     }
     const { result } = renderPrinter()
     await act(async () => {
@@ -270,6 +358,8 @@ describe("useScriptExecution — outputs entered by hand", () => {
       componentType: "command",
       contentHash: "hash-of-the-command",
       env: { PR_TITLE: "{{ .outputs.fetch-pr.title }}" },
+      workingDir: "",
+      interpreter: "",
     }
     const { result } = renderPrinter()
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ACCOUNT_ID and REGION are create-account's outputs, which the block's env
 # prop passes in
 echo "Creating resources in account $ACCOUNT_ID..."

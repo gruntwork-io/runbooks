@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { Effect, Result, Layer } from "effect"
-import { renderBlockEnv, renderScriptForExec } from "./render.ts"
+import { renderBlockEnv, renderBlockWorkingDir, renderScriptForExec } from "./render.ts"
 import { WasmBoilerplateLive } from "../../layers/WasmBoilerplate.ts"
 import { WasmRuntime } from "../../services/WasmRuntime.ts"
 import type { WasmRuntimeShape } from "../../services/WasmRuntime.ts"
@@ -272,6 +272,37 @@ describe("renderBlockEnv", () => {
     renderCalls.length = 0
     expect(await renderEnv({ LABEL: "release" }, {})).toEqual(Result.succeed({ LABEL: "release" }))
     expect(await renderEnv({}, {})).toEqual(Result.succeed({}))
+    expect(renderCalls).toEqual([])
+  })
+})
+
+function renderWorkingDir(workingDir: string, vars: Record<string, unknown>) {
+  return Effect.runPromise(
+    Effect.result(renderBlockWorkingDir(workingDir, vars)).pipe(Effect.provide(testLayer)),
+  )
+}
+
+describe("renderBlockWorkingDir", () => {
+  it("renders the path with the script's inputs and outputs", async () => {
+    const result = await renderWorkingDir("{{ .outputs.clone.clone_path }}/live", {
+      inputs: {},
+      outputs: { clone: { clone_path: "infra" } },
+    })
+    expect(result).toEqual(Result.succeed("infra/live"))
+  })
+
+  it("fails, naming the prop, when the path references an output that doesn't exist", async () => {
+    const result = await renderWorkingDir("{{ .outputs.clone.clone_path }}", {
+      inputs: {},
+      outputs: {},
+    })
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) expect(result.failure.message).toStartWith("workingDir: ")
+  })
+
+  it("renders nothing for a literal path", async () => {
+    renderCalls.length = 0
+    expect(await renderWorkingDir("infra/live", {})).toEqual(Result.succeed("infra/live"))
     expect(renderCalls).toEqual([])
   })
 })

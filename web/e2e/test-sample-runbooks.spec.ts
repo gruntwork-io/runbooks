@@ -670,7 +670,7 @@ test.describe("sample-runbooks/next-app", () => {
 // ---------------------------------------------------------------------------
 // Test: dual-clone overwrite confirmation dialog
 //
-// CWD propagation is covered by runbook_test.yml under
+// Working directory behavior is covered by runbook_test.yml under
 // testdata/sample-runbooks/dual-clone/ (executed by the `just test-runbooks`
 // CI job). This Playwright test focuses on the UI contract: when the user
 // clones into a directory that already exists, the "Local path already

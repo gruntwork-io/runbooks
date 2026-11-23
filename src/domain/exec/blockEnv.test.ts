@@ -1,6 +1,14 @@
 import { describe, it, expect } from "bun:test"
 import { spawnSync } from "node:child_process"
-import { exportLines, parseBlockEnv, sameBlockEnv, shellQuote } from "./blockEnv.ts"
+import {
+  exportLines,
+  isStartupEnvVar,
+  parseBlockEnv,
+  parseBlockInterpreter,
+  parseBlockWorkingDir,
+  sameBlockEnv,
+  shellQuote,
+} from "./blockEnv.ts"
 
 describe("parseBlockEnv", () => {
   it("gives a block without an env prop no variables", () => {
@@ -102,4 +110,45 @@ describe("exportLines", () => {
     expect(exportLines({ A: "1", B: "it's" })).toBe("export A='1'\nexport B='it'\\''s'")
     expect(shellQuote("")).toBe("''")
   })
+})
+
+describe("parseBlockInterpreter", () => {
+  it("takes the prop trimmed, or none", () => {
+    expect(parseBlockInterpreter(undefined, "#!/bin/sh\n")).toEqual({ ok: true, interpreter: "" })
+    expect(parseBlockInterpreter(" deno run ", "x")).toEqual({ ok: true, interpreter: "deno run" })
+  })
+
+  it.each([3, "", "  ", null])("refuses %j", (value) => {
+    expect(parseBlockInterpreter(value, "x").ok).toBe(false)
+  })
+
+  it("refuses the prop beside a shebang", () => {
+    expect(parseBlockInterpreter("python3", "#!/usr/bin/env bash\necho hi").ok).toBe(false)
+  })
+})
+
+describe("parseBlockWorkingDir", () => {
+  it("takes a path, template or not, or none", () => {
+    expect(parseBlockWorkingDir(undefined)).toEqual({ ok: true, workingDir: "" })
+    expect(parseBlockWorkingDir("{{ .outputs.c.p }}/x")).toEqual({
+      ok: true,
+      workingDir: "{{ .outputs.c.p }}/x",
+    })
+  })
+
+  it.each([3, "", null])("refuses %j", (value) => {
+    expect(parseBlockWorkingDir(value).ok).toBe(false)
+  })
+})
+
+describe("isStartupEnvVar", () => {
+  it.each(["BASH_ENV", "LD_PRELOAD", "DYLD_LIBRARY_PATH", "BASH_FUNC_x%%", "NODE_OPTIONS"])(
+    "refuses %s",
+    (name) => expect(isStartupEnvVar(name)).toBe(true),
+  )
+
+  it.each(["PATH", "AWS_PROFILE", "BASH_SILENCE_DEPRECATION_WARNING", "LANG"])(
+    "allows %s",
+    (name) => expect(isStartupEnvVar(name)).toBe(false),
+  )
 })

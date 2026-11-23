@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # List AWS resources using the authenticated credentials
 
 set -e

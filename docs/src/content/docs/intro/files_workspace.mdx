@@ -94,7 +94,7 @@ echo '{}' > "$GENERATED_FILES/config/app.json"
 
 Repository files come from a git repository that a [GitClone](/authoring/blocks/gitclone/) block cloned, or from a local checkout the user selected in one. When the clone completes, the workspace switches to the **Repository** tab.
 
-The clone is stored at the local path set in the GitClone block, relative to the working directory. The working directory starts as the runbook's [session directory](/commands/sessions/), and it [follows any `cd`](/authoring/blocks/command/#execution-context) that an earlier script made.
+The clone is stored at the local path set in the GitClone block, relative to the working directory. The working directory is the runbook's [session directory](/commands/sessions/).
 
 Later changes to the repository come from a [Template](/authoring/blocks/template/) or [TemplateInline](/authoring/blocks/templateinline/) block that sets `target="worktree"`, or from Command, Check and Finish scripts that write to the directory named by `$REPO_FILES`.
 

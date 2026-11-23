@@ -1,6 +1,5 @@
-#!/bin/bash
-# Verify that multiline environment variables persisted correctly
-# This is the key test - if newlines are corrupted, this check will fail
+#!/usr/bin/env bash
+# Verify that the multiline values written to RUNBOOK_ENV kept their newlines
 
 errors=0
 

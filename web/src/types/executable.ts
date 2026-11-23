@@ -10,9 +10,12 @@ export interface Executable {
   contentHash: string
   path?: string
   templateVars?: string[]
-  language?: string
   /** The block's `env` prop: its variables' templates by name. */
   env?: Record<string, string>
+  /** The block's `workingDir` prop, or "" for the session's directory. */
+  workingDir: string
+  /** The block's `interpreter` prop, or "" for none. */
+  interpreter: string
 }
 
 export type ExecutableRegistry = Record<string, Executable>

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GREETING, COUNT and ACCOUNT_ID come from the block's env prop
 echo "Greeting: $GREETING"
 echo "Count: $COUNT"

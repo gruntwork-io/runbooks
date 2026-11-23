@@ -2,7 +2,7 @@
  * Kitchen Sink Execution Flow E2E tests.
  *
  * Tests the execution pipeline by clicking Run/Check buttons and verifying
- * outputs, status changes, environment persistence, and file capture.
+ * outputs, status changes, the session environment, and file capture.
  *
  * These tests are sequential — later tests depend on outputs from earlier ones.
  *
@@ -135,7 +135,7 @@ test.describe("Execution Flow", () => {
     await expect(section.getByText("Warning detected", { exact: false })).toBeVisible()
   })
 
-  test("run set-env then verify-env for environment persistence", async () => {
+  test("run set-env then verify-env for the session environment", async () => {
     await runBlock("set-env")
     await waitForSuccess("set-env")
 
@@ -143,9 +143,9 @@ test.describe("Execution Flow", () => {
     await waitForSuccess("verify-env")
   })
 
-  test("run change-dir then verify-workdir for working directory persistence", async () => {
-    await runBlock("change-dir")
-    await waitForSuccess("change-dir")
+  test("run create-workdir then verify-workdir for workingDir", async () => {
+    await runBlock("create-workdir")
+    await waitForSuccess("create-workdir")
 
     await runBlock("verify-workdir", "Check")
     await waitForSuccess("verify-workdir")

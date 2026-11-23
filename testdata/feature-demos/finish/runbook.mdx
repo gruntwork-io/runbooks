@@ -6,11 +6,11 @@ When you click **Finish**, it runs an optional final check. If the check passes,
 
 ## 1. Set Up
 
-This block exports `DEMO_READY=true`. The environment carries forward to later blocks, so the final check below can see it.
+This block writes `DEMO_READY=true` to `$RUNBOOK_ENV`, which sets it for later blocks, so the final check below can see it.
 
 <Command
     id="setup"
-    command="export DEMO_READY=true && echo 'Setup complete.'"
+    command={`echo DEMO_READY=true >> "$RUNBOOK_ENV" && echo 'Setup complete.'`}
     title="Get ready to finish"
     successMessage="Ready!"
 />

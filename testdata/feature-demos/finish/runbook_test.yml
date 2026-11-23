@@ -8,7 +8,7 @@ settings:
 tests:
   - name: happy-path
     description: |
-      Every block runs in document order: setup exports DEMO_READY, so the
+      Every block runs in document order: setup sets DEMO_READY, so the
       final check passes and the runbook finishes.
 
   - name: final-check-fails-without-setup

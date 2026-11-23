@@ -37,6 +37,8 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 - `path` (string): path to a script file, relative to the runbook's folder, such as `scripts/deploy.sh`. The file must be inside that folder, so a path with a `..` segment fails. Use either this or `command`.
 - `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones. A block that uses `{{ .inputs.* }}`, in `env` or in the script, needs this prop or a nested Inputs block. See [With variables](#with-variables).
 - `env` (object): environment variables the script runs with, by name, such as `env={{ BUCKET: "{{ .inputs.BucketName }}" }}`. Each value can reference inputs and block outputs. See [Passing values as environment variables](#passing-values-as-environment-variables).
+- `workingDir` (string): the directory the script runs in, such as `workingDir="infra/live"`. A relative path is relative to the [session's directory](/commands/sessions/). Defaults to the session's directory. Like `env` values, it can use `{{ .inputs.X }}` and `{{ .outputs.block.key }}` templates. The directory must exist when the block runs. See [Working directory](/security/shell-execution-context/#working-directory).
+- `interpreter` (string): the program, with any arguments, that runs the script when it has no shebang, such as `interpreter="python3"`. A script with a shebang can't also set it. Defaults to the program for the script file's extension, or `bash`. See [How a script runs](/security/shell-execution-context/#how-a-script-runs).
 - `awsAuthId` (string): ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Run button is disabled until authentication completes.
 - `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block, for either provider. Its credentials are passed as environment variables (`GITHUB_TOKEN` and `GITHUB_USER`, or `GITLAB_TOKEN` and `GITLAB_USER`). The Run button is disabled until authentication completes.
 - `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block. GitHub only. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Run button is disabled until authentication completes. Prefer `gitAuthId`.
@@ -118,7 +120,7 @@ A command that contains both kinds of quotes, or spans several lines, can go in 
 External scripts are plain bash scripts. The referenced `scripts/deploy.sh` might look like:
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 
 log_info "Starting deployment..."
 kubectl apply -f "$REPO_FILES/k8s/deployment.yaml"
@@ -140,11 +142,11 @@ If you edit the script file while the runbook is open, the block shows a "Script
 
 Exit code 0 renders as success (green). Any other exit code renders as failure (red).
 
-Exit code 2 is a warning for [Check](/authoring/blocks/check/#exit-codes) blocks. A Command that exits 2 is shown as failed, but Runbooks still treats the run as a warning internally. Files written to `$GENERATED_FILES` are [captured](#capturing-output-files), and the script's environment changes [carry forward](#execution-context). Blocks whose [`dependsOn`](#run-order) names it keep waiting, as they would after a failure.
+Exit code 2 is a warning for [Check](/authoring/blocks/check/#exit-codes) blocks. A Command that exits 2 is shown as failed, but Runbooks still treats the run as a warning internally. Files written to `$GENERATED_FILES` are [captured](#capturing-output-files), and the variables it wrote to `$RUNBOOK_ENV` are [set in the session](#execution-context). Blocks whose [`dependsOn`](#run-order) names it keep waiting, as they would after a failure.
 
 ### Logging
 
-Runbooks sources a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) into every bash script, which defines a set of logging functions. Using them lets the Runbooks UI parse log levels for filtering and export.
+Runbooks sources a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) into every bash and sh script, which defines a set of logging functions. Using them lets the Runbooks UI parse log levels for filtering and export.
 
 #### Log levels
 
@@ -169,7 +171,7 @@ ACCOUNT_ID=$(get_account_id)
 #### Usage example
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 log_info "Starting deployment..."
 log_debug "Target environment: $ENVIRONMENT"
 
@@ -360,7 +362,7 @@ Runbooks gives the script the values as data. The shell never runs anything in t
 - **The block shows the values.** Before you click Run, the block lists each variable with the value the script will get, once the inputs and outputs it references are set. The block waits for them, as it waits for the values its script references. A [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) shows as `<redacted>`, and the script gets its real value.
 - **You can enter an output's value yourself.** See [Entering an output by hand](#entering-an-output-by-hand).
 - **Instruction mode exports them.** In [instruction mode](/intro/instruction-mode/), the block shows an `export` line for each variable before the command, quoted for the shell, so you can copy and run them together.
-- **They are this block's.** The variables are set for this run only, and later blocks don't see them. If the script changes one, the new value carries forward like any other [export](#execution-context). To pass a value to later blocks, write it as a [block output](#block-outputs).
+- **They are this block's.** The variables are set for this run only, and later blocks don't see them. To pass a value to later blocks, write it as a [block output](#block-outputs) or to [`$RUNBOOK_ENV`](#execution-context).
 - **They override other variables.** A variable in `env` replaces one of the same name from the session or from an auth block, so `env={{ AWS_REGION: "{{ .inputs.Region }}" }}` picks the region for a block that uses `awsAuthId`.
 
 A name has letters, digits and underscores, and doesn't start with a digit. A value is a string, a number or a boolean. Runbooks sets `GENERATED_FILES`, `REPO_FILES` and every name that starts with `RUNBOOK_` itself, so `env` can't use them. A block whose `env` breaks these rules shows the error and can't run.
@@ -395,11 +397,18 @@ If the script can't be rendered, for example because it calls an unknown functio
 
 ### Execution context
 
-Scripts run in a persistent environment. Environment variable changes (`export`, `unset`) and working directory changes (`cd`) made by a script that exits 0 or 2 carry forward to later blocks, so earlier steps can set up the environment for later ones.
+Scripts share the session's environment. To set a variable for later blocks, append a `NAME=value` line to the file named by `$RUNBOOK_ENV`. Runbooks sets it in the session when the script exits 0 or 2:
+
+```bash
+#!/usr/bin/env bash
+echo "AWS_PROFILE=prod" >> "$RUNBOOK_ENV"
+```
+
+A variable the script exports, or a directory it changes to, stays inside the script. See [Setting variables for later blocks](/security/shell-execution-context/#setting-variables-for-later-blocks) for multiline values and the full format.
 
 Scripts run in a non-interactive shell, so shell aliases such as `ll` and shell functions such as `nvm` or `rvm` are not available.
 
-Scripts start in the [session's directory](/commands/sessions/), not in the runbook's folder. A `cd` carries forward as described above, so later scripts start wherever it left off. No environment variable names the runbook's folder, so a script can't call another script or read a file that ships with the runbook. Give each script file its own block with `path`. To work with a cloned repository's files, use [`$REPO_FILES`](#writing-to-repository-files) or the `<GitClone>` block's `clone_path` output.
+Scripts start in the [session's directory](/commands/sessions/), not in the runbook's folder. Set `workingDir` to run one somewhere else, such as a directory a `<GitClone>` block cloned into: `workingDir="{{ .outputs.clone_infra.clone_path }}/live"`. No environment variable names the runbook's folder, so a script can't call another script or read a file that ships with the runbook. Give each script file its own block with `path`. To work with a cloned repository's files, use [`$REPO_FILES`](#writing-to-repository-files) or the `<GitClone>` block's `clone_path` output.
 
 Scripts run without a terminal, and their standard input is empty. A command that asks for input, such as `read`, a confirmation prompt, or a `sudo` password prompt, gets none and usually fails. Use non-interactive flags, such as `tofu apply -auto-approve` or `apt-get install -y`. Tools that check for a terminal may also turn off colors and progress bars.
 
@@ -410,11 +419,11 @@ See [Shell execution context](/security/shell-execution-context/) for the detail
 Command and Check blocks can run at the same time. A block's Run button is disabled while the block has to wait for another one:
 
 - **It uses another block's outputs.** A block that references `{{ .outputs.build.tag }}` can't run until `build` has produced that output, and can't run while `build` is running again.
-- **It names another block in `dependsOn`.** Use this when a script needs something an earlier script did that isn't an output, such as a variable it exported, a directory it changed into, or a resource it created. The block can't run until every block it names has succeeded, or for a Check, ended with a warning. A Command that exits 2 doesn't count. If one of them later fails or is stopped, the block waits again.
+- **It names another block in `dependsOn`.** Use this when a script needs something an earlier script did that isn't an output, such as a variable it wrote to `$RUNBOOK_ENV`, a directory it created, or a cloud resource it created. The block can't run until every block it names has succeeded, or for a Check, ended with a warning. A Command that exits 2 doesn't count. If one of them later fails or is stopped, the block waits again.
 - **It would overlap with an `exclusive` block.** No other Command or Check block can start while an `exclusive` block runs, and an `exclusive` block can't start while another one is running. Use this for a script that can't share its resources, such as one that takes a state lock.
 
 ```mdx
-<Command id="login" command="export API_TOKEN=$(vault read -field=token secret/api)" />
+<Command id="login" command='echo "API_TOKEN=$(vault read -field=token secret/api)" >> "$RUNBOOK_ENV"' />
 
 <Command id="deploy" dependsOn="login" path="scripts/deploy.sh" />
 
@@ -440,7 +449,7 @@ Without the redirect, the block keeps waiting on the background process until `t
 #### Simple deployment script
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 # scripts/deploy.sh
 
 set -e  # Exit on error
@@ -468,7 +477,7 @@ log_info "Deployment complete!"
 ```
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 # scripts/create-vpc.sh
 
 log_info "Creating VPC $VPC_NAME in $REGION..."
@@ -485,7 +494,7 @@ log_info "VPC created successfully!"
 #### Script with error handling
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 # scripts/safe-deploy.sh
 
 set -e
@@ -525,7 +534,7 @@ Files written to `$GENERATED_FILES` appear in the file panel after the script ex
 #### Basic example
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 # Export OpenTofu outputs to generated files
 tofu output -json > "$GENERATED_FILES/tf-outputs.json"
 
@@ -547,7 +556,7 @@ Or as an inline command:
 #### Organizing files with subdirectories
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 mkdir -p "$GENERATED_FILES/opentofu"
 mkdir -p "$GENERATED_FILES/config"
 
@@ -588,7 +597,7 @@ If multiple commands run concurrently and write files with the same name, the la
 Once a `<GitClone>` block has registered a repository, the `$REPO_FILES` environment variable points to its local path. With several repositories, it points to the one selected in the workspace's repository dropdown: the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until the user selects another. Scripts can modify files inside the repository directly:
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 # Modify a file in the cloned repository
 echo "new setting = true" >> "$REPO_FILES/config.hcl"
 ```
@@ -625,7 +634,7 @@ Blocks that don't write a log file, such as [`<GitClone>`](/authoring/blocks/git
 Commands can produce outputs that later blocks consume. Scripts write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and later blocks reference them via `{{ .outputs.<block-id>.<key> }}`. A later block passes one to its script with [`env`](#passing-values-as-environment-variables), as in `env={{ ACCOUNT_ID: "{{ .outputs.create_account.account_id }}" }}`.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 ACCOUNT_ID=$(aws organizations create-account ...)
 echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
 ```

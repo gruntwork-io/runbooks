@@ -42,7 +42,6 @@ describe("launch-session", () => {
       path: runbook,
       remoteSource: undefined,
       dir: path.join(tmp, "dirs", overrides.id),
-      workingDir: path.join(tmp, "dirs", overrides.id),
       launchDir: undefined,
       env: undefined,
       worktrees: [],

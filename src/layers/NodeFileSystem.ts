@@ -116,10 +116,16 @@ const impl: FileSystemShape = {
       catch: (err) => new FileWriteError({ path: dest, cause: err }),
     }),
 
-  mkdtemp: (prefix: string) =>
+  mkdtemp: (prefix: string, dir?: string) =>
     Effect.tryPromise({
-      try: () => fs.mkdtemp(path.join(os.tmpdir(), prefix)),
+      try: () => fs.mkdtemp(path.join(dir ?? os.tmpdir(), prefix)),
       catch: (err) => new FileWriteError({ path: prefix, cause: err }),
+    }),
+
+  chmod: (filePath: string, mode: number) =>
+    Effect.tryPromise({
+      try: () => fs.chmod(filePath, mode),
+      catch: (err) => new FileWriteError({ path: filePath, cause: err }),
     }),
 
   realpath: (filePath: string) =>

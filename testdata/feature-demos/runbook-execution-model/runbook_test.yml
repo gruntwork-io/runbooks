@@ -5,12 +5,12 @@ settings:
   timeout: 1m
 
 tests:
-  - name: env-and-cwd-persist
+  - name: session-env-and-working-dir
     description: |
-      Exports, modified values, multiline values and the working directory
-      carry from one bash block to the next. Python can read what bash
-      exported, but its own os.environ changes don't persist, so
-      verify-python-env fails as the runbook explains.
+      Variables written to RUNBOOK_ENV, from bash or Python, reach later
+      blocks, as do new and multiline values. Exports, os.environ changes and
+      cd stay inside their script, workingDir picks where a block runs, and
+      the interpreter prop runs an inline command with python3.
     steps:
       - block: set-initial-env
         expect: success
@@ -19,7 +19,9 @@ tests:
       - block: python-set-env
         expect: success
       - block: verify-python-env
-        expect: fail
+        expect: success
+      - block: python-inline
+        expect: success
       - block: verify-env-vars
         expect: success
       - block: modify-env
@@ -30,15 +32,17 @@ tests:
         expect: success
       - block: verify-multiline-env
         expect: success
-      - block: change-workdir
+      - block: create-workdir
+        expect: success
+      - block: verify-cd-stays-in-script
         expect: success
       - block: verify-workdir
         expect: success
 
   - name: nothing-carries-between-tests
     description: |
-      Each test case starts from a clean environment, so the exports from
-      env-and-cwd-persist are gone.
+      Each test case starts from a clean environment, so the variables from
+      session-env-and-working-dir are gone.
     steps:
       - block: verify-env-vars
         expect: fail

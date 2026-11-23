@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Git Version Validation Script
 # This script checks if the user has the expected version of git installed.

@@ -1,5 +1,5 @@
-#!/bin/bash
-# Verify that environment variables from Block 1 persisted
+#!/usr/bin/env bash
+# Verify that the variables Block 1 wrote to RUNBOOK_ENV are set
 
 echo "Checking for environment variables from Block 1..."
 echo ""
@@ -27,6 +27,13 @@ else
     echo "✅ DEMO_PROJECT=$DEMO_PROJECT"
 fi
 
+if [ -n "${DEMO_EXPORT_ONLY:-}" ]; then
+    echo "❌ DEMO_EXPORT_ONLY is set, but an export should stay in its own script"
+    errors=$((errors + 1))
+else
+    echo "✅ DEMO_EXPORT_ONLY is not set (Block 1 only exported it)"
+fi
+
 echo ""
 
 if [ $errors -gt 0 ]; then
@@ -34,6 +41,5 @@ if [ $errors -gt 0 ]; then
     exit 1
 fi
 
-echo "All environment variables from Block 1 are present!"
-echo "The persistent environment is working correctly."
+echo "All environment variables Block 1 wrote to \$RUNBOOK_ENV are present!"
 

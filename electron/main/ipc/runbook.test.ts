@@ -410,18 +410,6 @@ describe("runbook IPC handlers", () => {
       const workingDir = async () =>
         (await runtimeModule.runtime.runPromise(sessionManager.getSession())).workingDir
 
-      /** What a block that ran `cd <dir>` leaves in the session. */
-      const cdInSession = (from: string, to: string) =>
-        runtimeModule.runtime.runPromise(
-          sessionManager.applyCapturedEnv({
-            before: {},
-            after: {},
-            startWorkDir: from,
-            pwd: to,
-            generation: sessionManager.getGeneration(),
-          }),
-        )
-
       it("starts in the session's own directory, not the runbook's folder", async () => {
         const result = await getRunbook(dirA)
 
@@ -429,23 +417,6 @@ describe("runbook IPC handlers", () => {
         expect(await workingDir()).toBe(sessionDir)
         expect(fs.statSync(sessionDir).isDirectory()).toBe(true)
         expect(result.sessionDir).toBe(sessionDir)
-      })
-
-      it("keeps a block's cd when the runbook is loaded again, as after a restart", async () => {
-        const { sessionId } = await getRunbook(dirA)
-        const sessionDir = path.join(sessions.dirsRoot, sessionId)
-        const sub = path.join(sessionDir, "sub")
-        fs.mkdirSync(sub)
-        await cdInSession(sessionDir, sub)
-
-        // A watch-mode reload, or a re-open after a close
-        const reloaded = await getRunbook(dirA)
-        expect(await workingDir()).toBe(sub)
-        // The session's directory is where it started, wherever a block has moved to.
-        expect(reloaded.sessionDir).toBe(sessionDir)
-        // resetSession goes back to where the session started, not the cd.
-        await runtimeModule.runtime.runPromise(sessionManager.resetSession())
-        expect(await workingDir()).toBe(sessionDir)
       })
     })
 
@@ -459,21 +430,9 @@ describe("runbook IPC handlers", () => {
         sessionManager.deleteSession()
       }
 
-      it("resumes a runbook's session after a restart, env and working dir included", async () => {
+      it("resumes a runbook's session after a restart, env included", async () => {
         const first = await getRunbook(dirA)
-        const sub = path.join(sessions.dirsRoot, first.sessionId, "sub")
-        fs.mkdirSync(sub)
         await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_BLOCK: "1" }))
-        const start = await runtimeModule.runtime.runPromise(sessionManager.getExecContext())
-        await runtimeModule.runtime.runPromise(
-          sessionManager.applyCapturedEnv({
-            before: start.env,
-            after: start.env,
-            startWorkDir: start.workDir,
-            pwd: sub,
-            generation: start.generation,
-          }),
-        )
         restartApp()
 
         const second = await getRunbook(dirA)
@@ -484,7 +443,7 @@ describe("runbook IPC handlers", () => {
         expect((await sessionEnv()).FROM_BLOCK).toBe("1")
         expect(
           (await runtimeModule.runtime.runPromise(sessionManager.getSession())).workingDir,
-        ).toBe(sub)
+        ).toBe(path.join(sessions.dirsRoot, first.sessionId))
       })
 
       it("keeps one session per runbook when switching between them", async () => {

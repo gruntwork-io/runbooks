@@ -1,73 +1,12 @@
 import { describe, it, expect, beforeEach } from "bun:test"
 import { Effect } from "effect"
-import {
-  SessionManager,
-  appendPathEntries,
-  diffEnv,
-  filterCapturedEnv,
-  type SessionState,
-} from "./manager.ts"
+import { SessionManager, appendPathEntries, diffEnv, type SessionState } from "./manager.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import type { Environment } from "../../services/Environment.ts"
-import type { SessionExecSnapshot } from "../../types.ts"
 
 function run<A, E>(effect: Effect.Effect<A, E, Environment>, env: Record<string, string> = {}) {
   return Effect.runPromise(effect.pipe(Effect.provide(makeTestEnvironment(env))))
 }
-
-describe("filterCapturedEnv", () => {
-  it("removes excluded env vars", () => {
-    const result = filterCapturedEnv({
-      HOME: "/home/user",
-      SHLVL: "1",
-      _: "/usr/bin/env",
-      RUNBOOK_OUTPUT: "/tmp/output",
-      GENERATED_FILES: "/tmp/files",
-      REPO_FILES: "/tmp/repo",
-      RUNBOOK_LOG: "/tmp/logs/runbook.log",
-      RUNBOOK_INFO_LOG: "/tmp/logs/info.log",
-      RUNBOOK_WARN_LOG: "/tmp/logs/warn.log",
-      RUNBOOK_ERROR_LOG: "/tmp/logs/error.log",
-      RUNBOOK_DEBUG_LOG: "/tmp/logs/debug.log",
-      OLDPWD: "/old",
-      RANDOM: "12345",
-      SECONDS: "100",
-    })
-    expect(result).toEqual({ HOME: "/home/user" })
-  })
-
-  it("removes all BASH_ prefixed vars", () => {
-    const result = filterCapturedEnv({
-      PATH: "/usr/bin",
-      BASH_VERSION: "5.0",
-      BASH_VERSINFO: "5",
-      BASH_CUSTOM_VAR: "test",
-    })
-    expect(result).toEqual({ PATH: "/usr/bin" })
-  })
-
-  it("removes internal wrapper variables", () => {
-    const result = filterCapturedEnv({
-      USER: "test",
-      __RUNBOOKS_ENV_CAPTURE_PATH: "/tmp/env",
-      __RUNBOOKS_PWD_CAPTURE_PATH: "/tmp/pwd",
-      __RUNBOOKS_USER_EXIT_HANDLER: "cleanup",
-      __RUNBOOKS_COMBINED_EXIT: "handler",
-      _RUNBOOKS_LOGGING_LOADED: "1",
-    })
-    expect(result).toEqual({ USER: "test" })
-  })
-
-  it("returns empty object when all vars are excluded", () => {
-    const result = filterCapturedEnv({ SHLVL: "1", _: "/bin/env" })
-    expect(result).toEqual({})
-  })
-
-  it("passes through unrecognized vars", () => {
-    const result = filterCapturedEnv({ MY_VAR: "hello", CUSTOM: "world" })
-    expect(result).toEqual({ MY_VAR: "hello", CUSTOM: "world" })
-  })
-})
 
 describe("diffEnv", () => {
   it("reports added and re-assigned keys as set and removed keys as unset", () => {
@@ -185,7 +124,7 @@ describe("SessionManager", () => {
       expect(ctx.workDir).toBe("/work2")
     })
 
-    it("sets workDir from initialWorkingDir", async () => {
+    it("sets workDir from the working directory it is given", async () => {
       await run(mgr.createSession("/my/dir"), {})
       const ctx = await Effect.runPromise(mgr.getExecContext())
       expect(ctx.workDir).toBe("/my/dir")
@@ -218,11 +157,10 @@ describe("SessionManager", () => {
 
   describe("resumeSession", () => {
     const saved = (state: Partial<SessionState> = {}) => ({
-      initialWorkingDir: "/session",
+      workingDir: "/session",
       runbookPath: "/repo/runbook.mdx",
       createdAt: new Date("2026-01-01T00:00:00Z"),
       state: {
-        workingDir: "/session",
         env: { set: {}, unset: [] },
         worktrees: [],
         activeWorktree: "",
@@ -245,14 +183,9 @@ describe("SessionManager", () => {
     })
 
     it("resets to the current process env, without the saved changes", async () => {
-      await run(
-        mgr.resumeSession(
-          saved({ workingDir: "/session/repo", env: { set: { A: "1" }, unset: [] } }),
-        ),
-        {
-          HOME: "/home",
-        },
-      )
+      await run(mgr.resumeSession(saved({ env: { set: { A: "1" }, unset: [] } })), {
+        HOME: "/home",
+      })
 
       await run(mgr.resetSession())
 
@@ -273,11 +206,10 @@ describe("SessionManager", () => {
       expect(ctx.env).toEqual({ AWS_ACCESS_KEY_ID: "from-auth-block" })
     })
 
-    it("restores the working dir, worktrees, execution count and creation time", async () => {
+    it("restores the worktrees, execution count and creation time", async () => {
       await run(
         mgr.resumeSession(
           saved({
-            workingDir: "/session/repo",
             worktrees: ["/session/a", "/session/b"],
             activeWorktree: "/session/a",
             executionCount: 7,
@@ -288,7 +220,7 @@ describe("SessionManager", () => {
       expect(mgr.getRunbookPath()).toBe("/repo/runbook.mdx")
       expect(mgr.getActiveWorkTreePath()).toBe("/session/a")
       expect(await run(mgr.getMetadata())).toEqual({
-        workingDir: "/session/repo",
+        workingDir: "/session",
         executionCount: 7,
         createdAt: "2026-01-01T00:00:00.000Z",
         lastActivity: "2026-01-02T00:00:00.000Z",
@@ -317,19 +249,10 @@ describe("SessionManager", () => {
       mgr.registerWorkTreePath("/work/repo")
       mgr.setActiveWorkTreePath("/work/repo")
       const start = await run(mgr.getExecContext())
-      await run(
-        mgr.applyCapturedEnv({
-          before: start.env,
-          after: { ...start.env, EXPORTED: "1" },
-          startWorkDir: start.workDir,
-          pwd: "/work/repo",
-          generation: start.generation,
-        }),
-      )
+      await run(mgr.applyScriptEnv({ env: { EXPORTED: "1" }, generation: start.generation }))
 
       expect(states).toHaveLength(5)
       expect(states.at(-1)).toMatchObject({
-        workingDir: "/work/repo",
         env: { set: { TOKEN: "t", EXPORTED: "1" }, unset: ["DROP"] },
         worktrees: ["/work/repo"],
         activeWorktree: "/work/repo",
@@ -346,7 +269,7 @@ describe("SessionManager", () => {
       await run(mgr.resetSession())
 
       expect(states).toHaveLength(1)
-      expect(states.at(-1)).toMatchObject({ workingDir: "/work", env: { set: {}, unset: [] } })
+      expect(states.at(-1)).toMatchObject({ env: { set: {}, unset: [] } })
     })
 
     it("does not report a write dropped for a stale generation or a repeat registration", async () => {
@@ -401,31 +324,13 @@ describe("SessionManager", () => {
   })
 
   describe("resetSession", () => {
-    it("resets env and workDir to initial values", async () => {
+    it("resets the env to the one the session started with", async () => {
       await run(mgr.createSession("/initial"), { A: "1" })
+      await run(mgr.applyScriptEnv({ env: { B: "2" }, generation: mgr.getGeneration() }))
 
-      // Modify the session
-      const start = await run(mgr.getExecContext())
-      await run(
-        mgr.applyCapturedEnv({
-          before: start.env,
-          after: { A: "1", B: "2" },
-          startWorkDir: start.workDir,
-          pwd: "/new/dir",
-          generation: start.generation,
-        }),
-      )
-
-      // Verify modified
-      let ctx = await Effect.runPromise(mgr.getExecContext())
-      expect(ctx.env.B).toBe("2")
-      expect(ctx.workDir).toBe("/new/dir")
-
-      // Reset
       await run(mgr.resetSession())
 
-      // Should be back to initial
-      ctx = await Effect.runPromise(mgr.getExecContext())
+      const ctx = await Effect.runPromise(mgr.getExecContext())
       expect(ctx.env).toEqual({ A: "1" })
       expect(ctx.workDir).toBe("/initial")
     })
@@ -435,104 +340,30 @@ describe("SessionManager", () => {
     })
   })
 
-  describe("applyCapturedEnv", () => {
-    /** Apply a script's capture the way exec:run does, against its start snapshot. */
-    function applyCapture(
-      start: SessionExecSnapshot,
-      after: Record<string, string>,
-      pwd: string = start.workDir,
-    ) {
-      return run(
-        mgr.applyCapturedEnv({
-          before: start.env,
-          after,
-          startWorkDir: start.workDir,
-          pwd,
-          generation: start.generation,
-        }),
+  describe("applyScriptEnv", () => {
+    it("sets the script's variables and leaves the rest of the env alone", async () => {
+      await run(mgr.createSession("/work"), { OLD: "val", A: "1" })
+
+      await run(
+        mgr.applyScriptEnv({ env: { NEW: "val", A: "2" }, generation: mgr.getGeneration() }),
       )
-    }
-
-    it("applies the script's exports and working dir", async () => {
-      await run(mgr.createSession("/work"), { OLD: "val" })
-      const start = await run(mgr.getExecContext())
-
-      await applyCapture(start, { OLD: "val", NEW: "val" }, "/new")
 
       const ctx = await run(mgr.getExecContext())
-      expect(ctx.env).toEqual({ OLD: "val", NEW: "val" })
-      expect(ctx.workDir).toBe("/new")
-    })
-
-    it("deletes a key the script unset", async () => {
-      await run(mgr.createSession("/work"), { DEBUG: "1", KEEP: "1" })
-      const start = await run(mgr.getExecContext())
-      const after = { ...start.env }
-      delete after.DEBUG
-
-      await applyCapture(start, after)
-
-      const ctx = await run(mgr.getExecContext())
-      expect(ctx.env).toEqual({ KEEP: "1" })
+      expect(ctx.env).toEqual({ OLD: "val", A: "2", NEW: "val" })
+      expect(ctx.workDir).toBe("/work")
     })
 
     it("keeps a credential an auth block added while the script ran", async () => {
-      await run(mgr.createSession("/work"), { PATH: "/usr/bin" })
+      await run(mgr.createSession("/work"), {})
       const start = await run(mgr.getExecContext())
       await run(mgr.appendToEnv({ GITHUB_TOKEN: "ghp_mid_run" }))
 
-      await applyCapture(start, { ...start.env, FOO: "1" })
+      await run(mgr.applyScriptEnv({ env: { FOO: "1" }, generation: start.generation }))
 
-      const ctx = await run(mgr.getExecContext())
-      expect(ctx.env.FOO).toBe("1")
-      expect(ctx.env.GITHUB_TOKEN).toBe("ghp_mid_run")
-    })
-
-    it("keeps a value an auth block replaced while the script ran", async () => {
-      await run(mgr.createSession("/work"), { GOOGLE_APPLICATION_CREDENTIALS: "/tmp/old.json" })
-      const start = await run(mgr.getExecContext())
-      await run(mgr.appendToEnv({ GOOGLE_APPLICATION_CREDENTIALS: "/tmp/new.json" }))
-
-      await applyCapture(start, { ...start.env })
-
-      const ctx = await run(mgr.getExecContext())
-      expect(ctx.env.GOOGLE_APPLICATION_CREDENTIALS).toBe("/tmp/new.json")
-    })
-
-    it("keeps a var an auth block removed while the script ran removed", async () => {
-      await run(mgr.createSession("/work"), {
-        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: "/tmp/cred.json",
+      expect((await run(mgr.getExecContext())).env).toEqual({
+        GITHUB_TOKEN: "ghp_mid_run",
+        FOO: "1",
       })
-      const start = await run(mgr.getExecContext())
-      await run(mgr.removeFromEnv(["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"]))
-
-      await applyCapture(start, { ...start.env })
-
-      const ctx = await run(mgr.getExecContext())
-      expect(ctx.env.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE).toBeUndefined()
-    })
-
-    it("keeps a working dir set during the run when the script did not cd", async () => {
-      await run(mgr.createSession("/work"), {})
-      const start = await run(mgr.getExecContext())
-      // Another run that started alongside finishes first, having moved.
-      await applyCapture(start, { ...start.env }, "/moved")
-
-      await applyCapture(start, { ...start.env }, "/work")
-
-      const ctx = await run(mgr.getExecContext())
-      expect(ctx.workDir).toBe("/moved")
-    })
-
-    it("keeps the working dir when the script's pwd capture came back empty", async () => {
-      await run(mgr.createSession("/work"), {})
-      const start = await run(mgr.getExecContext())
-
-      await applyCapture(start, { ...start.env, FOO: "1" }, "")
-
-      const ctx = await run(mgr.getExecContext())
-      expect(ctx.workDir).toBe("/work")
-      expect(ctx.env.FOO).toBe("1")
     })
 
     it("does nothing to a session created after the script started", async () => {
@@ -541,30 +372,26 @@ describe("SessionManager", () => {
       const start = await run(mgr.getExecContext())
       await run(mgr.createSession("/b", "/b/runbook.mdx"), { B: "b" })
 
-      await applyCapture(start, { ...start.env, EXPORTED_BY_A: "1" }, "/a/sub")
+      await run(mgr.applyScriptEnv({ env: { EXPORTED_BY_A: "1" }, generation: start.generation }))
 
-      const ctx = await run(mgr.getExecContext())
-      expect(ctx.env).toEqual({ B: "b" })
-      expect(ctx.workDir).toBe("/b")
+      expect((await run(mgr.getExecContext())).env).toEqual({ B: "b" })
       expect((await run(mgr.getMetadata())).executionCount).toBe(0)
     })
 
-    it("increments execution count", async () => {
+    it("counts each run, including one that set nothing", async () => {
       await run(mgr.createSession("/work"), {})
-      const start = await run(mgr.getExecContext())
-      await applyCapture(start, {})
-      await applyCapture(start, {})
+      await run(mgr.applyScriptEnv({ env: {}, generation: mgr.getGeneration() }))
+      await run(mgr.applyScriptEnv({ env: {}, generation: mgr.getGeneration() }))
 
-      const meta = await run(mgr.getMetadata())
-      expect(meta.executionCount).toBe(2)
+      expect((await run(mgr.getMetadata())).executionCount).toBe(2)
     })
 
     it("is a no-op when no session exists", async () => {
       await run(mgr.createSession("/work"), {})
-      const start = await run(mgr.getExecContext())
+      const generation = mgr.getGeneration()
       mgr.deleteSession()
 
-      await applyCapture(start, { X: "1" })
+      await run(mgr.applyScriptEnv({ env: { X: "1" }, generation }))
 
       await expect(run(mgr.getExecContext())).rejects.toThrow()
     })
@@ -622,11 +449,8 @@ describe("SessionManager", () => {
     it("keeps a PATH a script changed as a saved change, with the directories added", async () => {
       await run(mgr.createSession("/work"), { PATH: "/usr/bin" })
       await run(
-        mgr.applyCapturedEnv({
-          before: { PATH: "/usr/bin" },
-          after: { PATH: "/home/me/.local/bin:/usr/bin" },
-          startWorkDir: "/work",
-          pwd: "/work",
+        mgr.applyScriptEnv({
+          env: { PATH: "/home/me/.local/bin:/usr/bin" },
           generation: mgr.getGeneration(),
         }),
       )
@@ -676,11 +500,8 @@ describe("SessionManager", () => {
     it("keeps a value a script set, as a saved change", async () => {
       await run(mgr.createSession("/work"), {})
       await run(
-        mgr.applyCapturedEnv({
-          before: {},
-          after: { SSL_CERT_FILE: "/script/own.pem" },
-          startWorkDir: "/work",
-          pwd: "/work",
+        mgr.applyScriptEnv({
+          env: { SSL_CERT_FILE: "/script/own.pem" },
           generation: mgr.getGeneration(),
         }),
       )

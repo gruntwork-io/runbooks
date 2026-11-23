@@ -60,7 +60,9 @@ export interface FileSystemShape {
     options?: { recursive?: boolean; force?: boolean },
   ) => Effect.Effect<void, FileWriteError>
   readonly copyFile: (src: string, dest: string) => Effect.Effect<void, FileWriteError>
-  readonly mkdtemp: (prefix: string) => Effect.Effect<string, FileWriteError>
+  /** Creates a uniquely named directory in `dir`, or in the OS temp directory without one. */
+  readonly mkdtemp: (prefix: string, dir?: string) => Effect.Effect<string, FileWriteError>
+  readonly chmod: (path: string, mode: number) => Effect.Effect<void, FileWriteError>
   readonly realpath: (path: string) => Effect.Effect<string, FileNotFoundError>
   readonly walk: (dir: string) => Stream.Stream<WalkEntry, FileReadError>
   readonly watch: (

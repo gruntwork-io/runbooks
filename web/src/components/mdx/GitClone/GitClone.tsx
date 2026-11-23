@@ -821,8 +821,7 @@ function GitCloneInteractive({
                             <span className="font-normal text-muted-foreground">(optional)</span>
                             <InfoTooltip>
                               The directory where the cloned files will be saved, relative to the
-                              current working directory. Defaults to the repository name if not
-                              specified.
+                              session's directory. Defaults to the repository name if not specified.
                             </InfoTooltip>
                           </label>
                           <input

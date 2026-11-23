@@ -1,11 +1,11 @@
 # Working Directory Behavior Test
 
-This runbook tests that working directory behaves correctly across different
+This runbook tests that the working directory behaves correctly across different
 block types and scenarios.
 
-## Scenario 1: Command blocks inherit and propagate CWD
+## Scenario 1: A cd stays inside its script
 
-A Command block that changes directory should affect subsequent Command blocks.
+A Command block that changes directory doesn't move the blocks after it.
 
 <Command
     id="cd-subdir"
@@ -18,14 +18,22 @@ A Command block that changes directory should affect subsequent Command blocks.
     id="verify-cwd"
     command='pwd; echo "cwd=$(pwd)" >> "${RUNBOOK_OUTPUT:-/dev/null}"'
     title="Verify CWD"
-    description="Should show that we're now inside subdir"
+    description="Should show the session's directory, not subdir"
 />
 
-## Scenario 2: GitClone resolves relative to the initial working directory
+## Scenario 2: workingDir picks where a block runs
 
-Even though the Command above changed the session CWD to `subdir/`,
-a GitClone block should still resolve paths relative to the *initial*
-working directory (where the runbook server was started).
+<Command
+    id="verify-cwd-in-subdir"
+    workingDir="subdir"
+    command='pwd; echo "cwd=$(pwd)" >> "${RUNBOOK_OUTPUT:-/dev/null}"'
+    title="Verify CWD with workingDir"
+    description="Should show that we're inside subdir"
+/>
+
+## Scenario 3: GitClone resolves relative to the session's directory
+
+The `cd` above doesn't change where a GitClone block clones to.
 
 <GitClone
     id="clone-after-cd"

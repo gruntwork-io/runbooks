@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 # Create a new GitHub repository for infra-live. The Command's env prop sets

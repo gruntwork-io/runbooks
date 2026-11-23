@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # The Command's env prop sets PROJECT_NAME, AUTHOR and LANGUAGE from the
 # project Template's inputs
 

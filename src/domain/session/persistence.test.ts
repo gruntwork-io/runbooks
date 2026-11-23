@@ -247,14 +247,10 @@ describe("SessionPersistence", () => {
     const session = await first.open()
     const repo = path.join(session.dir, "repo")
     fs.mkdirSync(repo)
-    const start = await run(first.manager.getExecContext())
     await run(
-      first.manager.applyCapturedEnv({
-        before: start.env,
-        after: { ...start.env, EXPORTED: "1" },
-        startWorkDir: start.workDir,
-        pwd: repo,
-        generation: start.generation,
+      first.manager.applyScriptEnv({
+        env: { EXPORTED: "1" },
+        generation: first.manager.getGeneration(),
       }),
     )
     first.manager.registerWorkTreePath(repo)
@@ -268,7 +264,7 @@ describe("SessionPersistence", () => {
     expect(resumed).toEqual({ ...session, resumedFrom: expect.any(String) })
     expect(await run(second.manager.getExecContext())).toMatchObject({
       env: { HOME: "/home/me", PATH: "/new/bin", EXPORTED: "1" },
-      workDir: repo,
+      workDir: session.dir,
     })
     expect(second.manager.getActiveWorkTreePath()).toBe(repo)
     expect((await run(second.manager.getMetadata())).executionCount).toBe(1)
@@ -426,23 +422,13 @@ describe("SessionPersistence", () => {
     expect((await run(third.manager.getExecContext())).env.CREDENTIALS_FILE).toBe(kept)
   })
 
-  it("falls back to the session directory and drops worktrees that were deleted since", async () => {
+  it("drops worktrees that were deleted since", async () => {
     const first = startApp()
     const session = await first.open()
     const gone = path.join(session.dir, "gone")
     const kept = path.join(session.dir, "kept")
     fs.mkdirSync(gone)
     fs.mkdirSync(kept)
-    const start = await run(first.manager.getExecContext())
-    await run(
-      first.manager.applyCapturedEnv({
-        before: start.env,
-        after: start.env,
-        startWorkDir: start.workDir,
-        pwd: gone,
-        generation: start.generation,
-      }),
-    )
     first.manager.registerWorkTreePath(kept)
     first.manager.registerWorkTreePath(gone)
     first.manager.setActiveWorkTreePath(gone)
@@ -452,7 +438,6 @@ describe("SessionPersistence", () => {
     const second = startApp()
     await second.open()
 
-    expect((await run(second.manager.getMetadata())).workingDir).toBe(session.dir)
     expect([...(await run(second.manager.getSession())).registeredWorkTreePaths]).toEqual([kept])
     // The selected worktree is gone, so the last one still registered stands in.
     expect(second.manager.getActiveWorkTreePath()).toBe(kept)
@@ -470,7 +455,6 @@ describe("SessionPersistence", () => {
       path: LOCAL.path,
       remoteSource: undefined,
       dir: session.dir,
-      workingDir: session.dir,
       launchDir: "/home/me/project",
       env: undefined,
       worktrees: [],

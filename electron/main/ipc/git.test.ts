@@ -890,8 +890,8 @@ describe("session token binding (local http and https remotes)", () => {
     vcsSessionMeta.set("gitlab", { host, source: "manual" })
   }
 
-  /** A Command script's `export GITLAB_HOST=<value>`, captured into the session. */
-  const scriptExportsGitLabHost = (value: string) =>
+  /** A Command script that writes `GITLAB_HOST=<value>` to RUNBOOK_ENV. */
+  const scriptSetsGitLabHost = (value: string) =>
     Effect.runPromise(sessionManager.appendToEnv({ GITLAB_HOST: value }))
 
   /** A session whose env is inherited from a shell (no auth block ran). */
@@ -1091,7 +1091,7 @@ describe("session token binding (local http and https remotes)", () => {
   describe("GitLab host binding — a script cannot move it; an inherited env follows glab's host vars", () => {
     it("a script that points GITLAB_HOST at another host does not carry the auth block's token there", async () => {
       await authGitLab("gitlab.com")
-      await scriptExportsGitLabHost(httpsHost)
+      await scriptSetsGitLabHost(httpsHost)
 
       await clone(`https://${httpsHost}/acme/infra.git`, "gitlab")
       const origin = `https://${httpsHost}/acme/infra.git`
@@ -1110,7 +1110,7 @@ describe("session token binding (local http and https remotes)", () => {
 
     it("a script that names the auth block's host in URL form keeps the binding", async () => {
       await authGitLab(httpsHost)
-      await scriptExportsGitLabHost(`https://${httpsHost}/`)
+      await scriptSetsGitLabHost(`https://${httpsHost}/`)
       const repo = checkout(`https://${httpsHost}/acme/infra.git`)
       await invoke("git:push", { worktreePath: repo, branchName: "main", provider: "gitlab" })
       expect(sinksOf(GITLAB_TOKEN)).toEqual([`git https://${httpsHost}`])

@@ -10,9 +10,9 @@
  * the scope, which runs the `process.kill` finalizer.
  *
  * The script spawns a long-lived *grandchild* (`sleep`) in the background and
- * records its PID. The wrapper bash process is the spawner's direct child; the
- * sleeper is its child. Crucially, the wrapper traps EXIT but not SIGTERM, so on
- * termination bash dies WITHOUT reaping its background job. The grandchild
+ * records its PID. The script's bash process is the spawner's direct child; the
+ * sleeper is its child. bash has no SIGTERM trap, so on termination it dies
+ * WITHOUT reaping its background job. The grandchild
  * therefore survives unless the whole process group is signaled. Asserting the
  * grandchild is dead is what proves the process-group kill works — killing only
  * the direct child (the old `proc.kill()` behavior) would leave it orphaned and
@@ -45,6 +45,7 @@ const liveLayer = Layer.mergeAll(
 
 /** Where these runs write their logs. */
 const LOGS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-kill-logs-"))
+const SCRIPTS_DIR = path.join(LOGS_DIR, "scripts")
 afterAll(() => {
   fs.rmSync(LOGS_DIR, { recursive: true, force: true })
 })
@@ -119,12 +120,10 @@ describe("executeScript cancellation (e2e, real process tree)", () => {
       Effect.gen(function* () {
         const { logStream, completionEffect } = yield* executeScript(
           script,
-          "bash",
+          { path: "", interpreter: "" },
           {},
           { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
-          "",
-          "",
-          LOGS_DIR,
+          { workTree: "", generated: "", logs: LOGS_DIR, scripts: SCRIPTS_DIR },
         )
         // Draining the log stream parks the fiber while the process runs —
         // this is the interruptible point cancellation acts on.
@@ -172,10 +171,10 @@ async function runToCompletion(
   request: ExecRequest,
   pauseBeforeCompletionMs = 0,
   {
-    language = "bash",
+    scriptPath = "",
     blockAfterSpawnMs = 0,
     onLogLine,
-  }: { language?: string; blockAfterSpawnMs?: number; onLogLine?: (line: string) => void } = {},
+  }: { scriptPath?: string; blockAfterSpawnMs?: number; onLogLine?: (line: string) => void } = {},
 ): Promise<{ events: ExecEvent[]; elapsedMs: number; logFilePath: string }> {
   const startedAt = Date.now()
   const { events, logFilePath } = await Effect.runPromise(
@@ -187,12 +186,10 @@ async function runToCompletion(
           logFilePath: scriptLogFilePath,
         } = yield* executeScript(
           script,
-          language,
+          { path: scriptPath, interpreter: "" },
           request,
           { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
-          "",
-          "",
-          LOGS_DIR,
+          { workTree: "", generated: "", logs: LOGS_DIR, scripts: SCRIPTS_DIR },
         )
         const blockUntil = Date.now() + blockAfterSpawnMs
         while (Date.now() < blockUntil) {
@@ -246,12 +243,10 @@ describe("executeScript timeoutMs (e2e, real process)", () => {
         Effect.gen(function* () {
           const run = yield* executeScript(
             "echo start\nsleep 10\n",
-            "bash",
+            { path: "", interpreter: "" },
             { timeoutMs: 2000 },
             { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
-            "",
-            "",
-            LOGS_DIR,
+            { workTree: "", generated: "", logs: LOGS_DIR, scripts: SCRIPTS_DIR },
           )
           yield* Stream.runDrain(run.logStream)
           yield* run.completionEffect
@@ -435,7 +430,7 @@ describe("executeScript log files (e2e, real process)", () => {
         "",
       ].join("\n")
 
-      const { events } = await runToCompletion(script, {}, 0, { language: "python3" })
+      const { events } = await runToCompletion(script, {}, 0, { scriptPath: "check.py" })
 
       expect(statusOf(events)).toEqual({ status: "success", exitCode: 0 })
       expect(unstamped(logLines(events)).sort()).toEqual(["[ERROR] from python", "to stdout"])

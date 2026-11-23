@@ -1,6 +1,7 @@
 /**
  * Session env through the real IPC handlers: runbook:get creating the session
- * and exec:run applying a script's captured env, with real bash scripts.
+ * and exec:run applying what a script wrote to RUNBOOK_ENV, with real bash
+ * scripts.
  */
 import { describe, it, expect, beforeAll, afterAll } from "bun:test"
 import * as fs from "node:fs"
@@ -111,11 +112,11 @@ describe("runbook:get session env", () => {
   })
 })
 
-describe("exec:run captured env", () => {
+describe("exec:run session env", () => {
   /**
    * Open a runbook whose one Command signals that it started, blocks until
-   * released, then exports FROM_SCRIPT and cd's out of the session directory.
-   * Returns a way to start it and a way to let it finish.
+   * released, then sets FROM_SCRIPT for the session. Returns a way to start it
+   * and a way to let it finish.
    */
   async function openBlockingRunbook(name: string) {
     const started = nodePath.join(tmpDir, `${name}.started`)
@@ -126,8 +127,7 @@ describe("exec:run captured env", () => {
         `touch '${started}'`,
         // Bounded, so a failed test can't leave the loop running (~30s).
         `for _ in $(seq 600); do [ -f '${release}' ] && break; sleep 0.05; done`,
-        "export FROM_SCRIPT=1",
-        `cd '${tmpDir}'`,
+        'echo FROM_SCRIPT=1 >> "$RUNBOOK_ENV"',
         "",
       ].join("\n"),
     })
@@ -175,20 +175,55 @@ describe("exec:run captured env", () => {
     expect(ctx.env.GITHUB_TOKEN).toBe("ghp_mid_run")
     expect(ctx.env.PRE_EXISTING).toBe("fresh")
     expect(ctx.env.AWS_SESSION_TOKEN).toBeUndefined()
-    expect(ctx.workDir).toBe(tmpDir)
+  }, 30000)
+
+  it("keeps what a script exports and where it cd's to inside the script", async () => {
+    const ctx = await runCommand("exported", `export LEAKED=1; cd '${tmpDir}'`)
+
+    expect(ctx.env.LEAKED).toBeUndefined()
+    expect(ctx.workDir).toBe(
+      nodePath.join(sessions.dirsRoot, sessions.persistence.currentSession()!.id),
+    )
+  }, 30000)
+
+  it("runs a block in its workingDir, inside the session's directory", async () => {
+    const out = nodePath.join(tmpDir, "working-dir.out")
+    await openRunbook(
+      writeRunbook(
+        "working-dir",
+        `<Command id="cmd" workingDir="infra/live" command="pwd > '${out}'" />\n`,
+      ),
+    )
+    const sessionDir = nodePath.join(sessions.dirsRoot, sessions.persistence.currentSession()!.id)
+    fs.mkdirSync(nodePath.join(sessionDir, "infra", "live"), { recursive: true })
+    const { executables } = (await handlers.get("runbook:executables")!({})) as {
+      executables: Record<string, { componentId: string }>
+    }
+    const executableId = Object.keys(executables).find(
+      (id) => executables[id]!.componentId === "cmd",
+    )!
+
+    const result = (await handlers.get("exec:run")!(
+      { sender: { send: () => {} } },
+      { executableId, executionId: "working-dir" },
+    )) as { status: { status: string } | null }
+
+    expect(result.status?.status).toBe("success")
+    expect(fs.realpathSync(fs.readFileSync(out, "utf8").trim())).toBe(
+      fs.realpathSync(nodePath.join(sessionDir, "infra", "live")),
+    )
   }, 30000)
 
   /**
-   * Open a runbook with one inline Command, add `sessionEnv` to its session,
-   * and run the Command to completion with `envVarsOverride`.
+   * Open a runbook with one inline Command and run it to completion with
+   * `envVarsOverride`.
    */
   async function runCommand(
     name: string,
     command: string,
-    opts: { sessionEnv?: Record<string, string>; envVarsOverride?: Record<string, string> } = {},
+    opts: { envVarsOverride?: Record<string, string> } = {},
   ) {
     await openRunbook(writeRunbook(name, `<Command id="cmd" command="${command}" />\n`))
-    if (opts.sessionEnv) await runtime.runPromise(sessionManager.appendToEnv(opts.sessionEnv))
     const { executables } = (await handlers.get("runbook:executables")!({})) as {
       executables: Record<string, { componentId: string }>
     }
@@ -241,7 +276,7 @@ describe("exec:run captured env", () => {
     // run if the script's source were built from it.
     const title = `Fix typo $(touch '${marker}') \`touch '${marker}'\` "; touch '${marker}'; echo "`
     const env = `{{ PR_TITLE: ${JSON.stringify(title)}, STAGE: "dev" }}`
-    const script = `printf '%s' "$PR_TITLE" > '${out}'; export STAGE=prod`
+    const script = `printf '%s' "$PR_TITLE" > '${out}'; echo STAGE=prod >> "$RUNBOOK_ENV"`
     await openRunbook(
       writeRunbook(
         "env-prop",
@@ -265,15 +300,8 @@ describe("exec:run captured env", () => {
     expect(fs.existsSync(marker)).toBe(false)
     const ctx = await runtime.runPromise(sessionManager.getExecContext())
     expect(ctx.env.PR_TITLE).toBeUndefined()
-    // A variable the script exports again is the script's, like any export.
+    // A variable the script writes to RUNBOOK_ENV is the script's.
     expect(ctx.env.STAGE).toBe("prod")
-  }, 30000)
-
-  it("keeps session vars that the capture filter drops", async () => {
-    const ctx = await runCommand("filtered-keys", "true", {
-      sessionEnv: { BASH_SILENCE_DEPRECATION_WARNING: "1" },
-    })
-    expect(ctx.env.BASH_SILENCE_DEPRECATION_WARNING).toBe("1")
   }, 30000)
 
   it("does not apply a script's env to a runbook opened while it ran", async () => {
@@ -288,9 +316,5 @@ describe("exec:run captured env", () => {
 
     const ctx = await runtime.runPromise(sessionManager.getExecContext())
     expect(ctx.env.FROM_SCRIPT).toBeUndefined()
-    // Still the other runbook's own session directory, not the script's `cd`.
-    expect(ctx.workDir).toBe(
-      nodePath.join(sessions.dirsRoot, sessions.persistence.currentSession()!.id),
-    )
   }, 30000)
 })

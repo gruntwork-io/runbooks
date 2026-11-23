@@ -41,7 +41,7 @@ echo '#!/bin/sh' > bin/runbooks-demo-tool
 echo 'echo "runbooks-demo-tool 1.2.3"' >> bin/runbooks-demo-tool
 echo '#!/bin/sh' > bin/runbooks-demo-glab
 chmod +x bin/runbooks-demo-tool bin/runbooks-demo-glab
-export PATH="$PWD/bin:$PATH"`}
+echo "PATH=$PWD/bin:$PATH" >> "$RUNBOOK_ENV"`}
     successMessage="Installed. Click **Check again** above."
 />
 

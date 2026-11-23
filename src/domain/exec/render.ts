@@ -64,6 +64,29 @@ export function renderBlockEnv(
 }
 
 /**
+ * Render a block's `workingDir` template with the same values as its script.
+ * Strict like renderBlockEnv: a template error fails the run, since the
+ * script would otherwise run in the wrong directory.
+ */
+export function renderBlockWorkingDir(
+  workingDir: string,
+  templateVarValues: Record<string, unknown>,
+): Effect.Effect<string, RenderError, BoilerplateRenderer | WasmRuntime> {
+  return Effect.gen(function* () {
+    if (!workingDir.includes("{{")) return workingDir
+    const renderer = yield* BoilerplateRenderer
+    const vars = yield* resolveTemplateVars(templateVarValues)
+    return yield* renderer
+      .renderFileStrict(workingDir, vars)
+      .pipe(
+        Effect.mapError(
+          (err) => new RenderError({ message: `workingDir: ${err.message}`, cause: err }),
+        ),
+      )
+  })
+}
+
+/**
  * The values to render a script or its env with: `templateVarValues` with
  * the inputs that are templates themselves resolved.
  *

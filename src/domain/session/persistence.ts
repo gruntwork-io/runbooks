@@ -207,7 +207,6 @@ export class SessionPersistence {
           path: request.runbook.path,
           remoteSource: request.runbook.remoteSource,
           dir,
-          workingDir: dir,
           launchDir: request.launchDir ?? replaced?.launchDir,
           env: undefined,
           worktrees: [],
@@ -235,10 +234,10 @@ export class SessionPersistence {
       } else {
         const dir = yield* this.ensureDir(saved.dir)
         yield* manager.resumeSession({
-          initialWorkingDir: dir,
+          workingDir: dir,
           runbookPath: request.runbook.path,
           createdAt: new Date(saved.createdAt),
-          state: yield* this.restoreState(saved, dir),
+          state: yield* this.restoreState(saved),
         })
         yield* store.markLaunched(saved.id, {
           at: now.toISOString(),
@@ -446,18 +445,16 @@ export class SessionPersistence {
   }
 
   /**
-   * The saved state with everything that has since disappeared from disk
-   * removed: a deleted working directory falls back to the session's
-   * directory, and deleted worktrees are dropped.
+   * The saved state without the worktrees that have since been deleted from
+   * disk.
    */
-  private restoreState(saved: SessionRecord, dir: string) {
+  private restoreState(saved: SessionRecord) {
     return Effect.gen({ self: this }, function* () {
       const worktrees: string[] = []
       for (const worktree of saved.worktrees) {
         if (yield* isDirectory(worktree)) worktrees.push(worktree)
       }
       const state: SessionState = {
-        workingDir: (yield* isDirectory(saved.workingDir)) ? saved.workingDir : dir,
         env: yield* this.restoreEnv(saved.env),
         worktrees,
         activeWorktree: worktrees.includes(saved.activeWorktree) ? saved.activeWorktree : "",
@@ -510,7 +507,6 @@ export class SessionPersistence {
     const { store, cipher, onSaveError } = this.options
     const saved = Effect.suspend(() =>
       store.saveState(id, {
-        workingDir: state.workingDir,
         env: cipher.encrypt(JSON.stringify(state.env)),
         worktrees: state.worktrees,
         activeWorktree: state.activeWorktree,

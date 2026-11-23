@@ -12,7 +12,7 @@ import { ProcessSpawner, type SpawnOptions } from "../../services/ProcessSpawner
 async function collectEvents(
   scriptContent: string,
   options: {
-    language?: string
+    scriptPath?: string
     env?: Record<string, string>
     workDir?: string
     workTreePath?: string
@@ -23,7 +23,7 @@ async function collectEvents(
   } = {},
 ): Promise<ExecEvent[]> {
   const {
-    language = "",
+    scriptPath = "",
     env = { PATH: "/usr/bin" },
     workDir = "/work",
     workTreePath = "",
@@ -35,9 +35,9 @@ async function collectEvents(
 
   const layer = makeTestLayer({
     env: { PATH: "/usr/bin" },
+    dirs: ["/work"],
     commands: [
       {
-        // The script wrapper writes to a temp file and runs via interpreter
         command: "bash",
         outputLines,
         exitCode,
@@ -49,12 +49,10 @@ async function collectEvents(
     Effect.gen(function* () {
       const { logStream, completionEffect } = yield* executeScript(
         scriptContent,
-        language,
+        { path: scriptPath, interpreter: "" },
         { envVarsOverride },
         { env, workDir },
-        workTreePath,
-        outputPath,
-        "/logs/block",
+        { workTree: workTreePath, generated: outputPath, logs: "/logs/block", scripts: "/scripts" },
       )
       const logEvents = yield* Stream.runCollect(logStream)
       // Run completion to get remaining events
@@ -71,6 +69,25 @@ async function collectEvents(
 // ---------------------------------------------------------------------------
 
 describe("executeScript", () => {
+  it("fails before spawning a script file it can't find a program for", async () => {
+    const events = await collectEvents("console.log(1)", { scriptPath: "checks/verify.ts" })
+
+    expect(events).toEqual([
+      {
+        _tag: "log",
+        event: {
+          line:
+            "Runbooks can't tell which program runs verify.ts. " +
+            "Add a shebang line, such as #!/usr/bin/env python3, to the top of the script, " +
+            "or set the block's interpreter prop.",
+          timestamp: expect.any(String),
+        },
+      },
+      { _tag: "status", event: { status: "fail", exitCode: 1 } },
+      { _tag: "done" },
+    ])
+  })
+
   it("emits log events for each output line", async () => {
     const events = await collectEvents("echo hello", {
       outputLines: ["hello", "world"],
@@ -171,7 +188,7 @@ describe("executeScript — env overrides", () => {
         }),
     })
     const layer = Layer.mergeAll(
-      makeTestFileSystem(files),
+      makeTestFileSystem(files, ["/work"]),
       spawner,
       makeTestEnvironment({ PATH: "/usr/bin" }),
     )
@@ -181,15 +198,13 @@ describe("executeScript — env overrides", () => {
           Effect.gen(function* () {
             const { completionEffect } = yield* executeScript(
               "aws sts get-caller-identity",
-              "",
+              { path: "", interpreter: "" },
               { envVarsOverride },
               {
                 env: { PATH: "/usr/bin", AWS_ACCESS_KEY_ID: "AKIA_SESSION", GITHUB_TOKEN: "ghp_x" },
                 workDir: "/work",
               },
-              "",
-              "/output",
-              "/logs/block",
+              { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
             )
             return yield* completionEffect
           }),
@@ -263,6 +278,7 @@ describe("executeScript — missing Google credential file", () => {
   ): Promise<ExecEvent[]> {
     const layer = makeTestLayer({
       files,
+      dirs: ["/work"],
       env: { PATH: "/usr/bin" },
       commands: [{ command: "bash", outputLines: ["ran"], exitCode: 0 }],
     })
@@ -271,12 +287,10 @@ describe("executeScript — missing Google credential file", () => {
       Effect.gen(function* () {
         const { logStream, completionEffect } = yield* executeScript(
           "gcloud iam service-accounts describe sa@p.iam.gserviceaccount.com",
-          "",
+          { path: "", interpreter: "" },
           { envVarsOverride: { GOOGLE_APPLICATION_CREDENTIALS: credentialsPath } },
           { env: { PATH: "/usr/bin" }, workDir: "/work" },
-          "",
-          "/output",
-          "/logs/block",
+          { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
         )
         const logEvents = Array.from(yield* Stream.runCollect(logStream))
         return [...logEvents, ...(yield* completionEffect)]
@@ -352,7 +366,7 @@ describe("executeScript — log files", () => {
         }),
     })
     const layer = Layer.mergeAll(
-      makeTestFileSystem(files),
+      makeTestFileSystem(files, ["/work"]),
       spawner,
       makeTestEnvironment({ PATH: "/usr/bin" }),
     )
@@ -362,12 +376,10 @@ describe("executeScript — log files", () => {
         Effect.gen(function* () {
           const { logStream, completionEffect } = yield* executeScript(
             "log_info hi",
-            "",
+            { path: "", interpreter: "" },
             {},
             { env: { PATH: "/usr/bin" }, workDir: "/work" },
-            "",
-            "/output",
-            "/logs/block",
+            { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
           )
           const logs = Array.from(yield* Stream.runCollect(logStream))
           return [...logs, ...(yield* completionEffect)]
@@ -425,7 +437,7 @@ describe("executeScript — block env", () => {
         }),
     })
     const layer = Layer.mergeAll(
-      makeTestFileSystem(),
+      makeTestFileSystem({}, ["/work"]),
       spawner,
       makeTestEnvironment({ PATH: "/usr/bin" }),
     )
@@ -435,12 +447,10 @@ describe("executeScript — block env", () => {
         Effect.gen(function* () {
           const { logStream, completionEffect } = yield* executeScript(
             'aws s3 mb "s3://$BUCKET"',
-            "",
+            { path: "", interpreter: "" },
             { envVarsOverride: { AWS_ACCESS_KEY_ID: "AKIA_AUTH", AWS_REGION: "us-east-1" } },
             { env: { PATH: "/usr/bin", BUCKET: "session-bucket" }, workDir: "/work" },
-            "",
-            "/output",
-            "/logs/block",
+            { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
             // parseBlockEnv refuses RUNBOOK_OUTPUT; it is here to show the
             // runbook's own value wins even so.
             { BUCKET: "block-bucket", AWS_REGION: "eu-west-1", RUNBOOK_OUTPUT: "/elsewhere" },
@@ -483,7 +493,7 @@ describe("executeScript — captured files", () => {
         }),
     })
     const layer = Layer.mergeAll(
-      makeTestFileSystem(files),
+      makeTestFileSystem(files, ["/work"]),
       spawner,
       makeTestEnvironment({ PATH: "/usr/bin" }),
     )
@@ -492,12 +502,10 @@ describe("executeScript — captured files", () => {
       Effect.gen(function* () {
         const { logStream, completionEffect } = yield* executeScript(
           "write files",
-          "",
+          { path: "", interpreter: "" },
           {},
           { env: { PATH: "/usr/bin" }, workDir: "/work" },
-          "",
-          "/output",
-          "/logs/block",
+          { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
         )
         yield* Stream.runDrain(logStream)
         return yield* completionEffect
@@ -556,7 +564,7 @@ describe("executeScript — outputs", () => {
         }),
     })
     const layer = Layer.mergeAll(
-      makeTestFileSystem(files),
+      makeTestFileSystem(files, ["/work"]),
       spawner,
       makeTestEnvironment({ PATH: "/usr/bin" }),
     )
@@ -565,12 +573,10 @@ describe("executeScript — outputs", () => {
       Effect.gen(function* () {
         const { logStream, completionEffect } = yield* executeScript(
           "write outputs",
-          "",
+          { path: "", interpreter: "" },
           {},
           { env: { PATH: "/usr/bin" }, workDir: "/work" },
-          "",
-          "/output",
-          "/logs/block",
+          { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
         )
         yield* Stream.runDrain(logStream)
         return yield* completionEffect
@@ -600,5 +606,111 @@ describe("executeScript — outputs", () => {
     const outputs = await runWritingOutputs("region=us-west-2\n")
 
     expect(outputs?.event).toEqual({ outputs: { region: "us-west-2" } })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Variables written to $RUNBOOK_ENV, and the working directory
+// ---------------------------------------------------------------------------
+
+describe("executeScript — session env", () => {
+  /**
+   * Run a step in `workDir` whose (fake) process writes `content` to
+   * $RUNBOOK_ENV and exits with `exitCode`. Returns the events, and the cwd
+   * and env it was spawned with.
+   */
+  async function runWritingEnv(
+    content: string,
+    { exitCode = 0, workDir = "/work" }: { exitCode?: number; workDir?: string } = {},
+  ) {
+    const files: Record<string, string> = {}
+    let spawned: SpawnOptions | undefined
+    const spawner = Layer.succeed(ProcessSpawner, {
+      spawn: (_command, _args, options) =>
+        Effect.sync(() => {
+          spawned = options
+          const envFile = options?.env?.RUNBOOK_ENV
+          if (envFile) files[envFile] = content
+          return { output: Stream.empty, exitCode: Effect.succeed(exitCode), kill: Effect.void }
+        }),
+    })
+    const layer = Layer.mergeAll(
+      makeTestFileSystem(files, ["/work", "/work/infra"]),
+      spawner,
+      makeTestEnvironment({ PATH: "/usr/bin" }),
+    )
+
+    const program = Effect.scoped(
+      Effect.gen(function* () {
+        const { logStream, completionEffect } = yield* executeScript(
+          "write env",
+          { path: "", interpreter: "" },
+          {},
+          { env: { PATH: "/usr/bin" }, workDir },
+          { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
+        )
+        yield* Stream.runDrain(logStream)
+        return yield* completionEffect
+      }),
+    )
+
+    const events = await Effect.runPromise(program.pipe(Effect.provide(layer)))
+    return { events, spawned }
+  }
+
+  it("sends the variables the script wrote, for the session", async () => {
+    const { events } = await runWritingEnv("REGION=us-west-2\nKEY<<EOF\na\nb\nEOF\n")
+
+    expect(events.find((e) => e._tag === "session_env")).toEqual({
+      _tag: "session_env",
+      env: { REGION: "us-west-2", KEY: "a\nb" },
+    })
+  })
+
+  it("sends an empty env when a script that succeeds writes none, so the run still counts", async () => {
+    const { events } = await runWritingEnv("")
+
+    expect(events.find((e) => e._tag === "session_env")).toEqual({ _tag: "session_env", env: {} })
+  })
+
+  it("logs each line that sets nothing, before the status", async () => {
+    const { events } = await runWritingEnv("OK=1\nRUNBOOK_OUTPUT=x\n")
+
+    const tags = events.map((e) => (e._tag === "log" ? `log:${e.event.line}` : e._tag))
+    expect(tags).toEqual([
+      "log:RUNBOOK_ENV line 2: RUNBOOK_OUTPUT is a variable Runbooks sets for every script. The line was ignored.",
+      "status",
+      "session_env",
+      "done",
+    ])
+  })
+
+  it("sends nothing for the session when the script fails", async () => {
+    const { events } = await runWritingEnv("A=1\n", { exitCode: 1 })
+
+    expect(events.some((e) => e._tag === "session_env")).toBe(false)
+  })
+
+  it("runs in the working directory it is given", async () => {
+    const { spawned } = await runWritingEnv("", { workDir: "/work/infra" })
+
+    expect(spawned?.cwd).toBe("/work/infra")
+  })
+
+  it("fails before spawning when the working directory does not exist", async () => {
+    const { events, spawned } = await runWritingEnv("", { workDir: "/work/gone" })
+
+    expect(spawned).toBeUndefined()
+    expect(events).toEqual([
+      {
+        _tag: "log",
+        event: {
+          line: "Working directory does not exist: /work/gone",
+          timestamp: expect.any(String),
+        },
+      },
+      { _tag: "status", event: { status: "fail", exitCode: 1 } },
+      { _tag: "done" },
+    ])
   })
 })

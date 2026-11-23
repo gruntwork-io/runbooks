@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 if [ -z "${GENERATED_FILES:-}" ]; then
@@ -19,7 +19,7 @@ cat > "$GENERATED_FILES/config.json" << 'EOF'
 EOF
 
 cat > "$GENERATED_FILES/scripts/deploy.sh" << 'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 echo "Deploying..."
 EOF
 chmod +x "$GENERATED_FILES/scripts/deploy.sh"

@@ -21,12 +21,12 @@ Command and Check blocks can run at the same time. This runbook shows the three 
 
 ## dependsOn
 
-`use-token` reads a variable that `log-in` exports. That isn't an output, so `use-token` names `log-in` in `dependsOn`.
+`use-token` reads a variable that `log-in` writes to `$RUNBOOK_ENV`. That isn't an output, so `use-token` names `log-in` in `dependsOn`.
 
 <Command
   id="log-in"
   title="Log in"
-  command="sleep 5; export DEMO_TOKEN=secret"
+  command='sleep 5; echo DEMO_TOKEN=secret >> "$RUNBOOK_ENV"'
 />
 
 <Check

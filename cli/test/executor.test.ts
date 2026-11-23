@@ -383,9 +383,9 @@ describe("TestExecutor — cleanup", () => {
     expect(String(warn.mock.calls[0]?.[0])).toContain("failed: exit code 3: teardown broke")
   })
 
-  it("sees the test case's env and what earlier blocks exported", async () => {
+  it("sees the test case's env and what earlier blocks wrote to RUNBOOK_ENV", async () => {
     const runTest = await runWithCleanup(
-      "export FROM_BLOCK=exported",
+      'echo FROM_BLOCK=exported >> "$RUNBOOK_ENV"',
       [{ command: `echo "$FROM_BLOCK $FROM_TEST" > "${marker}"` }],
       { FROM_TEST: "test-env" },
     )
@@ -678,17 +678,18 @@ describe("TestExecutor — explicit steps", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Session env and cwd: a bash block's exports and final cwd carry into later
-// blocks, as they do in the app, but nothing carries into the next test case.
+// Session env and working dir: what a block writes to RUNBOOK_ENV carries into
+// later blocks, as in the app, but nothing carries into the next test case.
 // ---------------------------------------------------------------------------
 
-describe("TestExecutor — session env and cwd", () => {
+describe("TestExecutor — session env and working dir", () => {
   let tmp: string
 
   // `report` records what it sees as outputs, so a test can check which
-  // exports, credentials and cwd reached it.
+  // variables, credentials and cwd reached it.
   const report = [
     "foo=${ISO_FOO:-unset}",
+    "leaked=${ISO_LEAKED:-unset}",
     "tc_env=${ISO_TC_ENV:-unset}",
     "token=${GITHUB_TOKEN:-unset}",
     "cwd=$(pwd -P)",
@@ -700,9 +701,15 @@ describe("TestExecutor — session env and cwd", () => {
     "",
     `<GitHubAuth id="gh" />`,
     "",
-    `<Command id="set-env" command='export ISO_FOO=bar; mkdir -p sub; cd sub' />`,
+    `<Command id="set-env" command='echo ISO_FOO=bar >> "$RUNBOOK_ENV"; export ISO_LEAKED=1; mkdir -p sub; cd sub' />`,
     "",
     `<Check id="report" command='${report}' />`,
+    "",
+    `<Check id="report-in-sub" workingDir="sub" command='${report}' />`,
+    "",
+    `<Command id="make_dir" command='mkdir -p made; echo dir=made >> "$RUNBOOK_OUTPUT"' />`,
+    "",
+    `<Check id="report-in-made" workingDir="{{ .outputs.make_dir.dir }}" command='${report}' />`,
     "",
   ].join("\n")
 
@@ -724,7 +731,7 @@ describe("TestExecutor — session env and cwd", () => {
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  it("carries a bash block's exports and cd into the next block", async () => {
+  it("carries what a block writes to RUNBOOK_ENV into the next block, not its exports or cd", async () => {
     const executor = await makeExecutor()
 
     const result = executor.runTest({
@@ -736,11 +743,62 @@ describe("TestExecutor — session env and cwd", () => {
     })
 
     expect(result.error).toBeUndefined()
-    expect(reported(result).foo).toBe("bar")
-    expect(reported(result).cwd).toBe(fs.realpathSync(path.join(tmp, "sub")))
+    expect(reported(result)).toMatchObject({
+      foo: "bar",
+      leaked: "unset",
+      cwd: fs.realpathSync(tmp),
+    })
   })
 
-  it("doesn't carry exports, cwd, tc.env or auth credentials into the next test case", async () => {
+  it("runs a block in its workingDir, relative to the test case's working dir", async () => {
+    const executor = await makeExecutor()
+
+    const result = executor.runTest({
+      name: "working-dir",
+      steps: [
+        { block: "set-env", expect: "success" },
+        { block: "report-in-sub", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    const step = result.stepResults.find((s) => s.block === "check:report-in-sub")
+    expect(step?.outputs.cwd).toBe(fs.realpathSync(path.join(tmp, "sub")))
+  })
+
+  it("fails a block whose workingDir does not exist", async () => {
+    const executor = await makeExecutor()
+
+    const result = executor.runTest({
+      name: "missing-working-dir",
+      steps: [{ block: "report-in-sub", expect: "success" }],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[0]).toMatchObject({
+      actualStatus: "fail",
+      exitCode: 1,
+      logs: `Working directory does not exist: ${path.join(tmp, "sub")}\n`,
+    })
+  })
+
+  it("renders a workingDir template with the block's outputs", async () => {
+    const executor = await makeExecutor()
+
+    const result = executor.runTest({
+      name: "templated-working-dir",
+      steps: [
+        { block: "make_dir", expect: "success" },
+        { block: "report-in-made", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    const step = result.stepResults.find((s) => s.block === "check:report-in-made")
+    expect(step?.outputs.cwd).toBe(fs.realpathSync(path.join(tmp, "made")))
+  })
+
+  it("doesn't carry the session env, tc.env or auth credentials into the next test case", async () => {
     const executor = await makeExecutor()
 
     const first = executor.runTest({
@@ -1271,11 +1329,11 @@ describe("TestExecutor — Prerequisites block", () => {
     const executor = await makeExecutor(
       runbook(
         'tools:\n  - name: late-tool-x9\n    version: ">= 2"\n',
-        `\n<Command id="install" command='export PATH="${late}:$PATH"' />\n`,
+        `\n<Command id="install" command='echo "PATH=${late}:$PATH" >> "$RUNBOOK_ENV"' />\n`,
       ),
     )
 
-    // No test env: it would override the PATH the install block exports.
+    // No test env: it would override the PATH the install block sets.
     const result = executor.runTest({
       name: "check-again",
       steps: [
@@ -2477,43 +2535,84 @@ describe("TestExecutor — GoogleAuth gcloud credential override", () => {
 })
 
 // ---------------------------------------------------------------------------
-// #!/bin/sh blocks get the bash env-capture wrapper, so they must run under
-// bash like they do in the app.
+// How a script runs: as itself when it has a shebang, by its extension when
+// it has none, as in the app.
 // ---------------------------------------------------------------------------
 
-describe("TestExecutor — #!/bin/sh blocks", () => {
+describe("TestExecutor — how scripts run", () => {
   let tmp: string
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-sh-"))
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-run-"))
+    fs.mkdirSync(path.join(tmp, "scripts"))
   })
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  it("runs the wrapped script under bash, not in POSIX mode", async () => {
-    // Under dash the wrapper is a syntax error (exit 2, "warn"). Under
-    // bash-as-sh (macOS) POSIX mode is on, which lets the user's EXIT trap
-    // replace the wrapper's env-capture handler.
-    fs.mkdirSync(path.join(tmp, "scripts"))
-    fs.writeFileSync(
-      path.join(tmp, "scripts", "cleanup.sh"),
-      "#!/bin/sh\ntrap 'echo cleanup' EXIT\nshopt -oq posix && echo POSIX_MODE || echo NOT_POSIX\n",
-    )
+  /** Run the one block of a runbook whose script is `scripts/<file>`, holding `content`. */
+  async function runScriptFile(file: string, content: string) {
+    fs.writeFileSync(path.join(tmp, "scripts", file), content)
     const rb = path.join(tmp, "runbook.mdx")
-    fs.writeFileSync(rb, `# sh block\n\n<Command id="sh-block" path="scripts/cleanup.sh" />\n`)
-
+    fs.writeFileSync(rb, `# Script\n\n<Command id="script" path="scripts/${file}" />\n`)
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
-    const result = await executor.runTest({
-      name: "sh",
-      steps: [{ block: "sh-block", expect: "success" }],
-    })
+    return executor.runTest({ name: "run", steps: [{ block: "script", expect: "success" }] })
+      .stepResults[0]
+  }
 
-    expect(result.stepResults[0]?.actualStatus).toBe("success")
-    expect(result.stepResults[0]?.logs).toContain("NOT_POSIX")
-    expect(result.stepResults[0]?.logs).not.toContain("POSIX_MODE")
-    expect(result.stepResults[0]?.logs).toContain("cleanup")
+  it("runs a script with a shebang as itself, so an interpreter off PATH is found", async () => {
+    const interpreter = path.join(tmp, "my-interpreter")
+    fs.writeFileSync(interpreter, '#!/bin/sh\necho "my-interpreter ran $(basename "$1")"\n')
+    fs.chmodSync(interpreter, 0o755)
+
+    const step = await runScriptFile("check.sh", `#!${interpreter}\nignored\n`)
+
+    expect(step).toMatchObject({ actualStatus: "success", logs: "my-interpreter ran script.sh\n" })
+  })
+
+  it("runs a #!/bin/sh script under sh, where its own EXIT trap runs", async () => {
+    const step = await runScriptFile(
+      "cleanup.sh",
+      "#!/bin/sh\ntrap 'echo cleanup' EXIT\nlog_info from-sh\necho done\n",
+    )
+
+    expect(step?.actualStatus).toBe("success")
+    expect(step?.logs).toMatch(/\[INFO\]  from-sh\ndone\ncleanup\n$/)
+  })
+
+  it.skipIf(!Bun.which("python3"))("runs a .py file without a shebang with python3", async () => {
+    const step = await runScriptFile("check.py", 'print("from python")\n')
+
+    expect(step).toMatchObject({ actualStatus: "success", logs: "from python\n" })
+  })
+
+  it.skipIf(!Bun.which("python3"))("runs an inline command with its interpreter prop", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      `# Inline\n\n<Command id="script" interpreter="python3" command='print("from python")' />\n`,
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    const step = executor.runTest({ name: "run", steps: [{ block: "script", expect: "success" }] })
+      .stepResults[0]
+
+    expect(step).toMatchObject({ actualStatus: "success", logs: "from python\n" })
+  })
+
+  it("fails a file without a shebang whose extension names no program, before running it", async () => {
+    const step = await runScriptFile("check.ts", "console.log(1)\n")
+
+    expect(step).toMatchObject({
+      actualStatus: "fail",
+      exitCode: 1,
+      logs:
+        "Runbooks can't tell which program runs check.ts. " +
+        "Add a shebang line, such as #!/usr/bin/env python3, to the top of the script, " +
+        "or set the block's interpreter prop.\n",
+    })
   })
 })
 

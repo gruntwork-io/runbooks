@@ -388,6 +388,60 @@ describe("ExecutableRegistry", () => {
     ])
   })
 
+  it("registers each script block's workingDir prop, or none", async () => {
+    const mdx = [
+      '<Command id="in-infra" workingDir="infra/live" command="tofu plan" />',
+      '<Check id="absolute" workingDir="/srv/app" path="check.sh" />',
+      '<Command id="plain" command="echo hi" />',
+      '<Command id="not-a-path" workingDir={3} command="echo hi" />',
+    ].join("\n")
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx, "/check.sh": "exit 0" })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    const workingDirs = Object.fromEntries(
+      Object.values(registry.getAllExecutables()).map((e) => [e.componentId, e.workingDir]),
+    )
+    expect(workingDirs).toEqual({ "in-infra": "infra/live", absolute: "/srv/app", plain: "" })
+    expect(registry.getWarnings()).toEqual([
+      '<Command id="not-a-path">: The workingDir prop must be a path, such as workingDir="infra/live".',
+    ])
+  })
+
+  it("registers each script block's interpreter prop, and refuses one beside a shebang", async () => {
+    const mdx = [
+      '<Command id="py" interpreter=" python3 " command="print(1)" />',
+      '<Check id="deno" interpreter="deno run" path="check.ts" />',
+      '<Command id="plain" command="echo hi" />',
+      '<Command id="blank" interpreter="  " command="echo hi" />',
+      '<Command id="inline-shebang" interpreter="python3" command={`#!/usr/bin/env bash\necho hi`} />',
+      '<Check id="file-shebang" interpreter="python3" path="shebang.sh" />',
+    ].join("\n")
+    const layer = makeTestFileSystem({
+      "/runbook.mdx": mdx,
+      "/check.ts": "console.log(1)",
+      "/shebang.sh": "#!/usr/bin/env bash\necho hi",
+    })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    const interpreters = Object.fromEntries(
+      Object.values(registry.getAllExecutables()).map((e) => [e.componentId, e.interpreter]),
+    )
+    expect(interpreters).toEqual({ py: "python3", deno: "deno run", plain: "" })
+    const conflict =
+      "The script starts with a shebang line, and the block sets the interpreter prop. Remove one of them."
+    expect(registry.getWarnings()).toEqual([
+      '<Command id="blank">: The interpreter prop must name a program, such as interpreter="python3".',
+      `<Command id="inline-shebang">: ${conflict}`,
+      `<Check id="file-shebang">: ${conflict}`,
+    ])
+  })
+
   it("registers a <Finish> block's inline and file-based final checks", async () => {
     const mdx = [
       '<Finish id="finish-inline" command="test -f done.txt">',
@@ -463,7 +517,6 @@ describe("ExecutableRegistry", () => {
       componentId: "tools",
       componentType: "prerequisites",
       type: "inline",
-      language: "yaml",
       templateVars: [],
     })
     // Not unescaped like a `command` prop: the fence's text is what the user wrote.

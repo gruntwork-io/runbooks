@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
 # Debug Check Script
 # Demonstrates how DEBUG=true enables verbose log_debug output

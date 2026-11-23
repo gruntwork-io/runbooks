@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 DEMO_DIR="/tmp/npm-pty-demo"

@@ -15,6 +15,10 @@ const baseExecution = {
   envTemplates: {} as Record<string, string>,
   envVars: [] as Array<{ name: string; value: string }>,
   envError: null as string | null,
+  workingDirTemplate: "",
+  workingDirError: null as string | null,
+  interpreter: "",
+  interpreterError: null as string | null,
   inputValues: {},
   inputDependencies: [] as string[],
   unmetInputDependencies: [],
@@ -231,6 +235,72 @@ describe("Command — instruction mode", () => {
 
     const codes = screen.getByTestId("instruction-test-cmd").querySelectorAll("code")
     expect(codes[0]?.textContent).toBe("export BUCKET='my-bucket'")
+  })
+
+  it("changes to the block's working dir, resolved like the command, before the env and the command", () => {
+    mockExecution.rawScriptContent = "tofu plan"
+    mockExecution.envTemplates = { TF_IN_AUTOMATION: "1" }
+    mockExecution.workingDirTemplate = "infra/{{ .inputs.Env }}/it's"
+    mockExecution.templateContext = { inputs: { Env: "prod" }, outputs: {} }
+    renderCommand({ command: "tofu plan" })
+
+    const codes = screen.getByTestId("instruction-test-cmd").querySelectorAll("code")
+    expect([...codes].map((code) => code.textContent)).toEqual([
+      "cd 'infra/prod/it'\\''s'\nexport TF_IN_AUTOMATION='1'\ntofu plan",
+    ])
+  })
+
+  it("changes to a script's working dir in a block of its own, before the script", () => {
+    mockExecution.rawScriptContent = "tofu plan"
+    mockExecution.workingDirTemplate = "infra/live"
+    renderCommand({ command: undefined, path: "scripts/plan.sh" })
+
+    const codes = screen.getByTestId("instruction-test-cmd").querySelectorAll("code")
+    expect(codes[0]?.textContent).toBe("cd 'infra/live'")
+  })
+
+  it("points RUNBOOK_ENV at /dev/null for a script that writes to it, and says so", () => {
+    const script = 'echo "REGION=us-east-1" >> "$RUNBOOK_ENV"'
+    mockExecution.rawScriptContent = script
+    mockExecution.workingDirTemplate = "infra"
+    renderCommand({ command: script })
+
+    const codes = screen.getByTestId("instruction-test-cmd").querySelectorAll("code")
+    expect([...codes].map((code) => code.textContent)).toEqual([
+      `export RUNBOOK_ENV=/dev/null\ncd 'infra'\n${script}`,
+    ])
+    expect(screen.getByTestId("instruction-test-cmd-runbook-env")).toHaveTextContent(
+      "This step saves variables for later steps in $RUNBOOK_ENV. Your terminal discards them, so set the ones later steps need in your shell yourself.",
+    )
+  })
+
+  it("names the program an interpreter prop runs the command with, and keeps the shell setup apart", () => {
+    const script = 'print("hi")'
+    mockExecution.rawScriptContent = script
+    mockExecution.workingDirTemplate = "infra"
+    mockExecution.interpreter = "python3"
+    renderCommand({ command: script })
+
+    const codes = screen.getByTestId("instruction-test-cmd").querySelectorAll("code")
+    expect([...codes].map((code) => code.textContent)).toEqual(["cd 'infra'", script])
+    expect(screen.getByTestId("instruction-test-cmd-interpreter")).toHaveTextContent(
+      "Run this with python3:",
+    )
+  })
+
+  it("says nothing about a program when the block has no interpreter prop", () => {
+    mockExecution.rawScriptContent = "echo hello"
+    renderCommand()
+
+    expect(screen.queryByTestId("instruction-test-cmd-interpreter")).toBeNull()
+  })
+
+  it("adds no RUNBOOK_ENV line or note to a script that doesn't use it", () => {
+    mockExecution.rawScriptContent = "echo hello"
+    renderCommand()
+
+    expect(screen.getByText("echo hello")).toBeInTheDocument()
+    expect(screen.queryByTestId("instruction-test-cmd-runbook-env")).toBeNull()
   })
 
   it("counts as a step of the runbook, done once marked as done", () => {

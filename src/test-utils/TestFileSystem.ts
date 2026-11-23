@@ -3,8 +3,12 @@ import { FileSystem } from "../services/FileSystem.ts"
 import type { WalkEntry } from "../services/FileSystem.ts"
 import { FileNotFoundError, FileWriteError } from "../errors/index.ts"
 
-export const makeTestFileSystem = (files: Record<string, string> = {}) => {
-  const dirs = new Set<string>()
+/** An in-memory FileSystem holding `files`, by path, and the directories `initialDirs`. */
+export const makeTestFileSystem = (
+  files: Record<string, string> = {},
+  initialDirs: readonly string[] = [],
+) => {
+  const dirs = new Set<string>(initialDirs)
 
   return Layer.succeed(FileSystem, {
     readFile: (path) => {
@@ -89,12 +93,15 @@ export const makeTestFileSystem = (files: Record<string, string> = {}) => {
         : Effect.fail(new FileWriteError({ path: dest, cause: `source ${src} not found` }))
     },
 
-    mkdtemp: (prefix) =>
+    mkdtemp: (prefix, dir) =>
       Effect.sync(() => {
-        const tmpPath = `${prefix}${Math.random().toString(36).slice(2, 8)}`
+        const name = `${prefix}${Math.random().toString(36).slice(2, 8)}`
+        const tmpPath = dir === undefined ? name : `${dir}/${name}`
         dirs.add(tmpPath)
         return tmpPath
       }),
+
+    chmod: () => Effect.void,
 
     realpath: (path) =>
       path in files || dirs.has(path)

@@ -10,7 +10,7 @@ import { useInstructionResolution } from "../hooks/useInstructionResolution"
 import { useBlockCompletion } from "../hooks/useBlockCompletion"
 import { normalizeCommandList } from "../lib/instructionResolution"
 import type { TemplateContext } from "@/lib/templateUtils"
-import { exportLines } from "../../../../../../src/domain/exec/blockEnv.ts"
+import { exportLines, shellQuote } from "../../../../../../src/domain/exec/blockEnv.ts"
 
 /** A file-backed script to display via the collapsible source viewer. */
 export interface InstructionSource {
@@ -38,6 +38,19 @@ export interface InstructionProps {
    * `export` lines before it, so one copy sets them and runs it.
    */
   env?: Readonly<Record<string, string>> | undefined
+  /**
+   * The directory the command or script runs in, as a template (a script
+   * block's `workingDir` prop). It's resolved like the command and shown as a
+   * `cd` line before it.
+   */
+  workingDir?: string | undefined
+  /**
+   * The program that runs the command or script (a script block's
+   * `interpreter` prop). The reader is told to run it with that program, and
+   * the shell setup lines get a block of their own, since they're not in the
+   * program's language.
+   */
+  interpreter?: string | undefined
   /**
    * An embedded form shown before the command — e.g. a Command's nested
    * `<Inputs>`. Its values reach `templateContext`, so the command updates as
@@ -80,6 +93,8 @@ export function Instruction({
   source,
   templateContext = EMPTY_CONTEXT,
   env = NO_ENV,
+  workingDir,
+  interpreter,
   inputs,
   note,
   icon: Icon = ListChecks,
@@ -89,13 +104,14 @@ export function Instruction({
 }: InstructionProps) {
   const commandList = normalizeCommandList(command)
   const envNames = Object.keys(env)
-  // Resolve commands, the source content and the env in a single pass so
-  // manual fields are detected across all of them and we make at most one
-  // render call.
+  // Resolve commands, the source content, the env and the working dir in a
+  // single pass so manual fields are detected across all of them and we make
+  // at most one render call.
   const allTexts = [
     ...commandList,
     ...(source ? [source.content] : []),
     ...envNames.map((name) => env[name]!),
+    ...(workingDir ? [workingDir] : []),
   ]
   const { resolvedCommands, manualFields, usedFallback } = useInstructionResolution({
     command: allTexts,
@@ -108,12 +124,21 @@ export function Instruction({
   const exports = exportLines(
     Object.fromEntries(envNames.map((name, i) => [name, resolvedCommands[envStart + i] ?? ""])),
   )
-  // The exports go before the first command, in its block, or in a block of
-  // their own before a script's source
+  const resolvedWorkingDir = workingDir ? resolvedCommands[envStart + envNames.length] : undefined
+  // In a terminal RUNBOOK_ENV is unset, and appending to "$RUNBOOK_ENV" fails
+  const writesRunbookEnv = [...commandList, source?.content ?? ""].some((text) =>
+    text.includes("RUNBOOK_ENV"),
+  )
+  const setup = [
+    ...(writesRunbookEnv ? ["export RUNBOOK_ENV=/dev/null"] : []),
+    ...(resolvedWorkingDir ? [`cd ${shellQuote(resolvedWorkingDir)}`] : []),
+    ...(exports ? [exports] : []),
+  ].join("\n")
+  // The setup goes in the first command's block, or in a block of its own
+  // before a script's source or a command another program runs
+  const setupApart = !!setup && (resolvedCmds.length === 0 || !!interpreter)
   const shownCmds =
-    exports && resolvedCmds.length > 0
-      ? [`${exports}\n${resolvedCmds[0]}`, ...resolvedCmds.slice(1)]
-      : resolvedCmds
+    setup && !setupApart ? [`${setup}\n${resolvedCmds[0]}`, ...resolvedCmds.slice(1)] : resolvedCmds
 
   const { completed, toggle } = useBlockCompletion(id ?? "")
   // Called here, not inside toggle's state updater, which StrictMode runs twice.
@@ -190,18 +215,43 @@ export function Instruction({
               </div>
             )}
 
+            {/* The setup (working dir, env vars), in a shell, before the script. */}
+            {setupApart && (
+              <CodeBlock>
+                <code className="language-bash whitespace-pre-wrap">{setup}</code>
+              </CodeBlock>
+            )}
+
+            {interpreter && (
+              <div
+                data-testid={id ? `instruction-${id}-interpreter` : undefined}
+                className="text-sm text-muted-foreground"
+              >
+                Run this with <span className="font-mono text-foreground">{interpreter}</span>:
+              </div>
+            )}
+
             {/* Resolved command(s) as copyable code blocks. */}
             {shownCmds.map((cmd, i) => (
               <CodeBlock key={i}>
-                <code className="language-bash whitespace-pre-wrap">{cmd}</code>
+                <code className={`${interpreter ? "" : "language-bash "}whitespace-pre-wrap`}>
+                  {cmd}
+                </code>
               </CodeBlock>
             ))}
 
-            {/* A script's env vars, to set before running it. */}
-            {exports && resolvedCmds.length === 0 && (
-              <CodeBlock>
-                <code className="language-bash whitespace-pre-wrap">{exports}</code>
-              </CodeBlock>
+            {writesRunbookEnv && (
+              <div
+                data-testid={id ? `instruction-${id}-runbook-env` : undefined}
+                className="flex items-start gap-1.5 text-xs text-muted-foreground"
+              >
+                <AlertTriangle className="size-3.5 mt-0.5 flex-shrink-0 text-warning" />
+                <span>
+                  This step saves variables for later steps in{" "}
+                  <span className="font-mono">$RUNBOOK_ENV</span>. Your terminal discards them, so
+                  set the ones later steps need in your shell yourself.
+                </span>
+              </div>
             )}
 
             {note && <div className="text-sm text-muted-foreground">{note}</div>}

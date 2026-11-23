@@ -127,7 +127,7 @@ tests:
 
 #### Test case environment
 
-Each test case starts from the environment the `test` command was started with. Within a test case, a bash block that succeeds or warns passes the variables it exports and the directory it `cd`s into on to the blocks after it, as in the app, and an auth block adds its credentials. The test case's `env` is applied on top of all of that. Blocks, `script` assertions, and cleanup actions all see this environment.
+Each test case starts from the environment the `test` command was started with. Within a test case, a block that succeeds or warns passes the variables it writes to `$RUNBOOK_ENV` on to the blocks after it, as in the app, and an auth block adds its credentials. The test case's `env` is applied on top of all of that. Blocks, `script` assertions, and cleanup actions all see this environment.
 
 None of it carries over into the next test case. With `use_temp_working_dir`, each test case also gets its own empty working directory.
 
@@ -431,7 +431,7 @@ A test that fails before any block runs skips cleanup, since nothing has run yet
 The runner runs your scripts and renders your templates, but not always as the app does. A test can pass while the runbook fails in the app, or the other way around:
 
 - **Template syntax.** The runner renders scripts, `env` values, templates and block props with its own renderer. It handles only references such as `{{ .inputs.Name }}` and `{{ .outputs.block_id.name }}`, `{{ if .inputs.Flag }}...{{ else }}...{{ end }}` without nesting, and `{{ fromJson .outputs.block_id.name }}`. Anything else is left in the result as written, including `eq` and the other functions, pipes such as `| upper`, `range`, `with`, the raw-string form, and the `{{-` and `-}}` markers. A reference inside one of those, such as the output behind a `hasKey` guard, is still filled in, or reported as undefined.
-- **Working directory.** In the app, scripts start in the [session's directory](/commands/sessions/), never in the runbook's folder. Under test they start in the [working directory](#settings-object): a fresh temporary directory by default, or the runbook's folder with `working_dir: .`. So a script that reads a file next to `runbook.mdx` can pass with `working_dir: .` and fail in the app.
+- **Working directory.** In the app, scripts start in the [session's directory](/commands/sessions/), never in the runbook's folder. Under test they start in the [working directory](#settings-object): a fresh temporary directory by default, or the runbook's folder with `working_dir: .`. A block's `workingDir` is relative to it. So a script that reads a file next to `runbook.mdx` can pass with `working_dir: .` and fail in the app.
 - **Script paths.** The app refuses a `path` with a `..` segment, such as `../shared/setup.sh`, and shows an error in place of the block. The runner reads the file anyway.
 - **Timeouts.** A block's `timeoutMs` doesn't apply. Every script gets the [`timeout` setting](#settings-object), 5 minutes by default.
 - **A Command that exits 2.** The runner reports it as `warn`, and the blocks whose `dependsOn` names it can run. In the app, the Command shows as failed and those blocks keep waiting. A `<Check>` that exits 2 lets them run in both.
@@ -701,7 +701,7 @@ tests:
 
 ## Testing Prerequisites blocks
 
-A step for a `<Prerequisites>` block looks for its tools and reads their versions as the app does, on the PATH the test runs with: the environment `runbooks test` started with, the test's `env`, and what earlier steps exported. The step's status is the check's: `success` when every tool is found (one tool of an [`anyOf` list](/authoring/blocks/prerequisites/#alternatives) is enough), `warn` when only optional ones aren't, and `fail` when a required one isn't. A step that succeeds or warns publishes the block's [outputs](/authoring/blocks/prerequisites/#outputs).
+A step for a `<Prerequisites>` block looks for its tools and reads their versions as the app does, on the PATH the test runs with: the environment `runbooks test` started with, the test's `env`, and what earlier steps wrote to `$RUNBOOK_ENV`. The step's status is the check's: `success` when every tool is found (one tool of an [`anyOf` list](/authoring/blocks/prerequisites/#alternatives) is enough), `warn` when only optional ones aren't, and `fail` when a required one isn't. A step that succeeds or warns publishes the block's [outputs](/authoring/blocks/prerequisites/#outputs).
 
 Unlike the app, the test doesn't run your login shell to read PATH again when a tool is missing. To test a check that a runbook's install step makes pass, run the block before and after that step:
 
@@ -940,7 +940,7 @@ Tier 2 runs scripts with their external calls switched off. The script checks an
 In the Command or Check script:
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 # Dry-run support

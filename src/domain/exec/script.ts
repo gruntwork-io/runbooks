@@ -1,19 +1,23 @@
 /**
- * Script preparation and environment capture.
+ * Script preparation, and parsing of the files a script writes for Runbooks
+ * to read back: RUNBOOK_OUTPUT, RUNBOOK_ENV and GENERATED_FILES.
  */
+import path from "node:path"
 import { Effect, type Scope } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"
 import type { FileWriteError, FileReadError, FileNotFoundError } from "../../errors/index.ts"
 import type { CapturedFile } from "../../types.ts"
 import { sensitiveOutput, type OutputValues } from "./outputValues.ts"
+import { isRunbookEnvVar, isStartupEnvVar } from "./blockEnv.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 /**
- * Logging functions injected into every bash script wrapper.
- * Provides log_info, log_warn, log_error, log_debug.
+ * Logging functions put before every bash and sh script: log_info, log_warn,
+ * log_error and log_debug. They're POSIX sh plus `local`, which dash and
+ * every other /bin/sh Runbooks meets supports.
  *
  * All four append to the one file named by RUNBOOK_LOG (see logChannels.ts),
  * so their lines keep the order the script wrote them in, and each line names
@@ -71,254 +75,144 @@ const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 // Types
 // ---------------------------------------------------------------------------
 
+/** A script written to disk, and the command line that runs it. */
 export interface ScriptSetup {
   readonly scriptPath: string
-  readonly interpreter: string
-  readonly args: readonly string[]
-  readonly isBashScript: boolean
-  readonly envCapturePath: string
-  readonly pwdCapturePath: string
+  readonly command: string
+  /** The command's args, ending with the script's path when `command` is an interpreter. */
+  readonly args: string[]
 }
+
+/**
+ * How to start a script: `self` executes the script file, so the OS starts
+ * the interpreter its shebang names, as a terminal would. `interpreter` runs
+ * `command` with `args` and then the script file.
+ */
+type ScriptLaunch =
+  | { readonly kind: "self" }
+  | { readonly kind: "interpreter"; readonly command: string; readonly args: readonly string[] }
+
+export type ScriptRunner =
+  | {
+      readonly ok: true
+      readonly launch: ScriptLaunch
+      /** The content to write to the script file. */
+      readonly script: string
+      /** The name to give the script file. It keeps the script's extension, which pwsh requires. */
+      readonly fileName: string
+    }
+  | { readonly ok: false; readonly error: string }
 
 // ---------------------------------------------------------------------------
 // Interpreter Detection
 // ---------------------------------------------------------------------------
 
+/** The program that runs a script file without a shebang, by the file's extension. */
+const INTERPRETER_BY_EXTENSION: Readonly<Record<string, string>> = {
+  ".sh": "bash",
+  ".bash": "bash",
+  ".zsh": "zsh",
+  ".py": "python3",
+  ".js": "node",
+  ".mjs": "node",
+  ".cjs": "node",
+  ".rb": "ruby",
+  ".pl": "perl",
+  ".ps1": "pwsh",
+}
+
+/** The interpreters whose scripts get the log_* functions. */
+const SHELL_INTERPRETERS = new Set(["bash", "sh"])
+
 /**
- * Detect the interpreter from a shebang line or the provided language parameter.
- * Returns [interpreter, args].
+ * The program a `#!` line starts, by name, and its args. For `env` it is the
+ * program env runs: env's options and NAME=value settings are skipped, and
+ * `-S` only splits the rest of the line, which the words already are.
+ * Returns undefined for a line that names no program.
  */
-export function detectInterpreter(script: string, providedLang: string): [string, string[]] {
-  // If language is explicitly provided, use it
-  if (providedLang) {
-    return [providedLang, []]
-  }
+function shebangCommand(line: string): { command: string; args: string[] } | undefined {
+  const words = line.slice(2).trim().split(/\s+/).filter(Boolean)
+  const first = words.shift()
+  if (first === undefined) return undefined
+  const name = path.basename(first)
+  if (name !== "env") return { command: name, args: words }
 
-  // Parse shebang line. split always returns at least one element.
-  const firstLine = script.split("\n", 1)[0]!
-  if (firstLine.startsWith("#!")) {
-    const shebang = firstLine.slice(2).trim()
-
-    // Handle #!/usr/bin/env <interpreter> [args...]
-    if (shebang.includes("/env ")) {
-      const [, interpreter, ...args] = shebang.split(/\s+/)
-      if (interpreter !== undefined) {
-        return [interpreter, args]
-      }
+  while (words.length > 0) {
+    const word = words[0]!
+    if (word === "-u" || word === "--unset") {
+      words.splice(0, 2)
+    } else if (word.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
+      words.shift()
     } else {
-      // Handle #!/bin/bash or #!/usr/bin/python3 etc.
-      const [interpreterPath, ...args] = shebang.split(/\s+/)
-      const interpreter = interpreterPath!.slice(interpreterPath!.lastIndexOf("/") + 1)
-      return [interpreter, args]
+      break
     }
   }
+  const command = words.shift()
+  return command === undefined ? undefined : { command: path.basename(command), args: words }
+}
 
-  // Default to bash
-  return ["bash", []]
+/** Where a block's script comes from, and the props that pick its interpreter. */
+export interface ScriptSource {
+  /** The block's `path` prop, or "" for an inline `command`. */
+  readonly path: string
+  /** The block's `interpreter` prop, or "" for none (see parseBlockInterpreter). */
+  readonly interpreter: string
 }
 
 /**
- * Returns true for shells whose scripts get the bash wrapper (bash and sh).
- * The wrapper is bash code, so those scripts always run under bash; see
- * resolveScriptRunner.
- */
-export function isBashInterpreter(interpreter: string): boolean {
-  switch (interpreter) {
-    case "bash":
-    case "sh":
-    case "/bin/bash":
-    case "/bin/sh":
-    case "/usr/bin/bash":
-    case "/usr/bin/sh":
-      return true
-    default:
-      return false
-  }
-}
-
-/**
- * Decide how to run a script. Scripts whose interpreter is bash or sh get the
- * env-capture wrapper, and the wrapper is bash code, so they always run under
- * `bash`, even with a `#!/bin/sh` shebang. dash (/bin/sh on Debian/Ubuntu)
- * can't parse the `trap()` override. bash-as-sh (macOS) runs in POSIX mode,
- * where the special builtin `trap` wins over the override, so a user EXIT trap
- * disables env capture. Shebang args (e.g. `-e`) are kept.
+ * How to run a script, and what to write to its file.
  *
- * sh scripts also get `-O xpg_echo`. dash and macOS /bin/sh both expand
- * backslash escapes in `echo` ("a\nb" prints two lines), and plain bash does
- * not, so without it a `#!/bin/sh` script's echo output would change.
+ * On macOS and Linux a script with a shebang runs as itself, so the shebang
+ * means what it means in a terminal. Windows can't run a file by its shebang,
+ * so there Runbooks starts the program the shebang names. A script without a
+ * shebang runs with the block's `interpreter` prop, else with the program
+ * for its file's extension (.py with python3, .js with node, ...). An inline
+ * command or a file without an extension runs with bash. A file whose
+ * extension has no program fails: it needs a shebang or the prop. The
+ * registry refuses a block with both a shebang and the prop; a script file
+ * that gains a shebang after that runs with the shebang.
+ *
+ * A bash or sh script gets the log_* functions, after its shebang line.
  */
 export function resolveScriptRunner(
   content: string,
-  language: string,
-): { interpreter: string; args: string[]; wrap: boolean } {
-  const [detected, args] = detectInterpreter(content, language)
-  const wrap = isBashInterpreter(detected)
-  if (!wrap) return { interpreter: detected, args, wrap }
-  const isSh = detected.slice(detected.lastIndexOf("/") + 1) === "sh"
-  return { interpreter: "bash", args: isSh ? ["-O", "xpg_echo", ...args] : args, wrap }
-}
+  source: ScriptSource,
+  platform: NodeJS.Platform,
+): ScriptRunner {
+  const scriptPath = source.path
+  const extension = path.extname(scriptPath).toLowerCase()
+  const fileName = `script${extension || ".sh"}`
+  const withLogging = (shebangLine: string, rest: string) =>
+    shebangLine === ""
+      ? `${LOGGING_FUNCTIONS}\n${rest}`
+      : `${shebangLine}\n${LOGGING_FUNCTIONS}\n${rest}`
 
-// ---------------------------------------------------------------------------
-// Bash Script Wrapping
-// ---------------------------------------------------------------------------
+  const newline = content.indexOf("\n")
+  const firstLine = newline === -1 ? content : content.slice(0, newline)
+  const shebang = firstLine.startsWith("#!") ? shebangCommand(firstLine) : undefined
+  if (shebang !== undefined) {
+    const rest = newline === -1 ? "" : content.slice(newline + 1)
+    const script = SHELL_INTERPRETERS.has(shebang.command) ? withLogging(firstLine, rest) : content
+    const launch: ScriptLaunch =
+      platform === "win32"
+        ? { kind: "interpreter", command: shebang.command, args: shebang.args }
+        : { kind: "self" }
+    return { ok: true, launch, script, fileName }
+  }
 
-/**
- * Wraps a user script with Runbooks infrastructure:
- *  1. Environment capture -- dumps env vars and pwd to temp files on exit
- *  2. Logging injection -- defines log_info, log_warn, log_error, log_debug
- *  3. EXIT trap interception -- chains user EXIT traps with our capture handler
- *
- * Uses `env -0` for NUL-terminated output to handle values with embedded newlines.
- * The result is bash code: run it with `bash`, never `sh` (see resolveScriptRunner).
- */
-export function wrapBashScript(
-  script: string,
-  envCapturePath: string,
-  pwdCapturePath: string,
-): string {
-  return `#!/bin/bash
-# =============================================================================
-# Runbooks Bash Script Wrapper
-# =============================================================================
-# This wrapper injects logging functions and captures environment changes
-# after the user script runs. It intercepts EXIT traps to ensure both user
-# cleanup AND env capture run.
-#
-# Flow:
-#   1. Define our capture function and trap override
-#   2. Set our combined EXIT handler (using builtin to bypass override)
-#   3. Inject logging functions (log_info, log_warn, log_error, log_debug)
-#   4. Execute user script (which may call 'trap ... EXIT')
-#   5. On exit: run user's handler first, then capture env
-# =============================================================================
-
-__RUNBOOKS_ENV_CAPTURE_PATH=${JSON.stringify(envCapturePath)}
-__RUNBOOKS_PWD_CAPTURE_PATH=${JSON.stringify(pwdCapturePath)}
-
-# -----------------------------------------------------------------------------
-# Environment capture function
-# Called on exit to dump env vars and working directory to temp files
-# -----------------------------------------------------------------------------
-__runbooks_capture_env() {
-    # Use env -0 for NUL-terminated output to handle values with embedded newlines
-    # (e.g., RSA keys, JSON, multiline strings)
-    env -0 > "$__RUNBOOKS_ENV_CAPTURE_PATH" 2>/dev/null
-    pwd > "$__RUNBOOKS_PWD_CAPTURE_PATH" 2>/dev/null
-}
-
-# -----------------------------------------------------------------------------
-# Trap override mechanism
-# -----------------------------------------------------------------------------
-# In bash, only one handler can exist per signal. If the user script sets an
-# EXIT trap, it would override ours and we'd lose env capture. To solve this,
-# we define a function named 'trap' that shadows the builtin.
-#
-# When user calls: trap "rm -rf $TEMP_DIR" EXIT
-# Our function:
-#   1. Parses the arguments the way the builtin does: an optional leading '--',
-#      then the action and the signal list. A single operand ('trap EXIT') or
-#      an all-digit first operand ('trap 0 INT') resets every listed signal,
-#      same as 'trap - EXIT INT'.
-#   2. Saves the action for EXIT (any case, or 0) to __RUNBOOKS_USER_EXIT_HANDLER
-#      without setting the actual trap (ours remains active)
-#   3. Passes every other signal in the call to 'builtin trap', so
-#      'trap cleanup INT EXIT' still installs the INT handler
-#
-# Printing forms ('trap', 'trap -p', 'trap -l', 'trap -P') pass straight through.
-# So does every call in a subshell or command substitution: bash resets traps
-# there, so our EXIT handler isn't installed and a saved handler would never run.
-# -----------------------------------------------------------------------------
-
-# Store user's EXIT trap handler (if they set one)
-__RUNBOOKS_USER_EXIT_HANDLER=""
-
-# Override the trap builtin to intercept EXIT handlers
-trap() {
-    # Printing forms, and any call in a subshell, pass straight through to builtin
-    if [[ $BASH_SUBSHELL -gt 0 || $# -eq 0 || "$1" == "-p" || "$1" == "-l" || "$1" == "-P" ]]; then
-        builtin trap "$@"
-        return $?
-    fi
-    if [[ "$1" == "--" ]]; then
-        shift
-        # 'trap --' on its own prints, like 'trap'
-        if [[ $# -eq 0 ]]; then
-            builtin trap
-            return $?
-        fi
-    fi
-
-    local handler
-    if [[ $# -eq 1 || "$1" =~ ^[0-9]+$ ]]; then
-        # Every operand is a signal to reset
-        handler="-"
-    else
-        handler="$1"
-        shift
-    fi
-
-    local sig
-    local -a others=()
-    for sig in "$@"; do
-        case "$sig" in
-            [Ee][Xx][Ii][Tt]|0)
-                if [[ "$handler" == "-" || -z "$handler" ]]; then
-                    # trap - EXIT (reset) or trap '' EXIT (ignore): clear user handler
-                    __RUNBOOKS_USER_EXIT_HANDLER=""
-                else
-                    # Save user's handler to call during exit
-                    __RUNBOOKS_USER_EXIT_HANDLER="$handler"
-                fi
-                ;;
-            *)
-                others+=("$sig")
-                ;;
-        esac
-    done
-
-    # Guarded: "\${others[@]}" on an empty array errors under 'set -u' in bash < 4.4
-    if [[ \${#others[@]} -gt 0 ]]; then
-        builtin trap -- "$handler" "\${others[@]}"
-        return $?
-    fi
-    return 0
-}
-
-# -----------------------------------------------------------------------------
-# Combined exit handler
-# Runs when script exits to execute user cleanup AND capture environment
-# -----------------------------------------------------------------------------
-__runbooks_combined_exit() {
-    local exit_code=$?
-
-    # Run user's EXIT handler first (if any), so their cleanup happens
-    if [[ -n "$__RUNBOOKS_USER_EXIT_HANDLER" ]]; then
-        eval "$__RUNBOOKS_USER_EXIT_HANDLER" || true
-    fi
-
-    # Then capture environment (after user's changes but before exit)
-    __runbooks_capture_env
-
-    # Preserve the original exit code
-    exit $exit_code
-}
-
-# Set our combined exit handler using 'builtin trap' to bypass our override
-builtin trap __runbooks_combined_exit EXIT
-
-# =============================================================================
-# Logging Functions
-# =============================================================================
-${LOGGING_FUNCTIONS}
-# =============================================================================
-# USER SCRIPT BEGIN
-# =============================================================================
-${script}
-# =============================================================================
-# USER SCRIPT END
-# =============================================================================
-`
+  const [propCommand, ...propArgs] = source.interpreter.split(/\s+/).filter(Boolean)
+  const command = propCommand ?? (extension === "" ? "bash" : INTERPRETER_BY_EXTENSION[extension])
+  if (command === undefined) {
+    return {
+      ok: false,
+      error:
+        `Runbooks can't tell which program runs ${path.basename(scriptPath)}. ` +
+        `Add a shebang line, such as #!/usr/bin/env python3, to the top of the script, ` +
+        `or set the block's interpreter prop.`,
+    }
+  }
+  const script = SHELL_INTERPRETERS.has(path.basename(command)) ? withLogging("", content) : content
+  return { ok: true, launch: { kind: "interpreter", command, args: propArgs }, script, fileName }
 }
 
 // ---------------------------------------------------------------------------
@@ -326,155 +220,150 @@ ${script}
 // ---------------------------------------------------------------------------
 
 /**
- * Prepare a script for execution. Writes a temp file, detects the interpreter,
- * and optionally wraps bash scripts with env capture and logging injection.
+ * Write the script `runner` describes (see resolveScriptRunner) to a new
+ * directory in `scriptsDir`, executable by the user only, and return how to
+ * run it. The directory is removed when the Effect Scope closes.
  *
- * The returned ScriptSetup's temp files are cleaned up automatically via the
- * Effect Scope (addFinalizer).
+ * `scriptsDir` is created if missing. It should be outside the OS temp
+ * directory, which hardened Linux systems mount noexec.
  */
 export const prepareScript = (
-  content: string,
-  language: string,
+  runner: Extract<ScriptRunner, { ok: true }>,
+  scriptsDir: string,
 ): Effect.Effect<ScriptSetup, FileWriteError, FileSystem | Scope.Scope> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
 
-    const { interpreter, args, wrap: isBash } = resolveScriptRunner(content, language)
-
-    let scriptToWrite = content
-    let envCapturePath = ""
-    let pwdCapturePath = ""
-
-    if (isBash) {
-      // Create temp files for environment capture
-      const envDir = yield* fs.mkdtemp("runbook-env-capture-")
-      envCapturePath = `${envDir}/env.txt`
-      yield* fs.writeFile(envCapturePath, "")
-
-      const pwdDir = yield* fs.mkdtemp("runbook-pwd-capture-")
-      pwdCapturePath = `${pwdDir}/pwd.txt`
-      yield* fs.writeFile(pwdCapturePath, "")
-
-      // Register cleanup for env/pwd capture temp dirs
-      yield* Effect.addFinalizer(() =>
-        Effect.all([
-          fs.rm(envDir, { recursive: true, force: true }).pipe(Effect.ignore),
-          fs.rm(pwdDir, { recursive: true, force: true }).pipe(Effect.ignore),
-        ]).pipe(Effect.asVoid),
-      )
-
-      // Wrap the script with env capture and logging
-      scriptToWrite = wrapBashScript(content, envCapturePath, pwdCapturePath)
-    }
-
-    // Write the script to a temp file
-    const scriptDir = yield* fs.mkdtemp("runbook-script-")
-    const scriptPath = `${scriptDir}/script.sh`
-    yield* fs.writeFile(scriptPath, scriptToWrite)
-
-    // Register cleanup for the script temp dir
+    yield* fs.mkdir(scriptsDir, { recursive: true })
+    const scriptDir = yield* fs.mkdtemp("run-", scriptsDir)
     yield* Effect.addFinalizer(() =>
       fs.rm(scriptDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
+    const scriptPath = `${scriptDir}/${runner.fileName}`
+    yield* fs.writeFile(scriptPath, runner.script)
+    yield* fs.chmod(scriptPath, 0o700)
 
-    return {
-      scriptPath,
-      interpreter,
-      args,
-      isBashScript: isBash,
-      envCapturePath,
-      pwdCapturePath,
-    } satisfies ScriptSetup
+    const { launch } = runner
+    return launch.kind === "self"
+      ? { scriptPath, command: scriptPath, args: [] }
+      : { scriptPath, command: launch.command, args: [...launch.args, scriptPath] }
   })
 
 // ---------------------------------------------------------------------------
-// Environment Capture Parsing
+// Session Env Parsing
 // ---------------------------------------------------------------------------
 
-/**
- * Check if a string is a valid environment variable name.
- * Must start with a letter or underscore, rest alphanumeric or underscore.
- */
-export function isValidEnvVarName(name: string): boolean {
-  return IDENT_RE.test(name)
+/** The variables a script wrote to RUNBOOK_ENV, and a log line for each line that set none. */
+export interface RunbookEnv {
+  readonly env: Record<string, string>
+  readonly problems: string[]
 }
 
+/** The most problems parseRunbookEnvContent reports one by one; a last line counts the rest. */
+const MAX_REPORTED_PROBLEMS = 20
+
 /**
- * Parse the contents of an env capture file written by the bash wrapper.
- * Entries are NUL-terminated (from `env -0`) to handle multiline values.
- * Falls back to newline-delimited parsing if no NUL characters found.
+ * Parse the contents of a RUNBOOK_ENV file: the variables a script sets for
+ * the blocks after it. Pure, so the test CLI shares this parser with the app.
  *
- * Pure, so the test CLI (which runs scripts synchronously) shares this parser
- * with the app. Returns undefined when the capture holds no variables.
+ * Each variable is a line `NAME=value`, or, for a value with newlines in it,
+ * `NAME<<DELIMITER`, the value's lines, then a line that is exactly
+ * DELIMITER. Values are taken as written: quotes are part of the value. A
+ * later line for the same name wins.
+ *
+ * A line is skipped, with a log line in `problems`, when it isn't valid,
+ * names a variable Runbooks sets for every run (isRunbookEnvVar) or one that
+ * makes later programs run code (isStartupEnvVar), or has a NUL character in
+ * its value, which no process environment can hold.
  */
-export function parseEnvCaptureContent(data: string): Record<string, string> | undefined {
-  const parsed: Record<string, string> = {}
-
-  if (data.includes("\0")) {
-    // NUL-delimited: each entry is a complete KEY=VALUE pair
-    for (const entry of data.split("\0")) {
-      if (entry === "") continue
-      const idx = entry.indexOf("=")
-      if (idx !== -1) {
-        parsed[entry.slice(0, idx)] = entry.slice(idx + 1)
-      }
+export function parseRunbookEnvContent(content: string): RunbookEnv {
+  const env = new Map<string, string>()
+  const problems: string[] = []
+  let unreported = 0
+  const skip = (lineNo: number, message: string, consequence = "The line was ignored.") => {
+    if (problems.length < MAX_REPORTED_PROBLEMS) {
+      problems.push(`RUNBOOK_ENV line ${lineNo}: ${message}. ${consequence}`)
+    } else {
+      unreported++
     }
-  } else {
-    // Newline-delimited fallback: handle multiline values by detecting
-    // continuation lines (lines that don't start a new KEY=VALUE pair)
-    let currentKey = ""
-    let valueLines: string[] = []
+  }
+  // A file written on Windows ends its lines in \r\n, and may start with a byte order mark
+  const lines = content
+    .replace(/^﻿/, "")
+    .split("\n")
+    .map((line) => line.replace(/\r$/, ""))
 
-    for (const line of data.split("\n")) {
-      const idx = line.indexOf("=")
-      if (idx > 0 && isValidEnvVarName(line.slice(0, idx))) {
-        // Save previous key-value if any
-        if (currentKey) {
-          parsed[currentKey] = valueLines.join("\n")
-        }
-        currentKey = line.slice(0, idx)
-        valueLines = [line.slice(idx + 1)]
-      } else if (currentKey && line !== "") {
-        valueLines.push(line)
-      }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    if (line === "") continue
+    const lineNo = i + 1
+
+    const eq = line.indexOf("=")
+    const heredoc = line.indexOf("<<")
+    const isHeredoc = heredoc !== -1 && (eq === -1 || heredoc < eq)
+    if (!isHeredoc && eq === -1) {
+      skip(lineNo, "expected NAME=value or NAME<<DELIMITER")
+      continue
     }
-    // Don't forget the last key
-    if (currentKey) {
-      parsed[currentKey] = valueLines.join("\n")
+
+    // Text that isn't NAME=value may be a secret written without its name, so
+    // a message names the variable only once it is known to be one
+    const name = line.slice(0, isHeredoc ? heredoc : eq)
+    let value: string
+    if (isHeredoc) {
+      const delimiter = line.slice(heredoc + 2)
+      if (delimiter === "") {
+        skip(lineNo, "a NAME<< line has no delimiter")
+        continue
+      }
+      const end = lines.indexOf(delimiter, i + 1)
+      if (end === -1) {
+        // An unclosed value runs to the end of the file, so nothing after it is a variable
+        skip(
+          lineNo,
+          "a NAME<<DELIMITER value has no line that closes it",
+          "It and the lines after it were ignored.",
+        )
+        break
+      }
+      value = lines.slice(i + 1, end).join("\n")
+      i = end
+    } else {
+      value = line.slice(eq + 1)
+    }
+
+    if (!IDENT_RE.test(name)) {
+      skip(
+        lineNo,
+        "the name is not a variable name. Use letters, digits and underscores, and don't start with a digit",
+      )
+    } else if (isRunbookEnvVar(name)) {
+      skip(lineNo, `${name} is a variable Runbooks sets for every script`)
+    } else if (isStartupEnvVar(name)) {
+      skip(lineNo, `${name} makes programs run code as they start, so a script can't set it`)
+    } else if (value.includes("\0")) {
+      skip(lineNo, `${name}'s value has a NUL character, which no environment variable can hold`)
+    } else {
+      env.set(name, value)
     }
   }
 
-  return Object.keys(parsed).length > 0 ? parsed : undefined
+  if (unreported > 0) {
+    problems.push(`RUNBOOK_ENV: ${unreported} more lines were ignored.`)
+  }
+  return { env: Object.fromEntries(env), problems }
 }
 
 /**
- * Parse the captured environment from temp files written by the bash wrapper.
- * See parseEnvCaptureContent for the env file format.
- *
- * Returns { env, pwd } where env may be undefined if the file was empty/missing.
+ * Read and parse a RUNBOOK_ENV file (see parseRunbookEnvContent). A missing
+ * file sets nothing: the script may have deleted it.
  */
-export const parseEnvCapture = (
-  envCapturePath: string,
-  pwdCapturePath: string,
-): Effect.Effect<{ env: Record<string, string> | undefined; pwd: string }, never, FileSystem> =>
+export const parseRunbookEnv = (filePath: string): Effect.Effect<RunbookEnv, never, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
-
-    // Read environment capture
-    let env: Record<string, string> | undefined = undefined
-    const envResult = yield* fs.readFile(envCapturePath).pipe(Effect.option)
-    if (envResult._tag === "Some") {
-      env = parseEnvCaptureContent(envResult.value)
-    }
-
-    // Read working directory capture
-    let pwd = ""
-    const pwdResult = yield* fs.readFile(pwdCapturePath).pipe(Effect.option)
-    if (pwdResult._tag === "Some") {
-      pwd = pwdResult.value.trim()
-    }
-
-    return { env, pwd }
+    const result = yield* fs.readFile(filePath).pipe(Effect.option)
+    if (result._tag !== "Some") return { env: {}, problems: [] }
+    return parseRunbookEnvContent(result.value)
   })
 
 // ---------------------------------------------------------------------------

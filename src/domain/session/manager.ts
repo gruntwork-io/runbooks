@@ -1,7 +1,7 @@
 /**
  * A SessionManager holds the single live session for the open runbook ("one
- * runbook = one environment"). Environment and working-directory changes made
- * by scripts persist across block executions.
+ * runbook = one environment"). Variables that auth blocks set, and that
+ * scripts write to RUNBOOK_ENV, persist across block executions.
  *
  * The manager keeps nothing on disk. It reports every change to a listener
  * (setChangeListener), and resumeSession rebuilds a session from what the
@@ -13,47 +13,6 @@ import { Effect } from "effect"
 import { Environment } from "../../services/Environment.js"
 import { SessionError, SessionNotFoundError } from "../../errors/index.js"
 import type { SessionMetadata, SessionExecSnapshot } from "../../types.js"
-import { LOG_CHANNELS } from "../exec/logChannels.js"
-
-// ---------------------------------------------------------------------------
-// Excluded env vars — shell internals that should never be captured
-// ---------------------------------------------------------------------------
-
-const EXCLUDED_ENV_VARS = new Set<string>([
-  "_",
-  "SHLVL",
-  "RUNBOOK_OUTPUT",
-  "GENERATED_FILES",
-  "REPO_FILES",
-  // RUNBOOK_LOG, RUNBOOK_INFO_LOG etc.: per-run files, removed when the run ends
-  ...LOG_CHANNELS.map((channel) => channel.envVar),
-  "OLDPWD",
-  "FUNCNAME",
-  "LINENO",
-  "RANDOM",
-  "SECONDS",
-  "EPOCHSECONDS",
-  "EPOCHREALTIME",
-  "BASHPID",
-  "BASH_COMMAND",
-  "BASH_SUBSHELL",
-  "BASH_EXECUTION_STRING",
-  "PPID",
-  "BASH_LINENO",
-  "BASH_SOURCE",
-  "BASH_ARGC",
-  "BASH_ARGV",
-  "BASH_REMATCH",
-  "PIPESTATUS",
-  "HISTCMD",
-  "SRANDOM",
-  // Internal wrapper variables
-  "__RUNBOOKS_ENV_CAPTURE_PATH",
-  "__RUNBOOKS_PWD_CAPTURE_PATH",
-  "__RUNBOOKS_USER_EXIT_HANDLER",
-  "__RUNBOOKS_COMBINED_EXIT",
-  "_RUNBOOKS_LOGGING_LOADED",
-])
 
 // ---------------------------------------------------------------------------
 // Internal session state
@@ -62,7 +21,7 @@ const EXCLUDED_ENV_VARS = new Set<string>([
 interface Session {
   env: Map<string, string>
   initialEnv: Map<string, string>
-  initialWorkDir: string
+  /** The session's directory, where scripts run unless their block sets `workingDir`. */
   workingDir: string
   executionCount: number
   createdAt: Date
@@ -75,7 +34,7 @@ interface Session {
   runbookPath: string
 }
 
-/** What a script or auth block changed in the env the session started with. */
+/** What scripts and auth blocks changed in the env the session started with. */
 export interface EnvChanges {
   set: Record<string, string>
   unset: string[]
@@ -83,7 +42,6 @@ export interface EnvChanges {
 
 /** The part of a session that outlives the app: what a change listener is given and resumeSession takes back. */
 export interface SessionState {
-  workingDir: string
   env: EnvChanges
   /** The registered git worktrees, oldest first. */
   worktrees: string[]
@@ -110,22 +68,8 @@ function mapToRecord(m: Map<string, string>): Record<string, string> {
 }
 
 /**
- * Filter out shell-internal variables from a captured environment.
- * Mirrors `FilterCapturedEnv` in Go.
- */
-export function filterCapturedEnv(env: Record<string, string>): Record<string, string> {
-  const filtered: Record<string, string> = {}
-  for (const [k, v] of Object.entries(env)) {
-    if (EXCLUDED_ENV_VARS.has(k)) continue
-    if (k.startsWith("BASH_")) continue
-    filtered[k] = v
-  }
-  return filtered
-}
-
-/**
- * What a script changed in its environment, relative to the env it started
- * with: keys it added or re-assigned (`set`) and keys it removed (`unset`).
+ * What changed from `before` to `after`: keys added or re-assigned (`set`)
+ * and keys removed (`unset`).
  */
 export function diffEnv(before: Record<string, string>, after: Record<string, string>): EnvChanges {
   const set = Object.fromEntries(
@@ -191,7 +135,7 @@ export class SessionManager {
    * protected vars stripped. The change listener is dropped: it belonged to
    * the session this one replaces.
    */
-  createSession(initialWorkingDir: string, runbookPath: string = "") {
+  createSession(workingDir: string, runbookPath: string = "") {
     return Effect.gen({ self: this }, function* () {
       const env = yield* this.startingEnv()
       const now = new Date()
@@ -199,8 +143,7 @@ export class SessionManager {
       this.replaceSession({
         env,
         initialEnv: copyEnvMap(env),
-        initialWorkDir: initialWorkingDir,
-        workingDir: initialWorkingDir,
+        workingDir,
         executionCount: 0,
         createdAt: now,
         lastActivity: now,
@@ -219,7 +162,7 @@ export class SessionManager {
    * the session goes back to the process's environment, without them.
    */
   resumeSession(saved: {
-    initialWorkingDir: string
+    workingDir: string
     runbookPath: string
     createdAt: Date
     state: SessionState
@@ -237,8 +180,7 @@ export class SessionManager {
       this.replaceSession({
         env,
         initialEnv,
-        initialWorkDir: saved.initialWorkingDir,
-        workingDir: saved.state.workingDir,
+        workingDir: saved.workingDir,
         executionCount: saved.state.executionCount,
         createdAt: saved.createdAt,
         lastActivity: saved.state.lastActivity,
@@ -278,7 +220,6 @@ export class SessionManager {
 
   private notifyChange(session: Session): void {
     this.changeListener?.({
-      workingDir: session.workingDir,
       env: diffEnv(mapToRecord(session.initialEnv), mapToRecord(session.env)),
       worktrees: [...session.registeredWorkTreePaths],
       activeWorktree: session.activeWorkTreePath,
@@ -334,9 +275,7 @@ export class SessionManager {
     return this.session?.runbookPath ?? null
   }
 
-  /**
-   * Reset the session to its initial environment and working directory.
-   */
+  /** Reset the session to the environment it started with. */
   resetSession() {
     return Effect.gen({ self: this }, function* () {
       if (this.session === null) {
@@ -344,7 +283,6 @@ export class SessionManager {
       }
 
       this.session.env = copyEnvMap(this.session.initialEnv)
-      this.session.workingDir = this.session.initialWorkDir
       this.session.lastActivity = new Date()
       this.notifyChange(this.session)
     })
@@ -385,43 +323,21 @@ export class SessionManager {
   // -------------------------------------------------------------------------
 
   /**
-   * Apply a script's captured environment and working directory to the
-   * session after execution, incrementing the execution counter.
+   * Record a script run that ended in success or warn: set the variables it
+   * wrote to RUNBOOK_ENV and count the run.
    *
-   * The capture is applied as a delta against `before`, the env snapshot the
-   * script started from (getExecContext): only keys the script exported,
-   * re-assigned or unset are written, and every other key in the live env is
-   * left alone. Auth blocks write to the session while a script runs
-   * (appendToEnv, removeFromEnv, session:set-env), and replacing the env with
-   * the script's start-time view would silently undo those writes. Likewise
-   * the working dir only moves if the script itself changed directory. An
-   * empty `pwd` means the capture failed (e.g. the script removed its own cwd)
-   * and leaves the working dir as it is.
-   *
-   * No-op when the session was replaced (a different runbook opened) since the
-   * snapshot was taken, so one runbook's env can't leak into the next.
+   * No-op when `generation` no longer names the live session (a different
+   * runbook opened while the script ran), so one runbook's env can't leak
+   * into the next.
    */
-  applyCapturedEnv(params: {
-    before: Record<string, string>
-    after: Record<string, string>
-    startWorkDir: string
-    pwd: string
-    generation: number
-  }): Effect.Effect<void> {
+  applyScriptEnv(params: { env: Record<string, string>; generation: number }): Effect.Effect<void> {
     return Effect.sync(() => {
       if (this.session === null || !this.isCurrentGeneration(params.generation)) {
         return
       }
 
-      const { set, unset } = diffEnv(params.before, params.after)
-      for (const [key, value] of Object.entries(set)) {
+      for (const [key, value] of Object.entries(params.env)) {
         this.session.env.set(key, value)
-      }
-      for (const key of unset) {
-        this.session.env.delete(key)
-      }
-      if (params.pwd !== "" && params.pwd !== params.startWorkDir) {
-        this.session.workingDir = params.pwd
       }
       this.session.executionCount++
       this.session.lastActivity = new Date()

@@ -264,8 +264,8 @@ describe("runbooks-cli test — test case isolation", () => {
   it(
     "removes every temp dir it makes",
     () => {
-      // Per block: output, files, script, and the bash env/pwd capture dirs;
-      // per test case: the working dir.
+      // Per block: output (with RUNBOOK_ENV), files, log channels and
+      // script; per test case: the working dir.
       const dir = writeRunbook(
         "temp-dirs",
         `# Temp dirs\n\n<Command id="export" command="export FOO=bar" />\n\n<Command id="gen" command='touch "$GENERATED_FILES/made.txt"' />\n`,

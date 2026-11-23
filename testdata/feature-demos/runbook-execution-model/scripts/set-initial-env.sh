@@ -1,17 +1,17 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Set initial environment variables for the demo
 
 echo "Setting initial environment variables..."
 
-export DEMO_VAR="hello-from-block-1000"
-export DEMO_COUNT=1
-export DEMO_PROJECT="runbooks-persistent-env-demo"
+{
+  echo "DEMO_VAR=hello-from-block-1"
+  echo "DEMO_COUNT=1"
+  echo "DEMO_PROJECT=runbooks-session-env-demo"
+} >> "$RUNBOOK_ENV"
+
+# An export stays inside this script: later blocks don't see it
+export DEMO_EXPORT_ONLY="not-for-later-blocks"
 
 echo ""
-echo "Environment variables set:"
-echo "  DEMO_VAR=$DEMO_VAR"
-echo "  DEMO_COUNT=$DEMO_COUNT"
-echo "  DEMO_PROJECT=$DEMO_PROJECT"
-echo ""
-echo "These variables will persist to subsequent blocks!"
-
+echo "Wrote DEMO_VAR, DEMO_COUNT and DEMO_PROJECT to \$RUNBOOK_ENV."
+echo "Exported DEMO_EXPORT_ONLY, which later blocks won't see."

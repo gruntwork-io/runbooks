@@ -440,6 +440,7 @@ describe("applyDiffFromContent idempotency", () => {
       },
       copyFile: () => Effect.void,
       mkdtemp: () => Effect.succeed("/tmp/x"),
+      chmod: () => Effect.void,
       realpath: (p) => Effect.succeed(p),
       walk: () => Stream.empty,
       watch: () => Stream.empty,

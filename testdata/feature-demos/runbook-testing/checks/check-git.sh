@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Check that git is installed
 
 if ! command -v git &> /dev/null; then

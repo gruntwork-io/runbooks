@@ -6,14 +6,11 @@ import * as nodePath from "node:path"
 import * as os from "node:os"
 import { inspect } from "node:util"
 import {
-  detectInterpreter,
-  isBashInterpreter,
-  isValidEnvVarName,
   resolveScriptRunner,
+  type ScriptSource,
   prepareScript,
-  wrapBashScript,
-  parseEnvCapture,
-  parseEnvCaptureContent,
+  parseRunbookEnv,
+  parseRunbookEnvContent,
   parseBlockOutputs,
   parseBlockOutputsContent,
   captureFilesFromDir,
@@ -29,241 +26,243 @@ function runFs<A, E>(effect: Effect.Effect<A, E, FileSystem>, files: Record<stri
 }
 
 // ---------------------------------------------------------------------------
-// detectInterpreter
-// ---------------------------------------------------------------------------
-
-describe("detectInterpreter", () => {
-  it("returns provided language when specified", () => {
-    expect(detectInterpreter("#!/bin/bash\necho hi", "python3")).toEqual(["python3", []])
-  })
-
-  it("detects #!/usr/bin/env interpreter", () => {
-    expect(detectInterpreter("#!/usr/bin/env python3\nprint('hi')", "")).toEqual(["python3", []])
-  })
-
-  it("detects #!/usr/bin/env with args", () => {
-    expect(detectInterpreter("#!/usr/bin/env -S node --experimental\nconsole.log(1)", "")).toEqual([
-      "-S",
-      ["node", "--experimental"],
-    ])
-  })
-
-  it("detects #!/bin/bash", () => {
-    expect(detectInterpreter("#!/bin/bash\necho hi", "")).toEqual(["bash", []])
-  })
-
-  it("detects #!/usr/bin/python3", () => {
-    expect(detectInterpreter("#!/usr/bin/python3\nprint(1)", "")).toEqual(["python3", []])
-  })
-
-  it("detects shebang with args", () => {
-    expect(detectInterpreter("#!/bin/bash -e\necho hi", "")).toEqual(["bash", ["-e"]])
-  })
-
-  it("defaults to bash when no shebang", () => {
-    expect(detectInterpreter("echo hello", "")).toEqual(["bash", []])
-  })
-
-  it("defaults to bash for empty script", () => {
-    expect(detectInterpreter("", "")).toEqual(["bash", []])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// isBashInterpreter
-// ---------------------------------------------------------------------------
-
-describe("isBashInterpreter", () => {
-  it.each(["bash", "sh", "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh"])(
-    "returns true for %s",
-    (interp) => {
-      expect(isBashInterpreter(interp)).toBe(true)
-    },
-  )
-
-  it.each(["python3", "node", "ruby", "zsh", "/usr/bin/python3", ""])(
-    "returns false for %s",
-    (interp) => {
-      expect(isBashInterpreter(interp)).toBe(false)
-    },
-  )
-})
-
-// ---------------------------------------------------------------------------
 // resolveScriptRunner
 // ---------------------------------------------------------------------------
 
+/** resolveScriptRunner's answer, failing the test when it refuses the script. */
+function runnerFor(
+  content: string,
+  source: Partial<ScriptSource> = {},
+  platform: NodeJS.Platform = "linux",
+) {
+  const runner = resolveScriptRunner(content, { path: "", interpreter: "", ...source }, platform)
+  if (!runner.ok) throw new Error(runner.error)
+  return runner
+}
+
 describe("resolveScriptRunner", () => {
-  it("runs a #!/bin/sh script under bash with sh's echo behavior", () => {
-    expect(resolveScriptRunner("#!/bin/sh\necho hi", "")).toEqual({
-      interpreter: "bash",
-      args: ["-O", "xpg_echo"],
-      wrap: true,
+  it.each([
+    "#!/bin/bash\necho hi",
+    "#!/usr/bin/env bash\necho hi",
+    "#!/usr/local/bin/bash -e\necho hi",
+    "#!/bin/sh\necho hi",
+    "#!/usr/bin/env -S sh -e\necho hi",
+    "#!/usr/bin/env FOO=1 -i sh\necho hi",
+  ])("runs a script with a shebang as itself on macOS and Linux: %j", (content) => {
+    expect(runnerFor(content).launch).toEqual({ kind: "self" })
+    expect(runnerFor(content, {}, "darwin").launch).toEqual({ kind: "self" })
+  })
+
+  it("puts the logging functions after a bash or sh shebang line", () => {
+    const { script } = runnerFor("#!/usr/bin/env bash\necho hi")
+    expect(script.startsWith("#!/usr/bin/env bash\n")).toBe(true)
+    expect(script).toContain("log_info()")
+    expect(script.endsWith("\necho hi")).toBe(true)
+  })
+
+  it("leaves a script for another interpreter as written", () => {
+    const content = "#!/usr/bin/env python3\nprint(1)"
+    expect(runnerFor(content, { path: "check.sh" })).toEqual({
+      ok: true,
+      launch: { kind: "self" },
+      script: content,
+      fileName: "script.sh",
     })
   })
 
-  it("runs a #!/usr/bin/env sh script under bash", () => {
-    expect(resolveScriptRunner("#!/usr/bin/env sh\necho hi", "")).toEqual({
-      interpreter: "bash",
-      args: ["-O", "xpg_echo"],
-      wrap: true,
+  it("starts the program a shebang names on Windows, which can't run a file by its shebang", () => {
+    expect(runnerFor("#!/usr/bin/env -S node --no-warnings\n1", {}, "win32").launch).toEqual({
+      kind: "interpreter",
+      command: "node",
+      args: ["--no-warnings"],
+    })
+    expect(runnerFor("#!/bin/bash -e\necho hi", {}, "win32").launch).toEqual({
+      kind: "interpreter",
+      command: "bash",
+      args: ["-e"],
     })
   })
 
-  it("treats an explicit sh language like a #!/bin/sh shebang", () => {
-    for (const lang of ["sh", "/bin/sh", "/usr/bin/sh"]) {
-      expect(resolveScriptRunner("echo hi", lang)).toEqual({
-        interpreter: "bash",
-        args: ["-O", "xpg_echo"],
-        wrap: true,
-      })
+  it("runs an inline command or a file without an extension with bash, logging functions first", () => {
+    for (const scriptPath of ["", "scripts/check"]) {
+      const runner = runnerFor("echo hi", { path: scriptPath })
+      expect(runner.launch).toEqual({ kind: "interpreter", command: "bash", args: [] })
+      expect(runner.script.startsWith("\n# --- Runbooks Logging Functions ---")).toBe(true)
+      expect(runner.fileName).toBe("script.sh")
     }
   })
 
-  it("keeps shebang args when switching sh to bash", () => {
-    expect(resolveScriptRunner("#!/bin/sh -e\necho hi", "")).toEqual({
-      interpreter: "bash",
-      args: ["-O", "xpg_echo", "-e"],
-      wrap: true,
+  it.each([
+    ["deploy.sh", "bash"],
+    ["deploy.BASH", "bash"],
+    ["check.py", "python3"],
+    ["check.mjs", "node"],
+    ["check.rb", "ruby"],
+    ["Check.ps1", "pwsh"],
+  ])("runs %s without a shebang with %s, keeping its extension", (scriptPath, command) => {
+    const runner = runnerFor("work", { path: `scripts/${scriptPath}` })
+    expect(runner.launch).toEqual({ kind: "interpreter", command, args: [] })
+    expect(runner.fileName).toBe(`script${nodePath.extname(scriptPath).toLowerCase()}`)
+  })
+
+  it("refuses a file without a shebang whose extension names no program", () => {
+    expect(
+      resolveScriptRunner("console.log(1)", { path: "scripts/check.ts", interpreter: "" }, "linux"),
+    ).toEqual({
+      ok: false,
+      error:
+        "Runbooks can't tell which program runs check.ts. " +
+        "Add a shebang line, such as #!/usr/bin/env python3, to the top of the script, " +
+        "or set the block's interpreter prop.",
     })
   })
 
-  it("wraps bash scripts and scripts without a shebang", () => {
-    expect(resolveScriptRunner("#!/bin/bash\necho hi", "")).toEqual({
-      interpreter: "bash",
+  it("runs a script without a shebang with the interpreter prop, over its extension", () => {
+    expect(runnerFor("print(1)", { interpreter: "python3" }).launch).toEqual({
+      kind: "interpreter",
+      command: "python3",
       args: [],
-      wrap: true,
     })
-    expect(resolveScriptRunner("echo hi", "")).toEqual({
-      interpreter: "bash",
-      args: [],
-      wrap: true,
+    expect(runnerFor("x", { path: "check.ts", interpreter: " deno  run " }).launch).toEqual({
+      kind: "interpreter",
+      command: "deno",
+      args: ["run"],
+    })
+    expect(runnerFor("echo hi", { path: "check.sh", interpreter: "zsh" }).script).toBe("echo hi")
+  })
+
+  it("gives a script the logging functions when the interpreter prop is bash or sh", () => {
+    for (const interpreter of ["sh", "/bin/bash -e"]) {
+      expect(runnerFor("echo hi", { interpreter }).script).toContain("log_info()")
+    }
+  })
+
+  it("runs a script with a shebang as itself, whatever the interpreter prop says", () => {
+    expect(runnerFor("#!/usr/bin/env bash\necho hi", { interpreter: "python3" }).launch).toEqual({
+      kind: "self",
     })
   })
 
-  it("leaves other interpreters unwrapped", () => {
-    expect(resolveScriptRunner("#!/usr/bin/env python3\nprint(1)", "")).toEqual({
-      interpreter: "python3",
+  it("reads a #! line that names no program as no shebang", () => {
+    expect(runnerFor("#!\necho hi").launch).toEqual({
+      kind: "interpreter",
+      command: "bash",
       args: [],
-      wrap: false,
     })
   })
 })
 
 // ---------------------------------------------------------------------------
-// wrapBashScript
+// parseRunbookEnvContent
 // ---------------------------------------------------------------------------
 
-describe("wrapBashScript", () => {
-  it("includes user script", () => {
-    const wrapped = wrapBashScript("echo hello", "/tmp/env", "/tmp/pwd")
-    expect(wrapped).toContain("echo hello")
+describe("parseRunbookEnvContent", () => {
+  it("parses NAME=value lines, keeping values as written", () => {
+    expect(parseRunbookEnvContent('A=1\nB= spaced \nC="quoted"\nD=x=y\nE=\n')).toEqual({
+      env: { A: "1", B: " spaced ", C: '"quoted"', D: "x=y", E: "" },
+      problems: [],
+    })
   })
 
-  it("includes env capture paths", () => {
-    const wrapped = wrapBashScript("echo hi", "/tmp/env.txt", "/tmp/pwd.txt")
-    expect(wrapped).toContain("/tmp/env.txt")
-    expect(wrapped).toContain("/tmp/pwd.txt")
+  it("parses a NAME<<DELIMITER value across lines", () => {
+    const content = "KEY<<EOF\n-----BEGIN-----\n\nabc\n-----END-----\nEOF\nAFTER=1\n"
+    expect(parseRunbookEnvContent(content)).toEqual({
+      env: { KEY: "-----BEGIN-----\n\nabc\n-----END-----", AFTER: "1" },
+      problems: [],
+    })
   })
 
-  it("includes logging functions", () => {
-    const wrapped = wrapBashScript("echo hi", "/tmp/env", "/tmp/pwd")
-    expect(wrapped).toContain("log_info")
-    expect(wrapped).toContain("log_warn")
-    expect(wrapped).toContain("log_error")
-    expect(wrapped).toContain("log_debug")
+  it("reads a line with = before << as NAME=value", () => {
+    expect(parseRunbookEnvContent("A=x<<y\n").env).toEqual({ A: "x<<y" })
   })
 
-  it("includes trap override mechanism", () => {
-    const wrapped = wrapBashScript("echo hi", "/tmp/env", "/tmp/pwd")
-    expect(wrapped).toContain("__runbooks_capture_env")
-    expect(wrapped).toContain("__runbooks_combined_exit")
-    expect(wrapped).toContain("builtin trap __runbooks_combined_exit EXIT")
+  it("lets a later line for the same name win", () => {
+    expect(parseRunbookEnvContent("A=1\nA=2\n").env).toEqual({ A: "2" })
   })
 
-  it("starts with bash shebang", () => {
-    const wrapped = wrapBashScript("echo hi", "/tmp/env", "/tmp/pwd")
-    expect(wrapped.startsWith("#!/bin/bash")).toBe(true)
+  it("accepts \\r\\n line endings and a byte order mark", () => {
+    expect(parseRunbookEnvContent("\uFEFFA=1\r\nB<<EOF\r\nx\r\nEOF\r\n").env).toEqual({
+      A: "1",
+      B: "x",
+    })
+  })
+
+  it("sets a variable whose name is also an Object.prototype property", () => {
+    expect(Object.entries(parseRunbookEnvContent("__proto__=x\n").env)).toEqual([
+      ["__proto__", "x"],
+    ])
+  })
+
+  it("skips and reports lines that set nothing", () => {
+    expect(
+      parseRunbookEnvContent(
+        "no equals\n1BAD=x\nRUNBOOK_OUTPUT=x\nREPO_FILES=x\nOK=1\nM<<\nNUL=a\0b\nOPEN<<EOF\nNEVER=closed\n",
+      ),
+    ).toEqual({
+      env: { OK: "1" },
+      problems: [
+        "RUNBOOK_ENV line 1: expected NAME=value or NAME<<DELIMITER. The line was ignored.",
+        "RUNBOOK_ENV line 2: the name is not a variable name. Use letters, digits and underscores, and don't start with a digit. The line was ignored.",
+        "RUNBOOK_ENV line 3: RUNBOOK_OUTPUT is a variable Runbooks sets for every script. The line was ignored.",
+        "RUNBOOK_ENV line 4: REPO_FILES is a variable Runbooks sets for every script. The line was ignored.",
+        "RUNBOOK_ENV line 6: a NAME<< line has no delimiter. The line was ignored.",
+        "RUNBOOK_ENV line 7: NUL's value has a NUL character, which no environment variable can hold. The line was ignored.",
+        "RUNBOOK_ENV line 8: a NAME<<DELIMITER value has no line that closes it. It and the lines after it were ignored.",
+      ],
+    })
+  })
+
+  it.each([
+    "BASH_ENV",
+    "ENV",
+    "NODE_OPTIONS",
+    "LD_PRELOAD",
+    "DYLD_INSERT_LIBRARIES",
+    "BASH_FUNC_ls%%",
+  ])("refuses %s, which makes later programs run code", (name) => {
+    const { env } = parseRunbookEnvContent(`${name}=/tmp/evil\n`)
+    expect(env).toEqual({})
+  })
+
+  it("refuses a startup variable a newline in a copied value adds", () => {
+    // What `echo "PR_TITLE=$TITLE" >> "$RUNBOOK_ENV"` writes for a hostile title
+    const { env, problems } = parseRunbookEnvContent("PR_TITLE=hello\nBASH_ENV=/tmp/evil\n")
+
+    expect(env).toEqual({ PR_TITLE: "hello" })
+    expect(problems).toEqual([
+      "RUNBOOK_ENV line 2: BASH_ENV makes programs run code as they start, so a script can't set it. The line was ignored.",
+    ])
+  })
+
+  it("never quotes text that isn't a known variable, which may be a secret written without its name", () => {
+    const { problems } = parseRunbookEnvContent(
+      "sk-live-4f9a/b+c==\nhunter2secret<<\nsk-live-4f9a<<EOF\nhunter2secret<<abc\n",
+    )
+
+    expect(problems).toHaveLength(3)
+    for (const problem of problems) {
+      expect(problem).not.toContain("4f9a")
+      expect(problem).not.toContain("hunter2")
+    }
+  })
+
+  it("reports the first 20 problems, then counts the rest", () => {
+    const { problems } = parseRunbookEnvContent("junk\n".repeat(25))
+
+    expect(problems).toHaveLength(21)
+    expect(problems.at(-1)).toBe("RUNBOOK_ENV: 5 more lines were ignored.")
   })
 })
 
-// ---------------------------------------------------------------------------
-// parseEnvCapture
-// ---------------------------------------------------------------------------
-
-describe("parseEnvCapture", () => {
-  it("parses NUL-delimited env output", async () => {
-    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
-      "/env.txt": "HOME=/home/user\0PATH=/usr/bin\0LANG=en_US.UTF-8\0",
-      "/pwd.txt": "/work/dir\n",
-    })
-    expect(result.env).toEqual({
-      HOME: "/home/user",
-      PATH: "/usr/bin",
-      LANG: "en_US.UTF-8",
-    })
-    expect(result.pwd).toBe("/work/dir")
+describe("parseRunbookEnv", () => {
+  it("reads the file", async () => {
+    const result = await runFs(parseRunbookEnv("/env.txt"), { "/env.txt": "A=1\n" })
+    expect(result).toEqual({ env: { A: "1" }, problems: [] })
   })
 
-  it("handles multiline values in NUL-delimited format", async () => {
-    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
-      "/env.txt": "KEY=line1\nline2\nline3\0OTHER=val\0",
-      "/pwd.txt": "/work",
-    })
-    expect(result.env!.KEY).toBe("line1\nline2\nline3")
-    expect(result.env!.OTHER).toBe("val")
-  })
-
-  it("falls back to newline-delimited parsing", async () => {
-    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
-      "/env.txt": "HOME=/home/user\nPATH=/usr/bin\n",
-      "/pwd.txt": "/work",
-    })
-    expect(result.env).toEqual({
-      HOME: "/home/user",
-      PATH: "/usr/bin",
-    })
-  })
-
-  it("handles multiline values in newline fallback", async () => {
-    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
-      "/env.txt": "SSH_KEY=-----BEGIN RSA-----\nbase64data\n-----END RSA-----\nPATH=/usr/bin\n",
-      "/pwd.txt": "/work",
-    })
-    expect(result.env!.SSH_KEY).toBe("-----BEGIN RSA-----\nbase64data\n-----END RSA-----")
-    expect(result.env!.PATH).toBe("/usr/bin")
-  })
-
-  it("returns undefined env when env file is missing", async () => {
-    const result = await runFs(parseEnvCapture("/nonexistent", "/pwd.txt"), { "/pwd.txt": "/work" })
-    expect(result.env).toBeUndefined()
-    expect(result.pwd).toBe("/work")
-  })
-
-  it("returns empty pwd when pwd file is missing", async () => {
-    const result = await runFs(parseEnvCapture("/env.txt", "/nonexistent"), { "/env.txt": "A=1\0" })
-    expect(result.env).toEqual({ A: "1" })
-    expect(result.pwd).toBe("")
-  })
-
-  it("returns undefined env for empty env file", async () => {
-    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
-      "/env.txt": "",
-      "/pwd.txt": "/work",
-    })
-    expect(result.env).toBeUndefined()
-  })
-})
-
-// The pure parser the test CLI calls directly (it runs scripts synchronously,
-// so it can't go through the FileSystem service).
-describe("parseEnvCaptureContent", () => {
-  it("parses a NUL-delimited capture", () => {
-    expect(parseEnvCaptureContent("A=1\0B=line1\nline2\0")).toEqual({ A: "1", B: "line1\nline2" })
-  })
-
-  it("returns undefined for an empty capture", () => {
-    expect(parseEnvCaptureContent("")).toBeUndefined()
+  it("sets nothing when the script deleted the file", async () => {
+    const result = await runFs(parseRunbookEnv("/env.txt"))
+    expect(result).toEqual({ env: {}, problems: [] })
   })
 })
 
@@ -445,45 +444,18 @@ describe("captureFilesFromDir", () => {
 })
 
 // ---------------------------------------------------------------------------
-// isValidEnvVarName
-// ---------------------------------------------------------------------------
-
-describe("isValidEnvVarName", () => {
-  it.each(["PATH", "HOME", "_PRIVATE", "__DOUBLE", "FOO_BAR_BAZ", "x", "A1", "_"])(
-    "accepts %s",
-    (name) => {
-      expect(isValidEnvVarName(name)).toBe(true)
-    },
-  )
-
-  it.each([
-    "", // empty
-    "1FOO", // leading digit
-    "foo.bar", // dot
-    "foo-bar", // dash
-    "FOO BAR", // space
-    "FOO=BAR", // equals
-    "FÖÖ", // unicode
-    "café", // unicode
-  ])("rejects %s", (name) => {
-    expect(isValidEnvVarName(name)).toBe(false)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// wrapBashScript — behavioural tests
+// Logging functions — behavioural tests
 //
-// String-matching the wrapped template only catches typos. These tests spawn
-// real bash against the wrapper to verify the *runtime contract* — trap
-// chaining, log-level filtering, and env capture — that production blocks
-// depend on. Skipped on Windows (no /bin/bash) and when bash isn't on PATH.
+// These spawn real bash and sh against the logging functions
+// resolveScriptRunner puts before a script. Skipped on Windows (no /bin/bash)
+// and when bash isn't on PATH.
 // ---------------------------------------------------------------------------
 
 const bashAvailable = process.platform !== "win32" && nodeFs.existsSync("/bin/bash")
 
 const skipIfNoBash = bashAvailable ? describe : describe.skip
 
-skipIfNoBash("wrapBashScript (real bash)", () => {
+skipIfNoBash("logging functions (real shell)", () => {
   // Per-test temp dir for env / pwd / script files.
   function makeTmp() {
     return nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "script-wrap-test-"))
@@ -523,53 +495,30 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
   }
 
   /**
-   * Run `userScript` in the wrapper under real bash. The log file variables
-   * are set, as in the app, unless `logFiles` is false. `log` holds what the
-   * script wrote to RUNBOOK_LOG, and `levelLogs` what it wrote to the
-   * per-level files.
+   * Run `userScript`, with the logging functions before it, under real bash.
+   * The log file variables are set, as in the app, unless `logFiles` is
+   * false. `log` holds what the script wrote to RUNBOOK_LOG, and `levelLogs`
+   * what it wrote to the per-level files.
    */
-  function runWrapped(
+  function runWithLogging(
     userScript: string,
     extraEnv: Record<string, string> = {},
     { logFiles = true }: { logFiles?: boolean } = {},
-  ): {
-    stdout: string
-    stderr: string
-    exitCode: number
-    capturedEnv: Record<string, string> | null
-    capturedPwd: string | null
-    log: string
-    levelLogs: string
-  } {
+  ): { stdout: string; stderr: string; exitCode: number; log: string; levelLogs: string } {
     const tmp = makeTmp()
     try {
-      const envPath = nodePath.join(tmp, "env.txt")
-      const pwdPath = nodePath.join(tmp, "pwd.txt")
       const scriptPath = nodePath.join(tmp, "script.sh")
       const logs = logFiles ? makeLogFiles(tmp) : null
-
-      const wrapped = wrapBashScript(userScript, envPath, pwdPath)
-      nodeFs.writeFileSync(scriptPath, wrapped)
-      nodeFs.chmodSync(scriptPath, 0o755)
+      nodeFs.writeFileSync(scriptPath, runnerFor(userScript).script)
 
       const res = spawnSync("/bin/bash", [scriptPath], {
         encoding: "utf8",
         env: { ...cleanEnv(), ...logs?.env, ...extraEnv },
       })
-
-      const capturedEnv = nodeFs.existsSync(envPath)
-        ? parseNulEnv(nodeFs.readFileSync(envPath, "utf8"))
-        : null
-      const capturedPwd = nodeFs.existsSync(pwdPath)
-        ? nodeFs.readFileSync(pwdPath, "utf8").trim()
-        : null
-
       return {
         stdout: res.stdout ?? "",
         stderr: res.stderr ?? "",
         exitCode: res.status ?? -1,
-        capturedEnv,
-        capturedPwd,
         ...(logs?.read() ?? { log: "", levelLogs: "" }),
       }
     } finally {
@@ -577,205 +526,78 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     }
   }
 
-  function parseNulEnv(data: string): Record<string, string> {
-    const out: Record<string, string> = {}
-    for (const entry of data.split("\0")) {
-      if (entry === "") continue
-      const idx = entry.indexOf("=")
-      if (idx === -1) continue
-      out[entry.slice(0, idx)] = entry.slice(idx + 1)
-    }
-    return out
-  }
-
-  it("runs both the user's EXIT trap and our env capture", () => {
-    const result = runWrapped(
-      `trap 'echo USER_CLEANUP' EXIT
-       export MY_VAR=hello
-       echo running`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("running")
-    expect(result.stdout).toContain("USER_CLEANUP")
-    // Env capture ran (file exists and contains user var).
-    expect(result.capturedEnv).not.toBeNull()
-    expect(result.capturedEnv!.MY_VAR).toBe("hello")
-  })
-
-  it("only the last user EXIT trap runs, env capture still runs", () => {
-    const result = runWrapped(
-      `trap 'echo FIRST_CLEANUP' EXIT
-       trap 'echo SECOND_CLEANUP' EXIT
-       export MARKER=last
-       echo run`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("SECOND_CLEANUP")
-    expect(result.stdout).not.toContain("FIRST_CLEANUP")
-    expect(result.capturedEnv!.MARKER).toBe("last")
-  })
-
-  it("'trap - EXIT' (reset) still runs env capture", () => {
-    const result = runWrapped(
-      `trap 'echo SHOULD_NOT_RUN' EXIT
-       trap - EXIT
-       export AFTER_RESET=yes
-       echo done`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("done")
-    expect(result.stdout).not.toContain("SHOULD_NOT_RUN")
-    expect(result.capturedEnv).not.toBeNull()
-    expect(result.capturedEnv!.AFTER_RESET).toBe("yes")
-  })
-
-  it("'trap -- handler EXIT' runs the user's handler and env capture", () => {
-    const result = runWrapped(
-      `trap -- 'echo USER_CLEANUP' EXIT
-       export MY_VAR=hello
-       echo running`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("USER_CLEANUP")
-    expect(result.capturedEnv).not.toBeNull()
-    expect(result.capturedEnv!.MY_VAR).toBe("hello")
-  })
-
-  it("lowercase 'exit' is intercepted like EXIT", () => {
-    const result = runWrapped(
-      `trap 'echo USER_CLEANUP' exit
-       export MY_VAR=hello
-       echo running`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("USER_CLEANUP")
-    expect(result.capturedEnv).not.toBeNull()
-    expect(result.capturedEnv!.MY_VAR).toBe("hello")
-  })
-
-  it("'trap handler INT EXIT' keeps the EXIT handler and installs the INT one", () => {
-    const result = runWrapped(
-      `trap 'echo USER_CLEANUP' INT EXIT
-       trap -p INT
-       export MY_VAR=hello`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toMatch(/trap -- 'echo USER_CLEANUP' (SIG)?INT/)
-    expect(result.stdout).toContain("USER_CLEANUP")
-    expect(result.capturedEnv).not.toBeNull()
-    expect(result.capturedEnv!.MY_VAR).toBe("hello")
-  })
-
-  it.each(["trap EXIT", "trap 0", "trap -- - EXIT", "trap 0 INT"])(
-    "'%s' resets the user's EXIT handler and still runs env capture",
-    (reset) => {
-      const result = runWrapped(
-        `trap 'echo SHOULD_NOT_RUN' EXIT
-       ${reset}
-       export AFTER_RESET=yes
-       echo done`,
+  /** Prepare `content` and spawn exactly what the executor would, in a fresh scripts dir. */
+  async function runPrepared(content: string, scriptPath = "") {
+    const tmp = makeTmp()
+    try {
+      return await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const setup = yield* prepareScript(
+              runnerFor(content, { path: scriptPath }, process.platform),
+              nodePath.join(tmp, "scripts"),
+            )
+            const res = yield* Effect.sync(() =>
+              spawnSync(setup.command, setup.args, { encoding: "utf8", env: cleanEnv() }),
+            )
+            return { stdout: res.stdout ?? "", stderr: res.stderr ?? "", exitCode: res.status }
+          }),
+        ).pipe(Effect.provide(NodeFileSystemLive)),
       )
-      expect(result.exitCode).toBe(0)
-      expect(result.stdout).toContain("done")
-      expect(result.stdout).not.toContain("SHOULD_NOT_RUN")
-      expect(result.capturedEnv).not.toBeNull()
-      expect(result.capturedEnv!.AFTER_RESET).toBe("yes")
-    },
-  )
-
-  it("the trap override works under set -euo pipefail", () => {
-    const result = runWrapped(
-      `set -euo pipefail
-       trap -- 'echo FIRST_CLEANUP' EXIT
-       trap - EXIT
-       trap 'echo on-int' INT
-       trap 'echo USER_CLEANUP' EXIT
-       export MY_VAR=hello
-       echo running`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("running")
-    expect(result.stdout).toContain("USER_CLEANUP")
-    expect(result.stdout).not.toContain("FIRST_CLEANUP")
-    expect(result.capturedEnv).not.toBeNull()
-    expect(result.capturedEnv!.MY_VAR).toBe("hello")
-  })
-
-  // bash resets traps in a subshell, so the wrapper's EXIT handler is not
-  // installed there. A trap set in a subshell must be the real one, or it
-  // never runs.
-  it("an EXIT trap set in a ( ) subshell runs when the subshell exits", () => {
-    const result = runWrapped(
-      `set -euo pipefail
-       trap 'echo TOP_CLEANUP' EXIT
-       ( trap 'echo SUB_CLEANUP' EXIT; echo in-sub )
-       echo after-sub
-       export MY_VAR=hello`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toBe("in-sub\nSUB_CLEANUP\nafter-sub\nTOP_CLEANUP\n")
-    expect(result.capturedEnv).not.toBeNull()
-    expect(result.capturedEnv!.MY_VAR).toBe("hello")
-  })
-
-  it("an EXIT trap set in a $( ) command substitution runs, and its output is captured", () => {
-    const result = runWrapped(
-      `set -u
-       x=$(trap 'echo CS_CLEANUP' EXIT; echo value)
-       echo "x=[$x]"
-       export MY_VAR=hello`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("x=[value\nCS_CLEANUP]")
-    expect(result.capturedEnv).not.toBeNull()
-    expect(result.capturedEnv!.MY_VAR).toBe("hello")
-  })
-
-  /** Prepare `content` and spawn exactly what the executor would. */
-  function runPrepared(content: string) {
-    return Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const setup = yield* prepareScript(content, "")
-          // The resolved interpreter and args, not the wrapper's own
-          // #!/bin/bash line.
-          const res = yield* Effect.sync(() =>
-            spawnSync(setup.interpreter, [...setup.args, setup.scriptPath], {
-              encoding: "utf8",
-            }),
-          )
-          const captured = yield* parseEnvCapture(setup.envCapturePath, setup.pwdCapturePath)
-          return { stdout: res.stdout ?? "", env: captured.env }
-        }),
-      ).pipe(Effect.provide(NodeFileSystemLive)),
-    )
+    } finally {
+      nodeFs.rmSync(tmp, { recursive: true, force: true })
+    }
   }
 
-  it("prepareScript runs a #!/bin/sh script under bash, so its EXIT trap and env capture both work", async () => {
-    const { stdout, env } = await runPrepared(
-      "#!/bin/sh\ntrap 'echo USER_CLEANUP' EXIT\nexport MY_VAR=hello\necho running\n",
+  it("runs a script as itself, so a shebang's absolute interpreter path is used as written", async () => {
+    // Not on PATH, so only the OS reading the shebang finds it
+    const tmp = makeTmp()
+    try {
+      const interpreter = nodePath.join(tmp, "my-interpreter")
+      nodeFs.writeFileSync(interpreter, '#!/bin/sh\necho "my-interpreter ran $(basename "$1")"\n')
+      nodeFs.chmodSync(interpreter, 0o755)
+
+      const result = await runPrepared(`#!${interpreter}\nignored\n`)
+
+      expect(result).toMatchObject({ exitCode: 0, stdout: "my-interpreter ran script.sh\n" })
+    } finally {
+      nodeFs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it.skipIf(!Bun.which("python3"))("runs a .py file without a shebang with python3", async () => {
+    const result = await runPrepared('print("from python")\n', "checks/verify.py")
+    expect(result).toMatchObject({ exitCode: 0, stdout: "from python\n" })
+  })
+
+  it("removes the script's directory when the scope closes", async () => {
+    const tmp = makeTmp()
+    const scriptsDir = nodePath.join(tmp, "scripts")
+    try {
+      await Effect.runPromise(
+        Effect.scoped(prepareScript(runnerFor("echo hi"), scriptsDir)).pipe(
+          Effect.provide(NodeFileSystemLive),
+        ),
+      )
+      expect(nodeFs.readdirSync(scriptsDir)).toEqual([])
+    } finally {
+      nodeFs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it("a #!/bin/sh script runs under sh and can call the logging functions", async () => {
+    const result = await runPrepared('#!/bin/sh\nset -eu\nlog_info "from sh"\necho done\n')
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe("done\n")
+    expect(result.stderr).toMatch(/\[INFO\]  from sh\n$/)
+  })
+
+  it("a script's own EXIT trap runs", async () => {
+    const result = await runPrepared(
+      "#!/bin/bash\ntrap 'echo cleanup' EXIT\necho running\nexit 3\n",
     )
-    expect(stdout).toContain("running")
-    expect(stdout).toContain("USER_CLEANUP")
-    expect(env?.MY_VAR).toBe("hello")
-  })
-
-  it("prepareScript runs a #!/bin/sh script's subshell EXIT trap, as sh does", async () => {
-    const { stdout, env } = await runPrepared(
-      "#!/bin/sh\n( trap 'echo SUB_CLEANUP' EXIT; echo in-sub )\necho after-sub\nexport MY_VAR=hello\n",
-    )
-    expect(stdout).toBe("in-sub\nSUB_CLEANUP\nafter-sub\n")
-    expect(env?.MY_VAR).toBe("hello")
-  })
-
-  it("a #!/bin/sh script's echo expands backslash escapes, as under dash and macOS sh", async () => {
-    const { stdout } = await runPrepared('#!/bin/sh\necho "a\\nb"\n')
-    expect(stdout).toBe("a\nb\n")
-  })
-
-  it("a #!/bin/bash script's echo keeps bash's default and prints escapes literally", async () => {
-    const { stdout } = await runPrepared('#!/bin/bash\necho "a\\nb"\n')
-    expect(stdout).toBe("a\\nb\n")
+    expect(result.stdout).toBe("running\ncleanup\n")
+    expect(result.exitCode).toBe(3)
   })
 
   // Log lines start with "[<ISO-8601 zulu timestamp>] ". logLines checks
@@ -791,7 +613,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
       })
 
   it("log_info/warn/error append timestamped lines to RUNBOOK_LOG, never stdout or stderr", () => {
-    const result = runWrapped(
+    const result = runWithLogging(
       `set -euo pipefail
        log_info "info-msg"
        log_warn "warn-msg"
@@ -811,7 +633,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
   })
 
   it("keeps lines of different levels in the order the script wrote them", () => {
-    const result = runWrapped(
+    const result = runWithLogging(
       `log_info "step 1: starting"
        log_error "step 1 failed"
        log_debug "retry count 1"
@@ -831,21 +653,21 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
   })
 
   it("log_debug is silent when DEBUG is unset", () => {
-    const result = runWrapped(`log_debug "should not appear"`, { DEBUG: "" })
+    const result = runWithLogging(`log_debug "should not appear"`, { DEBUG: "" })
     expect(result.log).toBe("")
     expect(result.stdout).toBe("")
     expect(result.stderr).toBe("")
   })
 
   it("log_debug logs when DEBUG=true", () => {
-    const result = runWrapped(`log_debug "debug-msg"`, { DEBUG: "true" })
+    const result = runWithLogging(`log_debug "debug-msg"`, { DEBUG: "true" })
     expect(logLines(result.log)).toEqual(["[DEBUG] debug-msg"])
   })
 
   // Regression for #269: a function that logs and then prints a value must
   // return only the value through $(...).
   it("log_* calls inside a function don't leak into its $(...) capture", () => {
-    const result = runWrapped(
+    const result = runWithLogging(
       `set -euo pipefail
        get_json() {
          log_info "info-msg"
@@ -870,7 +692,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
   })
 
   it("the helpers write to stderr when RUNBOOK_LOG is unset", () => {
-    const result = runWrapped(
+    const result = runWithLogging(
       `log_info "info-msg"
        echo out
        log_error "err-msg"`,
@@ -885,7 +707,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
   // Once a run ends, Runbooks deletes the log files. A background job that
   // keeps logging must not die on the failed append under an inherited set -e.
   it("the helpers write to stderr when RUNBOOK_LOG can't be written, even under set -e", () => {
-    const result = runWrapped(
+    const result = runWithLogging(
       `set -euo pipefail
        log_info "info-msg"
        log_error "err-msg"
@@ -898,8 +720,8 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(logLines(result.stderr)).toEqual(["[INFO]  info-msg", "[ERROR] err-msg"])
   })
 
-  it("the wrapper leaves the script's stdout and stderr apart", () => {
-    const result = runWrapped(`echo out\necho err >&2`)
+  it("the logging functions leave the script's stdout and stderr apart", () => {
+    const result = runWithLogging(`echo out\necho err >&2`)
     expect(result.stdout).toBe("out\n")
     expect(result.stderr).toBe("err\n")
   })
@@ -932,7 +754,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
         })
 
       const local = runLocal(logFiles.env)
-      const injected = runWrapped(calls, { DEBUG: "true" })
+      const injected = runWithLogging(calls, { DEBUG: "true" })
       expect(local.status).toBe(0)
       expect(local.stdout).toBe("")
       expect(local.stderr).toBe("")
@@ -943,7 +765,11 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
 
       for (const env of [{}, unwritable]) {
         const outside = runLocal(env)
-        const injectedOutside = runWrapped(calls, { DEBUG: "true", ...env }, { logFiles: false })
+        const injectedOutside = runWithLogging(
+          calls,
+          { DEBUG: "true", ...env },
+          { logFiles: false },
+        )
         expect(outside.status).toBe(0)
         expect(outside.stdout).toBe("")
         expect(logLines(outside.stderr)).toEqual(expected)
@@ -953,35 +779,5 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     } finally {
       nodeFs.rmSync(tmp, { recursive: true, force: true })
     }
-  })
-
-  it("captures multi-line env values via NUL-delimited env -0", () => {
-    const result = runWrapped(
-      `export MULTILINE=$'line1\nline2\nline3'
-       echo set`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.capturedEnv).not.toBeNull()
-    expect(result.capturedEnv!.MULTILINE).toBe("line1\nline2\nline3")
-  })
-
-  it("captures the working directory the user cd'd into", () => {
-    const tmp = nodeFs.realpathSync(nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "pwd-test-")))
-    try {
-      const result = runWrapped(`cd ${JSON.stringify(tmp)}\necho here`)
-      expect(result.exitCode).toBe(0)
-      // bash's pwd may return either the symlink path or its realpath
-      // depending on the platform; normalize both ends.
-      expect(nodeFs.realpathSync(result.capturedPwd!)).toBe(tmp)
-    } finally {
-      nodeFs.rmSync(tmp, { recursive: true, force: true })
-    }
-  })
-
-  it("preserves the user's exit code through the EXIT trap chain", () => {
-    const result = runWrapped(`exit 42`)
-    expect(result.exitCode).toBe(42)
-    // Env capture still ran despite the non-zero exit.
-    expect(result.capturedEnv).not.toBeNull()
   })
 })

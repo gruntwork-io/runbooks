@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # This script demonstrates using BOTH standard inputs and block outputs.
 # The block's env prop passes them in. See the syntax comparison table in the
 # runbook for details.

@@ -55,6 +55,8 @@ import {
 import { AZURE_CREDENTIAL_ENV_VARS } from "../../../../../../src/domain/azure/env.ts"
 import {
   parseBlockEnv,
+  parseBlockInterpreter,
+  parseBlockWorkingDir,
   sameBlockEnv,
   type BlockEnv,
 } from "../../../../../../src/domain/exec/blockEnv.ts"
@@ -83,6 +85,10 @@ interface UseScriptExecutionProps {
   timeoutMs?: number | undefined
   /** The block's `env` prop, as the runbook gives it: checked here (see blockEnv.ts). */
   env?: unknown
+  /** The block's `workingDir` prop, as the runbook gives it: checked here (see blockEnv.ts). */
+  workingDir?: unknown
+  /** The block's `interpreter` prop, as the runbook gives it: checked here against the script (see blockEnv.ts). */
+  interpreter?: unknown
 }
 
 const NO_ENV: BlockEnv = {}
@@ -223,6 +229,14 @@ interface UseScriptExecutionReturn {
   envVars: EnvVar[]
   /** Why the env prop isn't valid, or null when it is. */
   envError: string | null
+  /** The block's workingDir prop as written, templates included; "" when unset or not valid. */
+  workingDirTemplate: string
+  /** Why the workingDir prop isn't valid, or null when it is. */
+  workingDirError: string | null
+  /** The program, with any args, the block's interpreter prop names; "" when unset or not valid. */
+  interpreter: string
+  /** Why the interpreter prop isn't valid, such as a script that also has a shebang, or null when it is. */
+  interpreterError: string | null
   /** Use `value` for an output the env reads, in place of what its block outputs. */
   overrideOutput: (ref: OutputRef, value: OutputValue) => void
   /** Go back to what the output's block outputs. */
@@ -310,6 +324,8 @@ export function useScriptExecution({
   usePty,
   timeoutMs,
   env,
+  workingDir,
+  interpreter: interpreterProp,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // IPC bridge for rendering the script's template
   const api = useApi()
@@ -413,6 +429,14 @@ export function useScriptExecution({
   const envTemplates = parsedEnv.ok ? parsedEnv.env : NO_ENV
   const envError = parsedEnv.ok ? null : parsedEnv.error
 
+  const parsedWorkingDir = parseBlockWorkingDir(workingDir)
+  const workingDirTemplate = parsedWorkingDir.ok ? parsedWorkingDir.workingDir : ""
+  const workingDirError = parsedWorkingDir.ok ? null : parsedWorkingDir.error
+
+  const parsedInterpreter = parseBlockInterpreter(interpreterProp, rawScriptContent)
+  const interpreter = parsedInterpreter.ok ? parsedInterpreter.interpreter : ""
+  const interpreterError = parsedInterpreter.ok ? null : parsedInterpreter.error
+
   // The env values made of text and output references. The user can enter any
   // of those outputs by hand (see lib/outputOverrides.ts).
   const envParts = useMemo(
@@ -465,8 +489,10 @@ export function useScriptExecution({
     const executable = getExecutableByComponentId(componentId)
     if (!executable?.contentHash) return false
 
-    // Run sets the registry's env, so a changed env prop has drifted too
+    // Run uses the registry's env, workingDir and interpreter, so a changed prop has drifted too
     if (!sameBlockEnv(executable.env ?? NO_ENV, envTemplates)) return true
+    if (executable.workingDir !== workingDirTemplate) return true
+    if (executable.interpreter !== interpreter) return true
 
     // For inline commands, compare computed hash against registry hash
     if (command) {
@@ -488,6 +514,8 @@ export function useScriptExecution({
     componentId,
     getExecutableByComponentId,
     envTemplates,
+    workingDirTemplate,
+    interpreter,
   ])
 
   // Extract inline Inputs ID from children if present
@@ -1034,6 +1062,10 @@ export function useScriptExecution({
     envTemplates,
     envVars,
     envError,
+    workingDirTemplate,
+    workingDirError,
+    interpreter,
+    interpreterError,
     overrideOutput,
     resetOutputOverride,
 

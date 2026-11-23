@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Create project and set outputs
 
 set -e
@@ -19,8 +19,8 @@ fi
 
 echo "Creating project with ID: $PROJECT_ID"
 
-# Export project name to environment for other blocks
-export PROJECT_NAME="${PROJECT_NAME:-test-project}"
+# Set the project name in the session for other blocks
+echo "PROJECT_NAME=${PROJECT_NAME:-test-project}" >> "$RUNBOOK_ENV"
 
 # Set outputs for other blocks to use
 echo "project_id=$PROJECT_ID" >> "$RUNBOOK_OUTPUT"

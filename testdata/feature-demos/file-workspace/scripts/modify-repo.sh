@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Modify a file in the cloned repository to demonstrate the Changed tab.
 # Uses $REPO_FILES which points to the active git worktree (set by GitClone).
 

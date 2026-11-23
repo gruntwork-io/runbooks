@@ -324,6 +324,7 @@ export const makeTestBoilerplate = (overrides: Partial<BoilerplateRendererShape>
 
 export interface TestLayerOptions {
   readonly files?: Record<string, string>
+  readonly dirs?: readonly string[]
   readonly commands?: SpawnExpectation[]
   readonly env?: Record<string, string>
   readonly aws?: Partial<AwsClientShape>
@@ -336,7 +337,7 @@ export interface TestLayerOptions {
 
 export const makeTestLayer = (options: TestLayerOptions = {}) =>
   Layer.mergeAll(
-    makeTestFileSystem(options.files),
+    makeTestFileSystem(options.files, options.dirs),
     makeTestSpawner(options.commands),
     makeTestEnvironment(options.env),
     makeTestAwsClient(options.aws),

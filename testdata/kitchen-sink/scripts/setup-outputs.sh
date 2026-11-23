@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 echo "Setting up block outputs..."
 echo "account_id=123456789012" >> "$RUNBOOK_OUTPUT"
 echo "region=us-west-2" >> "$RUNBOOK_OUTPUT"

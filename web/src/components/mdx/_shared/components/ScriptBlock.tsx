@@ -96,6 +96,10 @@ export interface ScriptBlockProps {
   inputsId?: string | string[] | undefined
   /** Environment variables the script runs with, by name. Each value is a template, rendered with the same inputs and outputs as the script, and reaches the script as data: `env={{ BUCKET: "{{ .inputs.BucketName }}" }}` with `"$BUCKET"` in the script. They're set for this run only. */
   env?: Readonly<Record<string, string | number | boolean>> | undefined
+  /** The directory the script runs in: absolute, or relative to the session's directory. It may use templates, rendered with the same inputs and outputs as the script. Defaults to the session's directory. */
+  workingDir?: string | undefined
+  /** The program, with optional args, that runs the script when it has no shebang, such as `interpreter="python3"`. A script with a shebang can't also set it. Defaults to the program for the script file's extension, or bash. */
+  interpreter?: string | undefined
   /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION). */
   awsAuthId?: string | undefined
   /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables (GITHUB_TOKEN, GITHUB_USER). */
@@ -144,6 +148,8 @@ export function ScriptBlock({
   command,
   inputsId,
   env,
+  workingDir,
+  interpreter: interpreterProp,
   awsAuthId,
   githubAuthId,
   gitAuthId,
@@ -194,6 +200,10 @@ export function ScriptBlock({
     envTemplates,
     envVars,
     envError,
+    workingDirTemplate,
+    workingDirError,
+    interpreter,
+    interpreterError,
     overrideOutput,
     resetOutputOverride,
     inputDependencies,
@@ -241,6 +251,8 @@ export function ScriptBlock({
     usePty,
     timeoutMs,
     env,
+    workingDir,
+    interpreter: interpreterProp,
   })
 
   // With no script to run (a <Finish> without a final check), the Run button
@@ -368,6 +380,8 @@ export function ScriptBlock({
   // blocks supply `.inputs` values; an auth block reference never does.
   const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !inlineInputsId
 
+  const propError = envError ?? workingDirError ?? interpreterError
+
   // Report errors to the error reporting context
   useEffect(() => {
     // Determine if there's an error to report
@@ -385,12 +399,12 @@ export function ScriptBlock({
         severity: "error",
         message: getFileError.message,
       })
-    } else if (envError) {
+    } else if (propError) {
       reportError({
         componentId: id,
         componentType: variant.name,
         severity: "error",
-        message: envError,
+        message: propError,
       })
     } else if (missingInputsConfig) {
       reportError({
@@ -407,7 +421,7 @@ export function ScriptBlock({
     id,
     isDuplicate,
     getFileError,
-    envError,
+    propError,
     missingInputsConfig,
     inputDependencies,
     reportError,
@@ -461,8 +475,8 @@ export function ScriptBlock({
     )
   }
 
-  // An env prop that isn't valid registers no script, so the block can't run
-  if (envError) {
+  // An env, workingDir or interpreter prop that isn't valid registers no script, so the block can't run
+  if (propError) {
     return (
       <div
         {...issueAnchor(id)}
@@ -473,7 +487,7 @@ export function ScriptBlock({
           <div className="text-md">
             <strong>{variant.fileErrorHeading}:</strong>
             <br />
-            {envError}
+            {propError}
           </div>
         </div>
       </div>
@@ -542,6 +556,8 @@ export function ScriptBlock({
         }
         templateContext={templateContext}
         env={scriptless ? undefined : envTemplates}
+        workingDir={scriptless ? undefined : workingDirTemplate}
+        interpreter={scriptless ? undefined : interpreter}
         inputs={childrenWithVariant}
         note={successContent}
         onMarkedDone={onComplete}
@@ -704,6 +720,26 @@ export function ScriptBlock({
                 disabled={status === "running"}
                 className={clearIdLabel}
               />
+            )}
+
+            {/* Where the script runs, as written: templates render when it runs */}
+            {!scriptless && workingDirTemplate && (
+              <div data-testid={`${id}-working-dir`} className={`text-xs mb-3 ${clearIdLabel}`}>
+                <div className="font-semibold text-muted-foreground mb-1">Working directory</div>
+                <div className="font-mono whitespace-pre-wrap break-all text-foreground">
+                  {workingDirTemplate}
+                </div>
+              </div>
+            )}
+
+            {/* The program the interpreter prop runs the script with */}
+            {!scriptless && interpreter && (
+              <div data-testid={`${id}-interpreter`} className={`text-xs mb-3 ${clearIdLabel}`}>
+                <div className="font-semibold text-muted-foreground mb-1">Runs with</div>
+                <div className="font-mono whitespace-pre-wrap break-all text-foreground">
+                  {interpreter}
+                </div>
+              </div>
             )}
 
             {templateWarning && (

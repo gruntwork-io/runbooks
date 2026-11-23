@@ -7,13 +7,16 @@ settings:
 tests:
   - name: commands-run-in-sequence
     description: |
-      cd-subdir changes directory and verify-cwd runs in the drifted CWD
-      (CWD propagation works end-to-end). Backend coverage for the UI test
-      that used to live in web/e2e/test-sample-runbooks.spec.ts.
+      cd-subdir's cd stays in its script, so verify-cwd runs in the test's
+      working directory, and verify-cwd-in-subdir runs in subdir because of
+      its workingDir prop. The UI test in web/e2e/test-sample-runbooks.spec.ts
+      covers the clone block.
     steps:
       - block: cd-subdir
         expect: success
       - block: verify-cwd
+        expect: success
+      - block: verify-cwd-in-subdir
         expect: success
       - block: clone-after-cd
         expect: skip
@@ -21,10 +24,8 @@ tests:
       - type: output_matches
         block: verify-cwd
         output: cwd
+        pattern: "(?<!/subdir)$"
+      - type: output_matches
+        block: verify-cwd-in-subdir
+        output: cwd
         pattern: "/subdir$"
-
-    # TODO: issue #94 regression (GitClone after cd resolves paths relative to
-    # initial workDir, not drifted CWD) — currently covered only via the
-    # Playwright overwrite-dialog test. Restoring a backend assertion here
-    # requires pre-test fixture support (a local bare repo) which isn't yet
-    # available in runbooks-test. Tracked as gap #4 in the E2E reshuffle plan.

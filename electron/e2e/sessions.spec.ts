@@ -2,7 +2,7 @@
  * E2E tests for saved sessions.
  *
  * Launches the real app on a throwaway runbook and profile, quits it, and
- * launches it again: a session's directory, environment and working directory
+ * launches it again: a session's directory and the variables its scripts set
  * come back, `runbooks` with no arguments resumes the session last launched
  * from that directory, File > Reset Session starts over, and so does the next
  * launch after the runbook was finished in its session.
@@ -47,9 +47,10 @@ echo waiting
 sleep 60
 `
 
-// What a block leaves in its session: an exported variable and a `cd`.
-const SAVE_SCRIPT = `#!/bin/bash
-export SAVED=from-first-run
+// What a block leaves in its session: a variable written to RUNBOOK_ENV, and
+// a directory. Its `cd` stays inside the script.
+const SAVE_SCRIPT = `#!/usr/bin/env bash
+echo "SAVED=from-first-run" >> "$RUNBOOK_ENV"
 mkdir -p work
 cd work
 `
@@ -225,8 +226,9 @@ test.describe("Saved sessions", () => {
       expect(await sessionName(second.page)).toBe(name)
       await expect(second.page.getByText(`Resumed session ${name}`)).toBeVisible()
       await second.page.getByRole("button", { name: "Dismiss" }).click()
-      // The export and the `cd` of the first run's block are both back.
-      expect(await showSession(second.page, "from-first-run")).toBe(path.join(sessionDir, "work"))
+      // The first run's variable is back, and scripts still start in the
+      // session's directory.
+      expect(await showSession(second.page, "from-first-run")).toBe(sessionDir)
     } finally {
       await second.app.close()
     }
@@ -561,7 +563,7 @@ test.describe("Saved sessions", () => {
       await expect(sessionButton(dialog, secondName)).toBeDisabled()
       await sessionButton(dialog, firstName).click()
       await expect(page.getByTestId("session-name")).toHaveText(firstName)
-      expect(await showSession(page, "from-first-run")).toBe(path.join(firstDir, "work"))
+      expect(await showSession(page, "from-first-run")).toBe(firstDir)
 
       // A running script makes the switch ask first.
       const wait = page.locator('[data-testid="wait"]')

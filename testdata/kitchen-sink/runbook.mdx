@@ -440,48 +440,49 @@ port: {{ .inputs.int_field }}
 
 ---
 
-## 10. Environment & Working Directory Persistence
+## 10. Session Environment & Working Directory
 
 ### Set Environment Variables
 
 <Command
   id="set-env"
-  path="scripts/use-env-persistence.sh"
+  path="scripts/set-session-env.sh"
   title="Set Environment Variables"
-  description="Exports `KS_ENV_VAR` and `KS_COUNTER`. These should persist to subsequent blocks."
-  successMessage="Environment variables exported!"
+  description="Writes `KS_ENV_VAR` and `KS_COUNTER` to `$RUNBOOK_ENV`, so later blocks get them, and exports `KS_EXPORT_ONLY`, which they don't."
+  successMessage="Environment variables set!"
 />
 
-### Verify Environment Persistence
+### Verify Environment Variables
 
 <Check
   id="verify-env"
   path="checks/verify-env.sh"
-  title="Verify Env Vars Persisted"
-  description="Checks that `KS_ENV_VAR` and `KS_COUNTER` from the previous block are available."
-  successMessage="Environment variables persisted!"
-  failMessage="Environment variables did NOT persist. Run the block above first."
+  title="Verify Env Vars"
+  description="Checks that `KS_ENV_VAR` and `KS_COUNTER` from the previous block are available, and `KS_EXPORT_ONLY` isn't."
+  successMessage="The session has the variables!"
+  failMessage="The variables are missing. Run the block above first."
 />
 
-### Change Working Directory
+### Create a Working Directory
 
 <Command
-  id="change-dir"
-  path="scripts/change-workdir.sh"
-  title="Change Working Directory"
-  description="Changes the working directory to `/tmp`."
-  successMessage="Working directory changed to /tmp!"
+  id="create-workdir"
+  path="scripts/create-workdir.sh"
+  title="Create a Working Directory"
+  description="Creates `ks-workdir` in the session's directory and changes into it. The `cd` stays in the script."
+  successMessage="Created ks-workdir!"
 />
 
-### Verify Working Directory Persistence
+### Run in the Working Directory
 
 <Check
   id="verify-workdir"
   path="checks/verify-workdir.sh"
+  workingDir="ks-workdir"
   title="Verify Working Directory"
-  description="Confirms the working directory is still `/tmp`."
-  successMessage="Working directory persisted!"
-  failMessage="Working directory did not persist."
+  description="Runs with `workingDir` set to `ks-workdir` and confirms it starts there."
+  successMessage="Running in ks-workdir!"
+  failMessage="Not running in ks-workdir. Run the block above first."
 />
 
 ---

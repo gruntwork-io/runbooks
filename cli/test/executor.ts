@@ -27,9 +27,8 @@ import {
 import { gitCredentialUsername, withGitHttpAuth } from "../../src/domain/git/url.ts"
 import {
   parseBlockOutputsContent,
-  parseEnvCaptureContent,
+  parseRunbookEnvContent,
   resolveScriptRunner,
-  wrapBashScript,
 } from "../../src/domain/exec/script.ts"
 import {
   LEVEL_LOG_CHANNELS,
@@ -64,7 +63,6 @@ import {
   type OutputValue,
   type OutputValues,
 } from "../../src/domain/exec/outputValues.ts"
-import { filterCapturedEnv } from "../../src/domain/session/manager.ts"
 import { parseOwnerRepoFromURL } from "../../src/domain/git/operations.ts"
 import { tryNormalizeGitLabHost } from "../../src/domain/git/gitlab-host.ts"
 import {
@@ -332,7 +330,6 @@ export class TestExecutor {
   // Per-test state (reset each test)
   private workingDir: string
   private sessionEnv: string[] = []
-  private sessionWorkDir: string
   // Sensitive outputs are Redacted: templates reveal them, printing masks them
   private blockOutputs = new Map<string, Map<string, OutputValue>>()
   // Files each block wrote this test case, by block ID, for files_generated
@@ -359,7 +356,6 @@ export class TestExecutor {
     private options: ExecutorOptions,
   ) {
     this.workingDir = defaultWorkingDir
-    this.sessionWorkDir = defaultWorkingDir
   }
 
   /** Initialize the executor: parse runbook, build registry, validate config. */
@@ -468,9 +464,9 @@ export class TestExecutor {
   // -----------------------------------------------------------------------
 
   /**
-   * Run one test case. Each test case starts clean: block outputs, the session
-   * env and the cwd start over, so nothing an earlier test case exported,
-   * cd'd into or authenticated carries into this one. With
+   * Run one test case. Each test case starts clean: block outputs and the
+   * session env start over, so nothing an earlier test case wrote to
+   * RUNBOOK_ENV or authenticated carries into this one. With
    * use_temp_working_dir, runTestSuite also passes a fresh `workingDir` per
    * test case, so files and clones don't carry over either.
    */
@@ -539,7 +535,6 @@ export class TestExecutor {
     this.testEnv = tc.env ?? {}
     this.workingDir = workingDir
     this.sessionEnv = [...this.initialSessionEnv]
-    this.sessionWorkDir = workingDir
     this.blockOutputs = new Map()
     this.generatedFileCounts = new Map()
     this.blockStates = new Map()
@@ -956,6 +951,7 @@ export class TestExecutor {
     // same values
     let scriptContent = foundExec.content
     const blockEnv: Record<string, string> = {}
+    let workingDir = foundExec.workingDir
     try {
       const vars = this.buildTemplateVars(block.id)
       scriptContent = renderGoTemplate(scriptContent, vars)
@@ -966,6 +962,13 @@ export class TestExecutor {
           throw new Error(`${name} in env: ${errorMessage(e)}`, { cause: e })
         }
       }
+      if (workingDir.includes("{{")) {
+        try {
+          workingDir = renderGoTemplate(workingDir, vars)
+        } catch (e: unknown) {
+          throw new Error(`workingDir: ${errorMessage(e)}`, { cause: e })
+        }
+      }
     } catch (e: unknown) {
       result.passed = false
       result.actualStatus = "error"
@@ -974,12 +977,34 @@ export class TestExecutor {
       return result
     }
 
-    // Create temp files for outputs and file capture
-    const outputFile = path.join(
-      fs.mkdtempSync(path.join(os.tmpdir(), "runbook-output-")),
-      "output.txt",
+    // As in the app, a block fails before its script starts when its
+    // script can't run or its directory is missing, with `line` as its log
+    const failBeforeRun = (line: string) => {
+      result.actualStatus = "fail"
+      result.exitCode = 1
+      result.logs = `${line}\n`
+      this.passedScripts.delete(normalizeBlockId(block.id))
+      if (this.options.verbose) this.printBlockOutput(block.id, result.logs, {}, "fail")
+      result.passed = this.matchesExpectedStatus(step.expect, "fail")
+      result.duration = Date.now() - start
+      return result
+    }
+    const runner = resolveScriptRunner(
+      scriptContent,
+      { path: foundExec.path ?? "", interpreter: foundExec.interpreter },
+      process.platform,
     )
+    if (!runner.ok) return failBeforeRun(runner.error)
+    // A relative workingDir is inside the session's directory
+    const cwd = path.resolve(this.workingDir, workingDir)
+    if (!isDirectory(cwd)) return failBeforeRun(`Working directory does not exist: ${cwd}`)
+
+    // Create temp files for outputs, session env and file capture
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-output-"))
+    const outputFile = path.join(outputDir, "output.txt")
     fs.writeFileSync(outputFile, "")
+    const sessionEnvFile = path.join(outputDir, "env.txt")
+    fs.writeFileSync(sessionEnvFile, "")
     const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-files-"))
     // The log files, as in the app: RUNBOOK_LOG, which the log_* helpers
     // append to, and one per level (RUNBOOK_INFO_LOG etc.)
@@ -987,40 +1012,21 @@ export class TestExecutor {
     const scriptLog = logChannelFiles(logChannelDir, [RUNBOOK_LOG_CHANNEL])[0]!
     const levelLogs = logChannelFiles(logChannelDir, LEVEL_LOG_CHANNELS)
     for (const { path: logFile } of [scriptLog, ...levelLogs]) fs.writeFileSync(logFile, "")
-    // Made below; declared here so the finally can remove them
-    let envDir = ""
-    let pwdDir = ""
+    // Made below; declared here so the finally can remove it
     let scriptDir = ""
 
     try {
-      // Prepare the script
-      const {
-        interpreter,
-        args: interpreterArgs,
-        wrap: isBash,
-      } = resolveScriptRunner(scriptContent, foundExec.language)
-
-      let scriptToWrite = scriptContent
-      let envCapturePath = ""
-      let pwdCapturePath = ""
-
-      if (isBash) {
-        envDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-env-"))
-        envCapturePath = path.join(envDir, "env.txt")
-        fs.writeFileSync(envCapturePath, "")
-        pwdDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-pwd-"))
-        pwdCapturePath = path.join(pwdDir, "pwd.txt")
-        fs.writeFileSync(pwdCapturePath, "")
-        scriptToWrite = wrapBashScript(scriptContent, envCapturePath, pwdCapturePath)
-      }
-
       scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-script-"))
-      const scriptPath = path.join(scriptDir, "script.sh")
-      fs.writeFileSync(scriptPath, scriptToWrite, { mode: 0o700 })
+      const scriptPath = path.join(scriptDir, runner.fileName)
+      fs.writeFileSync(scriptPath, runner.script, { mode: 0o700 })
+      const { launch } = runner
+      const [command, args] =
+        launch.kind === "self" ? [scriptPath, []] : [launch.command, [...launch.args, scriptPath]]
 
       // Build environment. The per-block vars go on last, as in the app.
       const env = this.sessionEnvWithTestEnv()
       env["RUNBOOK_OUTPUT"] = outputFile
+      env["RUNBOOK_ENV"] = sessionEnvFile
       env["GENERATED_FILES"] = filesDir
       if (this.activeWorkTreePath) env["REPO_FILES"] = this.activeWorkTreePath
       for (const { envVar, path: logFile } of [scriptLog, ...levelLogs]) env[envVar] = logFile
@@ -1046,12 +1052,11 @@ export class TestExecutor {
       // at the end of the one file, so the logs keep the order the script
       // wrote them in. (Unlike in the app, a script that reads RUNBOOK_LOG
       // back sees its own output there too.)
-      const args = [...interpreterArgs, scriptPath]
       const outputFd = fs.openSync(scriptLog.path, "a")
       let proc: ReturnType<typeof spawnSync>
       try {
-        proc = spawnSync(interpreter, args, {
-          cwd: this.sessionWorkDir,
+        proc = spawnSync(command, args, {
+          cwd,
           env,
           timeout: this.options.timeout,
           stdio: ["pipe", outputFd, outputFd],
@@ -1117,8 +1122,13 @@ export class TestExecutor {
           /* no outputs */
         }
 
-        // Carry the script's exports and final cwd into later blocks
-        if (isBash) this.applyEnvCapture(envCapturePath, pwdCapturePath, blockEnv)
+        // Carry the variables the script wrote to RUNBOOK_ENV into later blocks
+        const problems = this.applySessionEnv(sessionEnvFile)
+        if (problems.length > 0) {
+          if (logs !== "" && !logs.endsWith("\n")) logs += "\n"
+          logs += problems.map((line) => `${line}\n`).join("")
+          result.logs = logs
+        }
 
         // Copy captured files to output directory
         this.creditGeneratedFiles(block.id, this.captureFiles(filesDir, this.resolveOutputPath()))
@@ -1137,16 +1147,9 @@ export class TestExecutor {
       result.duration = Date.now() - start
       return result
     } finally {
-      // Cleanup temp files. The env capture holds every variable the script
-      // saw, credentials included, so it must not outlive the block.
-      for (const dir of [
-        path.dirname(outputFile),
-        filesDir,
-        logChannelDir,
-        envDir,
-        pwdDir,
-        scriptDir,
-      ]) {
+      // Cleanup temp files. RUNBOOK_ENV may hold credentials, so it must not
+      // outlive the block.
+      for (const dir of [outputDir, filesDir, logChannelDir, scriptDir]) {
         if (dir)
           try {
             fs.rmSync(dir, { recursive: true, force: true })
@@ -1182,7 +1185,7 @@ export class TestExecutor {
     const env = this.sessionEnvWithTestEnv()
     const bash = (args: string[], timeoutMs: number) => {
       const proc = spawnSync("bash", args, {
-        cwd: this.sessionWorkDir,
+        cwd: this.workingDir,
         env,
         timeout: timeoutMs,
         encoding: "utf-8",
@@ -1247,42 +1250,22 @@ export class TestExecutor {
   }
 
   /**
-   * Apply a bash block's env/pwd capture the way the app's session does after
-   * a successful run: the captured env, minus shell internals and per-block
-   * vars like RUNBOOK_OUTPUT, replaces the session env, and a non-empty pwd
-   * becomes the cwd for later blocks. A variable of the block's env (`blockEnv`,
-   * as the script got it) stays the block's unless the script changed it: the
-   * session keeps the value it had.
+   * Set the variables a script wrote to `sessionEnvFile` (RUNBOOK_ENV) in the
+   * session env, as the app does after a run that succeeds or warns. Returns
+   * a log line for each line of the file that set nothing.
    */
-  private applyEnvCapture(
-    envCapturePath: string,
-    pwdCapturePath: string,
-    blockEnv: Record<string, string>,
-  ): void {
-    let env: Record<string, string> | undefined
+  private applySessionEnv(sessionEnvFile: string): string[] {
+    let content = ""
     try {
-      env = parseEnvCaptureContent(fs.readFileSync(envCapturePath, "utf-8"))
+      content = fs.readFileSync(sessionEnvFile, "utf-8")
     } catch {
-      /* nothing captured */
+      return [] // the script removed it
     }
-    if (!env) return
-
-    const captured = filterCapturedEnv(env)
-    const before = envListToRecord(this.sessionEnv)
-    for (const [name, value] of Object.entries(blockEnv)) {
-      if (captured[name] !== value) continue
-      if (Object.hasOwn(before, name)) captured[name] = before[name]!
-      else delete captured[name]
-    }
-    this.sessionEnv = Object.entries(captured).map(([k, v]) => `${k}=${v}`)
-
-    let pwd = ""
-    try {
-      pwd = fs.readFileSync(pwdCapturePath, "utf-8").trim()
-    } catch {
-      /* keep the current cwd */
-    }
-    if (pwd) this.sessionWorkDir = pwd
+    const { env, problems } = parseRunbookEnvContent(content)
+    const names = new Set(Object.keys(env))
+    this.sessionEnv = this.sessionEnv.filter((entry) => !names.has(entry.split("=", 1)[0]!))
+    for (const [k, v] of Object.entries(env)) this.sessionEnv.push(`${k}=${v}`)
+    return problems
   }
 
   // -----------------------------------------------------------------------
@@ -2496,4 +2479,13 @@ function describeCleanupError(e: unknown): string {
 /** A block ID as templates name it, with hyphens turned into underscores. */
 function normalizeBlockId(id: string): string {
   return id.replace(/-/g, "_")
+}
+
+/** Whether `p` is a directory, following symlinks. */
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory()
+  } catch {
+    return false
+  }
 }

@@ -103,15 +103,15 @@ Runbooks watches the script files that `<Check>`, `<Command>` and `<Finish>` blo
 
 1. The main process checks that the executable ID is in the registry.
 2. It renders template references such as `{{ .inputs.VarName }}` and `{{ .outputs.block_id.name }}` into the script.
-3. It renders the block's [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) values, from the registry's copy of the runbook, with the same values.
-4. It writes the script to a temporary file.
-5. It reads the shebang line to pick the interpreter, defaulting to `bash`.
-6. It runs the interpreter on the file in a non-interactive shell, with the `env` values set as environment variables for this run.
+3. It renders the block's [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) and `workingDir` values, from the registry's copy of the runbook, with the same values.
+4. It writes the script to a file in the session directory's `.runbooks/scripts/` folder, readable and runnable only by your user.
+5. On macOS and Linux it runs a script with a shebang as a program, so the operating system starts the interpreter the shebang names. It runs a script without one with `bash`, or with the program for its file's extension. On Windows it starts the program the shebang names. See [How a script runs](/security/shell-execution-context/#how-a-script-runs).
+6. The script runs in a non-interactive shell, in the block's `workingDir` or the session's directory, with the `env` values set as environment variables for this run.
 7. It streams stdout and stderr to the renderer over IPC.
-8. It deletes the temporary file.
+8. It deletes the script file.
 
 Scripts run with your user's permissions and full environment. Only run runbooks you trust.
 
 A value rendered into the script becomes part of its source, so the shell runs whatever code the value holds. A value in `env` reaches the script as data and never runs. A block output often holds text from outside the runbook, such as a PR title or an API response, so pass outputs to scripts with `env`.
 
-For interpreter detection, shell limitations and how environment changes persist between scripts, see [Shell execution context](/security/shell-execution-context/).
+For how a script's interpreter is picked, shell limitations and how scripts set variables for later blocks, see [Shell execution context](/security/shell-execution-context/).

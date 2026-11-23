@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # This script demonstrates the difference between PTY and pipes execution modes
 
 echo "=== PTY vs Pipes Detection Demo ==="

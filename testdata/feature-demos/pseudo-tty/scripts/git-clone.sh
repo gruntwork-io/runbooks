@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 REPO_URL="${1:-https://github.com/gruntwork-io/runbooks.git}"

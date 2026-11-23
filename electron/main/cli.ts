@@ -29,10 +29,9 @@ export interface CliConfig {
 }
 
 /**
- * Value-taking flags from the old Go CLI that this app does not support. The
- * working directory starts as the session's own directory (and then follows
- * any `cd` a script makes), and generated files always go inside that
- * directory. We still recognize these flags so their value is skipped instead
+ * Value-taking flags from the old Go CLI that this app does not support.
+ * Scripts start in the session's own directory, or their block's
+ * `workingDir`, and generated files always go inside that directory. We still recognize these flags so their value is skipped instead
  * of being taken as the runbook path.
  */
 const UNSUPPORTED_VALUE_FLAGS = new Set(["--working-dir", "--output-path"])

@@ -1,10 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Runs with workingDir="ks-workdir"
 CWD="$(pwd)"
-# macOS symlinks /tmp to /private/tmp
-if [ "$CWD" = "/tmp" ] || [[ "$CWD" == /private/tmp* ]]; then
+if [ "$(basename "$CWD")" = "ks-workdir" ]; then
     echo "OK: Working directory is $CWD"
     exit 0
-else
-    echo "FAIL: Working directory is $CWD, expected /tmp"
-    exit 1
 fi
+echo "FAIL: Working directory is $CWD, expected ks-workdir"
+exit 1

@@ -20,8 +20,14 @@ import type {
   CapturedFile,
   SessionExecContext,
 } from "../../types.ts"
-import { prepareScript, parseBlockOutputs, parseEnvCapture, captureFilesFromDir } from "./script.ts"
-import type { ScriptSetup } from "./script.ts"
+import {
+  prepareScript,
+  resolveScriptRunner,
+  parseBlockOutputs,
+  parseRunbookEnv,
+  captureFilesFromDir,
+} from "./script.ts"
+import type { ScriptSetup, ScriptSource } from "./script.ts"
 import { LOG_CHANNELS, logChannelFiles, tagLogLine } from "./logChannels.ts"
 
 // ---------------------------------------------------------------------------
@@ -35,6 +41,18 @@ import { LOG_CHANNELS, logChannelFiles, tagLogLine } from "./logChannels.ts"
  */
 const DEFAULT_EXEC_TIMEOUT_MS = 60 * 60 * 1000
 
+/** The directories a run uses. */
+export interface ExecDirs {
+  /** The active git worktree, given to the script as REPO_FILES, or "" for none. */
+  readonly workTree: string
+  /** Where the files the script writes to GENERATED_FILES are copied. */
+  readonly generated: string
+  /** Where the run's log file is written, kept after the run. */
+  readonly logs: string
+  /** Where the script file is written for the run, and removed after it. */
+  readonly scripts: string
+}
+
 // ---------------------------------------------------------------------------
 // Execution Event Types
 // ---------------------------------------------------------------------------
@@ -44,7 +62,7 @@ export type ExecEvent =
   | { readonly _tag: "status"; readonly event: ExecStatusEvent }
   | { readonly _tag: "outputs"; readonly event: BlockOutputsEvent }
   | { readonly _tag: "files_captured"; readonly event: FilesCapturedEvent }
-  | { readonly _tag: "env_captured"; readonly env: Record<string, string>; readonly pwd: string }
+  | { readonly _tag: "session_env"; readonly env: Record<string, string> }
   | { readonly _tag: "done" }
 
 // ---------------------------------------------------------------------------
@@ -58,12 +76,14 @@ export type ExecEvent =
 function setupExecEnvVars(
   env: Record<string, string>,
   outputFile: string,
+  sessionEnvFile: string,
   filesDir: string,
   workTreePath: string,
   logFiles: ReadonlyArray<{ readonly envVar: string; readonly path: string }>,
 ): Record<string, string> {
   const result = { ...env }
   result["RUNBOOK_OUTPUT"] = outputFile
+  result["RUNBOOK_ENV"] = sessionEnvFile
   result["GENERATED_FILES"] = filesDir
   if (workTreePath) {
     result["REPO_FILES"] = workTreePath
@@ -127,29 +147,29 @@ function determineExitStatus(exitCode: number, timedOut: boolean): ExecStatusEve
 
 /**
  * Execute a script and return a Stream of execution events (log lines, status,
- * outputs, captured files, environment capture, and done).
+ * outputs, captured files, the variables it set for the session, and done).
  *
  * The script's env is the session's, then the request's overrides (auth
  * blocks' credentials), then `blockEnv` (the block's rendered `env` prop),
- * then the variables Runbooks sets for every run (RUNBOOK_OUTPUT, ...).
+ * then the variables Runbooks sets for every run (RUNBOOK_OUTPUT, ...). It
+ * runs in `sessionContext.workDir`, with the interpreter `source` and the
+ * script's shebang pick (see resolveScriptRunner).
  *
  * The caller is responsible for:
  *  - Resolving the Executable and rendering template variables before calling this
  *  - Providing the session execution context (env, workDir)
  *  - Consuming the returned Stream and relaying events to the client (SSE, IPC, etc.)
  *
- * The run's full log is written to a new file in `logsDir`, created if it is
- * missing, and kept after the run. Temp files are cleaned up automatically
+ * The run's full log is written to a new file in `dirs.logs`, created if it
+ * is missing, and kept after the run. Temp files are cleaned up automatically
  * via Effect Scope finalizers.
  */
 export const executeScript = (
   scriptContent: string,
-  language: string,
+  source: ScriptSource,
   request: ExecRequest,
   sessionContext: SessionExecContext,
-  workTreePath: string,
-  outputPath: string,
-  logsDir: string,
+  dirs: ExecDirs,
   blockEnv: Readonly<Record<string, string>> = {},
 ) =>
   Effect.gen(function* () {
@@ -169,10 +189,13 @@ export const executeScript = (
     const spawner = yield* ProcessSpawner
 
     log.debug("step 2: creating output temp dir")
-    // Create temp file for block outputs (RUNBOOK_OUTPUT)
+    // The files the script writes its outputs (RUNBOOK_OUTPUT) and its
+    // variables for the session (RUNBOOK_ENV) to
     const outputDir = yield* fs.mkdtemp("runbook-output-")
     const outputFilePath = `${outputDir}/output.txt`
     yield* fs.writeFile(outputFilePath, "")
+    const sessionEnvFilePath = `${outputDir}/env.txt`
+    yield* fs.writeFile(sessionEnvFilePath, "")
     yield* Effect.addFinalizer(() =>
       fs.rm(outputDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
@@ -203,15 +226,11 @@ export const executeScript = (
     // The spawner appends every output line here as it runs, so the file can
     // be tailed while the script runs and opened after it. Unlike the dirs
     // above, it has no cleanup finalizer: it outlives the run.
-    yield* fs.mkdir(logsDir, { recursive: true })
-    const logFilePath = `${logsDir}/${logFileName(new Date())}`
+    yield* fs.mkdir(dirs.logs, { recursive: true })
+    const logFilePath = `${dirs.logs}/${logFileName(new Date())}`
     yield* fs.writeFile(logFilePath, "")
 
     const effectiveTimeoutMs = request.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS
-
-    log.debug("step 4: preparing script")
-    // Prepare script for execution (handles interpreter detection, env capture wrapping, temp files)
-    const scriptSetup: ScriptSetup = yield* prepareScript(scriptContent, language)
 
     // Build the execution environment
     let execEnv: Record<string, string> = yield* withSystemPath(sessionContext.env)
@@ -222,6 +241,34 @@ export const executeScript = (
     }
     execEnv = { ...execEnv, ...blockEnv }
 
+    // Ends the run before the spawn, with `line` as its only log line
+    const failBeforeSpawn = (line: string) =>
+      Effect.gen(function* () {
+        yield* fs.writeFile(logFilePath, `${line}\n`).pipe(Effect.ignore)
+        return {
+          logStream: Stream.empty,
+          completionEffect: Effect.succeed<ExecEvent[]>([
+            { _tag: "log", event: { line, timestamp: new Date().toISOString() } },
+            { _tag: "status", event: { status: "fail", exitCode: 1 } },
+            { _tag: "done" },
+          ]),
+          logFilePath,
+        }
+      })
+
+    const runner = resolveScriptRunner(scriptContent, source, process.platform)
+    if (!runner.ok) {
+      return yield* failBeforeSpawn(runner.error)
+    }
+
+    // Spawning in a missing directory fails as `spawn bash ENOENT`, which
+    // names the interpreter, not the directory
+    const workDirStat = yield* fs.stat(sessionContext.workDir).pipe(Effect.option)
+    if (workDirStat._tag === "None" || !workDirStat.value.isDirectory) {
+      log.debug("aborting before spawn: missing working directory", sessionContext.workDir)
+      return yield* failBeforeSpawn(`Working directory does not exist: ${sessionContext.workDir}`)
+    }
+
     // A credential path that no longer exists is worth failing on BEFORE the
     // spawn. Every Google client library and the gcloud CLI report it as
     // "Failed to load credential file", naming a temp directory the user never
@@ -231,32 +278,32 @@ export const executeScript = (
     // this is the last point that knows which file the child will actually get.
     const credentialsPath = execEnv["GOOGLE_APPLICATION_CREDENTIALS"]
     if (credentialsPath && !(yield* fs.exists(credentialsPath))) {
-      const line =
-        `Google credentials file no longer exists: ${credentialsPath}\n` +
-        `The GoogleAuth block this step references has replaced or released it. ` +
-        `Re-authenticate that block, wait for its success card, then run this step again.`
-      yield* fs.writeFile(logFilePath, `${line}\n`).pipe(Effect.ignore)
       log.debug("aborting before spawn: missing credential file", credentialsPath)
-      return {
-        logStream: Stream.empty,
-        completionEffect: Effect.succeed<ExecEvent[]>([
-          { _tag: "log", event: { line, timestamp: new Date().toISOString() } },
-          { _tag: "status", event: { status: "fail", exitCode: 1 } },
-          { _tag: "done" },
-        ]),
-        logFilePath,
-      }
+      return yield* failBeforeSpawn(
+        `Google credentials file no longer exists: ${credentialsPath}\n` +
+          `The GoogleAuth block this step references has replaced or released it. ` +
+          `Re-authenticate that block, wait for its success card, then run this step again.`,
+      )
     }
 
-    // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES,
-    // REPO_FILES, and the log files: RUNBOOK_LOG and RUNBOOK_<LEVEL>_LOG)
-    execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath, logFiles)
+    // Add standard runbook env vars (RUNBOOK_OUTPUT, RUNBOOK_ENV,
+    // GENERATED_FILES, REPO_FILES, and the log files: RUNBOOK_LOG and
+    // RUNBOOK_<LEVEL>_LOG)
+    execEnv = setupExecEnvVars(
+      execEnv,
+      outputFilePath,
+      sessionEnvFilePath,
+      filesDir,
+      dirs.workTree,
+      logFiles,
+    )
 
-    const cmdArgs = [...scriptSetup.args, scriptSetup.scriptPath]
+    log.debug("step 4: writing script")
+    const scriptSetup: ScriptSetup = yield* prepareScript(runner, dirs.scripts)
 
-    log.debug("step 5: spawning process:", scriptSetup.interpreter, cmdArgs[cmdArgs.length - 1])
-    const process = yield* spawner.spawn(scriptSetup.interpreter, cmdArgs, {
-      cwd: sessionContext.workDir || undefined,
+    log.debug("step 5: spawning process:", scriptSetup.command, scriptSetup.scriptPath)
+    const child = yield* spawner.spawn(scriptSetup.command, scriptSetup.args, {
+      cwd: sessionContext.workDir,
       env: execEnv,
       logFilePath,
       // RUNBOOK_LOG's lines name their own level, so they're shown as
@@ -272,7 +319,7 @@ export const executeScript = (
     // process has closed, so in practice this only acts on interruption (Stop,
     // or quitting mid-run); background jobs a finished script left running
     // survive.
-    yield* Effect.addFinalizer(() => process.kill.pipe(Effect.ignore))
+    yield* Effect.addFinalizer(() => child.kill.pipe(Effect.ignore))
 
     // Timeout watchdog, armed at spawn. It races the timeout against the real
     // exit, so it ends when the process closes and can never flag or signal a
@@ -280,13 +327,13 @@ export const executeScript = (
     // resolves only once the killed process closes, so completionEffect always
     // sees it. The kill also ends `output`, which unblocks the log drain.
     const timedOutRef = yield* Ref.make(false)
-    yield* process.exitCode.pipe(
+    yield* child.exitCode.pipe(
       Effect.timeoutOrElse({
         duration: effectiveTimeoutMs,
         orElse: () => Effect.fail(new ExecTimeoutError({ timeoutMs: effectiveTimeoutMs })),
       }),
       Effect.catchTag("ExecTimeoutError", () =>
-        Ref.set(timedOutRef, true).pipe(Effect.andThen(process.kill)),
+        Ref.set(timedOutRef, true).pipe(Effect.andThen(child.kill)),
       ),
       Effect.forkScoped,
     )
@@ -294,7 +341,7 @@ export const executeScript = (
     log.debug("step 6: building streams")
     // Stream log lines from process output in real-time
     const logStream = Stream.map(
-      process.output,
+      child.output,
       (outputLine): Extract<ExecEvent, { _tag: "log" }> => ({
         _tag: "log",
         event: {
@@ -310,7 +357,7 @@ export const executeScript = (
     // Stream.concat is unreliable within forkDetach + Effect.scoped —
     // the second stream's unwrap never executes after the first ends.
     const completionEffect = Effect.gen(function* () {
-      const exitCode = yield* process.exitCode
+      const exitCode = yield* child.exitCode
       const timedOut = yield* Ref.get(timedOutRef)
 
       const statusEvent = determineExitStatus(exitCode, timedOut)
@@ -329,6 +376,14 @@ export const executeScript = (
         })
       }
 
+      // RUNBOOK_ENV is read before the status event so its problems log as
+      // part of the run
+      const sessionEnv = isSuccessOrWarn ? yield* parseRunbookEnv(sessionEnvFilePath) : null
+      for (const line of sessionEnv?.problems ?? []) {
+        yield* fs.appendFile(logFilePath, `${line}\n`).pipe(Effect.ignore)
+        events.push({ _tag: "log", event: { line, timestamp: new Date().toISOString() } })
+      }
+
       events.push({ _tag: "status", event: statusEvent })
 
       if (isSuccessOrWarn) {
@@ -338,31 +393,22 @@ export const executeScript = (
         }
       }
 
-      if (isSuccessOrWarn && scriptSetup.isBashScript) {
-        const captured = yield* parseEnvCapture(
-          scriptSetup.envCapturePath,
-          scriptSetup.pwdCapturePath,
-        )
-        if (captured.env) {
-          events.push({
-            _tag: "env_captured",
-            env: captured.env,
-            pwd: captured.pwd,
-          })
-        }
+      if (sessionEnv) {
+        events.push({ _tag: "session_env", env: sessionEnv.env })
       }
 
       if (isSuccessOrWarn) {
-        const capturedFiles: CapturedFile[] = yield* captureFilesFromDir(filesDir, outputPath).pipe(
-          Effect.catch(() => Effect.succeed([] as CapturedFile[])),
-        )
+        const capturedFiles: CapturedFile[] = yield* captureFilesFromDir(
+          filesDir,
+          dirs.generated,
+        ).pipe(Effect.catch(() => Effect.succeed([] as CapturedFile[])))
 
         if (capturedFiles.length > 0) {
           // Send the whole generated-files tree, built the way
           // boilerplate:render builds it, so the Generated panel shows the
           // captured files. A failed walk must not fail a successful run; the
           // event then carries no tree and the panel keeps what it had.
-          const built = yield* buildFileTree(outputPath).pipe(
+          const built = yield* buildFileTree(dirs.generated).pipe(
             Effect.catch(() => Effect.succeed(null)),
           )
           events.push({

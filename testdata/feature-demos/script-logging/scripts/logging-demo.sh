@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
 # Logging Demo Script
 # Demonstrates all four logging functions provided by Runbooks

@@ -59,8 +59,8 @@ describe("generated-files directory", () => {
     fs.mkdirSync(path.join(runbookDir, "scripts"), { recursive: true })
     fs.mkdirSync(elsewhereDir)
 
-    // A script that captures a file and then leaves the session somewhere
-    // else, as `cd` into a cloned repo or a module directory would.
+    // A script that captures a file and then cd's somewhere else, as into a
+    // cloned repo or a module directory.
     fs.writeFileSync(
       path.join(runbookDir, "scripts", "capture-and-cd.sh"),
       [
@@ -114,11 +114,11 @@ describe("generated-files directory", () => {
     expect(result.status?.status).toBe("success")
     expect(sent.some((e) => e.channel === "exec:files-captured")).toBe(true)
 
-    // The script's cd moved the session; the capture still landed next to
-    // the runbook, and the helper still resolves there. boilerplate:render
-    // uses the same helper but is not driven here: it needs the vendored
-    // boilerplate binary, which the backend test run does not fetch.
-    expect((await runtime.runPromise(sessionManager.getSession())).workingDir).toBe(elsewhereDir)
+    // The capture landed next to the runbook, and the helper resolves there.
+    // boilerplate:render uses the same helper but is not driven here: it
+    // needs the vendored boilerplate binary, which the backend test run does
+    // not fetch.
+    expect((await runtime.runPromise(sessionManager.getSession())).workingDir).toBe(runbookDir)
     expect(fs.readFileSync(path.join(generatedDir, "from-script.txt"), "utf8").trim()).toBe(
       "captured",
     )
@@ -186,6 +186,14 @@ describe("generated-files directory", () => {
         expect(fs.existsSync(file)).toBe(true)
       }
       expect(new Set(logFiles).size).toBe(2)
+    })
+
+    it("writes each run's script under the session's directory and removes it after the run", async () => {
+      const { sent, event } = execEvent()
+      await invoke("exec:run", event, { executableId })
+
+      expect(sent.some((e) => e.channel === "exec:log-file")).toBe(true)
+      expect(fs.readdirSync(path.join(runbookDir, ".runbooks", "scripts"))).toEqual([])
     })
 
     it("names the directory after the block id, with characters a file name can't have replaced", async () => {
