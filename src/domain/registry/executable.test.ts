@@ -170,6 +170,16 @@ describe("ExecutableRegistry", () => {
     expect(entries[0]!.path).toBe("scripts/test.sh")
   })
 
+  it("reports the folder the runbook file is in", async () => {
+    const layer = makeTestFileSystem({ "/runbooks/setup/runbook.mdx": "" })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbooks/setup/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    expect(registry.getRunbookDir()).toBe("/runbooks/setup")
+  })
+
   it("produces warning for missing script file", async () => {
     const mdx = '<Command id="cmd1" path="missing.sh" />'
     const layer = makeTestFileSystem({ "/runbook.mdx": mdx })

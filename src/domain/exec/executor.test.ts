@@ -458,6 +458,51 @@ describe("executeScript — block env", () => {
   })
 })
 
+describe("executeScript - runbook source files", () => {
+  async function captureSpawnEnv(runbookDir: string) {
+    let received: Record<string, string> = {}
+    const spawner = Layer.succeed(ProcessSpawner, {
+      spawn: (_command, _args, options) =>
+        Effect.sync(() => {
+          received = { ...(options?.env as Record<string, string>) }
+          return { output: Stream.empty, exitCode: Effect.succeed(0), kill: Effect.void }
+        }),
+    })
+    const layer = Layer.mergeAll(
+      makeTestFileSystem(),
+      spawner,
+      makeTestEnvironment({ PATH: "/usr/bin" }),
+    )
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { logStream, completionEffect } = yield* executeScript(
+            'source "$RUNBOOK_SOURCE_FILES/scripts/lib.sh"',
+            "",
+            {},
+            { env: { PATH: "/usr/bin", RUNBOOK_SOURCE_FILES: "/stale/clone" }, workDir: "/work" },
+            "",
+            "/output",
+            "/logs/block",
+            {},
+            runbookDir,
+          )
+          yield* Stream.runDrain(logStream)
+          yield* completionEffect
+        }),
+      ).pipe(Effect.provide(layer)),
+    )
+    return received
+  }
+
+  it("points RUNBOOK_SOURCE_FILES at the runbook's folder, over any value in the session", async () => {
+    const env = await captureSpawnEnv("/runbooks/setup")
+
+    expect(env.RUNBOOK_SOURCE_FILES).toBe("/runbooks/setup")
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Files written to $GENERATED_FILES
 // ---------------------------------------------------------------------------
