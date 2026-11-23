@@ -318,6 +318,41 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
 /** The blocks whose templates read inputs, and so check options that come from an output before they run. */
 const OPTION_READING_BLOCK_TYPES = new Set(["Template", "TemplateInline", "Check", "Command"])
 
+/**
+ * Replace every occurrence of `values` in `text` with `<redacted>`.
+ *
+ * Matches are found against the ORIGINAL text and their spans merged, so an
+ * overlapping pair (a public value `token_` and a secret `token_f47ac981`)
+ * redacts the whole combined span instead of leaving the secret's suffix
+ * behind after the prefix is replaced first.
+ */
+export function maskValuesInText(text: string, values: string[]): string {
+  const spans: Array<[number, number]> = []
+  for (const value of values) {
+    if (!value) continue
+    let idx = text.indexOf(value)
+    while (idx !== -1) {
+      spans.push([idx, idx + value.length])
+      idx = text.indexOf(value, idx + 1)
+    }
+  }
+  if (spans.length === 0) return text
+  spans.sort((a, b) => a[0] - b[0] || b[1] - a[1])
+  const merged: Array<[number, number]> = []
+  for (const [start, end] of spans) {
+    const last = merged[merged.length - 1]
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end)
+    else merged.push([start, end])
+  }
+  let out = ""
+  let pos = 0
+  for (const [start, end] of merged) {
+    out += text.slice(pos, start) + "<redacted>"
+    pos = end
+  }
+  return out + text.slice(pos)
+}
+
 // ---------------------------------------------------------------------------
 // Executor options
 // ---------------------------------------------------------------------------
@@ -2807,13 +2842,10 @@ export class TestExecutor {
    * revealOutputs (e.g. a resolved path).
    */
   private maskRevealedValues(text: string): string {
-    let masked = text
-    for (const outputs of Object.values(this.templateOutputs(revealOutputs))) {
-      for (const value of Object.values(outputs)) {
-        if (value) masked = masked.split(value).join("<redacted>")
-      }
-    }
-    return masked
+    const values = Object.values(this.templateOutputs(revealOutputs)).flatMap((outputs) =>
+      Object.values(outputs),
+    )
+    return maskValuesInText(text, values)
   }
 
   private templateOutputs(
