@@ -48,7 +48,7 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 - `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Raise it for scripts that run longer, for example `timeoutMs={7200000}` for a 2-hour deployment, or lower it so a hung script fails sooner. [Runbook tests](/authoring/testing/) ignore it and apply the test's `timeout` setting instead.
 - `dependsOn` (string | string[]): ID of a Command, Check or [Prerequisites](/authoring/blocks/prerequisites/) block, or an array of IDs, that must succeed before this block can run. A Check or Prerequisites block that ends with a warning counts too. See [Run order](#run-order).
 - `exclusive` (boolean): whether this block runs alone. Defaults to `false`. While it runs, no other Command or Check block can start, and it can't start while another one is running. See [Run order](#run-order).
-- `showWhenBlock` ({ id: string, status: string | string[] }): show this block only while the latest run of another Command, Check, Finish or Prerequisites block ended with `status`: `success`, `warn` or `fail`, or a list of them. See [Showing a block after another one fails](#showing-a-block-after-another-one-fails).
+- `showWhenBlock` (`{ id: string, status: string | string[] }`): show this block only while the latest run of another Command, Check, Finish or Prerequisites block ended with `status`: `success`, `warn` or `fail`, or a list of them. See [Showing a block after another one fails](#showing-a-block-after-another-one-fails).
 
 ### Inline content
 

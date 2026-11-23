@@ -89,7 +89,7 @@ A finished session keeps its directory, files and history, but Runbooks doesn't 
 - `timeoutMs` (number): maximum time, in milliseconds, the final check may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). [Runbook tests](/authoring/testing/) ignore it and apply the test's `timeout` setting instead.
 - `dependsOn` (string | string[]): ID of a Command, Check or [Prerequisites](/authoring/blocks/prerequisites/) block, or an array of IDs, that must succeed before the runbook can be finished. A Check or Prerequisites block that ends with a warning counts too. See [Run order](/authoring/blocks/command/#run-order).
 - `exclusive` (boolean): whether the final check runs alone. Defaults to `false`. While it runs, no Command or Check block can start, and it can't start while one is running. See [Run order](/authoring/blocks/command/#run-order).
-- `showWhenBlock` ({ id: string, status: string | string[] }): show this block only while the latest run of another Command, Check, Finish or Prerequisites block ended with `status`: `success`, `warn` or `fail`, or a list of them. See [Showing a block after another one fails](/authoring/blocks/command/#showing-a-block-after-another-one-fails).
+- `showWhenBlock` (`{ id: string, status: string | string[] }`): show this block only while the latest run of another Command, Check, Finish or Prerequisites block ended with `status`: `success`, `warn` or `fail`, or a list of them. See [Showing a block after another one fails](/authoring/blocks/command/#showing-a-block-after-another-one-fails).
 
 ### Next steps
 
