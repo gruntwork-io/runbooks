@@ -4,6 +4,7 @@
     { "path": "./tsconfig.main.json" },
     { "path": "./tsconfig.preload.json" },
     { "path": "./tsconfig.src.json" },
+    { "path": "./tsconfig.rebuild.json" },
     { "path": "./tsconfig.e2e.json" },
     { "path": "./web/tsconfig.json" }
   ],
