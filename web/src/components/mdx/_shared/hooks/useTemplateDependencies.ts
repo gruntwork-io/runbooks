@@ -19,12 +19,14 @@
  * ```
  */
 
-import { useMemo } from "react"
+import { useContext, useMemo } from "react"
+import { RunbookContext } from "@/contexts/RunbookContext"
 import { useInputs, useAllOutputs, flattenInputs, type TemplateValue } from "@/contexts/useRunbook"
 import {
   flattenBlockOutputs,
   computeUnmetInputDependencies,
   computeUnmetOutputDependencies,
+  inputsThatMayBeEmpty,
 } from "@/lib/templateUtils"
 import type { InputName, TemplateInputs, TemplateOutputs, BlockOutput } from "@/lib/templateUtils"
 import { splitDependencies } from "@/lib/extractTemplateDependencies"
@@ -77,9 +79,17 @@ export function useTemplateDependencies(
   )
 
   // 3. Compute unmet deps — symmetric pair of functions
+  // An optional field (one with a default, not required) may be left empty
+  const blockInputs = useContext(RunbookContext)?.blockInputs
+  const mayBeEmpty = useMemo(() => {
+    if (!blockInputs || !inputsId) return new Set<string>()
+    const ids = Array.isArray(inputsId) ? inputsId : [inputsId]
+    return inputsThatMayBeEmpty(ids.map((id) => blockInputs[id]?.config))
+  }, [blockInputs, inputsId])
+
   const unmetInputDeps = useMemo(
-    () => computeUnmetInputDependencies(inputDeps, inputs),
-    [inputDeps, inputs],
+    () => computeUnmetInputDependencies(inputDeps, inputs, mayBeEmpty),
+    [inputDeps, inputs, mayBeEmpty],
   )
 
   const unmetOutputDeps = useMemo(

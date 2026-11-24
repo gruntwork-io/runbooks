@@ -4,6 +4,7 @@ import {
   buildTemplatePayload,
   flattenBlockOutputs,
   computeUnmetInputDependencies,
+  inputsThatMayBeEmpty,
   computeUnmetOutputDependencies,
   extractInputValueReferences,
   maskTemplateOutputs,
@@ -121,6 +122,12 @@ describe("computeUnmetInputDependencies", () => {
     expect(
       computeUnmetInputDependencies(["a", "b", "c"], { a: null, b: undefined, c: "" }),
     ).toEqual(["a", "b", "c"])
+  })
+
+  it("lets an input in mayBeEmpty be an empty string, but not missing", () => {
+    expect(
+      computeUnmetInputDependencies(["a", "b", "c"], { a: "", b: "" }, new Set(["a", "c"])),
+    ).toEqual(["b", "c"])
   })
 
   it("should treat 0 and false as valid values", () => {
@@ -438,5 +445,37 @@ describe("computeUnmetOutputDependencies", () => {
       fullPath: "outputs.clone_repo.repo_owner",
     }
     expect(computeUnmetOutputDependencies([hyphenated], produced)).toEqual([])
+  })
+})
+
+describe("inputsThatMayBeEmpty", () => {
+  const variable = (name: string, extra: Record<string, unknown> = {}) => ({
+    name,
+    description: "",
+    type: "string",
+    ...extra,
+  })
+
+  it("includes a variable with a default that isn't required, an empty default included", () => {
+    const names = inputsThatMayBeEmpty([
+      {
+        variables: [
+          variable("Optional", { default: "" }),
+          variable("WithValue", { default: "x" }),
+          variable("NoDefault"),
+          variable("Required", { default: "", required: true }),
+        ],
+      } as never,
+    ])
+    expect([...names]).toEqual(["Optional", "WithValue"])
+  })
+
+  it("lets the last Inputs block that declares a variable decide", () => {
+    const names = inputsThatMayBeEmpty([
+      { variables: [variable("Id", { default: "" })] } as never,
+      { variables: [variable("Id", { required: true })] } as never,
+      undefined,
+    ])
+    expect([...names]).toEqual([])
   })
 })
