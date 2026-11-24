@@ -5,5 +5,5 @@
     "erasableSyntaxOnly": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.rebuild.tsbuildinfo"
   },
-  "include": ["blocks/**/*", "packages/**/*"]
+  "include": ["blocks/**/*", "packages/**/*", "baseline/**/*"]
 }
