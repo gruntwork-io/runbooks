@@ -93,6 +93,7 @@ import {
   inputsIdsOf,
   parseAuthDependencies,
   parseRunDependencies,
+  parseShowWhenBlocks,
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
   lowercaseFirst,
@@ -106,12 +107,20 @@ import { unknownBlocksError } from "../../src/runbooks-version.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 import { errorMessage } from "../../src/errors/message.ts"
 import { scriptTemplateWarning } from "../../src/domain/exec/scriptTemplates.ts"
+import {
+  describeShowWhenBlock,
+  showWhenBlockHolds,
+  type ShowWhenBlock,
+} from "../../src/domain/exec/showWhenBlock.ts"
 
 // ---------------------------------------------------------------------------
 // Block types & states
 // ---------------------------------------------------------------------------
 
 type BlockState = "success" | "skipped"
+
+/** How a Check, Command, Finish or Prerequisites block's latest run ended. */
+type ScriptResult = "success" | "warn" | "fail"
 
 type GitProvider = "github" | "gitlab"
 
@@ -326,6 +335,8 @@ export class TestExecutor {
   private templates!: Map<string, TemplateBlock>
   private authDeps!: Map<string, AuthDependency>
   private runDeps!: Map<string, string[]>
+  // Each Check, Command and Finish block's `showWhenBlock` condition, by block ID
+  private showWhenBlocks!: Map<string, ShowWhenBlock>
   // The blocks each block reads `.inputs` from, by block ID (inputsIdsOf)
   private inputsIds!: Map<string, string[]>
 
@@ -343,9 +354,10 @@ export class TestExecutor {
   private testInputs: Record<string, unknown> = {}
   private testEnv: Record<string, string> = {}
   private blockStates = new Map<string, BlockState>()
-  // Check and Command blocks whose latest run this test case ended in success
-  // or warn, by normalized block ID, for `dependsOn`
-  private passedScripts = new Set<string>()
+  // How the latest run of each Check, Command, Finish and Prerequisites block
+  // ended this test case, by normalized block ID, for `dependsOn` and
+  // `showWhenBlock`. A timeout counts as a failure, as in the app.
+  private scriptResults = new Map<string, ScriptResult>()
   private authBlockCredentials = new Map<string, Record<string, string>>()
   // The token each git auth block found, and for which provider, for GitClone
   private gitAuthTokens = new Map<string, { provider: GitProvider; token: string }>()
@@ -386,6 +398,7 @@ export class TestExecutor {
     // Parse auth dependencies
     this.authDeps = parseAuthDependencies(this.runbookPath)
     this.runDeps = parseRunDependencies(this.runbookPath)
+    this.showWhenBlocks = parseShowWhenBlocks(this.runbookPath)
     this.inputsIds = new Map(
       this.validator.getComponents().map((block) => [block.id, inputsIdsOf(block)]),
     )
@@ -541,7 +554,9 @@ export class TestExecutor {
     // listed, so a block can run more than once with a different expectation
     // each time; without steps, every block runs once in document order,
     // expected to succeed, except PR blocks, which never run in test mode.
-    const plan: Array<{ block: ParsedComponent; step: TestStep }> = []
+    // A step the test doesn't list (`implicit`) passes when its block is
+    // hidden by `showWhenBlock`, since the block isn't shown in the app either.
+    const plan: Array<{ block: ParsedComponent; step: TestStep; implicit?: boolean }> = []
     if (tc.steps && tc.steps.length > 0) {
       for (const [i, step] of tc.steps.entries()) {
         const block = allBlocks.find((b) => b.id === step.block)
@@ -556,7 +571,7 @@ export class TestExecutor {
     } else {
       for (const block of allBlocks) {
         const expect = PR_BLOCK_SET.has(block.type) ? "skip" : "success"
-        plan.push({ block, step: { block: block.id, expect } })
+        plan.push({ block, step: { block: block.id, expect }, implicit: true })
       }
     }
 
@@ -566,8 +581,8 @@ export class TestExecutor {
     // unexpected throw) so teardown is never skipped.
     try {
       // 5. Process each planned step
-      for (const { block, step } of plan) {
-        const stepResult = this.processBlock(block, step, registryWarnings)
+      for (const { block, step, implicit = false } of plan) {
+        const stepResult = this.processBlock(block, step, registryWarnings, implicit)
         result.stepResults.push(stepResult)
 
         if (!stepResult.passed) {
@@ -634,7 +649,7 @@ export class TestExecutor {
     this.blockOutputs = new Map()
     this.generatedFileCounts = new Map()
     this.blockStates = new Map()
-    this.passedScripts = new Set()
+    this.scriptResults = new Map()
     this.authBlockCredentials = new Map()
     this.gitAuthTokens = new Map()
     this.activeWorkTreePath = ""
@@ -743,7 +758,7 @@ export class TestExecutor {
       result.error = `The runbook has no block "${step.block}"`
       return result
     }
-    return this.processBlock(block, step, this.registry.getWarnings())
+    return this.processBlock(block, step, this.registry.getWarnings(), false)
   }
 
   /**
@@ -768,9 +783,7 @@ export class TestExecutor {
       }
     }
 
-    const unmet = (this.runDeps.get(blockId) ?? []).filter(
-      (id) => !this.passedScripts.has(normalizeBlockId(id)),
-    )
+    const unmet = (this.runDeps.get(blockId) ?? []).filter((id) => !this.hasPassed(id))
     if (unmet.length > 0) {
       reasons.push(
         `dependsOn: ${unmet.map((id) => `"${id}"`).join(", ")} hasn't run with success or warn`,
@@ -954,6 +967,7 @@ export class TestExecutor {
     block: ParsedComponent,
     step: TestStep,
     registryWarnings: string[],
+    implicit: boolean,
   ): StepResult {
     const start = Date.now()
 
@@ -1002,7 +1016,17 @@ export class TestExecutor {
       return result
     }
 
-    // 3. Check auth dependencies. A block whose auth block hasn't run, or was
+    // 3. Check `showWhenBlock`. A block whose condition doesn't hold is hidden
+    // in the app, so it doesn't run. `expect: hidden` asserts that, and a
+    // block the test doesn't list passes hidden. `expect: skip` skips the
+    // block either way.
+    const hiddenResult = this.showWhenBlockResult(block, step, implicit, result)
+    if (hiddenResult) {
+      hiddenResult.duration = Date.now() - start
+      return hiddenResult
+    }
+
+    // 4. Check auth dependencies. A block whose auth block hasn't run, or was
     // skipped, is blocked, which is what an `expect: blocked` step asserts.
     // `expect: skip` skips the block whatever state its auth block is in.
     if (step.expect !== "skip" && this.authDeps.has(block.id)) {
@@ -1026,12 +1050,10 @@ export class TestExecutor {
       }
     }
 
-    // 4. Check `dependsOn`. A block is blocked until every block it names has
+    // 5. Check `dependsOn`. A block is blocked until every block it names has
     // run and ended in success or warn, as its Run button is in the app.
     if (step.expect !== "skip") {
-      const unmet = (this.runDeps.get(block.id) ?? []).filter(
-        (id) => !this.passedScripts.has(normalizeBlockId(id)),
-      )
+      const unmet = (this.runDeps.get(block.id) ?? []).filter((id) => !this.hasPassed(id))
       if (unmet.length > 0) {
         result.passed = step.expect === "blocked"
         result.actualStatus = "blocked"
@@ -1041,8 +1063,51 @@ export class TestExecutor {
       }
     }
 
-    // 5. Dispatch block
+    // 6. Dispatch block
     return this.dispatchBlock(block, step, start)
+  }
+
+  /** Whether the latest run of the block with this id ended in success or warn. */
+  private hasPassed(blockId: string): boolean {
+    const latest = this.scriptResults.get(normalizeBlockId(blockId))
+    return latest === "success" || latest === "warn"
+  }
+
+  /**
+   * The step's result when `showWhenBlock` decides it: the block is hidden,
+   * or the step expects it to be and it isn't. Null when the block runs.
+   */
+  private showWhenBlockResult(
+    block: ParsedComponent,
+    step: TestStep,
+    implicit: boolean,
+    result: StepResult,
+  ): StepResult | null {
+    if (step.expect === "skip") return null
+    const condition = this.showWhenBlocks.get(block.id) ?? null
+    const latest = condition ? this.scriptResults.get(normalizeBlockId(condition.id)) : undefined
+    const shown = showWhenBlockHolds(condition, latest)
+
+    if (!shown && condition) {
+      const why = `it shows only when ${describeShowWhenBlock(condition)}, and "${condition.id}" ${latest ? `ended in ${latest}` : "hasn't run"}`
+      result.actualStatus = "hidden"
+      result.passed = implicit || step.expect === "hidden"
+      if (!result.passed) result.error = `Block is hidden: ${why}`
+      if (this.options.verbose) {
+        console.log(`\n=== ${block.type}: ${block.id} ===`)
+        console.log(`  (hidden: ${why})`)
+      }
+      return result
+    }
+    if (step.expect === "hidden") {
+      result.actualStatus = "shown"
+      result.passed = false
+      result.error = condition
+        ? `Expected block to be hidden, but "${condition.id}" ended in ${latest}`
+        : "Expected block to be hidden, but it has no showWhenBlock"
+      return result
+    }
+    return null
   }
 
   private getConfigErrorForBlock(block: ParsedComponent, registryWarnings: string[]): string {
@@ -1180,7 +1245,7 @@ export class TestExecutor {
         if (!stringProp(block.props, "command") && !stringProp(block.props, "path")) {
           result.actualStatus = "success"
           result.passed = this.matchesExpectedStatus(step.expect, "success")
-          this.passedScripts.add(normalizeBlockId(block.id))
+          this.scriptResults.set(normalizeBlockId(block.id), "success")
           result.duration = Date.now() - start
           if (this.options.verbose) console.log("  (no final check to run)")
           return result
@@ -1423,11 +1488,10 @@ export class TestExecutor {
       result.exitCode = exitCode
       result.logs = logs
 
-      if (status === "success" || status === "warn") {
-        this.passedScripts.add(normalizeBlockId(block.id))
-      } else {
-        this.passedScripts.delete(normalizeBlockId(block.id))
-      }
+      this.scriptResults.set(
+        normalizeBlockId(block.id),
+        status === "success" || status === "warn" ? status : "fail",
+      )
 
       // Parse outputs. Sensitive ones come back Redacted: later blocks'
       // templates and assertions reveal them, and printing them shows <redacted>.
@@ -1550,11 +1614,10 @@ export class TestExecutor {
     result.exitCode = statusExitCode(status)
     result.logs = logs
 
+    this.scriptResults.set(normalizeBlockId(block.id), status)
     if (status === "fail") {
-      this.passedScripts.delete(normalizeBlockId(block.id))
       this.blockOutputs.delete(block.id)
     } else {
-      this.passedScripts.add(normalizeBlockId(block.id))
       this.blockOutputs.set(block.id, new Map(Object.entries(result.outputs)))
     }
 
@@ -2663,6 +2726,8 @@ export class TestExecutor {
         return actual === "blocked"
       case "skip":
         return actual === "skipped"
+      case "hidden":
+        return actual === "hidden"
       case "config_error":
         return actual === "config_error"
       default:

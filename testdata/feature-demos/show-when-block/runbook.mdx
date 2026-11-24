@@ -1,0 +1,44 @@
+# Show a Block When Another Block Fails
+
+A Command, Check or Finish block can show only while another block's latest run ended a certain way. Give it a `showWhenBlock` prop with the other block's `id` and a `status` (`success`, `warn` or `fail`, or a list of them):
+
+```mdx
+<Command
+  id="rerun-plan"
+  showWhenBlock={{ id: "check-plan", status: "fail" }}
+  command="..."
+/>
+```
+
+Until the other block has run, and while it is running, the block is hidden. A block that is running itself stays in view.
+
+## Check the plan
+
+The first run of this check fails. That shows the **Re-run the plan** block below it.
+
+<Check
+  id="check-plan"
+  title="Check the plan"
+  command='test "${PLAN_FIXED:-}" = 1'
+  successMessage="The plan passed."
+  failMessage="The plan failed. Re-run it below."
+/>
+
+<Command
+  id="rerun-plan"
+  title="Re-run the plan"
+  description="Shown only while **Check the plan** has failed."
+  showWhenBlock={{ id: "check-plan", status: "fail" }}
+  command="export PLAN_FIXED=1"
+/>
+
+Once the plan is re-run, run **Check the plan** again. It passes, which hides **Re-run the plan** and shows the next step.
+
+## Apply
+
+<Command
+  id="apply"
+  title="Apply the plan"
+  showWhenBlock={{ id: "check-plan", status: ["success", "warn"] }}
+  command='echo "Applying"'
+/>

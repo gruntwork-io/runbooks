@@ -163,9 +163,12 @@ steps:
 | `warn` | Block completed with warning (exit code 2). |
 | `blocked` | Block is blocked: an auth block it depends on hasn't run or was skipped, a block its `dependsOn` names hasn't finished with a success or a warning, or the outputs listed in `missing_outputs` don't exist yet. The block doesn't run. |
 | `skip` | Don't run this block, for example an `<AwsAuth>` in a test that has no AWS credentials. [Pull request blocks](#testing-pull-request-blocks) can only be tested with `skip` or `blocked`. |
+| `hidden` | Block is hidden by its [`showWhenBlock`](/authoring/blocks/command/#showing-a-block-after-another-one-fails): the block it names hasn't run, or its latest run didn't end with the status the prop gives. The block doesn't run. |
 | `config_error` | Block has a configuration error, such as a missing prop. |
 
-A script that runs past the `timeout` setting gets the status `timeout`. No `expect` value matches it, so the step fails.
+A script that runs past the `timeout` setting gets the status `timeout`. No `expect` value matches it, so the step fails. For `dependsOn` and `showWhenBlock`, it counts as `fail`.
+
+A block with `showWhenBlock` runs only while its condition holds, as it only shows then in the app. While it's hidden, a step that expects anything but `hidden` or `skip` fails, and a step that expects `hidden` fails once the block shows. In a test without `steps`, a hidden block passes as `hidden`. The [show-when-block demo runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/show-when-block) tests both.
 
 #### Block IDs
 

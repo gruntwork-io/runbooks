@@ -38,7 +38,7 @@ import {
   hashFileContent,
 } from "../../../src/domain/files/manifest.ts"
 import { RenderError } from "../../../src/errors/index.ts"
-import type { FileTreeMeta, ManifestEntry } from "../../../src/types.ts"
+import type { BoilerplateVarType, FileTreeMeta, ManifestEntry } from "../../../src/types.ts"
 import type { RenderRequest, RenderInlineRequest, BoilerplateRequest } from "../../../src/types.ts"
 import type { ResolveInputsRequest } from "../../shared/channels.ts"
 import { resolveGeneratedDir, validateSessionPath } from "./path-guard.ts"
@@ -290,7 +290,8 @@ export function registerBoilerplateHandlers(): void {
       }
 
       const tFlatten = Date.now()
-      const flattenedVariables = yield* flattenVariables(params.variables)
+      const declaredTypes = yield* declaredVariableTypes(resolvedTemplatePath)
+      const flattenedVariables = yield* flattenVariables(params.variables, declaredTypes)
       const dFlatten = Date.now() - tFlatten
 
       // ---------- Warm attempt ----------
@@ -699,4 +700,21 @@ export function registerBoilerplateHandlers(): void {
       ),
     )
   })
+}
+
+/**
+ * The declared type of each variable in the template's boilerplate.yml, so
+ * flattenVariables can turn a resolved reference into a list, map, number or
+ * bool. A template whose config can't be read gets no coercion.
+ */
+function declaredVariableTypes(templateDir: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem
+    const yamlContent = yield* fs.readFile(`${templateDir}/boilerplate.yml`)
+    const config = yield* parseBoilerplateConfig(yamlContent)
+    return Object.fromEntries(config.variables.map((v) => [v.name, v.type])) as Record<
+      string,
+      BoilerplateVarType
+    >
+  }).pipe(Effect.orElseSucceed(() => ({}) as Record<string, BoilerplateVarType>))
 }

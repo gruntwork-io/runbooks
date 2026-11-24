@@ -1,5 +1,10 @@
-import type { BlockRun } from "@/contexts/BlockRunsContext.types"
+import type { BlockRun, BlockRunStatus } from "@/contexts/BlockRunsContext.types"
 import { normalizeBlockId } from "@/lib/utils"
+import {
+  parseShowWhenBlock,
+  showWhenBlockHolds,
+  type ShowWhenBlock,
+} from "../../../src/domain/exec/showWhenBlock.ts"
 
 /**
  * Why a running block holds this one back: this block waits for it (it uses
@@ -61,4 +66,54 @@ export function computeRunBlockers(params: {
 /** Reports whether anything in `blockers` stops the block from running. */
 export function isRunBlocked(blockers: RunBlockers): boolean {
   return blockers.running.length > 0 || blockers.notSucceeded.length > 0
+}
+
+export interface ShowWhenBlockState {
+  /** Whether the block shows. A block with an error in its condition shows, with the error. */
+  shown: boolean
+  /** The block's condition, or null without a valid one. */
+  condition: ShowWhenBlock | null
+  /** What's wrong with the block's `showWhenBlock` prop, or null. */
+  error: string | null
+}
+
+/**
+ * Works out whether a block with a `showWhenBlock` prop shows: while the
+ * latest run of the block it names ended as the prop says, and while the
+ * block itself is running, so a run that's going stays in view.
+ */
+export function showWhenBlockState(params: {
+  blockId: string
+  /** The block's `showWhenBlock` prop as the runbook sets it. */
+  value: unknown
+  /** The block's own status. */
+  status: BlockRunStatus
+  runs: Record<string, BlockRun>
+  /**
+   * Whether a block on the page has the id the prop names; undefined until
+   * blocks have registered (usePageBlocks).
+   */
+  isOnPage: boolean | undefined
+}): ShowWhenBlockState {
+  const { blockId, value, status, runs, isOnPage } = params
+  const parsed = parseShowWhenBlock(value)
+  if (!parsed.ok) return { shown: true, condition: null, error: parsed.error }
+  const condition = parsed.condition
+  if (!condition) return { shown: true, condition: null, error: null }
+
+  const key = normalizeBlockId(condition.id)
+  if (key === normalizeBlockId(blockId)) {
+    return { shown: true, condition: null, error: "showWhenBlock can't name the block itself." }
+  }
+  const target = runs[key]
+  // A block on the page that never reports a run isn't one with runs.
+  if (isOnPage === false || (isOnPage === true && target === undefined)) {
+    return {
+      shown: true,
+      condition: null,
+      error: `showWhenBlock names "${condition.id}", but no Check, Command, Finish or Prerequisites block has that id.`,
+    }
+  }
+  const shown = status === "running" || showWhenBlockHolds(condition, target?.status)
+  return { shown, condition, error: null }
 }

@@ -19,6 +19,7 @@
  */
 
 import { Effect } from "effect"
+import type { BoilerplateVarType } from "../../types.ts"
 import { WasmRuntime } from "../../services/WasmRuntime.ts"
 import type { WasmRuntimeShape } from "../../services/WasmRuntime.ts"
 import { TEMPLATE_EXPR_RE, isTemplateString } from "./templateString.ts"
@@ -226,6 +227,7 @@ function resolveTree(
  */
 export function flattenVariables(
   variables: Record<string, unknown> | undefined,
+  declaredTypes: Readonly<Record<string, BoilerplateVarType>> = {},
 ): Effect.Effect<Record<string, unknown>, never, WasmRuntime> {
   return Effect.gen(function* () {
     const src = variables ?? {}
@@ -239,9 +241,63 @@ export function flattenVariables(
 
     // Anything that didn't resolve gets dropped so boilerplate's own
     // `default:` clause runs in the parent scope.
-    const cleanedInputs =
-      (stripTemplateValues(resolvedInputs) as Record<string, unknown> | undefined) ?? {}
+    const cleanedInputs = coerceToDeclaredTypes(
+      (stripTemplateValues(resolvedInputs) as Record<string, unknown> | undefined) ?? {},
+      declaredTypes,
+    )
 
     return liftInputsToRoot({ ...src, inputs: cleanedInputs }, cleanedInputs)
   })
+}
+
+/**
+ * Give each input the type its variable declares. A template value renders to
+ * text, so a list, map, number or bool variable whose value was a reference
+ * such as `{{ .outputs.query.AllowedLocations }}` arrives as a string like
+ * `["eastus","eastus2"]` or `100`, and boilerplate's `range` or arithmetic
+ * then fails on it. Only strings that parse as the declared type change;
+ * anything else is left for boilerplate's own validation to report.
+ */
+export function coerceToDeclaredTypes(
+  inputs: Record<string, unknown>,
+  declaredTypes: Readonly<Record<string, BoilerplateVarType>>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...inputs }
+  for (const [name, value] of Object.entries(inputs)) {
+    const type = declaredTypes[name]
+    if (type && typeof value === "string") out[name] = coerceString(value, type)
+  }
+  return out
+}
+
+function coerceString(value: string, type: BoilerplateVarType): unknown {
+  const text = value.trim()
+  switch (type) {
+    case "list": {
+      const parsed = parseJson(text)
+      return Array.isArray(parsed) ? parsed : value
+    }
+    case "map": {
+      const parsed = parseJson(text)
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : value
+    }
+    case "int":
+      return /^-?\d+$/.test(text) ? Number(text) : value
+    case "float":
+      return text !== "" && Number.isFinite(Number(text)) ? Number(text) : value
+    case "bool":
+      return text === "true" ? true : text === "false" ? false : value
+    case "string":
+    case "enum":
+      return value
+  }
+}
+
+function parseJson(text: string): unknown {
+  if (!text.startsWith("[") && !text.startsWith("{")) return undefined
+  try {
+    return JSON.parse(text)
+  } catch {
+    return undefined
+  }
 }
