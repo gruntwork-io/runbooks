@@ -14,7 +14,6 @@ const COMMAND_VARIANT: ScriptBlockVariant = {
   defaultRunningMessage: "Running...",
   fileName: "Command Script",
   fileErrorHeading: "Command Component Error",
-  renderErrorLabel: "Command render error",
   missingInputsSubject: "command",
   showScriptMetadata: true,
   showPendingPlaceholder: true,

@@ -8,7 +8,6 @@ import Finish from "../Finish"
 import { celebrate } from "../celebrate"
 
 const defaultScriptExecution = {
-  sourceCode: "test -f done.txt",
   rawScriptContent: "test -f done.txt",
   language: "bash",
   fileError: null,

@@ -10,7 +10,7 @@ Values enter the global context in two ways. [Input providers](#input-providers)
 
 ## Variables
 
-Reference a variable in templates, scripts, and block props as `{{ .inputs.VarName }}`. A block gets the values from the input providers it names with [`inputsId`](#wiring-blocks-with-inputsid). For example:
+Reference a variable in templates and block props as `{{ .inputs.VarName }}`. A block gets the values from the input providers it names with [`inputsId`](#wiring-blocks-with-inputsid). For example:
 
 `````mdx
 <Inputs id="account">
@@ -31,7 +31,7 @@ variables:
 />
 `````
 
-When this block runs, Runbooks fills in `{{ .inputs.Email }}` and `{{ .inputs.AccountName }}` with the values entered in the `account` form, such as `alice@example.com` and `my-account`, and the command gets them as the environment variables `EMAIL` and `ACCOUNT_NAME`. See [Passing values as environment variables](/authoring/blocks/command/#passing-values-as-environment-variables). A script can also reference `{{ .inputs.Email }}` itself, which inserts the value into the script's source; see [Templates in the script](/authoring/blocks/command/#templates-in-the-script).
+When this block runs, Runbooks fills in `{{ .inputs.Email }}` and `{{ .inputs.AccountName }}` with the values entered in the `account` form, such as `alice@example.com` and `my-account`, and the command gets them as the environment variables `EMAIL` and `ACCOUNT_NAME`. See [Passing values as environment variables](/authoring/blocks/command/#passing-values-as-environment-variables). The script itself runs as written. See [Templates in the script](/authoring/blocks/command/#templates-in-the-script).
 
 ### Boilerplate variables
 
@@ -98,7 +98,7 @@ variables:
 <Command id="create-dir" inputsId="config" env={{ PROJECT: "{{ .inputs.ProjectName }}" }} command='mkdir "$PROJECT"' />
 `````
 
-Values reach a block only through `inputsId` or a nested `<Inputs>`. A Command or Check that references `{{ .inputs.* }}` without either shows a **Configuration Required** message in place of its button.
+Values reach a block only through `inputsId` or a nested `<Inputs>`. A Command or Check whose `env` or `workingDir` references `{{ .inputs.* }}` without either shows a **Configuration Required** message in place of its button.
 
 ### Multiple sources
 
@@ -187,7 +187,7 @@ The prefix isn't part of the key. The second output above is named `AWS_SECRET_A
 
 Runbooks hands a sensitive output's real value only to what uses it:
 
-- A Command, Check or Finish script that references it in a template runs with the real value.
+- A Command, Check or Finish script that gets it through `env` runs with the real value.
 - A [`<Template>`](/authoring/blocks/template/), or a [`<TemplateInline>`](/authoring/blocks/templateinline/) with `generateFile`, writes the real value into the file it generates.
 - An auth block's `detectCredentials` block source reads the real value.
 - The copy button on the output's row in **View Outputs** copies the real value.
@@ -196,16 +196,16 @@ Runbooks hands a sensitive output's real value only to what uses it:
 Everywhere Runbooks only shows the value, it masks it:
 
 - **View Outputs** shows `••••••••`, and **Copy JSON** writes `"<redacted>"`.
-- The script view of a Command or Check that references the output shows `<redacted>` in its place, though the script runs with the real value.
+- The variables a Command, Check or Finish block lists for its `env` show `<redacted>` for the output, though the script runs with the real value.
 - A `<TemplateInline>` without `generateFile` shows `<redacted>` in its preview.
 - A block prop that references the output, such as a title, a description, a clone URL or a pull request's title and body, gets `<redacted>`.
 - The test CLI prints `<redacted>` in its `--verbose` output, in the rendered output of a `<TemplateInline>` and in the message of a failed `output_equals` or `output_matches` assertion.
 
-An empty sensitive output reveals nothing, so wherever `<redacted>` would stand in for it, it stays empty. An `{{ if }}` on it then takes the same branch in the script view as when the script runs.
+An empty sensitive output reveals nothing, so wherever `<redacted>` would stand in for it, it stays empty. An `{{ if }}` on it then takes the same branch in the block's list of variables as when the script runs.
 
-`<redacted>` only stands in for the value, so a template that processes the value can't process `<redacted>`. For example, the script view of `{{ (fromJson .outputs.<block_id>.credentials).user }}` shows a render error that explains this, though the script runs with the real value. A `<TemplateInline>` preview of it shows the same error.
+`<redacted>` only stands in for the value, so a template that processes the value can't process `<redacted>`. For example, an `env` value of `{{ (fromJson .outputs.<block_id>.credentials).user }}` shows a render error that explains this, though the script runs with the real value. A `<TemplateInline>` preview of it shows the same error.
 
-[Instruction mode](/intro/instruction-mode/) treats a sensitive output like one that hasn't been produced yet, even if its step already ran. The command shows a `<name>` placeholder, with a field to paste the value into.
+[Instruction mode](/intro/instruction-mode/) treats a sensitive output like one that hasn't been produced yet, even if its step already ran. Its `export` line shows a `<name>` placeholder, with a field to paste the value into.
 
 Auth blocks mark their own secrets the same way, including a credential they read from a block that marked it `sensitive:`. [`<AwsAuth>`](/authoring/blocks/awsauth/) publishes `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` as sensitive outputs. [`<GitAuth>`](/authoring/blocks/gitauth/), [`<GitHubAuth>`](/authoring/blocks/githubauth/) and [`<GitLabAuth>`](/authoring/blocks/gitlabauth/) publish their token as one when their outputs include it, which they do for a personal access token or a `{ block }` source. So `{{ .outputs.<auth_block_id>.AWS_SECRET_ACCESS_KEY }}` is masked like any other sensitive output.
 
@@ -234,7 +234,7 @@ For example, a Command whose `id` is `create-account` that outputs `account_id` 
 {{ .outputs.create_account.account_id }}
 ```
 
-This syntax works in the `env` prop and the scripts of `<Command>`, `<Check>` and `<Finish>` blocks, `<Template>` files, and `<TemplateInline>` content. In a form, a variable's `default` can use an output (see [Defaults that use other variables](/authoring/boilerplate/#defaults-that-use-other-variables)), and so can a dropdown's `options` or a multi-select's `x-options`, which list what a script output (see [Options from a block's output](/authoring/boilerplate/#options-from-a-blocks-output)).
+This syntax works in the `env` and `workingDir` props of `<Command>`, `<Check>` and `<Finish>` blocks, `<Template>` files, and `<TemplateInline>` content. In a form, a variable's `default` can use an output (see [Defaults that use other variables](/authoring/boilerplate/#defaults-that-use-other-variables)), and so can a dropdown's `options` or a multi-select's `x-options`, which list what a script output (see [Options from a block's output](/authoring/boilerplate/#options-from-a-blocks-output)).
 
 An output often holds text from outside the runbook, such as a PR title or an API response. To use one in a script, pass it with [`env`](/authoring/blocks/command/#passing-values-as-environment-variables): the script gets the value as data, so nothing in it runs, whatever it holds.
 
@@ -298,7 +298,7 @@ Other forms aren't recognized, such as a guard on a variable (`{{ if hasKey $rep
 
 <Aside type="caution">
 - **The upstream block has to publish at least one output.** A `<Command>` that succeeded without writing any outputs looks the same as one that failed, so a block that reads its outputs only behind guards keeps waiting.
-- **Guards work only where the template engine renders.** That covers `<Command>` and `<Check>` scripts and their `env` values, `<Template>` files and `<TemplateInline>` content. Each `env` value is its own template, so a guard in one doesn't cover a reference in another or in the script. Props the app fills in itself can't evaluate `if`, so every output they reference is required: the `prefilled*` props of `<GitClone>` and `<GitPullRequest>`, and the `outputPath` of `<TemplateInline>`.
+- **Guards work only where the template engine renders.** That covers the `env` and `workingDir` values of `<Command>`, `<Check>` and `<Finish>` blocks, `<Template>` files and `<TemplateInline>` content. Each `env` value is its own template, so a guard in one doesn't cover a reference in another or in `workingDir`. Props the app fills in itself can't evaluate `if`, so every output they reference is required: the `prefilled*` props of `<GitClone>` and `<GitPullRequest>`, and the `outputPath` of `<TemplateInline>`.
 </Aside>
 
 ### Combining inputs and outputs

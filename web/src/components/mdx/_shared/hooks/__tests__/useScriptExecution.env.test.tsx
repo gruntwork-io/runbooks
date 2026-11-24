@@ -98,7 +98,7 @@ afterEach(() => {
 })
 
 describe("useScriptExecution — env prop", () => {
-  it("waits for the inputs its env references, then shows the env rendered with the script", async () => {
+  it("waits for the inputs its env references, then shows the env rendered", async () => {
     const { result } = renderCommand({ BUCKET: "{{ .inputs.BucketName }}", COUNT: 2 })
 
     expect(result.current.exec.inputDependencies).toEqual(["BucketName"])
@@ -115,16 +115,14 @@ describe("useScriptExecution — env prop", () => {
       vi.advanceTimersByTime(300)
     })
 
-    // One render for the script and the env values that are templates
+    // One render, for the env values that are templates. The script runs as written.
     expect(renders).toHaveLength(1)
-    expect(renders[0]!.params.templateFiles).toEqual({
-      "script.sh": COMMAND,
-      "env:BUCKET": "{{ .inputs.BucketName }}",
-    })
+    expect(renders[0]!.params.templateFiles).toEqual({ "env:BUCKET": "{{ .inputs.BucketName }}" })
 
     await act(async () => {
-      renders[0]!.resolve(renderedInline({ "script.sh": COMMAND, "env:BUCKET": "my-bucket" }))
+      renders[0]!.resolve(renderedInline({ "env:BUCKET": "my-bucket" }))
     })
+    expect(result.current.exec.rawScriptContent).toBe(COMMAND)
     expect(result.current.exec.envVars).toEqual([
       { name: "BUCKET", value: "my-bucket" },
       { name: "COUNT", value: "2" },
@@ -263,7 +261,7 @@ describe("useScriptExecution — outputs entered by hand", () => {
     )
   }
 
-  /** The outputs a render request rendered the script and env with. */
+  /** The outputs a render request rendered the env with. */
   function renderedOutputs(render: HeldCall<"boilerplate:render-inline">) {
     return (render.params.inputs ?? []).find((input) => input.name === "outputs")!.value
   }
@@ -300,7 +298,6 @@ describe("useScriptExecution — outputs entered by hand", () => {
     })
     expect(renders).toHaveLength(1)
     expect(renders[0]!.params.templateFiles).toEqual({
-      "script.sh": PRINT,
       "env:PR_TITLE": "{{ .outputs.fetch-pr.title }}",
     })
     expect(renderedOutputs(renders[0]!)).toEqual({ fetch_pr: { title: "Fix it" } })

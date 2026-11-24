@@ -32,7 +32,6 @@ import { useSessionHistory } from "@/contexts/useSessionHistory"
 import { runEnded } from "@/lib/sessionHistory"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import type { AppError } from "@/types/error"
-import { scriptTemplateWarning } from "../../../../../../src/domain/exec/scriptTemplates.ts"
 import type { ComponentType, ExecutionStatus } from "../types"
 import type { StatusStyles } from "../lib/statusStyles"
 
@@ -54,8 +53,6 @@ export interface ScriptBlockVariant {
   fileName: string
   /** Heading in the file-load error block. */
   fileErrorHeading: string
-  /** Bold label in the render-error block. */
-  renderErrorLabel: string
   /** Noun in the "Configuration Required" message ("command" / "check script"). */
   missingInputsSubject: string
   /** Show the file-script metadata block + "View Source Code" button (Command only). */
@@ -193,7 +190,6 @@ export function ScriptBlock({
   const { enabled: instructionMode } = useInstructionMode()
 
   const {
-    sourceCode,
     rawScriptContent,
     language,
     fileError: getFileError,
@@ -261,8 +257,6 @@ export function ScriptBlock({
   // any other run, so the block starts completed when the session resumes.
   const history = useSessionHistory()
   const scriptless = !!variant.scriptOptional && !command && !path
-  // Templates in the script still work, but env is the way to pass values
-  const templateWarning = scriptless ? null : scriptTemplateWarning(rawScriptContent)
   const [scriptlessDone, setScriptlessDone] = useState(execStatus === "success")
   const completeScriptless = () => {
     setScriptlessDone(true)
@@ -326,21 +320,21 @@ export function ScriptBlock({
     // Display inline command if present
     if (command) {
       const isMultiLine = command.includes("\n")
-      return { content: sourceCode, isMultiLine } // Use sourceCode (may be rendered with variables)
+      return { content: rawScriptContent, isMultiLine }
     }
 
     return null
-  }, [path, command, sourceCode])
+  }, [path, command, rawScriptContent])
 
   // Calculate script metadata for file-based scripts (Command only)
   const scriptMetadata = useMemo(() => {
     if (!path || command) return null
 
-    const lines = sourceCode.split("\n").length
+    const lines = rawScriptContent.split("\n").length
     const languageDisplay = language || "shell"
 
     return { lines, language: languageDisplay }
-  }, [path, command, sourceCode, language])
+  }, [path, command, rawScriptContent, language])
 
   // Resolve display string props using template context
   const resolvedTitle = useMemo(
@@ -538,7 +532,7 @@ export function ScriptBlock({
   // no exec:run, no logs/outputs, no disabled Run button (spec §6.4). Resolve
   // from the raw script content so it works regardless of dependency state.
   // A nested <Inputs> stays a form: it is how the user supplies the values
-  // substituted into the displayed command.
+  // the env and working directory lines show.
   if (instructionMode) {
     return (
       <Instruction
@@ -548,7 +542,7 @@ export function ScriptBlock({
           resolvedTitle || (path ? variant.instructionPathTitle : variant.instructionInlineTitle)
         }
         description={resolvedDescription}
-        command={scriptless || path ? undefined : rawScriptContent}
+        script={scriptless || path ? undefined : rawScriptContent}
         source={
           path
             ? { content: rawScriptContent, path, language, fileName: variant.fileName }
@@ -675,7 +669,7 @@ export function ScriptBlock({
                   data-fold="title"
                   className={`font-mono text-sm text-muted-foreground truncate ${clearIdLabel}`}
                 >
-                  {path ?? sourceCode.split("\n")[0]}
+                  {path ?? rawScriptContent.split("\n")[0]}
                 </div>
               </WhenFolded>
             )}
@@ -739,16 +733,6 @@ export function ScriptBlock({
                 <div className="font-mono whitespace-pre-wrap break-all text-foreground">
                   {interpreter}
                 </div>
-              </div>
-            )}
-
-            {templateWarning && (
-              <div
-                data-testid={`${id}-template-warning`}
-                className={`text-xs text-warning-foreground flex items-start gap-1.5 mb-3 ${clearIdLabel}`}
-              >
-                <AlertTriangle className="size-3.5 mt-px flex-shrink-0" />
-                <span>{templateWarning}</span>
               </div>
             )}
 
@@ -856,7 +840,7 @@ export function ScriptBlock({
               <div className="mb-3 text-sm text-destructive flex items-start gap-2">
                 <XCircle className="size-4 mt-0.5 flex-shrink-0" />
                 <div className="min-w-0">
-                  <strong>{variant.renderErrorLabel}:</strong> {renderError.message}
+                  <strong>Env render error:</strong> {renderError.message}
                   {renderError.details && (
                     <div className="text-xs mt-1 text-destructive">{renderError.details}</div>
                   )}
@@ -922,7 +906,7 @@ export function ScriptBlock({
             {path && (
               <div ref={viewSourceCodeRef}>
                 <ViewSourceCode
-                  sourceCode={sourceCode}
+                  sourceCode={rawScriptContent}
                   path={path}
                   language={language}
                   fileName={variant.fileName}

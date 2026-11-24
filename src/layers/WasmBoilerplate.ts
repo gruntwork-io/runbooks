@@ -24,9 +24,10 @@
  *    error rather than blanking the whole preview. Structural / load
  *    failures still propagate.
  *
- *  - `renderFileStrict` fails with `RenderError` on every failure. Command /
- *    Check execution uses it, so a broken template fails the block with the
- *    real error instead of the marker text being run as the script.
+ *  - `renderFileStrict` fails with `RenderError` on every failure. A script
+ *    block's `env` and `workingDir` props render with it, so a broken
+ *    template fails the block with the real error instead of the marker text
+ *    reaching the script.
  */
 import path from "node:path"
 import { Effect, Layer, Stream } from "effect"

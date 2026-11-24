@@ -1,5 +1,6 @@
 /**
- * Template rendering for Command/Check scripts before they execute.
+ * Rendering the templates in a Command, Check or Finish block's props before
+ * its script runs. The script itself runs as written.
  */
 import { Effect } from "effect"
 import { BoilerplateRenderer } from "../../services/BoilerplateRenderer.ts"
@@ -9,34 +10,10 @@ import { resolveInputTemplates } from "../boilerplate/flattenInputs.ts"
 import type { BlockEnv } from "./blockEnv.ts"
 
 /**
- * Render a script's `{{ .inputs.X }}` / `{{ .outputs.B.K }}` references with
- * the UI's `{ inputs, outputs }` values, ready to execute.
- *
- * Values are inserted verbatim, with no shell quoting or escaping — the same
- * contract as the View Source preview and the test CLI. Scripts quote where
- * the shell needs it (`X="{{ .inputs.X }}"`), and string comparisons such as
- * `{{ if eq .inputs.X "lit" }}` see the raw value. A block's `env` prop
- * passes values as data instead (renderBlockEnv).
- *
- * Rendering is strict: a template error fails with `RenderError` so the
- * block fails with the real cause, rather than running the preview's
- * `[template error: ...]` marker as the script.
- */
-export function renderScriptForExec(
-  scriptContent: string,
-  templateVarValues: Record<string, unknown>,
-): Effect.Effect<string, RenderError, BoilerplateRenderer | WasmRuntime> {
-  return Effect.gen(function* () {
-    const renderer = yield* BoilerplateRenderer
-    const vars = yield* resolveTemplateVars(templateVarValues)
-    return yield* renderer.renderFileStrict(scriptContent, vars)
-  })
-}
-
-/**
- * Render a block's `env` templates with the same values as its script, ready
- * to set in the script's environment. Strict like renderScriptForExec: a
- * template error, such as an output that doesn't exist, fails the run and
+ * Render a block's `env` templates with the block's `{ inputs, outputs }`
+ * values, ready to set in the script's environment. Values are inserted
+ * verbatim, and the script gets each one as data. Strict: a template error,
+ * such as an output that doesn't exist, fails the run with `RenderError` and
  * names the variable, since the script would otherwise run with it wrong.
  */
 export function renderBlockEnv(
@@ -64,7 +41,7 @@ export function renderBlockEnv(
 }
 
 /**
- * Render a block's `workingDir` template with the same values as its script.
+ * Render a block's `workingDir` template with the same values as its env.
  * Strict like renderBlockEnv: a template error fails the run, since the
  * script would otherwise run in the wrong directory.
  */
@@ -87,7 +64,7 @@ export function renderBlockWorkingDir(
 }
 
 /**
- * The values to render a script or its env with: `templateVarValues` with
+ * The values to render a block's props with: `templateVarValues` with
  * the inputs that are templates themselves resolved.
  *
  * An input value can itself be a template — e.g. a Template block exposes
@@ -95,8 +72,8 @@ export function renderBlockWorkingDir(
  * via inputsId. A single render pass would insert that value verbatim,
  * leaving the inner `{{ .inputs.* }}` unrendered. We resolve the inputs
  * namespace to a fixed point against the other inputs/outputs first —
- * mirroring what flattenVariables does for the Template render path so exec
- * and render behave identically.
+ * mirroring what flattenVariables does for the Template render path so
+ * both render the same.
  */
 function resolveTemplateVars(templateVarValues: Record<string, unknown>) {
   return Effect.gen(function* () {

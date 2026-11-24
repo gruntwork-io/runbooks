@@ -317,7 +317,7 @@ describe("ExecutableRegistry", () => {
   })
 
   it("registers blocks that share an id-like flag under their own ids", async () => {
-    const flag = '--external-id="{{ .inputs.ExternalId }}"'
+    const flag = '--external-id="$EXTERNAL_ID"'
     const mdx = [
       `<Command command={\`aws sts assume-role ${flag}\`} id="assume-role" />`,
       `<Command command={\`aws sts assume-role --duration-seconds=900 ${flag}\`} id="assume-role-short" />`,
@@ -332,18 +332,26 @@ describe("ExecutableRegistry", () => {
     expect(componentIds.sort()).toEqual(["assume-role", "assume-role-short"])
   })
 
-  it("extracts template variables from script content", async () => {
-    const mdx = '<Command id="cmd1" command="echo {{.Name}} {{.Region}}" />'
-    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
+  it("registers scripts as written, template text included, inline or in a file", async () => {
+    const mdx = [
+      `<Command id="inline" command="docker ps --format '{{.Names}}'" />`,
+      '<Check id="file" path="checks/pr.sh" />',
+    ].join("\n")
+    const fileScript = 'grep -rn "{{ .inputs.Region }}" runbooks/\n'
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx, "/checks/pr.sh": fileScript })
 
     const registry = await Effect.runPromise(
       ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
     )
 
-    const entries = Object.keys(registry.getAllExecutables())
-    const entry = await Effect.runPromise(registry.getExecutable(entries[0]!))
-    expect(entry.templateVars).toContain("Name")
-    expect(entry.templateVars).toContain("Region")
+    const content = Object.fromEntries(
+      Object.values(registry.getAllExecutables()).map((entry) => [
+        entry.componentId,
+        registry.getExecutableSync(entry.id)?.content,
+      ]),
+    )
+    expect(content).toEqual({ inline: "docker ps --format '{{.Names}}'", file: fileScript })
+    expect(registry.getWarnings()).toEqual([])
   })
 
   it("registers each script block's env prop as written, for inline and file scripts", async () => {
@@ -517,7 +525,6 @@ describe("ExecutableRegistry", () => {
       componentId: "tools",
       componentType: "prerequisites",
       type: "inline",
-      templateVars: [],
     })
     // Not unescaped like a `command` prop: the fence's text is what the user wrote.
     expect(registry.getExecutableSync(entry!.id)?.content).toBe(
@@ -621,7 +628,6 @@ describe("ExecutableRegistry", () => {
         id: computeExecutableId("deploy", files[SCRIPT]),
         content: files[SCRIPT],
         contentHash: computeContentHash(files[SCRIPT]),
-        templateVars: ["Zone"],
       })
       // The replaced version can't be run by its old ID.
       expect(registry.getExecutableSync(before.id)).toBeUndefined()

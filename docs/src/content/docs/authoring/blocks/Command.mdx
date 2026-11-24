@@ -35,7 +35,7 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 - `autoCollapse` (boolean): whether the block folds down to its title once it's done. Defaults to `false`. Click it to show the block in full again. See [Folding done blocks](/authoring/blocks/#folding-done-blocks).
 - `command` (string): inline command to execute. Set exactly one of `command` and `path`. If both are set, `command` runs.
 - `path` (string): path to a script file, relative to the runbook's folder, such as `scripts/deploy.sh`. The file must be inside that folder, so a path with a `..` segment fails. Use either this or `command`.
-- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones. A block that uses `{{ .inputs.* }}`, in `env` or in the script, needs this prop or a nested Inputs block. See [With variables](#with-variables).
+- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones. A block that uses `{{ .inputs.* }}` in `env` or `workingDir` needs this prop or a nested Inputs block. See [With variables](#with-variables).
 - `env` (object): environment variables the script runs with, by name, such as `env={{ BUCKET: "{{ .inputs.BucketName }}" }}`. Each value can reference inputs and block outputs. See [Passing values as environment variables](#passing-values-as-environment-variables).
 - `workingDir` (string): the directory the script runs in, such as `workingDir="infra/live"`. A relative path is relative to the [session's directory](/commands/sessions/). Defaults to the session's directory. Like `env` values, it can use `{{ .inputs.X }}` and `{{ .outputs.block.key }}` templates. The directory must exist when the block runs. See [Working directory](/security/shell-execution-context/#working-directory).
 - `interpreter` (string): the program, with any arguments, that runs the script when it has no shebang, such as `interpreter="python3"`. A script with a shebang can't also set it. Defaults to the program for the script file's extension, or `bash`. See [How a script runs](/security/shell-execution-context/#how-a-script-runs).
@@ -334,7 +334,7 @@ The `env` prop sets environment variables for the script, by name. Each value is
 
 Runbooks gives the script the values as data. The shell never runs anything in them, so a value can hold quotes, `$(...)` or backticks, as a PR title or an API response can. Quote each variable where you use it, as above, so a value with spaces stays in one piece.
 
-- **The block shows the values.** Before you click Run, the block lists each variable with the value the script will get, once the inputs and outputs it references are set. The block waits for them, as it waits for the values its script references. A [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) shows as `<redacted>`, and the script gets its real value.
+- **The block shows the values.** Before you click Run, the block lists each variable with the value the script will get, once the inputs and outputs it references are set. Run waits for them. A [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) shows as `<redacted>`, and the script gets its real value.
 - **You can enter an output's value yourself.** See [Entering an output by hand](#entering-an-output-by-hand).
 - **Instruction mode exports them.** In [instruction mode](/intro/instruction-mode/), the block shows an `export` line for each variable before the command, quoted for the shell, so you can copy and run them together.
 - **They are this block's.** The variables are set for this run only, and later blocks don't see them. To pass a value to later blocks, write it as a [block output](#block-outputs) or to [`$RUNBOOK_ENV`](#execution-context).
@@ -342,9 +342,32 @@ Runbooks gives the script the values as data. The shell never runs anything in t
 
 A name has letters, digits and underscores, and doesn't start with a digit. A value is a string, a number or a boolean. Runbooks sets `GENERATED_FILES`, `REPO_FILES` and every name that starts with `RUNBOOK_` itself, so `env` can't use them. A block whose `env` breaks these rules shows the error and can't run.
 
+#### Large values
+
+The operating system limits how large an environment variable can be, and the limit depends on the system. A block whose `env` holds a value over the limit fails before its script starts. Variables set through [`$RUNBOOK_ENV`](#execution-context) have the same limits.
+
+To pass a larger value, such as an OpenTofu plan as JSON, write it to a file and pass the file's path instead. Scripts start in the [session's directory](/commands/sessions/), which stays in place for the blocks after them, so a file written there is still there when a later block runs:
+
+```bash
+#!/usr/bin/env bash
+# scripts/plan.sh, run by a block with id="plan"
+set -euo pipefail
+tofu plan -out=plan.tfplan
+tofu show -json plan.tfplan > plan.json
+echo "plan_json=$PWD/plan.json" >> "$RUNBOOK_OUTPUT"
+```
+
+```mdx
+<Command
+    id="count-changes"
+    env={{ PLAN_JSON: "{{ .outputs.plan.plan_json }}" }}
+    command={`jq '.resource_changes | length' "$PLAN_JSON"`}
+/>
+```
+
 #### Entering an output by hand
 
-In the block's list of variables, each output a value reads is a chip. It shows the value the script will get, or, before the block that produces it has run, which output it is. Click the chip and it turns into a field, in its place, where you can type another value. Press Enter, or click away after changing it, to use it. Press Escape to get the chip back. The block then uses that value in place of the output, in its `env` and in its script, and doesn't wait for the block that produces it. Use this to run the block when that block can't run on your machine, or to try another value.
+In the block's list of variables, each output a value reads is a chip. It shows the value the script will get, or, before the block that produces it has run, which output it is. Click the chip and it turns into a field, in its place, where you can type another value. Press Enter, or click away after changing it, to use it. Press Escape to get the chip back. The block then uses that value in place of the output, in its `env` and `workingDir`, and doesn't wait for the block that produces it. Use this to run the block when that block can't run on your machine, or to try another value.
 
 - **Reset goes back to the output.** A value you entered stays in its field, where you can change it, with a reset button next to it that brings the chip back.
 - **The value is this block's.** Other blocks that read the same output still get the output.
@@ -356,19 +379,18 @@ Chips appear for values made of text and plain references, such as `"{{ .outputs
 
 #### Templates in the script
 
-A script can also reference values directly, as `{{ .inputs.Name }}` or `{{ .outputs.build.tag }}`. Runbooks inserts them into the script's source before it runs, verbatim, with no quoting or escaping. Quote a reference where the shell needs it, for example `REGION="{{ .inputs.AwsRegion }}"`, and compare strings directly, for example `{{ if eq .inputs.Language "JavaScript" }}`.
+Runbooks runs the script as written. Any `{{ }}` text in it reaches the script unchanged, such as `docker ps --format '{{.Names}}'`, a GitHub Actions expression, or `{{ .inputs.Name }}` itself. To give a script an input or an output, pass it with [`env`](#passing-values-as-environment-variables) and read it as an environment variable.
 
-:::caution
-Quoting keeps a value with spaces in one piece, but it does not make an untrusted value safe to run. Double quotes still expand `$(...)`. For values you don't control, such as another block's outputs, use [`env`](#passing-values-as-environment-variables).
-:::
+To pick what a script does from an input, read the input from the environment and branch in the script:
 
-A block whose script references inputs or outputs shows a note above the script that names them, and [runbook tests](/authoring/testing/#warnings) print a warning for it. The script still runs.
-
-If the script can't be rendered, for example because it calls an unknown function or contains a `{{ }}` expression meant for another tool, the block fails with the template error and the script does not run. To pass `{{ }}` through to a tool such as `docker ps --format`, write it as a raw string: ``--format '{{`{{.Names}}`}}'``.
-
-:::note
-[Runbook tests](/authoring/testing/) use a simpler template renderer. It handles references such as `{{ .inputs.Name }}` and `{{ .outputs.build.tag }}`, `{{ fromJson .outputs.build.data }}`, and an `{{ if .inputs.Flag }}...{{ else }}...{{ end }}` that isn't nested. It leaves anything else in the script as written, including functions and pipes such as `upper` or `hasKey`, `eq` comparisons, `range`, `with`, and the `{{-` and `-}}` trim markers, and it reports the `{{.Names}}` in the raw-string form as an undefined variable. A script that uses any of these works in the app but not under test.
-:::
+```mdx
+<Command
+    id="build"
+    inputsId="app-config"
+    env={{ LANGUAGE: "{{ .inputs.Language }}" }}
+    command={`if [ "$LANGUAGE" = "JavaScript" ]; then npm run build; else go build ./...; fi`}
+/>
+```
 
 ### Execution context
 
@@ -393,7 +415,7 @@ See [Shell execution context](/security/shell-execution-context/) for the detail
 
 Command and Check blocks can run at the same time. A block's Run button is disabled while the block has to wait for another one:
 
-- **It uses another block's outputs.** A block that references `{{ .outputs.build.tag }}` can't run until `build` has produced that output, and can't run while `build` is running again.
+- **It uses another block's outputs.** A block whose `env` or `workingDir` references `{{ .outputs.build.tag }}` can't run until `build` has produced that output, and can't run while `build` is running again.
 - **It names another block in `dependsOn`.** Use this when a script needs something an earlier script did that isn't an output, such as a variable it wrote to `$RUNBOOK_ENV`, a directory it created, or a cloud resource it created. The block can't run until every block it names has succeeded, or for a Check, ended with a warning. A Command that exits 2 doesn't count. If one of them later fails or is stopped, the block waits again.
 - **It would overlap with an `exclusive` block.** No other Command or Check block can start while an `exclusive` block runs, and an `exclusive` block can't start while another one is running. Use this for a script that can't share its resources, such as one that takes a state lock.
 

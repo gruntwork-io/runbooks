@@ -156,7 +156,7 @@ function determineExitStatus(exitCode: number, timedOut: boolean): ExecStatusEve
  * script's shebang pick (see resolveScriptRunner).
  *
  * The caller is responsible for:
- *  - Resolving the Executable and rendering template variables before calling this
+ *  - Resolving the Executable and rendering its `env` and `workingDir` props
  *  - Providing the session execution context (env, workDir)
  *  - Consuming the returned Stream and relaying events to the client (SSE, IPC, etc.)
  *

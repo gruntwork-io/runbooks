@@ -16,11 +16,7 @@ import { resolveGeneratedDir, resolveRunLogsDir, resolveRunScriptsDir } from "./
 import { executeScript } from "../../../src/domain/exec/executor.ts"
 import { executePrerequisites } from "../../../src/domain/prerequisites/check.ts"
 import { appendPathEntries } from "../../../src/domain/session/manager.ts"
-import {
-  renderBlockEnv,
-  renderBlockWorkingDir,
-  renderScriptForExec,
-} from "../../../src/domain/exec/render.ts"
+import { renderBlockEnv, renderBlockWorkingDir } from "../../../src/domain/exec/render.ts"
 import type { ExecRequest, ExecStatusEvent } from "../../../src/types.ts"
 import { encodeOutputs, type OutputValues } from "../../../src/domain/exec/outputValues.ts"
 import { PathRefreshError } from "../../../src/errors/index.ts"
@@ -136,20 +132,9 @@ export function registerExecHandlers(): void {
             const executable = yield* executableRegistry.getExecutable(executableId)
             const isPrerequisites = executable.componentType === "prerequisites"
 
-            // Render template variables using the Go template engine. Values
-            // go in verbatim and a template error fails the run (see
-            // renderScriptForExec).
-            let scriptContent = executable.content
-            if (params.templateVarValues && !isPrerequisites) {
-              scriptContent = yield* renderScriptForExec(
-                scriptContent,
-                params.templateVarValues as Record<string, unknown>,
-              )
-            }
-
-            // The block's `env` prop, from the registry's copy of the runbook,
-            // rendered with the same values. They reach the script as env
-            // vars, so nothing in them is parsed as shell.
+            // The script runs as the registry holds it. The block's `env`
+            // prop, from the registry's copy of the runbook, is rendered with
+            // the block's values, which reach the script as env vars.
             const blockEnv = yield* renderBlockEnv(
               executable.env,
               (params.templateVarValues ?? {}) as Record<string, unknown>,
@@ -170,13 +155,13 @@ export function registerExecHandlers(): void {
             // completion effect
             const { logStream, completionEffect, logFilePath } = isPrerequisites
               ? yield* executePrerequisites(
-                  scriptContent,
+                  executable.content,
                   context,
                   logsDir,
                   refreshPath(context.generation),
                 )
               : yield* executeScript(
-                  scriptContent,
+                  executable.content,
                   { path: executable.path ?? "", interpreter: executable.interpreter },
                   params,
                   { ...context, workDir },

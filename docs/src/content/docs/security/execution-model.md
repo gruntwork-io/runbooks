@@ -32,7 +32,7 @@ When a runbook opens, the main process reads `runbook.mdx`, finds every `<Check>
 
 The main process reads the file as the renderer does. A block in a code block, in inline code or in a `{/* comment */}` isn't stored, and a runbook that isn't valid MDX, or that contains anything listed in [the section above](#opening-a-runbook-never-runs-its-code), stores nothing.
 
-When you click Run, the renderer sends an execution request with the executable ID, the template variable values, environment variable overrides from the auth blocks the block references, and a timeout. It never sends script content. The main process looks the ID up in the registry, renders the stored script with the given variables, and runs it. A request for an ID that is not in the registry is refused, so a manipulated IPC message cannot pick a script the runbook did not contain. The registry holds the scripts the runbook had when it was loaded, and any script file you [reloaded yourself](#reloading-a-changed-script-file) after reviewing a change. Template values are inserted into the script verbatim and environment overrides are applied as sent, so a manipulated request can change what the stored script does, though not which script runs.
+When you click Run, the renderer sends an execution request with the executable ID, the template variable values, environment variable overrides from the auth blocks the block references, and a timeout. It never sends script content. The main process looks the ID up in the registry, renders the block's `env` and `workingDir` with the given variables, and runs the stored script. A request for an ID that is not in the registry is refused, so a manipulated IPC message cannot pick a script the runbook did not contain. The registry holds the scripts the runbook had when it was loaded, and any script file you [reloaded yourself](#reloading-a-changed-script-file) after reviewing a change. Template values reach the script through its `env` and `workingDir`, and environment overrides are applied as sent, so a manipulated request can change the values the stored script gets, though not which script runs.
 
 ## Electron settings
 
@@ -102,16 +102,15 @@ Runbooks watches the script files that `<Check>`, `<Command>` and `<Finish>` blo
 ## How scripts run
 
 1. The main process checks that the executable ID is in the registry.
-2. It renders template references such as `{{ .inputs.VarName }}` and `{{ .outputs.block_id.name }}` into the script.
-3. It renders the block's [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) and `workingDir` values, from the registry's copy of the runbook, with the same values.
-4. It writes the script to a file in the session directory's `.runbooks/scripts/` folder, readable and runnable only by your user.
-5. On macOS and Linux it runs a script with a shebang as a program, so the operating system starts the interpreter the shebang names. It runs a script without one with `bash`, or with the program for its file's extension. On Windows it starts the program the shebang names. See [How a script runs](/security/shell-execution-context/#how-a-script-runs).
-6. The script runs in a non-interactive shell, in the block's `workingDir` or the session's directory, with the `env` values set as environment variables for this run.
-7. It streams stdout and stderr to the renderer over IPC.
-8. It deletes the script file.
+2. It renders the block's [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) and `workingDir` values, from the registry's copy of the runbook, with the block's inputs and outputs. The script itself runs as the registry holds it.
+3. It writes the script to a file in the session directory's `.runbooks/scripts/` folder, readable and runnable only by your user.
+4. On macOS and Linux it runs a script with a shebang as a program, so the operating system starts the interpreter the shebang names. It runs a script without one with `bash`, or with the program for its file's extension. On Windows it starts the program the shebang names. See [How a script runs](/security/shell-execution-context/#how-a-script-runs).
+5. The script runs in a non-interactive shell, in the block's `workingDir` or the session's directory, with the `env` values set as environment variables for this run.
+6. It streams stdout and stderr to the renderer over IPC.
+7. It deletes the script file.
 
 Scripts run with your user's permissions and full environment. Only run runbooks you trust.
 
-A value rendered into the script becomes part of its source, so the shell runs whatever code the value holds. A value in `env` reaches the script as data and never runs. A block output often holds text from outside the runbook, such as a PR title or an API response, so pass outputs to scripts with `env`.
+A value in `env` reaches the script as data, and the shell never runs it, even when it holds text from outside the runbook, such as a PR title or an API response. Runbooks runs the script itself as written. See [Templates in the script](/authoring/blocks/command/#templates-in-the-script).
 
 For how a script's interpreter is picked, shell limitations and how scripts set variables for later blocks, see [Shell execution context](/security/shell-execution-context/).

@@ -44,22 +44,27 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 const config = makeConfig([{ name: "name", type: BoilerplateVariableType.String }])
-const rendered = (content: string) => renderedInline({ "script.sh": content })
+const rendered = (value: string) => renderedInline({ "env:NAME": value })
 
-function renderCommand(command = "echo {{ .inputs.name }}") {
+function renderCommand(env: Record<string, string> = { NAME: "{{ .inputs.name }}" }) {
   return renderHook(
-    (props: { command: string }) => ({
+    (props: { env: Record<string, string> }) => ({
       exec: useScriptExecution({
         componentId: "greet",
-        command: props.command,
+        command: 'echo "$NAME"',
+        env: props.env,
         inputsId: "form",
         componentType: "command",
       }),
       runbook: useRunbookContext(),
     }),
-    { wrapper: Providers, initialProps: { command } },
+    { wrapper: Providers, initialProps: { env } },
   )
 }
+
+/** The value the block shows for its NAME env var. */
+const shownName = (result: ReturnType<typeof renderCommand>["result"]) =>
+  result.current.exec.envVars.find((envVar) => envVar.name === "NAME")?.value
 
 /** Type a value into the form and let the 300ms render debounce fire. */
 async function typeName(result: ReturnType<typeof renderCommand>["result"], name: string) {
@@ -89,12 +94,12 @@ describe("useScriptExecution render ordering", () => {
     expect(renders).toHaveLength(2)
 
     await act(async () => {
-      renders[1]!.resolve(rendered("echo second"))
+      renders[1]!.resolve(rendered("second"))
     })
     await act(async () => {
-      renders[0]!.resolve(rendered("echo first"))
+      renders[0]!.resolve(rendered("first"))
     })
-    expect(result.current.exec.sourceCode).toBe("echo second")
+    expect(shownName(result)).toBe("second")
     expect(result.current.exec.isRendering).toBe(false)
   })
 
@@ -105,17 +110,17 @@ describe("useScriptExecution render ordering", () => {
     await typeName(result, "second")
 
     await act(async () => {
-      renders[1]!.resolve(rendered("echo second"))
+      renders[1]!.resolve(rendered("second"))
     })
     await act(async () => {
       renders[0]!.reject(new Error("template: missing value for name"))
     })
     expect(result.current.exec.renderError).toBeNull()
-    expect(result.current.exec.sourceCode).toBe("echo second")
+    expect(shownName(result)).toBe("second")
   })
 
   it("keeps the raw template when an output goes missing while its render is in flight", async () => {
-    const { result } = renderCommand("echo {{ .outputs.build.version }}")
+    const { result } = renderCommand({ NAME: "{{ .outputs.build.version }}" })
 
     await act(async () => {
       result.current.runbook.registerOutputs("build", { version: "1.2.3" })
@@ -133,26 +138,26 @@ describe("useScriptExecution render ordering", () => {
     expect(result.current.exec.isRendering).toBe(false)
 
     await act(async () => {
-      renders[0]!.resolve(rendered("echo 1.2.3"))
+      renders[0]!.resolve(rendered("1.2.3"))
     })
-    expect(result.current.exec.sourceCode).toBe("echo {{ .outputs.build.version }}")
+    expect(shownName(result)).toBe("{{ .outputs.build.version }}")
     expect(result.current.exec.isRendering).toBe(false)
   })
 
-  it("keeps a command that lost its template variables when the old render lands later", async () => {
+  it("keeps an env that lost its template variables when the old render lands later", async () => {
     const { result, rerender } = renderCommand()
 
     await typeName(result, "first")
     expect(renders).toHaveLength(1)
 
     // The runbook was edited and reloaded while the render was in flight
-    rerender({ command: "echo hello" })
+    rerender({ env: { NAME: "hello" } })
     expect(result.current.exec.isRendering).toBe(false)
 
     await act(async () => {
-      renders[0]!.resolve(rendered("echo first"))
+      renders[0]!.resolve(rendered("first"))
     })
-    expect(result.current.exec.sourceCode).toBe("echo hello")
+    expect(shownName(result)).toBe("hello")
     expect(result.current.exec.isRendering).toBe(false)
   })
 })

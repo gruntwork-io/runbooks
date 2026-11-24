@@ -9,7 +9,6 @@ export interface Executable {
   componentType: "check" | "command" | "finish" | "prerequisites"
   contentHash: string
   path?: string
-  templateVars?: string[]
   /** The block's `env` prop: its variables' templates by name. */
   env?: Record<string, string>
   /** The block's `workingDir` prop, or "" for the session's directory. */

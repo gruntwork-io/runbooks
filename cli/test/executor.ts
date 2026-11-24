@@ -96,7 +96,6 @@ import { AZURE_AUTH_ENV_VARS } from "../../src/domain/exec/authEnv.ts"
 import { unknownBlocksError } from "../../src/runbooks-version.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 import { errorMessage } from "../../src/errors/message.ts"
-import { scriptTemplateWarning } from "../../src/domain/exec/scriptTemplates.ts"
 
 // ---------------------------------------------------------------------------
 // Block types & states
@@ -108,12 +107,7 @@ type GitProvider = "github" | "gitlab"
 
 const AUTH_BLOCK_SET = new Set<string>(AUTH_BLOCK_TYPES)
 const PR_BLOCK_SET = new Set<string>(PR_BLOCK_TYPES)
-// Block names by the lowercase componentType the registry gives script entries
-const SCRIPT_BLOCK_NAMES = new Map([
-  ["command", "Command"],
-  ["check", "Check"],
-  ["finish", "Finish"],
-])
+const SCRIPT_BLOCK_TYPES = new Set(["Command", "Check", "Finish"])
 
 function isAuthBlock(blockType: string): boolean {
   return AUTH_BLOCK_SET.has(blockType)
@@ -383,22 +377,6 @@ export class TestExecutor {
     this.initialSessionEnv = Object.entries(process.env)
       .filter(([, v]) => v !== undefined)
       .map(([k, v]) => `${k}=${v}`)
-  }
-
-  /**
-   * A warning for each Command, Check or Finish script that inserts inputs or
-   * outputs into its source, naming the block. The scripts still run.
-   */
-  scriptTemplateWarnings(): string[] {
-    const warnings: string[] = []
-    for (const id of Object.keys(this.registry.getAllExecutables())) {
-      const entry = this.registry.getExecutableSync(id)
-      const blockName = entry && SCRIPT_BLOCK_NAMES.get(entry.componentType)
-      if (!entry || !blockName) continue
-      const warning = scriptTemplateWarning(entry.content)
-      if (warning) warnings.push(`${blockName} "${entry.componentId}": ${warning}`)
-    }
-    return warnings
   }
 
   // -----------------------------------------------------------------------
@@ -793,11 +771,19 @@ export class TestExecutor {
 
     // Render template vars in block props. The app resolves props for display
     // and shows a sensitive output in them as <redacted>, so they get the
-    // same here.
+    // same here. A script block's command runs as written.
     try {
+      const { command, ...rendered } = block.props
+      const keepsCommand = SCRIPT_BLOCK_TYPES.has(block.type) && command !== undefined
       block = {
         ...block,
-        props: renderPropTemplates(block.props, this.buildTemplateVars(block.id, maskOutputs)),
+        props: {
+          ...renderPropTemplates(
+            keepsCommand ? rendered : block.props,
+            this.buildTemplateVars(block.id, maskOutputs),
+          ),
+          ...(keepsCommand ? { command } : {}),
+        },
       }
     } catch (e: unknown) {
       result.passed = false
@@ -951,14 +937,12 @@ export class TestExecutor {
       return result
     }
 
-    // Render template vars in script content, and the block's env with the
-    // same values
-    let scriptContent = foundExec.content
+    // The script runs as written. Render the block's env and workingDir
+    const scriptContent = foundExec.content
     const blockEnv: Record<string, string> = {}
     let workingDir = foundExec.workingDir
     try {
       const vars = this.buildTemplateVars(block.id)
-      scriptContent = renderGoTemplate(scriptContent, vars)
       for (const [name, template] of Object.entries(foundExec.env)) {
         try {
           blockEnv[name] = renderGoTemplate(template, vars)

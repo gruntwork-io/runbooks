@@ -17,7 +17,7 @@ export interface BoilerplateRendererShape {
   /**
    * Render a single Go text/template string, strictly: every failure,
    * including template-level ones, fails with `RenderError`. Use this for
-   * content that will be executed, such as Command/Check scripts.
+   * values a script will run with, such as a script block's `env` prop.
    */
   readonly renderFileStrict: (
     templateContent: string,
