@@ -330,7 +330,7 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({
       onChange={(e) => onChange(e.target.value)}
       onBlur={onBlur}
       disabled={disabled}
-      className={getInputClassName(error, "min-w-56", disabled)}
+      className={getInputClassName(error, "min-w-56 max-w-full truncate", disabled)}
     >
       {showPlaceholder && (
         <option value="" disabled>
