@@ -23,6 +23,7 @@ import {
   refreshSubscriptions,
   resolveContextOptions,
   setSubscription,
+  tenantDefaultAccount,
   showAccount,
   type DeviceCodePrompt,
   type RequiredRole,
@@ -152,7 +153,14 @@ async function commitContext(
 
   // After the checks: a block whose tenant is being changed keeps using this
   // dir until the change is committed.
-  if (choice.subscriptionId) await runtime.runPromise(setSubscription(ctx, choice.subscriptionId))
+  if (choice.subscriptionId) {
+    await runtime.runPromise(setSubscription(ctx, choice.subscriptionId))
+  } else {
+    // A tenant-level choice: make the tenant the CLI's default, so scripts'
+    // `az` commands, which name no tenant, run in it.
+    const account = await runtime.runPromise(tenantDefaultAccount(ctx, choice.tenantId))
+    if (account) await runtime.runPromise(setSubscription(ctx, account))
+  }
 
   const [accounts, tenants] = await Promise.all([
     runtime.runPromise(listAccounts(ctx)),

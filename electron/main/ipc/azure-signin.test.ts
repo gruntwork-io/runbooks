@@ -682,6 +682,25 @@ describe("changing tenant", () => {
     expect(logins()).toHaveLength(loginsBefore)
   })
 
+  it("makes a tenant-level choice the CLI's default tenant", async () => {
+    az.accounts = [
+      { id: "sub-home", name: "Home", tenantId: HOME_TENANT, isDefault: true },
+      { id: "sub-off", name: "Old", tenantId: GUEST_TENANT, state: "Disabled" },
+      { id: GUEST_TENANT, name: "N/A(tenant level account)", tenantId: GUEST_TENANT },
+    ]
+    az.tenants = [
+      { tenantId: HOME_TENANT, displayName: "Home" },
+      { tenantId: GUEST_TENANT, displayName: "Billing" },
+    ]
+    await signedInTo("billing", HOME_TENANT, "sub-home")
+    const setsBefore = spawner.calls.filter((call) => call.args[1] === "set").length
+
+    authenticated(await handleSelectContext({ blockId: "billing", tenantId: GUEST_TENANT }))
+
+    const sets = spawner.calls.filter((call) => call.args[1] === "set").slice(setsBefore)
+    expect(sets.map((call) => call.args.at(-1))).toEqual([GUEST_TENANT])
+  })
+
   it("signs in to a tenant that wants MFA in the block's own dir, then commits it", async () => {
     twoTenants()
     az.mfaTenants = [GUEST_TENANT]

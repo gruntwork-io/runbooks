@@ -157,6 +157,27 @@ export const principalFor = (ctx: AzContext, tenantId?: string) =>
     return principal
   })
 
+/**
+ * The account in the CLI profile to make the default for a tenant-level choice,
+ * so `az` commands that name no tenant use that tenant: the tenant-level entry
+ * `az login --allow-no-subscriptions` adds, else one of the tenant's
+ * subscriptions, enabled ones first. Undefined when the profile has none.
+ */
+export const tenantDefaultAccount = (ctx: AzContext, tenantId: string) =>
+  runAzJson<RawAccount[]>(ctx, ["account", "list", "--all"]).pipe(
+    Effect.map((raws) => {
+      const tenant = tenantId.toLowerCase()
+      const inTenant = (raws ?? []).filter(
+        (raw) => raw.id && raw.tenantId?.toLowerCase() === tenant,
+      )
+      const pick =
+        inTenant.find((raw) => raw.id?.toLowerCase() === tenant) ??
+        inTenant.find((raw) => raw.state !== "Disabled") ??
+        inTenant[0]
+      return pick?.id
+    }),
+  )
+
 export const setSubscription = (ctx: AzContext, subscriptionId: string) =>
   runAz(ctx, ["account", "set", "--subscription", subscriptionId], {
     display: "az account set",
