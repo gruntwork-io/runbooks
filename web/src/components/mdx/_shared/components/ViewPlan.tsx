@@ -78,7 +78,7 @@ export function ViewPlan({ plan }: ViewPlanProps) {
       </button>
 
       {open && (
-        <div className="border-t border-border bg-muted max-h-[32rem] overflow-y-auto">
+        <div className="border-t border-border max-h-[32rem] overflow-y-auto">
           {changed.map((unit) => (
             <UnitSection
               key={unit.name}
@@ -195,7 +195,7 @@ function UnitSection({ unit, defaultOpen }: { unit: PlanUnit; defaultOpen: boole
           </span>
         )}
         {unit.result === "excluded" && (
-          <span className="rounded-sm bg-background px-1.5 py-0.5 text-xs text-muted-foreground">
+          <span className="rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
             excluded
           </span>
         )}
@@ -249,7 +249,7 @@ function ResourceRow({ resource }: { resource: PlanResourceChange }) {
   const style = ACTION_STYLE[resource.action]
   const expandable = resource.attributes.length > 0
   return (
-    <div className="rounded-sm border border-border bg-background">
+    <div className="rounded-sm border border-border">
       <button
         onClick={() => expandable && setOpen(!open)}
         className={cn(
@@ -287,13 +287,11 @@ function ResourceRow({ resource }: { resource: PlanResourceChange }) {
       </button>
       {open && (
         <div className="border-t border-border px-2 py-1.5">
-          <table className="w-full table-fixed font-mono text-xs">
-            <tbody>
-              {resource.attributes.map((attribute) => (
-                <AttributeRow key={attribute.path} attribute={attribute} action={resource.action} />
-              ))}
-            </tbody>
-          </table>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-x-3 font-mono text-xs">
+            {resource.attributes.map((attribute) => (
+              <AttributeRow key={attribute.path} attribute={attribute} action={resource.action} />
+            ))}
+          </div>
           {!!resource.omittedAttributes && (
             <p className="pt-1 text-xs text-muted-foreground">
               …and {resource.omittedAttributes} more attributes. The log has the full plan.
@@ -314,14 +312,14 @@ function AttributeRow({
 }) {
   const showBefore = action !== "create"
   return (
-    <tr className="align-top">
-      <td className="w-1/3 break-all py-0.5 pr-3 text-muted-foreground">
+    <>
+      <div className="break-all py-0.5 text-muted-foreground">
         {attribute.path}
         {attribute.forcesReplacement && (
           <span className="block font-sans text-destructive">forces replacement</span>
         )}
-      </td>
-      <td className="break-all py-0.5">
+      </div>
+      <div className="break-all py-0.5">
         {attribute.sensitive ? (
           <span className="italic text-muted-foreground">(sensitive value)</span>
         ) : (
@@ -347,7 +345,7 @@ function AttributeRow({
             )}
           </>
         )}
-      </td>
-    </tr>
+      </div>
+    </>
   )
 }
