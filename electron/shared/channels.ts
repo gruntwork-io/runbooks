@@ -88,6 +88,11 @@ export type AzureSignInResultIpc =
       error: string
       cliMissing?: boolean
       missingRoles?: RequiredRole[]
+      /**
+       * The tenant gives no token until the user signs in to it again (MFA,
+       * consent): azure:tenant-login-start does that sign-in.
+       */
+      interactionRequired?: boolean
     }
 
 /** What session:switch did. */
@@ -711,6 +716,14 @@ export interface IpcChannelMap {
     params: { blockId: string; deviceCode: boolean; tenantId?: string }
     result: { flowId?: string; error?: string; cliMissing?: boolean }
   }
+  /**
+   * Sign in to one tenant again, in the block's existing sign-in dir, then
+   * commit that tenant and subscription. Polled with azure:login-poll.
+   */
+  "azure:tenant-login-start": {
+    params: { blockId: string; tenantId: string; subscriptionId?: string }
+    result: { flowId?: string; error?: string; cliMissing?: boolean }
+  }
   "azure:login-poll": {
     params: AzureSignInPinsIpc & { flowId: string }
     result:
@@ -734,6 +747,21 @@ export interface IpcChannelMap {
       tenantId: string
       subscriptionId?: string
       requiredRoles?: RequiredRole[]
+    }
+    result: AzureSignInResultIpc
+  }
+  /**
+   * The tenants and subscriptions a block's existing user sign-in can move
+   * to, as select_context. The block keeps its tenant until
+   * azure:select-context commits another.
+   */
+  "azure:change-tenant": {
+    params: {
+      blockId: string
+      configDir: string
+      authType: AzureAuthType
+      tenantId: string
+      extensionDir?: string
     }
     result: AzureSignInResultIpc
   }

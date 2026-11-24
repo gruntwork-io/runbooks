@@ -118,19 +118,34 @@ export const listTenants = (ctx: AzContext) =>
     Effect.catch(() => Effect.succeed([] as AzureTenant[])),
   )
 
+// Entra errors that a new interactive sign-in to the tenant clears: MFA or
+// another strong-auth challenge, consent, or a session the tenant's policy
+// has ended.
+const INTERACTION_REQUIRED =
+  /\bAADSTS(50072|50074|50076|50078|50079|50158|50173|65001|70043|700082)\b|Interactive authentication is needed/i
+
+export const needsInteraction = (message: string) => INTERACTION_REQUIRED.test(message)
+
 export const principalFor = (ctx: AzContext, tenantId?: string) =>
   Effect.gen(function* () {
     const args = ["account", "get-access-token", "--query", "accessToken", "-o", "tsv"]
     if (tenantId) args.push("--tenant", tenantId)
     const token = (yield* runAz(ctx, args, { display: "az account get-access-token" }).pipe(
-      Effect.mapError((err) =>
-        tenantId && !err.cliMissing
-          ? new AzureAuthError({
-              message: `Couldn't get a token for tenant ${tenantId} without signing in again (${err.message}). Sign in with that tenant ID.`,
-              command: err.command,
-            })
-          : err,
-      ),
+      Effect.mapError((err) => {
+        if (!tenantId || err.cliMissing) return err
+        if (needsInteraction(err.message)) {
+          return new AzureAuthError({
+            message: `Tenant ${tenantId} needs you to sign in to it again`,
+            interactionRequired: true,
+            command: err.command,
+            cause: err,
+          })
+        }
+        return new AzureAuthError({
+          message: `Couldn't get a token for tenant ${tenantId} without signing in again (${err.message}). Sign in with that tenant ID.`,
+          command: err.command,
+        })
+      }),
     )).trim()
     const claims = decodeJwtPayload(token)
     const principal = claims ? principalFromClaims(claims) : undefined

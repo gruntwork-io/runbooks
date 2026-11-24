@@ -150,11 +150,17 @@ After signing in, the block lists every tenant the account can see, including te
 
 A tenant can be used without a subscription, for tenant-level work such as bootstrapping a landing zone. Choose **No subscription (tenant-level)**: the subscription variables are left unset.
 
+### Changing tenant
+
+A block signed in as a user (Azure CLI, device code, or a detected `az login`) shows **Change tenant** next to **Re-authenticate**, unless it sets `tenantId` or `subscriptionId`. It reopens the picker on the block's existing sign-in, with no new login, and **Continue** moves the block to the chosen tenant and subscription. **Cancel** keeps the tenant the block had. Other AzureAuth blocks keep their own sign-ins and tenants.
+
+When the chosen tenant needs you to sign in again, for example for its multi-factor authentication, the block says so and runs `az login` for that tenant in the block's own sign-in, then uses it. A device code sign-in shows a new code for it.
+
 ### Guest accounts
 
 A guest is a user signed in to a tenant that isn't their home tenant (Microsoft Entra B2B). AzureAuth reads the principal from a token for the chosen tenant, so it reports a guest as `AZURE_PRINCIPAL_TYPE=guest`, with the guest's object ID in that tenant, and shows the home tenant on the success card.
 
-A guest tenant often requires its own multi-factor authentication, so `az login` can't always get a token for it without asking. If a tenant is missing from the picker, or choosing it fails with *Couldn't get a token for tenant ... without signing in again*, sign in with that tenant ID: set the `tenantId` prop, or enter it in the **Tenant ID** field.
+A guest tenant often requires its own multi-factor authentication, so `az login` can't always get a token for it without asking. Choosing such a tenant in the picker signs in to it (see [Changing tenant](#changing-tenant)). If a tenant is missing from the picker, or choosing it fails with *Couldn't get a token for tenant ... without signing in again*, sign in with that tenant ID: set the `tenantId` prop, or enter it in the **Tenant ID** field.
 
 ## Required roles
 

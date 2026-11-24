@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { Effect, Exit, Layer } from "effect"
+import { Cause, Effect, Exit, Layer } from "effect"
 import {
   checkRequiredRoles,
   detectEnvServicePrincipal,
@@ -8,6 +8,7 @@ import {
   listTenants,
   loginServicePrincipal,
   missingRolesMessage,
+  needsInteraction,
   parseDeviceCodePrompt,
   principalFor,
   refreshSubscriptions,
@@ -17,6 +18,7 @@ import {
   type AzureSubscription,
 } from "./auth.ts"
 import { AZ_MISSING_MESSAGE, azCommand } from "./cli.ts"
+import type { AzureAuthError } from "../../errors/index.ts"
 import { makeRecordingSpawner, type SpawnResponse } from "../../test-utils/TestSpawner.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 
@@ -160,9 +162,43 @@ describe("principalFor", () => {
 
   it("says to sign in to the tenant when no token comes silently", () => {
     const { exit } = run(principalFor(CTX, "t9"), () =>
-      stderr("ERROR: AADSTS50076: you must use multi-factor authentication"),
+      stderr("ERROR: AADSTS50020: User account from identity provider does not exist in tenant"),
     )
     expect(failureMessage(exit)).toContain("Sign in with that tenant ID")
+    expect(failureMessage(exit)).not.toContain("interactionRequired")
+  })
+
+  it("marks a tenant that wants an interactive sign-in, without its AADSTS text", () => {
+    const { exit } = run(principalFor(CTX, "t9"), () =>
+      stderr(
+        "ERROR: AADSTS50076: Due to a configuration change made by your administrator, you must use multi-factor authentication to access 't9'.",
+      ),
+    )
+    if (Exit.isSuccess(exit)) throw new Error("expected failure")
+    const error = Cause.squash(exit.cause) as AzureAuthError
+    expect(error.interactionRequired).toBe(true)
+    expect(error.message).toBe("Tenant t9 needs you to sign in to it again")
+  })
+})
+
+describe("needsInteraction", () => {
+  it.each([
+    "AADSTS50076: Due to a configuration change made by your administrator",
+    "AADSTS50079: Due to a configuration change made by your administrator, you must enroll",
+    "AADSTS50158: External security challenge not satisfied",
+    "AADSTS65001: The user or administrator has not consented to use the application",
+    "Interactive authentication is needed. Please run: az login --tenant t9",
+  ])("is true for %s", (message) => {
+    expect(needsInteraction(message)).toBe(true)
+  })
+
+  it.each([
+    "AADSTS50020: User account from identity provider does not exist in tenant",
+    "AADSTS53003: Access has been blocked by Conditional Access policies",
+    "AADSTS500761 is not a code",
+    "Max retries exceeded with url",
+  ])("is false for %s", (message) => {
+    expect(needsInteraction(message)).toBe(false)
   })
 })
 

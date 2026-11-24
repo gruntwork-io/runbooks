@@ -49,10 +49,16 @@ const toErrorMessage = (err: unknown): string => redactSecrets(errorMessage(err)
 const isCliMissing = (err: unknown): boolean =>
   typeof err === "object" && err !== null && (err as { cliMissing?: unknown }).cliMissing === true
 
+const needsTenantSignIn = (err: unknown): boolean =>
+  typeof err === "object" &&
+  err !== null &&
+  (err as { interactionRequired?: unknown }).interactionRequired === true
+
 const failed = (err: unknown): Result => ({
   status: "failed",
   error: toErrorMessage(err),
   ...(isCliMissing(err) ? { cliMissing: true } : {}),
+  ...(needsTenantSignIn(err) ? { interactionRequired: true } : {}),
 })
 
 const SUPERSEDED: Result = { status: "failed", error: "This sign-in was cancelled" }
@@ -131,8 +137,6 @@ async function commitContext(
       error: `This sign-in is now ${principal.name}, not the account the block used before`,
     }
   }
-  if (choice.subscriptionId) await runtime.runPromise(setSubscription(ctx, choice.subscriptionId))
-
   if (requiredRoles && requiredRoles.length > 0) {
     const missing = await runtime.runPromise(
       checkRequiredRoles(ctx, principal, requiredRoles, choice.subscriptionId),
@@ -145,6 +149,10 @@ async function commitContext(
       }
     }
   }
+
+  // After the checks: a block whose tenant is being changed keeps using this
+  // dir until the change is committed.
+  if (choice.subscriptionId) await runtime.runPromise(setSubscription(ctx, choice.subscriptionId))
 
   const [accounts, tenants] = await Promise.all([
     runtime.runPromise(listAccounts(ctx)),
@@ -180,6 +188,28 @@ async function commitContext(
   }
 }
 
+/**
+ * Who the picker says is signed in: the principal in the first of the tenants
+ * that gives a token without a new sign-in. One tenant that wants MFA, or
+ * refuses this account, doesn't fail a sign-in that works in another.
+ */
+async function pickerPrincipal(ctx: AzContext, tenantIds: readonly (string | undefined)[]) {
+  const tried = new Set<string>()
+  let firstError: unknown
+  for (const tenantId of tenantIds) {
+    if (!tenantId || tried.has(tenantId.toLowerCase())) continue
+    tried.add(tenantId.toLowerCase())
+    try {
+      return await runtime.runPromise(principalFor(ctx, tenantId))
+    } catch (err) {
+      if (isCliMissing(err)) throw err
+      firstError ??= err
+    }
+  }
+  if (firstError !== undefined) throw firstError
+  return runtime.runPromise(principalFor(ctx))
+}
+
 async function finishSignIn(
   at: Attempt,
   signIn: BlockSignIn,
@@ -205,7 +235,11 @@ async function finishSignIn(
     subscriptionId: pins.subscriptionId,
   })
   if (options.chosen) return commitContext(at, signIn, options.chosen, pins)
-  const principal = await runtime.runPromise(principalFor(ctx, signedIn?.tenantId))
+  const principal = await pickerPrincipal(ctx, [
+    signedIn?.tenantId,
+    ...options.subscriptions.map((sub) => sub.tenantId),
+    ...options.tenants.map((tenant) => tenant.tenantId),
+  ])
   return {
     status: "select_context",
     authType: signIn.authType,
@@ -407,10 +441,19 @@ export async function handleServicePrincipal(
 
 const FLOW_TIMEOUT_MS = 15 * 60_000
 
+/** A sign-in to one more tenant, in the dir of a block's existing sign-in. */
+interface TenantSignIn {
+  readonly signIn: BlockSignIn
+  readonly choice: { tenantId: string; subscriptionId?: string | undefined }
+  /** The dir's default subscription before az login changed it. */
+  readonly previousSubscriptionId?: string | undefined
+}
+
 interface LoginFlow {
   readonly id: string
   readonly at: Attempt
   readonly dir: string
+  readonly tenantSignIn?: TenantSignIn | undefined
   readonly authType: AzureAuthType
   readonly startedAt: number
   readonly process: SpawnedProcess
@@ -425,14 +468,25 @@ let nextFlowId = 0
 
 function killFlow(flow: LoginFlow): void {
   void runtime.runPromise(flow.process.kill).catch(() => {})
-  if (flow.result === undefined) abandonConfigDir(flow.at.blockId, flow.dir)
+  if (flow.result === undefined && !flow.tenantSignIn) abandonConfigDir(flow.at.blockId, flow.dir)
 }
+
+interface LoginStart {
+  flowId?: string
+  error?: string
+  cliMissing?: boolean
+}
+
+const startError = (err: unknown): LoginStart => ({
+  error: toErrorMessage(err),
+  ...(isCliMissing(err) ? { cliMissing: true } : {}),
+})
 
 export async function handleLoginStart(params: {
   blockId: string
   deviceCode: boolean
   tenantId?: string
-}) {
+}): Promise<LoginStart> {
   const at = newAttempt(params.blockId)
   const dir = createConfigDir(params.blockId)
   let process: SpawnedProcess
@@ -445,14 +499,57 @@ export async function handleLoginStart(params: {
     )
   } catch (err) {
     abandonConfigDir(params.blockId, dir)
-    return { error: toErrorMessage(err), ...(isCliMissing(err) ? { cliMissing: true } : {}) }
+    return startError(err)
   }
+  return { flowId: watchFlow(at, dir, params.deviceCode ? "device_code" : "cli", process) }
+}
 
+/**
+ * Sign in to one tenant again, interactively, in the dir of the block's
+ * existing sign-in: for a tenant that gives no token without it (MFA,
+ * consent). Polling the flow then commits the chosen tenant and subscription.
+ */
+export async function handleTenantLoginStart(params: {
+  blockId: string
+  tenantId: string
+  subscriptionId?: string
+}): Promise<LoginStart> {
+  const signIn = signInsByBlock.get(params.blockId)
+  if (!signIn || signIn.authType === "service_principal") {
+    return { error: "This block isn't signed in. Sign in again." }
+  }
+  const at = newAttempt(params.blockId)
+  const { ctx } = signIn
+  const previous = await runtime.runPromise(showAccount(ctx)).catch(() => undefined)
+  let process: SpawnedProcess
+  try {
+    process = await runtime.runPromise(
+      spawnAz(ctx, interactiveLoginArgs(signIn.authType === "device_code", params.tenantId)),
+    )
+  } catch (err) {
+    return startError(err)
+  }
+  const tenantSignIn: TenantSignIn = {
+    signIn,
+    choice: { tenantId: params.tenantId, subscriptionId: params.subscriptionId },
+    ...(previous && !previous.tenantLevel ? { previousSubscriptionId: previous.id } : {}),
+  }
+  return { flowId: watchFlow(at, ctx.configDir, signIn.authType, process, tenantSignIn) }
+}
+
+function watchFlow(
+  at: Attempt,
+  dir: string,
+  authType: AzureAuthType,
+  process: SpawnedProcess,
+  tenantSignIn?: TenantSignIn,
+): string {
   const flow: LoginFlow = {
     id: `azure-login-${++nextFlowId}`,
     at,
     dir,
-    authType: params.deviceCode ? "device_code" : "cli",
+    ...(tenantSignIn ? { tenantSignIn } : {}),
+    authType,
     startedAt: Date.now(),
     process,
     stderr: [],
@@ -481,7 +578,34 @@ export async function handleLoginStart(params: {
       },
     )
 
-  return { flowId: flow.id }
+  return flow.id
+}
+
+async function finishTenantSignIn(
+  flow: LoginFlow,
+  tenantSignIn: TenantSignIn,
+  pins: AzureSignInPinsIpc,
+): Promise<Result> {
+  const { signIn, choice, previousSubscriptionId } = tenantSignIn
+  let result: Result
+  try {
+    result = await commitContext(flow.at, signIn, choice, { requiredRoles: pins.requiredRoles })
+  } catch (err) {
+    result = needsTenantSignIn(err)
+      ? {
+          status: "failed",
+          error: `You signed in, but tenant ${choice.tenantId} still asks for a new sign-in. Its admin can tell you what its sign-in policy requires.`,
+        }
+      : failed(err)
+  }
+  // az login made the new tenant the dir's default: a block still using the
+  // dir for its old tenant gets its default subscription back.
+  if (result.status !== "authenticated" && previousSubscriptionId) {
+    await runtime
+      .runPromise(setSubscription(signIn.ctx, previousSubscriptionId))
+      .catch(() => undefined)
+  }
+  return result
 }
 
 export async function handleLoginPoll(
@@ -501,8 +625,10 @@ export async function handleLoginPoll(
 
   if (flow.result === undefined) {
     if (flow.exitCode !== 0) {
-      abandonConfigDir(flow.at.blockId, flow.dir)
+      if (!flow.tenantSignIn) abandonConfigDir(flow.at.blockId, flow.dir)
       flow.result = Promise.resolve(failed(azFailure(flow.stderr, "az login")))
+    } else if (flow.tenantSignIn) {
+      flow.result = finishTenantSignIn(flow, flow.tenantSignIn, params)
     } else {
       flow.result = signInOrRelease(flow.at, flow.dir, () =>
         finishSignIn(flow.at, { ctx: { configDir: flow.dir }, authType: flow.authType }, params),
@@ -538,6 +664,64 @@ export async function handleSelectContext(params: {
       { tenantId: params.tenantId, subscriptionId: params.subscriptionId },
       { requiredRoles: params.requiredRoles },
     )
+  } catch (err) {
+    return failed(err)
+  }
+}
+
+/**
+ * Open the tenant and subscription picker on a block's existing user sign-in,
+ * to move it to another tenant without signing in again. The block keeps its
+ * tenant until a choice is committed with azure:select-context.
+ */
+export async function handleChangeTenant(params: {
+  blockId: string
+  configDir: string
+  authType: AzureAuthType
+  tenantId: string
+  extensionDir?: string
+}): Promise<Result> {
+  if (params.authType === "service_principal") {
+    return {
+      status: "failed",
+      error: "A service principal signs in to one tenant. Sign in again to use another.",
+    }
+  }
+  let signIn = signInsByBlock.get(params.blockId)
+  if (signIn?.ctx.configDir !== params.configDir) {
+    // A sign-in from before a runbook switch, which forgets the block's
+    // sign-in but leaves its dir.
+    if (!adoptConfigDir(params.blockId, params.configDir)) {
+      return { status: "failed", error: "This sign-in ended when Runbooks quit. Sign in again." }
+    }
+    const extensionDir =
+      params.extensionDir && params.extensionDir !== `${params.configDir}/cliextensions`
+        ? params.extensionDir
+        : undefined
+    signIn = {
+      ctx: { configDir: params.configDir, ...(extensionDir ? { extensionDir } : {}) },
+      authType: params.authType,
+    }
+  }
+  signInsByBlock.set(params.blockId, signIn)
+  const { ctx } = signIn
+  try {
+    const [accounts, tenants] = await Promise.all([
+      runtime.runPromise(listAccounts(ctx)),
+      runtime.runPromise(listTenants(ctx)),
+    ])
+    const options = resolveContextOptions({ accounts, tenants, signedInTenantId: params.tenantId })
+    const principal = await pickerPrincipal(ctx, [
+      params.tenantId,
+      ...options.tenants.map((tenant) => tenant.tenantId),
+    ])
+    return {
+      status: "select_context",
+      authType: signIn.authType,
+      principal,
+      tenants: [...options.tenants],
+      subscriptions: [...options.subscriptions],
+    }
   } catch (err) {
     return failed(err)
   }
