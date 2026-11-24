@@ -7,6 +7,7 @@
  * so it must stay free of Node and Electron imports.
  */
 
+import { compileGoRegex } from "./goRegex.ts"
 import { optionMembershipError, type OptionFields } from "./options.ts"
 
 /**
@@ -84,13 +85,68 @@ export const isSemver = (value: string): boolean => {
 }
 
 /**
- * Validates string length is within specified range
- * @param value - The string to validate
- * @param min - Minimum length (inclusive)
- * @param max - Maximum length (inclusive)
+ * Whether a length is within a `length(min, max)` rule's bounds, as Boilerplate
+ * checks them: a bound of 0 or less sets no limit.
  */
-export const isValidLength = (value: string, min: number, max: number): boolean => {
-  return value.length >= min && value.length <= max
+const isWithinLength = (length: number, min: number, max: number): boolean =>
+  !(min > 0 && length < min) && !(max > 0 && length > max)
+
+/**
+ * A string's length as Boilerplate counts it for `length(min, max)`: in UTF-8
+ * bytes, so `é` counts as 2.
+ */
+const byteLength = (value: string): number => new TextEncoder().encode(value).length
+
+/**
+ * Validates string length is within specified range, counted as Boilerplate counts it
+ * @param value - The string to validate
+ * @param min - Minimum length (inclusive; 0 or less for none)
+ * @param max - Maximum length (inclusive; 0 or less for none)
+ */
+export const isValidLength = (value: string, min: number, max: number): boolean =>
+  isWithinLength(byteLength(value), min, max)
+
+/**
+ * The message for a value outside a `length(min, max)` rule's bounds, such as
+ * "Must be 1 to 64 characters long" or, for a list, "Must have 1 to 3 items".
+ */
+const lengthMessage = (min: number, max: number, unit: "character" | "item" | "entry"): string => {
+  const count = (n: number) => `${n} ${n === 1 ? unit : unit === "entry" ? "entries" : `${unit}s`}`
+  const bounds =
+    min > 0 && max > 0
+      ? min === max
+        ? `exactly ${count(min)}`
+        : `${min} to ${count(max)}`
+      : max > 0
+        ? `at most ${count(max)}`
+        : `at least ${count(min)}`
+  return unit === "character" ? `Must be ${bounds} long` : `Must have ${bounds}`
+}
+
+/** A `length` rule's bounds, or undefined if its args aren't two numbers or set no limit. */
+const lengthBounds = (rule: ValidationRuleLike): { min: number; max: number } | undefined => {
+  if (!rule.args || rule.args.length < 2) return undefined
+  const min = Number(rule.args[0])
+  const max = Number(rule.args[1])
+  if (Number.isNaN(min) || Number.isNaN(max) || (min <= 0 && max <= 0)) return undefined
+  return { min, max }
+}
+
+/**
+ * Applies a `length` or `regex` rule to a list or map, as Boilerplate does:
+ * `length` counts a list's items or a map's entries; a `regex` rule only
+ * checks strings.
+ */
+const applyCollectionRule = (
+  value: readonly unknown[] | object,
+  rule: ValidationRuleLike,
+): string | undefined => {
+  const bounds = rule.type === "length" ? lengthBounds(rule) : undefined
+  if (!bounds) return undefined
+  const isList = Array.isArray(value)
+  const size = isList ? value.length : Object.keys(value).length
+  if (size === 0 || isWithinLength(size, bounds.min, bounds.max)) return undefined
+  return rule.message || lengthMessage(bounds.min, bounds.max, isList ? "item" : "entry")
 }
 
 /**
@@ -155,15 +211,13 @@ export const applyValidationRule = (
       }
       break
 
-    case "length":
-      if (rule.args && rule.args.length >= 2) {
-        const min = Number(rule.args[0])
-        const max = Number(rule.args[1])
-        if (!isValidLength(stringValue, min, max)) {
-          return rule.message || `Must be between ${min} and ${max} characters`
-        }
+    case "length": {
+      const bounds = lengthBounds(rule)
+      if (bounds && !isValidLength(stringValue, bounds.min, bounds.max)) {
+        return rule.message || lengthMessage(bounds.min, bounds.max, "character")
       }
       break
+    }
 
     case "countrycode2":
       if (!isCountryCode2(stringValue)) {
@@ -174,13 +228,10 @@ export const applyValidationRule = (
     case "regex":
       if (rule.args && rule.args.length >= 1) {
         const pattern = String(rule.args[0])
-        try {
-          const regex = new RegExp(pattern)
-          if (!regex.test(stringValue)) {
-            return rule.message || `Must match pattern: ${pattern}`
-          }
-        } catch {
-          // Invalid regex pattern — skip validation
+        // parseBoilerplateConfig rejects a pattern that doesn't compile, so one here is skipped
+        const compiled = compileGoRegex(pattern)
+        if ("regex" in compiled && !compiled.regex.test(stringValue)) {
+          return rule.message || `Must match ${pattern}`
         }
       }
       break
@@ -239,10 +290,14 @@ export const validateVariableValue = (
   if (membershipError) return membershipError
 
   const stringValue = stringForm(value)
+  const isCollection = typeof value === "object" && value !== null
 
   // Apply additional validation rules from the variable definition
   for (const rule of variable.validations ?? []) {
-    const error = applyValidationRule(stringValue, rule)
+    const error =
+      isCollection && (rule.type === "length" || rule.type === "regex")
+        ? applyCollectionRule(value, rule)
+        : applyValidationRule(stringValue, rule)
     if (error) {
       return error
     }

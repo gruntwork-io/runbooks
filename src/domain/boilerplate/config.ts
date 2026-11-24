@@ -11,6 +11,7 @@ import { BoilerplateConfigError } from "../../errors/index.js"
 import { errorMessage } from "../../errors/message.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { BATCH_IO_CONCURRENCY } from "../files/manifest.ts"
+import { compileGoRegex } from "./goRegex.ts"
 import { parseShowWhen } from "./showWhen.ts"
 import { extractTemplateDependenciesFromString } from "./templateDependencies.ts"
 import {
@@ -116,12 +117,94 @@ function mapValidationType(raw: string): BoilerplateValidationType {
   return VALIDATION_TYPE_MAP[lower] ?? "custom"
 }
 
-function extractValidations(rawValidations: (RawValidation | string)[] | undefined): {
-  validations: ValidationRule[]
-  isRequired: boolean
-} {
+/** A parsed `length(min, max)` or `regex("pattern")` rule. */
+interface ParameterizedRule {
+  type: "length" | "regex"
+  args: unknown[]
+}
+
+const INTEGER = /^[+-]?\d+$/
+
+/**
+ * Parses a `length(min, max)` or `regex("pattern")` rule as Boilerplate does:
+ * the rule is trimmed and its name is case-sensitive; `min` and `max` are
+ * integers, with any spaces around them; the pattern is quoted with backticks
+ * (taken as is) or double quotes, inside which only `\"` and `\\` are escapes,
+ * so `\d` stays `\d`. Returns undefined for any other rule, and what's wrong
+ * for a malformed one.
+ */
+function parseParameterizedRule(rule: string): ParameterizedRule | { problem: string } | undefined {
+  const trimmed = rule.trim()
+  const argsOf = (name: string) =>
+    trimmed.endsWith(")") ? trimmed.slice(name.length + 1, -1) : undefined
+
+  if (trimmed.startsWith("length(")) {
+    const args = argsOf("length")
+    const comma = args?.indexOf(",") ?? -1
+    if (args === undefined || comma === -1) return { problem: "expected length(min, max)" }
+    const min = args.slice(0, comma).trim()
+    const max = args.slice(comma + 1).trim()
+    if (!INTEGER.test(min)) return { problem: `min "${min}" isn't an integer` }
+    if (!INTEGER.test(max)) return { problem: `max "${max}" isn't an integer` }
+    if (Number(min) > Number(max)) return { problem: "min is more than max" }
+    return { type: "length", args: [Number(min), Number(max)] }
+  }
+
+  if (trimmed.startsWith("regex(")) {
+    const quoted = argsOf("regex")
+    const pattern = quoted === undefined ? undefined : unquoteRegexPattern(quoted)
+    if (pattern === undefined) {
+      return { problem: 'the pattern must be quoted, as in regex("pattern") or regex(`pattern`)' }
+    }
+    if (typeof pattern !== "string") return pattern
+    return { type: "regex", args: [pattern] }
+  }
+
+  return undefined
+}
+
+/** Boilerplate's unquoting of a `regex(...)` pattern (see parseParameterizedRule). */
+function unquoteRegexPattern(quoted: string): string | { problem: string } | undefined {
+  if (quoted.length < 2) return undefined
+  const opener = quoted[0]
+  const closer = quoted[quoted.length - 1]
+  const raw = quoted.slice(1, -1)
+  if (opener === "`" && closer === "`") return raw
+  if (opener !== '"' || closer !== '"') return undefined
+
+  let pattern = ""
+  for (let index = 0; index < raw.length; index++) {
+    const char = raw[index]!
+    const next = raw[index + 1]
+    if (char === "\\" && (next === '"' || next === "\\")) {
+      pattern += next
+      index++
+    } else if (char === '"') {
+      return {
+        problem:
+          'the pattern has an unescaped "; write \\" for a literal quote, or quote the pattern with backticks',
+      }
+    } else {
+      pattern += char
+    }
+  }
+  return pattern
+}
+
+/** Why a regex rule's pattern can't be checked, if it can't. */
+function regexProblem(rule: { type: string; args: unknown[] }): string | undefined {
+  const pattern = rule.args[0]
+  if (rule.type !== "regex" || typeof pattern !== "string") return undefined
+  const compiled = compileGoRegex(pattern)
+  return "error" in compiled ? `can't check the pattern ${pattern}: ${compiled.error}` : undefined
+}
+
+function extractValidations(
+  rawValidations: (RawValidation | string)[] | undefined,
+  variableName: string,
+): Effect.Effect<{ validations: ValidationRule[]; isRequired: boolean }, BoilerplateConfigError> {
   if (!rawValidations || rawValidations.length === 0) {
-    return { validations: [], isRequired: false }
+    return Effect.succeed({ validations: [], isRequired: false })
   }
 
   let isRequired = false
@@ -134,6 +217,24 @@ function extractValidations(rawValidations: (RawValidation | string)[] | undefin
     const normalized: RawValidation = typeof rv === "string" ? { type: rv } : rv
 
     const typeName = normalized.type ?? ""
+    const message = normalized.description ?? normalized.message ?? ""
+    const invalid = (problem: string) =>
+      Effect.fail(
+        new BoilerplateConfigError({
+          message: `variable "${variableName}": validation ${typeName.trim()}: ${problem}.`,
+        }),
+      )
+
+    // `length(1, 64)` and `regex("^[a-z]+$")`, as a string or as the object form's type
+    const parameterized = parseParameterizedRule(typeName)
+    if (parameterized && "problem" in parameterized) return invalid(parameterized.problem)
+    if (parameterized) {
+      const problem = regexProblem(parameterized)
+      if (problem) return invalid(problem)
+      validations.push({ ...parameterized, message })
+      continue
+    }
+
     const mapped = mapValidationType(typeName)
 
     if (mapped === "required") {
@@ -149,14 +250,13 @@ function extractValidations(rawValidations: (RawValidation | string)[] | undefin
       if (normalized.max !== undefined) args.push(normalized.max)
     }
 
-    validations.push({
-      type: mapped,
-      message: normalized.description ?? normalized.message ?? "",
-      args,
-    })
+    const rule: ValidationRule = { type: mapped, message, args }
+    const problem = regexProblem(rule)
+    if (problem) return invalid(problem)
+    validations.push(rule)
   }
 
-  return { validations, isRequired }
+  return Effect.succeed({ validations, isRequired })
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +507,7 @@ export function parseBoilerplateConfig(
 
     for (const rv of rawVars) {
       const varType = coerceVarType(rv.type)
-      const { validations, isRequired } = extractValidations(rv.validations)
+      const { validations, isRequired } = yield* extractValidations(rv.validations, rv.name)
 
       const variable: BoilerplateVariable = {
         name: rv.name,

@@ -161,6 +161,68 @@ describe("BoilerplateInputsForm required tuples", () => {
   })
 })
 
+describe("BoilerplateInputsForm length and regex rules", () => {
+  const rulesConfig: BoilerplateConfig = {
+    variables: [
+      {
+        name: "StorageAccount",
+        type: "string",
+        description: "",
+        default: "",
+        validations: [
+          { type: BoilerplateValidationType.Length, args: [3, 24] },
+          { type: BoilerplateValidationType.Regex, args: ["^[a-z0-9]+$"] },
+        ],
+      },
+    ],
+  }
+
+  it("shows the rule a value breaks on the field, and doesn't generate until it's fixed", () => {
+    const { onGenerate } = renderForm({ boilerplateConfig: rulesConfig })
+    const field = screen.getByLabelText("Storage Account")
+
+    fireEvent.change(field, { target: { value: "ab" } })
+    fireEvent.blur(field)
+    expect(screen.getByText("Must be 3 to 24 characters long")).toBeInTheDocument()
+
+    fireEvent.change(field, { target: { value: "My-Account" } })
+    expect(screen.queryByText("Must be 3 to 24 characters long")).toBeNull()
+    expect(screen.getByText("Must match ^[a-z0-9]+$")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).not.toHaveBeenCalled()
+    expect(screen.getByText(/There is/)).toHaveTextContent("There is 1 validation error above")
+
+    fireEvent.change(field, { target: { value: "myaccount01" } })
+    expect(screen.queryByText("Must match ^[a-z0-9]+$")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalledWith({ StorageAccount: "myaccount01" })
+  })
+
+  it("shows a rule's own message in place of the default", () => {
+    renderForm({
+      boilerplateConfig: {
+        variables: [
+          {
+            ...rulesConfig.variables[0]!,
+            validations: [
+              {
+                type: BoilerplateValidationType.Regex,
+                args: ["^[a-z0-9]+$"],
+                message: "Lowercase letters and digits only",
+              },
+            ],
+          },
+        ],
+      },
+    })
+    const field = screen.getByLabelText("Storage Account")
+    fireEvent.change(field, { target: { value: "My-Account" } })
+    fireEvent.blur(field)
+    expect(screen.getByText("Lowercase letters and digits only")).toBeInTheDocument()
+  })
+})
+
 // Defaults that reference other variables are shown as linked tokens, but the
 // raw expressions are what the form sends: main resolves them when rendering,
 // so an untouched form renders exactly as it did when they were shown as text.
