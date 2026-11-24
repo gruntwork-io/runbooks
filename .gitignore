@@ -33,8 +33,9 @@ TODO/
 # Ignore local cursor directories
 .cursor*/
 
-# Ignore .claude directory
-.claude/
+# Ignore local Claude Code state; the rest of .claude (such as skills) is shared
+.claude/workflows/
+.claude/worktrees/
 
 # Ignore downloaded dependencies
 node_modules/*
