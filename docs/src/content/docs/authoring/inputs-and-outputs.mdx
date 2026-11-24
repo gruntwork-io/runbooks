@@ -100,6 +100,8 @@ variables:
 
 Values reach a block only through `inputsId` or a nested `<Inputs>`. A Command or Check that references `{{ .inputs.* }}` without either shows a **Configuration Required** message in place of its button.
 
+A block waits until every input it references has a value, and an empty field counts as no value. To let a field stay empty, give its variable a `default`, such as `default: ""`, and leave it out of `required`. The block then runs with an empty string.
+
 ### Multiple sources
 
 Pass an array of IDs to `inputsId` to merge variables from more than one input provider. Variables merge in order, so on a name conflict the later ID wins.

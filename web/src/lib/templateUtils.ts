@@ -5,6 +5,7 @@
 
 import type { BlockOutputs, TemplateValue } from "@/contexts/RunbookContext"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
+import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import type { OutputDependency } from "@/lib/extractTemplateDependencies"
 import { normalizeBlockId } from "@/lib/utils"
 import {
@@ -258,18 +259,41 @@ export function resolveInputPath(inputs: TemplateInputs, path: InputName): unkno
  * Returns input dependency names that don't have values yet.
  * Supports nested paths (e.g., "_module.source") for values injected
  * as nested objects by upstream blocks.
+ * An empty string counts as no value, except for the inputs in `mayBeEmpty`
+ * (see inputsThatMayBeEmpty).
  * Returns an empty array when deps is empty (no dependencies to check).
  */
 export function computeUnmetInputDependencies(
   deps: InputName[],
   inputs: TemplateInputs,
+  mayBeEmpty: ReadonlySet<InputName> = new Set(),
 ): InputName[] {
   return deps.filter((name) => {
     const value = name.includes(".")
       ? resolveNestedValue(inputs as Record<string, unknown>, name)
       : inputs[name]
-    return value === undefined || value === null || value === ""
+    if (value === "") return !mayBeEmpty.has(name)
+    return value === undefined || value === null
   })
+}
+
+/**
+ * The inputs a block may run with while they're empty: those whose variable
+ * declares a `default` and isn't required. A runbook makes a field optional
+ * with `default: ""`. When several Inputs blocks declare a variable, the last
+ * one decides, as it does for the values.
+ */
+export function inputsThatMayBeEmpty(
+  configs: ReadonlyArray<BoilerplateConfig | undefined>,
+): Set<InputName> {
+  const names = new Set<InputName>()
+  for (const config of configs) {
+    for (const variable of config?.variables ?? []) {
+      if (variable.default !== undefined && !variable.required) names.add(variable.name)
+      else names.delete(variable.name)
+    }
+  }
+  return names
 }
 
 /**
