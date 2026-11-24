@@ -53,6 +53,12 @@ export const ConfigureResult = Schema.StructWithRest(
     driverVersion: Schema.String.annotate({
       description: "The plugin's own version. RFC-188's name, kept for every kind.",
     }),
+    cloud: Schema.optionalKey(
+      Schema.Literals(["aws", "gcp", "azure"]).annotate({
+        description:
+          "RFC-188's field: the cloud a driver serves. A credential plugin may leave it out.",
+      }),
+    ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "configureResult" })
@@ -90,7 +96,11 @@ export const Notification = Schema.StructWithRest(
     ]),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
-).annotate({ identifier: "notification" })
+).annotate({
+  description:
+    "Sent only by the plugin, never with an id. The generator cannot express `not`, so the transport owner rejects a message with both an id and a method where it classifies lines.",
+  identifier: "notification",
+})
 export type Notification = typeof Notification.Type
 
 export const ErrorResponse = Schema.StructWithRest(

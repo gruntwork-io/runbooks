@@ -37,6 +37,7 @@
       }
     },
     "notification": {
+      "description": "Sent only by the plugin, never with an id. The generator cannot express `not`, so the transport owner rejects a message with both an id and a method where it classifies lines.",
       "type": "object",
       "required": ["jsonrpc", "method", "params"],
       "properties": {
@@ -91,6 +92,10 @@
         "driverVersion": {
           "description": "The plugin's own version. RFC-188's name, kept for every kind.",
           "type": "string"
+        },
+        "cloud": {
+          "description": "RFC-188's field: the cloud a driver serves. A credential plugin may leave it out.",
+          "enum": ["aws", "gcp", "azure"]
         }
       }
     }
