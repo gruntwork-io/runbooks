@@ -609,6 +609,20 @@ describe("SessionStore", () => {
         run(store.appendEvent(event("config", "inputs", "a", { sessionId: "missing" }), APPEND)),
       ).toThrow(/failed to save a session event/)
     })
+
+    it("deletes only the events of the given session, block and kind", () => {
+      run(store.insert(record({ id: "s2" })))
+      run(store.appendEvent(event("app", "template-manifest", "m1"), APPEND))
+      run(store.appendEvent(event("app", "render", "r1"), APPEND))
+      run(store.appendEvent(event("app", "template-manifest", "m2"), APPEND))
+      run(store.appendEvent(event("other", "template-manifest", "o1"), APPEND))
+      run(store.appendEvent(event("app", "template-manifest", "s2", { sessionId: "s2" }), APPEND))
+
+      run(store.deleteEvents("s1", "app", "template-manifest"))
+
+      expect(history()).toEqual(["app render r1", "other template-manifest o1"])
+      expect(history("s2")).toEqual(["app template-manifest s2"])
+    })
   })
 
   describe("a database file", () => {

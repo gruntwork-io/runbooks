@@ -12,13 +12,20 @@
 import { randomUUIDv7 } from "node:crypto"
 import path from "node:path"
 import { Cause, Effect } from "effect"
-import { SessionDeleteError, SessionNameError, SessionNotFoundError } from "../../errors/index.ts"
+import {
+  SessionDeleteError,
+  SessionNameError,
+  SessionNotFoundError,
+  type SessionStoreError,
+} from "../../errors/index.ts"
 import { errorMessage } from "../../errors/message.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
+import type { ManifestEntry, TemplateManifest } from "../../types.ts"
 import {
   isSessionEventKind,
   parseSessionEvent,
   replacesPreviousEvent,
+  TEMPLATE_MANIFEST_KIND,
   type SavedBlockState,
   type SessionEventRequest,
 } from "./history.ts"
@@ -364,12 +371,8 @@ export class SessionPersistence {
     return Effect.gen({ self: this }, function* () {
       const event = yield* parseSessionEvent(request)
       if (this.current?.id !== sessionId) return
-      const { store, cipher, onSaveError } = this.options
-
-      const saved = Effect.suspend(() => {
-        const payload = cipher.encrypt(event.payload)
-        if (payload === undefined) return Effect.void
-        return store.appendEvent(
+      yield* this.saveEncrypted(event.payload, (payload) =>
+        this.options.store.appendEvent(
           {
             sessionId,
             at: new Date().toISOString(),
@@ -378,10 +381,7 @@ export class SessionPersistence {
             payload,
           },
           { replacePrevious: replacesPreviousEvent(event.kind) },
-        )
-      })
-      yield* saved.pipe(
-        Effect.catchCause((cause) => Effect.sync(() => onSaveError(Cause.squash(cause)))),
+        ),
       )
     })
   }
@@ -403,6 +403,47 @@ export class SessionPersistence {
         states.push({ blockId: event.blockId, kind: event.kind, payload })
       }
       return states
+    })
+  }
+
+  /**
+   * Runs synchronously, so a render can save the manifest in the same step
+   * as it updates the one in memory. It deletes the saved manifest first. A
+   * save that fails part way, or that the OS can't encrypt, then leaves no
+   * manifest instead of an out-of-date one, and the block writes all its
+   * files on its first render in a later run of the app. It reports failures
+   * to `onSaveError` and never fails the render. It does nothing when that
+   * session is not the current one.
+   */
+  saveTemplateManifest(sessionId: string, manifest: TemplateManifest): void {
+    if (this.current?.id !== sessionId) return
+    const { store } = this.options
+    const { templateId: blockId, outputDir, files } = manifest
+    const kind = TEMPLATE_MANIFEST_KIND
+    Effect.runSync(this.reportFailure(store.deleteEvents(sessionId, blockId, kind)))
+    Effect.runSync(
+      this.saveEncrypted(JSON.stringify({ outputDir, files }), (payload) =>
+        store.appendEvent(
+          { sessionId, at: new Date().toISOString(), blockId, kind, payload },
+          { replacePrevious: false },
+        ),
+      ),
+    )
+  }
+
+  /**
+   * Leaves out a manifest it can't decrypt or parse. That block then writes
+   * all its files on its next render.
+   */
+  listTemplateManifests(sessionId: string) {
+    return Effect.gen({ self: this }, function* () {
+      const manifests: TemplateManifest[] = []
+      for (const event of yield* this.options.store.latestEvents(sessionId)) {
+        if (event.kind !== TEMPLATE_MANIFEST_KIND) continue
+        const manifest = parseSavedManifest(event.blockId, this.decryptJson(event.payload))
+        if (manifest !== undefined) manifests.push(manifest)
+      }
+      return manifests
     })
   }
 
@@ -490,6 +531,30 @@ export class SessionPersistence {
     return isEnvChanges(parsed) ? parsed : none
   }
 
+  /** Writes nothing when the OS can't encrypt the payload, since it may hold a credential. */
+  private saveEncrypted(
+    plaintext: string,
+    write: (payload: Uint8Array) => Effect.Effect<void, SessionStoreError>,
+  ) {
+    return this.reportFailure(
+      Effect.suspend(() => {
+        const payload = this.options.cipher.encrypt(plaintext)
+        return payload === undefined ? Effect.void : write(payload)
+      }),
+    )
+  }
+
+  /**
+   * Never fails. It reports a failed save to `onSaveError`, because a failed
+   * save must not fail the block or render that made it.
+   */
+  private reportFailure(saved: Effect.Effect<void, SessionStoreError>) {
+    const { onSaveError } = this.options
+    return saved.pipe(
+      Effect.catchCause((cause) => Effect.sync(() => onSaveError(Cause.squash(cause)))),
+    )
+  }
+
   /** The JSON value `encrypted` holds, or undefined when it can't be decrypted or parsed. */
   private decryptJson(encrypted: Uint8Array): unknown {
     const plaintext = this.options.cipher.decrypt(encrypted)
@@ -545,6 +610,20 @@ function isDirectory(dir: string) {
       Effect.catch(() => Effect.succeed(false)),
     )
   })
+}
+
+function parseSavedManifest(templateId: string, saved: unknown): TemplateManifest | undefined {
+  if (typeof saved !== "object" || saved === null) return undefined
+  const { outputDir, files } = saved as { outputDir?: unknown; files?: unknown }
+  if (typeof outputDir !== "string" || !Array.isArray(files)) return undefined
+  if (!files.every(isManifestEntry)) return undefined
+  return { templateId, outputDir, files }
+}
+
+function isManifestEntry(value: unknown): value is ManifestEntry {
+  if (typeof value !== "object" || value === null) return false
+  const entry = value as { path?: unknown; contentHash?: unknown }
+  return typeof entry.path === "string" && typeof entry.contentHash === "string"
 }
 
 function isEnvChanges(value: unknown): value is EnvChanges {

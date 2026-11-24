@@ -37,6 +37,13 @@ export const SESSION_EVENT_KINDS = [
 
 export type SessionEventKind = (typeof SESSION_EVENT_KINDS)[number]
 
+/**
+ * SESSION_EVENT_KINDS leaves this kind out on purpose, so the renderer can
+ * neither record nor receive a template block's manifest. Only the main
+ * process saves it, and each save replaces the block's previous one.
+ */
+export const TEMPLATE_MANIFEST_KIND = "template-manifest"
+
 /** Block ids come from the runbook, which may be someone else's. */
 export const SESSION_EVENT_BLOCK_ID_MAX_LENGTH = 256
 

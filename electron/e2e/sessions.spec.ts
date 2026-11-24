@@ -87,6 +87,23 @@ const REPLY_SCRIPT = `#!/bin/bash
 echo "reply to {{ .outputs.greet.greeting }}"
 `
 
+const TEMPLATE_RUNBOOK = `# Template runbook
+
+<Template id="app" path="templates/app" />
+
+<Command id="edit" path="edit.sh" />
+`
+
+const TEMPLATE_CONFIG = `variables:
+  - name: Name
+    type: string
+    default: one
+`
+
+const EDIT_SCRIPT = `#!/bin/bash
+echo "edited by a later step" > "$GENERATED_FILES/notes.md"
+`
+
 test.describe("Saved sessions", () => {
   let tmpDir: string
   let runbookDir: string
@@ -148,8 +165,8 @@ test.describe("Saved sessions", () => {
   }
 
   /** Wait for the runbook to render, and trust it if the app asks. */
-  async function expectRunbook(page: Page): Promise<void> {
-    await expect(page.getByRole("heading", { name: "Session runbook" })).toBeVisible({
+  async function expectRunbook(page: Page, heading = "Session runbook"): Promise<void> {
+    await expect(page.getByRole("heading", { name: heading })).toBeVisible({
       timeout: 60_000,
     })
     const trustButton = page.getByRole("button", { name: "I trust this Runbook" })
@@ -398,6 +415,56 @@ test.describe("Saved sessions", () => {
       await expect(
         second.page.locator('[data-testid="reply"]').getByRole("button", { name: "Run" }),
       ).toBeDisabled()
+    } finally {
+      await second.app.close()
+    }
+  })
+
+  function writeTemplateRunbook(): string {
+    const runbook = path.join(tmpDir, "template-runbook")
+    const template = path.join(runbook, "templates", "app")
+    fs.mkdirSync(template, { recursive: true })
+    fs.writeFileSync(path.join(runbook, "runbook.mdx"), TEMPLATE_RUNBOOK)
+    fs.writeFileSync(path.join(runbook, "edit.sh"), EDIT_SCRIPT)
+    fs.writeFileSync(path.join(template, "boilerplate.yml"), TEMPLATE_CONFIG)
+    fs.writeFileSync(path.join(template, "main.tf"), 'name = "{{ .Name }}"\n')
+    fs.writeFileSync(path.join(template, "notes.md"), "notes\n")
+    return runbook
+  }
+
+  /** A generated file of the only session, or undefined until it exists. */
+  function readGenerated(name: string): string | undefined {
+    const [sessionDir] = fs.existsSync(sessionDirs) ? fs.readdirSync(sessionDirs) : []
+    const file = path.join(sessionDirs, sessionDir ?? "", "generated", name)
+    return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : undefined
+  }
+
+  test("keeps a later step's edit to an unchanged generated file on the next launch", async () => {
+    const templateRunbookDir = writeTemplateRunbook()
+    const nameField = (page: Page) =>
+      page.locator('[data-testid="app"] [data-testid="field-Name"] input')
+
+    const first = await launch(terminalDir("project"), [templateRunbookDir])
+    try {
+      await expectRunbook(first.page, "Template runbook")
+      await first.page
+        .locator('[data-testid="app"]')
+        .getByRole("button", { name: "Generate" })
+        .click()
+      await expect.poll(() => readGenerated("main.tf")).toBe('name = "one"\n')
+      await run(first.page, "edit")
+      await expect.poll(() => readGenerated("notes.md")).toBe("edited by a later step\n")
+    } finally {
+      await first.app.close()
+    }
+
+    const second = await launch(terminalDir("project"), [templateRunbookDir])
+    try {
+      await expectRunbook(second.page, "Template runbook")
+      await nameField(second.page).fill("two")
+
+      await expect.poll(() => readGenerated("main.tf")).toBe('name = "two"\n')
+      expect(readGenerated("notes.md")).toBe("edited by a later step\n")
     } finally {
       await second.app.close()
     }
