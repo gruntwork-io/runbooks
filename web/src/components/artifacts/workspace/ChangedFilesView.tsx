@@ -558,5 +558,9 @@ const DiffContent = ({ change }: DiffContentProps) => {
     return <div className="p-4 text-center text-sm text-muted-foreground">Empty file</div>
   }
 
-  return <DiffTable diffLines={diffLines} />
+  return (
+    <div className="overflow-x-auto">
+      <DiffTable diffLines={diffLines} />
+    </div>
+  )
 }
