@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import type { ExecState, LogEntry } from "@/hooks/useApiExec"
+import type { PlanSummary } from "@/lib/planSummary"
 import {
   encodeOutputs,
   isSensitiveOutput,
@@ -33,6 +34,7 @@ function execState(overrides: Partial<ExecState> = {}): ExecState {
     exitCode: 0,
     error: null,
     outputs: null,
+    plan: null,
     logFilePath: "/tmp/runbooks/exec.log",
     ...overrides,
   }
@@ -124,6 +126,39 @@ describe("a saved run", () => {
     expect(outputs.user).toBe("me")
     expect(isSensitiveOutput(outputs.token!)).toBe(true)
     expect(revealOutputs(outputs)).toEqual({ user: "me", token: "s3cret" })
+  })
+
+  it("keeps the plan's summary", () => {
+    const counts = { add: 1, change: 0, destroy: 0, replace: 0, import: 0, forget: 0, move: 0 }
+    const plan: PlanSummary = {
+      totals: counts,
+      units: [
+        {
+          name: "app",
+          planned: true,
+          counts,
+          resources: [
+            {
+              address: "a.b",
+              action: "create",
+              attributes: [{ path: "name", after: '"x"' }],
+            },
+          ],
+          outputs: [],
+          result: "succeeded",
+        },
+      ],
+    }
+
+    expect(restoreRun(stored(runEnded(execState({ plan }))))?.plan).toEqual(plan)
+  })
+
+  it("leaves out a plan's summary too large to keep", () => {
+    const counts = { add: 0, change: 0, destroy: 0, replace: 0, import: 0, forget: 0, move: 0 }
+    const unit = { name: "x".repeat(1024), planned: true, counts, resources: [], outputs: [] }
+    const plan: PlanSummary = { totals: counts, units: Array.from({ length: 200 }, () => unit) }
+
+    expect(restoreRun(stored(runEnded(execState({ plan }))))?.plan).toBeNull()
   })
 
   it("saves a stopped run as not run, with the logs it left", () => {

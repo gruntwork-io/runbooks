@@ -1,0 +1,30 @@
+# Terragrunt Plan Demo
+
+This runbook shows how Runbooks displays what a Terragrunt plan will change. A script writes each plan as JSON to the directory in `$RUNBOOK_PLAN_DIR`, and the block shows a **View Plan** panel: how many resources each unit adds, changes and destroys, with destroys and replacements first.
+
+The demo needs `terragrunt` and `tofu` on your `PATH`. It creates nothing outside a temporary directory: its resources are `terraform_data`, kept in local state files.
+
+## Step 1: Apply the starting state
+
+<Command
+  id="apply-baseline"
+  path="scripts/apply-baseline.sh"
+  title="Apply the starting state"
+  description="Writes a stack with a unit for each of three subscriptions, and applies it."
+  successMessage="The stack is applied. Plan the change next."
+/>
+
+## Step 2: Plan the change
+
+The change adds a role action and drops a legacy role assignment in `dev` and `staging`, and moves the `staging` identity to another location, which replaces it. `prod` isn't part of it.
+
+The script passes `--json-out-dir "$RUNBOOK_PLAN_DIR"` so Terragrunt writes each unit's plan as JSON there, and `--report-file "$RUNBOOK_PLAN_DIR/report.json"` so a unit that fails still shows.
+
+<Command
+  id="plan-change"
+  path="scripts/plan-change.sh"
+  env={{ STACK_DIR: "{{ .outputs.apply_baseline.stack_dir }}" }}
+  title="Plan the change"
+  description="Plans every unit of the stack."
+  successMessage="The plan is ready. Review it below."
+/>

@@ -38,6 +38,7 @@ import {
   orderLogChannelLines,
   tagLogLine,
 } from "../../src/domain/exec/logChannels.ts"
+import { PLAN_DIR_ENV_VAR } from "../../src/domain/exec/planSummary.ts"
 import { extractToolList, parsePrerequisitesSpec } from "../../src/domain/prerequisites/spec.ts"
 import {
   LOOKUP_TIMEOUT_MS,
@@ -954,6 +955,8 @@ export class TestExecutor {
     )
     fs.writeFileSync(outputFile, "")
     const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-files-"))
+    // Where the script writes plans as JSON, as in the app
+    const planDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-plans-"))
     // The log files, as in the app: RUNBOOK_LOG, which the log_* helpers
     // append to, and one per level (RUNBOOK_INFO_LOG etc.)
     const logChannelDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-log-channels-"))
@@ -995,6 +998,7 @@ export class TestExecutor {
       const env = this.sessionEnvWithTestEnv()
       env["RUNBOOK_OUTPUT"] = outputFile
       env["GENERATED_FILES"] = filesDir
+      env[PLAN_DIR_ENV_VAR] = planDir
       if (this.activeWorkTreePath) env["REPO_FILES"] = this.activeWorkTreePath
       for (const { envVar, path: logFile } of [scriptLog, ...levelLogs]) env[envVar] = logFile
 
@@ -1115,6 +1119,7 @@ export class TestExecutor {
       for (const dir of [
         path.dirname(outputFile),
         filesDir,
+        planDir,
         logChannelDir,
         envDir,
         pwdDir,

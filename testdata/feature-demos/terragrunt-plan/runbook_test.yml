@@ -1,0 +1,18 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  - name: without-terragrunt
+    description: |
+      Both steps run terragrunt and tofu, which the test machines don't
+      have. The plan summary itself is covered by
+      src/domain/exec/planSummary.test.ts, on plans this runbook made.
+    steps:
+      - block: apply-baseline
+        expect: skip
+      - block: plan-change
+        expect: skip

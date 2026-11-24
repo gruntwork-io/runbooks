@@ -606,6 +606,37 @@ fi
 ```
 </Aside>
 
+## Showing a plan
+
+When a script plans infrastructure changes with Terragrunt or OpenTofu, it can have the block show what the plan will change. Write each plan as JSON to the directory in `$RUNBOOK_PLAN_DIR`, and the block shows a **View Plan** panel above its logs:
+
+- How many resources each unit adds, changes, destroys and replaces, and those numbers for the whole run
+- Each resource that changes, with destroys and replacements first
+- Each changed attribute, before and after. Click a resource to see them.
+- The units with no changes, on one line
+
+![A Command block's View Plan panel: the plan for three units, with a destroy and a replacement first, and the attributes each update changes](../../../../assets/screenshots/blocks/command-view-plan.webp)
+
+For `terragrunt run --all`, pass `--json-out-dir`. Terragrunt then writes a `tfplan.json` for each unit, in a directory named after the unit's path. Add `--report-file` to also show each unit's result, so a unit that failed before it planned shows too:
+
+```bash
+terragrunt run --all --non-interactive \
+  --json-out-dir "$RUNBOOK_PLAN_DIR" \
+  --report-file "$RUNBOOK_PLAN_DIR/report.json" \
+  -- plan
+```
+
+Only pass `--json-out-dir` to a plan. With `apply`, there's no plan for Terragrunt to convert, so every unit fails.
+
+`--json-out-dir` only works with `run --all`. For a single unit, or for `tofu` on its own, save the plan and convert it with `show -json`. A file at the top of the directory is shown as a unit named after the file:
+
+```bash
+terragrunt plan -out=tfplan
+terragrunt show -json tfplan > "$RUNBOOK_PLAN_DIR/vpc.json"
+```
+
+The panel shows the plans however the script exits, so a run where some units failed still shows what the others will change. A value the plan marks sensitive shows as `(sensitive value)`, as does any value that contains one.
+
 ## Viewing logs
 
 While a command runs, its output streams into the collapsible **View Logs** panel under the block. The panel's toolbar offers:

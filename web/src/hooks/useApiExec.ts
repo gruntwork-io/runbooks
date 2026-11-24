@@ -3,6 +3,7 @@ import { z } from "zod"
 import { createAppError, type AppError } from "@/types/error"
 import { FileTreeNodeArraySchema } from "@/components/artifacts/code/FileTree.types"
 import { decodeOutputs, type OutputValues } from "@/lib/outputValues"
+import type { PlanSummary } from "@/lib/planSummary"
 import { omitUndefined } from "@/lib/omitUndefined"
 import { useApi } from "@/contexts/ApiContext"
 // Zod schemas for IPC events
@@ -56,6 +57,8 @@ export interface ExecState {
   error: AppError | null
   /** The script's outputs. Sensitive ones are `Redacted`. */
   outputs: OutputValues | null
+  /** What the plans the script wrote to $RUNBOOK_PLAN_DIR will change, if it wrote any */
+  plan: PlanSummary | null
   /** Absolute path to the on-disk log file for this execution, if available. */
   logFilePath: string | null
 }
@@ -130,6 +133,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
         exitCode: null,
         error: null,
         outputs: null,
+        plan: null,
         logFilePath: null,
       },
   )
@@ -204,6 +208,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       exitCode: null,
       error: null,
       outputs: null,
+      plan: null,
       logFilePath: null,
     })
   }, [cancel])
@@ -235,6 +240,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
         exitCode: null,
         error: null,
         outputs: null,
+        plan: null,
         logFilePath: null,
       })
       options?.onRunStarted?.()
@@ -302,6 +308,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
               status,
               exitCode: finalStatus.exitCode,
               outputs: Object.keys(outputs).length > 0 ? outputs : null,
+              plan: result.plan ?? null,
             }))
             options?.onFinished?.(outputs, status)
           } else {

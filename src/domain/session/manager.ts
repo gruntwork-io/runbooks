@@ -25,6 +25,7 @@ const EXCLUDED_ENV_VARS = new Set<string>([
   "RUNBOOK_OUTPUT",
   "GENERATED_FILES",
   "REPO_FILES",
+  "RUNBOOK_PLAN_DIR",
   // RUNBOOK_LOG, RUNBOOK_INFO_LOG etc.: per-run files, removed when the run ends
   ...LOG_CHANNELS.map((channel) => channel.envVar),
   "OLDPWD",

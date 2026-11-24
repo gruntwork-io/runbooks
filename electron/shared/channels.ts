@@ -11,6 +11,7 @@
 import type { ExecRequest, ScriptFileChange, Section, SessionMetadata } from "../../src/types.ts"
 export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
+import type { PlanSummary } from "../../src/domain/exec/planSummary.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
 import type { ListedSession } from "../../src/domain/session/store.ts"
 import type { CustomCaStatus } from "../../src/domain/tls/customCa.ts"
@@ -196,11 +197,16 @@ export interface IpcChannelMap {
     params: ExecRequest
     /**
      * A run that finished has a status and its outputs, encoded since a
-     * sensitive output's `Redacted` can't cross IPC (see encodeOutputs). A run
-     * stopped before it finished has neither.
+     * sensitive output's `Redacted` can't cross IPC (see encodeOutputs), and
+     * the summary of the plans it wrote to RUNBOOK_PLAN_DIR, if any. A run
+     * stopped before it finished has none of them.
      */
     result:
-      | { status: { status: string; exitCode: number }; outputs: EncodedOutputValues }
+      | {
+          status: { status: string; exitCode: number }
+          outputs: EncodedOutputValues
+          plan?: PlanSummary
+        }
       | { status: null; cancelled?: boolean }
   }
   // `executionId` targets a specific run; when omitted, the most-recent active

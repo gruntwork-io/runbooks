@@ -1,0 +1,23 @@
+[
+  {
+    "Started": "2026-11-24T14:55:11.100619589-08:00",
+    "Ended": "2026-11-24T14:55:11.158731703-08:00",
+    "Name": "subscriptions/prod",
+    "Result": "succeeded",
+    "Cmd": "plan"
+  },
+  {
+    "Started": "2026-11-24T14:55:11.10063433-08:00",
+    "Ended": "2026-11-24T14:55:11.151530737-08:00",
+    "Name": "subscriptions/dev",
+    "Result": "succeeded",
+    "Cmd": "plan"
+  },
+  {
+    "Started": "2026-11-24T14:55:11.10068644-08:00",
+    "Ended": "2026-11-24T14:55:11.163187781-08:00",
+    "Name": "subscriptions/staging",
+    "Result": "succeeded",
+    "Cmd": "plan"
+  }
+]
