@@ -1,27 +1,34 @@
 /**
  * One status for every block that has a lifecycle. The engine moves a block
  * between these; a block never sets its own. Outputs and environment
- * contributions exist exactly while a block is `Done`.
+ * contributions exist exactly while a block is `Done`. Defined as schemas
+ * because the engine protocol carries them to every client.
  */
-import type { BlockId, Capability, TaskError } from "./contract.ts"
+import { Schema } from "effect"
+import { BlockId, Capability, TaskError } from "./contract.ts"
 
 /** Why a block cannot start yet. */
-export type Blocker =
+export const Blocker = Schema.Union([
   /** A referenced block is not done. */
-  | { readonly _tag: "WaitingFor"; readonly block: BlockId; readonly capability: Capability }
+  Schema.TaggedStruct("WaitingFor", { block: BlockId, capability: Capability }),
   /** The session is not trusted, so nothing runs. */
-  | { readonly _tag: "Untrusted" }
+  Schema.TaggedStruct("Untrusted", {}),
+])
+export type Blocker = typeof Blocker.Type
 
 /** How a done block finished. A warning (exit 2) still satisfies `dependsOn` and `envFrom`. */
-export type Outcome = "success" | "warning"
+export const Outcome = Schema.Literals(["success", "warning"])
+export type Outcome = typeof Outcome.Type
 
-export type BlockStatus =
-  | { readonly _tag: "Idle" }
-  | { readonly _tag: "Blocked"; readonly by: ReadonlyArray<Blocker> }
+export const BlockStatus = Schema.Union([
+  Schema.TaggedStruct("Idle", {}),
+  Schema.TaggedStruct("Blocked", { by: Schema.Array(Blocker) }),
   /** A form, or a task's own form, has fields that are empty or invalid. */
-  | { readonly _tag: "NeedsInput"; readonly fields: ReadonlyArray<string> }
-  | { readonly _tag: "Running" }
-  | { readonly _tag: "Done"; readonly outcome: Outcome }
-  | { readonly _tag: "Failed"; readonly error: TaskError }
+  Schema.TaggedStruct("NeedsInput", { fields: Schema.Array(Schema.String) }),
+  Schema.TaggedStruct("Running", {}),
+  Schema.TaggedStruct("Done", { outcome: Outcome }),
+  Schema.TaggedStruct("Failed", { error: TaskError }),
+])
+export type BlockStatus = typeof BlockStatus.Type
 
 export type BlockStatusTag = BlockStatus["_tag"]

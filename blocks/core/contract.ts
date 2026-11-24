@@ -159,7 +159,14 @@ export class TaskTimedOut extends Schema.TaggedError<TaskTimedOut>()("TaskTimedO
 }) {}
 
 /** Why a task did not finish. A closed set; a client branches on the tag. */
-export type TaskError = PropError | TaskBlocked | TaskFailed | TaskCancelled | TaskTimedOut
+export const TaskError = Schema.Union([
+  PropError,
+  TaskBlocked,
+  TaskFailed,
+  TaskCancelled,
+  TaskTimedOut,
+])
+export type TaskError = typeof TaskError.Type
 
 // ---------------------------------------------------------------------------
 // Running a task

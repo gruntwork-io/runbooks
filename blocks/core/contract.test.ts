@@ -12,8 +12,10 @@ import {
   type References,
   type TaskBlock,
   type TaskEvent,
+  TaskFailed,
 } from "./contract.ts"
 import { FormSpec } from "./form.ts"
+import { BlockStatus } from "./status.ts"
 
 const NoProps = Schema.Struct({})
 const none = { kind: "none" } as const
@@ -163,5 +165,25 @@ describe("FormSpec", () => {
     expect(() =>
       Schema.decodeUnknownSync(FormSpec)({ fields: [{ ...field, type: "date" }], sections: [] }),
     ).toThrow()
+  })
+})
+
+describe("BlockStatus", () => {
+  it("round-trips a failed status through its encoded form", () => {
+    const status: BlockStatus = {
+      _tag: "Failed",
+      error: new TaskFailed({ message: "exit 1", exitCode: 1 }),
+    }
+    const encoded = Schema.encodeSync(BlockStatus)(status)
+    expect(JSON.parse(JSON.stringify(encoded))).toEqual({
+      _tag: "Failed",
+      error: { _tag: "TaskFailed", message: "exit 1", exitCode: 1 },
+    })
+    const decoded = Schema.decodeUnknownSync(BlockStatus)(JSON.parse(JSON.stringify(encoded)))
+    expect(decoded._tag === "Failed" && decoded.error instanceof TaskFailed).toBe(true)
+  })
+
+  it("rejects a done block without an outcome", () => {
+    expect(() => Schema.decodeUnknownSync(BlockStatus)({ _tag: "Done" })).toThrow()
   })
 })
