@@ -5,7 +5,7 @@
  * because the engine protocol carries them to every client.
  */
 import { Schema } from "effect"
-import { BlockId, Capability, TaskError } from "./contract.ts"
+import { BlockId, Capability, CredentialError, TaskError } from "./contract.ts"
 
 /** Why a block cannot start yet. */
 export const Blocker = Schema.Union([
@@ -27,7 +27,7 @@ export const BlockStatus = Schema.Union([
   Schema.TaggedStruct("NeedsInput", { fields: Schema.Array(Schema.String) }),
   Schema.TaggedStruct("Running", {}),
   Schema.TaggedStruct("Done", { outcome: Outcome }),
-  Schema.TaggedStruct("Failed", { error: TaskError }),
+  Schema.TaggedStruct("Failed", { error: Schema.Union([TaskError, CredentialError]) }),
 ])
 export type BlockStatus = typeof BlockStatus.Type
 
