@@ -48,6 +48,8 @@ import { flattenBlockOutputs } from "@/lib/templateUtils"
 import type { TemplateContext } from "@/lib/templateUtils"
 import type { OutputValue as BlockOutputValue, OutputValues } from "@/lib/outputValues"
 import { BlockRunsProvider } from "./BlockRunsContext"
+import { useAgentOutputs } from "./useAgentBridge"
+import { maskOutputs } from "@/lib/outputValues"
 
 /**
  * Data stored for each registered Inputs block.
@@ -364,6 +366,13 @@ export function RunbookContextProvider({
       return { inputs, outputs }
     },
     [getValues, blockOutputs],
+  )
+
+  // What get_outputs answers an AI agent: every block's outputs, sensitive ones masked
+  useAgentOutputs(() =>
+    Object.fromEntries(
+      Object.entries(blockOutputs).map(([blockId, data]) => [blockId, maskOutputs(data.values)]),
+    ),
   )
 
   const contextValue = useMemo(

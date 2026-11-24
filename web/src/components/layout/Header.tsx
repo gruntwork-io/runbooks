@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import {
+  Bot,
   ChevronDown,
   Download,
   FileText,
@@ -51,6 +52,8 @@ interface HeaderProps {
   onOpenSessions: () => void
   /** Called by the menu's Custom CA Certificate… item, once the menu has closed */
   onOpenCustomCa: () => void
+  /** Called by the menu's AI Agent Access… item, once the menu has closed */
+  onOpenAgentAccess: () => void
   onCloseRunbook: () => void
 }
 
@@ -87,6 +90,7 @@ export function Header({
   onOpenCommandPalette,
   onOpenSessions,
   onOpenCustomCa,
+  onOpenAgentAccess,
   onCloseRunbook,
 }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -95,7 +99,7 @@ export function Header({
   // items. What they open opens once the menu has closed: opened sooner, it
   // would lose the focus to the closing menu, and a name field that loses
   // focus cancels the rename.
-  const afterMenuClose = useRef<"rename" | "sessions" | "custom-ca" | null>(null)
+  const afterMenuClose = useRef<"rename" | "sessions" | "custom-ca" | "agent-access" | null>(null)
   const { hasLogs, downloadRaw, downloadJson } = useDownloadLogs()
   const api = useApi()
   const { resolvedTheme } = useTheme()
@@ -236,6 +240,7 @@ export function Header({
                 event.preventDefault()
                 if (open === "rename") setIsRenaming(true)
                 else if (open === "sessions") onOpenSessions()
+                else if (open === "agent-access") onOpenAgentAccess()
                 else onOpenCustomCa()
               }}
             >
@@ -307,6 +312,14 @@ export function Header({
               >
                 <ShieldCheck className="size-4" />
                 Custom CA Certificate…
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  afterMenuClose.current = "agent-access"
+                }}
+              >
+                <Bot className="size-4" />
+                AI Agent Access…
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <ThemeToggle />

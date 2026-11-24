@@ -4,6 +4,8 @@ import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { issueAnchor } from "@/contexts/ErrorReportingContext.types"
 import { RunbookContext } from "@/contexts/RunbookContext"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useAgentBlock } from "@/contexts/useAgentBridge"
+import { maskOutputs } from "@/lib/outputValues"
 import { runbookAssetOrigin, toRunbookAssetUrl } from "@/lib/assetPaths"
 import { runbookStorageKey } from "@/components/mdx/_shared/lib/runbookStorageKey"
 import { BlockIdLabel } from "@/components/mdx/_shared/components/BlockIdLabel"
@@ -106,6 +108,51 @@ export function Iframe({
       clearError(componentId)
     }
   }, [error, componentId, reportError, clearError])
+
+  // What an AI agent sees of this block and does to it, through the app's
+  // MCP server: its Load and Reload buttons. The page itself is the person's.
+  const missingOutputs = outputs.filter((name) => pageOutputs?.[name] === undefined)
+  useAgentBlock(id ?? "", {
+    type: "Iframe",
+    title,
+    status: () => (outputs.length > 0 && missingOutputs.length === 0 ? "success" : "pending"),
+    blockedBy: () => (error ? [error] : []),
+    needsHuman: () =>
+      outputs.length > 0 && missingOutputs.length > 0
+        ? `The person at the window must use the page in this block to set: ${missingOutputs.join(", ")}.`
+        : undefined,
+    detail: () => ({
+      outputs: pageOutputs ? maskOutputs(pageOutputs) : {},
+      ...(messageError ? { error: messageError } : {}),
+      state: { url: "url" in source ? source.url : undefined, loaded },
+    }),
+    actions: () => [
+      {
+        name: "load",
+        description: "Load the page, as the block's Load button does.",
+        changes: false,
+        ...(loaded ? { unavailable: "The page is loaded." } : {}),
+      },
+      {
+        name: "reload",
+        description: "Reload the page, as the block's Reload button does.",
+        changes: false,
+        ...(loaded ? {} : { unavailable: "The page isn't loaded yet." }),
+      },
+    ],
+    act: (action) => {
+      if (action === "load") {
+        writeLoaded(loadedKey)
+        setLoaded(true)
+        return { ok: true }
+      }
+      if (action === "reload") {
+        setLoadCount((count) => count + 1)
+        return { ok: true }
+      }
+      return { ok: false, reason: `Unknown action "${action}"` }
+    },
+  })
 
   if (error || "error" in source || cssHeight === null) {
     return (

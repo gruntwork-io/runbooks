@@ -1,0 +1,138 @@
+---
+title: AI agents (MCP)
+description: Let an AI agent such as Claude Code drive the runbook open in the Runbooks app, over the Model Context Protocol.
+sidebar:
+  order: 5
+---
+
+Runbooks can serve the runbook open in the app to an AI agent such as Claude Code over the [Model Context Protocol](https://modelcontextprotocol.io) (MCP). The agent works in your live session. It can read the blocks and their state, fill in forms, run blocks, wait for them to finish and read their logs and outputs. Everything it does shows in the window as it happens, and you can watch, stop a run or take over at any time.
+
+:::caution
+An agent runs blocks with your credentials, exactly as if you clicked **Run**. A runbook that creates cloud resources creates them when the agent runs it. Turn agent access on only for agents you trust, and keep **Ask me before an agent runs a block** on unless you are watching.
+:::
+
+## Turn it on
+
+Agent access is off by default. To turn it on, open the menu at the top right of the window, choose **AI Agent Access…**, and check **Allow AI agents to connect**.
+
+While it's on, Runbooks serves MCP over Streamable HTTP at `http://127.0.0.1:47821/mcp`:
+
+- **Only on this machine.** The server listens on the loopback address only. It refuses requests that name another host and requests from web pages, which send an `Origin` header.
+- **Only with the token.** Every request needs an `Authorization: Bearer <token>` header. The token is new each time Runbooks starts. While access is on, it is written to `agent-mcp-headers.json` in the app's data directory, readable only by you, and that file is removed when you turn access off or quit.
+- **Asks first.** With **Ask me before an agent runs a block** checked, which is the default, the window asks you before each run an agent starts. Filling in and submitting a form doesn't ask.
+- **Shows that it's there.** While an agent is active, the window shows **AI agent connected** with the last thing it did, and a button that turns agent access off.
+
+## Connect Claude Code
+
+The **AI Agent Access** dialog shows the command for this launch, with its token, ready to copy:
+
+```bash
+claude mcp add --transport http runbooks http://127.0.0.1:47821/mcp --header "Authorization: Bearer <token>"
+```
+
+The token changes each time Runbooks starts, so a server added this way stops working at the next launch. To stay connected across launches, add the server to `.mcp.json` or `~/.claude.json` with a [`headersHelper`](https://code.claude.com/docs/en/mcp) that reads the current token from the headers file. The dialog shows this configuration with the file's path filled in:
+
+```json
+{
+  "mcpServers": {
+    "runbooks": {
+      "type": "http",
+      "url": "http://127.0.0.1:47821/mcp",
+      "headersHelper": "cat '/path/to/user-data/agent-mcp-headers.json'"
+    }
+  }
+}
+```
+
+On Windows, use `type` with the file's path in place of `cat`. Run `claude mcp list` to check that it connected. Any MCP client that speaks Streamable HTTP and can send a header can connect the same way.
+
+## Tools
+
+| Tool | What it does |
+|------|--------------|
+| `list_sessions` | The session open in the app: runbook, session name, number of blocks. |
+| `get_session` | Every block on the page, in order, with its status, why it's blocked, and what the person at the window has to do (`needsHuman`). |
+| `get_block` | One block: status, why it's blocked, a page of its latest run's log lines, error, exit code and outputs, and for an `<Inputs>` or `<Template>` block its fields with their descriptions, defaults, validations, errors and whether the agent reviewed them. |
+| `set_inputs` | Types values into an `<Inputs>` or `<Template>` form, by variable name. Read-only fields are left alone. Each value typed counts as reviewed. |
+| `confirm_inputs` | Accepts a form's values as shown, defaults included, as you would by reading the form and moving on. |
+| `run_block` | Presses the block's main button: **Run** for a `<Command>`, `<Check>` or `<Finish>`, **Check** for `<Prerequisites>`, **Generate** for a `<Template>`, **Submit** for an `<Inputs>`, **Clone** for a `<GitClone>`, **Create** for a pull request block. Returns once the run has started. |
+| `act_on_block` | Uses one of a block's other controls, by action name and params. `get_block` lists each block's actions. |
+| `wait_for_block` | Waits up to 120 seconds for a run to end, then returns the block with `timed_out`. Call it again for longer runs. |
+| `cancel_block` | Presses the block's **Stop** button. |
+| `get_outputs` | Every block's outputs. Sensitive outputs show as `<redacted>`. |
+
+An `<Inputs>` block's values reach the blocks that use them once the form is submitted, as in the window, so an agent calls `set_inputs` and then `run_block` on the `<Inputs>` block.
+
+### Reviewing forms
+
+A default is a value nobody chose for this run. Some defaults have consequences that only the field's description explains, such as an empty list of regions to opt in to. So an agent has to review every form before anything reads it:
+
+- `run_block` refuses a block while a form it reads has fields the agent hasn't set or confirmed. That includes the block's own form, and the forms a `<Template>` imports with `inputsId`. It stops at the form the values come from, not at the block that uses them. The answer's `needsReview` holds that form's fields with their descriptions, defaults and validations.
+- The agent reviews a field by typing a value with `set_inputs`, or accepts the whole form as shown with `confirm_inputs`. A default doesn't count as reviewed until then, even when you typed the values yourself in the window.
+- `get_session` marks each form that still needs review with `needsReview`.
+
+### Every block can be driven
+
+Every block with a button, picker or form gives an agent the same controls it gives you, through the same code the window uses. `get_block` lists a block's `actionSpecs`, each with its params, whether it `changes` something outside the window, and why it is `unavailable` right now if it is. `act_on_block` uses one. Actions that change something, such as signing in, cloning or opening a pull request, ask for your approval the same way runs do.
+
+| Block | Actions |
+|---|---|
+| `<GitAuth>`, `<GitHubAuth>`, `<GitLabAuth>` | `reload_detection`, `select_host`, `select_provider`, `start_browser_sign_in`, `cancel_sign_in`, `sign_in_with_token`, `sign_out`, `retry` |
+| `<AzureAuth>` | `confirm_detected`, `reject_detected`, `retry_detection`, `start_browser_sign_in`, `start_device_code_sign_in`, `cancel_sign_in`, `select_context` (tenant and subscription), `sign_out` |
+| `<AwsAuth>` | `confirm_detected`, `reject_detected`, `retry_detection`, `sign_in_with_profile`, `start_sso_sign_in`, `select_sso_account`, `select_sso_role`, `cancel_sign_in`, `sign_out` |
+| `<GoogleAuth>` | `confirm_detected`, `reject_detected`, `retry_detection`, `sign_in_with_gcloud`, `start_browser_sign_in`, `cancel_sign_in`, `select_project`, `change_project`, `sign_out` |
+| `<GitClone>` | `clone` (URL, ref, paths), `use_local_checkout`, `cancel`, `start_over` |
+| `<GitPullRequest>`, `<GitHubPullRequest>`, `<GitLabMergeRequest>` | `set_fields` (title, description, branch, commit message, labels), `create`, `push`, `delete_branch_and_retry`, `create_another`, `cancel` |
+| `<DirPicker>` | `select_dir`, `set_path` |
+| `<Iframe>` | `load`, `reload` |
+
+`get_block`'s `state` reports what each block holds: the signed-in account, the tenant and subscription, the cloned path, the pull request's URL, the pickers' choices.
+
+Some steps need the person at the window: a browser sign-in, an MFA prompt, a device code, or a page in an `<Iframe>`. Then the block's `needsHuman` says what to do, such as "open https://microsoft.com/devicelogin and enter the code XYZ123", and the agent tells you and waits. An agent can sign in with a personal access token, but it never types other secrets, such as an access key or a client secret: use a credential the environment already has, or enter it in the window yourself.
+
+`<TemplateInline>` has no button. An agent sees its status and what it waits for. An `<Admonition>` reports its status, and one with a confirmation button can be confirmed, except the trust banner, which is yours to confirm. A `<Chapter>` reports its steps' progress and can be shown. When an agent acts on a block in a hidden chapter, the window shows that chapter first.
+
+### Long runs and logs
+
+`run_block` returns as soon as a run starts, so a long `apply` never runs into the agent's tool timeout. The agent follows it with `wait_for_block`. Logs come a page at a time: each answer has `nextLogOffset`, where the next page starts, and `logTotal`, how many lines there are so far. Passing `nextLogOffset` as `log_offset` gets the lines not yet read. `wait_for_block` fails if the window switches to another session while it waits.
+
+If the window asks you to approve a run or action, `run_block` and `act_on_block` answer at once with `awaitingApproval: true`, and the block's status is `awaiting_approval`, with `needsHuman` saying to approve or decline it in the window, until you answer. `wait_for_block` waits through it. The window waits up to 5 minutes for an answer and then declines; a declined request shows in `get_block`'s `note`. Turning agent access off declines an approval that is still open.
+
+### What a block reports
+
+Every block reports its own `status`, whether or not an agent can act on it: `pending`, `running`, `success`, `warn`, `fail`, `generated` (a Template), `submitted` (an Inputs form), `awaiting_approval`, or `info` (a note with nothing to finish). Separately, `controllable` says whether an agent can act on it, and `actions` lists what it can do now (`run`, `set_inputs`, and action names). `state` holds what the block knows, such as the signed-in account, the tenant and subscription, the cloned path or the pull request's URL. `get_block` adds `actionSpecs`, each action's params and why it is unavailable now if it is.
+
+A form field whose value links to other values, such as `{{ .outputs.query_config.tenant_id }}`, comes back with `value` as written and `resolvedValue`, what it comes to, as the form's chip shows it. A reference that can't be resolved yet is listed in `unresolved`, with the reason.
+
+`run_block` refuses a block whose button is disabled in the window, and says why: an input without a value, an output it waits for, an auth block that hasn't signed in, a `dependsOn` block that hasn't succeeded, or a block that is already running.
+
+## Limitations
+
+- **Steps that need you.** Browser and device-code sign-ins, MFA, and pages in an `<Iframe>` are reported in `needsHuman` for you to finish. Secrets other than a personal access token are entered by you.
+- **The page as shown.** An agent sees and controls the blocks on the page. A block that isn't rendered, for example in a chapter that isn't open, isn't there until you open it.
+- **One window.** The app shows one runbook at a time, so `list_sessions` lists at most one session.
+- **Instruction mode.** While [instruction mode](/intro/instruction-mode/) is on, blocks show instructions instead of running, and `run_block` refuses them.
+
+## Without the app
+
+`runbooks-cli mcp` serves similar tools over stdio for runs without the desktop app, such as in CI. It runs blocks with the [test runner's](/authoring/testing/) engine, not the app's, so it shares the runner's [differences from the app](/authoring/testing/#how-tests-differ-from-the-app). Its auth blocks pick up credentials from the environment or an existing CLI sign-in without contacting the cloud, and it can't run pull request blocks. For an AWS SSO sign-in, run `aws sso login` and export `AWS_PROFILE` (for example `AWS_PROFILE=default`) before you start the agent: the cached sign-in alone doesn't name a profile, so `<AwsAuth>` would find no credentials.
+
+Build it from the [Runbooks repository](https://github.com/gruntwork-io/runbooks) with `just compile-test-cli`, then register it:
+
+```bash
+claude mcp add runbooks-headless -- /path/to/runbooks/resources/bin/runbooks-test mcp
+```
+
+The headless server has no `act_on_block`. Its auth blocks read credentials from the environment, its `<GitClone>` clones the URL the runbook gives, and it can't open pull requests. Use the app to drive those blocks.
+
+Its tools are `open_runbook` (a local path; runs nothing), `get_runbook`, `set_inputs` (keyed `inputsBlockId.VariableName`), `confirm_inputs`, `run_block` and `run_all` (each waits for the run to end), `skip_block`, `get_block`, `get_outputs` and `close_runbook`. Each `open_runbook` result lists the limitations of running headless.
+
+Forms are reviewed as in the app: `run_block` and `run_all` stop at each `<Inputs>` or `<Template>` form whose values haven't been set with `set_inputs` (or `open_runbook`'s `inputs`) or accepted with `confirm_inputs`, before anything that reads it runs, and return the form's fields with their descriptions, defaults and validations.
+
+`skip_block` marks a block skipped without running it or checking its configuration. It refuses:
+
+- auth blocks, since the blocks that use their credentials would stay blocked or run without them;
+- `<Inputs>` blocks, since other blocks read their values (review them instead);
+- a block that already ran to completion, since blocks after it may already use its outputs.
+
+Its answer lists the blocks that wait on the skipped block, and which of its outputs each one reads. Those blocks stay blocked unless the values come from somewhere else, for example an environment variable their scripts read.

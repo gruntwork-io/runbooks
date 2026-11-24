@@ -15,6 +15,8 @@ import {
   UnmetDependenciesWarning,
 } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { stringParam, useAgentBlock } from "@/contexts/useAgentBridge"
+import { maskOutputs } from "@/lib/outputValues"
 import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
@@ -505,6 +507,208 @@ function GitPullRequestInteractive({
     if (!prResult || !registeredOutputs?.length) return null
     return Object.fromEntries(registeredOutputs.map((o) => [o.name, o.value]))
   }, [prResult, registeredOutputs])
+
+  // What an AI agent sees of this block and does to it, through the app's MCP
+  // server: the same fields and Create handler as the block's form.
+  const agentBlockedBy = (): string[] => [
+    ...(validationError ? [validationError.message] : []),
+    ...(isDuplicate || isNormalizedCollision ? [`Duplicate block id "${id}"`] : []),
+    ...(unmetInputDeps.length > 0 ? [`Inputs without a value: ${unmetInputDeps.join(", ")}`] : []),
+    ...unmetOutputDeps.map(
+      (dep) => `Waiting for outputs of "${dep.blockId}": ${dep.outputNames.join(", ")}`,
+    ),
+    ...(!authMet ? ["The auth block it uses hasn't signed in"] : []),
+    ...(!activeWorkTree
+      ? ["No repository yet: a GitClone block has to clone one or use a local checkout first"]
+      : []),
+    ...(wrongProvider ? ["The repository is on a different provider than this block"] : []),
+  ]
+  const agentFields = {
+    title: prTitle,
+    description: prDescription,
+    branch: branchName,
+    commitMessage: commitMessage || defaultCommitMessage,
+    labels: selectedLabels,
+  }
+  const agentSetFields = (params: Record<string, unknown>) => {
+    const newTitle = stringParam(params, "title")
+    const body = typeof params.description === "string" ? params.description : undefined
+    const branch = stringParam(params, "branch")
+    const message = stringParam(params, "commit_message")
+    const newLabels = Array.isArray(params.labels)
+      ? params.labels.filter((l): l is string => typeof l === "string")
+      : undefined
+    if (newTitle !== undefined) {
+      setPRTitle(newTitle)
+      setUserEditedTitle(true)
+    }
+    if (body !== undefined) {
+      setPRDescription(body)
+      setUserEditedDescription(true)
+    }
+    if (branch !== undefined) {
+      setBranchName(branch)
+      setUserEditedBranch(true)
+    }
+    if (message !== undefined) {
+      setCommitMessage(message)
+      setUserEditedCommitMessage(true)
+    }
+    if (newLabels !== undefined) setSelectedLabels(newLabels)
+    return {
+      title: newTitle ?? prTitle,
+      body: body ?? prDescription,
+      branch: branch ?? branchName,
+      message: message ?? (commitMessage || defaultCommitMessage),
+      labels: newLabels ?? selectedLabels,
+    }
+  }
+  const agentCreate = (fields: ReturnType<typeof agentSetFields>) => {
+    if (!activeWorkTree) return
+    void createPullRequest({
+      owner: activeWorkTree.gitInfo.repoOwner,
+      repo: activeWorkTree.gitInfo.repoName,
+      baseBranch: activeWorkTree.gitInfo.ref,
+      headBranch: fields.branch.trim(),
+      title: fields.title.trim(),
+      body: fields.body,
+      commitMessage: fields.message.trim() || defaultCommitMessage,
+      labels: fields.labels,
+      worktreePath: activeWorkTree.localPath,
+    })
+  }
+  const prFieldParams = {
+    title: { type: "string" as const, description: "Pull request title" },
+    description: { type: "string" as const, description: "Pull request description (Markdown)" },
+    branch: { type: "string" as const, description: "Branch to push the changes to" },
+    commit_message: { type: "string" as const, description: "Commit message" },
+    labels: { type: "string[]" as const, description: "Labels to add" },
+  }
+  useAgentBlock(id, {
+    type: __registryType,
+    title: resolvedTitle,
+    status: () =>
+      effectiveStatus === "success"
+        ? "success"
+        : effectiveStatus === "creating" || effectiveStatus === "pushing"
+          ? "running"
+          : effectiveStatus === "fail"
+            ? "fail"
+            : "pending",
+    blockedBy: agentBlockedBy,
+    detail: (logOffset, logLimit) => {
+      const page = logs.slice(logOffset, logOffset + logLimit).map((entry) => entry.line)
+      return {
+        logs: page,
+        logOffset,
+        logTotal: logs.length,
+        nextLogOffset: Math.min(logOffset, logs.length) + page.length,
+        outputs: outputValues ? maskOutputs(outputValues) : {},
+        ...(errorMessage || pushError ? { error: errorMessage ?? pushError ?? undefined } : {}),
+        state: {
+          ...agentFields,
+          baseBranch: activeWorkTree?.gitInfo.ref,
+          repository: activeWorkTree?.gitInfo.repoUrl,
+          url: prResult?.prUrl,
+          number: prResult?.prNumber,
+          branchConflict: conflictBranchName ?? undefined,
+          changedFiles: changeSummary ?? undefined,
+        },
+      }
+    },
+    actions: () => {
+      const blocked = agentBlockedBy()
+      const busy = effectiveStatus === "creating" || effectiveStatus === "pushing"
+      const created = prResult !== null && prResult !== undefined
+      return [
+        {
+          name: "set_fields",
+          description:
+            "Fill in the pull request form: title, description, branch, commit message, labels.",
+          params: prFieldParams,
+          changes: false,
+          ...(created
+            ? { unavailable: "Already created. Use create_another to start a new one." }
+            : {}),
+        },
+        {
+          name: "create",
+          description:
+            "Commit the changes in the repository to a new branch, push it, and open the pull request, as the block's Create button does. Takes the form's fields, with any given here.",
+          params: prFieldParams,
+          changes: true,
+          ...(created
+            ? { unavailable: "Already created. Use push to add new changes, or create_another." }
+            : busy
+              ? { unavailable: "Busy." }
+              : blocked.length > 0
+                ? { unavailable: blocked.join("; ") }
+                : {}),
+        },
+        {
+          name: "push",
+          description:
+            "Commit and push new changes to the pull request's branch, as the block's Push does.",
+          changes: true,
+          ...(created && !busy ? {} : { unavailable: "No pull request to push to." }),
+        },
+        {
+          name: "delete_branch_and_retry",
+          description:
+            "Delete the local branch that is in the way, then create again, as the block's button does.",
+          changes: true,
+          ...(conflictBranchName ? {} : { unavailable: "No branch is in the way." }),
+        },
+        {
+          name: "create_another",
+          description: "Start a new pull request from a blank form.",
+          changes: false,
+          ...(created ? {} : { unavailable: "No pull request yet." }),
+        },
+        {
+          name: "cancel",
+          description: "Stop creating the pull request.",
+          changes: false,
+          ...(busy ? {} : { unavailable: "Nothing is running." }),
+        },
+      ]
+    },
+    run: () => {
+      const blocked = agentBlockedBy()
+      if (blocked.length > 0) return { started: false, reason: blocked.join("; ") }
+      if (prResult) return { started: false, reason: "Already created." }
+      agentCreate(agentSetFields({}))
+      return { started: true }
+    },
+    cancel: () => {
+      cancel()
+      return true
+    },
+    act: (action, params) => {
+      switch (action) {
+        case "set_fields":
+          agentSetFields(params)
+          return { ok: true }
+        case "create":
+          agentCreate(agentSetFields(params))
+          return { ok: true, note: "Creating; wait_for_block, then get_block's state.url." }
+        case "push":
+          handlePush()
+          return { ok: true }
+        case "delete_branch_and_retry":
+          void handleDeleteBranch()
+          return { ok: true }
+        case "create_another":
+          handleCreateAnother()
+          return { ok: true }
+        case "cancel":
+          cancel()
+          return { ok: true }
+        default:
+          return { ok: false, reason: `Unknown action "${action}"` }
+      }
+    },
+  })
 
   // Early return for validation errors (e.g. missing id prop)
   if (validationError) {

@@ -1,4 +1,5 @@
-import { useState, useEffect, useId, useMemo } from "react"
+import { useState, useEffect, useId, useMemo, useRef } from "react"
+import { useAgentBlock, useAgentPresence } from "@/contexts/useAgentBridge"
 import { X, Info, AlertTriangle, AlertCircle, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
@@ -151,6 +152,52 @@ export function Admonition({
     }, 250)
   }
 
+  // What an AI agent sees of this note, through the app's MCP server. It has
+  // no id of its own, so it goes by one made from React's. The trust banner
+  // asks the person, never the agent.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const agentId = `admonition-${componentId.replace(/[^a-zA-Z0-9]/g, "")}`
+  const isTrustBanner = storageKey?.startsWith("security-banner") === true
+  useAgentPresence(agentId, "Admonition", rootRef)
+  useAgentBlock(agentId, {
+    type: "Admonition",
+    title: resolvedTitle,
+    status: () =>
+      resolvedConfirmationText ? (isConfirmed || !isVisible ? "success" : "pending") : "info",
+    blockedBy: () => [],
+    needsHuman: () =>
+      isTrustBanner && !isConfirmed && isVisible
+        ? "The person at the window must confirm they trust this runbook (the banner at the top)."
+        : undefined,
+    detail: () => ({
+      state: {
+        kind: type,
+        text: resolvedDescription,
+        confirmation: resolvedConfirmationText,
+        confirmed: isConfirmed || undefined,
+        shown: isVisible,
+      },
+    }),
+    actions: () =>
+      resolvedConfirmationText && !isTrustBanner
+        ? [
+            {
+              name: "confirm",
+              description: `Press the note's "${resolvedConfirmationText}" button.`,
+              changes: false,
+              ...(isConfirmed || !isVisible ? { unavailable: "Already confirmed." } : {}),
+            },
+          ]
+        : [],
+    act: (action) => {
+      if (action !== "confirm" || !resolvedConfirmationText || isTrustBanner) {
+        return { ok: false, reason: `Unknown action "${action}"` }
+      }
+      handleConfirm()
+      return { ok: true }
+    },
+  })
+
   if (!isVisible) return null
 
   const config = admonitionConfig[type]
@@ -185,6 +232,7 @@ export function Admonition({
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         "runbook-block rounded-md border p-3 text-sm flex items-start gap-2 transition-opacity duration-1000 mb-5",
         config.bgColor,

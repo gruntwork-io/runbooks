@@ -22,6 +22,7 @@ import { CodeFile } from "@/components/artifacts/code/CodeFile"
 import { AlertTriangle } from "lucide-react"
 import { DuplicateIdError } from "../_shared/components/DuplicateIdError"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useAgentBlock } from "@/contexts/useAgentBridge"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import {
@@ -300,6 +301,26 @@ function TemplateInline({
       applyFileTreeUpdate({ ...data, fileTree })
     }
   }, [data, effectiveGenerateFile, applyFileTreeUpdate])
+
+  // What an AI agent sees of this block, through the app's MCP server. It has
+  // no button: it renders on its own once the values it reads exist.
+  useAgentBlock(id, {
+    type: "TemplateInline",
+    status: () => (error ? "fail" : isLoading ? "running" : hasRendered ? "success" : "pending"),
+    blockedBy: () => [
+      ...(validationError ? [validationError.message] : []),
+      ...(isDuplicate || isNormalizedCollision ? [`Duplicate block id "${id}"`] : []),
+      ...(unmetInputsIds.length > 0
+        ? [`Waiting for the forms of: ${unmetInputsIds.join(", ")}`]
+        : []),
+      ...(!hasAllDependencies ? ["Waiting for the inputs and outputs it reads"] : []),
+    ],
+    readsForms: () => [inputsId ?? []].flat(),
+    detail: () => ({
+      ...(error ? { error: error.message } : {}),
+      state: { generatesFile: effectiveGenerateFile || undefined, outputPath },
+    }),
+  })
 
   // Early return for validation errors
   if (validationError) {

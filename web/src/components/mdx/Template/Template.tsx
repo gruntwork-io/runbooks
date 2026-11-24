@@ -99,6 +99,9 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
 
   // Get inputs from referenced Inputs components (if any) and convert to values map
   const inputs = useInputs(inputsId)
+  // Keyed on the ids, since an array literal in MDX is a new array on every render
+  const importsKey = JSON.stringify([inputsId ?? []].flat())
+  const importsFrom = useMemo(() => JSON.parse(importsKey) as string[], [importsKey])
   const inputValues = useMemo(() => flattenInputs(inputs), [inputs])
 
   // Get all block outputs to check dependencies and pass to template rendering
@@ -484,6 +487,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
         liveVarValues={liveVarValues}
         unmetOutputDependencies={unmetOutputDependencies}
         importedValues={inputValues}
+        importsFrom={importsFrom}
       />
     </div>
   )

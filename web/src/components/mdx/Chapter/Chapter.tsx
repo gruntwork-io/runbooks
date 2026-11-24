@@ -6,6 +6,7 @@ import { ProgressRegistryContext } from "@/contexts/RunbookProgressContext.types
 import { CHAPTER_INDEX_ATTRIBUTE } from "@/contexts/RunbookChaptersContext.types"
 import { useChaptersControl, useRunbookChapters } from "@/contexts/useRunbookChapters"
 import { useStepCounter } from "@/contexts/useStepCounter"
+import { useAgentBlock, useAgentPresence } from "@/contexts/useAgentBridge"
 import { ChapterBar, ChapterPager } from "./ChapterNav"
 
 interface ChapterProps {
@@ -76,6 +77,40 @@ export function Chapter({ title, chapterIndex, children }: ChapterProps) {
     }
     section.focus({ preventScroll: true })
   }, [navigation, isCurrent])
+
+  // What an AI agent sees of this chapter, through the app's MCP server: its
+  // steps' progress, and the chapter bar's move to it.
+  const { show } = useChaptersControl()
+  const agentId = index === undefined ? "" : `chapter-${index + 1}`
+  useAgentPresence(agentId, "Chapter", sectionRef)
+  useAgentBlock(agentId, {
+    type: "Chapter",
+    title: name || undefined,
+    status: () =>
+      progress.total > 0 && progress.done === progress.total
+        ? "success"
+        : progress.total > 0
+          ? "pending"
+          : "info",
+    blockedBy: () => (configError ? [configError] : []),
+    detail: () => ({
+      state: { title: name, onScreen: isCurrent, stepsDone: progress.done, steps: progress.total },
+    }),
+    actions: () => [
+      {
+        name: "show",
+        description: "Show this chapter in the window, as the chapter bar does.",
+        changes: false,
+        ...(isCurrent ? { unavailable: "It is on screen." } : {}),
+      },
+    ],
+    act: (action) => {
+      if (action !== "show" || index === undefined)
+        return { ok: false, reason: `Unknown action "${action}"` }
+      show(index)
+      return { ok: true }
+    },
+  })
 
   const errorBox = configError && (
     <div
