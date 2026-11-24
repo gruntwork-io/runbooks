@@ -37,15 +37,18 @@ The top of the stack passes, in CI:
 ## Stack
 
 Status: planned, open (draft PR open), green (CI passed on the head), red.
+"Green" excludes `Pull Request has non-contributor approval`, which fails on every PR until a human who has not pushed to it approves.
+
+Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the auth contract owns the credential lifecycle, and the engine protocol carries it.
 
 | # | PR | Phase | Branch | Base | Status | Work products |
 |---|---|---|---|---|---|---|
-| 1 | | 0 | `rebuild/p0-block-contract` | `rebuild/main` | planned | 0.2 |
-| 2 | | 0 | `rebuild/p0-document` | p0-block-contract | planned | 0.4 |
-| 3 | | 0 | `rebuild/p0-engine-protocol` | p0-document | planned | 0.3 |
-| 4 | | 0 | `rebuild/p0-plugin-transport` | p0-engine-protocol | planned | 0.5 |
-| 5 | | 0 | `rebuild/p0-auth-contract` | p0-plugin-transport | planned | 0.6 |
-| 6 | | 0 | `rebuild/p0-cli-contract` | p0-auth-contract | planned | 0.7 |
+| 1 | #496 | 0 | `rebuild/p0-block-contract` | `rebuild/main` | green | 0.2 |
+| 2 | #497 | 0 | `rebuild/p0-document` | p0-block-contract | green | 0.4 |
+| 3 | #499 | 0 | `rebuild/p0-plugin-transport` | p0-document | open | 0.5 |
+| 4 | #501 | 0 | `rebuild/p0-auth-contract` | p0-plugin-transport | open | 0.6 |
+| 5 | #502 | 0 | `rebuild/p0-engine-protocol` | p0-auth-contract | open | 0.3 |
+| 6 | | 0 | `rebuild/p0-cli-contract` | p0-engine-protocol | planned | 0.7 |
 | 7 | | 0 | `rebuild/p0-security-tests` | p0-cli-contract | planned | 0.11 |
 | 8 | | 0 | `rebuild/p0-e2e-files-panel` | p0-security-tests | planned | 0.9 |
 | 9 | | 0 | `rebuild/p0-e2e-system` | p0-e2e-files-panel | planned | 0.10 |
@@ -59,6 +62,11 @@ Phases 1 to 6 and track A are added here as their PRs are cut.
 | WP | Item | PR | State |
 |---|---|---|---|
 | 0.1 | Rulings on the 18 open decisions | none | not done: the human's to make. Each PR built on a recommendation names it under Decisions. |
+| 0.2 | `blocks/core/contract.ts` | #496 | open |
+| 0.3 | Engine protocol | #502 | open |
+| 0.4 | Document type | #497 | open |
+| 0.5 | `plugin/base.schema.json` | #499 | open |
+| 0.6 | `plugin/credential.schema.json` | #501 | open |
 | 0.13 | Throwaway prototype | none | see Gaps once decided |
 
 ## Open decisions built on
@@ -67,8 +75,24 @@ Each row names the PR whose description carries the Decisions entry.
 
 | # | Built on (the plan's recommendation) | First PR |
 |---|---|---|
+| 1 | A headless engine in the core | #496 |
+| 2 | Four classes plus five capabilities | #496 |
+| 8 | Command and Check outputs declared through an `outputs` prop | #496 |
+| 10 | A top-level `blocks/` folder | #496 |
+| 11 | A `repository` prop; `gitAuthId` kept | #496 |
+| 7 | No click when pins match; confirm when the block pins nothing (`confirmsDetected`) | #501 |
+| 12 | MCP baseline is the in-app server's ten tools (`BASELINE_MCP_TOOLS`) | #502 |
+| 18 | More than one window left out; the protocol is session-scoped | #502 |
+
+Choices of my own that need a ruling (not among the 18):
+
+| Choice | PR |
+|---|---|
+| An expired credential withdraws its env (today it stays published while shown as failed) | #501 |
+| `act_on_block` actions with no generic command (GitClone `use_local_checkout`, GitPullRequest `push`/`delete_branch_and_retry`, Iframe, Chapter, Admonition) settled per block in phase 4 | #502 |
 
 ## Failed attempts
 
 | Check | Attempt | Result |
 |---|---|---|
+| Generate TS from `plugin/base.schema.json` | `not: { required: [id] }` on notifications | Effect's importer: "Cannot import JSON Schema keyword \"not\"". Rule moved to the transport owner (#499). |
