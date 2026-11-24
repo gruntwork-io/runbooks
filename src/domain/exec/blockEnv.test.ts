@@ -50,7 +50,7 @@ describe("parseBlockEnv", () => {
   it("refuses the names Runbooks sets for every run", () => {
     for (const name of [
       "RUNBOOK_OUTPUT",
-      "RUNBOOK_LOG",
+      "RUNBOOK_ENV",
       "RUNBOOK_ERROR_LOG",
       "GENERATED_FILES",
       "REPO_FILES",

@@ -14,60 +14,6 @@ import { isRunbookEnvVar, isStartupEnvVar } from "./blockEnv.ts"
 // Constants
 // ---------------------------------------------------------------------------
 
-/**
- * Logging functions put before every bash and sh script: log_info, log_warn,
- * log_error and log_debug. They're POSIX sh plus `local`, which dash and
- * every other /bin/sh Runbooks meets supports.
- *
- * All four append to the one file named by RUNBOOK_LOG (see logChannels.ts),
- * so their lines keep the order the script wrote them in, and each line names
- * its level. They never write to stdout, so a function that logs and then
- * prints a value returns only that value through `$(...)`. When RUNBOOK_LOG
- * is unset, or the file can't be written (a background job still logging
- * after the run ended and the file was deleted), they write to stderr
- * instead of failing. Keep in sync with scripts/logging.sh.
- */
-const LOGGING_FUNCTIONS = `
-# --- Runbooks Logging Functions ---
-# (auto-injected; see also scripts/logging.sh for local development)
-_RUNBOOKS_LOGGING_LOADED=1
-
-_log_timestamp() {
-    date -u +"%Y-%m-%dT%H:%M:%SZ"
-}
-
-# _log_write TAG MESSAGE...: append a line to $RUNBOOK_LOG, or write it to
-# stderr if RUNBOOK_LOG is unset or the append fails
-_log_write() {
-    local tag="$1"
-    shift
-    if [ -n "\${RUNBOOK_LOG:-}" ] &&
-        { printf '[%s] %s %s\\n' "$(_log_timestamp)" "$tag" "$*" >> "$RUNBOOK_LOG"; } 2>/dev/null; then
-        return 0
-    fi
-    printf '[%s] %s %s\\n' "$(_log_timestamp)" "$tag" "$*" >&2
-}
-
-log_info() {
-    _log_write "[INFO] " "$@"
-}
-
-log_warn() {
-    _log_write "[WARN] " "$@"
-}
-
-log_error() {
-    _log_write "[ERROR]" "$@"
-}
-
-log_debug() {
-    if [ "\${DEBUG:-}" = "true" ]; then
-        _log_write "[DEBUG]" "$@"
-    fi
-}
-# --- End Runbooks Logging Functions ---
-`
-
 /** Valid shell/output identifier: starts with a letter or underscore, rest alphanumeric or underscore. */
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -96,8 +42,6 @@ export type ScriptRunner =
   | {
       readonly ok: true
       readonly launch: ScriptLaunch
-      /** The content to write to the script file. */
-      readonly script: string
       /** The name to give the script file. It keeps the script's extension, which pwsh requires. */
       readonly fileName: string
     }
@@ -120,9 +64,6 @@ const INTERPRETER_BY_EXTENSION: Readonly<Record<string, string>> = {
   ".pl": "perl",
   ".ps1": "pwsh",
 }
-
-/** The interpreters whose scripts get the log_* functions. */
-const SHELL_INTERPRETERS = new Set(["bash", "sh"])
 
 /**
  * The program a `#!` line starts, by name, and its args. For `env` it is the
@@ -160,7 +101,7 @@ export interface ScriptSource {
 }
 
 /**
- * How to run a script, and what to write to its file.
+ * How to run a script, and what to name its file.
  *
  * On macOS and Linux a script with a shebang runs as itself, so the shebang
  * means what it means in a terminal. Windows can't run a file by its shebang,
@@ -171,8 +112,6 @@ export interface ScriptSource {
  * extension has no program fails: it needs a shebang or the prop. The
  * registry refuses a block with both a shebang and the prop; a script file
  * that gains a shebang after that runs with the shebang.
- *
- * A bash or sh script gets the log_* functions, after its shebang line.
  */
 export function resolveScriptRunner(
   content: string,
@@ -182,22 +121,15 @@ export function resolveScriptRunner(
   const scriptPath = source.path
   const extension = path.extname(scriptPath).toLowerCase()
   const fileName = `script${extension || ".sh"}`
-  const withLogging = (shebangLine: string, rest: string) =>
-    shebangLine === ""
-      ? `${LOGGING_FUNCTIONS}\n${rest}`
-      : `${shebangLine}\n${LOGGING_FUNCTIONS}\n${rest}`
 
-  const newline = content.indexOf("\n")
-  const firstLine = newline === -1 ? content : content.slice(0, newline)
+  const firstLine = content.split("\n", 1)[0]!
   const shebang = firstLine.startsWith("#!") ? shebangCommand(firstLine) : undefined
   if (shebang !== undefined) {
-    const rest = newline === -1 ? "" : content.slice(newline + 1)
-    const script = SHELL_INTERPRETERS.has(shebang.command) ? withLogging(firstLine, rest) : content
     const launch: ScriptLaunch =
       platform === "win32"
         ? { kind: "interpreter", command: shebang.command, args: shebang.args }
         : { kind: "self" }
-    return { ok: true, launch, script, fileName }
+    return { ok: true, launch, fileName }
   }
 
   const [propCommand, ...propArgs] = source.interpreter.split(/\s+/).filter(Boolean)
@@ -211,8 +143,7 @@ export function resolveScriptRunner(
         `or set the block's interpreter prop.`,
     }
   }
-  const script = SHELL_INTERPRETERS.has(path.basename(command)) ? withLogging("", content) : content
-  return { ok: true, launch: { kind: "interpreter", command, args: propArgs }, script, fileName }
+  return { ok: true, launch: { kind: "interpreter", command, args: propArgs }, fileName }
 }
 
 // ---------------------------------------------------------------------------
@@ -220,14 +151,15 @@ export function resolveScriptRunner(
 // ---------------------------------------------------------------------------
 
 /**
- * Write the script `runner` describes (see resolveScriptRunner) to a new
- * directory in `scriptsDir`, executable by the user only, and return how to
- * run it. The directory is removed when the Effect Scope closes.
+ * Write `content` to a new directory in `scriptsDir`, under the name `runner`
+ * gives it (see resolveScriptRunner), executable by the user only, and return
+ * how to run it. The directory is removed when the Effect Scope closes.
  *
  * `scriptsDir` is created if missing. It should be outside the OS temp
  * directory, which hardened Linux systems mount noexec.
  */
 export const prepareScript = (
+  content: string,
   runner: Extract<ScriptRunner, { ok: true }>,
   scriptsDir: string,
 ): Effect.Effect<ScriptSetup, FileWriteError, FileSystem | Scope.Scope> =>
@@ -240,7 +172,7 @@ export const prepareScript = (
       fs.rm(scriptDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
     const scriptPath = `${scriptDir}/${runner.fileName}`
-    yield* fs.writeFile(scriptPath, runner.script)
+    yield* fs.writeFile(scriptPath, content)
     yield* fs.chmod(scriptPath, 0o700)
 
     const { launch } = runner

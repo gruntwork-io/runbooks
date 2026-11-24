@@ -119,13 +119,13 @@ External scripts are plain bash scripts. The referenced `checks/aws-authenticate
 ```bash
 #!/usr/bin/env bash
 
-log_info "Checking AWS authentication..."
+echo "Checking AWS authentication..." >> "$RUNBOOK_INFO_LOG"
 
 if aws sts get-caller-identity &>/dev/null; then
-    log_info "AWS credentials are valid"
+    echo "AWS credentials are valid" >> "$RUNBOOK_INFO_LOG"
     exit 0
 else
-    log_error "Not authenticated to AWS"
+    echo "Not authenticated to AWS" >> "$RUNBOOK_ERROR_LOG"
     exit 1
 fi
 ```
@@ -144,7 +144,7 @@ A script killed by `timeoutMs` is a failure.
 
 ### Logging
 
-Check scripts get the same `log_info`, `log_warn`, `log_error` and `log_debug` functions and log files as Command scripts. See [Logging](/authoring/blocks/command/#logging) in the Command block docs, including [Log files](/authoring/blocks/command/#log-files) and [Local development](/authoring/blocks/command/#local-development).
+Check scripts get the same log files as Command scripts: append a line to `$RUNBOOK_INFO_LOG`, `$RUNBOOK_WARN_LOG`, `$RUNBOOK_ERROR_LOG` or `$RUNBOOK_DEBUG_LOG` to log it at that level. See [Logging](/authoring/blocks/command/#logging) in the Command block docs.
 
 ### With variables
 
@@ -186,13 +186,13 @@ Check scripts run in the same session environment and non-interactive shell as C
 #!/usr/bin/env bash
 # checks/tofu-installed.sh
 
-log_info "Checking for OpenTofu installation..."
+echo "Checking for OpenTofu installation..." >> "$RUNBOOK_INFO_LOG"
 
 if command -v tofu &> /dev/null; then
-    log_info "OpenTofu is installed: $(tofu version | head -1)"
+    echo "OpenTofu is installed: $(tofu version | head -1)" >> "$RUNBOOK_INFO_LOG"
     exit 0
 else
-    log_error "OpenTofu is not installed"
+    echo "OpenTofu is not installed" >> "$RUNBOOK_ERROR_LOG"
     exit 1
 fi
 ```
@@ -203,18 +203,18 @@ fi
 #!/usr/bin/env bash
 # checks/disk-space.sh
 
-log_info "Checking available disk space..."
+echo "Checking available disk space..." >> "$RUNBOOK_INFO_LOG"
 available=$(df -h / | awk 'NR==2 {print $4}' | sed 's/G//')
-log_debug "Available space: ${available}GB"
+echo "Available space: ${available}GB" >> "$RUNBOOK_DEBUG_LOG"
 
 if [ "$available" -lt 1 ]; then
-    log_error "Less than 1GB available"
+    echo "Less than 1GB available" >> "$RUNBOOK_ERROR_LOG"
     exit 1
 elif [ "$available" -lt 5 ]; then
-    log_warn "Less than 5GB available"
+    echo "Less than 5GB available" >> "$RUNBOOK_WARN_LOG"
     exit 2
 else
-    log_info "Disk space OK: ${available}GB available"
+    echo "Disk space OK: ${available}GB available" >> "$RUNBOOK_INFO_LOG"
     exit 0
 fi
 ```
@@ -227,14 +227,14 @@ The `check-s3-bucket` block in [Inline content](#inline-content) sets `BUCKET_NA
 #!/usr/bin/env bash
 # checks/s3-bucket-exists.sh
 
-log_info "Checking if S3 bucket exists..."
-log_debug "Bucket name: ${BUCKET_NAME}"
+echo "Checking if S3 bucket exists..." >> "$RUNBOOK_INFO_LOG"
+echo "Bucket name: ${BUCKET_NAME}" >> "$RUNBOOK_DEBUG_LOG"
 
 if aws s3 ls "s3://${BUCKET_NAME}" &> /dev/null; then
-    log_info "Bucket ${BUCKET_NAME} exists"
+    echo "Bucket ${BUCKET_NAME} exists" >> "$RUNBOOK_INFO_LOG"
     exit 0
 else
-    log_error "Bucket ${BUCKET_NAME} does not exist"
+    echo "Bucket ${BUCKET_NAME} does not exist" >> "$RUNBOOK_ERROR_LOG"
     exit 1
 fi
 ```
@@ -270,15 +270,15 @@ A check more often reads `$REPO_FILES` than writes to it:
 #!/usr/bin/env bash
 # Validate a config file in the cloned repo
 if [ -z "${REPO_FILES:-}" ]; then
-    log_error "No git worktree available. Clone a repo first."
+    echo "No git worktree available. Clone a repo first." >> "$RUNBOOK_ERROR_LOG"
     exit 1
 fi
 
 if [ -f "$REPO_FILES/terragrunt.hcl" ]; then
-    log_info "Found terragrunt.hcl"
+    echo "Found terragrunt.hcl" >> "$RUNBOOK_INFO_LOG"
     exit 0
 else
-    log_error "Missing terragrunt.hcl"
+    echo "Missing terragrunt.hcl" >> "$RUNBOOK_ERROR_LOG"
     exit 1
 fi
 ```

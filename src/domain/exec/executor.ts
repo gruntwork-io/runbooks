@@ -208,11 +208,9 @@ export const executeScript = (
     )
 
     log.debug("step 3a: creating log channel files")
-    // The script's log files: RUNBOOK_LOG, which the log_* helpers append to,
-    // and one per level (RUNBOOK_INFO_LOG, ...). Anything the script runs can
-    // append to them too, and the spawner follows them into the log stream
-    // and the run's log file. Once the run ends they're deleted, and the helpers fall
-    // back to stderr.
+    // The script's log files, one per level (RUNBOOK_INFO_LOG, ...). The
+    // spawner follows them into the log stream and the run's log file. Once
+    // the run ends they're deleted.
     const logChannelDir = yield* fs.mkdtemp("runbook-log-channels-")
     yield* Effect.addFinalizer(() =>
       fs.rm(logChannelDir, { recursive: true, force: true }).pipe(Effect.ignore),
@@ -287,8 +285,7 @@ export const executeScript = (
     }
 
     // Add standard runbook env vars (RUNBOOK_OUTPUT, RUNBOOK_ENV,
-    // GENERATED_FILES, REPO_FILES, and the log files: RUNBOOK_LOG and
-    // RUNBOOK_<LEVEL>_LOG)
+    // GENERATED_FILES, REPO_FILES, and the log files, RUNBOOK_<LEVEL>_LOG)
     execEnv = setupExecEnvVars(
       execEnv,
       outputFilePath,
@@ -299,19 +296,17 @@ export const executeScript = (
     )
 
     log.debug("step 4: writing script")
-    const scriptSetup: ScriptSetup = yield* prepareScript(runner, dirs.scripts)
+    const scriptSetup: ScriptSetup = yield* prepareScript(scriptContent, runner, dirs.scripts)
 
     log.debug("step 5: spawning process:", scriptSetup.command, scriptSetup.scriptPath)
     const child = yield* spawner.spawn(scriptSetup.command, scriptSetup.args, {
       cwd: sessionContext.workDir,
       env: execEnv,
       logFilePath,
-      // RUNBOOK_LOG's lines name their own level, so they're shown as
-      // written. A line in a per-level file without the helpers' prefix is
-      // tagged with the file's level and the time it was read.
+      // Each line is tagged with its file's level and the time it was read
       logChannels: logFiles.map(({ path, level }) => ({
         path,
-        formatLine: level ? (line: string) => tagLogLine(line, level, new Date()) : undefined,
+        formatLine: (line: string) => tagLogLine(line, level, new Date()),
       })),
     })
 

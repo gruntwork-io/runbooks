@@ -110,8 +110,6 @@ To run a block's script somewhere else, set the block's `workingDir` prop. A rel
 
 A template error, such as an output that doesn't exist yet, fails the block with a message that starts with `workingDir:`. The directory must exist when the block runs. If it doesn't, the block fails before its script starts, with `Working directory does not exist: <path>`.
 
-A `cd` inside a script changes directory for the rest of that script only.
-
 ### One session per runbook
 
 The app has one window and one session. Every script in a runbook shares it. Runbooks saves the session, and opening the runbook again resumes it, even after you restart the app. See [Sessions](/commands/sessions/). To reset the environment, use the session controls in the UI. Resetting removes the variables that scripts and auth blocks set. To start the runbook over, choose **File > Reset Session**. To go back to an earlier session, choose **File > Switch Session…**.
@@ -157,7 +155,7 @@ Runbooks sets the following environment variables for every script:
 | `REPO_FILES` | Path to the active git worktree: the one selected in the workspace's repository dropdown, which is the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until you select another. Unset until a `<GitClone>` block has added a repository. |
 | `RUNBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for later blocks. Write `sensitive:key=value` to mask a credential in the UI (see [Sensitive outputs](/authoring/inputs-and-outputs/#sensitive-outputs)). |
 
-Each script also gets log files. The `log_info`, `log_warn`, `log_error` and `log_debug` functions append to `RUNBOOK_LOG`, and each of their lines names its level. `RUNBOOK_INFO_LOG`, `RUNBOOK_WARN_LOG`, `RUNBOOK_ERROR_LOG` and `RUNBOOK_DEBUG_LOG` take lines that don't name a level, which show up at the file's level. Any command or script can append to them all, and their lines appear in the block's logs as the script writes them. The files are deleted when the run ends. See [Log files](/authoring/blocks/command/#log-files).
+Each script also gets one log file per level: `RUNBOOK_INFO_LOG`, `RUNBOOK_WARN_LOG`, `RUNBOOK_ERROR_LOG` and `RUNBOOK_DEBUG_LOG`. Each line a command or script appends to one shows up in the block's logs at the file's level, as the script writes it. The files are deleted when the run ends. See [Logging](/authoring/blocks/command/#logging).
 
 ### Capturing output files
 
@@ -263,7 +261,7 @@ Runbooks picks the program that runs a block's script in this order:
 3. The script file's extension.
 4. `bash`, for an inline `command` or a file without an extension.
 
-Runbooks writes each script to a file under the session directory's `.runbooks/scripts/` folder and removes it when the run ends. It doesn't use the system's temporary directory, which hardened Linux systems mount without permission to run programs.
+Runbooks writes each script to a file under the session directory's `.runbooks/scripts/` folder and removes it when the run ends.
 
 ### Scripts with a shebang
 
@@ -271,6 +269,7 @@ On macOS and Linux, Runbooks runs a script that starts with a shebang as a progr
 
 - an absolute path such as `#!/opt/homebrew/bin/bash` runs that file, not the first `bash` on `PATH`
 - `#!/usr/bin/env bash` runs the first `bash` on the session's `PATH`
+- `#!/bin/sh` runs the system's `sh`, which is `dash` on Debian and Ubuntu, so the script can't use bash features
 - `#!/usr/bin/env -S` works where the system's `env` supports it
 - arguments after the interpreter follow the system's rules. Linux passes everything after the interpreter as one argument, so `#!/usr/bin/env bash -e` fails there. Put `set -euo pipefail` in the script instead.
 
@@ -286,11 +285,9 @@ A Command, Check or Finish block can name the program for a script that has no s
 <Command id="check-types" interpreter="deno run" path="scripts/check.ts" />
 ```
 
-The prop saves an inline command from a shebang inside the string. A shebang stays with a script file when someone copies it out to run in a terminal, and the prop doesn't, so prefer a shebang in script files.
+In a script file, prefer a shebang. It stays with the file when someone runs the script in a terminal, and the prop doesn't.
 
 A block can't have both. A block whose script starts with a shebang and that sets `interpreter` shows `The script starts with a shebang line, and the block sets the interpreter prop. Remove one of them.` and can't run. If a script file gains a shebang after the runbook loads, the shebang wins.
-
-An `interpreter` of `bash` or `sh` gets the [logging functions](#logging-functions).
 
 ### Scripts without a shebang or interpreter
 
@@ -307,10 +304,6 @@ An inline `command`, and a script file without an extension, run with `bash`. A 
 | `.ps1` | `pwsh` |
 
 A script file with any other extension, no shebang and no `interpreter` prop fails before it runs, with a message such as `Runbooks can't tell which program runs check.ts. Add a shebang line, such as #!/usr/bin/env python3, to the top of the script, or set the block's interpreter prop.`
-
-### Logging functions
-
-Bash and `sh` scripts get the `log_info`, `log_warn`, `log_error` and `log_debug` functions, put after the shebang line. Scripts in other languages can append to `$RUNBOOK_LOG` themselves. A `#!/bin/sh` script runs under the system's `sh`, which is `dash` on Debian and Ubuntu, so it can't use bash features.
 
 ### Recommended first lines
 

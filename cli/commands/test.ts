@@ -294,7 +294,7 @@ async function runTestSuite(runbookPath: string, opts: TestOptions): Promise<Run
       if (useTempWorkDir) {
         tempWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-workdir-"))
       }
-      result = runner.runTest(tc, tempWorkDir ?? workDir)
+      result = await runner.runTest(tc, tempWorkDir ?? workDir)
     } catch (e: unknown) {
       // An unexpected throw fails this test case only; the remaining test
       // cases and runbooks still run and are reported.
