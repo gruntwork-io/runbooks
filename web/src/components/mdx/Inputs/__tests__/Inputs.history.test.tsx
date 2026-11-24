@@ -198,6 +198,54 @@ describe("Inputs in a session", () => {
     await waitFor(() => expect(registered()).toEqual({ ...DEFAULTS, count: 7 }))
   })
 
+  it("starts a field left at its default from the runbook's default now, and keeps one the user changed", async () => {
+    // Saved when region defaulted to us-west-2 and count to 3; region now
+    // defaults to us-east-1. Count was changed, enable_logging was not.
+    render(
+      <Session
+        saved={{
+          values: { region: "us-west-2", count: 5, enable_logging: true },
+          submitted: true,
+          defaults: { region: "us-west-2", count: 3, enable_logging: true },
+        }}
+      >
+        <Inputs id="test-inputs" path="boilerplate.yml" />
+      </Session>,
+    )
+
+    expect(field("region")).toHaveValue("us-east-1")
+    expect(field("count")).toHaveValue(5)
+    expect(field("enable_logging")).toBeChecked()
+    await waitFor(() => expect(registered()).toEqual({ ...DEFAULTS, count: 5 }))
+  })
+
+  it("keeps the values of a form saved without its defaults, as older versions saved them", () => {
+    render(
+      <Session saved={{ values: { region: "us-west-2", count: 3 }, submitted: true }}>
+        <Inputs id="test-inputs" path="boilerplate.yml" />
+      </Session>,
+    )
+
+    expect(field("region")).toHaveValue("us-west-2")
+    expect(registered()).toEqual({ ...DEFAULTS, region: "us-west-2" })
+  })
+
+  it("saves the prefilled value as a field's default", async () => {
+    const user = userEvent.setup()
+    render(
+      <Session>
+        <Inputs id="test-inputs" path="boilerplate.yml" prefilledVariables={{ count: 7 }} />
+      </Session>,
+    )
+    await settle()
+
+    await user.type(field("region"), "a")
+
+    await waitFor(() =>
+      expect(recorded().at(-1)).toMatchObject({ defaults: { ...DEFAULTS, count: 7 } }),
+    )
+  })
+
   it("starts a locked variable from the runbook's value, not the one it was left with", async () => {
     loaded.locked = true
     render(
@@ -227,16 +275,21 @@ describe("Inputs in a session", () => {
     await user.type(field("region"), "eu-west-1")
 
     const edited = { ...DEFAULTS, region: "eu-west-1" }
-    await waitFor(() => expect(recorded().at(-1)).toEqual({ values: edited, submitted: false }))
+    await waitFor(() =>
+      expect(recorded().at(-1)).toEqual({ values: edited, submitted: false, defaults: DEFAULTS }),
+    )
 
     await user.click(screen.getByRole("button", { name: "Submit" }))
 
-    await waitFor(() => expect(recorded().at(-1)).toEqual({ values: edited, submitted: true }))
+    await waitFor(() =>
+      expect(recorded().at(-1)).toEqual({ values: edited, submitted: true, defaults: DEFAULTS }),
+    )
     await user.click(field("enable_logging"))
     await waitFor(() =>
       expect(recorded().at(-1)).toEqual({
         values: { ...edited, enable_logging: false },
         submitted: true,
+        defaults: DEFAULTS,
       }),
     )
   })
@@ -258,6 +311,7 @@ describe("Inputs in a session", () => {
       expect(recorded().at(-1)).toEqual({
         values: { ...DEFAULTS, region: "us-east-1a" },
         submitted: true,
+        defaults: DEFAULTS,
       }),
     )
   })

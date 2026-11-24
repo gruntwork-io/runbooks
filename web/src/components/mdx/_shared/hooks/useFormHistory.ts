@@ -6,16 +6,23 @@ interface UseFormHistoryReturn {
   /** What the form was left as, to start it from. Undefined when the history has nothing for it. */
   saved: SavedForm | undefined
   /**
-   * Report the form's values and whether it is submitted. Call it with what
-   * the form starts from, then on every change. The first call adds nothing
-   * to the history. A later one adds an event when `submitted` or one of
-   * `values` differs from what was last reported for it.
+   * Report the form's values, whether it is submitted, and each field's
+   * default (what the runbook gives it). Call it with what the form starts
+   * from, then on every change. The first call adds nothing to the history. A
+   * later one adds an event when `submitted` or one of `values` differs from
+   * what was last reported for it. The event keeps the defaults of the fields
+   * in `values`, so a field the user never changed takes the runbook's
+   * default when the form is restored (see savedFormValue).
    *
    * A value that is no longer reported is not a change: a Template leaves out
    * the variables it imports, and which those are is settled only once the
    * blocks it imports from have mounted.
    */
-  noteValues: (values: Record<string, unknown>, submitted: boolean) => void
+  noteValues: (
+    values: Record<string, unknown>,
+    submitted: boolean,
+    defaults: Record<string, unknown>,
+  ) => void
 }
 
 /** What noteValues was last called with. Each value is kept as JSON, to compare by content. */
@@ -31,7 +38,7 @@ export function useFormHistory(id: string): UseFormHistoryReturn {
   const lastNotedRef = useRef<NotedForm | null>(null)
 
   const noteValues = useCallback(
-    (values: Record<string, unknown>, submitted: boolean) => {
+    (values: Record<string, unknown>, submitted: boolean, defaults: Record<string, unknown>) => {
       const noted = Object.fromEntries(
         Object.entries(values).map(([name, value]) => [name, JSON.stringify(value)]),
       )
@@ -42,7 +49,17 @@ export function useFormHistory(id: string): UseFormHistoryReturn {
       const changed =
         previous.submitted !== submitted ||
         Object.entries(noted).some(([name, value]) => previous.values[name] !== value)
-      if (changed) history.record(id, "inputs", { values, submitted } satisfies SavedForm)
+      if (!changed) return
+      const savedDefaults = Object.fromEntries(
+        Object.keys(values)
+          .filter((name) => Object.hasOwn(defaults, name))
+          .map((name) => [name, defaults[name]]),
+      )
+      history.record(id, "inputs", {
+        values,
+        submitted,
+        defaults: savedDefaults,
+      } satisfies SavedForm)
     },
     [history, id],
   )

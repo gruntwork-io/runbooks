@@ -71,6 +71,44 @@ describe("a saved form", () => {
     expect(savedFormValue(saved, { name: "provider", locked: true })).toBeUndefined()
     expect(savedFormValue(saved, { name: "provider", locked: false })).toBe("github")
   })
+
+  it("parses the defaults the values were saved against", () => {
+    const form = { values: { ref: "v0.6.0" }, submitted: true, defaults: { ref: "v0.6.0" } }
+
+    expect(parseSavedForm(stored(form))).toEqual(form)
+  })
+
+  it("has no value for a variable still at the default it was saved against, so it takes the runbook's default now", () => {
+    const saved = parseSavedForm({
+      values: { ref: "v0.6.0", tags: ["a"], linked: "{{ .outputs.cfg.id }}" },
+      submitted: true,
+      defaults: { ref: "v0.6.0", tags: ["a"], linked: "{{ .outputs.cfg.id }}" },
+    })
+
+    expect(savedFormValue(saved, { name: "ref" })).toBeUndefined()
+    expect(savedFormValue(saved, { name: "tags" })).toBeUndefined()
+    // A linked value nobody changed follows whatever the runbook links it to now
+    expect(savedFormValue(saved, { name: "linked" })).toBeUndefined()
+  })
+
+  it("keeps a value the user changed from the default it was saved against", () => {
+    const saved = parseSavedForm({
+      values: { ref: "v0.5.0", linked: "acme-{{ .outputs.cfg.id }}", count: 0 },
+      submitted: true,
+      defaults: { ref: "v0.6.0", linked: "{{ .outputs.cfg.id }}" },
+    })
+
+    expect(savedFormValue(saved, { name: "ref" })).toBe("v0.5.0")
+    expect(savedFormValue(saved, { name: "linked" })).toBe("acme-{{ .outputs.cfg.id }}")
+    // Saved with no default for it: kept as saved
+    expect(savedFormValue(saved, { name: "count" })).toBe(0)
+  })
+
+  it("keeps every value of a form saved without its defaults, as older versions saved them", () => {
+    const saved = parseSavedForm({ values: { ref: "v0.6.0" }, submitted: true })
+
+    expect(savedFormValue(saved, { name: "ref" })).toBe("v0.6.0")
+  })
 })
 
 describe("values entered in place of a form's chips", () => {
