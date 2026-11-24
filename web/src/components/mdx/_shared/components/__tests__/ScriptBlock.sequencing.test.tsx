@@ -13,7 +13,6 @@ import Check from "@/components/mdx/Check/Check"
 
 function makeExecution(overrides: Record<string, unknown> = {}) {
   return {
-    sourceCode: "true",
     rawScriptContent: "true",
     language: "bash",
     fileError: null,

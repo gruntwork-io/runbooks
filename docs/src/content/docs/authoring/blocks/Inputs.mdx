@@ -120,7 +120,7 @@ Until the user first clicks **Submit**, other blocks get the values the form sta
 
 ## Using variables in Commands and Checks
 
-Command, Check, Finish, Template and TemplateInline blocks read the values of an Inputs block through `inputsId`. A Command or Check whose script or `env` references `{{ .inputs.X }}` needs `inputsId` or an [embedded](#embedded-in-command-or-check) Inputs block. Without one, the block shows only a "Configuration Required" warning and can't run.
+Command, Check, Finish, Template and TemplateInline blocks read the values of an Inputs block through `inputsId`. A Command or Check whose `env` or `workingDir` references `{{ .inputs.X }}` needs `inputsId` or an [embedded](#embedded-in-command-or-check) Inputs block. Without one, the block shows only a "Configuration Required" warning and can't run.
 
 ### Reference by `inputsId`
 

@@ -190,28 +190,22 @@ export function buildAzureAuthEnvVars(
 }
 
 /**
- * The details under a script view render error when the script uses a
- * sensitive output: that render shows it as <redacted>, which a template that
- * processes the value can't handle, while the run renders the real value.
+ * The details under an env render error when the env uses a sensitive
+ * output: that render shows it as <redacted>, which a template that processes
+ * the value can't handle, while the run renders the real value.
  */
 export const SENSITIVE_DISPLAY_RENDER_NOTE =
-  "The script view shows sensitive outputs as <redacted>, so a template that processes one (for example with fromJson) can fail here. Running the script uses the real value."
+  "The block shows sensitive outputs as <redacted>, so an env value that processes one (for example with fromJson) can fail here. Running the script uses the real value."
 
 /**
- * How the auto-render treats the script: 'raw' has no template dependencies,
+ * How the auto-render treats the env: 'raw' has no template dependencies,
  * the two awaiting modes wait on referenced inputs or block outputs, and
  * 'render' renders it.
  */
 type RenderMode = "raw" | "awaiting-inputs" | "awaiting-outputs" | "render"
 
 interface UseScriptExecutionReturn {
-  // Script content
-  sourceCode: string
-  /**
-   * The raw, un-rendered script content (the `command` prop or the loaded file),
-   * with `{{ … }}` references intact. Unlike `sourceCode`, this is never gated on
-   * dependency state — instruction mode resolves from it directly (spec §6.4).
-   */
+  /** The script as it runs: the `command` prop, or the registry's copy of the file. */
   rawScriptContent: string
   language?: string | undefined
 
@@ -223,8 +217,7 @@ interface UseScriptExecutionReturn {
   envTemplates: BlockEnv
   /**
    * Its variables as the script will get them: rendered with the current
-   * values, as the script is, else as written. Sensitive outputs show as
-   * <redacted>.
+   * values, else as written. Sensitive outputs show as <redacted>.
    */
   envVars: EnvVar[]
   /** Why the env prop isn't valid, or null when it is. */
@@ -542,11 +535,15 @@ export function useScriptExecution({
     return ids
   }, [inputsId, inlineInputsId])
 
-  // Extract all template dependencies (inputs + outputs) from the script and
-  // its env, so Run waits for the values either one needs
+  // The inputs and outputs the env and working directory use, so Run waits
+  // for them
   const allDeps = useMemo(
-    () => extractTemplateDependenciesFromString(rawScriptContent, ...Object.values(envTemplates)),
-    [rawScriptContent, envTemplates],
+    () =>
+      extractTemplateDependenciesFromString(
+        ...Object.values(envTemplates),
+        ...(workingDirTemplate ? [workingDirTemplate] : []),
+      ),
+    [envTemplates, workingDirTemplate],
   )
   // An output entered by hand isn't waited for
   const neededDeps = useMemo(
@@ -673,23 +670,22 @@ export function useScriptExecution({
   )
   const hasAzureAuthDependency = unmetAzureAuthDependency === null
 
-  // Whether the script view's render shows a sensitive output as <redacted>
-  // (see the render effect below)
+  // Whether the env's render shows a sensitive output as <redacted> (see the
+  // render effect below)
   const displayMasksSensitiveOutput = useMemo(
     () => referencesSensitiveOutput(outputDeps, allOutputs),
     [outputDeps, allOutputs],
   )
 
-  // State for rendered script content, and the env vars rendered with it
-  const [renderedScript, setRenderedScript] = useState<string | null>(null)
+  // The env vars rendered with the current values
   const [renderedEnv, setRenderedEnv] = useState<Record<string, string> | null>(null)
   const [renderError, setRenderError] = useState<AppError | null>(null)
   const [isRendering, setIsRendering] = useState(false)
 
-  // A referenced block that hasn't produced its outputs yet puts the script in
+  // A referenced block that hasn't produced its outputs yet puts the env in
   // 'awaiting-outputs'. Rendering then would fail on the missing
   // `{{ .outputs.X.Y }}` keys and surface a confusing template error, so the
-  // raw template shows instead (clearing any stale render/error) until the
+  // raw templates show instead (clearing any stale render/error) until the
   // outputs land. The outputs can come back with the values rendered last time
   // (a failed re-run registers {} for the block, then a later run restores
   // them), so the dedupe key must go too or that render would be skipped as a
@@ -715,9 +711,6 @@ export function useScriptExecution({
   // can't be cancelled, so a slower earlier render is dropped instead.
   const renderSeqRef = useRef(0)
 
-  // Determine the actual script content to use
-  const sourceCode =
-    !discardsRender(renderMode) && renderedScript !== null ? renderedScript : rawScriptContent
   const envVars = useMemo(
     (): EnvVar[] =>
       Object.entries(envTemplates).map(([name, template]) => {
@@ -807,33 +800,31 @@ export function useScriptExecution({
     }
   }, [status, invalidateGitFileTree])
 
-  // Function to render script with inputs. `errorDetails` explains a failed
-  // render under its error message.
-  const renderScript = useCallback(
+  // Render the env with inputs. `errorDetails` explains a failed render
+  // under its error message.
+  const renderEnv = useCallback(
     async (
       renderInputs: TemplateValue[],
-      errorDetails = "Failed to render script with variables",
+      errorDetails = "Failed to render the env with variables",
     ) => {
       // Supersede any pending render request
       const seq = ++renderSeqRef.current
-
-      setIsRendering(true)
       setRenderError(null)
 
-      // Build template files object with just the script content
-      // For Command/Check, we only need simple variable substitution - we don't need the full
-      // boilerplate.yml config (which may include dependencies that aren't relevant here).
-      // We just need to render {{ .inputs.VarName }} / {{ .outputs.X.Y }} templates with the variable values.
-      const templateFiles: Record<string, string> = {
-        // 'script.sh' is just a filename identifier for the API request/response
-        // Each API call is isolated, so no risk of collision between components
-        "script.sh": rawScriptContent,
-      }
-      // The env vars render with the script, each as its own file
+      // Each env var renders as its own file
       const envNames = Object.keys(envTemplates).filter((name) =>
         envTemplates[name]!.includes("{{"),
       )
-      for (const name of envNames) templateFiles[`env:${name}`] = envTemplates[name]!
+      // Only the working directory has templates, and it shows as written
+      if (envNames.length === 0) {
+        setRenderedEnv({})
+        setIsRendering(false)
+        return
+      }
+      setIsRendering(true)
+      const templateFiles = Object.fromEntries(
+        envNames.map((name) => [`env:${name}`, envTemplates[name]!]),
+      )
 
       try {
         const responseData = await api.invoke("boilerplate:render-inline", {
@@ -843,21 +834,7 @@ export function useScriptExecution({
 
         // Check if component is still mounted and this is still the latest render
         if (!isMountedRef.current || seq !== renderSeqRef.current) return
-        const renderedFiles = responseData.renderedFiles
-
-        // Check if we got the expected file structure
-        if (!renderedFiles || !renderedFiles["script.sh"]) {
-          setRenderError(
-            createAppError(
-              "Render response missing expected file",
-              "The API did not return the rendered script.sh file",
-            ),
-          )
-          setIsRendering(false)
-          return
-        }
-
-        setRenderedScript(renderedFiles["script.sh"].content)
+        const renderedFiles = responseData.renderedFiles ?? {}
         setRenderedEnv(
           Object.fromEntries(
             envNames.flatMap((name) => {
@@ -876,7 +853,7 @@ export function useScriptExecution({
         setIsRendering(false)
       }
     },
-    [api, rawScriptContent, envTemplates],
+    [api, envTemplates],
   )
 
   // Template context for prop resolution by callers (Command/Check resolve display string props)
@@ -886,43 +863,35 @@ export function useScriptExecution({
   )
 
   // The payload and dedupe key for the next auto-render, or null when the
-  // script shouldn't render now.
+  // env shouldn't render now.
   const pendingRender = useMemo(() => {
     // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing
     // a number field before typing a new value). Sending "" to the backend would
     // cause type-conversion errors like strconv.Atoi("").
     if (renderMode !== "render" || hasEmptyNumericInputs(inputs)) return null
-    // This render is only shown (execute() renders again, with the real
-    // values), so a sensitive output shows as <redacted> in the script view. A
-    // template that processes its value (e.g. fromJson) can then fail here and
-    // not when the script runs, so such an error says why.
+    // This render is only shown (the run renders again, with the real
+    // values), so a sensitive output shows as <redacted>. A template that
+    // processes its value (e.g. fromJson) can then fail here and not when the
+    // script runs, so such an error says why.
     const errorDetails = displayMasksSensitiveOutput ? SENSITIVE_DISPLAY_RENDER_NOTE : undefined
     const payload = buildTemplatePayload({
       inputs: templateContext.inputs,
       outputs: maskTemplateOutputs(templateContext.outputs),
     })
-    // The script and env are part of the key so a changed command with
-    // unchanged values still re-renders.
+    // The env is part of the key so a changed env with unchanged values
+    // still re-renders.
     return {
       payload,
-      key: JSON.stringify([rawScriptContent, envTemplates, payload]),
+      key: JSON.stringify([envTemplates, payload]),
       errorDetails,
     }
-  }, [
-    renderMode,
-    inputs,
-    templateContext,
-    rawScriptContent,
-    envTemplates,
-    displayMasksSensitiveOutput,
-  ])
+  }, [renderMode, inputs, templateContext, envTemplates, displayMasksSensitiveOutput])
 
   const [prevRenderKey, setPrevRenderKey] = useState(pendingRender?.key ?? null)
   if (renderMode !== prevRenderMode) {
     setPrevRenderMode(renderMode)
     if (discardsRender(renderMode)) {
       setIsRendering(false)
-      setRenderedScript(null)
       setRenderedEnv(null)
       setPrevRenderKey(null)
       if (renderMode === "awaiting-outputs") {
@@ -938,10 +907,10 @@ export function useScriptExecution({
   }
 
   // Auto-update when variables change (debounced).
-  // Whenever this effect discards the rendered script it also forgets the last
+  // Whenever this effect discards the rendered env it also forgets the last
   // render key, so the next pass with every dependency met renders again even
   // if the values match the ones rendered before, and it drops any render
-  // still in flight, which would otherwise land over the raw script.
+  // still in flight, which would otherwise land over the raw templates.
   useEffect(() => {
     if (discardsRender(renderMode)) {
       renderSeqRef.current++
@@ -962,7 +931,7 @@ export function useScriptExecution({
     const { payload, key, errorDetails } = pendingRender
     autoUpdateTimerRef.current = setTimeout(() => {
       lastRenderedVariablesRef.current = key
-      void renderScript(payload, errorDetails)
+      void renderEnv(payload, errorDetails)
     }, 300)
 
     // Cleanup: clear timer when effect re-runs or on unmount
@@ -971,7 +940,7 @@ export function useScriptExecution({
         clearTimeout(autoUpdateTimerRef.current)
       }
     }
-  }, [renderMode, pendingRender, renderScript])
+  }, [renderMode, pendingRender, renderEnv])
 
   // Handle starting execution
   const execute = useCallback(() => {
@@ -1050,8 +1019,6 @@ export function useScriptExecution({
   const combinedExecError = registryError || execError
 
   return {
-    // Script content
-    sourceCode,
     rawScriptContent,
     language,
 
@@ -1132,7 +1099,7 @@ function getRenderMode(
   return "render"
 }
 
-/** Reports whether the mode shows the raw script and drops any rendered one. */
+/** Reports whether the mode shows the env as written and drops any rendered one. */
 function discardsRender(mode: RenderMode): boolean {
   return mode === "raw" || mode === "awaiting-outputs"
 }

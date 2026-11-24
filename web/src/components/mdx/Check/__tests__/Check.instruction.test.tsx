@@ -4,7 +4,6 @@ import { TestWrapper } from "@/test/test-utils"
 import Check from "../Check"
 
 const baseExecution = {
-  sourceCode: "",
   rawScriptContent: "test -f /etc/hosts",
   language: "bash",
   fileError: null,

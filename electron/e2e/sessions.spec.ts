@@ -74,18 +74,18 @@ variables:
 \`\`\`
 </Inputs>
 
-<Command id="greet" path="greet.sh" inputsId="config" />
+<Command id="greet" path="greet.sh" inputsId="config" env={{ GREETING: "{{ .inputs.Greeting }}" }} />
 
-<Command id="reply" path="reply.sh" />
+<Command id="reply" path="reply.sh" env={{ GREETING: "{{ .outputs.greet.greeting }}" }} />
 `
 
 const GREET_SCRIPT = `#!/bin/bash
-echo "{{ .inputs.Greeting }} from greet"
-echo "greeting={{ .inputs.Greeting }}" >> "$RUNBOOK_OUTPUT"
+echo "$GREETING from greet"
+echo "greeting=$GREETING" >> "$RUNBOOK_OUTPUT"
 `
 
 const REPLY_SCRIPT = `#!/bin/bash
-echo "reply to {{ .outputs.greet.greeting }}"
+echo "reply to $GREETING"
 `
 
 test.describe("Saved sessions", () => {
@@ -433,7 +433,7 @@ test.describe("Saved sessions", () => {
 
 <GitClone id="repo" source="local" hideSourceSelect prefilledRepoDir="${repo}" />
 
-<Command id="where" command="echo repo={{ .outputs.repo.clone_path }}" />
+<Command id="where" env={{ CLONE_PATH: "{{ .outputs.repo.clone_path }}" }} command="echo repo=$CLONE_PATH" />
 `,
     )
     const expectCloneRunbook = async (page: Page) => {

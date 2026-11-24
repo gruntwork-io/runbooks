@@ -14,7 +14,6 @@ const CHECK_VARIANT: ScriptBlockVariant = {
   defaultRunningMessage: "Checking...",
   fileName: "Check Script",
   fileErrorHeading: "Check Component Error",
-  renderErrorLabel: "Script render error",
   missingInputsSubject: "check script",
   showScriptMetadata: false,
   showPendingPlaceholder: false,

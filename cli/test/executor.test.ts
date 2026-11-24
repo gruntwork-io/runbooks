@@ -172,47 +172,52 @@ describe("TestExecutor — JSX expression props", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Scripts that insert inputs or outputs into their source get a warning.
+// Scripts run as written: template text in them reaches the script.
 // ---------------------------------------------------------------------------
 
-describe("TestExecutor — script template warnings", () => {
+describe("TestExecutor — scripts run as written", () => {
   let tmp: string
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-warn-"))
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-verbatim-"))
   })
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  it("names each script block that inserts inputs or outputs, inline or from a file", async () => {
+  it("hands a script its template text as written, inline or from a file", async () => {
     const rb = path.join(tmp, "runbook.mdx")
     fs.mkdirSync(path.join(tmp, "scripts"))
-    fs.writeFileSync(path.join(tmp, "scripts", "check.sh"), 'test -n "{{ .outputs.greet.name }}"\n')
+    fs.writeFileSync(
+      path.join(tmp, "scripts", "print.sh"),
+      "#!/usr/bin/env bash\necho '{{ .outputs.greet.name }}'\n",
+    )
     fs.writeFileSync(
       rb,
       [
-        "# Warnings",
+        "# Verbatim",
         "",
-        `<Command id="greet" command='echo "hello {{ .inputs.Name }}"' />`,
+        `<Command id="format" command="echo '{{.Names}} {{ json .State }} {{ .inputs.Name }}'" />`,
         "",
-        `<Command id="greet-env" env={{ NAME: "{{ .inputs.Name }}" }} command='echo "hello $NAME"' />`,
-        "",
-        `<Command id="docker" command="docker ps --format '{{.Names}}'" />`,
-        "",
-        '<Check id="check-file" path="scripts/check.sh" />',
+        '<Check id="print" path="scripts/print.sh" />',
         "",
       ].join("\n"),
     )
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
 
-    const warnings = executor.scriptTemplateWarnings()
+    const result = await executor.runTest({
+      name: "verbatim",
+      steps: [
+        { block: "format", expect: "success" },
+        { block: "print", expect: "success" },
+      ],
+    })
 
-    expect(warnings).toHaveLength(2)
-    expect(warnings[0]).toStartWith('Command "greet": This script inserts {{ .inputs.Name }}')
-    expect(warnings[1]).toStartWith(
-      'Check "check-file": This script inserts {{ .outputs.greet.name }}',
-    )
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults.map((step) => step.logs)).toEqual([
+      "{{.Names}} {{ json .State }} {{ .inputs.Name }}\n",
+      "{{ .outputs.greet.name }}\n",
+    ])
   })
 })
 
@@ -427,7 +432,7 @@ describe("TestExecutor — Iframe outputs", () => {
     "",
     `<Iframe id="region-picker" src="./assets/picker.html" outputs={["region", "zone"]} />`,
     "",
-    `<Command id="deploy" command="echo deploying to {{ .outputs.region_picker.region }}" />`,
+    `<Command id="deploy" env={{ REGION: "{{ .outputs.region_picker.region }}" }} command='echo deploying to $REGION' />`,
     "",
   ].join("\n")
 
@@ -526,7 +531,7 @@ describe("TestExecutor — explicit steps", () => {
     "",
     `<Command id="create-account" command='echo "account_id=123" >> "$RUNBOOK_OUTPUT"' />`,
     "",
-    `<Command id="create-resources" command="echo {{ .outputs.create_account.account_id }}" />`,
+    `<Command id="create-resources" env={{ ACCOUNT_ID: "{{ .outputs.create_account.account_id }}" }} command='echo $ACCOUNT_ID' />`,
     "",
   ].join("\n")
 
@@ -1215,7 +1220,7 @@ describe("TestExecutor — Prerequisites block", () => {
     const executor = await makeExecutor(
       runbook(
         'tools:\n  - fake-git\n  - name: fake-tofu\n    version: ">= 1.6"\n',
-        `\n<Command id="use-tofu" command='echo "tofu {{ .outputs.tools.fake_tofu_version }}"' />\n`,
+        `\n<Command id="use-tofu" env={{ TOFU_VERSION: "{{ .outputs.tools.fake_tofu_version }}" }} command='echo "tofu $TOFU_VERSION"' />\n`,
       ),
     )
 
@@ -1275,7 +1280,7 @@ describe("TestExecutor — Prerequisites block", () => {
     const executor = await makeExecutor(
       runbook(
         'tools:\n  - fake-git\n  - name: old-tool\n    version: ">= 1.0"\n  - no-such-tool-x9\n',
-        `\n<Command id="use-git" command='echo "{{ .outputs.tools.fake_git_path }}"' />\n` +
+        `\n<Command id="use-git" env={{ GIT_PATH: "{{ .outputs.tools.fake_git_path }}" }} command='echo "$GIT_PATH"' />\n` +
           `\n<Command id="after" dependsOn="tools" command="true" />\n`,
       ),
     )
@@ -1528,7 +1533,7 @@ describe("TestExecutor — sensitive outputs", () => {
         "",
         `<Command id="mint" command='echo "user=alice" >> "$RUNBOOK_OUTPUT"; echo "sensitive:token=${SECRET}" >> "$RUNBOOK_OUTPUT"' />`,
         "",
-        '<Command id="use" command="echo got-{{ .outputs.mint.token }}" />',
+        '<Command id="use" env={{ TOKEN: "{{ .outputs.mint.token }}" }} command="echo got-$TOKEN" />',
         "",
         ...moreBlocks.flatMap((block) => [block, ""]),
       ].join("\n"),
@@ -1693,7 +1698,7 @@ describe("TestExecutor — untouched values", () => {
       [
         "# Untouched",
         '<Inputs id="opts">\n```yaml\nvariables:\n  - name: confirm\n    type: bool\n```\n</Inputs>',
-        '<Command id="show" inputsId="opts" command="echo confirm={{ .inputs.confirm }}" />',
+        '<Command id="show" inputsId="opts" env={{ CONFIRM: "{{ .inputs.confirm }}" }} command="echo confirm=$CONFIRM" />',
         '<Template id="tmpl" path="templates/flags" />',
         "",
       ].join("\n\n"),
@@ -1788,7 +1793,7 @@ describe("TestExecutor — variables two blocks declare", () => {
       [
         "# Shared",
         ...inputsBlocks,
-        '<Command id="show" inputsId="opts" command="echo enable={{ .inputs.enable }} region={{ .inputs.Region }}" />',
+        '<Command id="show" inputsId="opts" env={{ ENABLE: "{{ .inputs.enable }}", REGION: "{{ .inputs.Region }}" }} command="echo enable=$ENABLE region=$REGION" />',
         `<Template id="tmpl" path="templates/shared" ${templateProps}/>`,
         "",
       ].join("\n\n"),
@@ -1902,7 +1907,7 @@ describe("TestExecutor — each block's own inputs", () => {
   const inputsBlock = (id: string, x: string) =>
     `<Inputs id="${id}">\n\`\`\`yaml\nvariables:\n  - name: x\n    type: string\n    default: ${x}\n\`\`\`\n</Inputs>`
   const echoX = (id: string, props: string) =>
-    `<Command id="${id}" ${props} command="echo x={{ .inputs.x }}" />`
+    `<Command id="${id}" ${props} env={{ X: "{{ .inputs.x }}" }} command="echo x=$X" />`
 
   const makeExecutor = async (moreBlocks: string[]) => {
     const rb = path.join(tmp, "runbook.mdx")
@@ -1973,8 +1978,8 @@ describe("TestExecutor — each block's own inputs", () => {
 
   it("takes an <Inputs> nested in a Check or Command last, but not one in a Finish", async () => {
     const executor = await makeExecutor([
-      `<Check id="nested" inputsId="a" command="echo x={{ .inputs.x }}">\n\n${inputsBlock("inner", "inner-default")}\n\n</Check>`,
-      `<Finish id="done" inputsId="a" command="echo x={{ .inputs.x }}">\n\n${inputsBlock("next-steps", "next-default")}\n\n</Finish>`,
+      `<Check id="nested" inputsId="a" env={{ X: "{{ .inputs.x }}" }} command="echo x=$X">\n\n${inputsBlock("inner", "inner-default")}\n\n</Check>`,
+      `<Finish id="done" inputsId="a" env={{ X: "{{ .inputs.x }}" }} command="echo x=$X">\n\n${inputsBlock("next-steps", "next-default")}\n\n</Finish>`,
     ])
 
     const result = await executor.runTest({ name: "nested" })
@@ -2024,7 +2029,7 @@ describe("TestExecutor — each block's own inputs", () => {
       )
       return makeExecutor([
         '<Template id="tmpl" path="templates/own" inputsId="a" />',
-        '<Command id="from-tmpl" inputsId="tmpl" command="echo x={{ .inputs.x }} z={{ .inputs.z }}" />',
+        '<Command id="from-tmpl" inputsId="tmpl" env={{ X: "{{ .inputs.x }}", Z: "{{ .inputs.z }}" }} command="echo x=$X z=$Z" />',
       ])
     }
 

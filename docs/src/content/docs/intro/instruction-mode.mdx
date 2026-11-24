@@ -42,13 +42,13 @@ banner at the top of every runbook says that nothing runs automatically.
 
 | Block | Interactive | Instruction mode |
 |---|---|---|
-| Command, Check | Run button. The app executes the script. | The block's title, or "Run this command:" or "Run this check:" if it has none, with the resolved command in a copy block. A nested `<Inputs>` stays a form above the command. File-backed scripts keep the source viewer. The block's [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) variables appear as `export` lines before the command, or in a copy block of their own before a script. A block with [`workingDir`](/security/shell-execution-context/#working-directory) gets a `cd` to it first. A script that writes to [`$RUNBOOK_ENV`](/security/shell-execution-context/#setting-variables-for-later-blocks) gets `export RUNBOOK_ENV=/dev/null` before everything else, and a note: in a terminal nothing saves those variables for later steps, so set the ones later steps need in your shell yourself. A block with an [`interpreter`](/security/shell-execution-context/#the-interpreter-prop) prop says which program to run the command or script with, such as "Run this with python3:", and shows the `cd` and `export` lines in a copy block of their own, since they're shell commands. |
+| Command, Check | Run button. The app executes the script. | The block's title, or "Run this command:" or "Run this check:" if it has none, with the command, as written, in a copy block. A nested `<Inputs>` stays a form above the command. File-backed scripts keep the source viewer. The block's [`env`](/authoring/blocks/command/#passing-values-as-environment-variables) variables appear as `export` lines before the command, or in a copy block of their own before a script. A block with [`workingDir`](/security/shell-execution-context/#working-directory) gets a `cd` to it first. A script that writes to [`$RUNBOOK_ENV`](/security/shell-execution-context/#setting-variables-for-later-blocks) gets `export RUNBOOK_ENV=/dev/null` before everything else, and a note: in a terminal nothing saves those variables for later steps, so set the ones later steps need in your shell yourself. A block with an [`interpreter`](/security/shell-execution-context/#the-interpreter-prop) prop says which program to run the command or script with, such as "Run this with python3:", and shows the `cd` and `export` lines in a copy block of their own, since they're shell commands. |
 | Finish | Finish button. Runs the optional final check, then celebrates and shows the next steps. | The block's title, "Finish this runbook" unless you set another, with the final check in a copy block, if the block has one, and the next steps, always shown. Ticking **Mark as done** celebrates and [marks the session finished](/commands/sessions/#finishing-a-session). |
 | Prerequisites | Check button. Looks for each tool on PATH and checks its version. | The block's title, or "Make sure these tools are installed:" if it has none, with each tool's version and install hint, and the commands that check them in a copy block. |
 | AwsAuth | SSO, profile, or key UI. Captures credentials. | "Log into AWS in the `<account>` account", with the configured SSO details. No capture. |
 | GoogleAuth | Service account key, Google sign-in, or gcloud config UI. Captures credentials. | "Log into Google Cloud in the `<project>` project", noting the region, gcloud configuration, scopes, and the `gcloud auth application-default login` command. No capture. |
 | GitAuth, GitHubAuth, GitLabAuth | OAuth or token entry. Holds a token. | "Log into GitHub" or "Log into GitLab", noting the scopes the block needs. For GitLab it also names `glab auth login`. No capture. |
-| Inputs | Form you fill | Still a form. Its values are substituted into the displayed commands. |
+| Inputs | Form you fill | Still a form. Its values are substituted into the displayed `export` and `cd` lines, and into commands other blocks build. |
 | Template | Generate button. Renders boilerplate to disk. | The variable form plus a copyable `boilerplate` invocation. No files written. |
 | TemplateInline | Inline rendered preview | The rendered text as a copy block. No files written. |
 | GitClone | Clone button | A copyable `git clone` command, with a sparse-checkout note for sub-paths. A block that uses a local checkout shows a `cd` to its `prefilledRepoDir` instead. |
@@ -58,26 +58,27 @@ banner at the top of every runbook says that nothing runs automatically.
 
 ## Filling in values
 
-Runbooks substitutes every value you supply into the displayed commands. Each
-`{{ .inputs.* }}` or `{{ .outputs.* }}` reference in a command, in its `env`
-`export` lines or in its `cd` line shows either its value or, until you supply one, a placeholder
-such as `<bucket>`:
+A Command or Check script is shown as written. The values it needs appear in
+the `export` lines for its `env` and the `cd` line for its `workingDir`. Each
+`{{ .inputs.* }}` or `{{ .outputs.* }}` reference in those lines, or in a
+command another block builds, such as `git clone`, shows either its value or,
+until you supply one, a placeholder such as `<bucket>`:
 
-- **`Inputs` form values** are substituted directly into the commands shown,
+- **`Inputs` form values** are substituted directly into the lines shown,
   including those from an `<Inputs>` nested inside a Command or Check. An input
   you haven't filled in yet shows as a `<name>` placeholder. A checkbox always
   has a value (unchecked is `false`), so it never shows one. An input you've
-  left empty stays empty, so conditionals and defaults in the command work out
-  just as they would when it runs. An input used only in template logic, such
+  left empty stays empty, so conditionals and defaults work out just as they
+  would when the block runs. An input used only in template logic, such
   as the condition of an `{{ if ... }}`, gets no placeholder. Until you fill it
   in, that logic is shown as written.
 - **Values produced by an earlier step** (a script's outputs) can't be known by
-  the app, because it runs nothing. When a command needs one, instruction mode
+  the app, because it runs nothing. When a line needs one, instruction mode
   shows a small field labeled with the output's name and the step it comes
   from, for example `account_id` from step `create_account`. Run that earlier
-  step yourself, then paste the value in. The command updates as you type. A
+  step yourself, then paste the value in. The line updates as you type. A
   [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) always
-  gets a field, even if its step already ran, so the command never shows it.
+  gets a field, even if its step already ran, so the line never shows it.
 
 ## Tracking your progress
 
@@ -96,8 +97,8 @@ Click it to show the step in full again.
 
 ## Notes
 
-- Commands are resolved with the same template engine the interactive UI uses
-  to preview them. If that engine is unavailable or can't render a command,
+- Values are resolved with the same template engine the interactive UI uses
+  to preview them. If that engine is unavailable or can't render a line,
   Runbooks falls back to a simpler resolver and shows a small note. That
   resolver fills in value references only, so template logic such as
   conditionals and functions may be shown as written.

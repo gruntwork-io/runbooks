@@ -12,9 +12,8 @@ import { normalizeCommandList } from "../lib/instructionResolution"
 import type { TemplateContext } from "@/lib/templateUtils"
 import { exportLines, shellQuote } from "../../../../../../src/domain/exec/blockEnv.ts"
 
-/** A file-backed script to display via the collapsible source viewer. */
+/** A file-backed script to display via the collapsible source viewer, as written. */
 export interface InstructionSource {
-  /** Raw source content (may contain `{{ … }}`; it is resolved before display). */
   content: string
   path?: string | undefined
   language?: string | undefined
@@ -26,11 +25,16 @@ export interface InstructionProps {
   title: string
   /** Optional prose under the title (markdown). */
   description?: string | undefined
-  /** Raw command(s) to display as copyable code (with `{{ … }}` intact). */
+  /**
+   * Command(s) a block builds, to display as copyable code. Their `{{ … }}`
+   * references are resolved.
+   */
   command?: string | string[] | undefined
+  /** A script block's inline script, shown as copyable code as written. */
+  script?: string | undefined
   /** A file-backed script to show via the source viewer instead of a command. */
   source?: InstructionSource | undefined
-  /** Template context (Inputs-form values) used to resolve the command/source. */
+  /** Template context (Inputs-form values) used to resolve the command, env and workingDir. */
   templateContext?: TemplateContext | undefined
   /**
    * Env vars the command or script needs, as templates by name (a script
@@ -90,6 +94,7 @@ export function Instruction({
   title,
   description,
   command,
+  script,
   source,
   templateContext = EMPTY_CONTEXT,
   env = NO_ENV,
@@ -104,12 +109,11 @@ export function Instruction({
 }: InstructionProps) {
   const commandList = normalizeCommandList(command)
   const envNames = Object.keys(env)
-  // Resolve commands, the source content, the env and the working dir in a
-  // single pass so manual fields are detected across all of them and we make
-  // at most one render call.
+  // Resolve the commands, the env and the working dir in a single pass so
+  // manual fields are detected across all of them and we make at most one
+  // render call. A script and a source show as written.
   const allTexts = [
     ...commandList,
-    ...(source ? [source.content] : []),
     ...envNames.map((name) => env[name]!),
     ...(workingDir ? [workingDir] : []),
   ]
@@ -118,15 +122,17 @@ export function Instruction({
     templateContext,
   })
 
-  const resolvedCmds = resolvedCommands.slice(0, commandList.length)
-  const resolvedSource = source ? resolvedCommands[commandList.length] : undefined
-  const envStart = commandList.length + (source ? 1 : 0)
+  const resolvedCmds = [
+    ...resolvedCommands.slice(0, commandList.length),
+    ...(script !== undefined ? [script] : []),
+  ]
+  const envStart = commandList.length
   const exports = exportLines(
     Object.fromEntries(envNames.map((name, i) => [name, resolvedCommands[envStart + i] ?? ""])),
   )
   const resolvedWorkingDir = workingDir ? resolvedCommands[envStart + envNames.length] : undefined
   // In a terminal RUNBOOK_ENV is unset, and appending to "$RUNBOOK_ENV" fails
-  const writesRunbookEnv = [...commandList, source?.content ?? ""].some((text) =>
+  const writesRunbookEnv = [...commandList, script ?? "", source?.content ?? ""].some((text) =>
     text.includes("RUNBOOK_ENV"),
   )
   const setup = [
@@ -267,9 +273,9 @@ export function Instruction({
             )}
 
             {/* File-backed scripts keep the source viewer (PRD §5). */}
-            {resolvedSource !== undefined && (
+            {source && (
               <ViewSourceCode
-                sourceCode={resolvedSource}
+                sourceCode={source.content}
                 path={source?.path}
                 language={source?.language}
                 fileName={source?.fileName ?? "Script"}

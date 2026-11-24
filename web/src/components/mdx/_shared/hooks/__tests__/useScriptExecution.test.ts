@@ -43,18 +43,19 @@ vi.mock("@/contexts/useLogs", () => {
 
 /**
  * Stands in for the boilerplate engine: substitutes each `{{ .inputs.x }}` /
- * `{{ .outputs.block.key }}` from the payload the hook sends.
+ * `{{ .outputs.block.key }}` in every file from the payload the hook sends.
  */
 function fakeRenderInline({ templateFiles, inputs }: Params<"boilerplate:render-inline">) {
   const ctx = Object.fromEntries(inputs.map((v) => [v.name, v.value]))
-  const content = templateFiles["script.sh"]!.replace(
-    /\{\{\s*\.([\w.]+)\s*\}\}/g,
-    (_, path: string) =>
+  const render = (template: string) =>
+    template.replace(/\{\{\s*\.([\w.]+)\s*\}\}/g, (_, path: string) =>
       String(
         path.split(".").reduce<unknown>((obj, key) => (obj as Record<string, unknown>)[key], ctx),
       ),
+    )
+  return renderedInline(
+    Object.fromEntries(Object.entries(templateFiles).map(([name, t]) => [name, render(t)])),
   )
-  return renderedInline({ "script.sh": content })
 }
 
 let testApi: TestApi
@@ -121,6 +122,10 @@ function renderWithOutputs(props: Props, outputs: Record<string, OutputValues>) 
 }
 
 const renderCalls = () => testApi.callsTo("boilerplate:render-inline")
+
+/** The value the block shows for its env var `name`. */
+const envValue = (exec: ReturnType<typeof useScriptExecution>, name: string) =>
+  exec.envVars.find((envVar) => envVar.name === name)?.value
 
 describe("useScriptExecution — auth gates", () => {
   it("keeps a googleAuthId block gated when the referenced block withdrew its authentication", () => {
@@ -252,9 +257,10 @@ describe("useScriptExecution — execute", () => {
 })
 
 describe("useScriptExecution — template dependencies", () => {
-  it("lists the inputs the script reads and waits for their values", () => {
+  it("lists the inputs the env reads and waits for their values", () => {
     const { result } = renderScriptExecution({
-      command: "deploy {{ .inputs.env }} {{ .inputs.region }}",
+      command: 'deploy "$ENV" "$REGION"',
+      env: { ENV: "{{ .inputs.env }}", REGION: "{{ .inputs.region }}" },
       inputsId: "cfg",
     })
     expect(result.current.exec.inputDependencies).toEqual(["env", "region"])
@@ -269,7 +275,7 @@ describe("useScriptExecution — template dependencies", () => {
 
   it("names the outputs it waits for", () => {
     const { result } = renderWithOutputs(
-      { command: "echo {{ .outputs.a.x }} {{ .outputs.a.y }}" },
+      { command: 'echo "$X $Y"', env: { X: "{{ .outputs.a.x }}", Y: "{{ .outputs.a.y }}" } },
       { a: { x: "1" } },
     )
     expect(result.current.exec.unmetOutputDependencies).toEqual([
@@ -277,13 +283,36 @@ describe("useScriptExecution — template dependencies", () => {
     ])
   })
 
-  it("waits only for the block to run when the script guards an output with hasKey", () => {
-    const command = '{{ if hasKey .outputs.a "org" }}--org {{ .outputs.a.org }}{{ end }}'
-    const { result } = renderScriptExecution({ command })
+  it("waits for an output that only its workingDir uses", () => {
+    const { result } = renderScriptExecution({
+      command: "tofu plan",
+      workingDir: "{{ .outputs.clone.clone_path }}/live",
+    })
+    expect(result.current.exec.unmetOutputDependencies).toEqual([
+      { blockId: "clone", outputNames: ["clone_path"] },
+    ])
+    expect(result.current.exec.outputDependencyBlockIds).toEqual(["clone"])
+
+    act(() => result.current.runbook.registerOutputs("clone", { clone_path: "infra" }))
+    expect(result.current.exec.hasAllOutputDependencies).toBe(true)
+  })
+
+  it("waits only for the block to run when the env guards an output with hasKey", () => {
+    const { result } = renderScriptExecution({
+      command: "gh repo list $ORG_FLAG",
+      env: { ORG_FLAG: '{{ if hasKey .outputs.a "org" }}--org {{ .outputs.a.org }}{{ end }}' },
+    })
     expect(result.current.exec.unmetOutputDependencies).toEqual([{ blockId: "a", outputNames: [] }])
 
     act(() => result.current.runbook.registerOutputs("a", { other: "1" }))
     expect(result.current.exec.hasAllOutputDependencies).toBe(true)
+  })
+
+  it("waits for nothing the script itself mentions", () => {
+    const { result } = renderScriptExecution({ command: "docker ps --format '{{.Names}}'" })
+    expect(result.current.exec.inputDependencies).toEqual([])
+    expect(result.current.exec.unmetOutputDependencies).toEqual([])
+    expect(result.current.exec.rawScriptContent).toBe("docker ps --format '{{.Names}}'")
   })
 })
 
@@ -379,9 +408,10 @@ describe("useScriptExecution — template render", () => {
     })
   }
 
-  it("renders once, 300ms after the last input change", async () => {
+  it("renders once, 300ms after the last input change, and only the env", async () => {
     const { result } = renderScriptExecution({
-      command: "echo {{ .inputs.name }}",
+      command: 'echo "$NAME"',
+      env: { NAME: "{{ .inputs.name }}" },
       inputsId: "cfg",
     })
 
@@ -393,16 +423,33 @@ describe("useScriptExecution — template render", () => {
 
     await advance(1)
     expect(renderCalls()).toHaveLength(1)
-    expect(result.current.exec.sourceCode).toBe("echo wo")
+    expect(Object.keys(renderCalls()[0]!.templateFiles)).toEqual(["env:NAME"])
+    expect(envValue(result.current.exec, "NAME")).toBe("wo")
+    expect(result.current.exec.rawScriptContent).toBe('echo "$NAME"')
   })
 
   it("does not render while an output dependency is missing", async () => {
-    const { result } = renderScriptExecution({ command: "echo {{ .outputs.a.x }}" })
+    const { result } = renderScriptExecution({
+      command: 'echo "$X"',
+      env: { X: "{{ .outputs.a.x }}" },
+    })
 
     await advance(1000)
     expect(renderCalls()).toHaveLength(0)
     expect(result.current.exec.hasAllOutputDependencies).toBe(false)
-    expect(result.current.exec.sourceCode).toBe("echo {{ .outputs.a.x }}")
+    expect(envValue(result.current.exec, "X")).toBe("{{ .outputs.a.x }}")
+  })
+
+  it("does not render when only its workingDir has templates", async () => {
+    const { result } = renderScriptExecution({
+      command: "tofu plan",
+      workingDir: "{{ .outputs.clone.clone_path }}",
+    })
+
+    act(() => result.current.runbook.registerOutputs("clone", { clone_path: "infra" }))
+    await advance(1000)
+    expect(renderCalls()).toHaveLength(0)
+    expect(result.current.exec.isRendering).toBe(false)
   })
 
   it("renders again when an output disappears and comes back with the same value", async () => {
@@ -410,26 +457,30 @@ describe("useScriptExecution — template render", () => {
     // replaces its earlier values. When A succeeds again with the same value,
     // the render key matches the one from before, so the hook must not treat
     // it as already rendered: the display was cleared in between.
-    const { result } = renderScriptExecution({ command: "echo {{ .outputs.a.x }}" })
+    const { result } = renderScriptExecution({
+      command: 'echo "$X"',
+      env: { X: "{{ .outputs.a.x }}" },
+    })
 
     act(() => result.current.runbook.registerOutputs("a", { x: "foo" }))
     await advance(300)
-    expect(result.current.exec.sourceCode).toBe("echo foo")
+    expect(envValue(result.current.exec, "X")).toBe("foo")
 
     act(() => result.current.runbook.registerOutputs("a", {}))
     await advance(300)
     expect(result.current.exec.hasAllOutputDependencies).toBe(false)
-    expect(result.current.exec.sourceCode).toBe("echo {{ .outputs.a.x }}")
+    expect(envValue(result.current.exec, "X")).toBe("{{ .outputs.a.x }}")
 
     act(() => result.current.runbook.registerOutputs("a", { x: "foo" }))
     await advance(300)
     expect(result.current.exec.hasAllOutputDependencies).toBe(true)
-    expect(result.current.exec.sourceCode).toBe("echo foo")
+    expect(envValue(result.current.exec, "X")).toBe("foo")
   })
 
-  it("shows a sensitive output as <redacted> in the rendered script, but runs with its real value", async () => {
+  it("shows a sensitive output as <redacted> in the rendered env, but runs with its real value", async () => {
     const { result } = renderScriptExecution({
-      command: 'curl -H "Authorization: {{ .outputs.a.token }}" {{ .outputs.a.url }}',
+      command: 'curl -H "Authorization: $TOKEN" "$URL"',
+      env: { TOKEN: "{{ .outputs.a.token }}", URL: "{{ .outputs.a.url }}" },
     })
 
     act(() =>
@@ -440,11 +491,12 @@ describe("useScriptExecution — template render", () => {
     )
     await advance(300)
 
-    // The script view is only shown, so its render never gets the secret
-    expect(result.current.exec.sourceCode).toBe('curl -H "Authorization: <redacted>" https://x')
+    // The env is only shown, so its render never gets the secret
+    expect(envValue(result.current.exec, "TOKEN")).toBe("<redacted>")
+    expect(envValue(result.current.exec, "URL")).toBe("https://x")
     expect(JSON.stringify(renderCalls())).not.toContain("s3cr3t")
 
-    // execute() renders the script again in the main process, with the real value
+    // The main process renders the env again, with the real value
     act(() => result.current.exec.execute())
     expect(testApi.invoke).toHaveBeenCalledWith(
       "exec:run",
@@ -454,21 +506,22 @@ describe("useScriptExecution — template render", () => {
     )
   })
 
-  // The script view renders `<redacted>`, which a template that parses the
-  // value can't handle, as boilerplate's fromJson fails on it. The error says
-  // why, since the run renders the real value and succeeds.
-  describe("when the script view render fails", () => {
+  // The block renders `<redacted>`, which a template that parses the value
+  // can't handle, as boilerplate's fromJson fails on it. The error says why,
+  // since the run renders the real value and succeeds.
+  describe("when the env render fails", () => {
     const FROM_JSON_ERROR =
-      'template: script.sh:1:26: executing "script.sh" at <.outputs.a.creds>: nil data; no entry for key "user"'
+      'template: env:USER:1:3: executing "env:USER" at <.outputs.a.creds>: nil data; no entry for key "user"'
     beforeEach(() => {
       testApi.handle("boilerplate:render-inline", () => {
         throw new Error(FROM_JSON_ERROR)
       })
     })
 
-    it("explains it when the script uses a sensitive output", async () => {
+    it("explains it when the env uses a sensitive output", async () => {
       const { result } = renderScriptExecution({
-        command: "echo user={{ (fromJson .outputs.a.creds).user }}",
+        command: 'echo "user=$USER"',
+        env: { USER: "{{ (fromJson .outputs.a.creds).user }}" },
       })
 
       act(() =>
@@ -484,7 +537,8 @@ describe("useScriptExecution — template render", () => {
 
     it("keeps the usual details when it does not", async () => {
       const { result } = renderScriptExecution({
-        command: "echo user={{ (fromJson .outputs.a.creds).user }}",
+        command: 'echo "user=$USER"',
+        env: { USER: "{{ (fromJson .outputs.a.creds).user }}" },
       })
 
       act(() => result.current.runbook.registerOutputs("a", { creds: '{"user":"bob"}' }))
@@ -492,30 +546,36 @@ describe("useScriptExecution — template render", () => {
 
       expect(result.current.exec.renderError).toEqual({
         message: FROM_JSON_ERROR,
-        details: "Failed to render script with variables",
+        details: "Failed to render the env with variables",
       })
     })
   })
 
-  // An empty value reveals nothing, and the script view's `{{ if }}` then takes the same branch as the run
-  it("renders an empty sensitive output as empty in the script view", async () => {
-    const { result } = renderScriptExecution({ command: "echo [{{ .outputs.a.token }}]" })
+  // An empty value reveals nothing, and the env's `{{ if }}` then takes the same branch as the run
+  it("renders an empty sensitive output as empty in the env", async () => {
+    const { result } = renderScriptExecution({
+      command: 'echo "$TOKEN"',
+      env: { TOKEN: "[{{ .outputs.a.token }}]" },
+    })
 
     act(() => result.current.runbook.registerOutputs("a", { token: sensitiveOutput("") }))
     await advance(300)
 
-    expect(result.current.exec.sourceCode).toBe("echo []")
+    expect(envValue(result.current.exec, "TOKEN")).toBe("[]")
   })
 
-  it("renders the new command when the command changes but the values do not", async () => {
-    const { result, rerender } = renderScriptExecution({ command: "echo {{ .outputs.a.x }}" })
+  it("renders the new env when the env changes but the values do not", async () => {
+    const { result, rerender } = renderScriptExecution({
+      command: 'echo "$X"',
+      env: { X: "echo {{ .outputs.a.x }}" },
+    })
 
     act(() => result.current.runbook.registerOutputs("a", { x: "foo" }))
     await advance(300)
-    expect(result.current.exec.sourceCode).toBe("echo foo")
+    expect(envValue(result.current.exec, "X")).toBe("echo foo")
 
-    rerender({ command: "ls {{ .outputs.a.x }}" })
+    rerender({ command: 'echo "$X"', env: { X: "ls {{ .outputs.a.x }}" } })
     await advance(300)
-    expect(result.current.exec.sourceCode).toBe("ls foo")
+    expect(envValue(result.current.exec, "X")).toBe("ls foo")
   })
 })

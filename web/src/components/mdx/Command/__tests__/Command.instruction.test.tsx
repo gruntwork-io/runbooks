@@ -8,7 +8,6 @@ import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 
 // Control the shared execution hook so we drive rawScriptContent + context.
 const baseExecution = {
-  sourceCode: "",
   rawScriptContent: "echo hello",
   language: "bash",
   fileError: null,
@@ -54,7 +53,7 @@ const baseExecution = {
 
 let mockExecution = { ...baseExecution }
 // With an inline Inputs, templateContext comes from the real RunbookContext (as
-// in the real hook), so values entered in the embedded form reach the command.
+// in the real hook), so values entered in the embedded form reach the env.
 vi.mock("@/components/mdx/_shared/hooks/useScriptExecution", async () => {
   const { useRunbookContext: useRealRunbookContext } = await import("@/contexts/useRunbook")
   return {
@@ -115,33 +114,53 @@ describe("Command — instruction mode", () => {
     expect(screen.queryByRole("button", { name: /stop/i })).toBeNull()
   })
 
-  it("resolves input references from the form context", () => {
-    mockExecution.rawScriptContent = "echo {{ .inputs.name }}"
-    mockExecution.templateContext = { inputs: { name: "world" }, outputs: {} }
-    renderCommand({ command: "echo {{ .inputs.name }}" })
-    expect(screen.getByText("echo world")).toBeInTheDocument()
-    expect(screen.queryByText(/\{\{/)).toBeNull()
+  it("shows the script as written, Go-template text for another tool included", () => {
+    const script = "docker ps --format '{{.Names}}'"
+    mockExecution.rawScriptContent = script
+    mockExecution.templateContext = { inputs: { Names: "not this" }, outputs: {} }
+    renderCommand({ command: script })
+
+    const codes = screen.getByTestId("instruction-test-cmd").querySelectorAll("code")
+    expect([...codes].map((code) => code.textContent)).toEqual([script])
   })
 
-  it("auto-detects an output reference as a manual field and resolves once filled", async () => {
-    mockExecution.rawScriptContent = "echo {{ .outputs.create_account.account_id }}"
-    renderCommand({ command: "echo {{ .outputs.create_account.account_id }}" })
+  it("resolves the env's input references from the form context", () => {
+    mockExecution.rawScriptContent = 'echo "$NAME"'
+    mockExecution.envTemplates = { NAME: "{{ .inputs.name }}" }
+    mockExecution.templateContext = { inputs: { name: "world" }, outputs: {} }
+    renderCommand({ command: 'echo "$NAME"' })
 
+    const codes = screen.getByTestId("instruction-test-cmd").querySelectorAll("code")
+    expect([...codes].map((code) => code.textContent)).toEqual([
+      "export NAME='world'\necho \"$NAME\"",
+    ])
+  })
+
+  it("auto-detects an output the env references as a manual field and resolves once filled", async () => {
+    mockExecution.rawScriptContent = 'echo "$ACCOUNT_ID"'
+    mockExecution.envTemplates = { ACCOUNT_ID: "{{ .outputs.create_account.account_id }}" }
+    renderCommand({ command: 'echo "$ACCOUNT_ID"' })
+
+    const block = screen.getByTestId("instruction-test-cmd")
     const field = screen.getByPlaceholderText(/paste the account_id value/i)
-    expect(field).toBeInTheDocument()
-    expect(screen.queryByText(/\{\{/)).toBeNull()
+    expect(block.textContent).not.toContain("{{")
 
     fireEvent.change(field, { target: { value: "123456789012" } })
-    await waitFor(() => expect(screen.getByText("echo 123456789012")).toBeInTheDocument())
+    await waitFor(() =>
+      expect(block.querySelector("code")?.textContent).toContain(
+        "export ACCOUNT_ID='123456789012'",
+      ),
+    )
   })
 
-  it("renders a nested Inputs form and resolves the command from what the user enters", async () => {
-    mockExecution.rawScriptContent = "deploy --env {{ .inputs.Env }}"
+  it("renders a nested Inputs form and resolves the env from what the user enters", async () => {
+    mockExecution.rawScriptContent = 'deploy --env "$ENV"'
+    mockExecution.envTemplates = { ENV: "{{ .inputs.Env }}" }
     mockExecution.inputDependencies = ["Env"]
     mockExecution.inlineInputsId = "deploy-inputs"
     render(
       <TestWrapper>
-        <Command id="test-cmd" command="deploy --env {{ .inputs.Env }}">
+        <Command id="test-cmd" command='deploy --env "$ENV"'>
           <Inputs id="deploy-inputs" path="boilerplate.yml" />
         </Command>
       </TestWrapper>,
@@ -149,11 +168,12 @@ describe("Command — instruction mode", () => {
 
     const block = screen.getByTestId("instruction-test-cmd")
     const field = within(block).getByTestId("field-Env").querySelector("input")!
-    // Not filled in yet: the command shows a placeholder, not a raw template.
-    await waitFor(() => expect(within(block).getByText("deploy --env <Env>")).toBeInTheDocument())
+    const code = () => block.querySelector("code")?.textContent
+    // Not filled in yet: the env shows a placeholder, not a raw template.
+    await waitFor(() => expect(code()).toContain("export ENV='<Env>'"))
 
     fireEvent.change(field, { target: { value: "prod" } })
-    await waitFor(() => expect(within(block).getByText("deploy --env prod")).toBeInTheDocument())
+    await waitFor(() => expect(code()).toContain("export ENV='prod'"))
     expect(block.textContent).not.toContain("{{")
   })
 
@@ -161,7 +181,8 @@ describe("Command — instruction mode", () => {
     // The nested Inputs remounts when the block switches layouts; it must pick
     // up the registered values rather than re-registering its config defaults.
     mockEnabled = false
-    mockExecution.rawScriptContent = "deploy --env {{ .inputs.Env }}"
+    mockExecution.rawScriptContent = 'deploy --env "$ENV"'
+    mockExecution.envTemplates = { ENV: "{{ .inputs.Env }}" }
     mockExecution.inputDependencies = ["Env"]
     mockExecution.inlineInputsId = "deploy-inputs"
     function RegisteredEnv() {
@@ -172,7 +193,7 @@ describe("Command — instruction mode", () => {
     }
     const tree = () => (
       <TestWrapper>
-        <Command id="test-cmd" command="deploy --env {{ .inputs.Env }}">
+        <Command id="test-cmd" command='deploy --env "$ENV"'>
           <Inputs id="deploy-inputs" path="boilerplate.yml" />
         </Command>
         <RegisteredEnv />
@@ -184,11 +205,13 @@ describe("Command — instruction mode", () => {
     fireEvent.change(envField(), { target: { value: "prod" } })
     await waitFor(() => expect(screen.getByTestId("registered-env")).toHaveTextContent("prod"))
 
-    // Interactive → instruction: the form and the command keep 'prod'.
+    // Interactive → instruction: the form and the env keep 'prod'.
     mockEnabled = true
     rerender(tree())
     const block = screen.getByTestId("instruction-test-cmd")
-    await waitFor(() => expect(within(block).getByText("deploy --env prod")).toBeInTheDocument())
+    await waitFor(() =>
+      expect(block.querySelector("code")?.textContent).toContain("export ENV='prod'"),
+    )
     expect(envField()).toHaveValue("prod")
     expect(screen.getByTestId("registered-env")).toHaveTextContent("prod")
 

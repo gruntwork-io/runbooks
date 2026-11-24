@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { Effect, Result, Layer } from "effect"
-import { renderBlockEnv, renderBlockWorkingDir, renderScriptForExec } from "./render.ts"
+import { renderBlockEnv, renderBlockWorkingDir } from "./render.ts"
 import { WasmBoilerplateLive } from "../../layers/WasmBoilerplate.ts"
 import { WasmRuntime } from "../../services/WasmRuntime.ts"
 import type { WasmRuntimeShape } from "../../services/WasmRuntime.ts"
@@ -103,120 +103,6 @@ const testLayer = Layer.merge(
   wasmLayer,
 )
 
-function render(script: string, vars: Record<string, unknown>) {
-  return Effect.runPromise(
-    Effect.result(renderScriptForExec(script, vars)).pipe(Effect.provide(testLayer)),
-  )
-}
-
-async function renderOk(script: string, vars: Record<string, unknown>): Promise<string> {
-  const result = await render(script, vars)
-  if (Result.isFailure(result)) throw result.failure
-  return result.success
-}
-
-// ---------------------------------------------------------------------------
-// renderScriptForExec
-// ---------------------------------------------------------------------------
-
-describe("renderScriptForExec", () => {
-  it("inserts input values verbatim inside the script's own quotes", async () => {
-    const out = await renderOk('TARGET_SA="{{ .inputs.A }}"', {
-      inputs: { A: "sa@p.iam.gserviceaccount.com" },
-    })
-    expect(out).toBe('TARGET_SA="sa@p.iam.gserviceaccount.com"')
-  })
-
-  // Checks the no-escaping contract at the WASM boundary itself, so it does
-  // not depend on how faithfully fakeGoTemplate models text/template.
-  it("hands the renderer raw, unquoted values", async () => {
-    const script = 'A="{{ .inputs.A }}" U="{{ .outputs.b.URL }}"'
-    renderCalls.length = 0
-    await renderOk(script, {
-      inputs: { A: "my repo" },
-      outputs: { b: { URL: "https://example.com/x?y=1" } },
-    })
-    const scriptCall = renderCalls.find((c) => c.template === script)
-    expect(scriptCall).toBeDefined()
-    expect(JSON.parse(scriptCall!.varsJSON)).toEqual({
-      inputs: { A: "my repo" },
-      outputs: { b: { URL: "https://example.com/x?y=1" } },
-    })
-  })
-
-  it("inserts block outputs verbatim", async () => {
-    const out = await renderOk('PR_URL="{{ .outputs.pr_scaffold.PR_URL }}"', {
-      inputs: {},
-      outputs: { pr_scaffold: { PR_URL: "https://github.com/acme/infra/pull/7" } },
-    })
-    expect(out).toBe('PR_URL="https://github.com/acme/infra/pull/7"')
-  })
-
-  it("compares the raw value in eq conditions", async () => {
-    const out = await renderOk('{{ if eq .inputs.L "JavaScript" }}yes{{ end }}', {
-      inputs: { L: "JavaScript" },
-    })
-    expect(out).toBe("yes")
-  })
-
-  it("honors every eq branch in a script that picks its flags with templates", async () => {
-    const script = `ARGS=(--yes --import-alias "{{ .inputs.ImportAlias }}")
-
-{{ if eq .inputs.Language "JavaScript" -}}
-ARGS+=(--javascript)
-{{ else -}}
-ARGS+=(--typescript)
-{{ end -}}
-
-{{ if eq .inputs.UseTailwind "Yes" -}}
-ARGS+=(--tailwind)
-{{ end -}}
-
-{{ if eq .inputs.Bundler "Webpack" -}}
-ARGS+=(--webpack)
-{{ else -}}
-ARGS+=(--turbopack)
-{{ end -}}
-`
-    const out = await renderOk(script, {
-      inputs: {
-        ImportAlias: "@/*",
-        Language: "JavaScript",
-        UseTailwind: "Yes",
-        Bundler: "Webpack",
-      },
-    })
-    expect(out).toContain('--import-alias "@/*")')
-    expect(out).toContain("ARGS+=(--javascript)")
-    expect(out).toContain("ARGS+=(--tailwind)")
-    expect(out).toContain("ARGS+=(--webpack)")
-    expect(out).not.toContain("--typescript")
-    expect(out).not.toContain("--turbopack")
-  })
-
-  it("resolves nested input templates before rendering the script", async () => {
-    const out = await renderOk('EMAIL="{{ .inputs.LogsEmail }}"', {
-      inputs: {
-        User: "ops",
-        Domain: "example.com",
-        LogsEmail: "{{ .inputs.User }}+logs@{{ .inputs.Domain }}",
-      },
-    })
-    expect(out).toBe('EMAIL="ops+logs@example.com"')
-  })
-
-  // Go-template text meant for another tool is the realistic way to reach
-  // exec with a broken template: the UI only gates Run on .inputs/.outputs.
-  it("fails with the template error instead of returning a marker as the script", async () => {
-    const result = await render("docker ps --format '{{.Names}}'", { inputs: {} })
-    expect(Result.isFailure(result)).toBe(true)
-    if (Result.isFailure(result)) {
-      expect(result.failure).toBeInstanceOf(RenderError)
-      expect(result.failure.message).toContain('map has no entry for key "Names"')
-    }
-  })
-})
-
 // ---------------------------------------------------------------------------
 // renderBlockEnv
 // ---------------------------------------------------------------------------
@@ -226,7 +112,7 @@ function renderEnv(env: Record<string, string>, vars: Record<string, unknown>) {
 }
 
 describe("renderBlockEnv", () => {
-  it("renders each value with the script's inputs and outputs, keeping what an output holds as it is", async () => {
+  it("renders each value with the block's inputs and outputs, keeping what an output holds as it is", async () => {
     const title = 'Fix typo $(touch /tmp/runbooks-pwned) "; rm -rf ~; echo "'
     const result = await renderEnv(
       {
@@ -242,7 +128,7 @@ describe("renderBlockEnv", () => {
     )
   })
 
-  it("resolves an input that is a template itself, as the script's render does", async () => {
+  it("resolves an input that is a template itself", async () => {
     const result = await renderEnv(
       { EMAIL: "{{ .inputs.LogsEmail }}" },
       {
@@ -283,7 +169,7 @@ function renderWorkingDir(workingDir: string, vars: Record<string, unknown>) {
 }
 
 describe("renderBlockWorkingDir", () => {
-  it("renders the path with the script's inputs and outputs", async () => {
+  it("renders the path with the block's inputs and outputs", async () => {
     const result = await renderWorkingDir("{{ .outputs.clone.clone_path }}/live", {
       inputs: {},
       outputs: { clone: { clone_path: "infra" } },

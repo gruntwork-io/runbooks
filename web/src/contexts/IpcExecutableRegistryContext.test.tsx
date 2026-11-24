@@ -16,7 +16,6 @@ function executable(id: string, componentId: string): RegisteredExecutable {
     componentId,
     componentType: "command",
     contentHash: `hash-${id}`,
-    templateVars: [],
     env: {},
     workingDir: "",
     interpreter: "",

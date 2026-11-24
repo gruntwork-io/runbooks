@@ -18,7 +18,6 @@ const FINISH_VARIANT: ScriptBlockVariant = {
   defaultRunningMessage: "Running the final check...",
   fileName: "Final Check Script",
   fileErrorHeading: "Finish Component Error",
-  renderErrorLabel: "Script render error",
   missingInputsSubject: "final check",
   showScriptMetadata: false,
   showPendingPlaceholder: false,

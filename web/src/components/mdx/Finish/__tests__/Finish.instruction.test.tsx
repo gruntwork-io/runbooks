@@ -6,7 +6,6 @@ import Finish from "../Finish"
 import { celebrate } from "../celebrate"
 
 const baseExecution = {
-  sourceCode: "",
   rawScriptContent: "",
   language: "bash",
   fileError: null,

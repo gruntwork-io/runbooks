@@ -274,7 +274,6 @@ export interface Executable {
   content: string
   contentHash: string
   path?: string
-  templateVars: string[]
   /**
    * The block's `env` prop: the variables its script runs with, as templates
    * (see blockEnv.ts). Empty for a block without one.

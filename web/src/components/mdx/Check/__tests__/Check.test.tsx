@@ -6,7 +6,7 @@ import Check from "../Check"
 
 // Mock useScriptExecution
 const defaultScriptExecution = {
-  sourceCode: 'echo "checking..."',
+  rawScriptContent: 'echo "checking..."',
   language: "bash",
   fileError: null,
   envTemplates: {},

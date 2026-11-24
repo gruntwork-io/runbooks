@@ -10,7 +10,6 @@ import { sensitiveOutput, type OutputValues } from "@/lib/outputValues"
 // ---------------------------------------------------------------------------
 
 const defaultScriptExecution = {
-  sourceCode: 'echo "hello"',
   rawScriptContent: 'echo "hello"',
   language: "bash",
   fileError: null as { message: string; details?: string } | null,
@@ -116,7 +115,7 @@ describe("Command", () => {
 
   it("displays inline command content", () => {
     renderCommand({ command: 'echo "hello world"' })
-    expect(screen.getByText('echo "hello"')).toBeInTheDocument() // sourceCode from mock
+    expect(screen.getByText('echo "hello"')).toBeInTheDocument()
   })
 
   // --- Buttons ---
@@ -285,29 +284,22 @@ describe("Command", () => {
     expect(screen.queryByTestId("test-cmd-env")).toBeNull()
   })
 
-  it("notes a script that inserts inputs or outputs into its source, and still runs it", () => {
-    mockScriptExecution = {
-      ...defaultScriptExecution,
-      rawScriptContent: 'gh pr edit --title "{{ .outputs.fetch_pr.title }}"',
-      execute: vi.fn(),
-      cancel: vi.fn(),
+  it("runs a script as written, whether it reads env vars or contains template text", () => {
+    for (const script of [
+      'gh pr edit --title "$PR_TITLE"',
+      "docker ps --format '{{.Names}}'",
+      "grep -rn '{{ .inputs.Region }}' runbooks/",
+    ]) {
+      mockScriptExecution = {
+        ...defaultScriptExecution,
+        rawScriptContent: script,
+        execute: vi.fn(),
+        cancel: vi.fn(),
+      }
+      const { unmount } = renderCommand()
+      expect(screen.getByRole("button", { name: "Run" })).toBeEnabled()
+      unmount()
     }
-    renderCommand()
-    expect(screen.getByTestId("test-cmd-template-warning")).toHaveTextContent(
-      "This script inserts {{ .outputs.fetch_pr.title }} into its source. Pass values in the block's env prop instead",
-    )
-    expect(screen.getByRole("button", { name: "Run" })).toBeEnabled()
-  })
-
-  it("has no note for a script that reads its values from env", () => {
-    mockScriptExecution = {
-      ...defaultScriptExecution,
-      rawScriptContent: 'gh pr edit --title "$PR_TITLE"',
-      execute: vi.fn(),
-      cancel: vi.fn(),
-    }
-    renderCommand()
-    expect(screen.queryByTestId("test-cmd-template-warning")).toBeNull()
   })
 
   it("shows why an env prop isn't valid, with no Run button", () => {
@@ -385,7 +377,7 @@ describe("Command", () => {
     expect(screen.queryByTestId("test-cmd-interpreter")).toBeNull()
   })
 
-  it("shows render error when template substitution fails", () => {
+  it("shows an env render error", () => {
     mockScriptExecution = {
       ...defaultScriptExecution,
       renderError: { message: "Variable 'region' is not defined" },
@@ -393,6 +385,7 @@ describe("Command", () => {
       cancel: vi.fn(),
     }
     renderCommand()
+    expect(screen.getByText("Env render error:")).toBeInTheDocument()
     expect(screen.getByText(/Variable 'region' is not defined/)).toBeInTheDocument()
   })
 
@@ -508,7 +501,7 @@ describe("Command", () => {
   it("shows script metadata for path-based scripts", () => {
     mockScriptExecution = {
       ...defaultScriptExecution,
-      sourceCode: "#!/bin/bash\necho hello\necho world",
+      rawScriptContent: "#!/bin/bash\necho hello\necho world",
       language: "bash",
       execute: vi.fn(),
       cancel: vi.fn(),

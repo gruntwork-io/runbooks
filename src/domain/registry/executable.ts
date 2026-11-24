@@ -70,23 +70,6 @@ export function computeComponentId(componentType: string, propsSource: string): 
 }
 
 // ---------------------------------------------------------------------------
-// Template variable extraction
-// ---------------------------------------------------------------------------
-
-const TEMPLATE_VAR_REGEX = /\{\{\s*\.(\w+)\s*\}\}/g
-
-/** Extract `{{.VarName}}` variable names from script content. */
-function extractTemplateVars(content: string): string[] {
-  TEMPLATE_VAR_REGEX.lastIndex = 0
-  const vars = new Set<string>()
-  let match: RegExpExecArray | null
-  while ((match = TEMPLATE_VAR_REGEX.exec(content)) !== null) {
-    if (match[1]) vars.add(match[1])
-  }
-  return Array.from(vars)
-}
-
-// ---------------------------------------------------------------------------
 // Parsed component (internal)
 // ---------------------------------------------------------------------------
 
@@ -258,7 +241,6 @@ export class ExecutableRegistry {
       componentType: "prerequisites",
       content: toolList,
       contentHash: computeContentHash(toolList),
-      templateVars: [],
       env: {},
       workingDir: "",
       interpreter: "",
@@ -294,7 +276,6 @@ export class ExecutableRegistry {
       componentType: componentType.toLowerCase(),
       content: scriptContent,
       contentHash: computeContentHash(scriptContent),
-      templateVars: extractTemplateVars(scriptContent),
       ...blockProps,
       interpreter: interpreter.interpreter,
     })
@@ -345,7 +326,6 @@ export class ExecutableRegistry {
         content: scriptContent,
         contentHash: computeContentHash(scriptContent),
         path: scriptPath,
-        templateVars: extractTemplateVars(scriptContent),
         ...blockProps,
         interpreter: interpreter.interpreter,
       })
@@ -435,7 +415,6 @@ export class ExecutableRegistry {
         id: entryId,
         content,
         contentHash: reviewedHash,
-        templateVars: extractTemplateVars(content),
       })
       this.scriptPaths.set(entryId, scriptPath)
     })

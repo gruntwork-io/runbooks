@@ -56,7 +56,6 @@ function createApi(
             componentType: "command",
             contentHash: registered.contentHash,
             path: SCRIPT_PATH,
-            templateVars: [],
             env: {},
             workingDir: "",
             interpreter: "",
@@ -148,7 +147,7 @@ describe("useScriptExecution — registry reloads", () => {
   it("re-reads its script file when the registry is rebuilt, so it shows what Run executes", async () => {
     const mock = createApi()
     const { result } = renderPathBlock(mock.api)
-    await waitFor(() => expect(result.current.sourceCode).toBe("echo v1"))
+    await waitFor(() => expect(result.current.rawScriptContent).toBe("echo v1"))
     expect(result.current.hasScriptDrift).toBe(false)
     const readsBefore = mock.fileReads()
 
@@ -157,7 +156,7 @@ describe("useScriptExecution — registry reloads", () => {
     // Without the re-read, the block would keep showing v1 and warn that it
     // will execute "the version present when first opened", while Run
     // executes v2 from the rebuilt registry.
-    await waitFor(() => expect(result.current.sourceCode).toBe("echo v2"))
+    await waitFor(() => expect(result.current.rawScriptContent).toBe("echo v2"))
     expect(mock.fileReads()).toBe(readsBefore + 1)
     expect(result.current.hasScriptDrift).toBe(false)
   })
@@ -167,7 +166,7 @@ describe("useScriptExecution — a script file that changes on disk", () => {
   it("offers the change for reload and keeps showing the version Run executes", async () => {
     const mock = createApi()
     const { result } = renderPathBlock(mock.api)
-    await waitFor(() => expect(result.current.sourceCode).toBe("echo v1"))
+    await waitFor(() => expect(result.current.rawScriptContent).toBe("echo v1"))
     expect(result.current.scriptFileChange).toBeNull()
 
     act(() => mock.editScript(V2))
@@ -178,14 +177,13 @@ describe("useScriptExecution — a script file that changes on disk", () => {
       diskContent: "echo v2",
       diskContentHash: "hash-v2",
     })
-    expect(result.current.sourceCode).toBe("echo v1")
     expect(result.current.rawScriptContent).toBe("echo v1")
   })
 
   it("does not compare its script when only another block's script was written", async () => {
     const mock = createApi()
     const { result } = renderPathBlock(mock.api)
-    await waitFor(() => expect(result.current.sourceCode).toBe("echo v1"))
+    await waitFor(() => expect(result.current.rawScriptContent).toBe("echo v1"))
     await waitFor(() => expect(mock.changeChecks()).toBeGreaterThan(0))
     const checksBefore = mock.changeChecks()
 
@@ -202,19 +200,19 @@ describe("useScriptExecution — a script file that changes on disk", () => {
     const { result } = renderPathBlock(mock.api)
 
     await waitFor(() => expect(result.current.hasScriptDrift).toBe(true))
-    expect(result.current.sourceCode).toBe("echo v1")
+    expect(result.current.rawScriptContent).toBe("echo v1")
   })
 
   it("reloads the reviewed version, then shows it without a change to review", async () => {
     const mock = createApi()
     const { result } = renderPathBlock(mock.api)
-    await waitFor(() => expect(result.current.sourceCode).toBe("echo v1"))
+    await waitFor(() => expect(result.current.rawScriptContent).toBe("echo v1"))
     act(() => mock.editScript(V2))
     await waitFor(() => expect(result.current.hasScriptDrift).toBe(true))
 
     act(() => result.current.reloadScript())
 
-    await waitFor(() => expect(result.current.sourceCode).toBe("echo v2"))
+    await waitFor(() => expect(result.current.rawScriptContent).toBe("echo v2"))
     expect(mock.invoke).toHaveBeenCalledWith("runbook:reload-script", {
       componentId: "target",
       contentHash: "hash-v2",
@@ -228,7 +226,7 @@ describe("useScriptExecution — a script file that changes on disk", () => {
   it("reports a rejected reload and shows the change that is on disk now", async () => {
     const mock = createApi()
     const { result } = renderPathBlock(mock.api)
-    await waitFor(() => expect(result.current.sourceCode).toBe("echo v1"))
+    await waitFor(() => expect(result.current.rawScriptContent).toBe("echo v1"))
     act(() => mock.editScript(V2))
     await waitFor(() => expect(result.current.hasScriptDrift).toBe(true))
     // The user reviewed v2; the file is v3 by the time they click.
@@ -242,7 +240,7 @@ describe("useScriptExecution — a script file that changes on disk", () => {
       ),
     )
     await waitFor(() => expect(result.current.scriptFileChange?.diskContent).toBe("echo v3"))
-    expect(result.current.sourceCode).toBe("echo v1")
+    expect(result.current.rawScriptContent).toBe("echo v1")
     expect(result.current.isReloadingScript).toBe(false)
   })
 
@@ -264,7 +262,7 @@ describe("useScriptExecution — a script file that changes on disk", () => {
         }),
       { wrapper },
     )
-    await waitFor(() => expect(result.current.sourceCode).toBe("echo inline"))
+    await waitFor(() => expect(result.current.rawScriptContent).toBe("echo inline"))
 
     act(() => mock.editScript(V2))
     await act(async () => {})
