@@ -4,4 +4,4 @@
 cat >> "$RUNBOOK_OUTPUT" <<'TITLE'
 title=Fix typo $(touch "$GENERATED_FILES/pwned") `touch "$GENERATED_FILES/pwned"` "; touch "$GENERATED_FILES/pwned"; echo "
 TITLE
-log_info "Published the title"
+echo "Published the title" >> "$RUNBOOK_INFO_LOG"

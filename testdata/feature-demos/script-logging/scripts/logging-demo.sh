@@ -1,50 +1,31 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Logging Demo Script
-# Demonstrates all four logging functions provided by Runbooks
+# Appends a line to each of the four log files Runbooks creates for a run
 # =============================================================================
+set -euo pipefail
 
 echo "========================================="
 echo "  Runbooks Logging Demo"
 echo "========================================="
 echo ""
 
-# Demonstrate log_info
-log_info "This is an informational message"
-log_info "Use log_info for general progress updates"
+echo "This is an informational message" >> "$RUNBOOK_INFO_LOG"
+echo "Use \$RUNBOOK_INFO_LOG for general progress updates" >> "$RUNBOOK_INFO_LOG"
 
-echo ""
+echo "This is a warning message" >> "$RUNBOOK_WARN_LOG"
+echo "Use \$RUNBOOK_WARN_LOG for non-fatal issues" >> "$RUNBOOK_WARN_LOG"
 
-# Demonstrate log_warn
-log_warn "This is a warning message"
-log_warn "Use log_warn for non-fatal issues"
+echo "This is a debug message" >> "$RUNBOOK_DEBUG_LOG"
+echo "Use \$RUNBOOK_DEBUG_LOG for verbose troubleshooting output" >> "$RUNBOOK_DEBUG_LOG"
 
-echo ""
+echo "This is an error message" >> "$RUNBOOK_ERROR_LOG"
+echo "Use \$RUNBOOK_ERROR_LOG for failures before exiting" >> "$RUNBOOK_ERROR_LOG"
 
-# Demonstrate log_debug (only shows if DEBUG=true)
-log_debug "This is a debug message"
-log_debug "Use log_debug for verbose troubleshooting output"
-
-if [ "${DEBUG:-}" != "true" ]; then
-  log_info "Debug messages are hidden. Set DEBUG=true to see them."
-fi
-
-echo ""
-
-# Demonstrate log_error
-log_error "This is an error message"
-log_error "Use log_error for failures before exiting"
-
-echo ""
-
-# Any command can append to the per-level log files directly. Runbooks shows
-# each line at the file's level.
-echo "This line was appended to \$RUNBOOK_WARN_LOG directly" >> "$RUNBOOK_WARN_LOG"
-
-# The logging functions never write to stdout, so they are safe inside a
-# function whose output you capture.
+# The log files aren't stdout, so logging inside a function whose output is
+# captured leaves the captured value alone.
 get_greeting() {
-  log_info "Building a greeting..."
+  echo "Building a greeting..." >> "$RUNBOOK_INFO_LOG"
   echo "hello"
 }
 GREETING=$(get_greeting)
@@ -54,6 +35,3 @@ echo ""
 echo "========================================="
 echo "  Demo Complete!"
 echo "========================================="
-
-exit 0
-

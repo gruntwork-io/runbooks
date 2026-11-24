@@ -122,14 +122,14 @@ External scripts are plain bash scripts. The referenced `scripts/deploy.sh` migh
 ```bash
 #!/usr/bin/env bash
 
-log_info "Starting deployment..."
+echo "Starting deployment..." >> "$RUNBOOK_INFO_LOG"
 kubectl apply -f "$REPO_FILES/k8s/deployment.yaml"
 
 if kubectl rollout status deployment/myapp; then
-    log_info "Deployment complete!"
+    echo "Deployment complete!" >> "$RUNBOOK_INFO_LOG"
     exit 0
 else
-    log_error "Deployment failed"
+    echo "Deployment failed" >> "$RUNBOOK_ERROR_LOG"
     exit 1
 fi
 ```
@@ -146,69 +146,63 @@ Exit code 2 is a warning for [Check](/authoring/blocks/check/#exit-codes) blocks
 
 ### Logging
 
-Runbooks sources a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) into every bash and sh script, which defines a set of logging functions. Using them lets the Runbooks UI parse log levels for filtering and export.
+Each run gets one log file per level. Runbooks puts their paths in environment variables, the way `$RUNBOOK_OUTPUT` holds the path of the [outputs](#block-outputs) file:
 
-#### Log levels
+| Variable | Level in the logs |
+|----------|-------------------|
+| `RUNBOOK_INFO_LOG` | `INFO` |
+| `RUNBOOK_WARN_LOG` | `WARN` |
+| `RUNBOOK_ERROR_LOG` | `ERROR` |
+| `RUNBOOK_DEBUG_LOG` | `DEBUG` |
 
-| Function | Output | Description |
-|----------|--------|-------------|
-| `log_info "msg"` | `[timestamp] [INFO]  msg` | General informational messages |
-| `log_warn "msg"` | `[timestamp] [WARN]  msg` | Warning conditions |
-| `log_error "msg"` | `[timestamp] [ERROR] msg` | Error messages |
-| `log_debug "msg"` | `[timestamp] [DEBUG] msg` | Debug output (only when `DEBUG=true`) |
+Append a line to a file to log it at that level. Runbooks shows each line in the block's logs with a timestamp and the file's level, such as `[2026-05-04T10:00:00Z] [WARN]  Quota is almost used up`, so the [structured log download](#viewing-logs) files it under that level. Anything your script prints to stdout or stderr shows up in the logs as well, without a level.
 
-The logging functions append to a [log file](#log-files) that Runbooks creates for each run, and Runbooks shows those lines in the block's logs as your script writes them, in the order it wrote them. They never write to stdout, so you can call them inside a function whose output you capture with `$(...)`. The captured value holds only what the function prints.
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Starting deployment..." >> "$RUNBOOK_INFO_LOG"
+echo "Target environment: $ENVIRONMENT" >> "$RUNBOOK_DEBUG_LOG"
+
+if [ -z "${API_KEY:-}" ]; then
+  echo "API_KEY not set, some features may be unavailable" >> "$RUNBOOK_WARN_LOG"
+fi
+
+# tofu's errors appear as [ERROR] lines
+if ! tofu apply -auto-approve 2>>"$RUNBOOK_ERROR_LOG"; then
+  echo "Deployment failed" >> "$RUNBOOK_ERROR_LOG"
+  exit 1
+fi
+
+echo "Deployment complete" >> "$RUNBOOK_INFO_LOG"
+```
+
+Append with `>>`. Overwriting a log file with `>` can drop or repeat lines.
+
+Runbooks shows every line written to `$RUNBOOK_DEBUG_LOG`.
+
+Nothing written to the log files reaches stdout, so you can log inside a function whose output you capture with `$(...)`. The captured value holds only what the function prints:
 
 ```bash
 get_account_id() {
-  log_info "Looking up the AWS account ID..."
+  echo "Looking up the AWS account ID..." >> "$RUNBOOK_INFO_LOG"
   aws sts get-caller-identity --query Account --output text
 }
 
 ACCOUNT_ID=$(get_account_id)
-```
 
-#### Usage example
-
-```bash
-#!/usr/bin/env bash
-log_info "Starting deployment..."
-log_debug "Target environment: $ENVIRONMENT"
-
-if [ -z "$API_KEY" ]; then
-  log_warn "API_KEY not set, some features may be unavailable"
-fi
-
-if ! deploy_application; then
-  log_error "Deployment failed"
-  exit 1
-fi
-
-log_info "Deployment complete"
-```
-
-#### Log files
-
-Each run gets a set of log files. Runbooks puts their paths in environment variables, the way `$RUNBOOK_OUTPUT` holds the path of the [outputs](#block-outputs) file:
-
-| Variable | Written by | Level in the logs |
-|----------|------------|-------------------|
-| `RUNBOOK_LOG` | `log_info`, `log_warn`, `log_error`, `log_debug` | The level each line names |
-| `RUNBOOK_INFO_LOG` | Your commands | `INFO` |
-| `RUNBOOK_WARN_LOG` | Your commands | `WARN` |
-| `RUNBOOK_ERROR_LOG` | Your commands | `ERROR` |
-| `RUNBOOK_DEBUG_LOG` | Your commands | `DEBUG` |
-
-All four logging functions append to `$RUNBOOK_LOG`, so their lines keep the order your script wrote them in, whatever their level. Runbooks shows the lines in `$RUNBOOK_LOG` as they are written, so a line you add there yourself should name its level the same way, for example `[WARN] Quota is almost used up`.
-
-The per-level files are for output that doesn't name a level, such as a tool's stderr. Any command can append to them directly. Runbooks adds a timestamp and the file's level to each line that doesn't already start with them, so the line shows up at that level:
-
-```bash
 # tofu's errors appear as [ERROR] lines; its JSON output stays in the variable
 PLAN_JSON=$(tofu show -json plan.tfplan 2>>"$RUNBOOK_ERROR_LOG")
 ```
 
-Append with `>>`. Overwriting a log file with `>` can drop or repeat lines.
+If you log often, define short functions in your script:
+
+```bash
+info() { echo "$*" >> "$RUNBOOK_INFO_LOG"; }
+warn() { echo "$*" >> "$RUNBOOK_WARN_LOG"; }
+
+info "Creating VPC..."
+```
 
 Scripts in other languages get the same variables. For example, in Python:
 
@@ -219,37 +213,18 @@ with open(os.environ["RUNBOOK_WARN_LOG"], "a") as log:
     print("Quota is almost used up", file=log)
 ```
 
-Runbooks reads the log files while your script runs, so their lines appear next to its stdout and stderr, normally in the order the script wrote them. Lines written to different log files close together can appear grouped by file, with the lines from `$RUNBOOK_LOG` first. `log_debug` only writes when `DEBUG=true`, but every line in `$RUNBOOK_DEBUG_LOG` is shown, whoever wrote it.
+Runbooks reads the log files while your script runs, so their lines appear next to its stdout and stderr, normally in the order the script wrote them. Lines written to different log files within a few milliseconds of each other can appear grouped by file.
 
-The files are deleted when the run ends, so lines that a [background job](#background-processes) writes after the script exits don't appear. From then on, the logging functions write to stderr instead, so the job's later log lines go wherever you redirected its output. Don't redirect a background job's output to the log files: once they are deleted, a command whose output is redirected to one of them fails without running.
+The files are deleted when the run ends. A [background job](#background-processes) that appends to one after the script exits gets a "No such file or directory" error, and its line isn't shown. Send a background job's output somewhere else, such as a file in `$GENERATED_FILES` or `/dev/null`.
 
-#### Local development
+#### Running scripts outside Runbooks
 
-Outside the Runbooks UI, the logging functions aren't injected. To simulate the Runbooks environment, run this one-liner in your terminal session (bash or zsh):
+Outside Runbooks the log file variables aren't set, so `>> "$RUNBOOK_INFO_LOG"` fails. To run the same script in a terminal, give each variable a default at the top of the script, such as standard error:
 
 ```bash
-mkdir -p ~/.config/runbooks && curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/runbooks/logging.sh && export BASH_ENV=~/.config/runbooks/logging.sh
+: "${RUNBOOK_INFO_LOG:=/dev/stderr}" "${RUNBOOK_WARN_LOG:=/dev/stderr}"
+: "${RUNBOOK_ERROR_LOG:=/dev/stderr}" "${RUNBOOK_DEBUG_LOG:=/dev/stderr}"
 ```
-
-This sets [`BASH_ENV`](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html), which tells bash to source the logging functions before running any script. It works from bash and zsh parent shells and lasts until the terminal is closed. The same script then works in both environments.
-
-Outside Runbooks `RUNBOOK_LOG` isn't set, so the logging functions write to stderr instead. The one-liner overwrites `~/.config/runbooks/logging.sh`, so re-run it to pick up changes to the logging functions. Copies downloaded before the log files existed write to stdout, where the log lines end up in `$(...)` captures.
-
-:::note[Fish shell]
-The one-liner above uses `export` and `&&`, which are not fish syntax. Fish also does not read `BASH_ENV` itself, but child `bash` processes will if the variable is exported. Use the fish equivalent:
-
-```fish
-mkdir -p ~/.config/runbooks; and curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/runbooks/logging.sh; and set -gx BASH_ENV ~/.config/runbooks/logging.sh
-```
-
-To make this persistent across sessions, add the following to a fish startup file such as `~/.config/fish/conf.d/runbooks.fish`:
-
-```fish
-if test -f ~/.config/runbooks/logging.sh
-    set -gx BASH_ENV ~/.config/runbooks/logging.sh
-end
-```
-:::
 
 ### With variables
 
@@ -452,13 +427,13 @@ Without the redirect, the block keeps waiting on the background process until `t
 #!/usr/bin/env bash
 # scripts/deploy.sh
 
-set -e  # Exit on error
+set -euo pipefail
 
-log_info "Starting deployment..."
+echo "Starting deployment..." >> "$RUNBOOK_INFO_LOG"
 kubectl apply -f "$REPO_FILES/k8s/deployment.yaml"
 kubectl rollout status deployment/myapp
 
-log_info "Deployment complete!"
+echo "Deployment complete!" >> "$RUNBOOK_INFO_LOG"
 ```
 
 #### Parameterized script
@@ -480,15 +455,15 @@ log_info "Deployment complete!"
 #!/usr/bin/env bash
 # scripts/create-vpc.sh
 
-log_info "Creating VPC $VPC_NAME in $REGION..."
-log_debug "CIDR block: $CIDR_BLOCK"
+echo "Creating VPC $VPC_NAME in $REGION..." >> "$RUNBOOK_INFO_LOG"
+echo "CIDR block: $CIDR_BLOCK" >> "$RUNBOOK_DEBUG_LOG"
 
 aws ec2 create-vpc \
     --cidr-block "$CIDR_BLOCK" \
     --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=$VPC_NAME}]" \
     --region "$REGION"
 
-log_info "VPC created successfully!"
+echo "VPC created successfully!" >> "$RUNBOOK_INFO_LOG"
 ```
 
 #### Script with error handling
@@ -497,25 +472,27 @@ log_info "VPC created successfully!"
 #!/usr/bin/env bash
 # scripts/safe-deploy.sh
 
-set -e
+set -euo pipefail
+
+error() { echo "$*" >> "$RUNBOOK_ERROR_LOG"; }
 
 function cleanup {
-    log_info "Cleaning up..."
+    echo "Cleaning up..." >> "$RUNBOOK_INFO_LOG"
     # Cleanup code here
 }
 
 trap cleanup EXIT
 
-log_info "Running pre-deployment checks..."
-kubectl cluster-info > /dev/null || { log_error "Pre-checks failed"; exit 1; }
+echo "Running pre-deployment checks..." >> "$RUNBOOK_INFO_LOG"
+kubectl cluster-info > /dev/null || { error "Pre-checks failed"; exit 1; }
 
-log_info "Deploying..."
+echo "Deploying..." >> "$RUNBOOK_INFO_LOG"
 kubectl apply -f "$REPO_FILES/k8s/"
 
-log_info "Running post-deployment validation..."
-kubectl rollout status deployment/myapp --timeout=5m || { log_error "Validation failed"; exit 1; }
+echo "Running post-deployment validation..." >> "$RUNBOOK_INFO_LOG"
+kubectl rollout status deployment/myapp --timeout=5m || { error "Validation failed"; exit 1; }
 
-log_info "Deployment successful!"
+echo "Deployment successful!" >> "$RUNBOOK_INFO_LOG"
 ```
 
 ## Capturing output files

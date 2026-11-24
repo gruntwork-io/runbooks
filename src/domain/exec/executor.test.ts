@@ -337,11 +337,11 @@ describe("executeScript — missing Google credential file", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Log files ($RUNBOOK_LOG, $RUNBOOK_INFO_LOG etc.)
+// Log files ($RUNBOOK_INFO_LOG etc.)
 // ---------------------------------------------------------------------------
 
 describe("executeScript — log files", () => {
-  it("names RUNBOOK_LOG and a log file per level in the env and asks the spawner to follow each one", async () => {
+  it("names a log file per level in the env and asks the spawner to follow each one", async () => {
     let received: SpawnOptions | undefined
     let atSpawn: Record<string, string> = {}
     const files: Record<string, string> = {}
@@ -375,7 +375,7 @@ describe("executeScript — log files", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const { logStream, completionEffect } = yield* executeScript(
-            "log_info hi",
+            'echo hi >> "$RUNBOOK_INFO_LOG"',
             { path: "", interpreter: "" },
             {},
             { env: { PATH: "/usr/bin" }, workDir: "/work" },
@@ -391,15 +391,14 @@ describe("executeScript — log files", () => {
     const paths: (string | undefined)[] = (received?.logChannels ?? []).map(
       (channel) => channel.path,
     )
+    expect(env.RUNBOOK_LOG).toBeUndefined()
     expect(paths).toEqual([
-      env.RUNBOOK_LOG,
       env.RUNBOOK_INFO_LOG,
       env.RUNBOOK_WARN_LOG,
       env.RUNBOOK_ERROR_LOG,
       env.RUNBOOK_DEBUG_LOG,
     ])
     expect(paths.map((p) => p?.split("/").pop())).toEqual([
-      "runbook.log",
       "info.log",
       "warn.log",
       "error.log",
@@ -411,11 +410,9 @@ describe("executeScript — log files", () => {
       expect(files[p!]).toBeUndefined()
     }
 
-    // RUNBOOK_LOG's lines name their own level, so they're shown as written.
-    // The per-level files' lines get a timestamp and the file's level.
+    // Each file's lines get a timestamp and the file's level
     const stamp = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
-    const [first, ...lines] = events.flatMap((e) => (e._tag === "log" ? [e.event.line] : []))
-    expect(first).toBe(`raw ${env.RUNBOOK_LOG}`)
+    const lines = events.flatMap((e) => (e._tag === "log" ? [e.event.line] : []))
     expect(lines.every((line) => stamp.test(line))).toBe(true)
     expect(lines.map((line) => line.replace(stamp, ""))).toEqual([
       `[INFO]  raw ${env.RUNBOOK_INFO_LOG}`,

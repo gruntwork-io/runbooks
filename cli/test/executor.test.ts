@@ -84,7 +84,7 @@ describe("TestExecutor — config-error surfacing", () => {
 
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 5_000, verbose: false })
     await executor.init()
-    const result = executor.runTest({ name: "happy-path", steps: [] })
+    const result = await executor.runTest({ name: "happy-path", steps: [] })
 
     expect(result.status).toBe("failed")
     expect(result.error).toStartWith(
@@ -351,7 +351,7 @@ describe("TestExecutor — cleanup", () => {
   it("runs in the output dir even when no block generated files", async () => {
     const runTest = await runWithCleanup("echo hi", [{ command: `pwd -P > "${marker}"` }])
 
-    const result = runTest()
+    const result = await runTest()
 
     expect(result.status).toBe("passed")
     expect(fs.readFileSync(marker, "utf-8").trim()).toBe(
@@ -366,7 +366,7 @@ describe("TestExecutor — cleanup", () => {
       { command: `touch "${marker}"` },
     ])
 
-    const result = runTest()
+    const result = await runTest()
 
     expect(result.status).toBe("passed")
     expect(fs.existsSync(marker)).toBe(true)
@@ -379,7 +379,7 @@ describe("TestExecutor — cleanup", () => {
       { command: "echo teardown broke >&2; exit 3" },
     ])
 
-    expect(runTest().status).toBe("passed")
+    expect((await runTest()).status).toBe("passed")
     expect(String(warn.mock.calls[0]?.[0])).toContain("failed: exit code 3: teardown broke")
   })
 
@@ -390,7 +390,7 @@ describe("TestExecutor — cleanup", () => {
       { FROM_TEST: "test-env" },
     )
 
-    expect(runTest().status).toBe("passed")
+    expect((await runTest()).status).toBe("passed")
     expect(fs.readFileSync(marker, "utf-8").trim()).toBe("exported test-env")
   })
 
@@ -401,7 +401,7 @@ describe("TestExecutor — cleanup", () => {
       { command: `touch "${marker}"` },
     ])
 
-    expect(runTest).toThrow(/ENOENT/)
+    await expect(runTest()).rejects.toThrow(/ENOENT/)
     expect(fs.existsSync(marker)).toBe(true)
   })
 })
@@ -441,7 +441,7 @@ describe("TestExecutor — Iframe outputs", () => {
   it("gives later blocks the outputs set_outputs stands in for", async () => {
     const executor = await makeExecutor(PICKER_RUNBOOK)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "picked",
       steps: [
         { block: "region-picker", expect: "success", set_outputs: { region: "eu-west-1" } },
@@ -458,7 +458,7 @@ describe("TestExecutor — Iframe outputs", () => {
   it("leaves later blocks blocked when the step sets no outputs", async () => {
     const executor = await makeExecutor(PICKER_RUNBOOK)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "not-picked",
       steps: [
         { block: "region-picker", expect: "success" },
@@ -472,7 +472,7 @@ describe("TestExecutor — Iframe outputs", () => {
   it("refuses outputs the block's outputs prop doesn't list", async () => {
     const executor = await makeExecutor(PICKER_RUNBOOK)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "undeclared",
       steps: [{ block: "region-picker", expect: "success", set_outputs: { account: "123" } }],
     })
@@ -486,7 +486,7 @@ describe("TestExecutor — Iframe outputs", () => {
   it("refuses set_outputs on a block that isn't an Iframe", async () => {
     const executor = await makeExecutor(PICKER_RUNBOOK)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "wrong-block",
       steps: [{ block: "deploy", expect: "success", set_outputs: { region: "x" } }],
     })
@@ -502,7 +502,7 @@ describe("TestExecutor — Iframe outputs", () => {
       `# Frames\n\n<Iframe id="picker" src="./assets/a.html" />\n\n<Iframe src="./assets/b.html" />\n`,
     )
 
-    const result = executor.runTest({ name: "default" })
+    const result = await executor.runTest({ name: "default" })
 
     expect(result.status).toBe("passed")
     expect(result.stepResults.map((s) => s.block)).toEqual(["iframe:picker"])
@@ -546,7 +546,7 @@ describe("TestExecutor — explicit steps", () => {
   it("runs steps in the order listed, once per step", async () => {
     const executor = await makeExecutor(OUTPUTS_RUNBOOK)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "out-of-order",
       steps: [
         blockedOnAccount,
@@ -568,7 +568,7 @@ describe("TestExecutor — explicit steps", () => {
   it("fails a blocked expectation once the dependency has produced the output", async () => {
     const executor = await makeExecutor(OUTPUTS_RUNBOOK)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "not-blocked",
       steps: [{ block: "create-account", expect: "success" }, blockedOnAccount],
     })
@@ -580,7 +580,7 @@ describe("TestExecutor — explicit steps", () => {
   it("fails, without running anything, when a step names an unknown block", async () => {
     const executor = await makeExecutor(OUTPUTS_RUNBOOK)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "typo",
       steps: [
         { block: "create-account", expect: "success" },
@@ -598,14 +598,14 @@ describe("TestExecutor — explicit steps", () => {
       `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" awsAuthId="aws" command="echo deploy" />\n`,
     )
 
-    const notRun = executor.runTest({
+    const notRun = await executor.runTest({
       name: "auth-not-run",
       steps: [{ block: "deploy", expect: "blocked" }],
     })
     expect(notRun.error).toBeUndefined()
     expect(notRun.stepResults[0]?.actualStatus).toBe("blocked")
 
-    const skipped = executor.runTest({
+    const skipped = await executor.runTest({
       name: "auth-skipped",
       steps: [
         { block: "aws", expect: "skip" },
@@ -628,7 +628,7 @@ describe("TestExecutor — explicit steps", () => {
   it("blocks a block until the block its dependsOn names has succeeded", async () => {
     const executor = await makeExecutor(DEPENDS_ON_RUNBOOK)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "depends-on",
       env: { LOGIN_EXIT: "0" },
       steps: [
@@ -652,7 +652,7 @@ describe("TestExecutor — explicit steps", () => {
   it("blocks a block whose dependsOn block failed", async () => {
     const executor = await makeExecutor(DEPENDS_ON_RUNBOOK)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "depends-on-failed",
       env: { LOGIN_EXIT: "1" },
       steps: [
@@ -670,7 +670,10 @@ describe("TestExecutor — explicit steps", () => {
       `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" awsAuthId="aws" command="echo deploy" />\n`,
     )
 
-    const result = executor.runTest({ name: "skip", steps: [{ block: "deploy", expect: "skip" }] })
+    const result = await executor.runTest({
+      name: "skip",
+      steps: [{ block: "deploy", expect: "skip" }],
+    })
 
     expect(result.error).toBeUndefined()
     expect(result.stepResults[0]?.actualStatus).toBe("skipped")
@@ -721,7 +724,7 @@ describe("TestExecutor — session env and working dir", () => {
     return executor
   }
 
-  const reported = (result: ReturnType<TestExecutor["runTest"]>) =>
+  const reported = (result: Awaited<ReturnType<TestExecutor["runTest"]>>) =>
     result.stepResults.find((s) => s.block === "check:report")?.outputs ?? {}
 
   beforeEach(() => {
@@ -734,7 +737,7 @@ describe("TestExecutor — session env and working dir", () => {
   it("carries what a block writes to RUNBOOK_ENV into the next block, not its exports or cd", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "persist",
       steps: [
         { block: "set-env", expect: "success" },
@@ -753,7 +756,7 @@ describe("TestExecutor — session env and working dir", () => {
   it("runs a block in its workingDir, relative to the test case's working dir", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "working-dir",
       steps: [
         { block: "set-env", expect: "success" },
@@ -769,7 +772,7 @@ describe("TestExecutor — session env and working dir", () => {
   it("fails a block whose workingDir does not exist", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "missing-working-dir",
       steps: [{ block: "report-in-sub", expect: "success" }],
     })
@@ -785,7 +788,7 @@ describe("TestExecutor — session env and working dir", () => {
   it("renders a workingDir template with the block's outputs", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "templated-working-dir",
       steps: [
         { block: "make_dir", expect: "success" },
@@ -801,7 +804,7 @@ describe("TestExecutor — session env and working dir", () => {
   it("doesn't carry the session env, tc.env or auth credentials into the next test case", async () => {
     const executor = await makeExecutor()
 
-    const first = executor.runTest({
+    const first = await executor.runTest({
       name: "first",
       env: { ISO_TC_ENV: "from-first", RUNBOOKS_GITHUB_TOKEN: "first-test-token" },
       steps: [
@@ -817,7 +820,7 @@ describe("TestExecutor — session env and working dir", () => {
       token: "first-test-token",
     })
 
-    const second = executor.runTest({
+    const second = await executor.runTest({
       name: "second",
       steps: [{ block: "report", expect: "success" }],
     })
@@ -832,7 +835,7 @@ describe("TestExecutor — session env and working dir", () => {
   it("gives script assertions the test case's env before any bash block has run", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "assert-env",
       env: { ISO_TC_ENV: "from-test" },
       // Nothing runs, so nothing has captured the test's env into the session
@@ -849,7 +852,7 @@ describe("TestExecutor — session env and working dir", () => {
     const other = path.join(tmp, "other")
     fs.mkdirSync(other)
 
-    const result = executor.runTest(
+    const result = await executor.runTest(
       { name: "other-dir", steps: [{ block: "report", expect: "success" }] },
       other,
     )
@@ -867,7 +870,7 @@ describe("TestExecutor — session env and working dir", () => {
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "filter",
       // Script assertions run with the session env, so a captured
       // RUNBOOK_OUTPUT would point at a block's deleted output file.
@@ -905,7 +908,7 @@ describe("TestExecutor — block outputs", () => {
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
 
-    const result = executor.runTest({ name: "outputs" })
+    const result = await executor.runTest({ name: "outputs" })
 
     expect(result.stepResults[0]?.outputs).toEqual({ MSG: " hi", OK: "1" })
   })
@@ -946,7 +949,7 @@ describe("TestExecutor — block env", () => {
       `<Check id="after" command={${JSON.stringify(after)}} />`,
     ])
 
-    const result = executor.runTest({ name: "env" })
+    const result = await executor.runTest({ name: "env" })
 
     expect(result.error).toBeUndefined()
     const outputs = Object.fromEntries(result.stepResults.map((s) => [s.block, s.outputs]))
@@ -960,7 +963,7 @@ describe("TestExecutor — block env", () => {
       `<Command id="bad" env={{ RUNBOOK_OUTPUT: "/elsewhere" }} command="true" />`,
     ])
 
-    const result = executor.runTest({ name: "bad-env" })
+    const result = await executor.runTest({ name: "bad-env" })
 
     expect(result.stepResults[0]?.actualStatus).toBe("config_error")
     expect(result.stepResults[0]?.error).toBe(
@@ -1011,7 +1014,7 @@ describe("TestExecutor — Finish block", () => {
       `# Done\n\n<Finish id="done">\n\n- Tell your team.\n\n</Finish>\n`,
     )
 
-    const result = executor.runTest({ name: "no-check" })
+    const result = await executor.runTest({ name: "no-check" })
 
     expect(result.error).toBeUndefined()
     expect(result.status).toBe("passed")
@@ -1025,7 +1028,7 @@ describe("TestExecutor — Finish block", () => {
   it("fails a step that expects a Finish with no final check to fail", async () => {
     const executor = await makeExecutor(`# Done\n\n<Finish id="done" />\n`)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "expect-fail",
       steps: [{ block: "done", expect: "fail" }],
     })
@@ -1037,7 +1040,7 @@ describe("TestExecutor — Finish block", () => {
   it("runs the final check after the blocks before it", async () => {
     const executor = await makeExecutor(FINAL_CHECK_RUNBOOK)
 
-    const result = executor.runTest({ name: "happy-path" })
+    const result = await executor.runTest({ name: "happy-path" })
 
     expect(result.status).toBe("passed")
     expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
@@ -1050,7 +1053,7 @@ describe("TestExecutor — Finish block", () => {
   it("fails the final check when an earlier block didn't run", async () => {
     const executor = await makeExecutor(FINAL_CHECK_RUNBOOK)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "skip-setup",
       steps: [
         { block: "setup", expect: "skip" },
@@ -1069,7 +1072,10 @@ describe("TestExecutor — Finish block", () => {
   it("maps exit code 2 to warn, as for a Check", async () => {
     const executor = await makeExecutor(`# Warn\n\n<Finish id="finish" command="exit 2" />\n`)
 
-    const result = executor.runTest({ name: "warn", steps: [{ block: "finish", expect: "warn" }] })
+    const result = await executor.runTest({
+      name: "warn",
+      steps: [{ block: "finish", expect: "warn" }],
+    })
 
     expect(result.status).toBe("passed")
     expect(result.stepResults[0]?.actualStatus).toBe("warn")
@@ -1080,7 +1086,7 @@ describe("TestExecutor — Finish block", () => {
       `# Auth\n\n<GitAuth id="git" />\n\n<Finish id="finish" gitAuthId="git" command="echo done" />\n`,
     )
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "auth-skipped",
       steps: [
         { block: "git", expect: "skip" },
@@ -1109,7 +1115,7 @@ describe("TestExecutor — Finish block", () => {
       ].join("\n"),
     )
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "depends-on",
       steps: [
         { block: "finish", expect: "blocked" },
@@ -1132,7 +1138,7 @@ describe("TestExecutor — Finish block", () => {
       `# After\n\n<Finish id="finish" />\n\n<Command id="clean-up" dependsOn="finish" command="true" />\n`,
     )
 
-    const result = executor.runTest({ name: "after-finish" })
+    const result = await executor.runTest({ name: "after-finish" })
 
     expect(result.error).toBeUndefined()
     expect(result.status).toBe("passed")
@@ -1145,7 +1151,7 @@ describe("TestExecutor — Finish block", () => {
   it("reports a config error for a Finish without an id", async () => {
     const executor = await makeExecutor(`# No id\n\n<Finish command="exit 0" />\n`)
 
-    const result = executor.runTest({ name: "no-id" })
+    const result = await executor.runTest({ name: "no-id" })
 
     expect(result.stepResults[0]?.actualStatus).toBe("config_error")
     expect(result.stepResults[0]?.error).toBe("The 'id' prop is required")
@@ -1154,7 +1160,7 @@ describe("TestExecutor — Finish block", () => {
   it("reports a config error when the final-check script file is missing", async () => {
     const executor = await makeExecutor(`# Missing\n\n<Finish id="finish" path="missing.sh" />\n`)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "missing-script",
       steps: [{ block: "finish", expect: "config_error", error_contains: "Script file not found" }],
     })
@@ -1213,7 +1219,7 @@ describe("TestExecutor — Prerequisites block", () => {
       ),
     )
 
-    const result = executor.runTest({ name: "found", env: env() })
+    const result = await executor.runTest({ name: "found", env: env() })
 
     expect(result.error).toBeUndefined()
     expect(result.status).toBe("passed")
@@ -1241,7 +1247,7 @@ describe("TestExecutor — Prerequisites block", () => {
       ),
     )
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "any-of",
       env: env(),
       steps: [{ block: "tools", expect: "warn" }],
@@ -1274,7 +1280,7 @@ describe("TestExecutor — Prerequisites block", () => {
       ),
     )
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "missing",
       env: env(),
       steps: [
@@ -1305,7 +1311,7 @@ describe("TestExecutor — Prerequisites block", () => {
       ),
     )
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "optional",
       env: env(),
       steps: [
@@ -1334,7 +1340,7 @@ describe("TestExecutor — Prerequisites block", () => {
     )
 
     // No test env: it would override the PATH the install block sets.
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "check-again",
       steps: [
         { block: "tools", expect: "fail" },
@@ -1355,7 +1361,7 @@ describe("TestExecutor — Prerequisites block", () => {
     const noId = await makeExecutor(
       '# No id\n\n<Prerequisites title="Tools">\n```yaml\ntools: [fake-git]\n```\n</Prerequisites>\n',
     )
-    expect(noId.runTest({ name: "no-id" }).stepResults[0]).toMatchObject({
+    expect((await noId.runTest({ name: "no-id" })).stepResults[0]).toMatchObject({
       actualStatus: "config_error",
       error: "The 'id' prop is required",
     })
@@ -1363,7 +1369,7 @@ describe("TestExecutor — Prerequisites block", () => {
     const invalid = await makeExecutor(
       runbook("tools:\n  - name: fake-tofu\n    version: latest\n"),
     )
-    expect(invalid.runTest({ name: "invalid" }).stepResults[0]).toMatchObject({
+    expect((await invalid.runTest({ name: "invalid" })).stepResults[0]).toMatchObject({
       actualStatus: "config_error",
       error:
         'The tool list is invalid: "fake-tofu": "latest" isn\'t a version condition such as ">= 1.6" or "~> 1.6".',
@@ -1410,7 +1416,7 @@ describe("TestExecutor — files_generated", () => {
   it("counts Template, TemplateInline and $GENERATED_FILES writes per block", async () => {
     const executor = await makeExecutor(RUNBOOK_BLOCKS)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "generated",
       assertions: [
         { type: "files_generated", block: "tmpl", min_count: 2 },
@@ -1426,7 +1432,7 @@ describe("TestExecutor — files_generated", () => {
   it("fails for a block that wrote nothing, though other blocks filled the output dir", async () => {
     const executor = await makeExecutor(RUNBOOK_BLOCKS)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "echo-only",
       assertions: [{ type: "files_generated", block: "echo-only" }],
     })
@@ -1442,8 +1448,8 @@ describe("TestExecutor — files_generated", () => {
     const executor = await makeExecutor(RUNBOOK_BLOCKS)
     const assertions = [{ type: "files_generated" as const, block: "tmpl" }]
 
-    expect(executor.runTest({ name: "first", assertions }).status).toBe("passed")
-    const second = executor.runTest({
+    expect((await executor.runTest({ name: "first", assertions })).status).toBe("passed")
+    const second = await executor.runTest({
       name: "second",
       steps: [{ block: "echo-only", expect: "success" }],
       assertions,
@@ -1463,7 +1469,7 @@ describe("TestExecutor — files_generated", () => {
       `<Template id="tmpl" path="templates/cfg" target="worktree" />`,
     ])
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "worktree",
       assertions: [{ type: "files_generated", block: "tmpl", min_count: 2 }],
     })
@@ -1486,10 +1492,12 @@ describe("TestExecutor — sensitive outputs", () => {
   const SECRET = "s3cr3t-value-123"
 
   /** Run `fn` with console.log silenced, returning its result and what it printed. */
-  const captureConsoleLog = <T>(fn: () => T): { result: T; printed: string[] } => {
+  const captureConsoleLog = async <T>(
+    fn: () => Promise<T>,
+  ): Promise<{ result: T; printed: string[] }> => {
     const logSpy = spyOn(console, "log").mockImplementation(() => {})
     try {
-      const result = fn()
+      const result = await fn()
       return { result, printed: logSpy.mock.calls.map((args) => args.join(" ")) }
     } finally {
       logSpy.mockRestore()
@@ -1533,7 +1541,7 @@ describe("TestExecutor — sensitive outputs", () => {
   it("passes the real value on and prints <redacted> for it in verbose mode", async () => {
     const executor = await makeExecutor(true)
 
-    const { result, printed } = captureConsoleLog(() =>
+    const { result, printed } = await captureConsoleLog(() =>
       executor.runTest({
         name: "sensitive",
         assertions: [{ type: "output_equals", block: "mint", output: "token", value: SECRET }],
@@ -1564,7 +1572,7 @@ describe("TestExecutor — sensitive outputs", () => {
       '<TemplateInline id="cfg" outputPath="cfg.txt" generateFile={true}>\n```\ntoken={{ .outputs.mint.token }}\n```\n</TemplateInline>',
     ])
 
-    const { result, printed } = captureConsoleLog(() =>
+    const { result, printed } = await captureConsoleLog(() =>
       executor.runTest({
         name: "inline",
         steps: [
@@ -1589,7 +1597,7 @@ describe("TestExecutor — sensitive outputs", () => {
       '<GitClone id="clone" source="local" prefilledRepoDir="{{ .outputs.mint.token }}" />',
     ])
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "prop",
       steps: [
         { block: "mint", expect: "success" },
@@ -1605,7 +1613,7 @@ describe("TestExecutor — sensitive outputs", () => {
   it("prints <redacted> for it when an output assertion on it fails", async () => {
     const executor = await makeExecutor(false)
 
-    const afterTest = executor.runTest({
+    const afterTest = await executor.runTest({
       name: "equals",
       assertions: [
         { type: "output_equals", block: "mint", output: "token", value: "something-else" },
@@ -1616,7 +1624,7 @@ describe("TestExecutor — sensitive outputs", () => {
       'Assertion failed: output mint.token = <redacted>, expected "something-else"',
     )
 
-    const inStep = executor.runTest({
+    const inStep = await executor.runTest({
       name: "matches",
       steps: [
         {
@@ -1634,7 +1642,7 @@ describe("TestExecutor — sensitive outputs", () => {
     )
 
     // A plain output's value still shows, so its failure stays easy to read
-    const plain = executor.runTest({
+    const plain = await executor.runTest({
       name: "plain",
       assertions: [{ type: "output_equals", block: "mint", output: "user", value: "bob" }],
     })
@@ -1705,7 +1713,7 @@ describe("TestExecutor — untouched values", () => {
   it("fills an unset bool with no default as false, in Inputs and Template blocks", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({ name: "untouched" })
+    const result = await executor.runTest({ name: "untouched" })
 
     expect(result.error).toBeUndefined()
     expect(result.status).toBe("passed")
@@ -1721,7 +1729,7 @@ describe("TestExecutor — untouched values", () => {
   it("fails a required tuple left at its displayed elements, as the form does", async () => {
     const executor = await makeExecutor(true)
 
-    const result = executor.runTest({ name: "untouched-required" })
+    const result = await executor.runTest({ name: "untouched-required" })
 
     expect(result.status).toBe("failed")
     expect(result.error).toContain("tmpl.pair: pair is required")
@@ -1730,7 +1738,7 @@ describe("TestExecutor — untouched values", () => {
   it("uses the test's own values over the untouched ones", async () => {
     const executor = await makeExecutor(true)
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "set",
       inputs: {
         "opts.confirm": { literal: true },
@@ -1796,7 +1804,7 @@ describe("TestExecutor — variables two blocks declare", () => {
   const ENABLE = ["  - name: enable", "    type: bool"]
   const region = (dflt: string) => ["  - name: Region", "    type: string", `    default: ${dflt}`]
 
-  const showLogs = (result: ReturnType<TestExecutor["runTest"]>) =>
+  const showLogs = (result: Awaited<ReturnType<TestExecutor["runTest"]>>) =>
     result.stepResults.find((r) => r.block === "command:show")?.logs
   const out = () => fs.readFileSync(path.join(tmp, "generated", "out.txt"), "utf8")
 
@@ -1815,7 +1823,7 @@ describe("TestExecutor — variables two blocks declare", () => {
       [inputsBlock("opts", [...ENABLE, ...region("opts-region")])],
     )
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "set-opts",
       inputs: { "opts.enable": { literal: true }, "opts.Region": { literal: "set-region" } },
     })
@@ -1832,7 +1840,7 @@ describe("TestExecutor — variables two blocks declare", () => {
     )
 
     // enable is set by the test; Region is left at opts's default.
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "set-opts",
       inputs: { "opts.enable": { literal: true } },
     })
@@ -1854,7 +1862,7 @@ describe("TestExecutor — variables two blocks declare", () => {
 
     // enable comes from base (opts doesn't declare it), Region from opts. The
     // Command only imports opts, so it has no enable and isn't run.
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "merge",
       inputs: { "base.enable": { literal: true } },
       steps: [{ block: "tmpl", expect: "success" }],
@@ -1871,7 +1879,7 @@ describe("TestExecutor — variables two blocks declare", () => {
       [inputsBlock("opts", [...ENABLE, ...region("opts-region")])],
     )
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "set-tmpl",
       inputs: { "tmpl.Region": { literal: "tmpl-set" } },
     })
@@ -1915,7 +1923,7 @@ describe("TestExecutor — each block's own inputs", () => {
     return executor
   }
 
-  const logsOf = (result: ReturnType<TestExecutor["runTest"]>, block: string) =>
+  const logsOf = (result: Awaited<ReturnType<TestExecutor["runTest"]>>, block: string) =>
     result.stepResults.find((r) => r.block === block)?.logs
 
   beforeEach(() => {
@@ -1930,7 +1938,7 @@ describe("TestExecutor — each block's own inputs", () => {
       '<TemplateInline id="inline-a" inputsId="a" outputPath="a.txt">\n```\nx={{ .inputs.x }}\n```\n</TemplateInline>',
     ])
 
-    const result = executor.runTest({ name: "defaults" })
+    const result = await executor.runTest({ name: "defaults" })
 
     expect(result.error).toBeUndefined()
     expect(logsOf(result, "command:from-a")).toContain("x=a-default")
@@ -1941,7 +1949,10 @@ describe("TestExecutor — each block's own inputs", () => {
   it("keeps a test's value from a block that doesn't import its Inputs block", async () => {
     const executor = await makeExecutor([])
 
-    const result = executor.runTest({ name: "set-a", inputs: { "a.x": { literal: "set-a" } } })
+    const result = await executor.runTest({
+      name: "set-a",
+      inputs: { "a.x": { literal: "set-a" } },
+    })
 
     expect(result.error).toBeUndefined()
     expect(logsOf(result, "command:from-a")).toContain("x=set-a")
@@ -1951,7 +1962,10 @@ describe("TestExecutor — each block's own inputs", () => {
   it("takes the value of the later inputsId, whichever block the test sets", async () => {
     const executor = await makeExecutor([echoX("from-ba", `inputsId={["b", "a"]}`)])
 
-    const result = executor.runTest({ name: "set-b", inputs: { "b.x": { literal: "set-b" } } })
+    const result = await executor.runTest({
+      name: "set-b",
+      inputs: { "b.x": { literal: "set-b" } },
+    })
 
     expect(result.error).toBeUndefined()
     expect(logsOf(result, "command:from-ba")).toContain("x=a-default")
@@ -1963,7 +1977,7 @@ describe("TestExecutor — each block's own inputs", () => {
       `<Finish id="done" inputsId="a" command="echo x={{ .inputs.x }}">\n\n${inputsBlock("next-steps", "next-default")}\n\n</Finish>`,
     ])
 
-    const result = executor.runTest({ name: "nested" })
+    const result = await executor.runTest({ name: "nested" })
 
     expect(result.error).toBeUndefined()
     expect(logsOf(result, "check:nested")).toContain("x=inner-default")
@@ -1973,7 +1987,7 @@ describe("TestExecutor — each block's own inputs", () => {
   it("gives a block that imports no Inputs block no inputs", async () => {
     const executor = await makeExecutor([echoX("none", "")])
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "none",
       steps: [{ block: "none", expect: "success" }],
     })
@@ -1987,7 +2001,7 @@ describe("TestExecutor — each block's own inputs", () => {
       '<GitClone id="clone-a" inputsId="a" source="local" prefilledRepoDir="{{ .inputs.x }}" />',
     ])
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "props",
       steps: [{ block: "clone-a", expect: "fail" }],
     })
@@ -2017,7 +2031,7 @@ describe("TestExecutor — each block's own inputs", () => {
     it("reads what it imports and its own variables, at the top level too", async () => {
       const executor = await makeTemplateExecutor()
 
-      const result = executor.runTest({ name: "template" })
+      const result = await executor.runTest({ name: "template" })
 
       expect(result.error).toBeUndefined()
       expect(fs.readFileSync(path.join(tmp, "generated", "out.txt"), "utf8")).toBe(
@@ -2028,7 +2042,7 @@ describe("TestExecutor — each block's own inputs", () => {
     it("passes both on to a block that imports it", async () => {
       const executor = await makeTemplateExecutor()
 
-      const result = executor.runTest({
+      const result = await executor.runTest({
         name: "import-template",
         inputs: { "b.x": { literal: "set-b" } },
         steps: [{ block: "from-tmpl", expect: "success" }],
@@ -2081,7 +2095,7 @@ describe("TestExecutor — PR blocks", () => {
   it("runs a test of a runbook that contains PR blocks", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "command-only",
       steps: [{ block: "hello", expect: "success" }],
     })
@@ -2093,7 +2107,7 @@ describe("TestExecutor — PR blocks", () => {
   it("skips every PR block type when a step expects skip", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "skip-prs",
       env: { GITLAB_TOKEN: "fake-gitlab-token", GITLAB_HOST: "" },
       steps: [
@@ -2116,7 +2130,7 @@ describe("TestExecutor — PR blocks", () => {
   it("fails a PR step that expects anything but skip", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "run-pr",
       steps: [{ block: "gh-pr", expect: "success" }],
     })
@@ -2128,7 +2142,7 @@ describe("TestExecutor — PR blocks", () => {
   it("blocks a PR block on the auth block it references", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "pr-blocked",
       env: { GITLAB_TOKEN: "", GITLAB_ACCESS_TOKEN: "", OAUTH_TOKEN: "" },
       steps: [
@@ -2144,7 +2158,7 @@ describe("TestExecutor — PR blocks", () => {
   it("skips a PR block whose auth block hasn't run", async () => {
     const executor = await makeExecutor()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "skip-pr-only",
       steps: [
         { block: "hello", expect: "success" },
@@ -2166,7 +2180,7 @@ describe("TestExecutor — PR blocks", () => {
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
 
-    const result = executor.runTest({ name: "all-blocks" })
+    const result = await executor.runTest({ name: "all-blocks" })
 
     expect(result.error).toBeUndefined()
     expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
@@ -2242,7 +2256,7 @@ describe("TestExecutor — git auth blocks", () => {
   ])("%s injects GITLAB_TOKEN and GITLAB_HOST", async (_name, authBlock) => {
     const executor = await makeExecutor(authBlock)
 
-    const result = runAuthThenReport(executor, { GITLAB_ACCESS_TOKEN: "fake-gitlab-token" })
+    const result = await runAuthThenReport(executor, { GITLAB_ACCESS_TOKEN: "fake-gitlab-token" })
 
     expect(result.error).toBeUndefined()
     expect(result.stepResults[1]?.outputs).toMatchObject({
@@ -2254,7 +2268,7 @@ describe("TestExecutor — git auth blocks", () => {
   it("GitAuth defaults to GitHub and injects GITHUB_TOKEN", async () => {
     const executor = await makeExecutor(`<GitAuth id="auth" />`)
 
-    const result = runAuthThenReport(executor, { RUNBOOKS_GITHUB_TOKEN: "fake-github-token" })
+    const result = await runAuthThenReport(executor, { RUNBOOKS_GITHUB_TOKEN: "fake-github-token" })
 
     expect(result.error).toBeUndefined()
     expect(result.stepResults[1]?.outputs?.github_token).toBe("fake-github-token")
@@ -2263,7 +2277,7 @@ describe("TestExecutor — git auth blocks", () => {
   it("reads GitLab tokens under the step's env_prefix", async () => {
     const executor = await makeExecutor(`<GitLabAuth id="auth" />`)
 
-    const result = runAuthThenReport(
+    const result = await runAuthThenReport(
       executor,
       { CI_OAUTH_TOKEN: "prefixed-token" },
       { env_prefix: "CI_" },
@@ -2277,7 +2291,7 @@ describe("TestExecutor — git auth blocks", () => {
     const executor = await makeExecutor(`<GitLabAuth id="auth" />`)
 
     // (`expect: skip` would skip the block without looking for a token.)
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "no-token",
       env: NO_GITLAB_ENV,
       steps: [{ block: "auth", expect: "success" }],
@@ -2292,10 +2306,10 @@ describe("TestExecutor — git auth blocks", () => {
       `<GitAuth id="auth" provider="gitlab" instanceUrl="https://gitlab.example.com/" />`,
     )
 
-    const unbound = runAuthThenReport(executor, { GITLAB_TOKEN: "fake-gitlab-token" })
+    const unbound = await runAuthThenReport(executor, { GITLAB_TOKEN: "fake-gitlab-token" })
     expect(unbound.stepResults[0]?.actualStatus).toBe("skipped")
 
-    const bound = runAuthThenReport(executor, {
+    const bound = await runAuthThenReport(executor, {
       GITLAB_TOKEN: "fake-gitlab-token",
       GITLAB_HOST: "https://gitlab.example.com",
     })
@@ -2309,7 +2323,7 @@ describe("TestExecutor — git auth blocks", () => {
     )
 
     // The env token is bound to gitlab.com (no GITLAB_HOST).
-    const result = runAuthThenReport(executor, { GITLAB_TOKEN: "fake-gitlab-token" })
+    const result = await runAuthThenReport(executor, { GITLAB_TOKEN: "fake-gitlab-token" })
 
     expect(result.stepResults[0]?.actualStatus).toBe("skipped")
   })
@@ -2317,7 +2331,7 @@ describe("TestExecutor — git auth blocks", () => {
   it("fails a GitAuth block with an unknown provider", async () => {
     const executor = await makeExecutor(`<GitAuth id="auth" provider="bitbucket" />`)
 
-    const result = runAuthThenReport(executor, {})
+    const result = await runAuthThenReport(executor, {})
 
     expect(result.status).toBe("failed")
     expect(result.error).toContain('Unsupported provider "bitbucket"')
@@ -2350,7 +2364,7 @@ describe("TestExecutor — GitClone authentication", () => {
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "clone",
       // Bind the token to the clone's host, so the clone is authenticated.
       env: {
@@ -2514,7 +2528,7 @@ describe("TestExecutor — GoogleAuth gcloud credential override", () => {
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "google",
       env: {
         FILE_GOOGLE_APPLICATION_CREDENTIALS: "/secrets/key.json",
@@ -2557,8 +2571,9 @@ describe("TestExecutor — how scripts run", () => {
     fs.writeFileSync(rb, `# Script\n\n<Command id="script" path="scripts/${file}" />\n`)
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
-    return executor.runTest({ name: "run", steps: [{ block: "script", expect: "success" }] })
-      .stepResults[0]
+    return (
+      await executor.runTest({ name: "run", steps: [{ block: "script", expect: "success" }] })
+    ).stepResults[0]
   }
 
   it("runs a script with a shebang as itself, so an interpreter off PATH is found", async () => {
@@ -2574,11 +2589,10 @@ describe("TestExecutor — how scripts run", () => {
   it("runs a #!/bin/sh script under sh, where its own EXIT trap runs", async () => {
     const step = await runScriptFile(
       "cleanup.sh",
-      "#!/bin/sh\ntrap 'echo cleanup' EXIT\nlog_info from-sh\necho done\n",
+      "#!/bin/sh\ntrap 'echo cleanup' EXIT\necho done\n",
     )
 
-    expect(step?.actualStatus).toBe("success")
-    expect(step?.logs).toMatch(/\[INFO\]  from-sh\ndone\ncleanup\n$/)
+    expect(step).toMatchObject({ actualStatus: "success", logs: "done\ncleanup\n" })
   })
 
   it.skipIf(!Bun.which("python3"))("runs a .py file without a shebang with python3", async () => {
@@ -2596,8 +2610,9 @@ describe("TestExecutor — how scripts run", () => {
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
 
-    const step = executor.runTest({ name: "run", steps: [{ block: "script", expect: "success" }] })
-      .stepResults[0]
+    const step = (
+      await executor.runTest({ name: "run", steps: [{ block: "script", expect: "success" }] })
+    ).stepResults[0]
 
     expect(step).toMatchObject({ actualStatus: "success", logs: "from python\n" })
   })
@@ -2617,7 +2632,7 @@ describe("TestExecutor — how scripts run", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Log files ($RUNBOOK_LOG, $RUNBOOK_INFO_LOG etc.): the CLI shows their lines.
+// Log files ($RUNBOOK_INFO_LOG etc.): the CLI shows their lines.
 // ---------------------------------------------------------------------------
 
 describe("TestExecutor — log files", () => {
@@ -2630,23 +2645,29 @@ describe("TestExecutor — log files", () => {
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  it("shows the helpers' lines among stdout and stderr in script order, then the per-level files' lines", async () => {
+  it("shows the log files' lines among stdout and stderr, in the order the script wrote them", async () => {
     fs.mkdirSync(path.join(tmp, "scripts"))
+    // Each pause gives Runbooks time to read what was just written, so the
+    // order doesn't depend on how fast the script runs.
     fs.writeFileSync(
       path.join(tmp, "scripts", "logs.sh"),
       [
-        "#!/bin/bash",
-        'log_info "starting"',
+        "#!/usr/bin/env bash",
+        'echo "starting" >> "$RUNBOOK_INFO_LOG"',
+        "sleep 0.3",
         "get_json() {",
-        '  log_info "looking up"',
+        '  echo "looking up" >> "$RUNBOOK_INFO_LOG"',
         `  echo '{"ok":true}'`,
         "}",
         "json=$(get_json)",
         'echo "json=$json"',
-        'log_error "step failed"',
+        "sleep 0.3",
+        'echo "step failed" >> "$RUNBOOK_ERROR_LOG"',
+        "sleep 0.3",
         'echo "to stderr" >&2',
-        'echo "raw error" >> "$RUNBOOK_ERROR_LOG"',
-        'log_warn "careful"',
+        "sleep 0.3",
+        'echo "careful" >> "$RUNBOOK_WARN_LOG"',
+        "sleep 0.3",
         "echo done",
         "",
       ].join("\n"),
@@ -2656,7 +2677,7 @@ describe("TestExecutor — log files", () => {
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
 
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "logs",
       steps: [{ block: "logs", expect: "success" }],
       // The log files belong to one block run, so the session env must not
@@ -2664,7 +2685,7 @@ describe("TestExecutor — log files", () => {
       assertions: [
         {
           type: "script",
-          command: 'test -z "${RUNBOOK_LOG:-}${RUNBOOK_INFO_LOG:-}${RUNBOOK_ERROR_LOG:-}"',
+          command: 'test -z "${RUNBOOK_INFO_LOG:-}${RUNBOOK_ERROR_LOG:-}"',
         },
       ],
     })
@@ -2684,8 +2705,45 @@ describe("TestExecutor — log files", () => {
       "to stderr",
       "[WARN]  careful",
       "done",
-      "[ERROR] raw error",
     ])
+  })
+})
+
+describe("TestExecutor — timeouts", () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-timeout-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("stops a script that runs past the timeout, with the processes it started", async () => {
+    const marker = path.join(tmp, "survived")
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      `# Timeout\n\n<Command id="slow" command='echo started; (sleep 2 && touch "${marker}") & wait' />\n`,
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 500, verbose: false })
+    await executor.init()
+
+    const result = await executor.runTest({
+      name: "slow",
+      steps: [{ block: "slow", expect: "success" }],
+    })
+
+    expect(result.stepResults[0]).toMatchObject({
+      actualStatus: "timeout",
+      error: "Script timed out",
+      logs: "started\n",
+    })
+    // The background subshell was in the script's process group
+    await new Promise((resolve) => {
+      setTimeout(resolve, 2500)
+    })
+    expect(fs.existsSync(marker)).toBe(false)
   })
 })
 
@@ -2894,7 +2952,7 @@ describe("TestExecutor — options from a block's output", () => {
 
   it("renders a value that is one of the options", async () => {
     const executor = await makeExecutor('[{"value":"eastus","label":"East US"},"westus"]')
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "ok",
       inputs: { "tpl.Location": { literal: "westus" } },
     })
@@ -2907,7 +2965,7 @@ describe("TestExecutor — options from a block's output", () => {
 
   it("fails a value that isn't, once the options are known", async () => {
     const executor = await makeExecutor('["eastus","westus"]')
-    const result = executor.runTest({
+    const result = await executor.runTest({
       name: "not-an-option",
       inputs: {
         "tpl.Location": { literal: "mars" },
@@ -2924,7 +2982,7 @@ describe("TestExecutor — options from a block's output", () => {
 
   it("fails an output that isn't a list of options, naming the block and output", async () => {
     const executor = await makeExecutor('{"eastus":"East US"}')
-    const result = executor.runTest({ name: "bad-output" })
+    const result = await executor.runTest({ name: "bad-output" })
     expect(result.status).toBe("failed")
     expect(result.stepResults[1]?.error).toContain(
       `tpl.Location: The options come from output "regions" of block "list_regions", which must be a JSON array`,
@@ -2957,7 +3015,7 @@ describe("TestExecutor — AzureAuth env", () => {
         ].map((name) => [`${family}_${name}`, ""]),
       ),
     )
-    const result = executor.runTest({ name: "azure", env: { ...blank, ...env } })
+    const result = await executor.runTest({ name: "azure", env: { ...blank, ...env } })
     expect(result.status).toBe("passed")
     return fs.readFileSync(marker, "utf-8").trim()
   }

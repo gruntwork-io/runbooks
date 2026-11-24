@@ -9,11 +9,13 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
-import { Result, ManagedRuntime } from "effect"
+import { Effect, Option, Result, ManagedRuntime, Stream } from "effect"
 
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { stringArrayProp, stringProp, type PropValue, type Props } from "../../src/mdx.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
+import { ChildProcessSpawnerLive } from "../../src/layers/ChildProcessSpawner.ts"
+import { ProcessSpawner, type SpawnLogChannel } from "../../src/services/ProcessSpawner.ts"
 import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
 import {
   githubEnvCredentialForHost,
@@ -30,13 +32,7 @@ import {
   parseRunbookEnvContent,
   resolveScriptRunner,
 } from "../../src/domain/exec/script.ts"
-import {
-  LEVEL_LOG_CHANNELS,
-  RUNBOOK_LOG_CHANNEL,
-  logChannelFiles,
-  orderLogChannelLines,
-  tagLogLine,
-} from "../../src/domain/exec/logChannels.ts"
+import { LOG_CHANNELS, logChannelFiles, tagLogLine } from "../../src/domain/exec/logChannels.ts"
 import { extractToolList, parsePrerequisitesSpec } from "../../src/domain/prerequisites/spec.ts"
 import {
   LOOKUP_TIMEOUT_MS,
@@ -470,7 +466,7 @@ export class TestExecutor {
    * use_temp_working_dir, runTestSuite also passes a fresh `workingDir` per
    * test case, so files and clones don't carry over either.
    */
-  runTest(tc: TestCase, workingDir = this.defaultWorkingDir): TestResult {
+  async runTest(tc: TestCase, workingDir = this.defaultWorkingDir): Promise<TestResult> {
     const start = Date.now()
     const result: TestResult = {
       testCase: tc.name,
@@ -576,7 +572,7 @@ export class TestExecutor {
     try {
       // 5. Process each planned step
       for (const { block, step } of plan) {
-        const stepResult = this.processBlock(block, step, registryWarnings)
+        const stepResult = await this.processBlock(block, step, registryWarnings)
         result.stepResults.push(stepResult)
 
         if (!stepResult.passed) {
@@ -628,11 +624,11 @@ export class TestExecutor {
   // Block processing
   // -----------------------------------------------------------------------
 
-  private processBlock(
+  private async processBlock(
     block: ParsedComponent,
     step: TestStep,
     registryWarnings: string[],
-  ): StepResult {
+  ): Promise<StepResult> {
     const start = Date.now()
 
     const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
@@ -740,7 +736,11 @@ export class TestExecutor {
   // Block dispatch
   // -----------------------------------------------------------------------
 
-  private dispatchBlock(block: ParsedComponent, step: TestStep, start: number): StepResult {
+  private async dispatchBlock(
+    block: ParsedComponent,
+    step: TestStep,
+    start: number,
+  ): Promise<StepResult> {
     const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
 
     if (this.options.verbose) {
@@ -926,7 +926,11 @@ export class TestExecutor {
   // Check / Command block
   // -----------------------------------------------------------------------
 
-  private runCheckOrCommand(block: ParsedComponent, step: TestStep, start: number): StepResult {
+  private async runCheckOrCommand(
+    block: ParsedComponent,
+    step: TestStep,
+    start: number,
+  ): Promise<StepResult> {
     const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
 
     // Find the executable by component ID
@@ -1006,19 +1010,17 @@ export class TestExecutor {
     const sessionEnvFile = path.join(outputDir, "env.txt")
     fs.writeFileSync(sessionEnvFile, "")
     const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-files-"))
-    // The log files, as in the app: RUNBOOK_LOG, which the log_* helpers
-    // append to, and one per level (RUNBOOK_INFO_LOG etc.)
+    // The log files, one per level (RUNBOOK_INFO_LOG etc.) as in the app
     const logChannelDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-log-channels-"))
-    const scriptLog = logChannelFiles(logChannelDir, [RUNBOOK_LOG_CHANNEL])[0]!
-    const levelLogs = logChannelFiles(logChannelDir, LEVEL_LOG_CHANNELS)
-    for (const { path: logFile } of [scriptLog, ...levelLogs]) fs.writeFileSync(logFile, "")
+    const levelLogs = logChannelFiles(logChannelDir, LOG_CHANNELS)
+    for (const { path: logFile } of levelLogs) fs.writeFileSync(logFile, "")
     // Made below; declared here so the finally can remove it
     let scriptDir = ""
 
     try {
       scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-script-"))
       const scriptPath = path.join(scriptDir, runner.fileName)
-      fs.writeFileSync(scriptPath, runner.script, { mode: 0o700 })
+      fs.writeFileSync(scriptPath, scriptContent, { mode: 0o700 })
       const { launch } = runner
       const [command, args] =
         launch.kind === "self" ? [scriptPath, []] : [launch.command, [...launch.args, scriptPath]]
@@ -1029,7 +1031,7 @@ export class TestExecutor {
       env["RUNBOOK_ENV"] = sessionEnvFile
       env["GENERATED_FILES"] = filesDir
       if (this.activeWorkTreePath) env["REPO_FILES"] = this.activeWorkTreePath
-      for (const { envVar, path: logFile } of [scriptLog, ...levelLogs]) env[envVar] = logFile
+      for (const { envVar, path: logFile } of levelLogs) env[envVar] = logFile
 
       // Inject auth block credentials if this block has an auth dependency
       if (this.authDeps.has(foundExec.componentId)) {
@@ -1045,54 +1047,20 @@ export class TestExecutor {
       // Then the block's env, as data, as in the app
       Object.assign(env, blockEnv)
 
-      // Run the script. spawnSync returns only once the script has exited, so
-      // it can't order stdout, stderr and the log files by arrival the way
-      // the app does. Instead the script's stdout and stderr append to
-      // RUNBOOK_LOG, the file the log_* helpers append to: every write lands
-      // at the end of the one file, so the logs keep the order the script
-      // wrote them in. (Unlike in the app, a script that reads RUNBOOK_LOG
-      // back sees its own output there too.)
-      const outputFd = fs.openSync(scriptLog.path, "a")
-      let proc: ReturnType<typeof spawnSync>
-      try {
-        proc = spawnSync(command, args, {
-          cwd,
-          env,
-          timeout: this.options.timeout,
-          stdio: ["pipe", outputFd, outputFd],
-        })
-      } finally {
-        fs.closeSync(outputFd)
-      }
-
-      const readLog = (logFile: string) => {
-        try {
-          return fs.readFileSync(logFile, "utf-8")
-        } catch {
-          return "" // the script removed it
-        }
-      }
-      // The per-level files' lines follow, tagged with their level and
-      // ordered by time (see orderLogChannelLines).
-      const levelLogLines = orderLogChannelLines(
-        levelLogs.map(({ level, path: logFile }) => {
-          const text = readLog(logFile)
-          try {
-            return { level, text, lastWritten: fs.statSync(logFile).mtime }
-          } catch {
-            return { level, text }
-          }
-        }),
-      )
-      let logs = readLog(scriptLog.path)
-      if (levelLogLines.length > 0) {
-        if (logs !== "" && !logs.endsWith("\n")) logs += "\n"
-        logs += levelLogLines.join("\n") + "\n"
-      }
-      const exitCode = proc.status ?? -1
+      const run = await runScript(command, args, {
+        cwd,
+        env,
+        timeoutMs: this.options.timeout,
+        logChannels: levelLogs.map(({ path: logFile, level }) => ({
+          path: logFile,
+          formatLine: (line: string) => tagLogLine(line, level, new Date()),
+        })),
+      })
+      let logs = run.lines.map((line) => `${line}\n`).join("")
+      const exitCode = run.exitCode
       let status: string
 
-      if (proc.error && (proc.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
+      if (run.timedOut) {
         status = "timeout"
         result.error = "Script timed out"
       } else if (exitCode === 0) {
@@ -2488,4 +2456,62 @@ function isDirectory(p: string): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * Run a block's script with the app's spawner, so its output reads as it
+ * does in the app: stdout, stderr and the lines appended to `logChannels`,
+ * in the order they arrive. A script still running after `timeoutMs` is
+ * killed, with its process group, and reported as timed out. A script that
+ * can't start has exit code -1 and one line saying why.
+ */
+function runScript(
+  command: string,
+  args: string[],
+  options: {
+    readonly cwd: string
+    readonly env: Record<string, string>
+    readonly timeoutMs: number
+    readonly logChannels: ReadonlyArray<SpawnLogChannel>
+  },
+): Promise<{ lines: string[]; exitCode: number; timedOut: boolean }> {
+  const run = Effect.gen(function* () {
+    const spawner = yield* ProcessSpawner
+    const child = yield* spawner.spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      logChannels: options.logChannels,
+    })
+    yield* Effect.addFinalizer(() => child.kill.pipe(Effect.ignore))
+
+    // The kill ends `output`, which ends the drain below
+    let timedOut = false
+    yield* child.exitCode.pipe(
+      Effect.timeoutOption(options.timeoutMs),
+      Effect.flatMap((exited) =>
+        Option.isSome(exited)
+          ? Effect.void
+          : Effect.sync(() => {
+              timedOut = true
+            }).pipe(Effect.andThen(child.kill)),
+      ),
+      Effect.forkScoped,
+    )
+
+    const lines: string[] = []
+    yield* Stream.runForEach(child.output, ({ line }) => Effect.sync(() => lines.push(line)))
+    const exitCode = yield* child.exitCode
+    return { lines, exitCode, timedOut }
+  }).pipe(
+    Effect.scoped,
+    Effect.catchTag("SpawnError", (error) =>
+      Effect.succeed({
+        lines: [`Failed to start ${command}: ${errorMessage(error.cause)}`],
+        exitCode: -1,
+        timedOut: false,
+      }),
+    ),
+    Effect.provide(ChildProcessSpawnerLive),
+  )
+  return Effect.runPromise(run)
 }

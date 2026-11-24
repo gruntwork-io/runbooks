@@ -55,7 +55,7 @@ Clicking **Finish** runs the check, and its exit code decides what happens:
 - **Exit code 1** (or any code other than 0 and 2): the check failed. The block shows `failMessage` and the logs, and the user can fix the problem and click **Finish** again.
 - **Exit code 2**: a warning. The block shows `warnMessage` and doesn't celebrate, since something still needs attention.
 
-The final check runs like any other script: it has the logging helpers, the session's environment, `$RUNBOOK_OUTPUT`, `$RUNBOOK_ENV` and `$GENERATED_FILES`, and it waits for the Inputs, outputs and authentication it references. See [Check](/authoring/blocks/check/#writing-scripts) for how to write one.
+The final check runs like any other script: it has the log files, the session's environment, `$RUNBOOK_OUTPUT`, `$RUNBOOK_ENV` and `$GENERATED_FILES`, and it waits for the Inputs, outputs and authentication it references. See [Check](/authoring/blocks/check/#writing-scripts) for how to write one.
 
 ## Finishing the session
 

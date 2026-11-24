@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-log_info "This is an informational message"
-log_warn "This is a warning message"
-log_error "This is an error message (non-fatal in this demo)"
-log_debug "This debug message only appears when DEBUG=true"
+set -euo pipefail
+echo "This is an informational message" >> "$RUNBOOK_INFO_LOG"
+echo "This is a warning message" >> "$RUNBOOK_WARN_LOG"
+echo "This is an error message (non-fatal in this demo)" >> "$RUNBOOK_ERROR_LOG"
+echo "This is a debug message" >> "$RUNBOOK_DEBUG_LOG"
 echo ""
 echo "Logging demo complete. All four levels exercised."
