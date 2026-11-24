@@ -78,4 +78,18 @@ describe("ChangedFilesView diff body", () => {
     // No changed lines: the whole file sits behind one expand bar.
     expect(diffRows("terraform.tfvars")).toEqual(["Expand 2 hidden lines"])
   })
+
+  it("gives the diff table a horizontal scroll container that excludes the file header", () => {
+    render(
+      <ChangedFilesView
+        changes={[change({ additions: 1, originalContent: "", newContent: "a\n" })]}
+      />,
+    )
+
+    const file = screen.getByTestId("diff-file-terraform.tfvars")
+    const scrollContainers = file.querySelectorAll(".overflow-x-auto")
+    expect(scrollContainers).toHaveLength(1)
+    expect(scrollContainers[0]).toContainElement(within(file).getByRole("table"))
+    expect(scrollContainers[0]).not.toContainElement(within(file).getByText("terraform.tfvars"))
+  })
 })
