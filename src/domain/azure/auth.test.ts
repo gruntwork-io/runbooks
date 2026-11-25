@@ -10,6 +10,7 @@ import {
   missingRolesMessage,
   parseDeviceCodePrompt,
   principalFor,
+  refreshSubscriptions,
   resolveContextOptions,
   resolveRoleScope,
   showAccount,
@@ -426,5 +427,20 @@ describe("azCommand", () => {
       args: ["/d", "/s", "/c", '""az" "login" "--certificate" "C:\\My Keys\\a""b.pem""'],
       windowsVerbatimArguments: true,
     })
+  })
+})
+
+describe("refreshSubscriptions", () => {
+  it("refreshes the subscriptions in the block's config dir", () => {
+    const { exit, calls } = run(refreshSubscriptions(CTX), () => stdout(""))
+    value(exit)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.args).toEqual(["account", "list", "--refresh", "-o", "none"])
+    expect(calls[0]!.env!.AZURE_CONFIG_DIR).toBe(CTX.configDir)
+  })
+
+  it("fails when az does", () => {
+    const { exit } = run(refreshSubscriptions(CTX), () => stderr("ERROR: network unreachable"))
+    expect(failureMessage(exit)).toContain("network unreachable")
   })
 })
