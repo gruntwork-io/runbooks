@@ -280,15 +280,53 @@ export type DetectSource =
   /** A source the provider names itself: "cli", "adc", "gcloud". */
   | { readonly kind: "named"; readonly name: string }
 
-export type Requirement =
-  | { readonly kind: "scopes"; readonly scopes: ReadonlyArray<string> }
-  | {
-      readonly kind: "roles"
-      readonly roles: ReadonlyArray<{
-        readonly role: string
-        readonly scope: Option.Option<string>
-      }>
-    }
+/** Scopes or roles an identity must hold. The plugin protocol carries the same shape. */
+export const Requirement = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("scopes"), scopes: Schema.Array(Schema.String) }),
+  Schema.Struct({
+    kind: Schema.Literal("roles"),
+    roles: Schema.Array(
+      Schema.Struct({ role: Schema.String, scope: Schema.optionalKey(Schema.String) }),
+    ),
+  }),
+])
+export type Requirement = typeof Requirement.Type
+
+/**
+ * Why a credential is not ready. `kind` is a closed set: the provider's
+ * kinds (`plugin/credential.schema.json`, `errorKind`), plus
+ * `providerFailed` when the provider could not run at all (not installed, a
+ * hash mismatch, it exited or broke the protocol) and `unknown` for a kind
+ * newer than this app. A client branches on `kind`, never on `message`.
+ */
+export const CredentialErrorKind = Schema.Literals([
+  "notConfigured",
+  "unsupportedProtocolVersion",
+  "invalidParams",
+  "notSignedIn",
+  "expired",
+  "pinMismatch",
+  "requirementNotMet",
+  "accessDenied",
+  "cancelled",
+  "timedOut",
+  "network",
+  "tlsError",
+  "toolMissing",
+  "internal",
+  "providerFailed",
+  "unknown",
+])
+export type CredentialErrorKind = typeof CredentialErrorKind.Type
+
+export class CredentialError extends Schema.TaggedError<CredentialError>()("CredentialError", {
+  kind: CredentialErrorKind,
+  message: Schema.String,
+  /** For `requirementNotMet`: what the identity lacks. */
+  unmet: Schema.optionalKey(Schema.Array(Requirement)),
+  /** For `toolMissing`: the tool and where to get it. */
+  tool: Schema.optionalKey(Schema.Struct({ name: Schema.String, installUrl: Schema.String })),
+}) {}
 
 /**
  * Gives environment under a named scope, with an expiry. Detected, or

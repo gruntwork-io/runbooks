@@ -15,7 +15,7 @@ import path from "node:path"
 import { type JsonSchema, Predicate, SchemaRepresentation } from "effect"
 
 const ROOT = path.resolve(import.meta.dir, "..")
-const SCHEMAS = ["base"] as const
+const SCHEMAS = ["base", "credential"] as const
 const OUT_DIR = path.join(ROOT, "packages/core/src/plugin/generated")
 
 interface SchemaFile {
