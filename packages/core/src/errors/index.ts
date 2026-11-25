@@ -1,0 +1,279 @@
+import { Data } from "effect"
+
+// File system
+export class FileNotFoundError extends Data.TaggedError("FileNotFoundError")<{
+  readonly path: string
+}> {}
+
+export class FileReadError extends Data.TaggedError("FileReadError")<{
+  readonly path: string
+  readonly cause: unknown
+}> {}
+
+export class FileWriteError extends Data.TaggedError("FileWriteError")<{
+  readonly path: string
+  readonly cause: unknown
+}> {}
+
+export class FileWatchError extends Data.TaggedError("FileWatchError")<{
+  readonly cause: unknown
+}> {}
+
+// Process
+export class SpawnError extends Data.TaggedError("SpawnError")<{
+  readonly command: string
+  readonly cause: unknown
+}> {}
+
+// Path validation
+export class PathTraversalError extends Data.TaggedError("PathTraversalError")<{
+  readonly path: string
+  readonly message: string
+}> {}
+
+export class PathValidationError extends Data.TaggedError("PathValidationError")<{
+  readonly path: string
+  readonly message: string
+}> {}
+
+// AWS
+export class AwsAuthError extends Data.TaggedError("AwsAuthError")<{
+  readonly message: string
+  readonly cause?: unknown
+  /** AWS gave no answer about the credentials (no network, DNS, a 5xx). */
+  readonly unreachable?: boolean
+}> {}
+
+export class AwsConfigError extends Data.TaggedError("AwsConfigError")<{
+  readonly message: string
+}> {}
+
+export class AwsSsoError extends Data.TaggedError("AwsSsoError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
+// Google Cloud
+export class GoogleAuthError extends Data.TaggedError("GoogleAuthError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
+export class GoogleConfigError extends Data.TaggedError("GoogleConfigError")<{
+  readonly message: string
+}> {}
+
+export class GoogleOAuthError extends Data.TaggedError("GoogleOAuthError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
+// Azure
+export class AzureAuthError extends Data.TaggedError("AzureAuthError")<{
+  readonly message: string
+  readonly cliMissing?: boolean | undefined
+  readonly command?: string | undefined
+  readonly cause?: unknown
+}> {}
+
+/**
+ * Transport-failure classification for VCS API errors, set by
+ * classifyTlsError (src/domain/tls/system-ca.ts). Present only
+ * when the failure happened below HTTP (no response was received):
+ *  - "tls": trust-store-fixable verification failure (custom/unknown CA)
+ *  - "server-cert": the server's own certificate is bad (expired, or issued
+ *    for a different hostname) — installing a CA cannot fix it
+ *  - "network": DNS / connect / timeout
+ * An HTTP 401/403 is an auth outcome and never carries a kind — this split is
+ * what keeps a transport failure from ever rendering as invalid credentials.
+ */
+export type VcsTransportErrorKind = "tls" | "server-cert" | "network"
+
+// GitHub
+export class GitHubApiError extends Data.TaggedError("GitHubApiError")<{
+  readonly status: number
+  readonly message: string
+  readonly kind?: VcsTransportErrorKind | undefined
+}> {}
+
+// GitLab
+export class GitLabApiError extends Data.TaggedError("GitLabApiError")<{
+  readonly status: number
+  readonly message: string
+  readonly kind?: VcsTransportErrorKind | undefined
+}> {}
+
+// Git
+export class GitError extends Data.TaggedError("GitError")<{
+  readonly command: string
+  readonly stderr: string
+  readonly exitCode: number
+}> {}
+
+/**
+ * Failure of a provider-CLI interaction (the validation probe and other
+ * gh/glab subprocess work). `stderr` must be sanitized (redacted) before it
+ * crosses IPC or hits a log.
+ */
+export class VcsCliError extends Data.TaggedError("VcsCliError")<{
+  readonly kind:
+    | "not-installed"
+    | "not-authenticated"
+    | "keyring-blocked"
+    | "spawn"
+    | "timeout"
+    | "api"
+  readonly stderr: string
+}> {}
+
+// Boilerplate
+export class RenderError extends Data.TaggedError("RenderError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
+export class BoilerplateConfigError extends Data.TaggedError("BoilerplateConfigError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
+/**
+ * Failure from the in-process WASM runtime. Distinct from RenderError so the
+ * dispatcher can route on it: a WasmError generally means "the warm path is
+ * unusable for this call" (loader failed, structural error, JSON unmarshal),
+ * while RenderError still implies a template-level problem.
+ */
+export class WasmError extends Data.TaggedError("WasmError")<{
+  readonly message: string
+  /**
+   * "structural" when the boilerplate WASM bridge returned an Error with
+   * kind="structural" (bad bundle JSON, empty paths, etc.). "load" when
+   * loading or instantiating the WASM module itself failed. "internal" for
+   * unexpected JS-side problems.
+   */
+  readonly kind: "structural" | "load" | "internal"
+  readonly cause?: unknown
+}> {}
+
+// Session
+export class SessionError extends Data.TaggedError("SessionError")<{
+  readonly message: string
+}> {}
+
+export class SessionNotFoundError extends Data.TaggedError("SessionNotFoundError")<{}> {}
+
+/** A session can't be deleted. `message` says why, in words fit to show the user. */
+export class SessionDeleteError extends Data.TaggedError("SessionDeleteError")<{
+  readonly message: string
+}> {}
+
+/** A session can't take the name it was asked to. `message` says why, in words fit to show the user. */
+export class SessionNameError extends Data.TaggedError("SessionNameError")<{
+  readonly message: string
+}> {}
+
+/** A block reported an event that can't go in the session's history. `message` says why. */
+export class SessionEventError extends Data.TaggedError("SessionEventError")<{
+  readonly message: string
+}> {}
+
+/** The sessions database could not be opened or migrated, or rejected a statement. */
+export class SessionStoreError extends Data.TaggedError("SessionStoreError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
+/** The session has no credential it may send to the requested host. */
+export class MissingSessionCredentialError extends Data.TaggedError(
+  "MissingSessionCredentialError",
+)<{
+  readonly message: string
+}> {}
+
+// TLS
+/** The child process that reads the OS trust store exited non-zero or printed something other than a JSON array of PEMs. */
+export class SystemCaReadError extends Data.TaggedError("SystemCaReadError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
+// Execution
+export class ExecTimeoutError extends Data.TaggedError("ExecTimeoutError")<{
+  readonly timeoutMs: number
+}> {}
+
+/** A run's env overrides named vars no auth block passes (see domain/exec/authEnv.ts). */
+export class ExecEnvOverrideError extends Data.TaggedError("ExecEnvOverrideError")<{
+  readonly names: readonly string[]
+  readonly message: string
+}> {}
+
+/** PATH couldn't be read again from where the app first got it. `message` says why, in words fit to show the user. */
+export class PathRefreshError extends Data.TaggedError("PathRefreshError")<{
+  readonly message: string
+}> {}
+
+// Registry
+export class ExecutableNotFoundError extends Data.TaggedError("ExecutableNotFoundError")<{
+  readonly id: string
+}> {}
+
+/** The script file's content is not the content the user reviewed before reloading it. */
+export class ScriptReloadConflictError extends Data.TaggedError("ScriptReloadConflictError")<{
+  readonly path: string
+  readonly message: string
+}> {}
+
+// Remote source
+export class RemoteSourceError extends Data.TaggedError("RemoteSourceError")<{
+  readonly url: string
+  readonly message: string
+}> {}
+
+// ---------------------------------------------------------------------------
+// Render vocabulary — shared between WasmRuntime, WarmRenderDispatcher, and
+// the IPC handlers that orchestrate them.
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-file outcome when the WASM bridge processes one output path.
+ * - `output_not_produced`, `dependency_not_in_bundle`, `dynamic_filename`
+ *   route to the cold-render fallback (see ROUTE_TO_COLD_KINDS).
+ * - `skip_files_excluded` means the file is deliberately omitted.
+ * - `render` is a template bug worth surfacing to the user.
+ */
+export type WasmPerFileErrorKind =
+  | "output_not_produced"
+  | "dependency_not_in_bundle"
+  | "dynamic_filename"
+  | "skip_files_excluded"
+  | "render"
+
+/**
+ * Reason the warm path was disabled for a render. Debug-logging only.
+ * `partials-outside-bundle` means a bundled template declares a partial the
+ * bundle never captured (typically a `../` path into a shared directory), so
+ * WASM would fail every file that invokes it while the subprocess succeeds.
+ */
+export type WarmDisabledReason =
+  | "wasm-not-ready"
+  | "no-output-paths-from-analyzer"
+  | "partials-outside-bundle"
+  | "warm-error-fallback"
+
+/**
+ * Per-file kinds that mean "WASM can't render this file but the subprocess
+ * can." The dispatcher partitions on this set.
+ *
+ * `render` is deliberately NOT included: it indicates a template-execution
+ * error that the cold subprocess would hit the same way (template-author
+ * bug). We surface those to the user instead of paying the cold cost on
+ * every render. If a WASM-specific bridge gap re-surfaces under this kind
+ * (we previously hit `__each__` missing from dep-variable-default scopes),
+ * re-add it here as a temporary workaround and file a boilerplate bug.
+ */
+export const ROUTE_TO_COLD_KINDS = new Set<WasmPerFileErrorKind>([
+  "output_not_produced",
+  "dependency_not_in_bundle",
+  "dynamic_filename",
+])

@@ -1,0 +1,106 @@
+import { Context, Effect } from "effect"
+import type { AwsAuthError, AwsConfigError, AwsSsoError } from "../errors/index.ts"
+
+export interface AwsCredentials {
+  readonly accessKeyId: string
+  readonly secretAccessKey: string
+  readonly sessionToken?: string | undefined
+  readonly region: string
+  /** When temporary credentials expire, as an ISO timestamp. Undefined when they don't, or it isn't known. */
+  readonly expiresAt?: string | undefined
+}
+
+export interface AwsIdentity {
+  readonly accountId: string
+  readonly accountName?: string | undefined
+  readonly arn: string
+}
+
+export interface ProfileInfo {
+  readonly name: string
+  readonly authType: "sso" | "static" | "assume_role" | "unsupported"
+  readonly ssoStartUrl?: string | undefined
+  readonly ssoRegion?: string | undefined
+  readonly region?: string | undefined
+}
+
+export interface SsoDeviceAuth {
+  readonly verificationUri: string
+  readonly userCode: string
+  readonly deviceCode: string
+  readonly clientId: string
+  readonly clientSecret: string
+}
+
+export interface SsoPollParams {
+  readonly clientId: string
+  readonly clientSecret: string
+  readonly deviceCode: string
+  /** Region of the IAM Identity Center instance that issued the device code. */
+  readonly region: string
+}
+
+export interface SsoTokenResult {
+  readonly accessToken?: string | undefined
+  /** The user has not approved yet (AuthorizationPending or SlowDown). */
+  readonly pending?: boolean
+}
+
+export interface SsoCompleteParams {
+  readonly accessToken: string
+  readonly accountId: string
+  readonly roleName: string
+  readonly region: string
+}
+
+export interface SsoAccount {
+  readonly accountId: string
+  readonly accountName: string
+  readonly emailAddress?: string | undefined
+}
+
+export interface SsoRole {
+  readonly roleName: string
+  readonly accountId: string
+}
+
+export interface AwsClientShape {
+  /**
+   * Calls STS GetCallerIdentity for `creds`. `region` is the working region;
+   * the call goes to the home region of its partition, so GovCloud, China and
+   * other non-commercial credentials reach their own STS.
+   */
+  readonly validateCredentials: (
+    creds: AwsCredentials,
+    region: string,
+  ) => Effect.Effect<AwsIdentity, AwsAuthError>
+  readonly listProfiles: () => Effect.Effect<ProfileInfo[], AwsConfigError>
+  /**
+   * Resolves the profile's credentials without validating them; callers run
+   * validateCredentials. `region` is empty when the profile does not set one.
+   */
+  readonly authenticateProfile: (profileName: string) => Effect.Effect<AwsCredentials, AwsAuthError>
+  readonly startSsoDeviceAuth: (
+    startUrl: string,
+    region: string,
+  ) => Effect.Effect<SsoDeviceAuth, AwsSsoError>
+  readonly pollSsoToken: (params: SsoPollParams) => Effect.Effect<SsoTokenResult, AwsSsoError>
+  readonly completeSsoAuth: (
+    params: SsoCompleteParams,
+  ) => Effect.Effect<AwsCredentials, AwsSsoError>
+  readonly listSsoAccounts: (
+    accessToken: string,
+    region: string,
+  ) => Effect.Effect<SsoAccount[], AwsSsoError>
+  readonly listSsoRoles: (
+    accessToken: string,
+    accountId: string,
+    region: string,
+  ) => Effect.Effect<SsoRole[], AwsSsoError>
+  readonly checkRegion: (
+    region: string,
+    creds: AwsCredentials,
+  ) => Effect.Effect<boolean, AwsAuthError>
+}
+
+export class AwsClient extends Context.Service<AwsClient, AwsClientShape>()("AwsClient") {}

@@ -1,0 +1,463 @@
+import type { OptionsReference } from "./domain/boilerplate/options.ts"
+import type { BlockEnv } from "./domain/exec/blockEnv.ts"
+import type { OutputValues } from "./domain/exec/outputValues.ts"
+
+// ---------------------------------------------------------------------------
+// File types
+// ---------------------------------------------------------------------------
+
+export interface FileData {
+  name: string
+  path: string
+  content: string
+  language: string
+  size: number
+  isTruncated: boolean
+}
+
+export interface FileTreeNode {
+  id: string
+  name: string
+  type: "file" | "folder"
+  children: FileTreeNode[]
+  file?: FileData
+}
+
+export interface HeavyDir {
+  path: string
+  fileCount: number
+}
+
+export interface FileTreeMeta {
+  totalFiles: number
+  truncatedTree: boolean
+  heavyDirs: HeavyDir[]
+}
+
+export interface FileTreeResult {
+  tree: FileTreeNode[]
+  meta: FileTreeMeta
+}
+
+// ---------------------------------------------------------------------------
+// Boilerplate types
+// ---------------------------------------------------------------------------
+
+export type BoilerplateVarType = "string" | "int" | "float" | "bool" | "list" | "map" | "enum"
+
+export type BoilerplateValidationType =
+  | "required"
+  | "url"
+  | "email"
+  | "alpha"
+  | "digit"
+  | "alphanumeric"
+  | "countrycode2"
+  | "semver"
+  | "length"
+  | "regex"
+  | "custom"
+
+export interface ValidationRule {
+  type: BoilerplateValidationType
+  message: string
+  args: unknown[]
+}
+
+export interface BoilerplateVariable {
+  name: string
+  description: string
+  type: BoilerplateVarType
+  default?: unknown
+  required: boolean
+  /** The values of an enum's options or a list's x-options */
+  options?: string[]
+  /** The text each option is shown as, by value, when any differs from its value */
+  optionLabels?: Record<string, string>
+  /** The block output the options come from, when they aren't written in the YAML */
+  optionsFrom?: OptionsReference
+  validations: ValidationRule[]
+  sensitive: boolean
+  schema?: Record<string, string>
+  schemaInstanceLabel?: string
+  sectionName?: string
+  /** The form shows the field but nobody can change its value (x-locked, or x-hidden) */
+  locked?: boolean
+  /** The form doesn't show the field (x-hidden). A hidden field is locked too. */
+  hidden?: boolean
+  /**
+   * The form shows the field only while each variable named here has one of
+   * the values listed for it (x-show-when). Otherwise the field isn't asked
+   * for: it isn't validated, and the block uses its default.
+   */
+  showWhen?: Record<string, string[]>
+}
+
+export interface Section {
+  name: string
+  description?: string
+  variables: string[]
+  /** The form shows the section folded until it's opened (x-sections) */
+  collapsed?: boolean
+}
+
+export interface OutputDependency {
+  blockId: string
+  outputName: string
+  fullPath: string
+  /**
+   * The template guards this output with `hasKey`, so the block must have
+   * run but the output itself may be absent.
+   */
+  optional?: boolean
+}
+
+export interface SkipFileRule {
+  /**
+   * Relative path (from the template root) of the file to conditionally skip.
+   * Exact-match only; globs and regex are not supported.
+   */
+  path: string
+  /**
+   * Optional Go-template expression (rendered against the same `variables`
+   * object as the file contents) that decides whether the file is skipped.
+   *
+   * Truthy → skip. Falsy / empty / "false" / "0" → keep.
+   *
+   * When `if` is absent the file is always skipped.
+   */
+  if?: string
+}
+
+export interface BoilerplateConfig {
+  variables: BoilerplateVariable[]
+  sections: Section[]
+  outputDependencies: OutputDependency[]
+  skipFiles: SkipFileRule[]
+  /** A hash of the template directory's files, when the config came from one (see hashTemplateDir) */
+  contentHash?: string
+}
+
+// ---------------------------------------------------------------------------
+// Render types
+// ---------------------------------------------------------------------------
+
+/**
+ * Optional perf-tracing context carried by render IPC requests.
+ * Used to correlate main-process timing logs with renderer-process keystroke
+ * timestamps. Populated by `web/src/lib/renderPerf.ts` only when tracing is
+ * enabled (localStorage flag), so the field is absent in normal operation.
+ */
+export interface RenderPerfContext {
+  seq: number
+  keystrokeAt: number
+  sentAt: number
+}
+
+export interface RenderRequest {
+  templatePath: string
+  variables: Record<string, unknown>
+  templateId?: string
+  outputPath?: string
+  target?: "generated" | "worktree"
+  perf?: RenderPerfContext
+}
+
+export interface InputValue {
+  name: string
+  type: BoilerplateVarType
+  value: unknown
+}
+
+export interface RenderInlineRequest {
+  templateFiles: Record<string, string>
+  inputs: InputValue[]
+  generateFile?: boolean
+  target?: "generated" | "worktree"
+  /**
+   * The block's id. With generateFile, main remembers what each block last
+   * wrote, so a render that writes a different path cleans up the old file
+   * (removes it if the block created it, restores it if it was already there).
+   */
+  blockId?: string
+}
+
+// ---------------------------------------------------------------------------
+// Boilerplate request
+// ---------------------------------------------------------------------------
+
+export interface BoilerplateRequest {
+  templatePath?: string
+  boilerplateContent?: string
+}
+
+// ---------------------------------------------------------------------------
+// Generated files types
+// ---------------------------------------------------------------------------
+
+export interface GeneratedFilesCheckResponse {
+  hasFiles: boolean
+  absoluteOutputPath: string
+  relativeOutputPath: string
+  fileCount: number
+}
+
+export interface GeneratedFilesDeleteResponse {
+  success: boolean
+  deletedCount: number
+  message: string
+}
+
+// ---------------------------------------------------------------------------
+// Execution types
+// ---------------------------------------------------------------------------
+
+export interface ExecRequest {
+  executableId?: string
+  templateVarValues?: Record<string, unknown>
+  envVarsOverride?: Record<string, string> | undefined
+  /** Whether to allocate a pseudo-TTY for this execution. Sent by the web payload. */
+  usePty?: boolean
+  /** Per-execution timeout in milliseconds. Falls back to the executor's default when omitted. */
+  timeoutMs?: number
+  /**
+   * Renderer-generated unique id for this execution. The main process puts it
+   * on every event the run sends and registers the run's AbortController under
+   * it, so the renderer can match events to runs and `exec:cancel` can stop
+   * this one. Omitted by callers that don't support cancellation.
+   */
+  executionId?: string
+}
+
+export interface ExecLogEvent {
+  line: string
+  timestamp: string
+  replace?: boolean
+}
+
+export interface ExecStatusEvent {
+  status: "success" | "fail" | "warn"
+  exitCode: number
+}
+
+export interface CapturedFile {
+  path: string
+  size: number
+}
+
+export interface FilesCapturedEvent extends Partial<FileTreeMeta> {
+  files: CapturedFile[]
+  count: number
+  /** The generated-files tree after the capture. Omitted if it could not be read. */
+  fileTree?: FileTreeNode[]
+}
+
+export interface BlockOutputsEvent {
+  /**
+   * The script's outputs. A sensitive one is a `Redacted`, which can't cross
+   * IPC, so the main process sends these encoded (see encodeOutputs).
+   */
+  outputs: OutputValues
+}
+
+// ---------------------------------------------------------------------------
+// Executable registry types
+// ---------------------------------------------------------------------------
+
+export type ExecutableType = "inline" | "file"
+
+export interface Executable {
+  id: string
+  type: ExecutableType
+  componentId: string
+  componentType: string
+  content: string
+  contentHash: string
+  language: string
+  path?: string
+  templateVars: string[]
+  /**
+   * The block's `env` prop: the variables its script runs with, as templates
+   * (see blockEnv.ts). Empty for a block without one.
+   */
+  env: BlockEnv
+}
+
+/** A script file whose content on disk differs from the registry's copy of it. */
+export interface ScriptFileChange {
+  /** The registry's copy, which Run executes. */
+  registeredContent: string
+  diskContent: string
+  /**
+   * Hash of `diskContent`. Reloading the script takes it, so the reload
+   * registers the content the user reviewed and fails on any later one.
+   */
+  diskContentHash: string
+}
+
+// ---------------------------------------------------------------------------
+// Session types
+// ---------------------------------------------------------------------------
+
+export interface SessionMetadata {
+  workingDir: string
+  executionCount: number
+  createdAt: string
+  lastActivity: string
+}
+
+export interface SessionExecContext {
+  env: Record<string, string>
+  workDir: string
+}
+
+/**
+ * A SessionExecContext tagged with the session it was taken from. Anything
+ * applied back to the session later (a script's captured env) carries the
+ * generation so it can be dropped if the session was replaced in between.
+ */
+export interface SessionExecSnapshot extends SessionExecContext {
+  generation: number
+}
+
+// ---------------------------------------------------------------------------
+// Runbook config
+// ---------------------------------------------------------------------------
+
+export interface RunbookConfig {
+  localPath: string
+  remoteSourceURL?: string
+  isWatchMode: boolean
+  disableLiveFileReload?: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Remote source types
+// ---------------------------------------------------------------------------
+
+export interface ParsedRemoteSource {
+  /** Lowercased, port kept. Keys credential lookup and error hints. */
+  host: string
+  /** Everything before the repo segment; a nested group path on GitLab. */
+  owner: string
+  repo: string
+  /** What `git clone` fetches: https, or the transport a git source named. */
+  cloneURL: string
+  /** Branch, tag or commit. Undefined means the remote's default branch. */
+  ref?: string | undefined
+  /** Repo-relative path to a runbook directory or file. Undefined means the repo root. */
+  path?: string | undefined
+  /**
+   * Browser URLs only: `<ref>/<path>` as the URL spells it. A ref can contain
+   * slashes, so resolveRef splits it against the remote's refs.
+   */
+  refAndPath?: string
+}
+
+// ---------------------------------------------------------------------------
+// Workspace types
+// ---------------------------------------------------------------------------
+
+export interface WorkspaceTreeNode {
+  id: string
+  name: string
+  type: "file" | "folder"
+  size: number
+  language: string
+  isBinary: boolean
+  isIgnored: boolean
+  isLazyLoad: boolean
+  children: WorkspaceTreeNode[]
+}
+
+export interface WorkspaceTreeResponse {
+  tree: WorkspaceTreeNode[]
+  totalFiles: number
+  gitInfo?:
+    | {
+        ref: string
+        refType: string
+        remoteUrl?: string | undefined
+        commitSha?: string | undefined
+      }
+    | undefined
+}
+
+export interface WorkspaceFileResponse {
+  path: string
+  content: string
+  language: string
+  size: number
+  isImage: boolean
+  isBinary: boolean
+  isTooLarge: boolean
+  mimeType?: string
+  dataUri?: string
+}
+
+export interface WorkspaceFileChange {
+  path: string
+  changeType: string
+  language: string
+  additions: number
+  deletions: number
+  originalContent?: string
+  newContent?: string
+  isBinary: boolean
+  diffTruncated: boolean
+  /** True when the entry is a directory / embedded git repo (no inline diff). */
+  isDirectory?: boolean
+}
+
+export interface WorkspaceChangesResponse {
+  changes: WorkspaceFileChange[]
+  totalChanges: number
+  tooManyChanges: boolean
+}
+
+// ---------------------------------------------------------------------------
+// File manifest types
+// ---------------------------------------------------------------------------
+
+export interface ManifestEntry {
+  path: string
+  contentHash: string
+}
+
+export interface TemplateManifest {
+  templateId: string
+  outputDir: string
+  files: ManifestEntry[]
+}
+
+export interface ManifestDiffResult {
+  orphaned: string[]
+  created: string[]
+  modified: string[]
+  unchanged: string[]
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Maximum file size for inline content (512 KB) */
+export const MAX_FILE_CONTENT_SIZE = 512 * 1024
+
+/** Maximum files in file tree response */
+export const MAX_FILE_TREE_FILES = 500
+
+/** Heavy directory threshold */
+export const HEAVY_DIR_THRESHOLD = 300
+
+/** Maximum workspace files */
+export const MAX_WORKSPACE_FILES = 10_000
+
+/** Maximum diff size per file (50 KB) */
+export const MAX_DIFF_SIZE_PER_FILE = 50 * 1024
+
+/** Maximum changed files to process */
+export const MAX_CHANGED_FILES = 500
+
+/** Maximum directory entries for lazy-loading */
+export const MAX_DIR_ENTRIES = 500

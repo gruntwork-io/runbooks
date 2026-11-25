@@ -7,6 +7,7 @@
     { "path": "./baseline" },
     { "path": "./blocks/core" },
     { "path": "./packages/core" },
+    { "path": "./packages/platform-node" },
     { "path": "./packages/cli" },
     { "path": "./tsconfig.e2e.json" },
     { "path": "./web/tsconfig.json" }

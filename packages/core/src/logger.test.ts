@@ -1,0 +1,308 @@
+import { describe, it, expect, afterEach, spyOn } from "bun:test"
+import { Data, Effect, Layer, ManagedRuntime } from "effect"
+import { compilePatterns, matchesPatterns, makeLogger } from "./logger.ts"
+import { clearRegisteredSecrets, registerSecret } from "./domain/vcs/redact.ts"
+import { GitError, SpawnError } from "./errors/index.ts"
+
+describe("compilePatterns", () => {
+  it("returns empty array for undefined", () => {
+    expect(compilePatterns(undefined)).toEqual([])
+  })
+
+  it("returns empty array for empty string", () => {
+    expect(compilePatterns("")).toEqual([])
+  })
+
+  it("ignores whitespace and empty entries", () => {
+    expect(compilePatterns("  ,, ")).toEqual([])
+  })
+})
+
+describe("matchesPatterns", () => {
+  it("matches nothing when no patterns set", () => {
+    const p = compilePatterns(undefined)
+    expect(matchesPatterns("ipc:exec", p)).toBe(false)
+  })
+
+  it("matches everything with *", () => {
+    const p = compilePatterns("*")
+    expect(matchesPatterns("ipc:exec", p)).toBe(true)
+    expect(matchesPatterns("git:clone", p)).toBe(true)
+  })
+
+  it("matches an exact tag", () => {
+    const p = compilePatterns("ipc:exec")
+    expect(matchesPatterns("ipc:exec", p)).toBe(true)
+    expect(matchesPatterns("ipc:git", p)).toBe(false)
+    expect(matchesPatterns("ipc:exec:foo", p)).toBe(false)
+  })
+
+  it("matches a namespace prefix with :*", () => {
+    const p = compilePatterns("ipc:*")
+    expect(matchesPatterns("ipc:exec", p)).toBe(true)
+    expect(matchesPatterns("ipc:git", p)).toBe(true)
+    expect(matchesPatterns("ipc", p)).toBe(false)
+    expect(matchesPatterns("git:clone", p)).toBe(false)
+  })
+
+  it("combines multiple patterns with comma", () => {
+    const p = compilePatterns("ipc:exec, git:*")
+    expect(matchesPatterns("ipc:exec", p)).toBe(true)
+    expect(matchesPatterns("git:clone", p)).toBe(true)
+    expect(matchesPatterns("ipc:git", p)).toBe(false)
+  })
+
+  it("supports negation to disable a tag", () => {
+    const p = compilePatterns("ipc:*,-ipc:exec")
+    expect(matchesPatterns("ipc:git", p)).toBe(true)
+    expect(matchesPatterns("ipc:exec", p)).toBe(false)
+  })
+
+  it("evaluates patterns left-to-right so order matters", () => {
+    // disable, then re-enable
+    const p = compilePatterns("-ipc:exec,ipc:*")
+    expect(matchesPatterns("ipc:exec", p)).toBe(true)
+  })
+})
+
+describe("makeLogger", () => {
+  it("returns a logger with all four levels", () => {
+    const log = makeLogger("test")
+    expect(typeof log.debug).toBe("function")
+    expect(typeof log.info).toBe("function")
+    expect(typeof log.warn).toBe("function")
+    expect(typeof log.error).toBe("function")
+  })
+
+  it("does not throw when called", () => {
+    const log = makeLogger("test")
+    expect(() => log.debug("x")).not.toThrow()
+    expect(() => log.info("x")).not.toThrow()
+    expect(() => log.warn("x")).not.toThrow()
+    expect(() => log.error("x")).not.toThrow()
+  })
+})
+
+describe("makeLogger error formatting", () => {
+  const SECRET = "s3cr3t-token-value"
+  // Multi-line like a PEM private key, which is what matters here, but not
+  // shaped like one, so secret scanners don't flag the fixture.
+  const PRIVATE_KEY = [
+    "-----BEGIN TEST FIXTURE-----",
+    "bm90LWEtcmVhbC1rZXk6IGxpbmUgb25lIG9mIGEgbG9nZ2VyIHRlc3QgZml4dHVyZQ==",
+    "bm90LWEtcmVhbC1rZXk6IGxpbmUgdHdvIG9mIGEgbG9nZ2VyIHRlc3QgZml4dHVyZQ==",
+    "-----END TEST FIXTURE-----",
+    "",
+  ].join("\n")
+
+  afterEach(() => {
+    clearRegisteredSecrets()
+  })
+
+  /** Log `args` through log.error and return everything that reached the console. */
+  function logged(...args: unknown[]): string {
+    const spy = spyOn(console, "error").mockImplementation(() => {})
+    try {
+      makeLogger("test").error(...args)
+      return spy.mock.calls.flat().map(String).join(" ")
+    } finally {
+      spy.mockRestore()
+    }
+  }
+
+  function cloneError(): GitError {
+    return new GitError({
+      command: `clone https://x-access-token:${SECRET}@github.com/o/r.git`,
+      stderr: `fatal: repository not found (token ${SECRET})`,
+      exitCode: 128,
+    })
+  }
+
+  async function rejectionOf(effect: Effect.Effect<unknown, unknown>): Promise<unknown> {
+    const runtime = ManagedRuntime.make(Layer.empty)
+    try {
+      return await runtime.runPromise(effect).then(
+        () => {
+          throw new Error("expected the effect to fail")
+        },
+        (err: unknown) => err,
+      )
+    } finally {
+      await runtime.dispose()
+    }
+  }
+
+  it("keeps a TaggedError's fields and redacts the secret in them", () => {
+    registerSecret(SECRET)
+    const out = logged("clone failed:", cloneError())
+    expect(out).toContain("GitError")
+    expect(out).toContain("stderr")
+    expect(out).toContain("fatal: repository not found")
+    expect(out).toContain("128")
+    expect(out).toContain("[REDACTED]")
+    expect(out).not.toContain(SECRET)
+  })
+
+  it("does not truncate a long field before redacting it", () => {
+    // Unprefixed 64-hex, like a GitLab OAuth token: only exact-match redaction catches it.
+    const token = "0123456789abcdef".repeat(4)
+    registerSecret(token)
+    const prefix = "fatal: unable to access 'https://oauth2:"
+    const tail = "@gitlab.example.com/o/r.git/': The requested URL returned error: 403"
+    // The token straddles position 10000, util.inspect's default maxStringLength.
+    const stderr = "x".repeat(10_000 - 32 - prefix.length) + prefix + token + tail
+    const out = logged(new GitError({ command: "clone", stderr, exitCode: 128 }))
+    expect(out).toContain(tail)
+    expect(out).toContain("[REDACTED]")
+    expect(out).not.toContain(token.slice(0, 16))
+  })
+
+  it("caps a long field after redacting it", () => {
+    const token = "0123456789abcdef".repeat(4)
+    registerSecret(token)
+    const cap = 16 * 1024
+    // A 5 MB stderr, with the token straddling the cap: cutting before
+    // redacting would print the token's first half.
+    const stderr = "x".repeat(cap - 32) + token + "y".repeat(5_000_000)
+    const out = logged(new GitError({ command: "clone", stderr, exitCode: 128 }))
+    const redactedLength = stderr.length - token.length + "[REDACTED]".length
+    expect(out).toContain(`...[${redactedLength - cap} more chars]`)
+    expect(out).toContain("[REDACTED]")
+    expect(out).not.toContain(token.slice(0, 16))
+    expect(out).toContain("exitCode: 128")
+    expect(out.length).toBeLessThan(cap + 2_000)
+  })
+
+  it("redacts a multi-line secret in a field and in a non-Error cause before inspect escapes it", () => {
+    // What google.ts's registerCredentialSecrets registers: the credential
+    // document and its private_key. inspect would print the key as
+    // '...\n' + '...' lines and the document with doubled backslashes, so
+    // neither would match exactly in the inspected text.
+    const privateKey = PRIVATE_KEY
+    const document = JSON.stringify({ type: "service_account", private_key: privateKey })
+    registerSecret(document)
+    registerSecret(privateKey)
+    class CredentialError extends Data.TaggedError("CredentialError")<{
+      readonly privateKey: string
+      readonly document: string
+      readonly cause: unknown
+    }> {}
+    const out = logged(
+      new CredentialError({
+        privateKey,
+        document,
+        cause: { credentials: { private_key: privateKey } },
+      }),
+    )
+    expect(out).toContain("[cause]")
+    expect(out).toContain("[REDACTED]")
+    for (const line of privateKey.split("\n").filter((l) => l.length > 0)) {
+      expect(out).not.toContain(line)
+    }
+  })
+
+  it("redacts a multi-line secret in an object shared between two depths of the fields", () => {
+    registerSecret(PRIVATE_KEY)
+    // Reached first at level 4 of the fields, where the copy keeps its object
+    // children as they are (inspect shows them as [Object] there), then at
+    // level 2, where inspect prints those children in full.
+    const shared = { credentials: { private_key: PRIVATE_KEY } }
+    class SharedError extends Data.TaggedError("SharedError")<{
+      readonly deep: unknown
+      readonly near: unknown
+    }> {}
+    const out = logged(new SharedError({ deep: { l2: { l3: { shared } } }, near: { shared } }))
+    expect(out).toContain("[REDACTED]")
+    for (const line of PRIVATE_KEY.split("\n").filter((l) => l.length > 0)) {
+      expect(out).not.toContain(line)
+    }
+  })
+
+  it("prints the error runPromise rejects with", async () => {
+    registerSecret(SECRET)
+    const err = await rejectionOf(Effect.fail(cloneError()))
+    const out = logged("Failed to resolve remote URL:", err)
+    expect(out).toContain("GitError")
+    expect(out).toContain("stderr")
+    expect(out).toContain("fatal: repository not found")
+    expect(out).toContain("128")
+    expect(out).toContain("[REDACTED]")
+    expect(out).not.toContain(SECRET)
+  })
+
+  it("prints a defect, and says so for an interruption", async () => {
+    const died = logged(await rejectionOf(Effect.die(new Error("boom in a fiber"))))
+    expect(died).toContain("boom in a fiber")
+    const interrupted = logged(await rejectionOf(Effect.interrupt))
+    expect(interrupted).toContain("interrupted")
+  })
+
+  it("follows the cause chain and redacts it", () => {
+    registerSecret(SECRET)
+    const err = new SpawnError({
+      command: "git ls-remote",
+      cause: new Error(`spawn git ENOENT (${SECRET})`),
+    })
+    const out = logged(err)
+    expect(out).toContain("git ls-remote")
+    expect(out).toContain("[cause]")
+    expect(out).toContain("spawn git ENOENT")
+    expect(out).toContain("[REDACTED]")
+    expect(out).not.toContain(SECRET)
+  })
+
+  it("prints a non-Error cause", () => {
+    const out = logged(new Error("outer", { cause: { code: "EACCES" } }))
+    expect(out).toContain("[cause]")
+    expect(out).toContain("EACCES")
+  })
+
+  it("falls back to the stack instead of throwing when a field getter throws", () => {
+    registerSecret(SECRET)
+    const err = new Error(`clone failed for ${SECRET}`)
+    Object.defineProperty(err, "detail", {
+      enumerable: true,
+      get() {
+        throw new Error("getter threw")
+      },
+    })
+    let out = ""
+    expect(() => {
+      out = logged(err)
+    }).not.toThrow()
+    expect(out).toContain("clone failed for [REDACTED]")
+    expect(out).not.toContain(SECRET)
+  })
+
+  it("stops following a cyclic cause chain, and says so", () => {
+    const a = new Error("first")
+    const b = new Error("second", { cause: a })
+    a.cause = b
+    const out = logged(a)
+    // Four links, then the marker for the rest.
+    expect(out.match(/\[cause\]/g)?.length).toBe(5)
+    expect(out.endsWith("\n[cause] ... (further causes not shown)")).toBe(true)
+  })
+
+  it("prints the error behind an UnknownError once", async () => {
+    // What Effect.tryPromise fails with, as in git.ts's cancelled-clone cleanup.
+    const err = await Effect.runPromise(
+      Effect.flip(
+        Effect.tryPromise(() =>
+          Promise.reject(new Error("EACCES: permission denied, rm '/tmp/c'")),
+        ),
+      ),
+    )
+    const out = logged("failed to remove cancelled clone:", err)
+    expect(out).toContain("UnknownError")
+    expect(out).toContain("[cause] Error: EACCES")
+    expect(out.match(/EACCES: permission denied/g)?.length).toBe(1)
+  })
+
+  it("keeps a field that only equals a primitive cause", () => {
+    const err = Object.assign(new Error("outer", { cause: "EACCES" }), { code: "EACCES" })
+    const out = logged(err)
+    expect(out).toContain("code: 'EACCES'")
+    expect(out).toContain("[cause] 'EACCES'")
+  })
+})

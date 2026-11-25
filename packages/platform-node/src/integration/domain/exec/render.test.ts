@@ -1,0 +1,277 @@
+import { describe, it, expect } from "bun:test"
+import { Effect, Result, Layer } from "effect"
+import { renderBlockEnv, renderScriptForExec } from "@runbooks/core/domain/exec/render"
+import { WasmBoilerplateLive } from "../../../layers/WasmBoilerplate.ts"
+import { WasmRuntime } from "@runbooks/core/services/WasmRuntime"
+import type { WasmRuntimeShape } from "@runbooks/core/services/WasmRuntime"
+import { RenderError, WasmError } from "@runbooks/core/errors"
+import { makeTestFileSystem } from "@runbooks/core/test-utils/TestFileSystem"
+import { makeTestSpawner } from "@runbooks/core/test-utils/TestSpawner"
+
+// ---------------------------------------------------------------------------
+// Fake WasmRuntime
+// ---------------------------------------------------------------------------
+
+/**
+ * Just enough Go text/template for these tests: `{{ .a.b }}` lookups,
+ * `{{ if .a }}` / `{{ if eq .a "lit" }}` with `{{ else }}` / `{{ end }}`, and
+ * `{{-` / `-}}` whitespace trimming. Like text/template, values are inserted
+ * as-is (no escaping of its own), and like the WASM build
+ * (`OnMissingKey=ExitWithError`) a missing key or unknown action fails the
+ * whole render.
+ */
+function fakeGoTemplate(template: string, vars: Record<string, unknown>): string {
+  const lookup = (path: string): unknown => {
+    let cur: unknown = vars
+    for (const seg of path.slice(1).split(".")) {
+      if (cur === null || typeof cur !== "object" || !(seg in cur)) {
+        throw new Error(`executing at <${path}>: map has no entry for key "${seg}"`)
+      }
+      cur = (cur as Record<string, unknown>)[seg]
+    }
+    return cur
+  }
+  const evalCond = (expr: string): boolean => {
+    const eq = expr.match(/^eq\s+(\.\S+)\s+"([^"]*)"$/)
+    if (eq) return lookup(eq[1]!) === eq[2]
+    if (expr.startsWith(".")) return Boolean(lookup(expr))
+    throw new Error(`unsupported condition: ${expr}`)
+  }
+
+  const frames: Array<{ cond: boolean; inElse: boolean }> = []
+  const emitting = () => frames.every((f) => (f.inElse ? !f.cond : f.cond))
+  let out = ""
+  let trimNext = false
+  let last = 0
+  const emitText = (text: string, trimEnd: boolean) => {
+    let t = trimNext ? text.trimStart() : text
+    if (trimEnd) t = t.trimEnd()
+    if (emitting()) out += t
+  }
+  for (const m of template.matchAll(/\{\{(-?)\s*(.*?)\s*(-?)\}\}/gs)) {
+    emitText(template.slice(last, m.index), m[1] === "-")
+    trimNext = m[3] === "-"
+    last = m.index! + m[0].length
+    const body = m[2]!
+    if (body.startsWith("if ")) {
+      frames.push({ cond: emitting() && evalCond(body.slice(3).trim()), inElse: false })
+    } else if (body === "else") {
+      frames[frames.length - 1]!.inElse = true
+    } else if (body === "end") {
+      frames.pop()
+    } else if (body.startsWith(".")) {
+      if (emitting()) out += String(lookup(body))
+    } else {
+      throw new Error(`function "${body.split(/\s+/)[0]}" not defined`)
+    }
+  }
+  emitText(template.slice(last), false)
+  return out
+}
+
+/** Every `(template, varsJSON)` pair the fake WASM bridge was asked to render. */
+const renderCalls: Array<{ template: string; varsJSON: string }> = []
+
+function makeFakeWasm(): WasmRuntimeShape {
+  const notImplemented = (name: string) =>
+    Effect.die(`fake WasmRuntime: ${name} not implemented in render.test`)
+  return {
+    renderTemplate: (template, varsJSON) =>
+      Effect.try({
+        try: () => {
+          renderCalls.push({ template, varsJSON })
+          return fakeGoTemplate(template, JSON.parse(varsJSON))
+        },
+        catch: (err) => new WasmError({ message: (err as Error).message, kind: "internal" }),
+      }),
+    renderFiles: () => notImplemented("renderFiles") as never,
+    prepareBundle: () => notImplemented("prepareBundle") as never,
+    renderFilesWithHandle: () => notImplemented("renderFilesWithHandle") as never,
+    releaseBundle: () => Effect.void,
+    isReady: Effect.succeed(true),
+  }
+}
+
+// The real renderer layer over the fake WASM bridge. resolveInputTemplates
+// talks to WasmRuntime directly, so it is exposed as well.
+const wasmLayer = Layer.succeed(WasmRuntime, makeFakeWasm())
+const testLayer = Layer.merge(
+  Layer.provide(
+    WasmBoilerplateLive,
+    Layer.mergeAll(makeTestFileSystem(), makeTestSpawner(), wasmLayer),
+  ),
+  wasmLayer,
+)
+
+function render(script: string, vars: Record<string, unknown>) {
+  return Effect.runPromise(
+    Effect.result(renderScriptForExec(script, vars)).pipe(Effect.provide(testLayer)),
+  )
+}
+
+async function renderOk(script: string, vars: Record<string, unknown>): Promise<string> {
+  const result = await render(script, vars)
+  if (Result.isFailure(result)) throw result.failure
+  return result.success
+}
+
+// ---------------------------------------------------------------------------
+// renderScriptForExec
+// ---------------------------------------------------------------------------
+
+describe("renderScriptForExec", () => {
+  it("inserts input values verbatim inside the script's own quotes", async () => {
+    const out = await renderOk('TARGET_SA="{{ .inputs.A }}"', {
+      inputs: { A: "sa@p.iam.gserviceaccount.com" },
+    })
+    expect(out).toBe('TARGET_SA="sa@p.iam.gserviceaccount.com"')
+  })
+
+  // Checks the no-escaping contract at the WASM boundary itself, so it does
+  // not depend on how faithfully fakeGoTemplate models text/template.
+  it("hands the renderer raw, unquoted values", async () => {
+    const script = 'A="{{ .inputs.A }}" U="{{ .outputs.b.URL }}"'
+    renderCalls.length = 0
+    await renderOk(script, {
+      inputs: { A: "my repo" },
+      outputs: { b: { URL: "https://example.com/x?y=1" } },
+    })
+    const scriptCall = renderCalls.find((c) => c.template === script)
+    expect(scriptCall).toBeDefined()
+    expect(JSON.parse(scriptCall!.varsJSON)).toEqual({
+      inputs: { A: "my repo" },
+      outputs: { b: { URL: "https://example.com/x?y=1" } },
+    })
+  })
+
+  it("inserts block outputs verbatim", async () => {
+    const out = await renderOk('PR_URL="{{ .outputs.pr_scaffold.PR_URL }}"', {
+      inputs: {},
+      outputs: { pr_scaffold: { PR_URL: "https://github.com/acme/infra/pull/7" } },
+    })
+    expect(out).toBe('PR_URL="https://github.com/acme/infra/pull/7"')
+  })
+
+  it("compares the raw value in eq conditions", async () => {
+    const out = await renderOk('{{ if eq .inputs.L "JavaScript" }}yes{{ end }}', {
+      inputs: { L: "JavaScript" },
+    })
+    expect(out).toBe("yes")
+  })
+
+  it("honors every eq branch in a script that picks its flags with templates", async () => {
+    const script = `ARGS=(--yes --import-alias "{{ .inputs.ImportAlias }}")
+
+{{ if eq .inputs.Language "JavaScript" -}}
+ARGS+=(--javascript)
+{{ else -}}
+ARGS+=(--typescript)
+{{ end -}}
+
+{{ if eq .inputs.UseTailwind "Yes" -}}
+ARGS+=(--tailwind)
+{{ end -}}
+
+{{ if eq .inputs.Bundler "Webpack" -}}
+ARGS+=(--webpack)
+{{ else -}}
+ARGS+=(--turbopack)
+{{ end -}}
+`
+    const out = await renderOk(script, {
+      inputs: {
+        ImportAlias: "@/*",
+        Language: "JavaScript",
+        UseTailwind: "Yes",
+        Bundler: "Webpack",
+      },
+    })
+    expect(out).toContain('--import-alias "@/*")')
+    expect(out).toContain("ARGS+=(--javascript)")
+    expect(out).toContain("ARGS+=(--tailwind)")
+    expect(out).toContain("ARGS+=(--webpack)")
+    expect(out).not.toContain("--typescript")
+    expect(out).not.toContain("--turbopack")
+  })
+
+  it("resolves nested input templates before rendering the script", async () => {
+    const out = await renderOk('EMAIL="{{ .inputs.LogsEmail }}"', {
+      inputs: {
+        User: "ops",
+        Domain: "example.com",
+        LogsEmail: "{{ .inputs.User }}+logs@{{ .inputs.Domain }}",
+      },
+    })
+    expect(out).toBe('EMAIL="ops+logs@example.com"')
+  })
+
+  // Go-template text meant for another tool is the realistic way to reach
+  // exec with a broken template: the UI only gates Run on .inputs/.outputs.
+  it("fails with the template error instead of returning a marker as the script", async () => {
+    const result = await render("docker ps --format '{{.Names}}'", { inputs: {} })
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(RenderError)
+      expect(result.failure.message).toContain('map has no entry for key "Names"')
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// renderBlockEnv
+// ---------------------------------------------------------------------------
+
+function renderEnv(env: Record<string, string>, vars: Record<string, unknown>) {
+  return Effect.runPromise(Effect.result(renderBlockEnv(env, vars)).pipe(Effect.provide(testLayer)))
+}
+
+describe("renderBlockEnv", () => {
+  it("renders each value with the script's inputs and outputs, keeping what an output holds as it is", async () => {
+    const title = 'Fix typo $(touch /tmp/runbooks-pwned) "; rm -rf ~; echo "'
+    const result = await renderEnv(
+      {
+        BUCKET: "{{ .inputs.BucketName }}",
+        PR_TITLE: "{{ .outputs.fetch_pr.TITLE }}",
+        LABEL: "release",
+      },
+      { inputs: { BucketName: "my-bucket" }, outputs: { fetch_pr: { TITLE: title } } },
+    )
+
+    expect(result).toEqual(
+      Result.succeed({ BUCKET: "my-bucket", PR_TITLE: title, LABEL: "release" }),
+    )
+  })
+
+  it("resolves an input that is a template itself, as the script's render does", async () => {
+    const result = await renderEnv(
+      { EMAIL: "{{ .inputs.LogsEmail }}" },
+      {
+        inputs: {
+          User: "ops",
+          Domain: "example.com",
+          LogsEmail: "{{ .inputs.User }}+logs@{{ .inputs.Domain }}",
+        },
+      },
+    )
+    expect(result).toEqual(Result.succeed({ EMAIL: "ops+logs@example.com" }))
+  })
+
+  it("fails, naming the variable, when a value references an output that doesn't exist", async () => {
+    const result = await renderEnv(
+      { PR_TITLE: "{{ .outputs.fetch_pr.TITLE }}" },
+      { inputs: {}, outputs: {} },
+    )
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(RenderError)
+      expect(result.failure.message).toStartWith("PR_TITLE in env: ")
+    }
+  })
+
+  it("renders nothing for literal values and an empty env", async () => {
+    renderCalls.length = 0
+    expect(await renderEnv({ LABEL: "release" }, {})).toEqual(Result.succeed({ LABEL: "release" }))
+    expect(await renderEnv({}, {})).toEqual(Result.succeed({}))
+    expect(renderCalls).toEqual([])
+  })
+})

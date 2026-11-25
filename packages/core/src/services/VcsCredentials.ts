@@ -1,0 +1,164 @@
+/**
+ * VcsCredentials — the single credential resolver.
+ *
+ * One service unifies what used to be two resolvers (the GitAuth IPC
+ * detection flows in src/domain/{github,gitlab}/auth.ts and the weaker
+ * remote-source getTokenForHost): per-source detection legs with direct
+ * validation, the read-only host→token resolution, the
+ * validation-only CLI fallback probe, CLI diagnostics, and the caches.
+ *
+ * Tri-state ORCHESTRATION (cold trust-refresh-and-retry on tls, probe
+ * routing, session writes) deliberately lives in the IPC handlers — the
+ * refresh needs the Electron-side cold-read child, and this service must stay
+ * Bun-test-safe.
+ */
+import { Context, Effect } from "effect"
+import type { VcsCliError, VcsTransportErrorKind } from "../errors/index.ts"
+import type { CliStatus } from "../domain/vcs/cli-status.ts"
+
+export type VcsProvider = "github" | "gitlab"
+
+export interface VcsUserInfo {
+  readonly login: string
+  readonly name?: string | undefined
+  readonly avatarUrl?: string | undefined
+  readonly email?: string | undefined
+}
+
+/** Where a detected credential came from. "manual" = user-pasted PAT. */
+export type VcsCredentialSource = "env" | "cli" | "config" | "manual"
+
+/**
+ * Tri-state detection result. `token` stays main-side.
+ */
+export interface DetectionResult {
+  readonly outcome: "valid" | "invalid" | "unreachable" | "absent"
+  readonly token?: string
+  readonly source?: "env" | "cli" | "config"
+  readonly user?: VcsUserInfo | undefined
+  readonly scopes?: string[] | undefined
+  /** When a valid token expires, as an ISO timestamp; undefined when it doesn't or isn't known. */
+  readonly expiresAt?: string | undefined
+  readonly warnings: string[]
+  readonly errorKind?: VcsTransportErrorKind
+  /** HTTP status of a failed validation (renderer distinguishes 401/403). */
+  readonly status?: number | undefined
+  /** Raw failure message (sanitized before crossing IPC). */
+  readonly error?: string | undefined
+  /** The env var the token came from (env source). */
+  readonly envVar?: string
+  /** both-set-and-differ visibility hint (env source). */
+  readonly divergenceHint?: string | undefined
+  /** Manual-UI hint copy (the keyring contracts). */
+  readonly hint?: string
+  /** How the accepted token was validated — "cli" marks degraded auth. */
+  readonly validatedVia?: "direct" | "cli"
+}
+
+/** Successful probe result. */
+export interface CliValidation {
+  readonly user: VcsUserInfo
+  readonly scopes?: string[] | undefined
+}
+
+export interface VcsCliStatusInfo {
+  readonly gh: CliStatus
+  readonly glab: CliStatus
+  readonly git?: { readonly sslBackend?: string }
+}
+
+/** Raw union; provenance and hasCredential annotation happen in electron/main/ipc/gitlab.ts. */
+export interface MergedGitLabHosts {
+  readonly hosts: string[]
+  readonly defaultHost: string
+}
+
+/**
+ * The GitHub hosts known from the user's own configuration (no network):
+ * `configHosts` from gh's hosts.yml, `envHost` from GH_HOST (strictly
+ * parsed; absent when unset or unparseable), and `defaultHost` — GH_HOST
+ * when set and parseable, else github.com (gh's own default).
+ */
+export interface GitHubHostsInfo {
+  readonly configHosts: string[]
+  readonly envHost?: string
+  readonly defaultHost: string
+}
+
+export interface VcsCredentialsShape {
+  // --- Per-source detection legs (validated direct-fetch). The GitAuth IPC
+  //     handlers call them one at a time; the source chain itself (the
+  //     author's detectCredentials order — `invalid` continues, `unreachable`
+  //     stops) runs in the renderer (useGitAuth.ts) ---------------------------
+  // The GitLab `instance` parameters take the instance origin
+  // (normalizeGitLabBaseUrl output — a manually-entered `http://` scheme must
+  // survive through validation); the legs derive the bare host internally for
+  // glab/config reads. A bare host normalizes to its https origin.
+  // The GitHub `host` parameters take a bare host (github.com, a GHES host,
+  // or a `<sub>.ghe.com` tenant); an unparseable host is `absent`, never
+  // github.com.
+  readonly detectGitHubEnv: (host: string, prefix?: string) => Effect.Effect<DetectionResult>
+  readonly detectGitHubCli: (host: string) => Effect.Effect<DetectionResult>
+  // `prefix` (the `{env:{prefix}}` variant) reads only <PREFIX>GITLAB_TOKEN /
+  // <PREFIX>GITLAB_ACCESS_TOKEN, host-bound by the prefixed host vars.
+  readonly detectGitLabEnv: (instance: string, prefix?: string) => Effect.Effect<DetectionResult>
+  readonly detectGitLabCli: (instance: string) => Effect.Effect<DetectionResult>
+
+  /** Direct (one-transport) validation of an arbitrary token — the PAT path.
+   *  Tri-state outcome; no source (the caller knows it's manual). */
+  readonly validateDirect: (
+    provider: VcsProvider,
+    host: string,
+    token: string,
+  ) => Effect.Effect<DetectionResult>
+
+  /**
+   * unified host→token resolution (replaces remote-source
+   * getTokenForHost). READ-ONLY: source reads with no network validation
+   * (golang semantics — an absent result is silent fall-through and an empty
+   * final result is NOT an error; the repo may be public). Session-env
+   * precedence is composed by the caller (it lives Electron-side).
+   */
+  readonly tokenForHost: (host: string) => Effect.Effect<string | undefined>
+
+  readonly enumerateGitLabHosts: () => Effect.Effect<MergedGitLabHosts>
+
+  readonly enumerateGitHubHosts: () => Effect.Effect<GitHubHostsInfo>
+
+  /**
+   * Which provider a host belongs to, from names and the user's own config
+   * only (no network): GitHub for github.com, `*.ghe.com`, a gh hosts.yml
+   * host or GH_HOST; GitLab for gitlab.com, a glab config host, the GitLab
+   * env-bound host, or a `gitlab`-labelled name. Undefined otherwise — an
+   * arbitrary host is never assumed to be either (public repos still clone).
+   */
+  readonly detectProvider: (host: string) => Effect.Effect<VcsProvider | undefined>
+
+  /**
+   * validation-only CLI fallback probe — narrow and deterministic:
+   * gh api user -i / glab api user (candidate token via CHILD ENV, never
+   * argv) for PAT-shaped tokens; glab auth status (no token injection) for
+   * glab-sourced OAuth-shaped tokens. Every failure class is a typed
+   * VcsCliError: the caller degrades to the TLS/network card, never blocks.
+   */
+  readonly validateViaCli: (
+    provider: VcsProvider,
+    host: string,
+    token: string,
+    source: VcsCredentialSource,
+  ) => Effect.Effect<CliValidation, VcsCliError>
+
+  readonly cliStatus: () => Effect.Effect<VcsCliStatusInfo>
+
+  /** Flush the per-(binary,host) CLI read cache + the cliStatus probe cache
+   *  (invalidation: auth failures and renderer-initiated re-detection). */
+  readonly invalidateCache: () => Effect.Effect<void>
+
+  /** Emits the structured `transport degraded` field-canary log line when a
+   *  token validated only via the CLI probe (the direct transport failed). */
+  readonly markTransportDegraded: (host: string, code: string) => Effect.Effect<void>
+}
+
+export class VcsCredentials extends Context.Service<VcsCredentials, VcsCredentialsShape>()(
+  "VcsCredentials",
+) {}
