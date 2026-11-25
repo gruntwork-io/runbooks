@@ -32,7 +32,10 @@
       "required": ["jsonrpc", "id", "error"],
       "properties": {
         "jsonrpc": { "const": "2.0" },
-        "id": { "$ref": "#/$defs/id" },
+        "id": {
+          "description": "null when the plugin could not read the request's id: a line that is not JSON, or not a request.",
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        },
         "error": { "$ref": "#/$defs/rpcError" }
       }
     },
@@ -55,7 +58,8 @@
       "required": ["code", "message", "data"],
       "properties": {
         "code": {
-          "description": "-32000 for every kind below except invalidParams (-32602); the JSON-RPC codes for a malformed request.",
+          "description": "-32000 for every kind below except invalidParams (-32602). A request the plugin cannot read gets its JSON-RPC code with kind invalidParams: -32700 for a line that is not JSON, -32600 for one that is not a request, -32601 for an unknown method.",
+          "type": "integer",
           "enum": [-32000, -32602, -32600, -32601, -32700]
         },
         "message": {

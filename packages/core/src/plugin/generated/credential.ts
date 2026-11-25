@@ -305,9 +305,6 @@ export type ConfigureResult = typeof ConfigureResult.Type
 
 export const DetectResult = Schema.Union(
   [
-    Schema.StructWithRest(Schema.Struct({ found: Schema.Literal(false) }), [
-      Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
-    ]),
     Schema.StructWithRest(
       Schema.Struct({
         found: Schema.Literal(true),
@@ -316,6 +313,9 @@ export const DetectResult = Schema.Union(
       }),
       [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
     ),
+    Schema.StructWithRest(Schema.Struct({ found: Schema.Literal(false) }), [
+      Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
+    ]),
   ],
   { mode: "oneOf" },
 ).annotate({ identifier: "detectResult" })

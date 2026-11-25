@@ -42,6 +42,16 @@ describe("wire messages", () => {
     expect(decode(ResultResponse)({ jsonrpc: "2.0", id: "a", result: {} }).id).toBe("a")
   })
 
+  it("accept an error with a null id, for a line the plugin could not read as a request", () => {
+    const notJson = decode(ErrorResponse)({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32700, message: "the line is not JSON", data: { kind: "invalidParams" } },
+    })
+    expect(notJson.id).toBeNull()
+    expect(notJson.error.code).toBe(-32700)
+  })
+
   it("keep fields they do not know", () => {
     const params = decode(ConfigureParams)({
       protocolVersion: "1",

@@ -12,7 +12,7 @@ export const RpcError = Schema.StructWithRest(
   Schema.Struct({
     code: Schema.Literals([-32000, -32602, -32600, -32601, -32700]).annotate({
       description:
-        "-32000 for every kind below except invalidParams (-32602); the JSON-RPC codes for a malformed request.",
+        "-32000 for every kind below except invalidParams (-32602). A request the plugin cannot read gets its JSON-RPC code with kind invalidParams: -32700 for a line that is not JSON, -32600 for one that is not a request, -32601 for an unknown method.",
     }),
     message: Schema.String.annotate({
       description: "For a person. Never parsed, and never carries a secret.",
@@ -104,7 +104,14 @@ export const Notification = Schema.StructWithRest(
 export type Notification = typeof Notification.Type
 
 export const ErrorResponse = Schema.StructWithRest(
-  Schema.Struct({ jsonrpc: Schema.Literal("2.0"), id: Id, error: RpcError }),
+  Schema.Struct({
+    jsonrpc: Schema.Literal("2.0"),
+    id: Schema.Union([Id, Schema.Null], { mode: "oneOf" }).annotate({
+      description:
+        "null when the plugin could not read the request's id: a line that is not JSON, or not a request.",
+    }),
+    error: RpcError,
+  }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "errorResponse" })
 export type ErrorResponse = typeof ErrorResponse.Type
