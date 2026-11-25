@@ -325,6 +325,7 @@ const value = (
   value: Redacted.make(given),
   sensitive: true,
   to,
+  file: false,
 })
 
 /** A toy credential block's handle: it gives `values`, or fails with `error`. */

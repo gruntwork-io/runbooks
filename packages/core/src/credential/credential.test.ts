@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "bun:test"
-import { DateTime, Redacted, Schema } from "effect"
+import { DateTime, Option, Redacted, Schema } from "effect"
 import { CredentialError, type CredentialErrorKind } from "@runbooks/blocks-core/contract"
 import * as Wire from "../plugin/generated/credential.ts"
 import {
@@ -77,7 +77,15 @@ describe("credential wire schema", () => {
       decode(Wire.SignInPrompt)({ request: 2, kind: "openUrl", url: "https://d.example/" }).kind,
     ).toBe("openUrl")
     const env = decode(Wire.EnvResult)({
-      values: [{ name: "AWS_REGION", value: "us-east-1", sensitive: false, to: ["env", "output"] }],
+      values: [
+        {
+          name: "AWS_REGION",
+          value: "us-east-1",
+          sensitive: false,
+          to: ["env", "output"],
+          file: false,
+        },
+      ],
       expiresAt: "2026-11-24T18:00:00Z",
     })
     expect(env.values[0]?.to).toEqual(["env", "output"])
@@ -88,6 +96,17 @@ describe("credential wire schema", () => {
       }).unmet,
     ).toHaveLength(1)
     expect(() => decode(Wire.ToolMissingData)({ kind: "toolMissing", tool: "az" })).toThrow()
+  })
+
+  it("says of every env value whether it is a file the plugin wrote", () => {
+    const value = {
+      name: "KEY_FILE",
+      value: "/state/s1/gcp/key.json",
+      sensitive: false,
+      to: ["env"],
+    }
+    expect(decode(Wire.EnvValue)({ ...value, file: true }).file).toBe(true)
+    expect(Option.isNone(Schema.decodeUnknownOption(Wire.EnvValue)(value))).toBe(true)
   })
 
   it("carries at most 10 warnings with an identity, on the wire and in the engine", () => {

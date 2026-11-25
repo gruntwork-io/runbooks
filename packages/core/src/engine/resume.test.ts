@@ -565,8 +565,20 @@ const WHO: Identity = {
 
 const CLOUD_ENV: CredentialEnv = {
   values: [
-    { name: "CLOUD_TOKEN", value: Redacted.make("tok-SECRET"), sensitive: true, to: ["env"] },
-    { name: "CLOUD_ACCOUNT", value: Redacted.make("111"), sensitive: false, to: ["env"] },
+    {
+      name: "CLOUD_TOKEN",
+      value: Redacted.make("tok-SECRET"),
+      sensitive: true,
+      to: ["env"],
+      file: false,
+    },
+    {
+      name: "CLOUD_ACCOUNT",
+      value: Redacted.make("111"),
+      sensitive: false,
+      to: ["env"],
+      file: false,
+    },
   ],
   expiresAt: Option.none(),
 }

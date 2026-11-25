@@ -192,6 +192,10 @@ export const EnvValue = Schema.StructWithRest(
     value: Schema.String,
     sensitive: Schema.Boolean,
     to: Schema.Array(Schema.Literals(["env", "output"])),
+    file: Schema.Boolean.annotate({
+      description:
+        "True when value is the absolute path of a file, or a folder, the plugin wrote under stateDir for this credential: only its owner may read it. Runbooks refuses one outside stateDir or readable by anyone else.",
+    }),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "envValue" })

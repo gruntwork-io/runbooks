@@ -97,12 +97,19 @@ const cloud = (signedInWith: Array<Readonly<Record<string, Redacted.Redacted<str
     },
     env: Effect.succeed({
       values: [
-        { name: "account", value: Redacted.make("111"), sensitive: false, to: ["output" as const] },
+        {
+          name: "account",
+          value: Redacted.make("111"),
+          sensitive: false,
+          to: ["output" as const],
+          file: false,
+        },
         {
           name: "token",
           value: Redacted.make("tok-SECRET"),
           sensitive: true,
           to: ["output" as const],
+          file: false,
         },
       ],
       expiresAt: Option.none(),
