@@ -9,6 +9,10 @@
     "emitDeclarationOnly": false,
     "tsBuildInfoFile": "../node_modules/.tmp/baseline.tsbuildinfo"
   },
-  "references": [{ "path": "../packages/core" }, { "path": "../blocks/core" }],
+  "references": [
+    { "path": "../packages/core" },
+    { "path": "../blocks/core" },
+    { "path": "../packages/cli" }
+  ],
   "include": ["**/*"]
 }
