@@ -116,11 +116,12 @@ type TaskOf<B> = Extract<B, { readonly class: "task" }>
  * a session can do no I/O.
  */
 export interface Runner {
-  /** Starts a task block's run. */
+  /** Starts a task block's run. What it holds in `scope` is released when the run ends. */
   readonly start: (
     block: TaskOf<AnyBlock>,
     props: unknown,
     input: TaskInput<string>,
+    scope: Scope.Scope,
   ) => Stream.Stream<TaskEvent<string>, TaskError>
   /** Makes the working folder and resolves each path a run names inside its root (`resolvePaths`). */
   readonly resolve: (
@@ -833,9 +834,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     )
     const { block } = runnable
     const props = run.slot.node.props
-    // The run files' own scope, closed when the run's events and files are
-    // done with, before the run's end is recorded.
-    return Effect.scopedWith((filesScope) =>
+    // What the run holds, its files among them, is released when its events
+    // and files are done with, before its end is recorded.
+    return Effect.scopedWith((held) =>
       Effect.gen(function* () {
         yield* Effect.forkChild(flushEvery)
         const env = yield* runEnv(run, runnable, sources)
@@ -844,7 +845,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         if (block.repository !== undefined && run.state._tag === "Running")
           run.state.repository = Option.fromUndefinedOr(paths[block.repository])
         const files = block.effects.includes("process")
-          ? yield* Scope.provide(runner.makeRunFiles, filesScope)
+          ? yield* Scope.provide(runner.makeRunFiles, held)
           : undefined
         const input = taskInput(
           at,
@@ -852,7 +853,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           files === undefined ? env : withReserved(env, files),
           paths,
         )
-        yield* Stream.runForEachArray(runner.start(block, props, input), (batch) =>
+        yield* Stream.runForEachArray(runner.start(block, props, input, held), (batch) =>
           record(run, runnable, batch),
         )
         if (files !== undefined)
