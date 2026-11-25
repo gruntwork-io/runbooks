@@ -145,6 +145,21 @@ describe("credential wire schema", () => {
     ).toThrow()
   })
 
+  it("says no target at an optional level with null, and never pins none", () => {
+    const subscription = { name: "subscription", label: "Subscription", chosen: "afterSignIn" }
+    expect(decode(Wire.Level)({ ...subscription, optional: true }).optional).toBe(true)
+    const tenantOnly = {
+      ...identity,
+      targets: { tenant: { id: "t1", name: "Contoso" }, subscription: null },
+    }
+    expect(decode(Wire.Identity)(tenantOnly).targets["subscription"]).toBeNull()
+    const select = { targets: { tenant: "t1", subscription: null } }
+    expect(decode(Wire.SelectParams)(select).targets["subscription"]).toBeNull()
+    expect(() => decode(Wire.Pins)({ subscription: null })).toThrow()
+    const choose = { _tag: "ChooseTarget", level: "subscription", id: null } as const
+    expect(Schema.decodeUnknownSync(Schema.toCodecJson(CredentialAction))(choose)).toEqual(choose)
+  })
+
   it("rejects an identity kind and a level timing it does not define", () => {
     expect(() => decode(Wire.Identity)({ ...identity, kind: "robot" })).toThrow()
     expect(() => decode(Wire.Level)({ name: "a", label: "A", chosen: "never" })).toThrow()

@@ -73,6 +73,12 @@ export const Level = Schema.StructWithRest(
     name: Schema.String,
     label: Schema.String,
     chosen: Schema.Literals(["beforeSignIn", "afterSignIn"]),
+    optional: Schema.optionalKey(
+      Schema.Boolean.annotate({
+        description:
+          "The person may choose no target here: an Azure tenant-level sign-in has no subscription. False when absent. A pin always names a target.",
+      }),
+    ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "level" })
@@ -153,8 +159,9 @@ export type TargetsParams = typeof TargetsParams.Type
 
 export const SelectParams = Schema.StructWithRest(
   Schema.Struct({
-    targets: Schema.Record(Schema.String, Schema.String).annotate({
-      description: "The chosen target id at each level, by level name.",
+    targets: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Null])).annotate({
+      description:
+        "The chosen target id at each level, by level name: null where an optional level has none. Null at a level that is not optional fails with invalidParams.",
     }),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
@@ -235,8 +242,12 @@ export const Identity = Schema.StructWithRest(
     principal: Schema.String.annotate({ description: "An ARN, an email, an object id, a login." }),
     kind: Schema.Literals(["user", "guest", "servicePrincipal", "serviceAccount", "role"]),
     method: Schema.String,
-    targets: Schema.Record(Schema.String, Target).annotate({
-      description: "What is selected at each level, by level name.",
+    targets: Schema.Record(
+      Schema.String,
+      Schema.Union([Target, Schema.Null], { mode: "oneOf" }),
+    ).annotate({
+      description:
+        "What is selected at each level, by level name: null at an optional level that has none.",
     }),
     expiresAt: Schema.optionalKey(Schema.String.annotate({ format: "date-time" })),
     warnings: Schema.optionalKey(
@@ -262,8 +273,12 @@ export const SignInResult = Schema.StructWithRest(
     principal: Schema.String.annotate({ description: "An ARN, an email, an object id, a login." }),
     kind: Schema.Literals(["user", "guest", "servicePrincipal", "serviceAccount", "role"]),
     method: Schema.String,
-    targets: Schema.Record(Schema.String, Target).annotate({
-      description: "What is selected at each level, by level name.",
+    targets: Schema.Record(
+      Schema.String,
+      Schema.Union([Target, Schema.Null], { mode: "oneOf" }),
+    ).annotate({
+      description:
+        "What is selected at each level, by level name: null at an optional level that has none.",
     }),
     expiresAt: Schema.optionalKey(Schema.String.annotate({ format: "date-time" })),
     warnings: Schema.optionalKey(
@@ -295,8 +310,12 @@ export const SelectResult = Schema.StructWithRest(
     principal: Schema.String.annotate({ description: "An ARN, an email, an object id, a login." }),
     kind: Schema.Literals(["user", "guest", "servicePrincipal", "serviceAccount", "role"]),
     method: Schema.String,
-    targets: Schema.Record(Schema.String, Target).annotate({
-      description: "What is selected at each level, by level name.",
+    targets: Schema.Record(
+      Schema.String,
+      Schema.Union([Target, Schema.Null], { mode: "oneOf" }),
+    ).annotate({
+      description:
+        "What is selected at each level, by level name: null at an optional level that has none.",
     }),
     expiresAt: Schema.optionalKey(Schema.String.annotate({ format: "date-time" })),
     warnings: Schema.optionalKey(

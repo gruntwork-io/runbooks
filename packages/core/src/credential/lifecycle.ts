@@ -58,8 +58,8 @@ export const CredentialState = Schema.Union([
   Schema.TaggedStruct("ChoosingTarget", {
     level: Level,
     options: Schema.Array(Target),
-    /** Levels chosen so far, by level name. */
-    chosen: Schema.Record(Schema.String, Target),
+    /** Levels chosen so far, by level name: null where an optional level has none. */
+    chosen: Schema.Record(Schema.String, Schema.NullOr(Target)),
     identity: Schema.optionalKey(Identity),
   }),
   Schema.TaggedStruct("RequirementNotMet", {
@@ -92,7 +92,8 @@ export const CredentialAction = Schema.Union([
     fields: Schema.Record(Schema.String, Schema.Redacted(Schema.String)),
   }),
   Schema.TaggedStruct("Cancel", {}),
-  Schema.TaggedStruct("ChooseTarget", { level: Schema.String, id: Schema.String }),
+  /** A null `id` chooses no target, at an optional level only. */
+  Schema.TaggedStruct("ChooseTarget", { level: Schema.String, id: Schema.NullOr(Schema.String) }),
   /** Look in the detection sources again. */
   Schema.TaggedStruct("CheckAgain", {}),
   Schema.TaggedStruct("SignOut", {}),

@@ -40,8 +40,8 @@ export const Identity = Schema.Struct({
   kind: IdentityKind,
   /** The sign-in method that produced it, or the detection source's method. */
   method: Schema.String,
-  /** What is selected at each level, by level name. */
-  targets: Schema.Record(Schema.String, Target),
+  /** What is selected at each level, by level name: null at an optional level that has none. */
+  targets: Schema.Record(Schema.String, Schema.NullOr(Target)),
   expiresAt: Schema.optionalKey(Schema.DateTimeUtc),
   /** Shown with the identity, and never fatal: a region that is not enabled. */
   warnings: Schema.optionalKey(
@@ -133,6 +133,11 @@ export const Level = Schema.Struct({
   name: Schema.String,
   label: Schema.String,
   chosen: Schema.Literals(["beforeSignIn", "afterSignIn"]),
+  /**
+   * The person may choose no target here: an Azure tenant-level sign-in has
+   * no subscription. False when absent. A pin always names a target.
+   */
+  optional: Schema.optionalKey(Schema.Boolean),
 })
 export type Level = typeof Level.Type
 
@@ -212,9 +217,9 @@ export interface CredentialProvider {
     level: string,
     parent: Option.Option<string>,
   ) => Effect.Effect<ReadonlyArray<Target>, CredentialError>
-  /** The chosen target id at each level, by level name. */
+  /** The chosen target id at each level, by level name: null where an optional level has none. */
   readonly select: (targets: {
-    readonly [level: string]: string
+    readonly [level: string]: string | null
   }) => Effect.Effect<Identity, CredentialError>
   /** The only call that returns secret values. The provider refreshes first if it can. */
   readonly env: Effect.Effect<CredentialEnv, CredentialError>

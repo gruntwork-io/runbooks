@@ -83,12 +83,15 @@ const GIT_INFO: ProviderInfo = {
   names: ["GITHUB_TOKEN", "GITLAB_TOKEN"],
 }
 
-/** Who a cloud login is, at `account` in `role`. */
-const who = (account: string, role = "Admin"): Identity => ({
-  principal: `arn:cloud::${account}:role/${role}`,
+/** Who a cloud login is, at `account` in `role`, or with no role (null). */
+const who = (account: string, role: string | null = "Admin"): Identity => ({
+  principal: `arn:cloud::${account}:role/${role ?? "none"}`,
   kind: "role",
   method: "sso",
-  targets: { account: { id: account, name: `acct-${account}` }, role: { id: role, name: role } },
+  targets: {
+    account: { id: account, name: `acct-${account}` },
+    role: role === null ? null : { id: role, name: role },
+  },
 })
 
 /** What a cloud provider's `env` gives: the token to the run and as a hidden output, the account to both. */
@@ -830,6 +833,147 @@ describe("signing in", () => {
         }),
     )
     expect(argsOf("cloud", "select")).toEqual([[{ account: "111", role: "ReadOnly" }]])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A level with no target
+// ---------------------------------------------------------------------------
+
+/** CLOUD_INFO with `role` optional: a login may have none, as an Azure tenant may have no subscription. */
+const OPTIONAL_ROLE: ProviderInfo = {
+  ...CLOUD_INFO,
+  levels: [
+    { name: "account", label: "Account", chosen: "afterSignIn" },
+    { name: "role", label: "Role", chosen: "afterSignIn", optional: true },
+  ],
+}
+
+const ROLES = [
+  { id: "Admin", name: "Admin" },
+  { id: "ReadOnly", name: "ReadOnly" },
+]
+
+/** A login at account 111 that names no role yet. */
+const roleNotChosen: Identity = { ...who("111"), targets: { account: who("111").targets.account! } }
+
+/** A provider described by `info` that detects `detected`, lists ROLES and selects what it is given. */
+const selecting = (info: ProviderInfo, detected: Identity) =>
+  cloud({
+    info,
+    detect: () => found(detected),
+    targets: () => Effect.succeed(ROLES),
+    select: (targets) => Effect.succeed(who(targets.account ?? "", targets.role)),
+  })
+
+describe("a level with no target", () => {
+  it("chooses no target at an optional level, and is Ready with none", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" account="111" />',
+      { cloud: selecting(OPTIONAL_ROLE, roleNotChosen) },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.until("cloud", "ChoosingTarget")).toMatchObject({
+            level: { name: "role", optional: true },
+          })
+          expect(yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: null })).toEqual(
+            { _tag: "Accepted" },
+          )
+          const state = yield* rb.until("cloud", "Ready")
+          expect(state._tag === "Ready" && state.identity.targets.role).toBeNull()
+        }),
+    )
+    expect(argsOf("cloud", "select")).toEqual([[{ account: "111", role: null }]])
+  })
+
+  it("refuses no target at a level that is not optional", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" account="111" />',
+      { cloud: selecting(CLOUD_INFO, roleNotChosen) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "ChoosingTarget")
+          expect(yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: null })).toEqual(
+            { _tag: "NotOffered", field: "id", value: null, offered: ["Admin", "ReadOnly"] },
+          )
+          expect((yield* rb.view("cloud")).credential?._tag).toBe("ChoosingTarget")
+          yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: "ReadOnly" })
+          yield* rb.until("cloud", "Ready")
+          expect(yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: null })).toEqual(
+            { _tag: "NotOffered", field: "id", value: null, offered: [] },
+          )
+          expect((yield* rb.view("cloud")).credential).toMatchObject({
+            _tag: "Ready",
+            identity: who("111", "ReadOnly"),
+          })
+        }),
+    )
+    expect(argsOf("cloud", "select")).toEqual([[{ account: "111", role: "ReadOnly" }]])
+  })
+
+  it("takes a detected login with no target at an optional level: Ready if pinned, else Found", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" account="111" />',
+      { cloud: selecting(OPTIONAL_ROLE, who("111", null)) },
+      (rb) =>
+        Effect.gen(function* () {
+          const state = yield* rb.until("cloud", "Ready")
+          expect(state._tag === "Ready" && state.identity.targets.role).toBeNull()
+        }),
+    )
+    expect(movesOf("cloud")).toEqual(["Detecting", "Ready"])
+    expect(callsOf("cloud")).toEqual(["open", "describe", "detect", "env"])
+
+    await withCloud(
+      '<CloudLogin id="cloud" />',
+      { cloud: selecting(OPTIONAL_ROLE, who("111", null)) },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({ identity: who("111", null) })
+          yield* rb.act("cloud", { _tag: "Confirm" })
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({ identity: who("111", null) })
+        }),
+    )
+    expect(movesOf("cloud")).toEqual(["Detecting", "Found", "Ready"])
+    expect(callsOf("cloud")).toEqual(["open", "describe", "detect", "env"])
+  })
+
+  it("changes a Ready block's optional level to no target and back", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" account="111" />',
+      { cloud: selecting(OPTIONAL_ROLE, who("111")) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Ready")
+          expect(yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: null })).toEqual(
+            { _tag: "Accepted" },
+          )
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({ identity: who("111", null) })
+          yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: "ReadOnly" })
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({
+            identity: who("111", "ReadOnly"),
+          })
+        }),
+    )
+    expect(argsOf("cloud", "select")).toEqual([
+      [{ account: "111", role: null }],
+      [{ account: "111", role: "ReadOnly" }],
+    ])
+    expect(argsOf("cloud", "targets")).toEqual([["role", Option.some("111")]])
+  })
+
+  it("asks for a level that is not optional when the provider answers no target for it", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" account="111" />',
+      { cloud: selecting(CLOUD_INFO, who("111", null)) },
+      (rb) =>
+        Effect.gen(function* () {
+          const choosing = yield* rb.until("cloud", "ChoosingTarget")
+          expect(choosing._tag === "ChoosingTarget" && choosing.chosen).toEqual({
+            account: { id: "111", name: "acct-111" },
+          })
+        }),
+    )
   })
 })
 
