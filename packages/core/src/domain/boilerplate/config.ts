@@ -12,7 +12,7 @@ import { errorMessage } from "../../errors/message.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { BATCH_IO_CONCURRENCY } from "../files/manifest.ts"
 import { parseShowWhen } from "./showWhen.ts"
-import { extractTemplateDependenciesFromString } from "./templateDependencies.ts"
+import { outputsRead } from "../../document/templateReferences.ts"
 import {
   optionFields,
   parseOptionsReference,
@@ -493,28 +493,21 @@ export function parseBoilerplateConfig(
 // ---------------------------------------------------------------------------
 
 /**
- * The `.outputs.blockId.outputName` references in template content: the
- * output dependencies extractTemplateDependenciesFromString finds.
+ * The `.outputs.blockId.outputName` references in template content.
  *
  * An output is optional when every reference to it sits behind a `hasKey`
- * guard (see scanGuardedCode): the block still has to run, but the Generate
- * gate no longer waits for that output to exist. A guard covers only the
- * content it's in, so pass each file separately: one unguarded reference in
- * any of them makes the output required.
+ * guard: the block still has to run, but the Generate gate no longer waits
+ * for that output to exist. A guard covers only the content it's in, so pass
+ * each file separately: one unguarded reference in any of them makes the
+ * output required.
  */
 export function extractOutputDependencies(...contents: ReadonlyArray<string>): OutputDependency[] {
-  return extractTemplateDependenciesFromString(...contents).flatMap((dep) =>
-    dep.type === "output"
-      ? [
-          {
-            blockId: dep.blockId,
-            outputName: dep.outputName,
-            fullPath: dep.fullPath,
-            ...(dep.optional ? { optional: true } : {}),
-          },
-        ]
-      : [],
-  )
+  return outputsRead(...contents).map((read) => ({
+    blockId: read.blockAsWritten,
+    outputName: read.key,
+    fullPath: `outputs.${read.block}.${read.key}`,
+    ...(read.optional ? { optional: true } : {}),
+  }))
 }
 
 /**
