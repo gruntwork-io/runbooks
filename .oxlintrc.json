@@ -70,7 +70,10 @@
     "react-compiler/unsupported-syntax": "warn",
     "react-compiler/config": "error",
     "react-compiler/gating": "error",
-    "runbooks/no-relative-import-across-packages": "error"
+    "runbooks/no-relative-import-across-packages": "error",
+    "runbooks/no-import-between-blocks": "error",
+    "runbooks/no-react-in-block-ts": "error",
+    "runbooks/block-name-outside-its-folder": "error"
   },
   "overrides": [
     {
