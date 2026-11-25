@@ -52,11 +52,14 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 7 | #504 | 0 | `rebuild/p0-security-tests` | p0-cli-contract | green | 0.11 |
 | 8 | #505 | 0 | `rebuild/p0-schema-bundle` | p0-security-tests | green | 0.12 |
 | 9 | #507 | 0 | `rebuild/p0-e2e-files-panel` | p0-schema-bundle | green | 0.9 |
-| 10 | #508 | 0 | `rebuild/p0-e2e-system` | p0-e2e-files-panel | open | 0.10 |
-| 11 | #509 | 0 | `rebuild/p0-baseline-list` | p0-e2e-system | open | 0.8 (the list) |
-| 12 | #510 | 0 | `rebuild/p0-behaviour-changes` | p0-baseline-list | open | 0.8 (the nine changes) |
+| 10 | #508 | 0 | `rebuild/p0-e2e-system` | p0-e2e-files-panel | green | 0.10 |
+| 11 | #509 | 0 | `rebuild/p0-baseline-list` | p0-e2e-system | green | 0.8 (the list) |
+| 12 | #510 | 0 | `rebuild/p0-behaviour-changes` | p0-baseline-list | green | 0.8 (the nine changes) |
+| 13 | #511 | 1 | `rebuild/p1-packages` | p0-behaviour-changes | green | 1.1 |
+| 14 | #512 | 1 | `rebuild/p1-copy-core` | p1-packages | red: GitGuardian only, needs a human (fake secrets in copied tests) | 1.2 |
+| 15 | #513 | 1 | `rebuild/p1-registry` | p1-copy-core | open | 1.3 |
 
-Phases 1 to 6 and track A are added here as their PRs are cut.
+Later phases and track A are added here as their PRs are cut.
 
 ## Work products
 
@@ -75,6 +78,9 @@ Phases 1 to 6 and track A are added here as their PRs are cut.
 | 0.11 | Security regression tests by name | #504 | open |
 | 0.12 | Renderer bundle carries Effect Schema | #505 | open |
 | 0.13 | Throwaway prototype | none | not done: phases 2 and 3 build the same path for real (#510 Gaps) |
+| 1.1 | Workspace packages with declared exports | #511 | open; `app-main`, `app-renderer` and `blocks` get their tsconfig when they get code |
+| 1.2 | Services, layers, shared domain code copied | #512 | open |
+| 1.3 | Registry and typed view map | #513 | open |
 
 ## Open decisions built on
 
@@ -106,9 +112,24 @@ Choices of my own that need a ruling (not among the 18):
 | `$RUNBOOK_ENV` may set `PATH`; a block takes it only by naming the writer in `envFrom` | #510 |
 | A block whose `envFrom` source has not run is Blocked, as for `dependsOn` | #510 |
 | Every block that reads or writes a repository names it, not only pull request blocks on two-repository pages | #510 |
+| Packages are TypeScript projects with `paths` exports and references, not Bun workspaces (a workspace link makes any import resolve) | #511 |
+| `blocks/core` is its own package, `blocks-core`, so `core` can import the contract without a cycle | #511 |
+| A domain test that runs against a real layer moves to `platform-node/src/integration/` | #512 |
+| The registry is a module of re-exports keyed by tag; `registryProblems` checks name = tag | #513 |
+| Only display blocks must have a view; the other classes fall back to their class's view | #513 |
+| A view also gets its rendered markdown `children` | #513 |
 
 ## Failed attempts
 
 | Check | Attempt | Result |
 |---|---|---|
 | Generate TS from `plugin/base.schema.json` | `not: { required: [id] }` on notifications | Effect's importer: "Cannot import JSON Schema keyword \"not\"". Rule moved to the transport owner (#499). |
+
+## Follow-ups owed
+
+| What | Where it lands |
+|---|---|
+| knip does not cover the new tree; its declared exports need to be knip entries | the phase 2 PR that first uses `EXIT`, `CLI_ALIASES`, `PROTOCOL_VERSION`, `LIMITS` |
+| `app-renderer` may import only the protocol from core: no rule enforces it yet | phase 3, when the package gets code |
+| `src/` and its copies in `packages/` drift until the old tree goes | phase 6 |
+| GitGuardian incidents 27121678, 33923057, 33923058 re-raised by the copy | the human, in the GitGuardian dashboard |
