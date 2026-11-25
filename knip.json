@@ -9,6 +9,7 @@
     "scripts/*.ts",
     ".github/scripts/**/*.mjs",
     "{src,electron,cli,scripts,test}/**/*.test.ts",
+    "packages/cli/src/main.ts",
     "{packages,blocks,baseline}/**/*.test.{ts,tsx}",
     "blocks/core/{contract,form,registry,status}.ts",
     "blocks/{index,views}.ts",
