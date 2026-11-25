@@ -61,7 +61,12 @@ export const CredentialState = Schema.Union([
     identity: Schema.optionalKey(Identity),
   }),
   Schema.TaggedStruct("RequirementNotMet", {
-    identity: Identity,
+    /**
+     * Who lacks them, when the engine already holds the identity: a target
+     * chosen after sign-in. A detection or sign-in the provider refused with
+     * `requirementNotMet` names nobody.
+     */
+    identity: Schema.optionalKey(Identity),
     unmet: Schema.Array(Requirement),
   }),
   Schema.TaggedStruct("Ready", { identity: Identity, source: Schema.String }),
@@ -94,7 +99,9 @@ export type CredentialAction = typeof CredentialAction.Type
 
 /**
  * Every move the engine may make. The engine's tests check each transition
- * it makes against this table.
+ * it makes against this table. A state that lists itself may change its
+ * fields in place: the next level to choose, a sign-in's next prompt, a
+ * refreshed credential's expiry.
  */
 export const TRANSITIONS: {
   readonly [S in CredentialStateTag]: ReadonlyArray<CredentialStateTag>
@@ -102,10 +109,17 @@ export const TRANSITIONS: {
   Detecting: ["Found", "Ready", "ChoosingTarget", "SignedOut", "RequirementNotMet", "Unavailable"],
   Found: ["Ready", "ChoosingTarget", "SignedOut"],
   SignedOut: ["SigningIn", "ChoosingTarget", "Detecting"],
-  SigningIn: ["Ready", "ChoosingTarget", "RequirementNotMet", "SignedOut", "Unavailable"],
+  SigningIn: [
+    "SigningIn",
+    "Ready",
+    "ChoosingTarget",
+    "RequirementNotMet",
+    "SignedOut",
+    "Unavailable",
+  ],
   ChoosingTarget: ["ChoosingTarget", "SigningIn", "Ready", "RequirementNotMet", "SignedOut"],
   RequirementNotMet: ["SigningIn", "Detecting", "SignedOut"],
-  Ready: ["Expired", "ChoosingTarget", "SignedOut"],
+  Ready: ["Ready", "Expired", "ChoosingTarget", "SignedOut"],
   Expired: ["SigningIn", "Detecting", "SignedOut"],
   Unavailable: ["Detecting", "SignedOut"],
 }

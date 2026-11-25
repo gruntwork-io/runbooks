@@ -4,6 +4,7 @@ import { type RpcClient, RpcTest } from "effect/rpc"
 import { BlockId } from "@runbooks/blocks-core/contract"
 import { ContentHash } from "../document/document.ts"
 import {
+  ActResult,
   BASELINE_MCP_TOOLS,
   Caller,
   CallerMiddleware,
@@ -201,6 +202,18 @@ describe("engine protocol", () => {
   it("answers a form's submit with no run to follow", () => {
     const json = Schema.toCodecJson(RunResult)
     expect(Schema.decodeUnknownSync(json)({ _tag: "Submitted" })).toEqual({ _tag: "Submitted" })
+  })
+
+  it("answers an action naming a target the block does not offer with what it does offer", () => {
+    const json = Schema.toCodecJson(ActResult)
+    const notOffered: ActResult = {
+      _tag: "NotOffered",
+      field: "id",
+      value: "nope",
+      offered: ["dev", "prod"],
+    }
+    expect(Schema.decodeUnknownSync(json)(notOffered)).toEqual(notOffered)
+    expect(() => Schema.decodeUnknownSync(json)({ ...notOffered, field: "fields" })).toThrow()
   })
 
   it("serves every baseline MCP tool with a command (decision 12)", () => {

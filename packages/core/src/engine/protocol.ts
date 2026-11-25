@@ -251,6 +251,15 @@ export const ActResult = Schema.Union([
   Schema.TaggedStruct("AwaitingApproval", { approval: ApprovalId }),
   /** The block's credential state does not take that action. */
   Schema.TaggedStruct("NotAllowed", { state: Schema.String }),
+  /**
+   * The action names a sign-in method, a level or a target the block does
+   * not offer now, in its field `field`. Nothing changed.
+   */
+  Schema.TaggedStruct("NotOffered", {
+    field: Schema.Literals(["method", "level", "id"]),
+    value: Schema.String,
+    offered: Schema.Array(Schema.String),
+  }),
 ])
 export type ActResult = typeof ActResult.Type
 

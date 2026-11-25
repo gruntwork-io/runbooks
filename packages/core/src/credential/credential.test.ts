@@ -54,6 +54,19 @@ describe("credential wire schema", () => {
     ).toThrow()
   })
 
+  it("gives a provider the block's settings when it is configured", () => {
+    const params = decode(Wire.ConfigureParams)({
+      protocolVersion: "1",
+      caller: "runbooks/0.31.0",
+      stateDir: "/state/s1/aws",
+      settings: { defaultRegion: "eu-west-1" },
+    })
+    expect(params.settings).toEqual({ defaultRegion: "eu-west-1" })
+    expect(() =>
+      decode(Wire.ConfigureParams)({ ...params, settings: { defaultRegion: 1 } }),
+    ).toThrow()
+  })
+
   it("decodes detect, signIn.prompt, env and the error data a block branches on", () => {
     expect(decode(Wire.DetectResult)({ found: false }).found).toBe(false)
     expect(decode(Wire.DetectResult)({ found: true, identity, source: "env" }).found).toBe(true)
@@ -131,6 +144,19 @@ describe("credential lifecycle", () => {
       }
       expect({ start, reachesReady: seen.has("Ready") }).toEqual({ start, reachesReady: true })
     }
+  })
+
+  it("holds an unmet requirement the provider reported without naming who lacks it", () => {
+    const wire = Schema.encodeSync(json)({
+      _tag: "RequirementNotMet",
+      unmet: [{ kind: "scopes", scopes: ["repo"] }],
+    })
+    expect(Schema.decodeUnknownSync(json)(wire)._tag).toBe("RequirementNotMet")
+  })
+
+  it("lets a sign-in show its next prompt, and a refresh move a ready credential's expiry", () => {
+    expect(TRANSITIONS.SigningIn).toContain("SigningIn")
+    expect(TRANSITIONS.Ready).toContain("Ready")
   })
 
   it("publishes env only while Ready", () => {
