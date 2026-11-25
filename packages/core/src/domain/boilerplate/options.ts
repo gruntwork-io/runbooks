@@ -45,7 +45,7 @@ export interface OptionFields {
 /**
  * A whole value that is just `{{ fromJson .outputs.<block>.<output> }}` or
  * `{{ .outputs.<block>.<output> }}`. The output name is an identifier, as the
- * dependency extractor reads it (see templateDependencies.ts).
+ * template-reference extractor reads it (see document/templateReferences.ts).
  */
 const OPTIONS_REFERENCE_RE =
   /^\s*\{\{-?\s*(?:fromJson\s+)?\.outputs\.([a-zA-Z0-9_-]+)\.(\w+)\s*-?\}\}\s*$/

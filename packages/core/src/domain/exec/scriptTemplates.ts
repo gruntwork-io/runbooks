@@ -6,7 +6,7 @@
  * app and the test CLI point authors to it. Shared by both, so it's free of
  * Node and Effect.
  */
-import { extractTemplateDependenciesFromString } from "../boilerplate/templateDependencies.ts"
+import { templateReferences } from "../../document/templateReferences.ts"
 
 /** How many references the warning names before it counts the rest. */
 const MAX_NAMED = 4
@@ -18,12 +18,18 @@ const MAX_NAMED = 4
  * `{{.Names}}`, don't.
  */
 export function scriptTemplateWarning(script: string): string | null {
-  const deps = extractTemplateDependenciesFromString(script)
-  if (deps.length === 0) return null
+  const found = templateReferences(script)
+  if (found.length === 0) return null
 
-  const refs = deps.map((dep) =>
-    dep.type === "input" ? `{{ .inputs.${dep.name} }}` : `{{ .${dep.fullPath} }}`,
-  )
+  const refs = [
+    ...new Set(
+      found.map((ref) =>
+        ref._tag === "Input"
+          ? `{{ .inputs.${ref.path} }}`
+          : `{{ .outputs.${ref.block}.${ref.key} }}`,
+      ),
+    ),
+  ]
   const named = refs.length > MAX_NAMED ? refs.slice(0, MAX_NAMED - 1) : refs
   const rest = refs.length - named.length
   const list =
@@ -34,7 +40,7 @@ export function scriptTemplateWarning(script: string): string | null {
         : `${named.slice(0, -1).join(", ")} and ${named.at(-1)}`
 
   let warning = `This script inserts ${list} into its source. Pass values in the block's env prop instead, so they reach the script as data.`
-  if (deps.some((dep) => dep.type === "output")) {
+  if (found.some((ref) => ref._tag === "Output")) {
     warning +=
       " An output can hold text from outside the runbook, which the shell would run as code."
   }
