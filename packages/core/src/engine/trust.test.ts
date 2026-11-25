@@ -2,11 +2,12 @@
  * What an untrusted session may touch. A runbook someone sends you opens
  * before you trust it, so opening it, and every command a client may send
  * before trust, must read the runbook and the files it names and do nothing
- * else. The services are doubles that note every call, so each test asserts
- * on all the I/O the engine did.
+ * else: it detects no login and opens no credential provider. The services
+ * are doubles that note every call, so each test asserts on all the I/O the
+ * engine did.
  */
 import { describe, expect, it } from "bun:test"
-import { Effect, Fiber, Layer, Schema, Stream } from "effect"
+import { Effect, Fiber, Layer, Option, Schema, Stream } from "effect"
 import YAML from "yaml"
 import {
   BlockId,
@@ -16,6 +17,7 @@ import {
   RunbookPath,
   TaskFailed,
 } from "@runbooks/blocks-core/contract"
+import type { ProviderInfo } from "../credential/provider.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import {
@@ -23,6 +25,10 @@ import {
   recordProcessSpawner,
   type ServiceCall,
 } from "../test-utils/ServiceCalls.ts"
+import {
+  type ProviderCall,
+  testCredentialProviders,
+} from "../test-utils/TestCredentialProviders.ts"
 import { testFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY, ToyField, toyFormSpec } from "../test-utils/toyRegistry.ts"
 import { Engine } from "./engine.ts"
@@ -97,7 +103,7 @@ const script = defineTask({
   plugins: [],
 })
 
-/** A block of each class: Note, Form and FileForm, Script, GitLogin. */
+/** A block of each class: Note, Form and FileForm, Script, GitLogin and CloudLogin. */
 const registry = { ...TOY_REGISTRY, FileForm: fileForm, Script: script }
 
 const FILES = {
@@ -106,6 +112,7 @@ const FILES = {
     '<Form id="config">\n```yaml\n- name: stage\n  type: string\n  default: dev\n```\n</Form>',
     '<FileForm id="vars" path="vars.yml" />',
     '<GitLogin id="git" />',
+    '<CloudLogin id="cloud" />',
     '<Script id="deploy" path="deploy.sh" inputsId={["config", "vars"]} />',
   ].join("\n\n"),
   "/rb/vars.yml": "- name: region\n  type: string\n  default: us-east-1\n",
@@ -129,8 +136,24 @@ const READING_THE_RUNBOOK: ServiceCall[] = [
   ]),
 ]
 
-/** Runs `program` against an engine whose services note each call in `calls`. */
-const withEngine = <A, E>(calls: ServiceCall[], program: Effect.Effect<A, E, Engine | Caller>) =>
+/** A provider with one sign-in method that finds no login. */
+const INFO: ProviderInfo = {
+  methods: [{ name: "token", label: "Token", fields: [] }],
+  levels: [],
+  sources: [],
+  requirements: [],
+  names: [],
+}
+
+/**
+ * Runs `program` against an engine whose services note each call in
+ * `calls`, and whose credential providers note theirs in `providerCalls`.
+ */
+const withEngine = <A, E>(
+  calls: ServiceCall[],
+  providerCalls: ProviderCall[],
+  program: Effect.Effect<A, E, Engine | Caller>,
+) =>
   Effect.runPromise(
     program.pipe(
       Effect.provide(
@@ -138,8 +161,15 @@ const withEngine = <A, E>(calls: ServiceCall[], program: Effect.Effect<A, E, Eng
           registry,
           appVersion: "0.31.0",
           workingFolders: "/work",
+          stateFolders: "/state",
           processEnvironment: {},
         }),
+      ),
+      Effect.provide(
+        testCredentialProviders(
+          { git: () => ({ info: INFO }), cloud: () => ({ info: INFO }) },
+          providerCalls,
+        ),
       ),
       Effect.provide(
         Layer.mergeAll(
@@ -164,13 +194,15 @@ const withEngine = <A, E>(calls: ServiceCall[], program: Effect.Effect<A, E, Eng
     ),
   )
 
-const BLOCKS = ["config", "vars", "git", "deploy"]
+const BLOCKS = ["config", "vars", "git", "cloud", "deploy"]
 
 describe("an untrusted session", () => {
   it("reads only the runbook and the files it names, whatever a client sends, until it is trusted", async () => {
     const calls: ServiceCall[] = []
+    const providerCalls: ProviderCall[] = []
     await withEngine(
       calls,
+      providerCalls,
       Effect.gen(function* () {
         const engine = yield* Engine
         const opened = yield* engine.openSession({ path: RUNBOOK })
@@ -195,6 +227,7 @@ describe("an untrusted session", () => {
         yield* engine.getOutputs({ session })
 
         expect(calls).toEqual(READING_THE_RUNBOOK)
+        expect(providerCalls).toEqual([])
         const untrusted: RunResult = {
           _tag: "Refused",
           reason: { _tag: "Blocked", by: [{ _tag: "Untrusted" }] },
@@ -203,6 +236,16 @@ describe("an untrusted session", () => {
 
         yield* engine.trustSession({ session, hash: trust.hash })
         expect(calls).toEqual(READING_THE_RUNBOOK)
+        // Trusted, each credential block opens its provider, and one that detects looks.
+        for (const block of ["git", "cloud"])
+          yield* engine.waitForBlock({ ...target(block), timeoutMillis: 5000 })
+        const byBlock = (block: string) =>
+          providerCalls.filter((call) => call.block === block).map((call) => call.method)
+        expect(byBlock("git")).toEqual(["open", "describe"])
+        expect(byBlock("cloud")).toEqual(["open", "describe", "detect"])
+        expect(providerCalls.find((call) => call.method === "detect")?.args[0]).toEqual([
+          { kind: "env", prefix: Option.none() },
+        ])
 
         for (const form of ["config", "vars"])
           expect((yield* engine.runBlock(target(form)))._tag).toBe("Submitted")
@@ -241,5 +284,38 @@ describe("an untrusted session", () => {
         yield* Fiber.join(events)
       }),
     )
+  })
+
+  // useGoogleAuth.test.ts
+  it("waits for the session before probing anything", async () => {
+    const calls: ServiceCall[] = []
+    const providerCalls: ProviderCall[] = []
+    await withEngine(
+      calls,
+      providerCalls,
+      Effect.gen(function* () {
+        const engine = yield* Engine
+        const opened = yield* engine.openSession({ path: RUNBOOK })
+        if (opened._tag !== "Opened") throw new Error(opened.errors.map((e) => e.message).join())
+        const { session, trust } = opened.session
+        const cloud = { session, block: blockId("cloud") }
+
+        const before = yield* engine.getBlock(cloud)
+        expect(before.status).toEqual({ _tag: "Blocked", by: [{ _tag: "Untrusted" }] })
+        expect(before.credential).toBeUndefined()
+        expect(before.actions).toEqual([])
+        expect(providerCalls).toEqual([])
+
+        yield* engine.trustSession({ session, hash: trust.hash })
+        const after = yield* engine.waitForBlock({ ...cloud, timeoutMillis: 5000 })
+        expect(after.block.credential?._tag).toBe("SignedOut")
+        expect(after.block.actions).toEqual([])
+        expect(calls).toEqual(READING_THE_RUNBOOK)
+        yield* engine.closeSession({ session })
+      }),
+    )
+    expect(
+      providerCalls.filter((call) => call.block === "cloud").map((call) => call.method),
+    ).toEqual(["open", "describe", "detect"])
   })
 })

@@ -9,6 +9,7 @@ import { Effect, Option, Schema } from "effect"
 import { BlockId, PathOutsideRoot, type Root } from "@runbooks/blocks-core/contract"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { type UseRootsSession, withRootsSession } from "../test-utils/rootSessions.ts"
+import { testCredentialProviders } from "../test-utils/TestCredentialProviders.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import { Engine } from "./engine.ts"
@@ -80,9 +81,11 @@ describe("the roots", () => {
             registry: TOY_REGISTRY,
             appVersion: "0.31.0",
             workingFolders: "/work",
+            stateFolders: "/state",
             processEnvironment: {},
           }),
         ),
+        Effect.provide(testCredentialProviders({}, [])),
         Effect.provide(makeTestFileSystem({ "rb/runbook.mdx": '<Run id="a" />' })),
       ),
     )

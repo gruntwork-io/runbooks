@@ -170,6 +170,58 @@ const gitLogin = defineCredential({
   instruction: () => [],
 })
 
+/**
+ * Credential with every part of a request: detection from the environment
+ * (off with `detect={false}`) and from an earlier block's outputs, `account`
+ * and `role` pins, required scopes, a region setting, a default method and
+ * per-method field defaults. Its provider is named "cloud".
+ */
+const cloudLogin = defineCredential({
+  name: "CloudLogin",
+  since: "0.1.0",
+  class: "credential",
+  props: Schema.Struct({
+    account: Schema.optionalKey(Schema.String),
+    role: Schema.optionalKey(Schema.String),
+    detect: Schema.optionalKey(Schema.Boolean),
+    prefix: Schema.optionalKey(Schema.String),
+    keysFrom: Schema.optionalKey(BlockId),
+    scopes: Schema.optionalKey(Schema.Array(Schema.String)),
+    region: Schema.optionalKey(Schema.String),
+    method: Schema.optionalKey(Schema.String),
+    defaults: Schema.optionalKey(
+      Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.String)),
+    ),
+  }),
+  children: { kind: "none" },
+  references: { keysFrom: "run" },
+  runbookFiles: () => [],
+  provides: ["env"],
+  effects: ["network", "browser"],
+  scope: "cloud",
+  provider: "cloud",
+  envNames: ["CLOUD_TOKEN", "CLOUD_ACCOUNT"],
+  outputs: () => ({ account: { sensitive: false }, token: { sensitive: true } }),
+  request: (p) => ({
+    detect:
+      p.detect === false
+        ? []
+        : [
+            { kind: "env", prefix: Option.fromUndefinedOr(p.prefix) },
+            ...(p.keysFrom === undefined ? [] : [{ kind: "outputs" as const, from: p.keysFrom }]),
+          ],
+    pins: {
+      ...(p.account === undefined ? {} : { account: p.account }),
+      ...(p.role === undefined ? {} : { role: p.role }),
+    },
+    requirements: p.scopes === undefined ? [] : [{ kind: "scopes", scopes: p.scopes }],
+    settings: p.region === undefined ? {} : { defaultRegion: p.region },
+    defaultMethod: Option.fromUndefinedOr(p.method),
+    methodDefaults: p.defaults ?? {},
+  }),
+  instruction: () => [],
+})
+
 const gitHubLogin: Alias<typeof GitLoginProps.Type> = {
   name: "GitHubLogin",
   since: "0.1.0",
@@ -191,5 +243,6 @@ export const TOY_REGISTRY = {
   Clone: clone,
   GitLogin: gitLogin,
   GitHubLogin: gitHubLogin,
+  CloudLogin: cloudLogin,
   Bash: bash,
 } satisfies Registry
