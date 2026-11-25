@@ -10,22 +10,39 @@
  *   with the failure `BadFlag`.
  * - Logs go to stderr.
  */
-import { ConfigProvider, Console, Data, Effect, Layer, Logger, Schema } from "effect"
+import {
+  ConfigProvider,
+  Console,
+  Data,
+  Deferred,
+  Effect,
+  Layer,
+  Logger,
+  Schema,
+  type Scope,
+} from "effect"
 import { type CliError, CliOutput, Command, TerminalCapabilities } from "effect/cli"
-import type { Registry } from "@runbooks/blocks-core/registry"
+import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import type { FileSystem } from "@runbooks/core/services/FileSystem"
 import { describeFailure } from "./cliFailure.ts"
 import { type CliFailure, EXIT, makeCli, TestReport, ValidateReport } from "./contract.ts"
+import { test } from "./testCommand.ts"
 import { validate } from "./validate.ts"
 
-export interface CliOptions {
-  readonly registry: Registry
+export interface CliOptions<R extends Registry = Registry> {
+  readonly registry: R
   /** This build's version: `--version`, and what a runbook's `runbooks:` requirement is checked against. */
   readonly appVersion: string
   /** Where relative paths resolve. */
   readonly cwd: string
   /** The process's environment. The `RUNBOOKS_` variables are read from it. */
   readonly env: Readonly<Record<string, string>>
+  /**
+   * Completes when the person presses Ctrl-C. `runbooks test` then cancels
+   * what is running and ends with its report. The entry point listens once,
+   * so a second Ctrl-C stops the process at once.
+   */
+  readonly interrupted: Effect.Effect<void>
 }
 
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT]
@@ -101,15 +118,38 @@ const refusedReport = (command: "test" | "validate", failure: CliFailure): unkno
         failure,
       })
 
+/** `runbooks test`, stopped by the first Ctrl-C. */
+const testUntilInterrupted = <R extends Registry>(
+  args: Parameters<typeof test>[0],
+  options: CliOptions<R>,
+) =>
+  Effect.gen(function* () {
+    const stop = yield* Deferred.make<void>()
+    yield* options.interrupted.pipe(
+      Effect.andThen(
+        Console.error(
+          "Stopping: cancelling the running blocks. Press Ctrl-C again to stop at once.",
+        ),
+      ),
+      Effect.andThen(Deferred.succeed(stop, undefined)),
+      Effect.forkScoped,
+    )
+    return yield* test(args, { ...options, stop })
+  }).pipe(Effect.scoped)
+
 /** Runs `runbooks <argv>`, writes what it reports, and gives the exit code. */
-export const runCli = (
+export const runCli = <R extends Registry>(
   argv: ReadonlyArray<string>,
-  options: CliOptions,
-): Effect.Effect<ExitCode, never, Command.Environment | FileSystem> => {
-  const cli = makeCli<CommandFailed | NotBuilt, FileSystem>({
+  options: CliOptions<R>,
+): Effect.Effect<
+  ExitCode,
+  never,
+  Command.Environment | FileSystem | Exclude<ServicesOf<R>, Scope.Scope>
+> => {
+  const cli = makeCli<CommandFailed | NotBuilt, FileSystem | Exclude<ServicesOf<R>, Scope.Scope>>({
     open: notBuilt("open", "phase 3, with the app frame"),
     mcp: notBuilt("mcp", "phase 3, with the MCP tools"),
-    test: notBuilt("test", "work product 2.10"),
+    test: (args) => Effect.flatMap(testUntilInterrupted(args, options), failUnless),
     validate: (args) => Effect.flatMap(validate(args, options), failUnless),
   })
   return Command.runWith(cli, { version: options.appVersion })(argv).pipe(

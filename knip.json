@@ -15,7 +15,7 @@
     "blocks/{index,views}.ts",
     "packages/core/src/{credential,document,domain,errors,services,test-utils}/**/*.ts",
     "packages/core/src/{path-validation,remote-source,types}.ts",
-    "packages/core/src/engine/{protocol,settings}.ts",
+    "packages/core/src/engine/{handlers,inProcess,protocol,sessionStore,settings}.ts",
     "packages/cli/src/testFile.ts",
     "packages/platform-node/src/layers/**/*.ts",
     "packages/cli/src/contract.ts",
