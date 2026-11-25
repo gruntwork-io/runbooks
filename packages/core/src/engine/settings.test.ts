@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { Effect, Stream } from "effect"
+import { Effect, Option, Stream } from "effect"
 import { MAX_SETTINGS_BYTES } from "../services/SettingsFile.ts"
 import {
   type MemorySettingsFile,
@@ -237,6 +237,18 @@ describe("the settings store", () => {
     expect(failed.after.settings).toEqual(DEFAULT_SETTINGS)
   })
 
+  it("refuses a change that would make the file larger than it reads, and writes nothing", async () => {
+    const file = memorySettingsFile(fileOf({ note: "x".repeat(MAX_SETTINGS_BYTES - 1000) }))
+    const refused = await withStore(file, (store) =>
+      Effect.flip(store.change({ caBundleFile: `/${"c".repeat(4000)}` })),
+    )
+    expect(refused).toMatchObject({
+      _tag: "SettingsNotSaved",
+      message: `The settings would be larger than ${MAX_SETTINGS_BYTES} bytes.`,
+    })
+    expect(file.replaced).toEqual([])
+  })
+
   it("shows a watcher the settings now, then the latest after each change", async () => {
     const themes = await withStore(memorySettingsFile(), (store) =>
       Effect.scoped(
@@ -249,6 +261,8 @@ describe("the settings store", () => {
           yield* store.change({ theme: "light" })
           yield* store.change({ instructionMode: true })
           seen.push(...(yield* pull))
+          // And no more until the next change: it holds one wake, not one for each.
+          expect(Option.isNone(yield* Effect.timeoutOption(pull, "50 millis"))).toBe(true)
           return seen.map(({ settings }) => [settings.theme, settings.instructionMode])
         }),
       ),
