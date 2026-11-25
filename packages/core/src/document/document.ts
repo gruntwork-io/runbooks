@@ -71,11 +71,16 @@ export const EdgeSource = Schema.Union([
 ])
 export type EdgeSource = typeof EdgeSource.Type
 
+/**
+ * One reference between two blocks, each named by its index in
+ * `RunbookDocument.blocks`, as the tree's `block` nodes are. A display
+ * block written without an id can still read forms through `inputsId`.
+ */
 export const Edge = Schema.Struct({
   /** The block that reads. */
-  from: BlockId,
+  from: Schema.Int,
   /** The block it reads from. */
-  to: BlockId,
+  to: Schema.Int,
   source: EdgeSource,
   /** Where the reference is written. */
   file: Schema.String,
