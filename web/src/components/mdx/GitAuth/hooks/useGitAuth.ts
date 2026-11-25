@@ -7,6 +7,7 @@ import { decodeOutputs, encodeOutputs, revealOutputs, sensitiveOutput } from "@/
 import { omitUndefined } from "@/lib/omitUndefined"
 import { useSessionHistory } from "@/contexts/useSessionHistory"
 import { parseSavedGitAuth, type SavedGitAuth } from "@/lib/sessionHistory"
+import { useCredentialExpiry } from "@/components/mdx/_shared/hooks/useCredentialExpiry"
 import type {
   GitAuthMethod,
   GitAuthStatus,
@@ -69,6 +70,25 @@ const OAUTH_CODE_EXPIRED_MESSAGE = "Authorization request expired. Please try ag
 // for, so it must not read as a failed search or suggest a CLI login or env
 // var the block will ignore.
 const DETECTION_DISABLED_HINT = "This runbook doesn't use existing credentials — sign in below."
+
+/** Shown when a CLI sign-in could not be renewed and main gave no reason. */
+const cliRenewFailedMessage = (cliLabel: string, loginCmd: string) =>
+  `${cliLabel} could not renew your sign-in. Run '${loginCmd}', then select Re-authenticate.`
+
+/** A CLI-detected OAuth sign-in that main can renew from the CLI's own token store. */
+function isCliRenewable(
+  provider: ProviderConfig,
+  source: GitDetectionSource,
+  meta: GitSuccessMeta | null | undefined,
+  tokenType: GitTokenType | null | undefined,
+): boolean {
+  return (
+    Boolean(provider.channels.refreshCliCredential) &&
+    source === "cli" &&
+    meta?.source === "cli" &&
+    tokenType !== "pat"
+  )
+}
 
 /**
  * What a validated credential reports beyond its user: the token's scopes and
@@ -235,6 +255,18 @@ export function useGitAuth({
   // session credential with a different host (vcs:session-changed).
   const [sessionStale, setSessionStale] = useState(false)
   const authenticatedHostRef = useRef<string | undefined>(undefined)
+  // A CLI OAuth sign-in (glab) is renewed from the CLI as it nears expiry. The
+  // block warns once renewal fails (`cliRenewError`), or as for any other
+  // credential when main cannot renew this one (`cliRenewUnsupported`).
+  const [cliRenewError, setCliRenewError] = useState<string | null>(null)
+  const [cliRenewUnsupported, setCliRenewUnsupported] = useState(false)
+  const lastCliRenewKeyRef = useRef<string | null>(null)
+  // While a restored CLI sign-in is re-checked, its saved expiry is not shown.
+  const [restoreCheckPending, setRestoreCheckPending] = useState(
+    () =>
+      restored !== undefined &&
+      isCliRenewable(provider, restored.source ?? null, restored.meta, restored.tokenType),
+  )
   // Set by reAuthenticate: focus re-detection stays off until detection is
   // re-armed explicitly (Check again, Retry, Reload, a host pick or a
   // provider switch). State, not a ref, because it gates focusRedetectArmed.
@@ -1331,6 +1363,10 @@ export function useGitAuth({
     setSuccessMeta(null)
     setSessionStale(false)
     setSessionEnvWarning(null)
+    setCliRenewError(null)
+    setCliRenewUnsupported(false)
+    setRestoreCheckPending(false)
+    lastCliRenewKeyRef.current = null
   }, [stopOAuthPolling])
 
   // Reset the card to the sign-in form. Leaves the block's outputs alone:
@@ -1528,6 +1564,103 @@ export function useGitAuth({
     return () => window.removeEventListener("focus", onFocus)
   }, [focusRedetectArmed, retryUnreachable])
 
+  // Renewing a CLI OAuth sign-in. glab's OAuth tokens live two hours and glab
+  // replaces its token when it refreshes, which revokes the copy this block
+  // put in the session; main re-reads glab's token and swaps it in.
+  const expiry = useCredentialExpiry(authStatus === "authenticated" ? expiresAt : undefined)
+  const cliRenewable =
+    authStatus === "authenticated" &&
+    !cliRenewUnsupported &&
+    isCliRenewable(provider, detectionSource, successMeta, detectedTokenType)
+
+  const requestCliRenewal = useCallback(async () => {
+    const channel = provider.channels.refreshCliCredential
+    if (!channel) return undefined
+    return api.invoke(
+      channel,
+      instanceUrlForIpc
+        ? { instanceUrl: instanceUrlForIpc }
+        : omitUndefined({ host: effectiveHostRef.current }),
+    )
+  }, [api, provider, instanceUrlForIpc])
+
+  type CliRenewal = Awaited<ReturnType<typeof requestCliRenewal>>
+
+  // Show a renewed credential's expiry and scopes. False when the renewal did
+  // not leave a usable credential for this block's user.
+  const applyCliRenewal = useCallback(
+    (result: CliRenewal, login: string | undefined): boolean => {
+      if (result?.outcome !== "refreshed" && result?.outcome !== "unchanged") return false
+      if (login !== undefined && result.user.login !== login) return false
+      const at = result.expiresAt === undefined ? Number.NaN : Date.parse(result.expiresAt)
+      if (!Number.isNaN(at) && at <= Date.now()) return false
+      setExpiresAt(result.expiresAt)
+      if (result.scopes && result.scopes.length > 0) {
+        setDetectedScopes(result.scopes)
+        setMissingScope(shouldWarnMissingScope(result.scopes))
+      }
+      setCliRenewError(null)
+      return true
+    },
+    [shouldWarnMissingScope],
+  )
+
+  // The copy for a renewal that left no usable credential.
+  const cliRenewFailure = useCallback(
+    (result: CliRenewal): string => {
+      if (result?.outcome === "failed") return result.error
+      if (result?.outcome === "unreachable") {
+        return `Runbooks could not reach ${result.host} to renew your ${provider.cli.binary} sign-in. Check your connection, then select Re-authenticate.`
+      }
+      return cliRenewFailedMessage(provider.cli.binary, provider.cli.loginCmd)
+    },
+    [provider],
+  )
+
+  // Renew once the sign-in enters the expiry warning, and again once it has
+  // expired: glab only refreshes a token that is due, so the first attempt
+  // can find the same token, which then carries the sign-in to its expiry.
+  useEffect(() => {
+    if (!cliRenewable || restoreCheckPending) return
+    if (expiry !== "expiring" && expiry !== "expired") return
+    const key = `${expiry}#${expiresAt}`
+    if (lastCliRenewKeyRef.current === key) return
+    lastCliRenewKeyRef.current = key
+    const runId = detectionRunRef.current
+    const submit = patSubmitRef.current
+    const current = () => detectionRunRef.current === runId && patSubmitRef.current === submit
+    const login = userInfo?.login
+    void requestCliRenewal()
+      .catch(() => undefined)
+      .then((result) => {
+        if (!current()) return
+        if (result === undefined || result.outcome === "not-glab") {
+          setCliRenewUnsupported(true)
+          return
+        }
+        if (!applyCliRenewal(result, login)) setCliRenewError(cliRenewFailure(result))
+      })
+  }, [
+    cliRenewable,
+    restoreCheckPending,
+    expiry,
+    expiresAt,
+    userInfo,
+    requestCliRenewal,
+    applyCliRenewal,
+    cliRenewFailure,
+  ])
+
+  // Main also renews on its own, before a git operation or API call that
+  // would use a token about to expire, or after GitLab refused one.
+  useEffect(() => {
+    if (!cliRenewable) return
+    return api.on("gitlab:cli-credential-refreshed", (payload) => {
+      if (payload.host !== authenticatedHostRef.current) return
+      applyCliRenewal({ outcome: "refreshed", ...payload }, userInfo?.login)
+    })
+  }, [api, cliRenewable, userInfo, applyCliRenewal])
+
   // A restored sign-in is published at once, and then checked: the session's
   // history says the credential worked when the session was last open, not
   // that it still does (a token can be revoked or expire, and another block
@@ -1547,20 +1680,48 @@ export function useGitAuth({
       detectionRunRef.current === runId &&
       patSubmitRef.current === submit &&
       oauthFlowRef.current === flow
-    void validateToken(undefined, { useSessionToken: true }).then((check) => {
-      if (!current()) return
-      if (!check.valid && check.errorKind) return
-      const login = restoredAtMount.user.login
-      if (check.valid && check.user?.login === login) return
+    const login = restoredAtMount.user.login
+    const fail = (message: string) => {
       clearRegisteredOutputs(provider.id)
       clearDetectionState()
       setAuthStatus("failed")
-      setErrorMessage(
-        check.valid
-          ? `The session's ${provider.label} credential now belongs to ${check.user?.login ?? "another user"}, not ${login}. Sign in again.`
-          : `The sign-in saved with this session no longer works (${check.error ?? "the credential was refused"}). Sign in again.`,
-      )
-    })
+      setErrorMessage(message)
+    }
+    const validateSession = () =>
+      validateToken(undefined, { useSessionToken: true }).then((check) => {
+        if (!current()) return
+        if (!check.valid && check.errorKind) return
+        if (check.valid && check.user?.login === login) {
+          // The saved expiry is from when the session was last open; a fresh
+          // one wins, but a check that reports none says nothing about it.
+          if (check.expiresAt !== undefined) setExpiresAt(check.expiresAt)
+          return
+        }
+        fail(
+          check.valid
+            ? `The session's ${provider.label} credential now belongs to ${check.user?.login ?? "another user"}, not ${login}. Sign in again.`
+            : `The sign-in saved with this session no longer works (${check.error ?? "the credential was refused"}). Sign in again.`,
+        )
+      })
+    if (!restoreCheckPending) {
+      void validateSession()
+      return
+    }
+    // A CLI OAuth sign-in is re-read from the CLI, whose token has likely been
+    // refreshed (and the saved copy revoked) since the session was last open.
+    void requestCliRenewal()
+      .catch(() => undefined)
+      .then((result) => {
+        if (!current()) return
+        setRestoreCheckPending(false)
+        if (result === undefined || result.outcome === "not-glab") {
+          setCliRenewUnsupported(true)
+          void validateSession()
+          return
+        }
+        if (result.outcome === "unreachable") return
+        if (!applyCliRenewal(result, login)) fail(cliRenewFailure(result))
+      })
     // Runs once, for the sign-in the block mounted with.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restoredAtMount])
@@ -1661,6 +1822,10 @@ export function useGitAuth({
     missingScope,
     detectionWarning,
     sessionEnvWarning,
+    expiry,
+    // True while a CLI OAuth sign-in is renewed from the CLI rather than warned about.
+    cliRenewing: cliRenewable && cliRenewError === null,
+    cliRenewError: cliRenewable ? cliRenewError : null,
     // The wait ends when the block runs, before the resumed walk settles.
     waitingForBlockId:
       waitingForBlockId && blockPending(waitingForBlockId) ? waitingForBlockId : null,

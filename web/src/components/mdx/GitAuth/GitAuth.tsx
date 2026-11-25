@@ -17,7 +17,6 @@ import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
 import { CredentialExpiryNotice } from "@/components/mdx/_shared/components/CredentialExpiryNotice"
 import { DetectionHint } from "@/components/mdx/_shared/components/DetectionHint"
-import { useCredentialExpiry } from "@/components/mdx/_shared/hooks/useCredentialExpiry"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import { AutoCollapse, CollapseButton } from "@/components/mdx/_shared/components/AutoCollapse"
 import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
@@ -171,9 +170,8 @@ function GitAuthInteractive({
     setProvider(next)
   }
 
-  const expiry = useCredentialExpiry(
-    auth.authStatus === "authenticated" ? auth.expiresAt : undefined,
-  )
+  // A CLI OAuth sign-in being renewed from the CLI is not shown as expiring.
+  const expiry = auth.cliRenewing ? undefined : auth.expiry
 
   // "Other instance…" in the host picker asks for the instance-URL field.
   // Focused from here rather than from PatForm: the form remounts whenever
@@ -532,7 +530,17 @@ function GitAuthInteractive({
               <CredentialExpiryNotice
                 expiresAt={auth.expiresAt}
                 expiry={expiry}
-                onSignInAgain={auth.reAuthenticate}
+                {...(auth.cliRenewError
+                  ? {
+                      // Re-detects, so a fresh CLI login is picked up at once.
+                      onSignInAgain: auth.retryUnreachable,
+                      remedy: {
+                        subject: `Your ${providerConfig.cli.binary} sign-in`,
+                        detail: auth.cliRenewError,
+                        actionLabel: "Re-authenticate",
+                      },
+                    }
+                  : { onSignInAgain: auth.reAuthenticate })}
               />
             )}
 

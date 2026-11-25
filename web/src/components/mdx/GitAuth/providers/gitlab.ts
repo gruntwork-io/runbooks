@@ -28,6 +28,7 @@ export const gitlabProviderConfig: ProviderConfig = {
     cliCredentials: "gitlab:cli-credentials",
     enumerateHosts: "gitlab:enumerate-hosts",
     hostPicked: "gitlab:host-picked",
+    refreshCliCredential: "gitlab:refresh-cli-credential",
   },
   // GitLab users can be logged into gitlab.com and/or self-managed instances.
   supportsHostSelection: true,

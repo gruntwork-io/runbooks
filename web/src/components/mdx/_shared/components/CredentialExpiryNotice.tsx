@@ -7,6 +7,8 @@ interface CredentialExpiryNoticeProps {
   expiresAt: string
   expiry: CredentialExpiry
   onSignInAgain: () => void
+  /** Who issued the credential and what to do, in place of the generic advice. */
+  remedy?: { subject: string; detail: string; actionLabel: string } | undefined
 }
 
 /**
@@ -18,6 +20,7 @@ export function CredentialExpiryNotice({
   expiresAt,
   expiry,
   onSignInAgain,
+  remedy,
 }: CredentialExpiryNoticeProps) {
   if (expiry === "valid") return null
   const time = new Date(expiresAt).toLocaleString(undefined, {
@@ -33,16 +36,26 @@ export function CredentialExpiryNotice({
       <AlertTriangle className="size-4 text-destructive mt-0.5 shrink-0" />
       <div className="min-w-0">
         <p className="text-sm font-medium text-destructive m-0">
-          {expiry === "expired"
-            ? "These credentials have expired"
-            : `These credentials expire in less than ${EXPIRY_WARNING_MS / 60_000} minutes`}
+          {remedy
+            ? expiry === "expired"
+              ? `${remedy.subject} has expired`
+              : `${remedy.subject} expires in less than ${EXPIRY_WARNING_MS / 60_000} minutes`
+            : expiry === "expired"
+              ? "These credentials have expired"
+              : `These credentials expire in less than ${EXPIRY_WARNING_MS / 60_000} minutes`}
         </p>
         <p className="text-xs text-destructive m-0 mt-0.5">
-          {expiry === "expired" ? `They expired at ${time}.` : `They expire at ${time}.`} Sign in
-          again to keep running the blocks that use them.
+          {remedy ? (
+            remedy.detail
+          ) : (
+            <>
+              {expiry === "expired" ? `They expired at ${time}.` : `They expire at ${time}.`} Sign
+              in again to keep running the blocks that use them.
+            </>
+          )}
         </p>
         <Button variant="outline" size="sm" className="mt-2" onClick={onSignInAgain}>
-          Sign in again
+          {remedy?.actionLabel ?? "Sign in again"}
         </Button>
       </div>
     </div>

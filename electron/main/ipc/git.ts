@@ -52,6 +52,10 @@ import { validateCloneDestination, validateSessionPath } from "./path-guard.ts"
 import { describeCause } from "./ipc-error.ts"
 import { isLocalBranchConflict, prBlockOutputs } from "./git-pr-result.ts"
 import { makeLogger } from "../logger.ts"
+import {
+  ensureFreshGlabSessionCredential,
+  withFreshGlabCredentialExit,
+} from "./gitlab-cli-refresh.ts"
 import type { GitCloneRequest, GitLocalRepoResponse } from "../../shared/channels.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 
@@ -334,6 +338,7 @@ export function registerGitHandlers(): void {
     // A clone can take minutes; if a different runbook opens meanwhile, the
     // finished checkout must not become that runbook's active worktree.
     const generation = sessionManager.getGeneration()
+    await ensureFreshGlabSessionCredential()
     return runCancellableClone(params.cloneId, (signal) =>
       runAndUnwrap(
         Effect.scoped(
@@ -796,7 +801,9 @@ export function registerGitHandlers(): void {
         sendLog("Push complete.")
       })
 
-      const exit = await runtime.runPromiseExit(program)
+      const run = () => runtime.runPromiseExit(program)
+      const exit =
+        params.provider === "gitlab" ? await withFreshGlabCredentialExit(run) : await run()
 
       if (Exit.isSuccess(exit)) {
         event.sender.send("git:status", { status: "success", exitCode: 0 })
@@ -848,6 +855,7 @@ export function registerGitHandlers(): void {
         )
       })
 
+      if (params.provider === "gitlab") await ensureFreshGlabSessionCredential()
       const exit = await runtime.runPromiseExit(program)
 
       if (Exit.isSuccess(exit)) {
@@ -903,7 +911,11 @@ export function registerGitHandlers(): void {
       return yield* createMergeRequest(token, buildPrParams(params, repoPath), sendLog)
     })
 
-    return respondToGitPrExit(event, await runtime.runPromiseExit(program), params.headBranch)
+    return respondToGitPrExit(
+      event,
+      await withFreshGlabCredentialExit(() => runtime.runPromiseExit(program)),
+      params.headBranch,
+    )
   })
 
   ipcMain.handle(

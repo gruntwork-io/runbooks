@@ -50,6 +50,12 @@ import {
 } from "./vcs-tristate.ts"
 import { registerSecret } from "../../../src/domain/vcs/redact.ts"
 import {
+  ensureFreshGlabSessionCredential,
+  recordGlabSessionExpiry,
+  refreshGlabSessionCredential,
+  withFreshGlabCredential,
+} from "./gitlab-cli-refresh.ts"
+import {
   readVcsAuthStore,
   addRecentGitLabHost,
   setLastSelectedGitLabHost,
@@ -208,13 +214,14 @@ export function registerGitLabHandlers(): void {
       // Session mode releases the session credential only to the host the
       // auth block bound it to (as for GitHub), and never over plain http:
       // it may be an auto-detected env or CLI token.
-      const token = params.useSessionToken
-        ? await runtime.runPromise(
-            getGitLabSessionTokenForOrigin(baseUrl, noSessionCredential).pipe(
-              Effect.orElseSucceed(() => undefined),
-            ),
-          )
-        : params.token
+      const sessionToken = () =>
+        runtime.runPromise(
+          getGitLabSessionTokenForOrigin(baseUrl, noSessionCredential).pipe(
+            Effect.orElseSucceed(() => undefined),
+          ),
+        )
+      if (params.useSessionToken) await ensureFreshGlabSessionCredential()
+      let token = params.useSessionToken ? await sessionToken() : params.token
       if (!token) {
         return {
           valid: false,
@@ -225,13 +232,25 @@ export function registerGitLabHandlers(): void {
         }
       }
       registerSecret(token)
+      const validate = (candidate: string) =>
+        withTlsOrchestration({
+          provider: "gitlab",
+          host,
+          detect: () => withVcs((vcs) => vcs.validateDirect("gitlab", baseUrl, candidate)),
+          probeSource: "manual",
+        })
+      let result = await validate(token)
+      // A session copy of glab's token that GitLab refused may have been
+      // superseded by a refresh in glab: retry once with glab's current one.
+      if (
+        params.useSessionToken &&
+        result.outcome === "invalid" &&
+        (await refreshGlabSessionCredential(host)).outcome === "refreshed"
+      ) {
+        token = (await sessionToken()) ?? token
+        result = await validate(token)
+      }
       const tokenType = detectTokenType(token)
-      const result = await withTlsOrchestration({
-        provider: "gitlab",
-        host,
-        detect: () => withVcs((vcs) => vcs.validateDirect("gitlab", baseUrl, token)),
-        probeSource: "manual",
-      })
       if (result.outcome === "valid") {
         let sessionEnvWarning: string | undefined
         if (params.registerSession && !params.useSessionToken && result.user) {
@@ -355,6 +374,7 @@ export function registerGitLabHandlers(): void {
           },
           generation,
         )
+        recordGlabSessionExpiry(host, result.expiresAt)
         setLastSelectedGitLabHost(host)
       }
 
@@ -363,6 +383,18 @@ export function registerGitLabHandlers(): void {
         ...(result.token ? { tokenType: detectTokenType(result.token) } : {}),
         ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
       }
+    },
+  )
+
+  // Re-read glab's token for the session's glab sign-in and swap a fresher
+  // one into the session (gitlab-cli-refresh.ts). Answers metadata only.
+  ipcMain.handle(
+    "gitlab:refresh-cli-credential",
+    async (_event, params: { host?: string; instanceUrl?: string } = {}) => {
+      const requested = params.instanceUrl ?? params.host
+      const host = requested ? tryNormalizeGitLabHost(requested) : undefined
+      if (requested && !host) return { outcome: "not-glab" as const }
+      return refreshGlabSessionCredential(host)
     },
   )
 
@@ -382,7 +414,7 @@ export function registerGitLabHandlers(): void {
       })
 
       try {
-        const labels = await runtime.runPromise(program)
+        const labels = await withFreshGlabCredential(() => runtime.runPromise(program))
         return { labels }
       } catch {
         return { labels: [] }
@@ -394,12 +426,14 @@ export function registerGitLabHandlers(): void {
   // so the renderer never handles it, but a failure rejects so the browser can
   // say why a list is empty.
   ipcMain.handle("gitlab:namespaces", async (_event, params?: { host?: string }) =>
-    runtime.runPromise(
-      Effect.gen(function* () {
-        const { token, baseUrl } = yield* getSessionCredential(params?.host)
-        const client = yield* GitLabClient
-        return yield* client.listNamespaces(token, baseUrl)
-      }),
+    withFreshGlabCredential(() =>
+      runtime.runPromise(
+        Effect.gen(function* () {
+          const { token, baseUrl } = yield* getSessionCredential(params?.host)
+          const client = yield* GitLabClient
+          return yield* client.listNamespaces(token, baseUrl)
+        }),
+      ),
     ),
   )
 
@@ -413,22 +447,26 @@ export function registerGitLabHandlers(): void {
         host?: string
       },
     ) =>
-      runtime.runPromise(
-        Effect.gen(function* () {
-          const { token, baseUrl } = yield* getSessionCredential(params.host)
-          const client = yield* GitLabClient
-          return yield* client.listProjects(token, params.namespace, params.search, baseUrl)
-        }),
+      withFreshGlabCredential(() =>
+        runtime.runPromise(
+          Effect.gen(function* () {
+            const { token, baseUrl } = yield* getSessionCredential(params.host)
+            const client = yield* GitLabClient
+            return yield* client.listProjects(token, params.namespace, params.search, baseUrl)
+          }),
+        ),
       ),
   )
 
   ipcMain.handle("gitlab:refs", async (_event, params: { project: string; host?: string }) =>
-    runtime.runPromise(
-      Effect.gen(function* () {
-        const { token, baseUrl } = yield* getSessionCredential(params.host)
-        const client = yield* GitLabClient
-        return yield* client.listRefs(token, params.project, baseUrl)
-      }),
+    withFreshGlabCredential(() =>
+      runtime.runPromise(
+        Effect.gen(function* () {
+          const { token, baseUrl } = yield* getSessionCredential(params.host)
+          const client = yield* GitLabClient
+          return yield* client.listRefs(token, params.project, baseUrl)
+        }),
+      ),
     ),
   )
 }
