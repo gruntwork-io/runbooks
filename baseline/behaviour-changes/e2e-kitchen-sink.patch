@@ -1,0 +1,27 @@
+diff --git a/electron/e2e/kitchen-sink.spec.ts b/electron/e2e/kitchen-sink.spec.ts
+index d5c82436..8c73293c 100644
+--- a/electron/e2e/kitchen-sink.spec.ts
++++ b/electron/e2e/kitchen-sink.spec.ts
+@@ -361,16 +361,19 @@ test.describe("Templates", () => {
+     }
+   })
+ 
+-  test("template inline with generateFile writes the rendered file", async () => {
++  test("template inline with generateFile writes the rendered file on Generate", async () => {
+     // Pins boilerplate:render-inline's write path end to end: the component
+     // tests mock IPC, so only a real run shows the file lands on disk.
+     // The `gen-file-tpl` block writes into the generated-files dir of the
+-    // session, the only one in this throwaway profile. It starts empty, so
+-    // the check can only pass if this run wrote the file.
++    // session, the only one in this throwaway profile. Nothing is written
++    // before a click on Generate, so the check can only pass if it wrote.
+     const sessionDirs = path.join(workDir, "user-data", "v0", "sessions", "dirs")
+     const [sessionId, ...others] = fs.readdirSync(sessionDirs)
+     expect(others).toEqual([])
+     const written = path.join(sessionDirs, sessionId!, "generated", "generated.yaml")
++    expect(fs.existsSync(written)).toBe(false)
++    const block = page.locator('[data-testid="gen-file-tpl"]')
++    await block.getByRole("button", { name: "Generate" }).click()
+     await expect
+       .poll(() => (fs.existsSync(written) ? fs.readFileSync(written, "utf-8") : ""))
+       .toContain("name: hello world")

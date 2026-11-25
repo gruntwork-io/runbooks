@@ -1,0 +1,50 @@
+diff --git a/testdata/feature-demos/finish/runbook.mdx b/testdata/feature-demos/finish/runbook.mdx
+index 106ae749..5538c826 100644
+--- a/testdata/feature-demos/finish/runbook.mdx
++++ b/testdata/feature-demos/finish/runbook.mdx
+@@ -6,11 +6,11 @@ When you click **Finish**, it runs an optional final check. If the check passes,
+ 
+ ## 1. Set Up
+ 
+-This block exports `DEMO_READY=true`. The environment carries forward to later blocks, so the final check below can see it.
++This block creates a `.demo-ready` file in the working directory, so the final check below can see it. Files in the working directory last from block to block; exported variables don't.
+ 
+ <Command
+     id="setup"
+-    command="export DEMO_READY=true && echo 'Setup complete.'"
++    command="touch .demo-ready && echo 'Setup complete.'"
+     title="Get ready to finish"
+     successMessage="Ready!"
+ />
+@@ -21,7 +21,7 @@ The final check passes only once the setup block has run. Try clicking **Finish*
+ 
+ <Finish
+     id="finish"
+-    command='test "$DEMO_READY" = true'
++    command='test -f .demo-ready'
+     description="Checks that the setup block has run."
+ >
+ 
+diff --git a/testdata/feature-demos/finish/runbook_test.yml b/testdata/feature-demos/finish/runbook_test.yml
+index 479d0587..b1f74213 100644
+--- a/testdata/feature-demos/finish/runbook_test.yml
++++ b/testdata/feature-demos/finish/runbook_test.yml
+@@ -8,15 +8,13 @@ settings:
+ tests:
+   - name: happy-path
+     description: |
+-      Every block runs in document order: setup exports DEMO_READY, so the
++      Every block runs in document order: setup creates .demo-ready, so the
+       final check passes and the runbook finishes.
+ 
+   - name: final-check-fails-without-setup
+     description: |
+-      Without the setup block, DEMO_READY is never set to true, so the final
+-      check fails. The test empties it in case the shell running it sets it.
+-    env:
+-      DEMO_READY: ""
++      Without the setup block, .demo-ready never exists, so the final check
++      fails.
+     steps:
+       - block: setup
+         expect: skip

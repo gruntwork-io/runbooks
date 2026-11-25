@@ -1,0 +1,128 @@
+diff --git a/electron/e2e/execution-flow.spec.ts b/electron/e2e/execution-flow.spec.ts
+index 759146f0..6387a342 100644
+--- a/electron/e2e/execution-flow.spec.ts
++++ b/electron/e2e/execution-flow.spec.ts
+@@ -2,7 +2,7 @@
+  * Kitchen Sink Execution Flow E2E tests.
+  *
+  * Tests the execution pipeline by clicking Run/Check buttons and verifying
+- * outputs, status changes, environment persistence, and file capture.
++ * outputs, status changes, environment passing, and file capture.
+  *
+  * These tests are sequential — later tests depend on outputs from earlier ones.
+  *
+@@ -135,7 +135,7 @@ test.describe("Execution Flow", () => {
+     await expect(section.getByText("Warning detected", { exact: false })).toBeVisible()
+   })
+ 
+-  test("run set-env then verify-env for environment persistence", async () => {
++  test("run set-env then verify-env, which names it in envFrom", async () => {
+     await runBlock("set-env")
+     await waitForSuccess("set-env")
+ 
+@@ -143,7 +143,7 @@ test.describe("Execution Flow", () => {
+     await waitForSuccess("verify-env")
+   })
+ 
+-  test("run change-dir then verify-workdir for working directory persistence", async () => {
++  test("run change-dir then verify-workdir: the cd does not carry over", async () => {
+     await runBlock("change-dir")
+     await waitForSuccess("change-dir")
+ 
+diff --git a/testdata/kitchen-sink/checks/verify-workdir.sh b/testdata/kitchen-sink/checks/verify-workdir.sh
+index ef0dbdd5..19e3c19b 100755
+--- a/testdata/kitchen-sink/checks/verify-workdir.sh
++++ b/testdata/kitchen-sink/checks/verify-workdir.sh
+@@ -1,10 +1,11 @@
+ #!/bin/bash
+ CWD="$(pwd)"
++# A cd lasts only for its own script, so this starts in the working directory.
+ # macOS symlinks /tmp to /private/tmp
+-if [ "$CWD" = "/tmp" ] || [[ "$CWD" == /private/tmp* ]]; then
++if [ "$CWD" = "/tmp" ] || [ "$CWD" = "/private/tmp" ]; then
++    echo "FAIL: Working directory is $CWD: the cd in change-dir carried over"
++    exit 1
++else
+     echo "OK: Working directory is $CWD"
+     exit 0
+-else
+-    echo "FAIL: Working directory is $CWD, expected /tmp"
+-    exit 1
+ fi
+diff --git a/testdata/kitchen-sink/runbook.mdx b/testdata/kitchen-sink/runbook.mdx
+index 70ac78ae..7d804b80 100644
+--- a/testdata/kitchen-sink/runbook.mdx
++++ b/testdata/kitchen-sink/runbook.mdx
+@@ -440,7 +440,7 @@ port: {{ .inputs.int_field }}
+ 
+ ---
+ 
+-## 10. Environment & Working Directory Persistence
++## 10. Passing Environment Variables, and `cd`
+ 
+ ### Set Environment Variables
+ 
+@@ -448,19 +448,20 @@ port: {{ .inputs.int_field }}
+   id="set-env"
+   path="scripts/use-env-persistence.sh"
+   title="Set Environment Variables"
+-  description="Exports `KS_ENV_VAR` and `KS_COUNTER`. These should persist to subsequent blocks."
+-  successMessage="Environment variables exported!"
++  description="Writes `KS_ENV_VAR` and `KS_COUNTER` to `$RUNBOOK_ENV`. Blocks that name this one in `envFrom` get them."
++  successMessage="Environment variables written!"
+ />
+ 
+ ### Verify Environment Persistence
+ 
+ <Check
+   id="verify-env"
++  envFrom={["set-env"]}
+   path="checks/verify-env.sh"
+-  title="Verify Env Vars Persisted"
+-  description="Checks that `KS_ENV_VAR` and `KS_COUNTER` from the previous block are available."
+-  successMessage="Environment variables persisted!"
+-  failMessage="Environment variables did NOT persist. Run the block above first."
++  title="Verify Env Vars Passed"
++  description="Names the block above in `envFrom`, and checks that `KS_ENV_VAR` and `KS_COUNTER` arrived."
++  successMessage="Environment variables passed!"
++  failMessage="Environment variables did NOT arrive."
+ />
+ 
+ ### Change Working Directory
+@@ -469,8 +470,8 @@ port: {{ .inputs.int_field }}
+   id="change-dir"
+   path="scripts/change-workdir.sh"
+   title="Change Working Directory"
+-  description="Changes the working directory to `/tmp`."
+-  successMessage="Working directory changed to /tmp!"
++  description="Changes the working directory to `/tmp`, for its own script only."
++  successMessage="Changed to /tmp for this script."
+ />
+ 
+ ### Verify Working Directory Persistence
+@@ -479,9 +480,9 @@ port: {{ .inputs.int_field }}
+   id="verify-workdir"
+   path="checks/verify-workdir.sh"
+   title="Verify Working Directory"
+-  description="Confirms the working directory is still `/tmp`."
+-  successMessage="Working directory persisted!"
+-  failMessage="Working directory did not persist."
++  description="Confirms it starts in the working directory, not in `/tmp`."
++  successMessage="Started in the working directory."
++  failMessage="Still in /tmp: the cd carried over."
+ />
+ 
+ ---
+diff --git a/testdata/kitchen-sink/scripts/use-env-persistence.sh b/testdata/kitchen-sink/scripts/use-env-persistence.sh
+index 360e5de7..9526f814 100755
+--- a/testdata/kitchen-sink/scripts/use-env-persistence.sh
++++ b/testdata/kitchen-sink/scripts/use-env-persistence.sh
+@@ -1,5 +1,4 @@
+ #!/bin/bash
+-export KS_ENV_VAR="kitchen-sink-value"
+-export KS_COUNTER=42
+-echo "Exported KS_ENV_VAR=$KS_ENV_VAR"
+-echo "Exported KS_COUNTER=$KS_COUNTER"
++echo "KS_ENV_VAR=kitchen-sink-value" >> "$RUNBOOK_ENV"
++echo "KS_COUNTER=42" >> "$RUNBOOK_ENV"
++echo "Wrote KS_ENV_VAR and KS_COUNTER to \$RUNBOOK_ENV"

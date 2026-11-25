@@ -1,0 +1,22 @@
+diff --git a/testdata/feature-demos/show-when-block/runbook.mdx b/testdata/feature-demos/show-when-block/runbook.mdx
+index e1a0ea17..f260654a 100644
+--- a/testdata/feature-demos/show-when-block/runbook.mdx
++++ b/testdata/feature-demos/show-when-block/runbook.mdx
+@@ -19,7 +19,7 @@ The first run of this check fails. That shows the **Re-run the plan** block belo
+ <Check
+   id="check-plan"
+   title="Check the plan"
+-  command='test "${PLAN_FIXED:-}" = 1'
++  command='test -f .plan-fixed || test "${PLAN_FIXED:-}" = 1'
+   successMessage="The plan passed."
+   failMessage="The plan failed. Re-run it below."
+ />
+@@ -29,7 +29,7 @@ The first run of this check fails. That shows the **Re-run the plan** block belo
+   title="Re-run the plan"
+   description="Shown only while **Check the plan** has failed."
+   showWhenBlock={{ id: "check-plan", status: "fail" }}
+-  command="export PLAN_FIXED=1"
++  command="touch .plan-fixed"
+ />
+ 
+ Once the plan is re-run, run **Check the plan** again. It passes, which hides **Re-run the plan** and shows the next step.

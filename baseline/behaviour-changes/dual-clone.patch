@@ -1,0 +1,56 @@
+diff --git a/testdata/sample-runbooks/dual-clone/runbook.mdx b/testdata/sample-runbooks/dual-clone/runbook.mdx
+index 5c30be6b..51b47ea9 100644
+--- a/testdata/sample-runbooks/dual-clone/runbook.mdx
++++ b/testdata/sample-runbooks/dual-clone/runbook.mdx
+@@ -5,7 +5,7 @@ block types and scenarios.
+ 
+ ## Scenario 1: Command blocks inherit and propagate CWD
+ 
+-A Command block that changes directory should affect subsequent Command blocks.
++A Command block that changes directory does so only for its own script. The next block starts in the working directory again.
+ 
+ <Command
+     id="cd-subdir"
+@@ -18,14 +18,13 @@ A Command block that changes directory should affect subsequent Command blocks.
+     id="verify-cwd"
+     command='pwd; echo "cwd=$(pwd)" >> "${RUNBOOK_OUTPUT:-/dev/null}"'
+     title="Verify CWD"
+-    description="Should show that we're now inside subdir"
++    description="Should show that it starts in the working directory, not in subdir"
+ />
+ 
+-## Scenario 2: GitClone resolves relative to the initial working directory
++## Scenario 2: GitClone resolves relative to the working directory
+ 
+-Even though the Command above changed the session CWD to `subdir/`,
+-a GitClone block should still resolve paths relative to the *initial*
+-working directory (where the runbook server was started).
++The Command above changed directory only for its own script, so a GitClone
++block resolves paths relative to the working directory, as every block does.
+ 
+ <GitClone
+     id="clone-after-cd"
+diff --git a/testdata/sample-runbooks/dual-clone/runbook_test.yml b/testdata/sample-runbooks/dual-clone/runbook_test.yml
+index 681bd059..10256232 100644
+--- a/testdata/sample-runbooks/dual-clone/runbook_test.yml
++++ b/testdata/sample-runbooks/dual-clone/runbook_test.yml
+@@ -7,8 +7,8 @@ settings:
+ tests:
+   - name: commands-run-in-sequence
+     description: |
+-      cd-subdir changes directory and verify-cwd runs in the drifted CWD
+-      (CWD propagation works end-to-end). Backend coverage for the UI test
++      cd-subdir changes directory for its own script only, and verify-cwd
++      starts in the working directory, not in subdir. Backend coverage for the UI test
+       that used to live in web/e2e/test-sample-runbooks.spec.ts.
+     steps:
+       - block: cd-subdir
+@@ -21,7 +21,7 @@ tests:
+       - type: output_matches
+         block: verify-cwd
+         output: cwd
+-        pattern: "/subdir$"
++        pattern: "^(?!.*/subdir$)"
+ 
+     # TODO: issue #94 regression (GitClone after cd resolves paths relative to
+     # initial workDir, not drifted CWD) — currently covered only via the

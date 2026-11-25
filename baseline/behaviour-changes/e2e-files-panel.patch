@@ -1,0 +1,27 @@
+diff --git a/electron/e2e/files-panel.spec.ts b/electron/e2e/files-panel.spec.ts
+index 94284793..1b883aba 100644
+--- a/electron/e2e/files-panel.spec.ts
++++ b/electron/e2e/files-panel.spec.ts
+@@ -117,7 +117,7 @@ variables:
+ 
+ <GitClone id="repo" title="Use the checkout" source="local" prefilledRepoDir="${checkoutDir}" />
+ 
+-<Command id="edit-repo" title="Edit the checkout" path="edit-repo.sh" successMessage="Edited" />
++<Command id="edit-repo" title="Edit the checkout" repository="repo" path="edit-repo.sh" successMessage="Edited" />
+ `
+ }
+ 
+@@ -299,10 +299,12 @@ test("generated files appear in the tree as blocks write them, and match the fol
+   await treeItem(page, "config").click()
+   await expect(treeItem(page, "app.yaml")).toHaveCount(0)
+ 
+-  // TemplateInline: writes its file once its input has a value.
++  // TemplateInline: writes its file on Generate, once its input has a value.
+   const note = page.getByTestId("note")
+   await note.getByRole("textbox", { name: "Note" }).fill("hello from inline")
+   await note.getByRole("button", { name: "Submit" }).click()
++  await expect(panelText(page, "3 files generated")).toBeVisible()
++  await page.getByTestId("inline").getByRole("button", { name: "Generate", exact: true }).click()
+   await expect(panelText(page, "4 files generated")).toBeVisible({ timeout: 20_000 })
+   await expect(treeItem(page, "notes")).toBeVisible()
+ 

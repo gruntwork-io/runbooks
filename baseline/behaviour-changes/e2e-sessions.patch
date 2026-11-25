@@ -1,0 +1,51 @@
+diff --git a/electron/e2e/sessions.spec.ts b/electron/e2e/sessions.spec.ts
+index f34009cf..10bec556 100644
+--- a/electron/e2e/sessions.spec.ts
++++ b/electron/e2e/sessions.spec.ts
+@@ -47,15 +47,16 @@ echo waiting
+ sleep 60
+ `
+ 
+-// What a block leaves in its session: an exported variable and a `cd`.
++// What a block leaves in its session: a file in the session's directory.
++// Its `cd` lasts only until the script ends.
+ const SAVE_SCRIPT = `#!/bin/bash
+-export SAVED=from-first-run
+ mkdir -p work
++echo from-first-run > work/saved
+ cd work
+ `
+ 
+ const SHOW_SCRIPT = `#!/bin/bash
+-echo "saved=\${SAVED:-unset}"
++echo "saved=$(cat work/saved 2>/dev/null || echo unset)"
+ echo "pwd=$PWD"
+ `
+ 
+@@ -225,8 +226,9 @@ test.describe("Saved sessions", () => {
+       expect(await sessionName(second.page)).toBe(name)
+       await expect(second.page.getByText(`Resumed session ${name}`)).toBeVisible()
+       await second.page.getByRole("button", { name: "Dismiss" }).click()
+-      // The export and the `cd` of the first run's block are both back.
+-      expect(await showSession(second.page, "from-first-run")).toBe(path.join(sessionDir, "work"))
++      // What the first run's block wrote is back, and scripts still start in
++      // the session's directory: its `cd` did not carry over.
++      expect(await showSession(second.page, "from-first-run")).toBe(sessionDir)
+     } finally {
+       await second.app.close()
+     }
+@@ -556,12 +558,12 @@ test.describe("Saved sessions", () => {
+       const secondName = await sessionName(page)
+       const secondDir = await showSession(page, "unset")
+ 
+-      // Back to the first session: its env and its directory come back.
++      // Back to the first session: its directory and what was written there come back.
+       let dialog = await openSessions(page)
+       await expect(sessionButton(dialog, secondName)).toBeDisabled()
+       await sessionButton(dialog, firstName).click()
+       await expect(page.getByTestId("session-name")).toHaveText(firstName)
+-      expect(await showSession(page, "from-first-run")).toBe(path.join(firstDir, "work"))
++      expect(await showSession(page, "from-first-run")).toBe(firstDir)
+ 
+       // A running script makes the switch ask first.
+       const wait = page.locator('[data-testid="wait"]')
