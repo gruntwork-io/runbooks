@@ -53,11 +53,11 @@ export interface EngineShape {
     payload: Rpc.Payload<typeof Events>,
   ) => Stream.Stream<EventEnvelope, UnknownSession>
   readonly getBlock: Command<typeof GetBlock>
-  /** Enters values as if typed. Each one entered counts as reviewed. */
-  readonly setValues: Command<typeof SetValues>
-  /** Counts every field the form shows as reviewed, defaults included. */
-  readonly confirmValues: Command<typeof ConfirmValues>
-  /** An agent's run is refused until every field it reads is reviewed. */
+  /** Enters values as if typed. An agent's are reviewed; a value a person changes is not. */
+  readonly setValues: Command<typeof SetValues, Caller>
+  /** An agent's counts every field the form shows as reviewed, defaults included; a person's changes nothing. */
+  readonly confirmValues: Command<typeof ConfirmValues, Caller>
+  /** Runs a task or submits a form. An agent's is refused until every field it reads is reviewed. */
   readonly runBlock: Command<typeof RunBlock, Caller>
   readonly cancelBlock: Command<typeof CancelBlock>
   readonly resetBlock: Command<typeof ResetBlock>
@@ -177,11 +177,13 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
           }),
 
           setValues: Effect.fn("Engine.setValues")(function* ({ session, block, values }) {
-            return yield* (yield* lookup(session)).setValues(block, values)
+            const { origin } = yield* Caller
+            return yield* (yield* lookup(session)).setValues(block, values, origin)
           }),
 
           confirmValues: Effect.fn("Engine.confirmValues")(function* ({ session, block }) {
-            return yield* (yield* lookup(session)).confirmValues(block)
+            const { origin } = yield* Caller
+            return yield* (yield* lookup(session)).confirmValues(block, origin)
           }),
 
           runBlock: Effect.fn("Engine.runBlock")(function* ({ session, block }) {

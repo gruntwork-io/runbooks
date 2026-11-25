@@ -17,7 +17,14 @@ import { ContentHash } from "../document/document.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY, ToyField, toyFormSpec } from "../test-utils/toyRegistry.ts"
 import { Engine } from "./engine.ts"
-import { Caller, type EventEnvelope, type Origin, SessionId, type SessionView } from "./protocol.ts"
+import {
+  Caller,
+  type EventEnvelope,
+  type Origin,
+  type OutputView,
+  SessionId,
+  type SessionView,
+} from "./protocol.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
 const blockId = Schema.decodeSync(BlockId)
@@ -624,7 +631,12 @@ describe("Engine", () => {
         )
         expect((yield* Effect.flip(rb.block("b")))._tag).toBe("UnknownBlock")
         expect((yield* Effect.flip(rb.set("b", {})))._tag).toBe("UnknownBlock")
-        expect(yield* Effect.flip(rb.run("config"))).toMatchObject({
+        expect(yield* Effect.flip(rb.run("git"))).toMatchObject({
+          _tag: "WrongClass",
+          class: "credential",
+          expected: ["form", "task"],
+        })
+        expect(yield* Effect.flip(rb.cancel("config"))).toMatchObject({
           _tag: "WrongClass",
           class: "form",
           expected: ["task"],
@@ -674,7 +686,7 @@ describe("Engine values", () => {
         yield* rb.trust
         const view = yield* rb.block("config")
         expect(view.status).toEqual({ _tag: "Idle" })
-        expect(view.actions).toEqual(["setValues", "confirmValues"])
+        expect(view.actions).toEqual(["run", "setValues", "confirmValues"])
         expect(view.fields?.map((f) => [f.name, f.value, f.default, f.reviewed])).toEqual([
           ["region", shown("us-east-1"), "us-east-1", false],
           ["count", shown(3), 3, false],
@@ -687,14 +699,14 @@ describe("Engine values", () => {
     )
   })
 
-  it("marks a value reviewed once it is set or confirmed, and logs each change once", async () => {
+  it("marks a value reviewed once an agent sets or confirms it, and logs each change once", async () => {
     await withEngine(
       CONFIG,
       {},
       Effect.gen(function* () {
         const rb = yield* commandsFor(yield* open)
         const recording = yield* rb.record
-        expect(yield* rb.set("config", { region: "eu-west-1" })).toEqual({
+        expect(yield* asAgent(rb.set("config", { region: "eu-west-1" }))).toEqual({
           errors: {},
           rejected: {},
           unreviewed: ["count"],
@@ -703,7 +715,7 @@ describe("Engine values", () => {
           ["region", shown("eu-west-1"), true],
           ["count", shown(3), false],
         ])
-        yield* rb.set("config", { region: "eu-west-1" })
+        yield* asAgent(rb.set("config", { region: "eu-west-1" }))
 
         const confirmed = yield* asAgent(rb.confirm("config"))
         expect(confirmed.map((f) => [f.name, f.value, f.reviewed])).toEqual([
@@ -907,6 +919,9 @@ describe("Engine values", () => {
         yield* rb.wait("deploy")
         // The task that reads the form gets the value itself.
         expect(seen.map((values) => values.token)).toEqual(["typed-s3cret@example.com"])
+        // The form declares the field as an output that is not sensitive; the field still is.
+        yield* rb.run("config")
+        expect((yield* rb.outputs).config?.token).toEqual({ _tag: "Hidden" })
 
         const views = [yield* rb.view, yield* rb.block("config"), yield* rb.block("deploy")]
         yield* rb.close
@@ -918,7 +933,7 @@ describe("Engine values", () => {
     )
   })
 
-  it("makes an agent's run wait until the agent or a person has reviewed every field it reads", async () => {
+  it("makes an agent's run or submit wait until the agent has set or confirmed every field it reads", async () => {
     const runbook = [
       CONFIG,
       '<Run id="deploy" command="ok" inputsId={["config"]} />',
@@ -946,19 +961,27 @@ describe("Engine values", () => {
           _tag: "Refused",
           reason: { _tag: "NeedsReview", form: "ask", unreviewed: ["target"] },
         })
+        expect(yield* asAgent(rb.run("config"))).toMatchObject({
+          _tag: "Refused",
+          reason: { _tag: "NeedsReview", form: "config", unreviewed: ["region", "count"] },
+        })
 
         // A person sees the form in the window, so their run does not wait.
         expect((yield* rb.run("deploy"))._tag).toBe("Started")
         yield* rb.wait("deploy")
 
-        // A value a person entered counts as reviewed for the agent.
-        expect((yield* rb.set("config", { region: "eu-west-1" })).unreviewed).toEqual(["count"])
+        // A value a person sets is not one the agent has seen.
+        const set = yield* rb.set("config", { region: "eu-west-1" })
+        expect(set.unreviewed).toEqual(["region", "count"])
         expect(yield* asAgent(rb.run("deploy"))).toMatchObject({
           _tag: "Refused",
-          reason: { _tag: "NeedsReview", form: "config", unreviewed: ["count"] },
+          reason: { _tag: "NeedsReview", form: "config", unreviewed: ["region", "count"] },
         })
-        expect((yield* asAgent(rb.set("config", { count: 5 }))).unreviewed).toEqual([])
+        yield* asAgent(rb.confirm("config"))
         expect((yield* asAgent(rb.run("deploy")))._tag).toBe("Started")
+        yield* rb.wait("deploy")
+        expect(yield* asAgent(rb.run("config"))).toEqual({ _tag: "Submitted" })
+        expect(yield* rb.status("config")).toEqual({ _tag: "Done", outcome: "success" })
       }),
     )
   })
@@ -984,12 +1007,14 @@ describe("Engine values", () => {
       Effect.gen(function* () {
         const rb = yield* commandsFor(yield* open)
         yield* rb.trust
-        const result = yield* rb.set("config", {
-          regin: "eu-west-1",
-          region: "eu-west-2",
-          account: "456",
-          internal: "changed",
-        })
+        const result = yield* asAgent(
+          rb.set("config", {
+            regin: "eu-west-1",
+            region: "eu-west-2",
+            account: "456",
+            internal: "changed",
+          }),
+        )
         expect(Object.keys(result.rejected).sort()).toEqual(["account", "internal", "regin"])
         expect(result.rejected.regin).toContain('"region"')
         expect(result.unreviewed).toEqual([])
@@ -1056,6 +1081,10 @@ describe("Engine values", () => {
         expect(view.status).toEqual({ _tag: "Misconfigured" })
         expect(view.actions).toEqual([])
         expect(view).not.toHaveProperty("fields")
+        expect(yield* rb.run("broken")).toEqual({
+          _tag: "Refused",
+          reason: { _tag: "Misconfigured" },
+        })
         const result = yield* rb.set("broken", { region: "eu-west-1" })
         expect(result.rejected.region).toContain("There is no boilerplate.yml at ./gone.")
         expect(yield* rb.confirm("broken")).toEqual([])
@@ -1063,6 +1092,205 @@ describe("Engine values", () => {
           _tag: "Blocked",
           by: [waitingForValues("broken")],
         })
+      }),
+    )
+  })
+
+  it("submits a valid form, which stays done and publishes its outputs while it is valid", async () => {
+    const ship = "ship {{ .outputs.config.region }}"
+    const runbook = [
+      withFields('<Form id="config">', [
+        "- name: region",
+        "  type: string",
+        "  default: us-east-1",
+        "- name: name",
+        "  type: string",
+        "  required: true",
+      ]),
+      `<Run id="ship" command="${ship}" />`,
+      '<Run id="read" command="ok" inputsId={["config"]} />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { ok, [ship]: ok },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        const recording = yield* rb.record
+        yield* rb.trust
+        const done = { _tag: "Done", outcome: "success" } as const
+        const waitingForConfig = { _tag: "Blocked", by: [waitingFor("config")] } as const
+        expect((yield* rb.block("config")).actions).toEqual(["setValues", "confirmValues"])
+        expect(yield* rb.run("config")).toEqual({
+          _tag: "Refused",
+          reason: { _tag: "NeedsInput", fields: ["name"] },
+        })
+
+        // Valid is enough for the blocks that read its values; its outputs wait for the submit.
+        yield* rb.set("config", { name: "ada" })
+        expect(yield* rb.status("read")).toEqual({ _tag: "Idle" })
+        expect(yield* rb.status("ship")).toEqual(waitingForConfig)
+        expect(yield* rb.run("config")).toEqual({ _tag: "Submitted" })
+        const submitted = yield* rb.block("config")
+        expect(submitted.status).toEqual(done)
+        expect(submitted.actions).toEqual(["run", "reset", "setValues", "confirmValues"])
+        expect(submitted.outputs).toEqual({ region: shown("us-east-1"), name: shown("ada") })
+        expect(yield* rb.status("ship")).toEqual({ _tag: "Idle" })
+
+        // A change keeps it done while it is valid, as a submitted Inputs block stays submitted.
+        yield* rb.set("config", { region: "eu-west-1" })
+        expect(yield* rb.status("config")).toEqual(done)
+        yield* rb.set("config", { name: "" })
+        expect(yield* rb.status("config")).toEqual({ _tag: "NeedsInput", fields: ["name"] })
+        expect(yield* rb.outputs).toEqual({})
+        expect(yield* rb.status("ship")).toEqual(waitingForConfig)
+        yield* rb.set("config", { name: "bob" })
+        expect(yield* rb.outputs).toEqual({
+          config: { region: shown("eu-west-1"), name: shown("bob") },
+        })
+
+        // A reset undoes the submit, and keeps the values.
+        yield* rb.reset("config")
+        const reset = yield* rb.block("config")
+        expect([reset.status, reset.outputs]).toEqual([{ _tag: "Idle" }, {}])
+        expect(reset.fields?.map((f) => f.value)).toEqual([shown("eu-west-1"), shown("bob")])
+        expect(yield* rb.status("ship")).toEqual(waitingForConfig)
+
+        yield* rb.close
+        const events = yield* Fiber.join(recording)
+        const lifecycle = events.flatMap(
+          ({ event }): Array<string | Record<string, OutputView>> => {
+            if (!("block" in event) || event.block !== blockId("config")) return []
+            if (event._tag === "BlockStatusChanged") return [event.status._tag]
+            if (event._tag === "OutputsPublished") return [event.outputs]
+            return event._tag === "OutputsWithdrawn" ? ["withdrawn"] : []
+          },
+        )
+        expect(lifecycle).toEqual([
+          "Blocked",
+          "NeedsInput",
+          "Idle",
+          { region: shown("us-east-1"), name: shown("ada") },
+          "Done",
+          { region: shown("eu-west-1"), name: shown("ada") },
+          "withdrawn",
+          "NeedsInput",
+          { region: shown("eu-west-1"), name: shown("bob") },
+          "Done",
+          "withdrawn",
+          "Idle",
+        ])
+      }),
+    )
+  })
+
+  it("takes back a field's review when a person changes its value, and only then", async () => {
+    await withEngine(
+      `${CONFIG}\n\n<Run id="deploy" command="ok" inputsId={["config"]} />`,
+      { ok },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        const reviewed = Effect.map(rb.fields("config"), (fields) =>
+          fields?.map((f) => [f.name, f.reviewed]),
+        )
+        yield* asAgent(rb.confirm("config"))
+        expect((yield* rb.set("config", { region: "us-east-1", count: 3 })).unreviewed).toEqual([])
+
+        expect((yield* rb.set("config", { region: "eu-west-1" })).unreviewed).toEqual(["region"])
+        expect(yield* reviewed).toEqual([
+          ["region", false],
+          ["count", true],
+        ])
+        // A person's confirm is not the agent's review.
+        yield* rb.confirm("config")
+        expect(yield* asAgent(rb.run("deploy"))).toMatchObject({
+          _tag: "Refused",
+          reason: { _tag: "NeedsReview", form: "config", unreviewed: ["region"] },
+        })
+        expect((yield* asAgent(rb.set("config", { region: "eu-west-1" }))).unreviewed).toEqual([])
+        expect((yield* asAgent(rb.run("deploy")))._tag).toBe("Started")
+      }),
+    )
+  })
+
+  it("holds no value for an empty field, and gives a task what a template prints for one", async () => {
+    const { script, seen } = recorder()
+    const runbook = [
+      withFields('<Form id="config">', [
+        "- name: port",
+        "  type: int",
+        "- name: zone",
+        "  type: enum",
+        "  options: [a, b]",
+        "- name: note",
+        "  type: string",
+        "- name: suffix",
+        "  type: string",
+        '  default: ""',
+        "- name: tags",
+        "  type: list",
+        "- name: labels",
+        "  type: map",
+        "- name: enabled",
+        "  type: bool",
+      ]),
+      '<Run id="deploy" command="record" inputsId={["config"]} />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { record: script },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        const values = Effect.map(rb.fields("config"), (fields) =>
+          Object.fromEntries((fields ?? []).flatMap((f) => (f.value ? [[f.name, f.value]] : []))),
+        )
+        expect(yield* values).toEqual({ suffix: shown(""), enabled: shown(false) })
+        yield* rb.set("config", { port: 8080, zone: "b" })
+        expect(yield* values).toMatchObject({ port: shown(8080), zone: shown("b") })
+        // A cleared number or choice sends "", which leaves it empty.
+        yield* rb.set("config", { port: "", zone: "" })
+        expect(yield* values).toEqual({ suffix: shown(""), enabled: shown(false) })
+
+        yield* rb.run("deploy")
+        yield* rb.wait("deploy")
+        const empty = { port: "", zone: "", note: "", suffix: "", tags: [], labels: {} }
+        expect(seen).toEqual([{ ...empty, enabled: false }])
+        yield* rb.run("config")
+        expect((yield* rb.block("config")).outputs).toEqual({
+          port: shown(""),
+          zone: shown(""),
+          note: shown(""),
+          suffix: shown(""),
+          tags: shown("[]"),
+          labels: shown("{}"),
+          enabled: shown("false"),
+        })
+      }),
+    )
+  })
+
+  it("never counts as done a form in a loop of forms that wait for each other", async () => {
+    const reading = (id: string, targets: ReadonlyArray<string>) =>
+      withFields(`<Form id="${id}">`, [
+        "- name: x",
+        "  type: string",
+        `  default: "${targets.map((target) => `{{ .outputs.${target}.x }}`).join(" ")}"`,
+      ])
+    // The parser reports the loop at `a`, the first; `b` and `c` still wait for each other.
+    const runbook = [reading("a", ["b"]), reading("b", ["a", "c"]), reading("c", ["b"])]
+    await withEngine(
+      runbook.join("\n\n"),
+      {},
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        expect(yield* rb.status("a")).toEqual({ _tag: "Misconfigured" })
+        expect(yield* rb.status("b")).toEqual({
+          _tag: "Blocked",
+          by: [waitingFor("a"), waitingFor("c")],
+        })
+        expect(yield* rb.status("c")).toEqual({ _tag: "Blocked", by: [waitingFor("b")] })
       }),
     )
   })

@@ -8,10 +8,15 @@
  * After every change the session derives every status again and logs a
  * `BlockStatusChanged` for each one that moved.
  *
- * Concurrency: a command that changes a block's run or values (run, cancel,
- * reset, set or confirm values, close) holds the session's lock for its whole
- * length. A run's own events and its end are recorded without the lock, each
- * in one synchronous step.
+ * A form is done while it is submitted and nothing stops it: a change that
+ * makes it invalid takes it out of `Done`, and fixing it brings it back, as
+ * the app's Inputs keeps a submitted form submitted. Outputs exist exactly
+ * while a block is done, so a form's are derived the same way.
+ *
+ * Concurrency: a command that changes a block's run or values (run, submit,
+ * cancel, reset, set or confirm values, close) holds the session's lock for
+ * its whole length. A run's own events and its end are recorded without the
+ * lock, each in one synchronous step.
  */
 import path from "node:path"
 import type { Duration } from "effect"
@@ -73,10 +78,11 @@ import {
   fieldViews,
   type Form,
   makeForm,
+  outputsOf,
   unreviewedOf,
   valuesOf,
 } from "./form.ts"
-import { type Held, hold, visible } from "./held.ts"
+import { type Held, hold, reveal, visible } from "./held.ts"
 
 /** Lines of a run's log the session keeps. Older lines are dropped; a log page says where it starts. */
 const MAX_RUN_LOG_LINES = 10_000
@@ -161,6 +167,8 @@ interface Slot {
   /** The blocks whose values it reads (`inputsId`), in the order written, each once. */
   readonly reads: ReadonlyArray<{ readonly index: number; readonly id: BlockId }>
   readonly runnable: Option.Option<Runnable>
+  /** A form's declared outputs, published while it is done. None for another block. */
+  readonly formOutputs: OutputDecls<string>
 }
 
 type RunState =
@@ -281,9 +289,25 @@ function slotsOf(document: RunbookDocument, registry: Registry): ReadonlyArray<S
       return index === undefined ? [] : [{ index, id }]
     })
     return [
-      { index: node.index, node, id: node.id, waits, reads, runnable: runnableOf(node, registry) },
+      {
+        index: node.index,
+        node,
+        id: node.id,
+        waits,
+        reads,
+        runnable: runnableOf(node, registry),
+        formOutputs: formOutputsOf(node, registry),
+      },
     ]
   })
+}
+
+function formOutputsOf(node: BlockNode, registry: Registry): OutputDecls<string> {
+  if (node.class !== "form" || node.errors.length > 0) return {}
+  const block: AnyBlock | undefined = resolveTag(registry, node.tag)?.block
+  // The parser resolved this tag against the same registry, so it resolves here.
+  if (block?.class !== "form") throw new Error(`<${node.tag}> does not resolve to a form block`)
+  return block.outputs(node.props)
 }
 
 function runnableOf(node: BlockNode, registry: Registry): Option.Option<Runnable> {
@@ -296,6 +320,16 @@ function runnableOf(node: BlockNode, registry: Registry): Option.Option<Runnable
 
 const outputsView = (outputs: ReadonlyMap<string, Held<string>>): Record<string, OutputView> =>
   Object.fromEntries(Array.from(outputs, ([key, output]) => [key, visible(output)]))
+
+const sameOutputs = (
+  a: ReadonlyMap<string, Held<string>>,
+  b: ReadonlyMap<string, Held<string>>,
+): boolean =>
+  a.size === b.size &&
+  Array.from(a).every(([key, output]) => {
+    const other = b.get(key)
+    return other?.sensitive === output.sensitive && reveal(other) === reveal(output)
+  })
 
 /** Why a run ended badly. Interrupting a run cancels it. */
 function taskErrorOf(cause: Cause.Cause<TaskError>): TaskError {
@@ -324,7 +358,7 @@ export interface Session {
     logOffset: number | undefined,
     logLimit: number | undefined,
   ) => Effect.Effect<BlockView, UnknownBlock>
-  /** An agent's run also waits until every field it reads is reviewed. */
+  /** Runs a task or submits a form. An agent's also waits until every field it reads is reviewed. */
   readonly runBlock: (
     block: BlockId,
     origin: Origin,
@@ -333,10 +367,12 @@ export interface Session {
   readonly setValues: (
     block: BlockId,
     values: Readonly<Record<string, FieldValue>>,
+    origin: Origin,
   ) => Effect.Effect<SetValuesResult, UnknownSession | UnknownBlock | WrongClass>
-  /** Counts every field the form shows as reviewed. */
+  /** An agent's counts every field the form shows as reviewed; a person's changes nothing. */
   readonly confirmValues: (
     block: BlockId,
+    origin: Origin,
   ) => Effect.Effect<ReadonlyArray<FieldView>, UnknownSession | UnknownBlock | WrongClass>
   readonly cancelBlock: (
     block: BlockId,
@@ -380,6 +416,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   const runs = new Map<number, Run>()
   /** Each block's form, by block index: a form block's, or a task's own. */
   const forms = new Map(Array.from(specs, ([index, spec]) => [index, makeForm(spec)] as const))
+  /** The form blocks submitted since they were last reset. */
+  const submitted = new Set<number>()
+  /** Each done form's outputs, as last published. */
+  const published = new Map<number, ReadonlyMap<string, Held<string>>>()
   const statuses = new Map<number, BlockStatus>()
   const log = makeWindow<EventEnvelope>(MAX_SESSION_EVENTS)
 
@@ -390,7 +430,19 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       : Effect.succeed(slot)
   }
 
-  const isDone = (index: number) => runs.get(index)?.state._tag === "Done"
+  const slotAt = new Map(slots.map((slot) => [slot.index, slot]))
+  /** The blocks `isDone` is deciding, so a loop of forms that wait for each other ends. */
+  const deciding = new Set<number>()
+
+  /** A form's doneness depends on what it waits for, so it is asked of `statusOf`. */
+  const isDone = (index: number): boolean => {
+    const slot = slotAt.get(index)
+    if (slot === undefined || deciding.has(index)) return false
+    deciding.add(index)
+    const done = statusOf(slot)?._tag === "Done"
+    deciding.delete(index)
+    return done
+  }
 
   /** The fields of the block's form that are empty or invalid. None for a block without a form. */
   const needsInput = (index: number): ReadonlyArray<string> => {
@@ -460,9 +512,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     )
 
   /**
-   * A block's own run decides its status once it has one. Only an idle block
-   * shows what blocks it or its fields that need input; `runBlock` still
-   * refuses a block that has run while either holds.
+   * A block's own run decides its status once it has one. Only an idle block,
+   * or a submitted form, shows what blocks it or its fields that need input;
+   * `runBlock` still refuses a block that has run while either holds.
    */
   const statusOf = (slot: Slot): BlockStatus | undefined => {
     switch (slot.node.class) {
@@ -474,6 +526,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         break
     }
     if (slot.node.errors.length > 0) return { _tag: "Misconfigured" }
+    if (submitted.has(slot.index)) return notReady(slot) ?? { _tag: "Done", outcome: "success" }
     const run = runs.get(slot.index)
     if (run !== undefined) {
       switch (run.state._tag) {
@@ -488,6 +541,23 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     return notReady(slot) ?? { _tag: "Idle" }
   }
 
+  /** Publishes a form's outputs as it becomes done or its values change, and withdraws them as it stops being done. */
+  const formOutputChanges = (): ReadonlyArray<EngineEvent> =>
+    slots.flatMap((slot): ReadonlyArray<EngineEvent> => {
+      const form = forms.get(slot.index)
+      if (slot.node.class !== "form" || form === undefined) return []
+      const before = published.get(slot.index)
+      if (statusOf(slot)?._tag !== "Done") {
+        if (before === undefined) return []
+        published.delete(slot.index)
+        return [{ _tag: "OutputsWithdrawn", block: slot.id }]
+      }
+      const outputs = outputsOf(form, slot.formOutputs)
+      if (before !== undefined && sameOutputs(before, outputs)) return []
+      published.set(slot.index, outputs)
+      return [{ _tag: "OutputsPublished", block: slot.id, outputs: outputsView(outputs) }]
+    })
+
   const statusChanges = (): ReadonlyArray<EngineEvent> =>
     slots.flatMap((slot) => {
       const status = statusOf(slot)
@@ -498,15 +568,16 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     })
 
   /**
-   * Applies `change` and logs the events it emits, then a status change for
-   * each block whose status moved, all in one synchronous step.
+   * Applies `change` and logs the events it emits, then each form's outputs
+   * that moved, then a status change for each block whose status moved, all
+   * in one synchronous step.
    */
   const update = <A>(change: (emit: (event: EngineEvent) => void) => A): Effect.Effect<A> =>
     Effect.clockWith((clock) =>
       Effect.sync(() => {
         const events: EngineEvent[] = []
         const result = change((event) => events.push(event))
-        events.push(...statusChanges())
+        events.push(...formOutputChanges(), ...statusChanges())
         if (closed) return { result, logged: false }
         const at = DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())
         const first = log.end()
@@ -519,6 +590,12 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     )
 
   const isCurrent = (run: Run) => runs.get(run.slot.index) === run
+
+  /** A done block's outputs: its run's, or a form's as last published. */
+  const doneOutputs = (slot: Slot): ReadonlyMap<string, Held<string>> | undefined => {
+    const run = runs.get(slot.index)
+    return run?.state._tag === "Done" ? run.state.outputs : published.get(slot.index)
+  }
 
   /** Logs the run's lines that have not gone out yet. */
   const flush = (run: Run, emit: (event: EngineEvent) => void) => {
@@ -622,8 +699,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         : Effect.fail(new WrongClass({ block, class: slot.node.class, expected: ["task"] })),
     )
 
-  /** A block that may hold values: a form, or a task, which may have a form of its own. */
-  const valuesSlot = (block: BlockId) =>
+  /** A block that may hold values and be run: a form, or a task, which may have a form of its own. */
+  const formOrTaskSlot = (block: BlockId) =>
     Effect.flatMap(byId(block), (slot) => {
       switch (slot.node.class) {
         case "form":
@@ -652,6 +729,27 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       emit({ _tag: "FieldsChanged", block: slot.id, fields })
   }
 
+  /** Submits a form, as its button does: it is done from now on while it stays valid. It has no run. */
+  const submit = (slot: Slot, origin: Origin) =>
+    Effect.gen(function* () {
+      if (slot.node.errors.length > 0)
+        return { _tag: "Refused", reason: { _tag: "Misconfigured" } } as const
+      const reason = notReady(slot) ?? reviewFor(slot, origin)
+      if (reason !== undefined) return { _tag: "Refused", reason } as const
+      yield* update(() => submitted.add(slot.index))
+      return { _tag: "Submitted" } as const
+    })
+
+  /** A person's confirm leaves the form as it is: only an agent's review counts. */
+  const confirmedBy = (form: Form, origin: Origin): Form => {
+    switch (origin) {
+      case "agent":
+        return confirm(form)
+      case "person":
+        return form
+    }
+  }
+
   /** Interrupts the block's run if it is running, and waits until it has ended. */
   const stop = (slot: Slot) => {
     const run = runs.get(slot.index)
@@ -670,8 +768,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       // Its actions arrive with the credential lifecycle's work product.
       case "credential":
         return []
+      // "run" submits a form.
       case "form":
-        return values
       case "task":
         return [...runActionsOf(slot, status), ...values]
     }
@@ -722,10 +820,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   ): BlockView => {
     const run = runs.get(slot.index)
     const form = forms.get(slot.index)
+    const outputs = doneOutputs(slot)
     return {
       ...summaryOf(slot),
       ...(run === undefined ? {} : { log: logPage(run, logOffset, logLimit) }),
-      outputs: run?.state._tag === "Done" ? outputsView(run.state.outputs) : {},
+      outputs: outputs === undefined ? {} : outputsView(outputs),
       ...(form === undefined ? {} : { fields: fieldViews(form) }),
     }
   }
@@ -787,7 +886,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       lock.withPermit(
         Effect.gen(function* () {
           yield* notClosing
-          const slot = yield* taskSlot(block)
+          const slot = yield* formOrTaskSlot(block)
+          if (slot.node.class === "form") return yield* submit(slot, origin)
           if (Option.isNone(slot.runnable))
             return { _tag: "Refused", reason: { _tag: "Misconfigured" } } as const
           const runnable = slot.runnable.value
@@ -825,11 +925,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         }),
       ),
 
-    setValues: (block, values) =>
+    setValues: (block, values, origin) =>
       lock.withPermit(
         Effect.gen(function* () {
           yield* notClosing
-          const slot = yield* valuesSlot(block)
+          const slot = yield* formOrTaskSlot(block)
           return yield* update((emit): SetValuesResult => {
             const form = forms.get(slot.index)
             if (form === undefined) {
@@ -837,7 +937,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
               const rejected = Object.fromEntries(Object.keys(values).map((key) => [key, reason]))
               return { errors: {}, rejected, unreviewed: [] }
             }
-            const entered = enter(form, values)
+            const entered = enter(form, values, origin)
             changeForm(slot, entered.form, emit)
             return {
               errors: Object.fromEntries(fieldErrors(entered.form)),
@@ -848,15 +948,15 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         }),
       ),
 
-    confirmValues: (block) =>
+    confirmValues: (block, origin) =>
       lock.withPermit(
         Effect.gen(function* () {
           yield* notClosing
-          const slot = yield* valuesSlot(block)
+          const slot = yield* formOrTaskSlot(block)
           return yield* update((emit) => {
             const form = forms.get(slot.index)
             if (form === undefined) return []
-            const confirmed = confirm(form)
+            const confirmed = confirmedBy(form, origin)
             changeForm(slot, confirmed, emit)
             return fieldViews(confirmed)
           })
@@ -872,13 +972,15 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         }),
       ),
 
+    // A form keeps its values: only its submit is undone.
     resetBlock: (block) =>
       lock.withPermit(
         Effect.gen(function* () {
           yield* notClosing
-          const slot = yield* taskSlot(block)
+          const slot = yield* formOrTaskSlot(block)
           yield* stop(slot)
           yield* update((emit) => {
+            submitted.delete(slot.index)
             const run = runs.get(slot.index)
             if (run === undefined) return
             if (run.state._tag === "Done") emit({ _tag: "OutputsWithdrawn", block: slot.id })
@@ -903,8 +1005,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     outputs: () =>
       Object.fromEntries(
         slots.flatMap((slot) => {
-          const run = runs.get(slot.index)
-          return run?.state._tag === "Done" ? [[slot.id, outputsView(run.state.outputs)]] : []
+          const outputs = doneOutputs(slot)
+          return outputs === undefined ? [] : [[slot.id, outputsView(outputs)]]
         }),
       ),
 

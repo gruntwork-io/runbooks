@@ -5,17 +5,20 @@
  * is entered: an invalid one stays in the form, with its error, until someone
  * changes it, as it would in the window.
  */
-import type { Field, FieldValue, FormSpec, FormValues } from "@runbooks/blocks-core/form"
+import { Schema } from "effect"
+import type { OutputDecls } from "@runbooks/blocks-core/contract"
+import { type Field, FieldValue, type FormSpec, type FormValues } from "@runbooks/blocks-core/form"
 import { nearest } from "../document/nearest.ts"
 import { hiddenVariables } from "../domain/boilerplate/showWhen.ts"
 import { validateVariableValue } from "../domain/boilerplate/validators.ts"
 import { type Held, hold, reveal, visible } from "./held.ts"
-import type { FieldView } from "./protocol.ts"
+import type { FieldView, Origin } from "./protocol.ts"
 
 interface Entry {
   readonly field: Field
-  readonly value: Held<FieldValue>
-  /** A person or agent set or confirmed it. */
+  /** Absent while the field is empty. */
+  readonly value: Held<FieldValue> | undefined
+  /** An agent set or confirmed it, and no person has changed it since. */
   readonly reviewed: boolean
 }
 
@@ -23,17 +26,41 @@ interface Entry {
 export type Form = ReadonlyArray<Entry>
 
 /**
- * What a field holds while it has no value: what its control shows empty. A
- * number field left empty holds `""`, as a cleared input does.
+ * What a field holds: `value`, or nothing for a blank number or choice, as a
+ * cleared control sends `""`. A text field keeps `""`, which is a value.
  */
-function emptyValue(field: Field): FieldValue {
+function fill(field: Field, value: FieldValue | undefined): Held<FieldValue> | undefined {
   switch (field.type) {
+    case "int":
+    case "float":
+    case "enum":
+      if (value === "") return undefined
+      break
+    case "string":
     case "bool":
-      return false
+    case "list":
+    case "map":
+      break
+  }
+  return value === undefined ? undefined : hold(field.sensitive, value)
+}
+
+/** What a field starts with: its default, else what its control shows untouched (an unticked box). */
+const startOf = (field: Field): FieldValue | undefined =>
+  field.default ?? (field.type === "bool" ? false : undefined)
+
+/**
+ * What a task reads for an empty field: `""`, as the app's templates render
+ * an optional field left empty, or an empty list or map.
+ */
+function emptyOf(field: Field): FieldValue {
+  switch (field.type) {
     case "list":
       return []
     case "map":
       return {}
+    case "bool":
+      return false
     case "string":
     case "int":
     case "float":
@@ -42,29 +69,25 @@ function emptyValue(field: Field): FieldValue {
   }
 }
 
-const defaultOf = (field: Field): FieldValue => field.default ?? emptyValue(field)
+const sameValue = Schema.toEquivalence(Schema.UndefinedOr(FieldValue))
 
 export const makeForm = (spec: FormSpec): Form =>
-  spec.fields.map((field) => ({
-    field,
-    value: hold(field.sensitive, defaultOf(field)),
-    reviewed: false,
-  }))
+  spec.fields.map((field) => ({ field, value: fill(field, startOf(field)), reviewed: false }))
 
-/** Why a value is not one the field's type holds. A blank value is the required check's to judge. */
+/** Why a value is not one the field's type holds. */
 function typeError(field: Field, value: FieldValue): string | undefined {
   switch (field.type) {
     case "string":
       return typeof value === "string" ? undefined : "Expected text."
     case "int":
-      return value === "" || Number.isInteger(value) ? undefined : "Expected a whole number."
+      return Number.isInteger(value) ? undefined : "Expected a whole number."
     case "float":
-      return value === "" || typeof value === "number" ? undefined : "Expected a number."
+      return typeof value === "number" ? undefined : "Expected a number."
     case "bool":
       return typeof value === "boolean" ? undefined : "Expected true or false."
     case "enum": {
       const options = field.options ?? []
-      if (value === "" || (typeof value === "string" && options.length === 0)) return undefined
+      if (typeof value === "string" && options.length === 0) return undefined
       return typeof value === "string" && options.includes(value)
         ? undefined
         : `Expected one of: ${options.join(", ")}.`
@@ -78,9 +101,12 @@ function typeError(field: Field, value: FieldValue): string | undefined {
   }
 }
 
-/** The field's error for `value`. No message holds the value, so a sensitive one stays out of it. */
-const fieldError = (field: Field, value: FieldValue): string | undefined =>
-  typeError(field, value) ??
+/**
+ * The field's error for `value`: an empty field is the required check's to
+ * judge. No message holds the value, so a sensitive one stays out of it.
+ */
+const fieldError = (field: Field, value: FieldValue | undefined): string | undefined =>
+  (value === undefined ? undefined : typeError(field, value)) ??
   validateVariableValue(
     {
       name: field.name,
@@ -101,27 +127,31 @@ interface Checked extends Entry {
   readonly error: string | undefined
 }
 
+const revealed = (entry: Entry): FieldValue | undefined =>
+  entry.value === undefined ? undefined : reveal(entry.value)
+
 function check(form: Form): ReadonlyArray<Checked> {
   const fields = form.map((entry) => entry.field)
-  const values = Object.fromEntries(form.map((entry) => [entry.field.name, reveal(entry.value)]))
-  const conditional = hiddenVariables(fields, values, defaultOf)
+  const values = Object.fromEntries(form.map((entry) => [entry.field.name, revealed(entry)]))
+  const conditional = hiddenVariables(fields, values, startOf)
   return form.map((entry) => {
     const asked = !conditional.has(entry.field.name)
-    return {
-      ...entry,
-      asked,
-      error: asked ? fieldError(entry.field, reveal(entry.value)) : undefined,
-    }
+    return { ...entry, asked, error: asked ? fieldError(entry.field, revealed(entry)) : undefined }
   })
 }
 
 /** A client is shown the field: it is asked for, and not `hidden`. */
 const isShown = ({ asked, field }: Checked): boolean => asked && !field.hidden
 
-/** Puts `values` in the fields they name, each counted as reviewed. A field nobody may change, or one the form lacks, keeps its value. */
+/**
+ * Puts `values` in the fields they name. A value an agent enters is reviewed;
+ * one a person changes is not, since the agent has not seen it. A field
+ * nobody may change, or one the form lacks, keeps its value.
+ */
 export function enter(
   form: Form,
   values: Readonly<Record<string, FieldValue>>,
+  origin: Origin,
 ): { readonly form: Form; readonly rejected: Record<string, string> } {
   const sent = new Map(Object.entries(values))
   const settable = form.filter((entry) => !entry.field.hidden).map((entry) => entry.field)
@@ -139,15 +169,26 @@ export function enter(
   })
   return {
     form: form.map((entry) => {
-      const value = sent.get(entry.field.name)
-      if (value === undefined || entry.field.locked || entry.field.hidden) return entry
-      return { field: entry.field, value: hold(entry.field.sensitive, value), reviewed: true }
+      const sentValue = sent.get(entry.field.name)
+      if (sentValue === undefined || entry.field.locked || entry.field.hidden) return entry
+      const value = fill(entry.field, sentValue)
+      const changed = !sameValue(revealed(entry), value === undefined ? undefined : reveal(value))
+      return { field: entry.field, value, reviewed: reviewedAfter(entry, origin, changed) }
     }),
     rejected: Object.fromEntries(rejected),
   }
 }
 
-/** Counts every field a client is shown as reviewed, as a person does by reading the form and moving on. */
+function reviewedAfter(entry: Entry, origin: Origin, changed: boolean): boolean {
+  switch (origin) {
+    case "agent":
+      return true
+    case "person":
+      return entry.reviewed && !changed
+  }
+}
+
+/** An agent accepts every field a client is shown, as it stands. */
 export const confirm = (form: Form): Form =>
   check(form).map((checked) => ({
     field: checked.field,
@@ -176,7 +217,7 @@ export const fieldViews = (form: Form): ReadonlyArray<FieldView> =>
       required: field.required,
       sensitive: field.sensitive,
       ...(field.options === undefined ? {} : { options: field.options }),
-      value: visible(value),
+      ...(value === undefined ? {} : { value: visible(value) }),
       ...(field.default === undefined || field.sensitive ? {} : { default: field.default }),
       readOnly: field.locked,
       ...(error === undefined ? {} : { error }),
@@ -192,8 +233,34 @@ export const fieldViews = (form: Form): ReadonlyArray<FieldView> =>
  */
 export const valuesOf = (form: Form): FormValues =>
   Object.fromEntries(
-    check(form).map(({ field, value, asked }) => [
-      field.name,
-      asked ? reveal(value) : defaultOf(field),
+    check(form).map((checked) => [
+      checked.field.name,
+      (checked.asked ? revealed(checked) : startOf(checked.field)) ?? emptyOf(checked.field),
     ]),
   )
+
+/** A value as a template prints it: a list or map as JSON. */
+function text(value: FieldValue): string {
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  return JSON.stringify(value)
+}
+
+/**
+ * A submitted form's outputs: each declared output is the field of the same
+ * name, as text, sensitive if either the declaration or the field is.
+ */
+export function outputsOf(
+  form: Form,
+  declared: OutputDecls<string>,
+): ReadonlyMap<string, Held<string>> {
+  const values = valuesOf(form)
+  return new Map(
+    form.flatMap(({ field }): Array<[string, Held<string>]> => {
+      const decl = Object.hasOwn(declared, field.name) ? declared[field.name] : undefined
+      const value = values[field.name]
+      if (decl === undefined || value === undefined) return []
+      return [[field.name, hold(decl.sensitive || field.sensitive, text(value))]]
+    }),
+  )
+}
