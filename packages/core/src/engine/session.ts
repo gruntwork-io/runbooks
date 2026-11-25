@@ -217,7 +217,7 @@ type RunState =
       readonly _tag: "Done"
       readonly outcome: Outcome
       readonly outputs: ReadonlyMap<string, Held<string>>
-      /** For the per-run environment builder (work product 2.4), which reads a done block's env. */
+      /** What the run's script wrote to `$RUNBOOK_ENV`, for the blocks that name it in `envFrom`. */
       readonly env: ReadonlyMap<string, Redacted.Redacted<string>>
       /** The repository the task made, for a task that names it with `repository`. */
       readonly repository: Option.Option<RepositoryRef>
@@ -710,9 +710,6 @@ export const makeSession = Effect.fnUntraced(function* (options: {
             break
           case "Output":
             holdOutput(state, runnable, event.key, event.value, false, lines)
-            break
-          case "Env":
-            state.env.set(event.name, event.value)
             break
           case "File":
             files.push({ path: event.path, change: event.change })
