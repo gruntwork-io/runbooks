@@ -343,6 +343,27 @@ function takes(
   return action !== "CheckAgain" || state._tag === "Unavailable" || request.detect.length > 0
 }
 
+/**
+ * Fails when the provider may set a name its block declares neither in
+ * `envNames` nor as an output. The base environment strips only
+ * `envNames`, so the machine's own value of such a name would reach runs
+ * that do not name the block; and a run the provider gave it would not
+ * start. The block was written for another version of the provider.
+ */
+const namesDeclared = (info: ProviderInfo, slot: CredentialSlot) => {
+  const undeclared = info.names.filter(
+    (name) => !slot.block.envNames.includes(name) && !Object.hasOwn(slot.outputs, name),
+  )
+  return undeclared.length === 0
+    ? Effect.void
+    : Effect.fail(
+        new CredentialError({
+          kind: "providerFailed",
+          message: `The ${slot.block.provider} credential provider may set ${undeclared.join(", ")}, which ${slot.block.name} declares neither in envNames nor as an output. The app and the provider do not match: update the app.`,
+        }),
+      )
+}
+
 /** The error a call that stopped with `cause` ended with: a defect is the provider's failure. */
 function errorOf(cause: Cause.Cause<CredentialError>): CredentialError {
   const error = Cause.findErrorOption(cause)
@@ -568,6 +589,7 @@ export function makeCredentials(
             Effect.onError(() => Scope.close(scope, Exit.void)),
           )
           const info = yield* bounded(provider.describe).pipe(
+            Effect.tap((described) => namesDeclared(described, credential.slot)),
             Effect.onError(() => Scope.close(scope, Exit.void)),
           )
           const opened: Opened = {
