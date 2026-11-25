@@ -92,7 +92,13 @@ const withEngine = <A, E>(
 ): Promise<A> =>
   Effect.runPromise(
     program.pipe(
-      Effect.provide(Engine.layer({ registry: registryWith(scripts), appVersion: "0.31.0" })),
+      Effect.provide(
+        Engine.layer({
+          registry: registryWith(scripts),
+          appVersion: "0.31.0",
+          workingFolders: "/work",
+        }),
+      ),
       Effect.provide(makeTestFileSystem({ [RUNBOOK]: runbook })),
       Effect.provideService(Caller, { origin }),
     ),
@@ -506,7 +512,7 @@ describe("Engine", () => {
       '<Run id="bad" command="record" dependsOn={["missing"]} />',
       '<Run id="good" command="record" />',
     ].join("\n\n")
-    await withEngine(
+    const id = await withEngine(
       runbook,
       { record },
       Effect.gen(function* () {
@@ -521,10 +527,11 @@ describe("Engine", () => {
         yield* rb.run("good")
         expect((yield* rb.wait("good")).block.status).toEqual({ _tag: "Done", outcome: "success" })
         expect(yield* rb.status("bad")).toEqual({ _tag: "Misconfigured" })
+        return session.session
       }),
     )
-    // Only the good block ran, in the runbook's folder.
-    expect(ran).toEqual(["/rb"])
+    // Only the good block ran, in the session's working folder.
+    expect(ran).toEqual([`/work/${id}`])
   })
 
   it("logs a run's lines in order, with outputs it dropped and the warning it ended with", async () => {

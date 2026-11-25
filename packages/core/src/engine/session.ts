@@ -36,7 +36,11 @@ import {
 import type {
   BlockId,
   OutputDecls,
+  PathOutsideRoot,
   PropError,
+  RepositoryRef,
+  RootedPath,
+  Roots,
   RunbookTexts,
   TaskError,
   TaskEvent,
@@ -84,6 +88,7 @@ import {
   valuesOf,
 } from "./form.ts"
 import { type Held, hold, reveal, visible } from "./held.ts"
+import type { RunRoots } from "./roots.ts"
 
 /** Lines of a run's log the session keeps. Older lines are dropped; a log page says where it starts. */
 const MAX_RUN_LOG_LINES = 10_000
@@ -96,17 +101,27 @@ const LOG_FLUSH_INTERVAL: Duration.Input = "250 millis"
 type TaskOf<B> = Extract<B, { readonly class: "task" }>
 
 /**
- * Starts a task block's run, with the services every block needs already
- * provided. The engine hands it to a session only when the person trusts it.
+ * What a session runs its blocks with, every service it needs provided. The
+ * engine hands it to a session only when the person trusts it: before that,
+ * a session can do no I/O.
  */
-export type StartRun = (
-  block: TaskOf<AnyBlock>,
-  props: unknown,
-  input: TaskInput,
-) => Stream.Stream<TaskEvent<string>, TaskError>
+export interface Runner {
+  /** Starts a task block's run. */
+  readonly start: (
+    block: TaskOf<AnyBlock>,
+    props: unknown,
+    input: TaskInput<string>,
+  ) => Stream.Stream<TaskEvent<string>, TaskError>
+  /** Makes the working folder and resolves each path a run names inside its root (`resolvePaths`). */
+  readonly resolve: (
+    at: RunRoots,
+    named: Readonly<Record<string, RootedPath>>,
+    repository: string | undefined,
+  ) => Effect.Effect<Record<string, string>, PathOutsideRoot | TaskFailed>
+}
 
-/** Whether the person trusts the session. Only a trusted one can start a run. */
-type Trust = { readonly _tag: "Untrusted" } | { readonly _tag: "Trusted"; readonly start: StartRun }
+/** Whether the person trusts the session. Only a trusted one can run a block. */
+type Trust = { readonly _tag: "Untrusted" } | { readonly _tag: "Trusted"; readonly runner: Runner }
 
 // ---------------------------------------------------------------------------
 // A bounded list
@@ -181,6 +196,8 @@ type RunState =
       readonly outputs: Map<string, Held<string>>
       readonly env: Map<string, Redacted.Redacted<string>>
       warned: boolean
+      /** The folder the task makes its repository in, once resolved. */
+      repository: Option.Option<string>
     }
   | {
       readonly _tag: "Done"
@@ -188,6 +205,8 @@ type RunState =
       readonly outputs: ReadonlyMap<string, Held<string>>
       /** For the per-run environment builder (work product 2.4), which reads a done block's env. */
       readonly env: ReadonlyMap<string, Redacted.Redacted<string>>
+      /** The repository the task made, for a task that names it with `repository`. */
+      readonly repository: Option.Option<RepositoryRef>
     }
   | { readonly _tag: "Failed"; readonly error: TaskError }
 
@@ -208,24 +227,24 @@ const sameFields = Schema.toEquivalence(Schema.Array(FieldView))
 
 /**
  * What a task reads when it runs: `values` from the forms it reads, then its
- * own. The rest are empty until the work product that fills them lands: `env`
- * with the per-run environment builder (2.4), `repository` and
- * `gitCredential` with the blocks that provide them. Every root is the
- * runbook's folder, and no path is resolved, until the engine sets the roots
- * (2.3).
+ * own; the session's roots and the repository it names, and each path it
+ * names, resolved. It starts in the repository, or else the working folder.
+ * `env` and `gitCredential` are empty until the work products that fill them
+ * land: the per-run environment builder (2.4) and the credential lifecycle.
  */
-const taskInput = (document: RunbookDocument, values: FormValues): TaskInput => {
-  const folder = path.dirname(document.file)
-  return {
-    values,
-    env: {},
-    cwd: folder,
-    roots: { runbook: folder, working: folder, generated: path.join(folder, "generated") },
-    paths: {},
-    repository: Option.none(),
-    gitCredential: Option.none(),
-  }
-}
+const taskInput = (
+  at: RunRoots,
+  values: FormValues,
+  paths: Readonly<Record<string, string>>,
+): TaskInput<string> => ({
+  values,
+  env: {},
+  cwd: Option.match(at.repository, { onNone: () => at.roots.working, onSome: (ref) => ref.path }),
+  roots: at.roots,
+  paths,
+  repository: at.repository,
+  gitCredential: Option.none(),
+})
 
 /**
  * Reads each form: a form block's, or a task's own, from its props and the
@@ -360,8 +379,8 @@ export interface Session {
   readonly id: SessionId
   readonly summary: () => SessionSummary
   readonly view: () => SessionView
-  /** Trusts the session if `hash` is its document's, and takes `start` to run its blocks with. */
-  readonly trust: (hash: ContentHash, start: StartRun) => Effect.Effect<TrustResult>
+  /** Trusts the session if `hash` is its document's, and takes `runner` to run its blocks with. */
+  readonly trust: (hash: ContentHash, runner: Runner) => Effect.Effect<TrustResult>
   /** Every event after `after`, then each new one. Ends with `SessionClosed`. */
   readonly events: (after: number | undefined) => Stream.Stream<EventEnvelope>
   readonly getBlock: (
@@ -409,9 +428,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   readonly document: RunbookDocument
   /** The text of the files each block names, by block index, as loaded. */
   readonly texts: ReadonlyMap<number, RunbookTexts>
+  /** The folders the engine set for the session. */
+  readonly roots: Roots
   readonly registry: Registry
 }) {
-  const { id } = options
+  const { id, roots } = options
   const { document, specs } = yield* readForms(options.document, options.registry, options.texts)
   const slots = slotsOf(document, options.registry)
   const scope = yield* Scope.make()
@@ -511,6 +532,13 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         return { _tag: "NeedsReview", form, fields: fieldViews(held), unreviewed: [first, ...rest] }
     }
     return undefined
+  }
+
+  /** The repository a task names with `repository`, as the task that made it registered it. */
+  const repositoryFor = (slot: Slot): Option.Option<RepositoryRef> => {
+    const wait = slot.waits.find(({ blocker }) => blocker.capability === "repository")
+    const state = wait === undefined ? undefined : runs.get(wait.target)?.state
+    return state?._tag === "Done" ? state.repository : Option.none()
   }
 
   /** The values a task runs with: each form it reads, in order, then its own, a later one winning. */
@@ -669,6 +697,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           outcome: state.warned ? "warning" : "success",
           outputs: state.outputs,
           env: state.env,
+          repository: Option.map(state.repository, (folder) => ({
+            block: run.slot.id,
+            path: folder,
+            remoteUrl: Option.none(),
+          })),
         }
         if (isCurrent(run))
           emit({
@@ -681,13 +714,17 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       }
     })
 
-  /** The run itself: its events recorded as they come, its log flushed now and then, its end recorded. */
+  /**
+   * The run itself: its paths resolved inside their roots, then its events
+   * recorded as they come, its log flushed now and then, its end recorded.
+   */
   const task = (
     run: Run,
     runnable: Runnable,
     runScope: Scope.Closeable,
-    input: TaskInput,
-    start: StartRun,
+    at: RunRoots,
+    values: FormValues,
+    runner: Runner,
   ) => {
     const flushEvery = Effect.forever(
       Effect.andThen(
@@ -695,10 +732,17 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         update((emit) => flush(run, emit)),
       ),
     )
+    const { block } = runnable
+    const props = run.slot.node.props
     return Effect.gen(function* () {
       yield* Effect.forkChild(flushEvery)
-      yield* Stream.runForEachArray(start(runnable.block, run.slot.node.props, input), (batch) =>
-        record(run, runnable, batch),
+      const named = block.paths?.(props, values) ?? {}
+      const paths = yield* runner.resolve(at, named, block.repository)
+      if (block.repository !== undefined && run.state._tag === "Running")
+        run.state.repository = Option.fromUndefinedOr(paths[block.repository])
+      yield* Stream.runForEachArray(
+        runner.start(block, props, taskInput(at, values, paths)),
+        (batch) => record(run, runnable, batch),
       )
     }).pipe(
       Effect.onExit((exit) => Effect.andThen(finish(run, exit), Scope.close(runScope, Exit.void))),
@@ -870,12 +914,12 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       warnings: document.warnings,
     }),
 
-    trust: (hash, start) =>
+    trust: (hash, runner) =>
       update((emit): TrustResult => {
         const current = document.hash.combined
         if (hash !== current) return { _tag: "HashChanged", current }
         if (trust._tag === "Untrusted") {
-          trust = { _tag: "Trusted", start }
+          trust = { _tag: "Trusted", runner }
           emit({ _tag: "TrustChanged", trust: { trusted: true, hash: current } })
         }
         return { _tag: "Trusted" }
@@ -913,13 +957,14 @@ export const makeSession = Effect.fnUntraced(function* (options: {
             return { _tag: "Refused", reason: { _tag: "AlreadyRunning" } } as const
           const reason = notReady(slot) ?? reviewFor(slot, origin)
           if (reason !== undefined) return { _tag: "Refused", reason } as const
-          // `notReady` refuses an untrusted session's block, so this holds the starter.
+          // `notReady` refuses an untrusted session's block, so this holds the runner.
           if (trust._tag === "Untrusted")
             return yield* Effect.die(new Error("A block was ready in an untrusted session."))
-          const { start } = trust
+          const { runner } = trust
 
           // Approvals are a later work product: an agent's run starts as a person's does.
-          const input = taskInput(document, valuesFor(slot))
+          const at: RunRoots = { roots, repository: repositoryFor(slot) }
+          const values = valuesFor(slot)
           const runScope = yield* Scope.fork(scope)
           const run: Run = {
             id: decodeRunId(crypto.randomUUID()),
@@ -932,6 +977,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
               outputs: new Map(),
               env: new Map(),
               warned: false,
+              repository: Option.none(),
             },
           }
           yield* update((emit) => {
@@ -939,7 +985,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
             runs.set(slot.index, run)
           })
           // Started at once, so a cancel that comes before the run's first step still ends it.
-          yield* Effect.forkIn(task(run, runnable, runScope, input, start), runScope, {
+          yield* Effect.forkIn(task(run, runnable, runScope, at, values, runner), runScope, {
             startImmediately: true,
           })
           return { _tag: "Started", run: run.id } as const

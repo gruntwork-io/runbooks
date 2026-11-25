@@ -441,6 +441,7 @@ describe("applyDiffFromContent idempotency", () => {
       copyFile: () => Effect.void,
       mkdtemp: () => Effect.succeed("/tmp/x"),
       realpath: (p) => Effect.succeed(p),
+      isContainedInReal: () => Effect.succeed(true),
       walk: () => Stream.empty,
       watch: () => Stream.empty,
     })

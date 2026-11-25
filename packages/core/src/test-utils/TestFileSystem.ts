@@ -2,6 +2,7 @@ import { Effect, Layer, Stream } from "effect"
 import { FileSystem } from "../services/FileSystem.ts"
 import type { FileSystemShape, WalkEntry } from "../services/FileSystem.ts"
 import { FileNotFoundError, FileWriteError } from "../errors/index.ts"
+import { isContainedIn } from "../path-validation.ts"
 
 export const makeTestFileSystem = (files: Record<string, string> = {}) =>
   Layer.succeed(FileSystem, testFileSystem(files))
@@ -107,6 +108,9 @@ export const testFileSystem = (
       path in files || dirs.has(path)
         ? Effect.succeed(path)
         : Effect.fail(new FileNotFoundError({ path })),
+
+    // It holds no symbolic links, so the paths as written are the real ones.
+    isContainedInReal: (filePath, container) => Effect.succeed(isContainedIn(filePath, container)),
 
     walk: (dir) => {
       const entries: WalkEntry[] = Object.entries(files)

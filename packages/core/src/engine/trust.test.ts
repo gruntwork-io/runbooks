@@ -5,7 +5,6 @@
  * else. The services are doubles that note every call, so each test asserts
  * on all the I/O the engine did.
  */
-import path from "node:path"
 import { describe, expect, it } from "bun:test"
 import { Effect, Fiber, Layer, Schema, Stream } from "effect"
 import YAML from "yaml"
@@ -61,7 +60,7 @@ const fileForm = defineForm({
 const failed = (what: string) => (cause: { readonly message: string }) =>
   new TaskFailed({ message: `${what}: ${cause.message}` })
 
-/** A task that runs the script its `path` names, writing a log beside it first. */
+/** A task that runs the script its `path` names, writing a log in the working folder first. */
 const script = defineTask({
   name: "Script",
   since: "0.1.0",
@@ -73,16 +72,20 @@ const script = defineTask({
   provides: ["run"],
   effects: ["process", "files"],
   outputs: () => ({}),
-  run: (p, input) =>
+  paths: (p) => ({
+    script: { root: "runbook", path: p.path },
+    log: { root: "working", path: "run.log" },
+  }),
+  run: (_p, input) =>
     Stream.fromEffectDrain(
       Effect.gen(function* () {
         const fs = yield* FileSystem
         const spawner = yield* ProcessSpawner
         yield* fs
-          .writeFile(path.join(input.cwd, "run.log"), JSON.stringify(input.values))
+          .writeFile(input.paths.log, JSON.stringify(input.values))
           .pipe(Effect.mapError(failed("The log could not be written")))
         const process = yield* spawner
-          .spawn("bash", [path.join(input.cwd, p.path)], { cwd: input.cwd })
+          .spawn("bash", [input.paths.script], { cwd: input.cwd })
           .pipe(Effect.mapError(failed("The script could not start")))
         const exitCode = yield* process.exitCode
         if (exitCode !== 0)
@@ -129,7 +132,7 @@ const READING_THE_RUNBOOK: ServiceCall[] = [
 const withEngine = <A, E>(calls: ServiceCall[], program: Effect.Effect<A, E, Engine | Caller>) =>
   Effect.runPromise(
     program.pipe(
-      Effect.provide(Engine.layer({ registry, appVersion: "0.31.0" })),
+      Effect.provide(Engine.layer({ registry, appVersion: "0.31.0", workingFolders: "/work" })),
       Effect.provide(
         Layer.mergeAll(
           Layer.succeed(FileSystem, recordFileSystem(testFileSystem({ ...FILES }, ["/rb"]), calls)),
@@ -199,13 +202,21 @@ describe("an untrusted session", () => {
         const ran = yield* engine.waitForBlock({ ...target("deploy"), timeoutMillis: 5000 })
         expect(ran.block.status).toEqual({ _tag: "Done", outcome: "success" })
 
+        const working = `/work/${session}`
         expect(calls).toEqual([
           ...READING_THE_RUNBOOK,
-          FileSystemCall("writeFile", "/rb/run.log", '{"stage":"prod","region":"eu-west-1"}'),
+          FileSystemCall("mkdir", working, { recursive: true }),
+          FileSystemCall("isContainedInReal", "/rb/deploy.sh", "/rb"),
+          FileSystemCall("isContainedInReal", `${working}/run.log`, working),
+          FileSystemCall(
+            "writeFile",
+            `${working}/run.log`,
+            '{"stage":"prod","region":"eu-west-1"}',
+          ),
           {
             service: "ProcessSpawner",
             method: "spawn",
-            args: ["bash", ["/rb/deploy.sh"], { cwd: "/rb" }],
+            args: ["bash", ["/rb/deploy.sh"], { cwd: working }],
           },
         ])
         yield* engine.closeSession({ session })

@@ -62,6 +62,12 @@ export interface FileSystemShape {
   readonly copyFile: (src: string, dest: string) => Effect.Effect<void, FileWriteError>
   readonly mkdtemp: (prefix: string) => Effect.Effect<string, FileWriteError>
   readonly realpath: (path: string) => Effect.Effect<string, FileNotFoundError>
+  /**
+   * Whether `filePath` is inside `container` once every symbolic link in
+   * either is followed, for a path that does not exist yet too. False when
+   * either cannot be resolved.
+   */
+  readonly isContainedInReal: (filePath: string, container: string) => Effect.Effect<boolean>
   readonly walk: (dir: string) => Stream.Stream<WalkEntry, FileReadError>
   readonly watch: (
     paths: string[],

@@ -11,6 +11,7 @@ import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { loadRunbook } from "../document/load.ts"
 import type { FileSystem } from "../services/FileSystem.ts"
 import {
+  AbsolutePath,
   type CancelBlock,
   Caller,
   type CloseSession,
@@ -33,7 +34,8 @@ import {
   UnknownSession,
   type WaitForBlock,
 } from "./protocol.ts"
-import { makeSession, type Session, type StartRun } from "./session.ts"
+import { resolvePaths, sessionRoots } from "./roots.ts"
+import { makeSession, type Runner, type Session } from "./session.ts"
 
 /** Serves one protocol command, with the command's own payload, success and error types. */
 type Command<R extends Rpc.Any, Requires = never> = (
@@ -68,9 +70,18 @@ export interface EngineOptions<R extends Registry> {
   readonly registry: R
   /** Checked against a runbook's `runbooks:` requirement. */
   readonly appVersion: string
+  /**
+   * The folder that holds each session's working folder, named by the
+   * session's id: the app's `<userData>/v0/sessions/dirs`. Only the entry
+   * point sets it; no protocol command names a root.
+   */
+  readonly workingFolders: string
 }
 
 const decodeSessionId = Schema.decodeSync(SessionId)
+const isAbsolutePath = Schema.is(AbsolutePath)
+/** Not a type guard: the payload is typed as a string whether or not a transport decoded it. */
+const isAbsolute = (file: string): boolean => isAbsolutePath(file)
 
 const unreadable = (file: string, message: string) =>
   Effect.fail(new RunbookUnreadable({ path: file, message }))
@@ -89,17 +100,22 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
     Layer.effect(
       Engine,
       Effect.gen(function* () {
-        const { registry, appVersion } = options
+        const { registry, appVersion, workingFolders } = options
         const services = yield* Effect.context<ServicesOf<R>>()
-        const start: StartRun = (block, props, input) => {
-          // The block is one of `registry`'s, so what it asks for is in `ServicesOf<R>`.
-          const run: Stream.Stream<TaskEvent<string>, TaskError, ServicesOf<R>> = block.run(
-            props,
-            input,
-          )
-          return Stream.provideContext(run, services)
-        }
         const fileSystem = yield* Effect.context<FileSystem>()
+        /** Handed to a session when the person trusts it, and not before. */
+        const runner: Runner = {
+          start: (block, props, input) => {
+            // The block is one of `registry`'s, so what it asks for is in `ServicesOf<R>`.
+            const run: Stream.Stream<TaskEvent<string>, TaskError, ServicesOf<R>> = block.run(
+              props,
+              input,
+            )
+            return Stream.provideContext(run, services)
+          },
+          resolve: (at, named, repository) =>
+            resolvePaths(at, named, repository).pipe(Effect.provideContext(fileSystem)),
+        }
         const sessions = new Map<SessionId, Session>()
 
         const lookup = (session: SessionId): Effect.Effect<Session, UnknownSession> => {
@@ -117,6 +133,9 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
 
         return Engine.of({
           openSession: Effect.fn("Engine.openSession")(function* ({ path: file }) {
+            // A transport decodes the payload; an in-process caller may not.
+            if (!isAbsolute(file))
+              return yield* unreadable(file, `${file} is not an absolute path.`)
             const result = yield* loadRunbook(file, registry, { appVersion }).pipe(
               Effect.provideContext(fileSystem),
               Effect.catchTags({
@@ -130,10 +149,12 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             )
             if (result._tag === "Invalid")
               return { _tag: "Invalid", errors: result.errors, warnings: result.warnings } as const
+            const id = decodeSessionId(crypto.randomUUID())
             const session = yield* makeSession({
-              id: decodeSessionId(crypto.randomUUID()),
+              id,
               document: result.document,
               texts: result.texts,
+              roots: sessionRoots(file, workingFolders, id),
               registry,
             })
             sessions.set(session.id, session)
@@ -156,7 +177,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             const { origin } = yield* Caller
             if (origin !== "person")
               return yield* new Forbidden({ command: "TrustSession", origin })
-            return yield* (yield* lookup(session)).trust(hash, start)
+            return yield* (yield* lookup(session)).trust(hash, runner)
           }),
 
           events: ({ session, after }) =>

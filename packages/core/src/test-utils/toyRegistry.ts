@@ -109,7 +109,7 @@ const form = defineForm({
   plugins: [],
 })
 
-/** Task that names a form by a reference prop of its own. */
+/** Task that names a credential by a reference prop of its own, and makes a repository. */
 const clone = defineTask({
   name: "Clone",
   since: "0.1.0",
@@ -124,6 +124,17 @@ const clone = defineTask({
   provides: ["run", "repository"],
   effects: ["network"],
   outputs: () => ({ path: { sensitive: false } }),
+  paths: (p) => ({
+    target: {
+      root: "working",
+      path:
+        p.url
+          .replace(/\.git$/, "")
+          .split("/")
+          .at(-1) ?? "repo",
+    },
+  }),
+  repository: "target",
   run: () => Stream.empty,
   instruction: (p) => [{ kind: "code", language: "bash", code: `git clone ${p.url}` }],
   plugins: [],
