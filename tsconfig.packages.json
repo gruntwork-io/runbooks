@@ -15,7 +15,12 @@
       // blocks-core: blocks/core
       "@runbooks/blocks-core/contract": ["./blocks/core/contract.ts"],
       "@runbooks/blocks-core/form": ["./blocks/core/form.ts"],
+      "@runbooks/blocks-core/registry": ["./blocks/core/registry.ts"],
       "@runbooks/blocks-core/status": ["./blocks/core/status.ts"],
+
+      // blocks: blocks/, apart from blocks/core
+      "@runbooks/blocks": ["./blocks/index.ts"],
+      "@runbooks/blocks/views": ["./blocks/views.ts"],
 
       // core: packages/core
       "@runbooks/core/credential/*": ["./packages/core/src/credential/*.ts"],

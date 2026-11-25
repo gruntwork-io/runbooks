@@ -54,7 +54,7 @@ describe("the packages", () => {
   it("export only their own files", async () => {
     const { compilerOptions } = await read(BASE)
     const misplaced = Object.entries(compilerOptions?.paths ?? {}).flatMap(([key, targets]) => {
-      const owner = /^@runbooks\/([a-z-]+)\//.exec(key)?.[1]
+      const owner = /^@runbooks\/([a-z-]+)(?:\/|$)/.exec(key)?.[1]
       return targets
         .filter((target) => owner === undefined || packageOf(path.normalize(target)) !== owner)
         .map((target) => `${key} -> ${target}`)
