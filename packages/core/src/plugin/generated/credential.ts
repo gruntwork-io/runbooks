@@ -6,7 +6,7 @@ export const ConfigureParams = Schema.StructWithRest(
   Schema.Struct({
     stateDir: Schema.String.annotate({
       description:
-        "A private directory for this block. Files the plugin writes go here, and signOut deletes them.",
+        "A private directory for this block. Files the plugin writes go here, and signOut deletes them. A resumed session opens the block with the same directory after the app restarts, so a file env named before is still there.",
     }),
     caBundleFile: Schema.optionalKey(Schema.String),
     proxy: Schema.optionalKey(Schema.String),
@@ -101,11 +101,14 @@ export const Source = Schema.Union(
         values: Schema.Record(Schema.String, Schema.String),
         from: Schema.String.annotate({
           description:
-            "The id of the block the values were read from. A login found in them has it as its source.",
+            "The id of the block the values were read from: the block itself, for its own saved values. A login found in them has it as its source.",
         }),
       }),
       [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
-    ).annotate({ description: "Values the engine read from an earlier block's outputs." }),
+    ).annotate({
+      description:
+        "Values the engine read from an earlier block's outputs; or, when it resumes a saved session, the values this block's own env returned before the app restarted, under the names env gave them. A plugin finds a login in values named as its env names them, and checks it as it checks any login it detects.",
+    }),
     Schema.StructWithRest(Schema.Struct({ kind: Schema.Literal("named"), name: Schema.String }), [
       Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
     ]),

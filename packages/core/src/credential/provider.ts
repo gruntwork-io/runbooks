@@ -158,13 +158,19 @@ export const ProviderInfo = Schema.Struct({
 })
 export type ProviderInfo = typeof ProviderInfo.Type
 
-/** A detection source after the engine resolved it: an `outputs` source becomes the values it read. */
+/**
+ * A detection source after the engine resolved it: an `outputs` source
+ * becomes the values it read. A resumed session's block also detects from
+ * a `values` source of its own saved values, under the names `env` gave
+ * them, `from` its own id: a provider finds its login in them and checks it
+ * as it checks any login it detects.
+ */
 export type ResolvedSource =
   | { readonly kind: "env"; readonly prefix: Option.Option<string> }
   | {
       readonly kind: "values"
       readonly values: { readonly [name: string]: Redacted.Redacted<string> }
-      /** The id of the block the values were read from. A login found in them has it as its source. */
+      /** The id of the block the values were read from: the block itself, for its own saved values. A login found in them has it as its source. */
       readonly from: string
     }
   | { readonly kind: "named"; readonly name: string }
@@ -230,7 +236,11 @@ export interface CredentialProvider {
 }
 
 export interface ProviderConfig {
-  /** A private directory for this block, under the session's state. */
+  /**
+   * A private directory for this block, under the session's state. A
+   * resumed session opens the block with the same one after the app
+   * restarts, so a file `env` named before is still there.
+   */
   readonly stateDir: string
   readonly caBundleFile: Option.Option<string>
   readonly proxy: Option.Option<string>
