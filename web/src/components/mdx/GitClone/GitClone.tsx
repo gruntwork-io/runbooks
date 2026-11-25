@@ -186,6 +186,8 @@ function GitCloneInteractive({
     tokenChecked,
     gitHubAuthMet,
     githubHost,
+    gitlabHost,
+    authProvider,
     workingDir,
     localPreview,
     localPreviewStatus,
@@ -471,6 +473,14 @@ function GitCloneInteractive({
     }
     return null
   }, [resolvedUrl, githubHost])
+
+  // A block linked to a GitLab sign-in browses no GitHub repositories, even
+  // when the session also holds a GitHub token from another block.
+  const linkedToGitLab = authProvider === "gitlab"
+  const showGitHubBrowser = tokenChecked && hasGitHubToken && !linkedToGitLab
+  const urlPlaceholder = linkedToGitLab
+    ? `https://${gitlabHost}/group/project.git`
+    : `https://${githubHost}/org/repo.git`
 
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
 
@@ -927,14 +937,14 @@ function GitCloneInteractive({
                         type="text"
                         value={gitUrl}
                         onChange={(e) => setGitUrl(e.target.value)}
-                        placeholder={`https://${githubHost}/org/repo.git`}
+                        placeholder={urlPlaceholder}
                         disabled={isFormDisabled}
                         className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                       />
                     </div>
 
-                    {/* GitHub Browser (only if token available) */}
-                    {tokenChecked && hasGitHubToken && (
+                    {/* GitHub Browser (only with a GitHub token and no GitLab link) */}
+                    {showGitHubBrowser && (
                       <GitHubBrowser
                         key={githubHost}
                         host={githubHost}
@@ -966,7 +976,7 @@ function GitCloneInteractive({
                             <InfoTooltip>
                               The branch or tag to clone. Defaults to the repository&apos;s default
                               branch if not specified.
-                              {tokenChecked && hasGitHubToken && (
+                              {showGitHubBrowser && (
                                 <>
                                   <br />
                                   <br />

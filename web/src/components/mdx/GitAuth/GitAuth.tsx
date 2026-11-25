@@ -289,14 +289,13 @@ function GitAuthInteractive({
       },
       {
         name: "select_provider",
-        description: "Switch between GitHub and GitLab, as the block's provider picker does.",
+        description:
+          "Switch between GitHub and GitLab, as the block's provider picker does. Switching away from a signed-in provider signs out of it.",
         params: {
           provider: { type: "string", description: '"github" or "gitlab"', required: true },
         },
-        changes: false,
-        ...(hideProviderSelect || signedIn
-          ? { unavailable: "The provider can't be changed now." }
-          : {}),
+        changes: signedIn,
+        ...(hideProviderSelect ? { unavailable: "This block's provider is fixed." } : {}),
       },
       {
         name: "start_browser_sign_in",
@@ -411,8 +410,9 @@ function GitAuthInteractive({
   const statusClasses = getStatusClasses(shownStatus)
   const iconClasses = getStatusIconClasses(shownStatus)
 
-  // Provider picker is hidden when the author locks it or once authenticated.
-  const showProviderSelect = !hideProviderSelect && auth.authStatus !== "authenticated"
+  // The picker stays up after signing in: detection can sign in to one
+  // provider (say GitHub, from an earlier block) when the user wanted the other.
+  const showProviderSelect = !hideProviderSelect
 
   // Show custom OAuth warning if using non-default client ID and not dismissed
   const showCustomOAuthWarning =
