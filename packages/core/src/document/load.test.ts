@@ -59,7 +59,7 @@ const fileHashes = (doc: RunbookDocument) =>
 
 describe("loadRunbook", () => {
   it("hashes each file a block names, and the combined hash changes with it", async () => {
-    const runbook = '<Command id="a" path="scripts/a.sh" />'
+    const runbook = '<Run id="a" path="scripts/a.sh" />'
     const before = await loaded({ [RUNBOOK]: runbook, "/rb/scripts/a.sh": "echo hi\n" })
     expect(fileHashes(before)).toEqual([["scripts/a.sh", sha256("echo hi\n")]])
     expect(String(before.hash.runbook)).toBe(sha256(runbook))
@@ -72,7 +72,7 @@ describe("loadRunbook", () => {
   it("hashes a folder as the template hash does, and reads the template references in its files", async () => {
     const files = {
       [RUNBOOK]:
-        '<Command id="setup" command="make" outputs={["region"]} />\n\n<Command id="plan" path="templates" />',
+        '<Run id="setup" command="make" outputs={["region"]} />\n\n<Run id="plan" path="templates" />',
       "/rb/templates/main.tf": 'provider "aws" {}\nregion = "{{ .outputs.setup.region }}"\n',
       "/rb/templates/modules/vars.tf": "variable x {}\n",
     }
@@ -102,7 +102,7 @@ describe("loadRunbook", () => {
     expect(
       await refused({
         [RUNBOOK]:
-          '<Command id="ship" path="scripts/ship.sh" />\n\n<Command id="other" command="ls" dependsOn={["nowhere"]} />',
+          '<Run id="ship" path="scripts/ship.sh" />\n\n<Run id="other" command="ls" dependsOn={["nowhere"]} />',
         "/rb/scripts/ship.sh": "#!/bin/bash\ncp {{ .outputs.biuld.path }} out\n",
       }),
     ).toEqual([
@@ -111,7 +111,7 @@ describe("loadRunbook", () => {
         file: RUNBOOK,
         line: 3,
         prop: "dependsOn",
-        message: '`dependsOn` on <Command id="other"> names "nowhere", and no block has that id.',
+        message: '`dependsOn` on <Run id="other"> names "nowhere", and no block has that id.',
       },
       {
         code: "missingReference",
@@ -119,7 +119,7 @@ describe("loadRunbook", () => {
         line: 2,
         prop: "path",
         message:
-          'scripts/ship.sh, a file <Command id="ship"> names, reads {{ .outputs.biuld.path }}, and no block has the id "biuld".',
+          'scripts/ship.sh, a file <Run id="ship"> names, reads {{ .outputs.biuld.path }}, and no block has the id "biuld".',
       },
     ])
   })
@@ -127,7 +127,7 @@ describe("loadRunbook", () => {
   it("stops only the block whose file doesn't exist; the runbook opens", async () => {
     const result = await load({
       [RUNBOOK]:
-        '<Command id="missing" path="scripts/missing.sh" />\n\n<Command id="working" path="scripts/ok.sh" />',
+        '<Run id="missing" path="scripts/missing.sh" />\n\n<Run id="working" path="scripts/ok.sh" />',
       "/rb/scripts/ok.sh": "echo ok\n",
     })
     if (result._tag === "Invalid") throw new Error("refused")
@@ -141,14 +141,14 @@ describe("loadRunbook", () => {
   })
 
   it("refuses a file that doesn't exist, at the prop that names it", async () => {
-    expect(await refused({ [RUNBOOK]: '<Command id="a" path="scripts/missing.sh" />' })).toEqual([
+    expect(await refused({ [RUNBOOK]: '<Run id="a" path="scripts/missing.sh" />' })).toEqual([
       {
         code: "badFile",
         file: RUNBOOK,
         line: 1,
         prop: "path",
         message:
-          "`path` on <Command id=\"a\"> names scripts/missing.sh, which doesn't exist. The path is relative to the runbook's folder.",
+          "`path` on <Run id=\"a\"> names scripts/missing.sh, which doesn't exist. The path is relative to the runbook's folder.",
       },
     ])
   })
@@ -160,7 +160,7 @@ describe("loadRunbook", () => {
   ])("refuses a file outside the runbook's folder, through %s", async (_, path) => {
     const found = await refused(
       {
-        [RUNBOOK]: `<Command id="a" path="${path}" />`,
+        [RUNBOOK]: `<Run id="a" path="${path}" />`,
         "/secret.sh": "x",
         "/etc/passwd": "x",
         "/rb/scripts/link.sh": "x",
@@ -174,7 +174,7 @@ describe("loadRunbook", () => {
         file: RUNBOOK,
         line: 1,
         prop: "path",
-        message: `\`path\` on <Command id="a"> names ${path}, which is outside the runbook's folder. A block can only name files in its runbook's folder.`,
+        message: `\`path\` on <Run id="a"> names ${path}, which is outside the runbook's folder. A block can only name files in its runbook's folder.`,
       },
     ])
   })
@@ -192,13 +192,13 @@ describe("loadRunbook", () => {
 
 describe("parseRunbook without the files", () => {
   it("stops a block that names a file, so no block runs a file the hash leaves out", () => {
-    const result = parseRunbook('<Command id="a" path="a.sh" />', TOY_REGISTRY, {
+    const result = parseRunbook('<Run id="a" path="a.sh" />', TOY_REGISTRY, {
       file: "runbook.mdx",
       appVersion: "0.31.0",
     })
     if (result._tag === "Invalid") throw new Error("refused")
     expect(result.document.blocks[0]?.errors.map((e) => e.message)).toEqual([
-      '`path` on <Command id="a"> names a.sh, which was not read. Load the runbook with loadRunbook, which reads the files its blocks name.',
+      '`path` on <Run id="a"> names a.sh, which was not read. Load the runbook with loadRunbook, which reads the files its blocks name.',
     ])
     expect(fileHashes(result.document)).toEqual([])
   })

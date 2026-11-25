@@ -1,7 +1,8 @@
 /**
  * A registry of toy blocks, one per kind of thing the parser and the graph
- * must handle, for tests that need blocks before phase 3 adds real ones.
- * The tags are today's, so ported tests read as they did.
+ * must handle. No real block has their tags: only a block's folder may name
+ * it (`runbooks/block-name-outside-its-folder`), and the core's tests test
+ * the core, not a block.
  */
 import { Effect, Option, Schema, Stream } from "effect"
 import {
@@ -18,8 +19,8 @@ import type { Registry } from "@runbooks/blocks-core/registry"
 const toPath = Schema.decodeSync(RunbookPath)
 
 /** Display, markdown children, its own `title` and `description`, which are shared props too. */
-const admonition = defineDisplay({
-  name: "Admonition",
+const note = defineDisplay({
+  name: "Note",
   since: "0.1.0",
   class: "display",
   props: Schema.Struct({
@@ -35,7 +36,7 @@ const admonition = defineDisplay({
   effects: [],
 })
 
-const CommandProps = Schema.Struct({
+const RunProps = Schema.Struct({
   command: Schema.optionalKey(Schema.String),
   path: Schema.optionalKey(Schema.String),
   shell: Schema.optionalKey(Schema.String),
@@ -48,11 +49,11 @@ const CommandProps = Schema.Struct({
  * gives environment to blocks that name it in `envFrom`. Outputs what
  * `outputs` lists.
  */
-const command = defineTask({
-  name: "Command",
+const run = defineTask({
+  name: "Run",
   since: "0.1.0",
   class: "task",
-  props: CommandProps,
+  props: RunProps,
   children: { kind: "none" },
   references: {},
   runbookFiles: (p) => (p.path === undefined ? [] : [toPath(p.path)]),
@@ -65,8 +66,8 @@ const command = defineTask({
 })
 
 /** Form whose fields come from fenced YAML children. */
-const inputs = defineForm({
-  name: "Inputs",
+const form = defineForm({
+  name: "Form",
   since: "0.1.0",
   class: "form",
   props: Schema.Struct({
@@ -84,7 +85,7 @@ const inputs = defineForm({
 
 /** Task that names a form by a reference prop of its own. */
 const clone = defineTask({
-  name: "GitClone",
+  name: "Clone",
   since: "0.1.0",
   class: "task",
   props: Schema.Struct({
@@ -102,16 +103,16 @@ const clone = defineTask({
   plugins: [],
 })
 
-const GitAuthProps = Schema.Struct({
+const GitLoginProps = Schema.Struct({
   provider: Schema.optionalKey(Schema.Literals(["github", "gitlab"])),
 })
 
 /** Credential: gives environment, and a git credential to blocks that name it in `gitAuthId`. */
-const gitAuth = defineCredential({
-  name: "GitAuth",
+const gitLogin = defineCredential({
+  name: "GitLogin",
   since: "0.1.0",
   class: "credential",
-  props: GitAuthProps,
+  props: GitLoginProps,
   children: { kind: "none" },
   references: {},
   runbookFiles: () => [],
@@ -131,26 +132,26 @@ const gitAuth = defineCredential({
   instruction: () => [],
 })
 
-const gitHubAuth: Alias<typeof GitAuthProps.Type> = {
-  name: "GitHubAuth",
+const gitHubLogin: Alias<typeof GitLoginProps.Type> = {
+  name: "GitHubLogin",
   since: "0.1.0",
-  of: "GitAuth",
+  of: "GitLogin",
   locked: { provider: "github" },
 }
 
-const bash: Alias<typeof CommandProps.Type> = {
+const bash: Alias<typeof RunProps.Type> = {
   name: "Bash",
   since: "0.2.0",
-  of: "Command",
+  of: "Run",
   locked: { shell: "bash" },
 }
 
 export const TOY_REGISTRY = {
-  Admonition: admonition,
-  Command: command,
-  Inputs: inputs,
-  GitClone: clone,
-  GitAuth: gitAuth,
-  GitHubAuth: gitHubAuth,
+  Note: note,
+  Run: run,
+  Form: form,
+  Clone: clone,
+  GitLogin: gitLogin,
+  GitHubLogin: gitHubLogin,
   Bash: bash,
 } satisfies Registry
