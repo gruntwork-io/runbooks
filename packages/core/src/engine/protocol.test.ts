@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
-import { DateTime, Effect, Layer, Schema, Stream } from "effect"
-import { type RpcClient, RpcTest } from "effect/rpc"
+import { Context, DateTime, Effect, Layer, Schema, Stream } from "effect"
+import { Rpc, type RpcClient, RpcTest } from "effect/rpc"
 import { BlockId } from "@runbooks/blocks-core/contract"
 import { ContentHash } from "../document/document.ts"
 import {
@@ -8,6 +8,7 @@ import {
   BASELINE_MCP_TOOLS,
   Caller,
   CallerMiddleware,
+  ChangeSettings,
   type EngineCommand,
   EngineProtocol,
   EventEnvelope,
@@ -18,6 +19,8 @@ import {
   RunBlock,
   RunResult,
   SessionId,
+  Settings,
+  SettingsView,
   UnknownSession,
   WaitForBlock,
 } from "./protocol.ts"
@@ -82,6 +85,9 @@ const Handlers = EngineProtocol.toLayer({
   GetOutputs: unused,
   ActOnCredential: unused,
   ResolveApproval: unused,
+  GetSettings: unused,
+  ChangeSettings: unused,
+  WatchSettings: () => Stream.die("not used in this test"),
 })
 
 /** What each transport does: say who is calling. */
@@ -214,6 +220,67 @@ describe("engine protocol", () => {
     }
     expect(Schema.decodeUnknownSync(json)(notOffered)).toEqual(notOffered)
     expect(() => Schema.decodeUnknownSync(json)({ ...notOffered, field: "fields" })).toThrow()
+  })
+
+  it("refuses a setting it does not have, naming each one, and a value a setting does not take", () => {
+    // What a transport's server decodes the payload with (RpcServer reads the annotation).
+    const options = Context.get(ChangeSettings.annotations, Rpc.ParseOptions)
+    const change = (changes: unknown) =>
+      Schema.decodeUnknownSync(ChangeSettings.payloadSchema)({ changes }, options)
+    expect(change({ theme: "dark", caBundleFile: null })).toEqual({
+      changes: { theme: "dark", caBundleFile: null },
+    })
+    expect(() => change({ theme: "dark", fontSize: 12, accent: "red" })).toThrow(
+      /at \["changes"\]\["fontSize"\][\s\S]*at \["changes"\]\["accent"\]/,
+    )
+    expect(() => change({ theme: "purple" })).toThrow(/at \["changes"\]\["theme"\]/)
+    expect(() => change({ caBundleFile: "certs/ca.pem" })).toThrow(/Expected an absolute path/)
+    expect(() => change({ recentGitHubHosts: ["a", "b", "c", "d", "e", "f"] })).toThrow(
+      /at \["changes"\]\["recentGitHubHosts"\]/,
+    )
+  })
+
+  it("takes a proxy only as an http or https URL with no user name or password, and does not echo one", () => {
+    const proxy = (value: string) =>
+      Schema.decodeUnknownSync(Settings.fields.proxy)(value, { errors: "all" })
+    for (const url of ["http://proxy.example.com:3128", "https://10.0.0.1:8443/"])
+      expect(proxy(url)).toBe(url)
+    expect(() => proxy("socks5://proxy:1080")).toThrow("Expected an http:// or https:// proxy URL.")
+    expect(() => proxy("proxy.example.com")).toThrow("Expected a URL")
+    expect(() => proxy("http://proxy:3128/path")).toThrow("no path")
+    let message = ""
+    try {
+      proxy("http://me:hunter2@proxy:3128")
+    } catch (error) {
+      message = String(error)
+    }
+    expect(message).toContain("may not hold a user name or password")
+    expect(message).not.toContain("hunter2")
+  })
+
+  it("carries the settings through JSON, a setting with no value as null", () => {
+    const json = Schema.toCodecJson(SettingsView)
+    const view: SettingsView = {
+      settings: {
+        theme: "dark",
+        instructionMode: false,
+        runbookWidth: null,
+        askAboutGeneratedFiles: true,
+        caBundleFile: "/etc/corp/ca.pem",
+        proxy: null,
+        agentAccess: false,
+        confirmAgentRuns: true,
+        recentGitHubHosts: ["github.example.com"],
+        lastSelectedGitHubHost: null,
+        recentGitLabHosts: [],
+        lastSelectedGitLabHost: "gitlab.example.com:8443",
+      },
+      file: "/data/settings.json",
+      problems: [{ _tag: "Newer", version: 2 }],
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(view)))
+    expect(wire.settings.proxy).toBeNull()
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(view)
   })
 
   it("serves every baseline MCP tool with a command (decision 12)", () => {

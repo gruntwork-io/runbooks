@@ -12,8 +12,10 @@
  * - Every event carries its session, and every block event its block id.
  * - No secret leaves the engine: sensitive values are `Hidden`, and a
  *   secret a person types travels one way, in.
+ * - Settings belong to no session. The engine holds the only copy; a
+ *   client reads and watches them, and a person changes them, here.
  */
-import { Context, Schema } from "effect"
+import { Context, Schema, Struct } from "effect"
 import { Rpc, RpcGroup, RpcMiddleware } from "effect/rpc"
 import { BlockClass, BlockId } from "@runbooks/blocks-core/contract"
 import { FieldType, FieldValue, Validation } from "@runbooks/blocks-core/form"
@@ -34,6 +36,14 @@ export type RunId = typeof RunId.Type
 
 export const ApprovalId = Schema.NonEmptyString.pipe(Schema.brand("ApprovalId"))
 export type ApprovalId = typeof ApprovalId.Type
+
+/**
+ * An absolute path. The engine reads a relative one against its own working
+ * directory, which no client sees, and the runbook's folder is a root.
+ */
+export const AbsolutePath = Schema.NonEmptyString.check(
+  Schema.isPattern(/^(?:\/|[A-Za-z]:[\\/]|\\\\)/, { expected: "an absolute path" }),
+)
 
 /** An event's place in its session's log, from 0. A client resumes with the last one it saw. */
 export const Sequence = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
@@ -278,6 +288,124 @@ export type SetValuesResult = typeof SetValuesResult.Type
 export const CancelResult = Schema.Literals(["cancelled", "notRunning"])
 
 // ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+/** The most hosts a recent-hosts list keeps, newest first. */
+const MAX_RECENT_HOSTS = 5
+
+/** A host as a URL's `host` has it: a name or address, and a port if it is not the default. */
+const Host = Schema.NonEmptyString.check(
+  Schema.isMaxLength(255),
+  Schema.isPattern(/^[^\s/@]+$/, { expected: "a host, with a port if needed" }),
+)
+
+const RecentHosts = Schema.Array(Host).check(Schema.isMaxLength(MAX_RECENT_HOSTS))
+
+/**
+ * An HTTP or HTTPS proxy, as `http://proxy.example.com:3128`. It may hold no
+ * user name or password: every client is shown the settings, and the
+ * settings file is not a secret store.
+ */
+const ProxyUrl = Schema.NonEmptyString.check(
+  Schema.isMaxLength(2048),
+  Schema.makeFilter((text: string) => {
+    if (!URL.canParse(text)) return "Expected a URL, as http://proxy.example.com:3128."
+    const url = new URL(text)
+    if (url.protocol !== "http:" && url.protocol !== "https:")
+      return "Expected an http:// or https:// proxy URL."
+    if (url.username !== "" || url.password !== "")
+      return "A proxy URL may not hold a user name or password."
+    if (url.pathname !== "/" || url.search !== "" || url.hash !== "")
+      return "Expected a proxy URL with no path, query or fragment."
+    return undefined
+  }),
+)
+
+/**
+ * Every setting, as it applies now: the one a person chose, or its
+ * default. The engine holds the only copy. The window, the CLI and MCP read
+ * them here, and none keeps one of its own.
+ */
+export const Settings = Schema.Struct({
+  /** The window's colors. */
+  theme: Schema.Literals(["light", "dark", "system"]),
+  /** The window shows each step's command to copy and run, and runs nothing. */
+  instructionMode: Schema.Boolean,
+  /** The runbook column's width in pixels, as the person dragged it. Null: the layout's own. */
+  runbookWidth: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
+  /** On opening a runbook, the window asks what to do with files it generated before. */
+  askAboutGeneratedFiles: Schema.Boolean,
+  /**
+   * A PEM file of certificates to trust beside the system's, for a network
+   * that inspects TLS. A credential provider gets it when it opens.
+   */
+  caBundleFile: Schema.NullOr(AbsolutePath.check(Schema.isMaxLength(4096))),
+  /** The proxy a credential provider connects through. It gets it when it opens. */
+  proxy: Schema.NullOr(ProxyUrl),
+  /** Agents may drive the app over MCP. */
+  agentAccess: Schema.Boolean,
+  /** The person approves each run an agent starts. */
+  confirmAgentRuns: Schema.Boolean,
+  /** GitHub hosts the person signed in to, newest first. */
+  recentGitHubHosts: RecentHosts,
+  lastSelectedGitHubHost: Schema.NullOr(Host),
+  /** GitLab hosts the person typed in, newest first. */
+  recentGitLabHosts: RecentHosts,
+  lastSelectedGitLabHost: Schema.NullOr(Host),
+})
+export type Settings = typeof Settings.Type
+
+/** Some settings and their new values. A setting left out keeps the value it has. */
+export const SettingsChange = Settings.mapFields(Struct.map(Schema.optionalKey))
+export type SettingsChange = typeof SettingsChange.Type
+
+/** The settings file could not be read, or not copied aside. Defaults apply, and a change is refused, so the file stays as it is. */
+const Unreadable = Schema.TaggedStruct("Unreadable", { reason: Schema.String })
+
+/**
+ * A newer Runbooks wrote the settings file, with settings version
+ * `version`. The settings this version knows apply. A change is refused:
+ * saving it would lose the ones this version does not know.
+ */
+const Newer = Schema.TaggedStruct("Newer", { version: Schema.Int })
+
+/** Why the settings shown are not all, or not only, what the settings file holds. */
+export const SettingsProblem = Schema.Union([
+  Unreadable,
+  Newer,
+  /**
+   * The file is not settings this version reads (`reason`). Defaults apply.
+   * It was copied to `keptAt`, and the next change replaces it.
+   */
+  Schema.TaggedStruct("KeptAside", { reason: Schema.String, keptAt: Schema.String }),
+  /**
+   * The file's value for `setting` is not one this version takes
+   * (`message`), so its default applies. The file keeps the value until a
+   * change sets the setting.
+   */
+  Schema.TaggedStruct("InvalidSetting", { setting: Schema.String, message: Schema.String }),
+  /** The file holds `setting`, which this version does not know. Nothing reads it, and the file keeps it. */
+  Schema.TaggedStruct("UnknownSetting", { setting: Schema.String }),
+])
+export type SettingsProblem = typeof SettingsProblem.Type
+
+export const SettingsView = Schema.Struct({
+  settings: Settings,
+  /** The settings file. */
+  file: Schema.String,
+  problems: Schema.Array(SettingsProblem),
+})
+export type SettingsView = typeof SettingsView.Type
+
+export const ChangeSettingsResult = Schema.Union([
+  Schema.TaggedStruct("Changed", { settings: SettingsView }),
+  /** The settings file cannot be replaced without losing what it holds. Nothing changed. */
+  Schema.TaggedStruct("ReadOnly", { problem: Schema.Union([Unreadable, Newer]) }),
+])
+export type ChangeSettingsResult = typeof ChangeSettingsResult.Type
+
+// ---------------------------------------------------------------------------
 // Faults
 // ---------------------------------------------------------------------------
 
@@ -297,7 +425,7 @@ export class WrongClass extends Schema.TaggedError<WrongClass>()("WrongClass", {
   expected: Schema.Array(BlockClass),
 }) {}
 
-/** The caller's origin may not send this command: an agent trusting a session or answering an approval. */
+/** The caller's origin may not send this command: an agent trusting a session, answering an approval or changing a setting. */
 export class Forbidden extends Schema.TaggedError<Forbidden>()("Forbidden", {
   command: Schema.String,
   origin: Origin,
@@ -310,6 +438,12 @@ export class RunbookUnreadable extends Schema.TaggedError<RunbookUnreadable>()(
 
 export class UnknownApproval extends Schema.TaggedError<UnknownApproval>()("UnknownApproval", {
   approval: Schema.String,
+}) {}
+
+/** The settings file could not be written. Nothing changed. */
+export class SettingsNotSaved extends Schema.TaggedError<SettingsNotSaved>()("SettingsNotSaved", {
+  file: Schema.String,
+  message: Schema.String,
 }) {}
 
 const SessionError = UnknownSession
@@ -367,14 +501,6 @@ export type EventEnvelope = typeof EventEnvelope.Type
 
 const session = { session: SessionId }
 const block = { session: SessionId, block: BlockId }
-
-/**
- * An absolute path. The engine reads a relative one against its own working
- * directory, which no client sees, and the runbook's folder is a root.
- */
-export const AbsolutePath = Schema.NonEmptyString.check(
-  Schema.isPattern(/^(?:\/|[A-Za-z]:[\\/]|\\\\)/, { expected: "an absolute path" }),
-)
 
 export class OpenSession extends Rpc.make("OpenSession", {
   /** The runbook the person chose. Its folder is the session's `runbook` root. */
@@ -492,6 +618,27 @@ export class ResolveApproval extends Rpc.make("ResolveApproval", {
   error: Schema.Union([UnknownSession, UnknownApproval, Forbidden]),
 }) {}
 
+export class GetSettings extends Rpc.make("GetSettings", {
+  success: SettingsView,
+}) {}
+
+/**
+ * Person only. Sets each setting `changes` names, and no other. A setting
+ * the protocol does not have fails the decode, naming it, as does a value
+ * the setting does not take.
+ */
+export class ChangeSettings extends Rpc.make("ChangeSettings", {
+  payload: { changes: SettingsChange },
+  success: ChangeSettingsResult,
+  error: Schema.Union([Forbidden, SettingsNotSaved]),
+}).annotate(Rpc.ParseOptions, { onExcessProperty: "error", errors: "all" }) {}
+
+/** The settings now, then again after each change. A reader that falls behind gets the latest, not each one. */
+export class WatchSettings extends Rpc.make("WatchSettings", {
+  success: SettingsView,
+  stream: true,
+}) {}
+
 export const EngineProtocol = RpcGroup.make(
   OpenSession,
   CloseSession,
@@ -509,6 +656,9 @@ export const EngineProtocol = RpcGroup.make(
   GetOutputs,
   ActOnCredential,
   ResolveApproval,
+  GetSettings,
+  ChangeSettings,
+  WatchSettings,
 ).middleware(CallerMiddleware)
 export type EngineCommand = RpcGroup.Rpcs<typeof EngineProtocol>
 
