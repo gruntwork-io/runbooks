@@ -120,6 +120,18 @@ export interface RunEnvLayers {
   readonly own: Readonly<Record<string, string>>
 }
 
+/**
+ * `env` with the names Runbooks sets for the run, such as `RUNBOOK_ENV`,
+ * set over every layer. No layer can set one in the first place: the base
+ * and each source drop them, and the parser refuses one in `env`.
+ */
+export const withReserved = (env: RunEnv, reserved: Readonly<Record<string, string>>): RunEnv => ({
+  ...env,
+  ...Object.fromEntries(
+    Object.entries(reserved).map(([name, value]) => [name, Redacted.make(value)]),
+  ),
+})
+
 /** Builds a run's environment from its layers, and says which variables two sources both set. */
 export const buildRunEnv = Effect.fnUntraced(function* ({ base, sources, own }: RunEnvLayers) {
   const env = new Map(base)

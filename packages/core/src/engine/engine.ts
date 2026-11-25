@@ -9,7 +9,7 @@ import type { Rpc } from "effect/rpc"
 import type { TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { loadRunbook } from "../document/load.ts"
-import type { FileSystem } from "../services/FileSystem.ts"
+import { FileSystem } from "../services/FileSystem.ts"
 import {
   AbsolutePath,
   type CancelBlock,
@@ -36,6 +36,7 @@ import {
 } from "./protocol.ts"
 import { baseEnvironment } from "./env.ts"
 import { resolvePaths, sessionRoots } from "./roots.ts"
+import { makeRunFiles, readRunFiles } from "./runFiles.ts"
 import { makeSession, type Runner, type Session } from "./session.ts"
 
 /** Serves one protocol command, with the command's own payload, success and error types. */
@@ -111,6 +112,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
         const base = baseEnvironment(options.processEnvironment, registry)
         const services = yield* Effect.context<ServicesOf<R>>()
         const fileSystem = yield* Effect.context<FileSystem>()
+        const files = yield* FileSystem
         /** Handed to a session when the person trusts it, and not before. */
         const runner: Runner = {
           start: (block, props, input) => {
@@ -123,6 +125,11 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
           },
           resolve: (at, named, repository) =>
             resolvePaths(at, named, repository).pipe(Effect.provideContext(fileSystem)),
+          // The service alone: the layer's context also holds the layer's
+          // own scope, which would outlast the run's folder.
+          makeRunFiles: Effect.provideService(makeRunFiles, FileSystem, files),
+          readRunFiles: (written) =>
+            Effect.provideService(readRunFiles(written), FileSystem, files),
         }
         const sessions = new Map<SessionId, Session>()
 

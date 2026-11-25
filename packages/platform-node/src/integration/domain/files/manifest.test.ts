@@ -417,6 +417,7 @@ describe("applyDiffFromContent idempotency", () => {
     // to restore — meaning the whole render produces zero writes.
     const spyLayer = Layer.succeed(FileSystem, {
       readFile: () => Effect.succeed(""),
+      readFileUpTo: () => Effect.succeed({ text: "", truncated: false }),
       readFileBuffer: () => Effect.succeed(Buffer.from("")),
       readdir: () => Effect.succeed([]),
       readdirWithTypes: () => Effect.succeed([]),
