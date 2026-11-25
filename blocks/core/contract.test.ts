@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "bun:test"
-import { Context, Effect, Option, Schema, Stream } from "effect"
+import { Context, Effect, Option, Result, Schema, Stream } from "effect"
 import {
   BEFORE_TRUST,
   BlockClass,
@@ -9,6 +9,7 @@ import {
   defineDisplay,
   defineForm,
   defineTask,
+  endWithExitCode,
   type FormBlock,
   type PropError,
   type References,
@@ -217,6 +218,24 @@ describe("BEFORE_TRUST", () => {
   it("lets the engine call every function a block declares before trust, but run", () => {
     const afterTrust = Object.entries(BEFORE_TRUST).filter(([, allowed]) => !allowed)
     expect(afterTrust.map(([name]) => name)).toEqual(["run"])
+  })
+})
+
+describe("the exit-code table", () => {
+  const end = (exitCode: number) =>
+    Effect.runPromise(Effect.result(Stream.runCollect(endWithExitCode(exitCode))))
+
+  it("succeeds on 0, warns on 2 and fails on any other code, with the code", async () => {
+    expect(await end(0)).toEqual(Result.succeed([]))
+    const warned = await end(2)
+    expect(Result.isSuccess(warned) && warned.success.map((e) => e._tag)).toEqual(["Warning"])
+    for (const exitCode of [1, 3, 126, 127, 130, 255, -1]) {
+      const failed = await end(exitCode)
+      expect(Result.isFailure(failed) && failed.failure).toMatchObject({
+        _tag: "TaskFailed",
+        exitCode,
+      })
+    }
   })
 })
 

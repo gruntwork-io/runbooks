@@ -6,8 +6,8 @@
  * This file imports `effect` only. Status, blockers and the form live beside
  * it in `status.ts` and `form.ts`.
  */
-import type { Effect, Option, Redacted, Stream } from "effect"
-import { Schema, SchemaGetter } from "effect"
+import type { Effect, Option, Redacted } from "effect"
+import { Schema, SchemaGetter, Stream } from "effect"
 import type { FormSpec, FormValues } from "./form.ts"
 
 // ---------------------------------------------------------------------------
@@ -256,6 +256,37 @@ export type TaskEvent<K extends string> =
     }
   /** The run ends as a warning (exit 2): outputs are still published and later blocks still run. */
   | { readonly _tag: "Warning"; readonly message: string }
+
+/** The exit code that makes a run a warning. */
+const WARNING_EXIT_CODE = 2
+
+/**
+ * The exit-code table, the one for every task that runs a process (ruled
+ * 2026-11-23). A process task ends its run's stream with this, given the
+ * process's exit code; the engine then publishes or withdraws.
+ *
+ * | Exit  | Status  | Outputs and env | Satisfies `dependsOn` and `envFrom` |
+ * | 0     | success | published       | yes |
+ * | 2     | warning | published       | yes |
+ * | other | failure | withdrawn       | no  |
+ *
+ * A timeout is a failure too: the task fails with `TaskTimedOut`.
+ */
+export const endWithExitCode = (exitCode: number): Stream.Stream<TaskEvent<never>, TaskFailed> => {
+  switch (exitCode) {
+    case 0:
+      return Stream.empty
+    case WARNING_EXIT_CODE:
+      return Stream.make({
+        _tag: "Warning",
+        message: `The script exited with code ${WARNING_EXIT_CODE}, a warning: its outputs are kept, and the blocks after it can run.`,
+      })
+    default:
+      return Stream.fail(
+        new TaskFailed({ message: `The script exited with code ${exitCode}.`, exitCode }),
+      )
+  }
+}
 
 // ---------------------------------------------------------------------------
 // The four block types
