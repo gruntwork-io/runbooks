@@ -7,7 +7,7 @@
  */
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
-import { Effect, Exit, Option, Redacted, Schema, Scope } from "effect"
+import { Effect, Exit, Option, Redacted, Schema, Scope, Stream } from "effect"
 import { BlockId, CredentialError } from "@runbooks/blocks-core/contract"
 import type { AnyBlock } from "@runbooks/blocks-core/registry"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
@@ -18,6 +18,7 @@ import {
   type Identity,
   type ProviderConfig,
   type ProviderInfo,
+  type SignInEvent,
 } from "../credential/provider.ts"
 import { type UseEnvSession, withEnvSession } from "../test-utils/envSessions.ts"
 import {
@@ -111,6 +112,9 @@ const cloud =
     env: Effect.succeed(cloudEnv("tok-SECRET")),
     ...script,
   })
+
+const signedIn = (identity: Identity): SignInEvent => ({ _tag: "SignedIn", identity })
+const WAITING: SignInEvent = { _tag: "Waiting" }
 
 const credentialError = (kind: CredentialError["kind"], message: string, more = {}) =>
   new CredentialError({ kind, message, ...more })
@@ -278,6 +282,55 @@ describe("detecting a credential", () => {
     expect(callsOf("git")).toEqual(["open", "describe"])
   })
 
+  // useAwsAuth.env.test.ts: the hint is the way to detect again.
+  it("has no hint with detection off", async () => {
+    await withCloud('<CloudLogin id="cloud" detect={false} />', { cloud: cloud() }, (rb) =>
+      Effect.gen(function* () {
+        yield* rb.until("cloud", "SignedOut")
+        expect(yield* rb.act("cloud", { _tag: "CheckAgain" })).toEqual({
+          _tag: "NotAllowed",
+          state: "SignedOut",
+        })
+      }),
+    )
+    expect(callsOf("cloud")).toEqual(["open", "describe"])
+  })
+
+  // useAwsAuth.env.test.ts
+  it("'Check again' re-runs detection", async () => {
+    let looks = 0
+    const detect = () =>
+      Effect.suspend(() => (++looks === 1 ? found(who("111")) : found(who("222"))))
+    await withCloud('<CloudLogin id="cloud" />', { cloud: cloud({ detect }) }, (rb) =>
+      Effect.gen(function* () {
+        yield* rb.until("cloud", "Found")
+        yield* rb.act("cloud", { _tag: "Decline" })
+        yield* rb.until("cloud", "SignedOut")
+        expect(yield* rb.act("cloud", { _tag: "CheckAgain" })).toEqual({ _tag: "Accepted" })
+        yield* rb.until("cloud", "Detecting")
+        expect(yield* rb.until("cloud", "Found")).toMatchObject({ identity: who("222") })
+      }),
+    )
+    expect(callsOf("cloud")).toEqual(["open", "describe", "detect", "detect"])
+  })
+
+  // useGoogleAuth.test.ts
+  it("rejecting the prompt falls through to the manual tabs", async () => {
+    await withCloud(
+      runbookOf('<CloudLogin id="cloud" />', DEPLOY),
+      { cloud: cloud({ detect: () => found(who("111")) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Found")
+          expect(yield* rb.act("cloud", { _tag: "Decline" })).toEqual({ _tag: "Accepted" })
+          const state = yield* rb.until("cloud", "SignedOut")
+          expect(state._tag === "SignedOut" && state.methods.length).toBe(2)
+          expect(yield* rb.status("deploy")).toEqual(WAITING_FOR_CLOUD)
+        }),
+    )
+    expect(callsOf("cloud")).not.toContain("env")
+  })
+
   // useGoogleAuth.test.ts
   it("pauses on a block source that has not executed, then resumes when it has", async () => {
     const keys =
@@ -358,7 +411,7 @@ describe("a detected login the block pins (open decision 7)", () => {
     expect(argsOf("cloud", "select")).toEqual([[{ account: "111", role: "Admin" }]])
   })
 
-  it("waits to choose a target after sign-in that the block does not pin", async () => {
+  it("waits to choose a target after sign-in that the block does not pin, then takes the one chosen", async () => {
     const accountOnly: Identity = {
       ...who("111"),
       targets: { account: who("111").targets.account! },
@@ -385,10 +438,16 @@ describe("a detected login the block pins (open decision 7)", () => {
             identity: accountOnly,
           })
           expect(yield* rb.status("cloud")).toEqual({ _tag: "Idle" })
+          expect(
+            yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: "ReadOnly" }),
+          ).toEqual({ _tag: "Accepted" })
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({
+            identity: who("111", "ReadOnly"),
+          })
         }),
     )
     expect(argsOf("cloud", "targets")).toEqual([["role", Option.some("111")]])
-    expect(callsOf("cloud")).not.toContain("env")
+    expect(argsOf("cloud", "select")).toEqual([[{ account: "111", role: "ReadOnly" }]])
   })
 
   // azure-signin.test.ts
@@ -426,10 +485,363 @@ describe("a detected login the block pins (open decision 7)", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Signing in
+// ---------------------------------------------------------------------------
+
+const HOSTS = [
+  { id: "github.com", name: "GitHub" },
+  { id: "gitlab.com", name: "GitLab" },
+]
+
+describe("signing in", () => {
+  it("shows each prompt of a sign-in, then is ready", async () => {
+    let release = () => {}
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const prompts: ReadonlyArray<SignInEvent> = [
+      { _tag: "OpenUrl", url: "https://device.example/", code: Option.some("ABCD-1234") },
+      { _tag: "Waiting" },
+    ]
+    await withCloud(
+      runbookOf(
+        '<CloudLogin id="cloud" detect={false} defaults={{ sso: { startUrl: "https://start.example/" } }} />',
+        DEPLOY,
+      ),
+      {
+        cloud: cloud({
+          signIn: () =>
+            Stream.concat(
+              Stream.fromIterable(prompts),
+              Stream.fromEffect(
+                Effect.as(
+                  Effect.promise(() => released),
+                  signedIn(who("111")),
+                ),
+              ),
+            ),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "SignedOut")
+          expect(yield* rb.act("cloud", { _tag: "SignIn", method: "sso", fields: {} })).toEqual({
+            _tag: "Accepted",
+          })
+          expect(yield* rb.until("cloud", "SigningIn")).toEqual({
+            _tag: "SigningIn",
+            method: "sso",
+          })
+          expect(yield* rb.until("cloud", "SigningIn")).toEqual({
+            _tag: "SigningIn",
+            method: "sso",
+            prompt: { _tag: "OpenUrl", url: "https://device.example/", code: "ABCD-1234" },
+          })
+          expect(yield* rb.until("cloud", "SigningIn")).toEqual({
+            _tag: "SigningIn",
+            method: "sso",
+            prompt: { _tag: "Waiting" },
+          })
+          expect(yield* rb.status("cloud")).toEqual({ _tag: "Running" })
+          expect(yield* rb.status("deploy")).toEqual(WAITING_FOR_CLOUD)
+          release()
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({ source: "sso" })
+          expect(yield* rb.run("deploy")).toEqual(done)
+        }),
+    )
+    const [method, fields, constraints] = argsOf("cloud", "signIn")[0] ?? []
+    expect(method).toBe("sso")
+    expect(
+      Object.fromEntries(
+        Object.entries(fields as Record<string, Redacted.Redacted<string>>).map(([name, value]) => [
+          name,
+          Redacted.value(value),
+        ]),
+      ),
+    ).toEqual({ startUrl: "https://start.example/" })
+    expect(constraints).toEqual({ pins: {}, requirements: [] })
+  })
+
+  it("chooses the levels before sign-in first, then signs in to the one chosen", async () => {
+    await withCloud(
+      '<GitLogin id="git" />',
+      {
+        git: () => ({
+          info: GIT_INFO,
+          targets: () => Effect.succeed(HOSTS),
+          signIn: (_method, _fields, { pins }) =>
+            Stream.make(
+              signedIn({
+                principal: "octocat",
+                kind: "user",
+                method: "token",
+                targets: { host: { id: pins.host ?? "", name: pins.host ?? "" } },
+              }),
+            ),
+          env: Effect.succeed({
+            values: [
+              {
+                name: "GITLAB_TOKEN",
+                value: Redacted.make("glpat-SECRET"),
+                sensitive: true,
+                to: ["env"],
+              },
+            ],
+            expiresAt: Option.none(),
+          }),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("git", "SignedOut")
+          const fields = { token: Redacted.make("glpat-SECRET") }
+          yield* rb.act("git", { _tag: "SignIn", method: "token", fields })
+          yield* rb.until("git", "SigningIn")
+          const choosing = yield* rb.until("git", "ChoosingTarget")
+          expect(choosing).toEqual({
+            _tag: "ChoosingTarget",
+            level: GIT_INFO.levels[0]!,
+            options: HOSTS,
+            chosen: {},
+          })
+          expect(
+            yield* rb.act("git", { _tag: "ChooseTarget", level: "host", id: "gitlab.com" }),
+          ).toEqual({ _tag: "Accepted" })
+          yield* rb.until("git", "SigningIn")
+          expect(yield* rb.until("git", "Ready")).toMatchObject({
+            identity: { targets: { host: { id: "gitlab.com" } } },
+          })
+        }),
+    )
+    expect(argsOf("git", "targets")).toEqual([["host", Option.none()]])
+    const [method, fields, constraints] = argsOf("git", "signIn")[0] ?? []
+    expect(method).toBe("token")
+    expect(Redacted.value((fields as Record<string, Redacted.Redacted<string>>).token!)).toBe(
+      "glpat-SECRET",
+    )
+    expect(constraints).toEqual({ pins: { host: "gitlab.com" }, requirements: [] })
+    expect(movesOf("git")).toEqual([
+      "Detecting",
+      "SignedOut",
+      "SigningIn",
+      "ChoosingTarget",
+      "SigningIn",
+      "Ready",
+    ])
+  })
+
+  // useAwsAuth.sso.test.ts
+  it("stops a sign-in that is still polling", async () => {
+    let stopped = false
+    await withCloud(
+      '<CloudLogin id="cloud" detect={false} />',
+      {
+        cloud: cloud({
+          signIn: () =>
+            Stream.concat(Stream.make(WAITING), Stream.never).pipe(
+              Stream.ensuring(Effect.sync(() => (stopped = true))),
+            ),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "SignedOut")
+          yield* rb.act("cloud", { _tag: "SignIn", method: "sso", fields: {} })
+          yield* rb.until("cloud", "SigningIn")
+          yield* rb.until("cloud", "SigningIn")
+          expect(yield* rb.act("cloud", { _tag: "Cancel" })).toEqual({ _tag: "Accepted" })
+          expect(stopped).toBe(true)
+          expect(yield* rb.until("cloud", "SignedOut")).toMatchObject({
+            lastError: { kind: "cancelled" },
+          })
+        }),
+    )
+    expect(callsOf("cloud")).toEqual(["open", "describe", "signIn", "signOut"])
+  })
+
+  it("stops a sign-in in progress when the session closes", async () => {
+    let stopped = false
+    await withCloud(
+      '<CloudLogin id="cloud" detect={false} />',
+      {
+        cloud: cloud({
+          signIn: () => Stream.never.pipe(Stream.ensuring(Effect.sync(() => (stopped = true)))),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "SignedOut")
+          yield* rb.act("cloud", { _tag: "SignIn", method: "sso", fields: {} })
+          yield* rb.until("cloud", "SigningIn")
+        }),
+    )
+    expect(stopped).toBe(true)
+  })
+
+  it("says what it offers when an action names a method or target it does not", async () => {
+    await withCloud(
+      '<GitLogin id="git" />',
+      { git: () => ({ info: GIT_INFO, targets: () => Effect.succeed(HOSTS) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("git", "SignedOut")
+          expect(yield* rb.act("git", { _tag: "SignIn", method: "oauth", fields: {} })).toEqual({
+            _tag: "NotOffered",
+            field: "method",
+            value: "oauth",
+            offered: ["token"],
+          })
+          yield* rb.act("git", { _tag: "SignIn", method: "token", fields: {} })
+          yield* rb.until("git", "ChoosingTarget")
+          expect(
+            yield* rb.act("git", { _tag: "ChooseTarget", level: "host", id: "bitbucket.org" }),
+          ).toEqual({
+            _tag: "NotOffered",
+            field: "id",
+            value: "bitbucket.org",
+            offered: ["github.com", "gitlab.com"],
+          })
+          expect(yield* rb.act("git", { _tag: "ChooseTarget", level: "org", id: "acme" })).toEqual({
+            _tag: "NotOffered",
+            field: "level",
+            value: "org",
+            offered: ["host"],
+          })
+          expect((yield* rb.view("git")).credential?._tag).toBe("ChoosingTarget")
+        }),
+    )
+    expect(callsOf("git")).toEqual(["open", "describe", "targets"])
+  })
+
+  it("refuses an action the block's state does not take, and changes nothing", async () => {
+    await withCloud('<CloudLogin id="cloud" detect={false} />', { cloud: cloud() }, (rb) =>
+      Effect.gen(function* () {
+        yield* rb.until("cloud", "SignedOut")
+        // Every action but SignIn: CheckAgain too, with detection off.
+        for (const action of [
+          { _tag: "Confirm" },
+          { _tag: "Decline" },
+          { _tag: "Cancel" },
+          { _tag: "ChooseTarget", level: "account", id: "111" },
+          { _tag: "CheckAgain" },
+          { _tag: "SignOut" },
+        ] as const)
+          expect(yield* rb.act("cloud", action)).toEqual({ _tag: "NotAllowed", state: "SignedOut" })
+        expect((yield* rb.view("cloud")).actions).toEqual(["credential"])
+      }),
+    )
+    expect(movesOf("cloud")).toEqual(["Detecting", "SignedOut"])
+  })
+
+  it("takes only Cancel while signing in, and the sign-in goes on", async () => {
+    let stopped = false
+    await withCloud(
+      '<CloudLogin id="cloud" detect={false} />',
+      {
+        cloud: cloud({
+          signIn: () =>
+            Stream.concat(Stream.make(WAITING), Stream.never).pipe(
+              Stream.ensuring(Effect.sync(() => (stopped = true))),
+            ),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "SignedOut")
+          yield* rb.act("cloud", { _tag: "SignIn", method: "sso", fields: {} })
+          yield* rb.until("cloud", "SigningIn")
+          yield* rb.until("cloud", "SigningIn")
+          for (const action of [
+            { _tag: "Confirm" },
+            { _tag: "Decline" },
+            { _tag: "SignIn", method: "sso", fields: {} },
+            { _tag: "ChooseTarget", level: "account", id: "111" },
+            { _tag: "CheckAgain" },
+            { _tag: "SignOut" },
+          ] as const)
+            expect(yield* rb.act("cloud", action)).toEqual({
+              _tag: "NotAllowed",
+              state: "SigningIn",
+            })
+          expect(stopped).toBe(false)
+        }),
+    )
+    expect(movesOf("cloud")).toEqual(["Detecting", "SignedOut", "SigningIn", "SigningIn"])
+    expect(callsOf("cloud")).toEqual(["open", "describe", "signIn"])
+  })
+
+  it("changes the target of a ready block at a level it does not pin", async () => {
+    const roles = [
+      { id: "Admin", name: "Admin" },
+      { id: "ReadOnly", name: "ReadOnly" },
+    ]
+    await withCloud(
+      '<CloudLogin id="cloud" account="111" />',
+      {
+        cloud: cloud({
+          detect: () => found(who("111")),
+          targets: () => Effect.succeed(roles),
+          select: (targets) => Effect.succeed(who(targets.account ?? "", targets.role)),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Ready")
+          expect(
+            yield* rb.act("cloud", { _tag: "ChooseTarget", level: "account", id: "222" }),
+          ).toEqual({ _tag: "NotOffered", field: "level", value: "account", offered: ["role"] })
+          yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: "ReadOnly" })
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({
+            identity: who("111", "ReadOnly"),
+          })
+          yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: "Gone" })
+          expect(yield* rb.until("cloud", "ChoosingTarget")).toMatchObject({
+            level: { name: "role" },
+            options: roles,
+            chosen: { account: { id: "111" } },
+          })
+          expect((yield* rb.outputs).cloud).toBeUndefined()
+        }),
+    )
+    expect(argsOf("cloud", "select")).toEqual([[{ account: "111", role: "ReadOnly" }]])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Requirements and an unavailable provider
 // ---------------------------------------------------------------------------
 
 describe("a login that cannot be used", () => {
+  // AzureAuth.test.tsx
+  it("shows the missing roles as the error, and stays signed out", async () => {
+    const unmet = [{ kind: "roles" as const, roles: [{ role: "Contributor" }] }]
+    await withCloud(
+      runbookOf('<CloudLogin id="cloud" detect={false} />', DEPLOY),
+      {
+        cloud: cloud({
+          signIn: () =>
+            Stream.fail(credentialError("requirementNotMet", "Missing Contributor.", { unmet })),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "SignedOut")
+          yield* rb.act("cloud", { _tag: "SignIn", method: "sso", fields: {} })
+          expect(yield* rb.until("cloud", "RequirementNotMet")).toEqual({
+            _tag: "RequirementNotMet",
+            unmet,
+          })
+          const status = yield* rb.status("cloud")
+          expect(status?._tag === "Failed" && status.error).toMatchObject({
+            kind: "requirementNotMet",
+          })
+          expect(yield* rb.status("deploy")).toEqual(WAITING_FOR_CLOUD)
+          expect((yield* rb.outputs).cloud).toBeUndefined()
+        }),
+    )
+    expect(callsOf("cloud")).not.toContain("env")
+  })
+
   it("is RequirementNotMet when a detected login lacks what the block requires", async () => {
     const unmet = [{ kind: "scopes" as const, scopes: ["repo"] }]
     await withCloud(
@@ -450,6 +862,8 @@ describe("a login that cannot be used", () => {
           expect(status?._tag === "Failed" && status.error).toMatchObject({
             kind: "requirementNotMet",
           })
+          yield* rb.act("cloud", { _tag: "SignOut" })
+          yield* rb.until("cloud", "SignedOut")
         }),
     )
     expect(argsOf("cloud", "detect")[0]?.[1]).toEqual({ pins: {}, requirements: unmet })
@@ -458,13 +872,19 @@ describe("a login that cannot be used", () => {
   // AzureAuth.test.tsx
   it("says to install the Azure CLI when it's missing", async () => {
     const AZ = { name: "az", installUrl: "https://aka.ms/installazurecli" }
+    let opened = 0
     await withCloud(
       '<CloudLogin id="cloud" />',
       {
-        cloud: cloud({
-          detect: () =>
-            Effect.fail(credentialError("toolMissing", "Install the Azure CLI.", { tool: AZ })),
-        }),
+        cloud: (config) =>
+          ++opened === 1
+            ? cloud({
+                detect: () =>
+                  Effect.fail(
+                    credentialError("toolMissing", "Install the Azure CLI.", { tool: AZ }),
+                  ),
+              })(config)
+            : cloud()(config),
       },
       (rb) =>
         Effect.gen(function* () {
@@ -473,9 +893,15 @@ describe("a login that cannot be used", () => {
           })
           const status = yield* rb.status("cloud")
           expect(status?._tag === "Failed" && status.error).toMatchObject({ tool: AZ })
+          expect(yield* rb.act("cloud", { _tag: "SignIn", method: "sso", fields: {} })).toEqual({
+            _tag: "NotAllowed",
+            state: "Unavailable",
+          })
+          yield* rb.act("cloud", { _tag: "CheckAgain" })
+          yield* rb.until("cloud", "SignedOut")
         }),
     )
-    expect(callsOf("cloud")).toEqual(["open", "describe", "detect"])
+    expect(callsOf("cloud")).toEqual(["open", "describe", "detect", "open", "describe", "detect"])
   })
 
   it("is unavailable when the block's provider does not exist", async () => {
@@ -485,6 +911,7 @@ describe("a login that cannot be used", () => {
           error: { kind: "providerFailed", message: "There is no credential provider named git." },
         })
         expect((yield* rb.view("git")).credential?._tag).toBe("Unavailable")
+        expect((yield* rb.view("git")).actions).toEqual(["credential"])
       }),
     )
   })
@@ -504,10 +931,91 @@ describe("a login that cannot be used", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Signing out
+// ---------------------------------------------------------------------------
+
+describe("signing out", () => {
+  // useAwsAuth.sso.test.ts
+  it("withdraws the block's published credentials", async () => {
+    await withCloud(pinned, { cloud: ready }, (rb) =>
+      Effect.gen(function* () {
+        yield* rb.until("cloud", "Ready")
+        expect(Object.keys((yield* rb.outputs).cloud ?? {})).toEqual(["account", "token"])
+        expect(yield* rb.act("cloud", { _tag: "SignOut" })).toEqual({ _tag: "Accepted" })
+        const state = yield* rb.until("cloud", "SignedOut")
+        expect(state).not.toHaveProperty("lastError")
+        expect((yield* rb.outputs).cloud).toBeUndefined()
+        expect(yield* rb.status("cloud")).toEqual({ _tag: "Idle" })
+      }),
+    )
+    expect(callsOf("cloud")).toEqual(["open", "describe", "detect", "env", "signOut"])
+    const events = log.map(({ event }) => event._tag)
+    expect(events.indexOf("OutputsWithdrawn")).toBeGreaterThan(events.indexOf("OutputsPublished"))
+  })
+
+  // AzureAuth.test.tsx
+  it("withdraws the outputs so azureAuthId steps wait again", async () => {
+    await withCloud(runbookOf(pinned, DEPLOY), { cloud: ready }, (rb) =>
+      Effect.gen(function* () {
+        yield* rb.until("cloud", "Ready")
+        expect(yield* rb.status("deploy")).toEqual({ _tag: "Idle" })
+        yield* rb.act("cloud", { _tag: "SignOut" })
+        yield* rb.until("cloud", "SignedOut")
+        expect(yield* rb.status("deploy")).toEqual(WAITING_FOR_CLOUD)
+      }),
+    )
+  })
+
+  it("signs out even when the provider cannot, and says why", async () => {
+    await withCloud(
+      pinned,
+      {
+        cloud: cloud({
+          detect: () => found(who("111")),
+          signOut: Effect.fail(credentialError("network", "Offline.")),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Ready")
+          yield* rb.act("cloud", { _tag: "SignOut" })
+          expect(yield* rb.until("cloud", "SignedOut")).toMatchObject({
+            lastError: { kind: "network", message: "Offline." },
+          })
+        }),
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
 // What a run gets
 // ---------------------------------------------------------------------------
 
 describe("a run that names the block in envFrom", () => {
+  it("confirms a detected login and then gives a run in envFrom the provider's variables", async () => {
+    await withCloud(
+      runbookOf('<CloudLogin id="cloud" />', DEPLOY),
+      { cloud: cloud({ detect: () => found(who("111")) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Found")
+          expect(yield* rb.act("cloud", { _tag: "Confirm" })).toEqual({ _tag: "Accepted" })
+          yield* rb.until("cloud", "Ready")
+          expect((yield* rb.outputs).cloud).toEqual({
+            account: { _tag: "Shown", value: "111" },
+            token: { _tag: "Hidden" },
+          })
+          expect(yield* rb.run("deploy")).toEqual(done)
+          expect(rb.envOf("deploy")).toMatchObject({
+            CLOUD_TOKEN: "tok-SECRET",
+            CLOUD_ACCOUNT: "111",
+          })
+        }),
+    )
+    // Once to become Ready, once more as the run starts.
+    expect(callsOf("cloud").filter((method) => method === "env")).toHaveLength(2)
+  })
+
   // src/domain/exec/executor.test.ts, as env.test.ts ports it, here with a
   // provider in a session.
   it("refuses names no auth block passes, before creating or spawning anything", async () => {
@@ -546,6 +1054,46 @@ describe("a run that names the block in envFrom", () => {
         }),
     )
     expect(spawns).toEqual([])
+  })
+
+  it("fails a run whose credential was signed out while its provider answered", async () => {
+    let answer = () => {}
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve
+    })
+    let envCalls = 0
+    await withCloud(
+      runbookOf(pinned, DEPLOY),
+      {
+        cloud: cloud({
+          detect: () => found(who("111")),
+          env: Effect.suspend(() =>
+            ++envCalls === 1
+              ? Effect.succeed(cloudEnv("tok-SECRET"))
+              : Effect.as(
+                  Effect.promise(() => answered),
+                  cloudEnv("tok-SECRET"),
+                ),
+          ),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Ready")
+          yield* rb.start("deploy")
+          yield* rb.act("cloud", { _tag: "SignOut" })
+          answer()
+          const status = yield* rb.wait("deploy")
+          expect(status).toMatchObject({
+            _tag: "Failed",
+            error: {
+              message:
+                "cloud could not give the run its credentials: cloud is no longer signed in.",
+            },
+          })
+          expect(rb.inputOf("deploy")).toBeUndefined()
+        }),
+    )
   })
 })
 
@@ -672,6 +1220,30 @@ describe("each block's own credential", () => {
     expect(JSON.stringify(log)).not.toContain("SECRET")
   })
 
+  it("never shows a sign-in's secret fields, and gives them to its provider", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" detect={false} defaults={{ keys: { accessKey: "AKIAVISIBLE", secretKey: "default-SECRET" } }} />',
+      { cloud: cloud({ signIn: () => Stream.make(signedIn(who("111"))) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "SignedOut")
+          const fields = { secretKey: Redacted.make("typed-SECRET") }
+          yield* rb.act("cloud", { _tag: "SignIn", method: "keys", fields })
+          yield* rb.until("cloud", "Ready")
+          expect(JSON.stringify(yield* rb.view("cloud"))).not.toContain("SECRET")
+        }),
+    )
+    const wire = JSON.stringify(
+      Schema.encodeSync(Schema.toCodecJson(Schema.Array(EventEnvelope)))(log),
+    )
+    expect(wire).not.toContain("SECRET")
+    const [, fields] = argsOf("cloud", "signIn")[0] ?? []
+    const given = fields as Record<string, Redacted.Redacted<string>>
+    expect(Object.keys(given).sort()).toEqual(["accessKey", "secretKey"])
+    expect(Redacted.value(given.accessKey!)).toBe("AKIAVISIBLE")
+    expect(Redacted.value(given.secretKey!)).toBe("typed-SECRET")
+  })
+
   // aws-env.test.ts: there the provider's answer; here what the engine keeps of it.
   it("returns found/valid identity metadata and never the key material", async () => {
     const keys =
@@ -742,6 +1314,9 @@ describe("the credential store", () => {
         yield* Effect.promise(() => isReady)
         expect(store.entries().map(([held]) => held)).toEqual([id])
         expect(credentials.outputs(0)?.get("token")).toMatchObject({ sensitive: true })
+        yield* credentials.act(0, { _tag: "SignOut" }, providers.open)
+        expect(store.entries()).toEqual([])
+        expect(credentials.outputs(0)).toBeUndefined()
         yield* Scope.close(scope, Exit.void)
       }).pipe(
         Effect.provide(
@@ -752,6 +1327,7 @@ describe("the credential store", () => {
     expect(steps).toEqual([
       ["Detecting", false],
       ["Ready", true],
+      ["SignedOut", false],
     ])
   })
 

@@ -32,10 +32,20 @@ import {
   TaskTimedOut,
 } from "@runbooks/blocks-core/contract"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
-import type { CredentialState, CredentialStateTag } from "../credential/lifecycle.ts"
+import type {
+  CredentialAction,
+  CredentialState,
+  CredentialStateTag,
+} from "../credential/lifecycle.ts"
 import type { CredentialProviders } from "../credential/provider.ts"
 import { Engine } from "../engine/engine.ts"
-import { type BlockView, Caller, type EventEnvelope, type OutputView } from "../engine/protocol.ts"
+import {
+  type ActResult,
+  type BlockView,
+  Caller,
+  type EventEnvelope,
+  type OutputView,
+} from "../engine/protocol.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import { collectOutput, ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { testCredentialProviders } from "./TestCredentialProviders.ts"
@@ -210,6 +220,11 @@ export interface EnvSession {
   /** What a `Shell` block's latest run printed. */
   readonly printedBy: (label: string) => ReadonlyArray<string> | undefined
   readonly view: (block: string) => Effect.Effect<BlockView, unknown, Caller>
+  /** Acts on a credential block. */
+  readonly act: (
+    block: string,
+    action: CredentialAction,
+  ) => Effect.Effect<ActResult, unknown, Caller>
   /**
    * The next state `tag` the credential block moves to, after the one the
    * last `until` for that block returned. Fails if it does not come within
@@ -305,6 +320,7 @@ export const withEnvSession = <A>(
         printedBy: (label) => noted.printed.get(label),
         wrote: (label) => noted.wrote.get(label) ?? 0,
         view: (block) => engine.getBlock(target(block)),
+        act: (block, action) => engine.actOnCredential({ ...target(block), action }),
         until,
         close: Effect.andThen(engine.closeSession({ session }), Fiber.join(recording)),
       })

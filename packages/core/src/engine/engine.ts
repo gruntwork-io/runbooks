@@ -14,6 +14,7 @@ import { loadRunbook } from "../document/load.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import {
   AbsolutePath,
+  type ActOnCredential,
   type CancelBlock,
   Caller,
   type CloseSession,
@@ -68,6 +69,8 @@ export interface EngineShape {
   readonly resetBlock: Command<typeof ResetBlock>
   readonly waitForBlock: Command<typeof WaitForBlock>
   readonly getOutputs: Command<typeof GetOutputs>
+  /** Confirm a detected login, sign in, choose a target, sign out. Refused in a state that does not take it. */
+  readonly actOnCredential: Command<typeof ActOnCredential>
 }
 
 export interface EngineOptions<R extends Registry> {
@@ -257,6 +260,14 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
 
           getOutputs: Effect.fn("Engine.getOutputs")(function* ({ session }) {
             return (yield* lookup(session)).outputs()
+          }),
+
+          actOnCredential: Effect.fn("Engine.actOnCredential")(function* ({
+            session,
+            block,
+            action,
+          }) {
+            return yield* (yield* lookup(session)).actOnCredential(block, action)
           }),
         })
       }),
