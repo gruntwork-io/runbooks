@@ -90,7 +90,7 @@ describe("loadRunbook", () => {
       {
         from: 1,
         to: 0,
-        source: { _tag: "Template", key: "region", guarded: false },
+        source: { _tag: "Output", key: "region", guarded: false },
         file: "/rb/templates/main.tf",
         // The reference itself, `.outputs.setup.region`, as the extractor spans it.
         span: { start: { line: 2, column: 14 }, end: { line: 2, column: 35 } },

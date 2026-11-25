@@ -56,8 +56,8 @@ describe("the reference graph", () => {
       '<Command id="ship" command=\'cp {{ .outputs.build.path }} out {{ if hasKey .outputs.build "sha" }}{{ .outputs.build.sha }}{{ end }}\' env={{ TARGET: "{{ .outputs.build.path }}" }} />',
     ])
     expect(edges(doc)).toEqual([
-      [1, 0, { _tag: "Template", key: "path", guarded: false }],
-      [1, 0, { _tag: "Template", key: "sha", guarded: true }],
+      [1, 0, { _tag: "Output", key: "path", guarded: false }],
+      [1, 0, { _tag: "Output", key: "sha", guarded: true }],
     ])
   })
 

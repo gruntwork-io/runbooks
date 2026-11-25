@@ -72,11 +72,11 @@ describe("RunbookDocument", () => {
 describe("Edge", () => {
   it("says whether a template read is behind a guard", () => {
     const edges = [
-      { ...encoded.edges[0], source: { _tag: "Template", key: "org_id", guarded: true } },
+      { ...encoded.edges[0], source: { _tag: "Output", key: "org_id", guarded: true } },
     ]
     const doc = Schema.decodeUnknownSync(RunbookDocument)({ ...encoded, edges })
-    expect(doc.edges[0]?.source).toEqual({ _tag: "Template", key: "org_id", guarded: true })
-    const unsaid = [{ ...encoded.edges[0], source: { _tag: "Template", key: "org_id" } }]
+    expect(doc.edges[0]?.source).toEqual({ _tag: "Output", key: "org_id", guarded: true })
+    const unsaid = [{ ...encoded.edges[0], source: { _tag: "Output", key: "org_id" } }]
     expect(() => Schema.decodeUnknownSync(RunbookDocument)({ ...encoded, edges: unsaid })).toThrow()
   })
 })
