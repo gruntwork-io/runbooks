@@ -24,6 +24,8 @@ import { SourceSelect } from "./components/SourceSelect"
 import { LocalRepoForm } from "./components/LocalRepoForm"
 import { CloneResultDisplay } from "./components/CloneResult"
 import { EmptyRepoWarning } from "./components/EmptyRepoWarning"
+import { SshUrlNote } from "./components/SshUrlNote"
+import { isSshAuthError, sshRemoteForSignIn, sshSignInNote } from "./sshUrl"
 import { CollapsibleToggle } from "@/components/mdx/GitPullRequest/components/CollapsibleToggle"
 import {
   extractTemplateDependenciesFromString,
@@ -481,6 +483,16 @@ function GitCloneInteractive({
   const urlPlaceholder = linkedToGitLab
     ? `https://${gitlabHost}/group/project.git`
     : `https://${githubHost}/org/repo.git`
+
+  // The clone sends the sign-in's token only over HTTPS; an SSH URL uses SSH keys.
+  const signedInProvider = authBlockId && gitHubAuthMet ? authProvider : undefined
+  const signInHost = signedInProvider === "gitlab" ? gitlabHost : githubHost
+  const sshUrl = signedInProvider ? sshRemoteForSignIn(gitUrl, signInHost) : undefined
+  const showSshAuthHint =
+    signedInProvider !== undefined &&
+    !!errorMessage &&
+    isSshAuthError(errorMessage) &&
+    !!sshRemoteForSignIn(submittedForm?.gitUrl ?? gitUrl, signInHost)
 
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
 
@@ -941,6 +953,14 @@ function GitCloneInteractive({
                         disabled={isFormDisabled}
                         className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                       />
+                      {sshUrl && signedInProvider && (
+                        <SshUrlNote
+                          provider={signedInProvider}
+                          httpsUrl={sshUrl.httpsUrl}
+                          onUseHttps={setGitUrl}
+                          disabled={isFormDisabled}
+                        />
+                      )}
                     </div>
 
                     {/* GitHub Browser (only with a GitHub token and no GitLab link) */}
@@ -1061,6 +1081,11 @@ function GitCloneInteractive({
                       <p className="text-xs text-destructive m-0 mt-0.5 font-mono">
                         {displayPath(errorMessage)}
                       </p>
+                      {showSshAuthHint && signedInProvider && !isLocalSource && (
+                        <p className="text-xs text-destructive m-0 mt-1.5">
+                          {sshSignInNote(signedInProvider)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}

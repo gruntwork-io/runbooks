@@ -164,6 +164,8 @@ The seeded commit is empty. It gives the default branch something to point at, s
 | SSH, bracketed host | `git@[2001:db8::1]:org/repo.git`, `git@[git.example.com:2222]:org/repo.git` | As in git, an IPv6 address, or a host with a non-default SSH port, goes in brackets. Without brackets, the text after the colon is always the repository path. |
 | `ssh://` URL | `ssh://git@github.com/org/repo.git` | Not accepted. The block refuses it as an invalid git URL. Use the `git@host:org/repo.git` form above, with the host in brackets for a non-default port. |
 
+When the block links an auth block that has signed in, and the user enters an SSH URL on the host of that sign-in, a note under the URL field says the clone uses SSH keys, not the sign-in. A "Use HTTPS URL" button replaces the URL with the same repository over HTTPS on the sign-in's host, for example `git@gitlab.com:group/sub/project.git` becomes `https://gitlab.com/group/sub/project.git`. If an SSH clone fails because SSH authentication failed, the error message repeats the note.
+
 ### GitHub authentication
 
 The GitClone block resolves GitHub credentials in this order:
