@@ -86,13 +86,15 @@ export interface EngineOptions<R extends Registry> {
   /**
    * The folder that holds each session's working folder, named by the
    * session's id: the app's `<userData>/v0/sessions/dirs`. Only the entry
-   * point sets it; no protocol command names a root.
+   * point sets it; no protocol command names a root. A session retention
+   * drops goes with its folder.
    */
   readonly workingFolders: string
   /**
    * The folder that holds each session's credential provider state, by
    * session id and then block id: the app's `<userData>/v0/sessions/state`.
-   * Only the entry point sets it.
+   * Only the entry point sets it. A session retention drops goes with its
+   * folder.
    */
   readonly stateFolders: string
   /**
@@ -122,6 +124,10 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
    *
    * Each session saves what it holds through the `SessionStore`, and the
    * engine resumes it when the runbook is opened again (`openSession`).
+   * Before it serves anything, it drops the sessions retention names, so
+   * none of them is open: each one's working and state folders first, then
+   * what it saved. A session whose folders cannot be deleted is kept, and
+   * retention names it again at the next start.
    */
   static readonly layer = <R extends Registry>(
     options: EngineOptions<R>,
@@ -141,6 +147,25 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
         const providers = yield* CredentialProviders
         const settings = yield* SettingsStore
         const store = yield* SessionStore
+        const files = yield* FileSystem
+        for (const expired of yield* store.expired) {
+          const deleted = yield* Effect.forEach(
+            [path.join(workingFolders, expired), path.join(stateFolders, expired)],
+            (folder) => files.rm(folder, { recursive: true, force: true }),
+            { discard: true },
+          ).pipe(
+            Effect.as(true),
+            Effect.catch((error) =>
+              Effect.as(
+                Effect.logWarning(
+                  `Session ${expired} was kept: its folder ${error.path} could not be deleted: ${error.cause instanceof Error ? error.cause.message : String(error.cause)}`,
+                ),
+                false,
+              ),
+            ),
+          )
+          if (deleted) yield* store.forget(expired)
+        }
         const network = Effect.map(settings.get, ({ settings: { caBundleFile, proxy } }) => ({
           caBundleFile: Option.fromNullOr(caBundleFile),
           proxy: Option.fromNullOr(proxy),
