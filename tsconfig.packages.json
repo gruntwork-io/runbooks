@@ -34,7 +34,10 @@
       "@runbooks/core/settings": ["./packages/core/src/engine/settings.ts"],
       "@runbooks/core/services/*": ["./packages/core/src/services/*.ts"],
       "@runbooks/core/test-utils/*": ["./packages/core/src/test-utils/*.ts"],
-      "@runbooks/core/types": ["./packages/core/src/types.ts"]
+      "@runbooks/core/types": ["./packages/core/src/types.ts"],
+
+      // platform-node: packages/platform-node
+      "@runbooks/platform-node/layers/*": ["./packages/platform-node/src/layers/*.ts"]
     }
   }
 }

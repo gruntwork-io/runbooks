@@ -8,9 +8,22 @@
     "cli/index.ts",
     "scripts/*.ts",
     ".github/scripts/**/*.mjs",
-    "{src,electron,cli,scripts,test}/**/*.test.ts"
+    "{src,electron,cli,scripts,test}/**/*.test.ts",
+    "{packages,blocks,baseline}/**/*.test.{ts,tsx}",
+    "blocks/core/{contract,form,registry,status}.ts",
+    "blocks/{index,views}.ts",
+    "packages/core/src/{credential,document,domain,errors,services,test-utils}/**/*.ts",
+    "packages/core/src/{path-validation,remote-source,types}.ts",
+    "packages/core/src/engine/{protocol,settings}.ts",
+    "packages/platform-node/src/layers/**/*.ts",
+    "packages/cli/src/contract.ts",
+    "packages/core/src/plugin/transport.ts"
   ],
-  "project": ["{src,electron,web,cli,scripts,test}/**/*.{ts,tsx}", ".github/scripts/**/*.mjs"],
+  "project": [
+    "{src,electron,web,cli,scripts,test}/**/*.{ts,tsx}",
+    ".github/scripts/**/*.mjs",
+    "{packages,blocks,baseline}/**/*.{ts,tsx}"
+  ],
   "ignore": ["docs/**", "testdata/**", "test/fixtures/**"],
   "ignoreExportsUsedInFile": true,
   "ignoreIssues": {

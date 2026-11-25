@@ -63,6 +63,33 @@ describe("the packages", () => {
   })
 })
 
+/**
+ * Files knip takes as entries although no TypeScript in the repo imports
+ * them yet: the interfaces written for programs that are not TypeScript.
+ * The CLI contract is what scripts and CI call; the plugin transport is what
+ * a plugin binary speaks.
+ */
+const CONTRACTS = ["packages/cli/src/contract.ts", "packages/core/src/plugin/transport.ts"]
+
+describe("knip", () => {
+  it("takes every declared export, and each contract, as an entry", async () => {
+    const { entry } = (await Bun.file(path.join(ROOT, "knip.json")).json()) as {
+      readonly entry: ReadonlyArray<string>
+    }
+    const entries = entry.map((glob) => new Bun.Glob(glob))
+    const { compilerOptions } = await read(BASE)
+    // A `*` in a path mapping matches across folders, as `**` does in a glob.
+    const declared = Object.values(compilerOptions?.paths ?? {})
+      .flat()
+      .map((target) => path.normalize(target).replace("*", "**/*"))
+    const files: string[] = [...CONTRACTS]
+    for (const glob of declared)
+      for await (const file of new Bun.Glob(glob).scan({ cwd: ROOT })) files.push(file)
+    expect(files.length).toBeGreaterThan(CONTRACTS.length + declared.length)
+    expect(files.filter((file) => !entries.some((glob) => glob.match(file)))).toEqual([])
+  })
+})
+
 describe("packageOf", () => {
   it("names the deepest package holding a file", () => {
     expect(packageOf("blocks/core/contract.ts")).toBe("blocks-core")
