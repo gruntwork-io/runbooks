@@ -28,6 +28,8 @@ export const BlockStatus = Schema.Union([
   Schema.TaggedStruct("Running", {}),
   Schema.TaggedStruct("Done", { outcome: Outcome }),
   Schema.TaggedStruct("Failed", { error: Schema.Union([TaskError, CredentialError]) }),
+  /** Its configuration has errors, which its document node holds. It never runs; the others do. */
+  Schema.TaggedStruct("Misconfigured", {}),
 ])
 export type BlockStatus = typeof BlockStatus.Type
 

@@ -9,7 +9,15 @@ import { Result, Schema, SchemaAST, SchemaIssue } from "effect"
 import YAML from "yaml"
 import { BlockId, type Capability, type ReferenceValue } from "@runbooks/blocks-core/contract"
 import { type AnyBlock, type Registry, resolveTag } from "@runbooks/blocks-core/registry"
-import { ConfigError, type ConfigErrorCode, ConfigWarning, type Span } from "./configError.ts"
+import {
+  type BlockErrorCode,
+  byPlace,
+  ConfigError,
+  ConfigWarning,
+  refusesRunbook,
+  type RunbookErrorCode,
+  type Span,
+} from "./configError.ts"
 import {
   type BlockNode,
   ContentHash,
@@ -112,8 +120,19 @@ interface Written {
   readonly span: Span
 }
 
+type Where = { readonly tag: string; readonly id?: string }
+
+/** The rest of an error: its details, and the block and prop it is in. */
+type ErrorDetail = Partial<Pick<ConfigError, "expected" | "received" | "suggestion">> & {
+  readonly block?: Where
+  readonly prop?: string
+}
+
 class Parse {
+  /** Every error, the runbook's and the blocks'. */
   private readonly errors: ConfigError[] = []
+  /** Each block's errors, by its index. */
+  private readonly blockErrors = new Map<number, ConfigError[]>()
   private readonly warnings: ConfigWarning[] = []
   private readonly blocks: Array<BlockNode | undefined> = []
   /** Every reference a block makes, in file order, checked once every block is known. */
@@ -165,18 +184,22 @@ class Parse {
         this.error(code, message, span, more)
       },
     )
-    const [first] = this.errors
-    if (first !== undefined) return this.invalid(first)
+    const refusing = this.errors.find((error) => refusesRunbook(error.code))
+    if (refusing !== undefined) return this.invalid(refusing)
+    const order = byPlace(this.options.file)
     return {
       _tag: "Parsed",
       document: {
         file: this.options.file,
         frontMatter,
         tree,
-        blocks,
+        blocks: blocks.map((node) => ({
+          ...node,
+          errors: [...(this.blockErrors.get(node.index) ?? [])].sort(order),
+        })),
         edges,
         hash: documentHash(this.source),
-        warnings: [...this.warnings].sort(byPlace),
+        warnings: [...this.warnings].sort(order),
       },
     }
   }
@@ -189,21 +212,31 @@ class Parse {
     ]
     return {
       _tag: "Invalid",
-      errors: errors.sort(byPlace),
-      warnings: [...this.warnings].sort(byPlace),
+      errors: errors.sort(byPlace(this.options.file)),
+      warnings: [...this.warnings].sort(byPlace(this.options.file)),
     }
   }
 
+  /** An error that refuses the runbook, or one in the block at `index`, which stops only it. */
   private error(
-    code: ConfigErrorCode,
+    code: RunbookErrorCode,
     message: string,
     span: Span,
-    more: Partial<Pick<ConfigError, "expected" | "received" | "suggestion">> & {
-      readonly block?: { readonly tag: string; readonly id?: string }
-      readonly prop?: string
-    } = {},
+    more?: ErrorDetail,
+  ): ConfigError
+  private error(
+    code: BlockErrorCode,
+    message: string,
+    span: Span,
+    more: ErrorDetail & { readonly index: number },
+  ): ConfigError
+  private error(
+    code: RunbookErrorCode | BlockErrorCode,
+    message: string,
+    span: Span,
+    more: ErrorDetail & { readonly index?: number } = {},
   ): ConfigError {
-    const { block, prop, ...detail } = more
+    const { block, prop, index, ...detail } = more
     const error = new ConfigError({
       code,
       message,
@@ -216,6 +249,8 @@ class Parse {
       ...detail,
     })
     this.errors.push(error)
+    if (index !== undefined)
+      this.blockErrors.set(index, [...(this.blockErrors.get(index) ?? []), error])
     return error
   }
 
@@ -337,8 +372,8 @@ class Parse {
     const { block, locked } = resolved
     const index = this.blocks.push(undefined) - 1
 
-    const written = this.written(node, tag)
-    const id = this.id(written, tag, block, span)
+    const written = this.written(node, tag, index)
+    const id = this.id(written, tag, block, span, index)
     const where = { tag, ...(id ? { id: id.asWritten } : {}) }
     const own = propKeys(block.props)
     const childrenProp = block.children.kind === "yaml" ? block.children.prop : undefined
@@ -376,7 +411,7 @@ class Parse {
       if (ownsKey) input[key] = prop.value
     }
     if (credentialAlias !== undefined && credentialProp !== undefined) {
-      this.credentialAlias(credentialAlias, credentialProp, input, where)
+      this.credentialAlias(credentialAlias, credentialProp, input, where, index)
     }
 
     for (const key of Object.keys(locked)) {
@@ -386,7 +421,7 @@ class Parse {
           "lockedProp",
           `<${tag}> sets \`${key}\` itself. Remove the prop, or use <${block.name}>.`,
           prop.span,
-          { block: where, prop: key },
+          { block: where, prop: key, index },
         )
       }
     }
@@ -395,14 +430,14 @@ class Parse {
     let children: TreeNode[] = []
     if (block.children.kind === "markdown") children = this.children(node)
     const yamlRead =
-      childrenProp === undefined || this.yamlChildren(node, childrenProp, input, where)
+      childrenProp === undefined || this.yamlChildren(node, childrenProp, input, where, index)
 
     const decodedShared = this.decodeShared(index, shared, aliases, written, span, where)
     const props = Schema.decodeUnknownResult(block.props)(input)
     if (Result.isFailure(props)) {
       // YAML that did not parse is already reported; its prop's absence is not news.
       const skip = yamlRead ? undefined : childrenProp
-      this.badProps(props.failure.issue, written, span, where, childrenProp, skip)
+      this.badProps(index, props.failure.issue, written, span, where, childrenProp, skip)
     } else {
       for (const [prop, capability] of Object.entries(block.references)) {
         const value: unknown = props.success[prop]
@@ -426,12 +461,13 @@ class Parse {
       props: Result.isSuccess(props) ? props.success : undefined,
       shared: decodedShared,
       span,
+      errors: [],
     }
     return [{ type: "block", index, children }]
   }
 
   /** The props as written, in order. A later duplicate wins, as in JSX. */
-  private written(node: MdxNode, tag: string): Map<string, Written> {
+  private written(node: MdxNode, tag: string, index: number): Map<string, Written> {
     const written = new Map<string, Written>()
     for (const attribute of node.attributes ?? []) {
       if (attribute.type !== "mdxJsxAttribute" || !attribute.name) continue
@@ -443,7 +479,7 @@ class Parse {
           "badProp",
           `the \`${attribute.name}\` prop of <${tag}> holds a regular expression or a bigint, which no block takes.`,
           span,
-          { block: { tag }, prop: attribute.name },
+          { block: { tag }, prop: attribute.name, index },
         )
         continue
       }
@@ -458,6 +494,7 @@ class Parse {
     tag: string,
     block: AnyBlock,
     span: Span,
+    index: number,
   ): { readonly id: BlockId; readonly asWritten: string } | undefined {
     const prop = written.get("id")
     if (prop !== undefined) {
@@ -471,6 +508,7 @@ class Parse {
         {
           block: { tag },
           prop: "id",
+          index,
           expected: "a block id",
           received: excerpt(prop.value),
         },
@@ -482,7 +520,7 @@ class Parse {
         "missingId",
         `<${tag}> needs an id, such as id="deploy", so other blocks and the runbook's tests can name it.`,
         span,
-        { block: { tag }, prop: "id", expected: "a block id" },
+        { block: { tag }, prop: "id", index, expected: "a block id" },
       )
     }
     return undefined
@@ -496,7 +534,8 @@ class Parse {
     node: MdxNode,
     prop: string,
     input: Record<string, unknown>,
-    where: { readonly tag: string; readonly id?: string },
+    where: Where,
+    index: number,
   ): boolean {
     const fence = (node.children ?? []).find(
       (child) => child.type === "code" && (child.lang === "yaml" || child.lang === "yml"),
@@ -514,6 +553,7 @@ class Parse {
         {
           block: where,
           prop,
+          index,
         },
       )
       return false
@@ -527,7 +567,8 @@ class Parse {
     alias: Written,
     prop: string,
     input: Record<string, unknown>,
-    where: { readonly tag: string; readonly id?: string },
+    where: Where,
+    index: number,
   ): void {
     if (typeof alias.value !== "string" || alias.value === "") {
       this.error(
@@ -537,6 +578,7 @@ class Parse {
         {
           block: where,
           prop: GIT_CREDENTIAL_ALIAS,
+          index,
           expected: "a block id",
           received: excerpt(alias.value),
         },
@@ -615,7 +657,7 @@ class Parse {
   ): SharedProps {
     const decoded = Schema.decodeUnknownResult(SharedProps)(shared)
     if (Result.isFailure(decoded)) {
-      this.badProps(decoded.failure.issue, written, span, where, undefined)
+      this.badProps(index, decoded.failure.issue, written, span, where, undefined)
       return {}
     }
     for (const [key, capability] of SHARED_REFERENCES) {
@@ -628,6 +670,7 @@ class Parse {
         this.error("badProp", `\`${key}\` must be a block id, such as ${key}="aws".`, prop.span, {
           block: where,
           prop: key,
+          index,
           expected: "a block id",
           received: excerpt(prop.value),
         })
@@ -650,6 +693,7 @@ class Parse {
 
   /** One error per prop the schema refused. */
   private badProps(
+    index: number,
     issue: SchemaIssue.Issue,
     written: ReadonlyMap<string, Written>,
     fallback: Span,
@@ -670,12 +714,13 @@ class Parse {
       if (prop === skip) continue
       const value = written.get(prop)
       const missing = value === undefined && messages.every((m) => m === "Missing key")
-      const code: ConfigErrorCode = prop === childrenProp ? "badChildren" : "badProp"
+      const code: BlockErrorCode = prop === childrenProp ? "badChildren" : "badProp"
       const message = missing
         ? `<${where.tag}> needs the \`${prop}\` prop.`
         : `the \`${prop}\` prop of <${where.tag}>: ${messages.join("; ")}`
       this.error(code, message, value?.span ?? fallback, {
         block: where,
+        index,
         ...(prop !== "" ? { prop } : {}),
         ...(value !== undefined ? { received: excerpt(value.value) } : {}),
       })
@@ -703,6 +748,7 @@ class Parse {
         {
           block: { tag: node.tag, ...(node.idAsWritten ? { id: node.idAsWritten } : {}) },
           prop: "id",
+          index: node.index,
         },
       )
     }
@@ -734,10 +780,6 @@ function spanOf(node: MdxNode): Span {
     end: { line: end.line, column: end.column },
   }
 }
-
-const byPlace = (a: { location: { span: Span } }, b: { location: { span: Span } }) =>
-  a.location.span.start.line - b.location.span.start.line ||
-  a.location.span.start.column - b.location.span.start.column
 
 /**
  * The keys a props schema reads, from its encoded side. Undefined when the

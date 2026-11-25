@@ -199,7 +199,12 @@ export type SessionView = typeof SessionView.Type
 
 export const OpenResult = Schema.Union([
   Schema.TaggedStruct("Opened", { session: SessionView }),
-  /** The runbook parsed and has configuration errors. Nothing was started. */
+  /**
+   * The runbook has an error that refuses it (`RunbookErrorCode`): it does
+   * not parse, would run code, uses a block this version lacks, or needs
+   * another version. `errors` holds every error found. Nothing was started.
+   * A runbook whose errors are all in blocks opens, those blocks `Misconfigured`.
+   */
   Schema.TaggedStruct("Invalid", {
     errors: Schema.NonEmptyArray(ConfigError),
     warnings: Schema.Array(ConfigWarning),

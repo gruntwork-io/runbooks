@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import type { ConfigError } from "./configError.ts"
-import type { RunbookDocument } from "./document.ts"
+import { configErrors, type RunbookDocument } from "./document.ts"
 import { parseRunbook } from "./parse.ts"
 
 /** One block per paragraph. */
@@ -18,9 +18,9 @@ const parsed = (blocks: ReadonlyArray<string>): RunbookDocument => {
 }
 
 const errors = (blocks: ReadonlyArray<string>): ReadonlyArray<ConfigError> => {
-  const result = parse(blocks)
-  if (result._tag === "Parsed") throw new Error("parsed")
-  return result.errors
+  const found = configErrors(parse(blocks))
+  if (found.length === 0) throw new Error("no errors")
+  return found
 }
 
 const brief = (found: ReadonlyArray<ConfigError>) =>

@@ -4,7 +4,7 @@ import { Schema } from "effect"
 import { BlockId } from "@runbooks/blocks-core/contract"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import type { ConfigError, ConfigWarning } from "./configError.ts"
-import type { RunbookDocument } from "./document.ts"
+import { configErrors, type RunbookDocument } from "./document.ts"
 import { parseRunbook } from "./parse.ts"
 
 const id = Schema.decodeSync(BlockId)
@@ -18,10 +18,11 @@ const parsed = (source: string): RunbookDocument => {
   return result.document
 }
 
+/** Every error, whether it refuses the runbook or stops one block. */
 const errors = (source: string): ReadonlyArray<ConfigError> => {
-  const result = parse(source)
-  if (result._tag === "Parsed") throw new Error("parsed")
-  return result.errors
+  const found = configErrors(parse(source))
+  if (found.length === 0) throw new Error("no errors")
+  return found
 }
 
 /** Code, line and message of each error or warning, for compact assertions. */
@@ -235,6 +236,32 @@ describe("parseRunbook", () => {
         ],
       ])
       expect(errors("---\ntitle: [Deploy\n---\n")[0]).toMatchObject({ code: "syntax" })
+    })
+  })
+
+  describe("which errors refuse the runbook", () => {
+    it("opens a runbook whose errors are all in blocks, each on its block, and the others run", () => {
+      const result = parse(
+        [
+          '<Command id="a" command="ls" />',
+          '<Command id="b" command={5} />',
+          '<Command id="a" command="pwd" />',
+        ].join("\n\n"),
+      )
+      if (result._tag === "Invalid") throw new Error("refused")
+      expect(
+        result.document.blocks.map((b) => [b.idAsWritten, b.errors.map((e) => e.code)]),
+      ).toEqual([
+        ["a", []],
+        ["b", ["badProp"]],
+        ["a", ["duplicateId"]],
+      ])
+    })
+
+    it("refuses a runbook with an unknown block, and reports its block errors too", () => {
+      const result = parse('<Commnd id="x" />\n\n<Command id="b" command={5} />')
+      expect(result._tag).toBe("Invalid")
+      expect(configErrors(result).map((e) => e.code)).toEqual(["unknownBlock", "badProp"])
     })
   })
 

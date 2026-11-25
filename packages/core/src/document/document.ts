@@ -5,7 +5,7 @@
  */
 import { Schema } from "effect"
 import { BlockClass, BlockId, Capability, RunbookPath } from "@runbooks/blocks-core/contract"
-import { ConfigError, ConfigWarning, Span } from "./configError.ts"
+import { byPlace, ConfigError, ConfigWarning, Span } from "./configError.ts"
 
 // ---------------------------------------------------------------------------
 // Content hash
@@ -105,10 +105,18 @@ export const BlockNode = Schema.Struct({
   id: Schema.optionalKey(BlockId),
   /** The id as the author wrote it, for messages. */
   idAsWritten: Schema.optionalKey(Schema.String),
-  /** Decoded with the block's own schema, alias locks applied. Typed through the registry. */
+  /**
+   * Decoded with the block's own schema, alias locks applied. Typed through
+   * the registry. Undefined when they don't decode, which `errors` says.
+   */
   props: Schema.Unknown,
   shared: SharedProps,
   span: Span,
+  /**
+   * The configuration errors in this block, in file order, each with a code
+   * from `BlockErrorCode`. A block with any is `Misconfigured` and never runs.
+   */
+  errors: Schema.Array(ConfigError),
 })
 export type BlockNode = typeof BlockNode.Type
 
@@ -159,8 +167,10 @@ export const RunbookDocument = Schema.Struct({
 export type RunbookDocument = typeof RunbookDocument.Type
 
 /**
- * What parsing returns. Errors are all reported in one pass; a runbook with
- * any error does not load, so the engine only ever holds a `Parsed` document.
+ * What parsing returns. A runbook with an error whose code is in
+ * `RunbookErrorCode` is `Invalid`, and nothing opens; `errors` then holds
+ * every error found, block errors included. Otherwise it is `Parsed`, and
+ * each block's errors are on its node.
  */
 export type ParseResult =
   | { readonly _tag: "Parsed"; readonly document: RunbookDocument }
@@ -169,3 +179,10 @@ export type ParseResult =
       readonly errors: readonly [ConfigError, ...ReadonlyArray<ConfigError>]
       readonly warnings: ReadonlyArray<ConfigWarning>
     }
+
+/** Every configuration error a parse found, in file order: the runbook's, or each block's. */
+export function configErrors(result: ParseResult): ReadonlyArray<ConfigError> {
+  if (result._tag === "Invalid") return result.errors
+  const { document } = result
+  return document.blocks.flatMap((node) => node.errors).sort(byPlace(document.file))
+}
