@@ -31,8 +31,8 @@ const encoded = {
   ],
   edges: [
     {
-      from: "hello",
-      to: "aws",
+      from: 0,
+      to: 1,
       source: { _tag: "Prop", prop: "envFrom", capability: "env" },
       file: "/runbooks/demo/runbook.mdx",
       span,
