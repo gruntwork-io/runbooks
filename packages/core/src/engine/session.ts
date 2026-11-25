@@ -93,7 +93,12 @@ import {
   unreviewedOf,
   valuesOf,
 } from "./form.ts"
-import { type CredentialSlot, makeCredentials, type OpenProvider } from "./credentials.ts"
+import {
+  type CredentialSlot,
+  makeCredentials,
+  type OpenProvider,
+  type ProviderNetwork,
+} from "./credentials.ts"
 import { makeCredentialStore } from "./credentialStore.ts"
 import {
   type BaseEnvironment,
@@ -494,6 +499,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   readonly registry: Registry
   /** The session's folder of credential provider state, which the engine set. */
   readonly stateFolder: string
+  /** The CA bundle and proxy the settings hold now: a provider reads them when it opens. */
+  readonly network: Effect.Effect<ProviderNetwork>
 }) {
   const { id, roots, baseEnvironment } = options
   const { document, specs } = yield* readForms(options.document, options.registry, options.texts)
@@ -748,6 +755,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     scope,
     stateFolder: options.stateFolder,
     store,
+    network: options.network,
   })
 
   const isCurrent = (run: Run) => runs.get(run.slot.index) === run

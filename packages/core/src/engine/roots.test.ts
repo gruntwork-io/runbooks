@@ -10,6 +10,7 @@ import { BlockId, PathOutsideRoot, type Root } from "@runbooks/blocks-core/contr
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { type UseRootsSession, withRootsSession } from "../test-utils/rootSessions.ts"
 import { testCredentialProviders } from "../test-utils/TestCredentialProviders.ts"
+import { testSettingsStore } from "../test-utils/TestSettingsFile.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import { Engine } from "./engine.ts"
@@ -86,6 +87,7 @@ describe("the roots", () => {
           }),
         ),
         Effect.provide(testCredentialProviders({}, [])),
+        Effect.provide(testSettingsStore()),
         Effect.provide(makeTestFileSystem({ "rb/runbook.mdx": '<Run id="a" />' })),
       ),
     )

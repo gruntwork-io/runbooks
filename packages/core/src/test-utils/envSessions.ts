@@ -42,6 +42,7 @@ import type {
 } from "../credential/lifecycle.ts"
 import type { CredentialProviders } from "../credential/provider.ts"
 import { Engine } from "../engine/engine.ts"
+import type { SettingsStore } from "../engine/settings.ts"
 import {
   type ActResult,
   type BlockView,
@@ -52,6 +53,7 @@ import {
 import { FileSystem } from "../services/FileSystem.ts"
 import { collectOutput, ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { testCredentialProviders } from "./TestCredentialProviders.ts"
+import { testSettingsStore } from "./TestSettingsFile.ts"
 import { TOY_REGISTRY } from "./toyRegistry.ts"
 
 const blockId = Schema.decodeSync(BlockId)
@@ -263,8 +265,10 @@ export interface EnvSession {
   readonly close: Effect.Effect<ReadonlyArray<EventEnvelope>, unknown, Caller>
 }
 
-/** What a test does with its session. */
-export type UseEnvSession<A> = (rb: EnvSession) => Effect.Effect<A, unknown, Engine | Caller>
+/** What a test does with its session. It may change the settings the engine reads. */
+export type UseEnvSession<A> = (
+  rb: EnvSession,
+) => Effect.Effect<A, unknown, Engine | Caller | SettingsStore>
 
 /** Opens the runbook at `file`, trusts it, and gives `use` its commands. */
 export const withEnvSession = <A>(
@@ -276,6 +280,8 @@ export const withEnvSession = <A>(
     readonly fileSystem: Layer.Layer<FileSystem>
     readonly spawner: Layer.Layer<ProcessSpawner>
     readonly providers?: Layer.Layer<CredentialProviders>
+    /** The engine's settings, and the test's: the defaults, unless given. */
+    readonly settings?: Layer.Layer<SettingsStore>
     readonly testClock?: boolean
     /** On the test clock: how far the wall clock has jumped ahead of it, as after the machine slept. */
     readonly wallClockAhead?: () => number
@@ -363,6 +369,7 @@ export const withEnvSession = <A>(
         }),
       ),
       Effect.provide(setup.providers ?? testCredentialProviders({}, [])),
+      Effect.provide(setup.settings ?? testSettingsStore()),
       Effect.provide(Layer.merge(setup.fileSystem, setup.spawner)),
       Effect.provideService(Caller, { origin: "person" }),
       (effect) => {

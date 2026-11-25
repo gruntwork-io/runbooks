@@ -15,6 +15,7 @@ import type { FieldValue, FormValues } from "@runbooks/blocks-core/form"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { ContentHash } from "../document/document.ts"
 import { testCredentialProviders } from "../test-utils/TestCredentialProviders.ts"
+import { testSettingsStore } from "../test-utils/TestSettingsFile.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY, ToyField, toyFormSpec } from "../test-utils/toyRegistry.ts"
 import { Engine } from "./engine.ts"
@@ -103,6 +104,7 @@ const withEngine = <A, E>(
         }),
       ),
       Effect.provide(testCredentialProviders({}, [])),
+      Effect.provide(testSettingsStore()),
       Effect.provide(makeTestFileSystem({ [RUNBOOK]: runbook })),
       Effect.provideService(Caller, { origin }),
     ),
@@ -1337,6 +1339,7 @@ describe("a run's resources", () => {
           }),
         ),
         Effect.provide(testCredentialProviders({}, [])),
+        Effect.provide(testSettingsStore()),
         Effect.provide(makeTestFileSystem({ [RUNBOOK]: '<Run id="a" command="hold" />' })),
         Effect.provideService(Caller, { origin: "person" }),
       ),
