@@ -253,11 +253,13 @@ export const ActResult = Schema.Union([
   Schema.TaggedStruct("NotAllowed", { state: Schema.String }),
   /**
    * The action names a sign-in method, a level or a target the block does
-   * not offer now, in its field `field`. Nothing changed.
+   * not offer now, in its field `field`. Nothing changed. A null `id` is no
+   * target, at a level that is not optional. A Ready block holds no list of
+   * a level's targets, so for an `id` it offers none.
    */
   Schema.TaggedStruct("NotOffered", {
     field: Schema.Literals(["method", "level", "id"]),
-    value: Schema.String,
+    value: Schema.NullOr(Schema.String),
     offered: Schema.Array(Schema.String),
   }),
 ])

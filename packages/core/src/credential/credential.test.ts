@@ -11,6 +11,7 @@ import {
   confirmsDetected,
   statusOf,
 } from "./lifecycle.ts"
+import { Identity, Method, MethodField } from "./provider.ts"
 
 const decode =
   <S extends Schema.Top & { readonly DecodingServices: never }>(schema: S) =>
@@ -86,6 +87,77 @@ describe("credential wire schema", () => {
       }).unmet,
     ).toHaveLength(1)
     expect(() => decode(Wire.ToolMissingData)({ kind: "toolMissing", tool: "az" })).toThrow()
+  })
+
+  it("carries at most 10 warnings with an identity, on the wire and in the engine", () => {
+    const warned = (count: number) => ({
+      ...identity,
+      warnings: Array.from({ length: count }, (_, i) => ({
+        message: `Region ${i} is not enabled.`,
+      })),
+    })
+    for (const schema of [Wire.Identity, Identity]) {
+      expect(decode(schema)(warned(10)).warnings).toHaveLength(10)
+      expect(() => decode(schema)(warned(11))).toThrow()
+    }
+  })
+
+  it("lets a field list at most 1,000 choices, and never on a secret field", () => {
+    const profile = { name: "profile", label: "Profile", required: true }
+    const choices = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({ value: `p${i}`, label: `Profile ${i}` }))
+    for (const schema of [Wire.Field, MethodField]) {
+      expect(
+        decode(schema)({ ...profile, secret: false, choices: choices(1000) }).choices,
+      ).toHaveLength(1000)
+      expect(() => decode(schema)({ ...profile, secret: false, choices: choices(1001) })).toThrow()
+    }
+    expect(() => decode(MethodField)({ ...profile, secret: true, choices: choices(1) })).toThrow()
+  })
+
+  it("lets a method ask for exactly one field of a group, naming only its own fields", () => {
+    const servicePrincipal = {
+      name: "servicePrincipal",
+      label: "Service principal",
+      fields: [
+        { name: "clientId", label: "Client ID", required: true, secret: false },
+        { name: "clientSecret", label: "Client secret", required: false, secret: true },
+        { name: "certificate", label: "Certificate", required: false, secret: false },
+      ],
+      oneOf: [["clientSecret", "certificate"]],
+    }
+    for (const schema of [Wire.Method, Method]) {
+      expect(decode(schema)(servicePrincipal).oneOf).toEqual([["clientSecret", "certificate"]])
+      expect(() => decode(schema)({ ...servicePrincipal, oneOf: [["clientSecret"]] })).toThrow()
+    }
+    expect(() =>
+      decode(Method)({ ...servicePrincipal, oneOf: [["clientSecret", "password"]] }),
+    ).toThrow()
+  })
+
+  it("says why a method is unavailable with an error kind and message", () => {
+    const cli = { name: "cli", label: "Azure CLI", fields: [] }
+    const unavailable = { kind: "toolMissing", message: "Install the Azure CLI." } as const
+    expect(decode(Wire.Method)({ ...cli, unavailable }).unavailable).toEqual(unavailable)
+    expect(() => decode(Wire.Method)({ ...cli, unavailable: { kind: "toolMissing" } })).toThrow()
+    expect(() =>
+      decode(Wire.Method)({ ...cli, unavailable: { ...unavailable, kind: "gone" } }),
+    ).toThrow()
+  })
+
+  it("says no target at an optional level with null, and never pins none", () => {
+    const subscription = { name: "subscription", label: "Subscription", chosen: "afterSignIn" }
+    expect(decode(Wire.Level)({ ...subscription, optional: true }).optional).toBe(true)
+    const tenantOnly = {
+      ...identity,
+      targets: { tenant: { id: "t1", name: "Contoso" }, subscription: null },
+    }
+    expect(decode(Wire.Identity)(tenantOnly).targets["subscription"]).toBeNull()
+    const select = { targets: { tenant: "t1", subscription: null } }
+    expect(decode(Wire.SelectParams)(select).targets["subscription"]).toBeNull()
+    expect(() => decode(Wire.Pins)({ subscription: null })).toThrow()
+    const choose = { _tag: "ChooseTarget", level: "subscription", id: null } as const
+    expect(Schema.decodeUnknownSync(Schema.toCodecJson(CredentialAction))(choose)).toEqual(choose)
   })
 
   it("rejects an identity kind and a level timing it does not define", () => {

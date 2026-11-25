@@ -13,7 +13,7 @@
 import type { DateTime, Effect, Option, Redacted, Scope, Stream } from "effect"
 import { Context, Schema } from "effect"
 import {
-  type CredentialError,
+  CredentialError,
   type CredentialRequest,
   Requirement,
 } from "@runbooks/blocks-core/contract"
@@ -30,6 +30,9 @@ export const IdentityKind = Schema.Literals([
 ])
 export type IdentityKind = typeof IdentityKind.Type
 
+/** The most warnings one identity carries, as the wire's `identity.warnings` allows. */
+const MAX_WARNINGS = 10
+
 /** Who is signed in and what is selected. Never a secret: the auth view draws its card from this. */
 export const Identity = Schema.Struct({
   /** An ARN, an email, an object id, a login. */
@@ -37,27 +40,88 @@ export const Identity = Schema.Struct({
   kind: IdentityKind,
   /** The sign-in method that produced it, or the detection source's method. */
   method: Schema.String,
-  /** What is selected at each level, by level name. */
-  targets: Schema.Record(Schema.String, Target),
+  /** What is selected at each level, by level name: null at an optional level that has none. */
+  targets: Schema.Record(Schema.String, Schema.NullOr(Target)),
   expiresAt: Schema.optionalKey(Schema.DateTimeUtc),
+  /** Shown with the identity, and never fatal: a region that is not enabled. */
+  warnings: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ message: Schema.String })).check(Schema.isMaxLength(MAX_WARNINGS)),
+  ),
 })
 export type Identity = typeof Identity.Type
 
-/** One input of a sign-in method. A `secret` field is typed into a masked input and travels one way. */
-export const MethodField = Schema.Struct({
+/** The most choices one field lists, as the wire's `field.choices` allows. */
+const MAX_CHOICES = 1_000
+
+const fieldParts = {
   name: Schema.String,
   label: Schema.String,
   required: Schema.Boolean,
-  secret: Schema.Boolean,
-})
+}
+
+/**
+ * One input of a sign-in method. A `secret` field is typed into a masked
+ * input and travels one way, so it lists no choices.
+ */
+export const MethodField = Schema.Union([
+  Schema.Struct({
+    ...fieldParts,
+    secret: Schema.Literal(false),
+    /** The values the view offers to pick from: AWS profiles. The provider refuses any other. */
+    choices: Schema.optionalKey(
+      Schema.Array(Schema.Struct({ value: Schema.String, label: Schema.String })).check(
+        Schema.isMaxLength(MAX_CHOICES),
+      ),
+    ),
+  }),
+  Schema.Struct({
+    ...fieldParts,
+    secret: Schema.Literal(true),
+    choices: Schema.optionalKey(
+      Schema.Never.annotate({ message: "A secret field lists no choices." }),
+    ),
+  }),
+])
 export type MethodField = typeof MethodField.Type
+
+/** The most groups in a method's `oneOf`, and the most names in one group, as the wire allows. */
+const MAX_ONE_OF = 10
 
 /** A sign-in method: one tab in the auth view. */
 export const Method = Schema.Struct({
   name: Schema.String,
   label: Schema.String,
   fields: Schema.Array(MethodField),
-})
+  /**
+   * Groups of the method's field names. A sign-in gives exactly one field of
+   * each group: a client secret or a certificate. The provider checks it.
+   */
+  oneOf: Schema.optionalKey(
+    Schema.Array(
+      Schema.Array(Schema.String).check(Schema.isMinLength(2), Schema.isMaxLength(MAX_ONE_OF)),
+    ).check(Schema.isMaxLength(MAX_ONE_OF)),
+  ),
+  /**
+   * Why the method cannot be used now: no `az` installed. The view still
+   * lists it, with this reason, and the engine refuses a sign-in with it.
+   */
+  unavailable: Schema.optionalKey(CredentialError),
+}).check(
+  Schema.makeFilter(
+    (method: {
+      readonly name: string
+      readonly fields: ReadonlyArray<{ readonly name: string }>
+      readonly oneOf?: ReadonlyArray<ReadonlyArray<string>>
+    }) =>
+      (method.oneOf ?? []).flatMap((group, at) =>
+        group.flatMap((name, index) =>
+          method.fields.some((field) => field.name === name)
+            ? []
+            : [{ path: ["oneOf", at, index], issue: `${method.name} has no field ${name}.` }],
+        ),
+      ),
+  ),
+)
 export type Method = typeof Method.Type
 
 /**
@@ -69,6 +133,11 @@ export const Level = Schema.Struct({
   name: Schema.String,
   label: Schema.String,
   chosen: Schema.Literals(["beforeSignIn", "afterSignIn"]),
+  /**
+   * The person may choose no target here: an Azure tenant-level sign-in has
+   * no subscription. False when absent. A pin always names a target.
+   */
+  optional: Schema.optionalKey(Schema.Boolean),
 })
 export type Level = typeof Level.Type
 
@@ -95,6 +164,8 @@ export type ResolvedSource =
   | {
       readonly kind: "values"
       readonly values: { readonly [name: string]: Redacted.Redacted<string> }
+      /** The id of the block the values were read from. A login found in them has it as its source. */
+      readonly from: string
     }
   | { readonly kind: "named"; readonly name: string }
 
@@ -106,7 +177,7 @@ export interface Constraints {
 
 export interface Detected {
   readonly identity: Identity
-  /** The source it was found in: env, cli, adc, or the block it was read from. */
+  /** The source it was found in: env, cli, adc, or a values source's `from`. */
   readonly source: string
 }
 
@@ -148,9 +219,9 @@ export interface CredentialProvider {
     level: string,
     parent: Option.Option<string>,
   ) => Effect.Effect<ReadonlyArray<Target>, CredentialError>
-  /** The chosen target id at each level, by level name. */
+  /** The chosen target id at each level, by level name: null where an optional level has none. */
   readonly select: (targets: {
-    readonly [level: string]: string
+    readonly [level: string]: string | null
   }) => Effect.Effect<Identity, CredentialError>
   /** The only call that returns secret values. The provider refreshes first if it can. */
   readonly env: Effect.Effect<CredentialEnv, CredentialError>

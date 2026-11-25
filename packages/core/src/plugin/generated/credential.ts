@@ -31,16 +31,54 @@ export const Field = Schema.StructWithRest(
     label: Schema.String,
     required: Schema.Boolean,
     secret: Schema.Boolean,
+    choices: Schema.optionalKey(
+      Schema.Array(
+        Schema.StructWithRest(Schema.Struct({ value: Schema.String, label: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
+        ]),
+      )
+        .annotate({
+          description:
+            "The values the view offers to pick from: AWS profiles. Never on a secret field. The plugin answers invalidParams for a value it did not list.",
+        })
+        .check(
+          Schema.isMaxLength(1000).annotate({ expected: "a value with a length of at most 1000" }),
+        ),
+    ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "field" })
 export type Field = typeof Field.Type
+
+export const ErrorKind = Schema.Literals([
+  "notConfigured",
+  "unsupportedProtocolVersion",
+  "invalidParams",
+  "notSignedIn",
+  "expired",
+  "pinMismatch",
+  "requirementNotMet",
+  "accessDenied",
+  "cancelled",
+  "timedOut",
+  "network",
+  "tlsError",
+  "toolMissing",
+  "internal",
+]).annotate({ identifier: "errorKind" })
+export type ErrorKind = typeof ErrorKind.Type
 
 export const Level = Schema.StructWithRest(
   Schema.Struct({
     name: Schema.String,
     label: Schema.String,
     chosen: Schema.Literals(["beforeSignIn", "afterSignIn"]),
+    optional: Schema.optionalKey(
+      Schema.Boolean.annotate({
+        description:
+          "The person may choose no target here: an Azure tenant-level sign-in has no subscription. False when absent. A pin always names a target.",
+      }),
+    ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "level" })
@@ -61,6 +99,10 @@ export const Source = Schema.Union(
       Schema.Struct({
         kind: Schema.Literal("values"),
         values: Schema.Record(Schema.String, Schema.String),
+        from: Schema.String.annotate({
+          description:
+            "The id of the block the values were read from. A login found in them has it as its source.",
+        }),
       }),
       [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
     ).annotate({ description: "Values the engine read from an earlier block's outputs." }),
@@ -121,8 +163,9 @@ export type TargetsParams = typeof TargetsParams.Type
 
 export const SelectParams = Schema.StructWithRest(
   Schema.Struct({
-    targets: Schema.Record(Schema.String, Schema.String).annotate({
-      description: "The chosen target id at each level, by level name.",
+    targets: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Null])).annotate({
+      description:
+        "The chosen target id at each level, by level name: null where an optional level has none. Null at a level that is not optional fails with invalidParams.",
     }),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
@@ -146,24 +189,6 @@ export const SignOutResult = Schema.Record(
 ).annotate({ identifier: "signOutResult" })
 export type SignOutResult = typeof SignOutResult.Type
 
-export const ErrorKind = Schema.Literals([
-  "notConfigured",
-  "unsupportedProtocolVersion",
-  "invalidParams",
-  "notSignedIn",
-  "expired",
-  "pinMismatch",
-  "requirementNotMet",
-  "accessDenied",
-  "cancelled",
-  "timedOut",
-  "network",
-  "tlsError",
-  "toolMissing",
-  "internal",
-]).annotate({ identifier: "errorKind" })
-export type ErrorKind = typeof ErrorKind.Type
-
 export const ToolMissingData = Schema.StructWithRest(
   Schema.Struct({
     kind: Schema.Literal("toolMissing"),
@@ -175,7 +200,37 @@ export const ToolMissingData = Schema.StructWithRest(
 export type ToolMissingData = typeof ToolMissingData.Type
 
 export const Method = Schema.StructWithRest(
-  Schema.Struct({ name: Schema.String, label: Schema.String, fields: Schema.Array(Field) }),
+  Schema.Struct({
+    name: Schema.String,
+    label: Schema.String,
+    fields: Schema.Array(Field),
+    oneOf: Schema.optionalKey(
+      Schema.Array(
+        Schema.Array(Schema.String)
+          .check(
+            Schema.isMinLength(2).annotate({ expected: "a value with a length of at least 2" }),
+          )
+          .check(
+            Schema.isMaxLength(10).annotate({ expected: "a value with a length of at most 10" }),
+          ),
+      )
+        .annotate({
+          description:
+            "Groups of the method's field names. A sign-in gives exactly one field of each group: a client secret or a certificate. The plugin answers invalidParams for one that does not.",
+        })
+        .check(
+          Schema.isMaxLength(10).annotate({ expected: "a value with a length of at most 10" }),
+        ),
+    ),
+    unavailable: Schema.optionalKey(
+      Schema.StructWithRest(Schema.Struct({ kind: ErrorKind, message: Schema.String }), [
+        Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
+      ]).annotate({
+        description:
+          "Why the method cannot be used now: no az installed. Runbooks still lists it, with this reason, and refuses a sign-in with it.",
+      }),
+    ),
+  }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "method" })
 export type Method = typeof Method.Type
@@ -191,10 +246,27 @@ export const Identity = Schema.StructWithRest(
     principal: Schema.String.annotate({ description: "An ARN, an email, an object id, a login." }),
     kind: Schema.Literals(["user", "guest", "servicePrincipal", "serviceAccount", "role"]),
     method: Schema.String,
-    targets: Schema.Record(Schema.String, Target).annotate({
-      description: "What is selected at each level, by level name.",
+    targets: Schema.Record(
+      Schema.String,
+      Schema.Union([Target, Schema.Null], { mode: "oneOf" }),
+    ).annotate({
+      description:
+        "What is selected at each level, by level name: null at an optional level that has none.",
     }),
     expiresAt: Schema.optionalKey(Schema.String.annotate({ format: "date-time" })),
+    warnings: Schema.optionalKey(
+      Schema.Array(
+        Schema.StructWithRest(Schema.Struct({ message: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
+        ]),
+      )
+        .annotate({
+          description: "Shown with the identity, and never fatal: a region that is not enabled.",
+        })
+        .check(
+          Schema.isMaxLength(10).annotate({ expected: "a value with a length of at most 10" }),
+        ),
+    ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "identity" })
@@ -205,10 +277,27 @@ export const SignInResult = Schema.StructWithRest(
     principal: Schema.String.annotate({ description: "An ARN, an email, an object id, a login." }),
     kind: Schema.Literals(["user", "guest", "servicePrincipal", "serviceAccount", "role"]),
     method: Schema.String,
-    targets: Schema.Record(Schema.String, Target).annotate({
-      description: "What is selected at each level, by level name.",
+    targets: Schema.Record(
+      Schema.String,
+      Schema.Union([Target, Schema.Null], { mode: "oneOf" }),
+    ).annotate({
+      description:
+        "What is selected at each level, by level name: null at an optional level that has none.",
     }),
     expiresAt: Schema.optionalKey(Schema.String.annotate({ format: "date-time" })),
+    warnings: Schema.optionalKey(
+      Schema.Array(
+        Schema.StructWithRest(Schema.Struct({ message: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
+        ]),
+      )
+        .annotate({
+          description: "Shown with the identity, and never fatal: a region that is not enabled.",
+        })
+        .check(
+          Schema.isMaxLength(10).annotate({ expected: "a value with a length of at most 10" }),
+        ),
+    ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "signInResult" })
@@ -225,10 +314,27 @@ export const SelectResult = Schema.StructWithRest(
     principal: Schema.String.annotate({ description: "An ARN, an email, an object id, a login." }),
     kind: Schema.Literals(["user", "guest", "servicePrincipal", "serviceAccount", "role"]),
     method: Schema.String,
-    targets: Schema.Record(Schema.String, Target).annotate({
-      description: "What is selected at each level, by level name.",
+    targets: Schema.Record(
+      Schema.String,
+      Schema.Union([Target, Schema.Null], { mode: "oneOf" }),
+    ).annotate({
+      description:
+        "What is selected at each level, by level name: null at an optional level that has none.",
     }),
     expiresAt: Schema.optionalKey(Schema.String.annotate({ format: "date-time" })),
+    warnings: Schema.optionalKey(
+      Schema.Array(
+        Schema.StructWithRest(Schema.Struct({ message: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
+        ]),
+      )
+        .annotate({
+          description: "Shown with the identity, and never fatal: a region that is not enabled.",
+        })
+        .check(
+          Schema.isMaxLength(10).annotate({ expected: "a value with a length of at most 10" }),
+        ),
+    ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "selectResult" })
@@ -315,7 +421,10 @@ export const DetectResult = Schema.Union(
       Schema.Struct({
         found: Schema.Literal(true),
         identity: Identity,
-        source: Schema.String.annotate({ description: "The source it was found in." }),
+        source: Schema.String.annotate({
+          description:
+            "The source it was found in: env, a named source, or a values source's from.",
+        }),
       }),
       [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
     ),

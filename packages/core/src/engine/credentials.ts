@@ -120,6 +120,7 @@ export interface CredentialHost {
 type Fields = { readonly [name: string]: Redacted.Redacted<string> }
 
 type Ready = Extract<CredentialState, { readonly _tag: "Ready" }>
+type SigningIn = Extract<CredentialState, { readonly _tag: "SigningIn" }>
 type ChoosingTarget = Extract<CredentialState, { readonly _tag: "ChoosingTarget" }>
 
 /**
@@ -185,6 +186,13 @@ const signInFields = (method: MethodView, given: Fields): Fields => ({
   ...given,
 })
 
+/** The methods a sign-in may use: every one its provider does not mark unavailable. */
+const available = (methods: ReadonlyArray<MethodView>): ReadonlyArray<MethodView> =>
+  methods.filter((method) => method.unavailable === undefined)
+
+/** A sign-in that has shown nothing yet. */
+const signingIn = (method: string): SigningIn => ({ _tag: "SigningIn", method, waiting: false })
+
 /** Whether an error means the provider cannot serve the block at all, so trying again needs it reopened. */
 function isUnavailable(kind: CredentialErrorKind): boolean {
   switch (kind) {
@@ -224,26 +232,48 @@ const pinMismatch = (unmet: ReadonlyArray<readonly [string, string]>, identity: 
       .join(" "),
   })
 
-const idsOf = (chosen: Readonly<Record<string, Target>>): Record<string, string> =>
-  Object.fromEntries(Object.entries(chosen).map(([level, target]) => [level, target.id]))
+/** The target chosen at each level, by level name: null where an optional level has none. */
+type Chosen = Readonly<Record<string, Target | null>>
 
-/** The id chosen or pinned at the level before `level`, whose targets `level`'s are listed under. */
+/** A level's target id: null for none, undefined for a level not chosen. */
+const idOf = (target: Target | null | undefined): string | null | undefined =>
+  target === null ? null : target?.id
+
+const idsOf = (chosen: Chosen): Record<string, string | null> =>
+  Object.fromEntries(
+    Object.entries(chosen).map(([level, target]) => [level, target === null ? null : target.id]),
+  )
+
+/** The levels chosen before sign-in, as the sign-in's pins. A level with no target pins nothing. */
+const pinsOf = (chosen: Chosen): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(chosen).flatMap(([level, target]) =>
+      target === null ? [] : [[level, target.id] as const],
+    ),
+  )
+
+/**
+ * The id chosen or pinned at the level before `level`, whose targets
+ * `level`'s are listed under. A level after one with no target has no parent.
+ */
 function parentOf(
   levels: ReadonlyArray<Level>,
   level: Level,
-  chosen: Readonly<Record<string, Target>>,
+  chosen: Chosen,
   pins: CredentialRequest["pins"],
 ): Option.Option<string> {
   const before = levels[levels.indexOf(level) - 1]
   if (before === undefined) return Option.none()
-  return Option.fromUndefinedOr(chosen[before.name]?.id ?? pins[before.name])
+  const target = chosen[before.name]
+  if (target === null) return Option.none()
+  return Option.fromUndefinedOr(target?.id ?? pins[before.name])
 }
 
 /** The first level chosen at `when` that is neither chosen yet nor pinned. */
 const nextLevel = (
   levels: ReadonlyArray<Level>,
   when: Level["chosen"],
-  chosen: Readonly<Record<string, Target>>,
+  chosen: Chosen,
   pins: CredentialRequest["pins"],
 ): Level | undefined =>
   levels.find(
@@ -422,10 +452,10 @@ export function makeCredentials(
       if (credential.turn === turn) move(credential, next, emit)
     })
 
-  /** The sign-in methods, the block's default first if its provider describes it, and why the last attempt failed. */
+  /** The sign-in methods, the block's default if it is one available, and why the last attempt failed. */
   const signedOut = (credential: Credential, opened: Opened, lastError?: CredentialError): Move => {
     const preferred = Option.filter(credential.slot.request.defaultMethod, (name) =>
-      opened.methods.some((method) => method.name === name),
+      available(opened.methods).some((method) => method.name === name),
     )
     return {
       _tag: "SignedOut",
@@ -525,6 +555,7 @@ export function makeCredentials(
           const outputs = host.outputsOf(source.from) ?? new Map<string, Held<string>>()
           return {
             kind: "values",
+            from: source.from,
             values: Object.fromEntries(
               Array.from(outputs, ([key, held]) => [key, Redacted.make(reveal(held))]),
             ),
@@ -542,19 +573,25 @@ export function makeCredentials(
    * Takes an identity the block may use, with the targets chosen so far:
    * selects each pinned level after sign-in they do not name, and stops to
    * choose one that is neither chosen nor pinned; checks the pins; then gets
-   * the values a run will have, and is Ready.
+   * the values a run will have, and is Ready. No target counts as a choice
+   * only at an optional level: a provider's null anywhere else is not chosen.
    */
   const accept = (
     credential: Credential,
     opened: Opened,
     identity: Identity,
     source: string,
-    chosen: Readonly<Record<string, Target>> = identity.targets,
+    chosen: Chosen = identity.targets,
   ): Effect.Effect<Move, CredentialError> =>
     Effect.gen(function* () {
       const { pins } = credential.slot.request
       const { levels } = opened.info
-      const picked: Record<string, Target> = { ...chosen }
+      const optional = new Set(
+        levels.flatMap((level) => (level.optional === true ? [level.name] : [])),
+      )
+      const picked: Record<string, Target | null> = Object.fromEntries(
+        Object.entries(chosen).filter(([name, target]) => target !== null || optional.has(name)),
+      )
       for (const level of levels) {
         const pin = pins[level.name]
         if (
@@ -579,7 +616,7 @@ export function makeCredentials(
         }
       }
       const changed = Object.entries(picked).some(
-        ([name, target]) => identity.targets[name]?.id !== target.id,
+        ([name, target]) => idOf(identity.targets[name]) !== idOf(target),
       )
       const selected = changed ? yield* bounded(opened.provider.select(idsOf(picked))) : identity
       const unmet = unmetPins(pins, selected)
@@ -666,7 +703,7 @@ export function makeCredentials(
     opened: Opened,
     method: string,
     fields: Fields,
-    chosen: Readonly<Record<string, Target>>,
+    chosen: Chosen,
   ) =>
     start(credential, (turn) =>
       Effect.gen(function* () {
@@ -686,16 +723,16 @@ export function makeCredentials(
           } satisfies Move
         }
         let identity: Identity | undefined
-        const prompt = (next: Extract<Move, { _tag: "SigningIn" }>["prompt"]) =>
-          record(credential, turn, {
-            _tag: "SigningIn",
-            method,
-            ...(next === undefined ? {} : { prompt: next }),
-          })
+        let shown = signingIn(method)
+        /** Shows a prompt on top of what the earlier ones showed. */
+        const show = (prompt: Partial<Omit<SigningIn, "_tag" | "method">>) => {
+          shown = { ...shown, ...prompt }
+          return record(credential, turn, shown)
+        }
         yield* bounded(
           Stream.runForEach(
             opened.provider.signIn(method, fields, {
-              pins: { ...pins, ...idsOf(chosen) },
+              pins: { ...pins, ...pinsOf(chosen) },
               requirements,
             }),
             (event) => {
@@ -704,8 +741,7 @@ export function makeCredentials(
                   identity = event.identity
                   return Effect.void
                 case "OpenUrl":
-                  return prompt({
-                    _tag: "OpenUrl",
+                  return show({
                     url: event.url,
                     ...Option.match(event.code, {
                       onNone: () => ({}),
@@ -713,9 +749,9 @@ export function makeCredentials(
                     }),
                   })
                 case "ShowCode":
-                  return prompt({ _tag: "ShowCode", code: event.code })
+                  return show({ code: event.code })
                 case "Waiting":
-                  return prompt({ _tag: "Waiting" })
+                  return show({ waiting: true })
               }
             },
           ),
@@ -744,29 +780,29 @@ export function makeCredentials(
 
   const notOffered = (
     field: Extract<ActResult, { _tag: "NotOffered" }>["field"],
-    value: string,
+    value: string | null,
     offered: ReadonlyArray<string>,
   ): ActResult => ({ _tag: "NotOffered", field, value, offered })
 
   const accepted: ActResult = { _tag: "Accepted" }
 
-  /** Chooses the target offered at the level being chosen, then goes on to the next level, a sign-in or Ready. */
+  /**
+   * Chooses the target offered at the level being chosen, or none at an
+   * optional level, then goes on to the next level, a sign-in or Ready.
+   */
   const chooseOffered = (
     credential: Credential,
     opened: Opened,
     state: ChoosingTarget,
     level: string,
-    id: string,
+    id: string | null,
   ) =>
     Effect.gen(function* () {
       if (level !== state.level.name) return notOffered("level", level, [state.level.name])
-      const option = state.options.find((candidate) => candidate.id === id)
-      if (option === undefined)
-        return notOffered(
-          "id",
-          id,
-          state.options.map((candidate) => candidate.id),
-        )
+      const offered = state.options.map((candidate) => candidate.id)
+      if (id === null && state.level.optional !== true) return notOffered("id", id, offered)
+      const option = id === null ? null : state.options.find((candidate) => candidate.id === id)
+      if (option === undefined) return notOffered("id", id, offered)
       const chosen = { ...state.chosen, [level]: option }
       const choosing = credential.choosing
       yield* stop(credential)
@@ -775,9 +811,7 @@ export function makeCredentials(
       const next = choosing.value
       switch (next._tag) {
         case "SignIn":
-          yield* host.update((emit) =>
-            move(credential, { _tag: "SigningIn", method: next.method }, emit),
-          )
+          yield* host.update((emit) => move(credential, signingIn(next.method), emit))
           yield* signIn(credential, opened, next.method, next.fields, chosen)
           return accepted
         case "Accept": {
@@ -792,13 +826,13 @@ export function makeCredentials(
       }
     })
 
-  /** Chooses another target for a Ready block, at a level after sign-in it does not pin. */
+  /** Chooses another target, or none, for a Ready block, at a level after sign-in it does not pin. */
   const changeTarget = (
     credential: Credential,
     opened: Opened,
     state: Ready,
     name: string,
-    id: string,
+    id: string | null,
   ) =>
     Effect.gen(function* () {
       const { pins } = credential.slot.request
@@ -813,6 +847,7 @@ export function makeCredentials(
           name,
           changeable.map((candidate) => candidate.name),
         )
+      if (id === null && level.optional !== true) return notOffered("id", id, [])
       const { identity, source } = state
       const before = Object.fromEntries(
         levels.slice(0, levels.indexOf(level)).flatMap((earlier) => {
@@ -823,6 +858,11 @@ export function makeCredentials(
       yield* stop(credential)
       yield* start(credential, () =>
         Effect.gen(function* () {
+          if (id === null)
+            return yield* accept(credential, opened, identity, source, {
+              ...before,
+              [level.name]: null,
+            })
           const options = yield* bounded(
             opened.provider.targets(level.name, parentOf(levels, level, before, pins)),
           )
@@ -908,17 +948,16 @@ export function makeCredentials(
             yield* host.update((emit) => move(credential, signedOut(credential, provider), emit))
             return accepted
           case "SignIn": {
-            const method = provider.methods.find((candidate) => candidate.name === action.method)
+            const offered = available(provider.methods)
+            const method = offered.find((candidate) => candidate.name === action.method)
             if (method === undefined)
               return notOffered(
                 "method",
                 action.method,
-                provider.methods.map((candidate) => candidate.name),
+                offered.map((candidate) => candidate.name),
               )
             yield* stop(credential)
-            yield* host.update((emit) =>
-              move(credential, { _tag: "SigningIn", method: method.name }, emit),
-            )
+            yield* host.update((emit) => move(credential, signingIn(method.name), emit))
             yield* signIn(
               credential,
               provider,

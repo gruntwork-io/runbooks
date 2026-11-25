@@ -83,12 +83,15 @@ const GIT_INFO: ProviderInfo = {
   names: ["GITHUB_TOKEN", "GITLAB_TOKEN"],
 }
 
-/** Who a cloud login is, at `account` in `role`. */
-const who = (account: string, role = "Admin"): Identity => ({
-  principal: `arn:cloud::${account}:role/${role}`,
+/** Who a cloud login is, at `account` in `role`, or with no role (null). */
+const who = (account: string, role: string | null = "Admin"): Identity => ({
+  principal: `arn:cloud::${account}:role/${role ?? "none"}`,
   kind: "role",
   method: "sso",
-  targets: { account: { id: account, name: `acct-${account}` }, role: { id: role, name: role } },
+  targets: {
+    account: { id: account, name: `acct-${account}` },
+    role: role === null ? null : { id: role, name: role },
+  },
 })
 
 /** What a cloud provider's `env` gives: the token to the run and as a hidden output, the account to both. */
@@ -205,6 +208,10 @@ const WAITING_FOR_CLOUD: BlockStatus = {
 
 const runbookOf = (...blocks: ReadonlyArray<string>) => blocks.join("\n\n")
 
+/** A block whose outputs hold access keys, for a `keysFrom` detection source. */
+const KEYS =
+  '<Script id="keys" label="keys" writesOutput={["accessKey=AKIAKEYS", "secretKey=keys-SECRET"]} declares={["accessKey", "secretKey"]} />'
+
 /** A block that pins its targets, and a provider that detects the login it pins. */
 const pinned = '<CloudLogin id="cloud" account="111" role="Admin" />'
 const ready = cloud({ detect: () => found(who("111")) })
@@ -251,6 +258,20 @@ describe("detecting a credential", () => {
       [[{ kind: "env", prefix: Option.none() }], { pins: {}, requirements: [] }],
     ])
     expect(callsOf("cloud")).not.toContain("env")
+  })
+
+  it("shows a found login's warnings, and keeps them once it is used", async () => {
+    const warnings = [{ message: "Region eu-south-2 is not enabled." }]
+    await withCloud(
+      '<CloudLogin id="cloud" />',
+      { cloud: cloud({ detect: () => found({ ...who("111"), warnings }) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({ identity: { warnings } })
+          yield* rb.act("cloud", { _tag: "Confirm" })
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({ identity: { warnings } })
+        }),
+    )
   })
 
   // useAwsAuth.env.test.ts
@@ -340,10 +361,8 @@ describe("detecting a credential", () => {
 
   // useGoogleAuth.test.ts
   it("pauses on a block source that has not executed, then resumes when it has", async () => {
-    const keys =
-      '<Script id="keys" label="keys" writesOutput={["accessKey=AKIAKEYS", "secretKey=keys-SECRET"]} declares={["accessKey", "secretKey"]} />'
     await withCloud(
-      runbookOf(keys, '<CloudLogin id="cloud" keysFrom="keys" />'),
+      runbookOf(KEYS, '<CloudLogin id="cloud" keysFrom="keys" />'),
       { cloud: cloud({ detect: () => found(who("111"), "keys") }) },
       (rb) =>
         Effect.gen(function* () {
@@ -361,6 +380,7 @@ describe("detecting a credential", () => {
       { kind: "env", prefix: Option.none() },
       {
         kind: "values",
+        from: "keys",
         values: { accessKey: expect.anything(), secretKey: expect.anything() },
       },
     ])
@@ -369,6 +389,29 @@ describe("detecting a credential", () => {
     expect(
       Object.values(values).map((value) => Redacted.value(value as Redacted.Redacted)),
     ).toEqual(["AKIAKEYS", "keys-SECRET"])
+  })
+
+  it("names the block a login was found through", async () => {
+    await withCloud(
+      runbookOf(KEYS, '<CloudLogin id="cloud" keysFrom="keys" />'),
+      {
+        cloud: cloud({
+          // As a provider answers: a login found in a values source has its block as the source.
+          detect: (sources) =>
+            Effect.suspend(() => {
+              const read = sources.find((source) => source.kind === "values")
+              return read?.kind === "values"
+                ? found(who("111"), read.from)
+                : Effect.succeed(Option.none())
+            }),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.run("keys")
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({ source: "keys" })
+        }),
+    )
   })
 })
 
@@ -501,7 +544,7 @@ const HOSTS = [
 ]
 
 describe("signing in", () => {
-  it("shows each prompt of a sign-in, then is ready", async () => {
+  it("keeps a sign-in's URL and code while it waits, then is ready", async () => {
     let release = () => {}
     const released = new Promise<void>((resolve) => {
       release = resolve
@@ -538,16 +581,21 @@ describe("signing in", () => {
           expect(yield* rb.until("cloud", "SigningIn")).toEqual({
             _tag: "SigningIn",
             method: "sso",
+            waiting: false,
           })
           expect(yield* rb.until("cloud", "SigningIn")).toEqual({
             _tag: "SigningIn",
             method: "sso",
-            prompt: { _tag: "OpenUrl", url: "https://device.example/", code: "ABCD-1234" },
+            url: "https://device.example/",
+            code: "ABCD-1234",
+            waiting: false,
           })
           expect(yield* rb.until("cloud", "SigningIn")).toEqual({
             _tag: "SigningIn",
             method: "sso",
-            prompt: { _tag: "Waiting" },
+            url: "https://device.example/",
+            code: "ABCD-1234",
+            waiting: true,
           })
           expect(yield* rb.status("cloud")).toEqual({ _tag: "Running" })
           expect(yield* rb.status("deploy")).toEqual(WAITING_FOR_CLOUD)
@@ -815,6 +863,147 @@ describe("signing in", () => {
 })
 
 // ---------------------------------------------------------------------------
+// A level with no target
+// ---------------------------------------------------------------------------
+
+/** CLOUD_INFO with `role` optional: a login may have none, as an Azure tenant may have no subscription. */
+const OPTIONAL_ROLE: ProviderInfo = {
+  ...CLOUD_INFO,
+  levels: [
+    { name: "account", label: "Account", chosen: "afterSignIn" },
+    { name: "role", label: "Role", chosen: "afterSignIn", optional: true },
+  ],
+}
+
+const ROLES = [
+  { id: "Admin", name: "Admin" },
+  { id: "ReadOnly", name: "ReadOnly" },
+]
+
+/** A login at account 111 that names no role yet. */
+const roleNotChosen: Identity = { ...who("111"), targets: { account: who("111").targets.account! } }
+
+/** A provider described by `info` that detects `detected`, lists ROLES and selects what it is given. */
+const selecting = (info: ProviderInfo, detected: Identity) =>
+  cloud({
+    info,
+    detect: () => found(detected),
+    targets: () => Effect.succeed(ROLES),
+    select: (targets) => Effect.succeed(who(targets.account ?? "", targets.role)),
+  })
+
+describe("a level with no target", () => {
+  it("chooses no target at an optional level, and is Ready with none", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" account="111" />',
+      { cloud: selecting(OPTIONAL_ROLE, roleNotChosen) },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.until("cloud", "ChoosingTarget")).toMatchObject({
+            level: { name: "role", optional: true },
+          })
+          expect(yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: null })).toEqual(
+            { _tag: "Accepted" },
+          )
+          const state = yield* rb.until("cloud", "Ready")
+          expect(state._tag === "Ready" && state.identity.targets.role).toBeNull()
+        }),
+    )
+    expect(argsOf("cloud", "select")).toEqual([[{ account: "111", role: null }]])
+  })
+
+  it("refuses no target at a level that is not optional", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" account="111" />',
+      { cloud: selecting(CLOUD_INFO, roleNotChosen) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "ChoosingTarget")
+          expect(yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: null })).toEqual(
+            { _tag: "NotOffered", field: "id", value: null, offered: ["Admin", "ReadOnly"] },
+          )
+          expect((yield* rb.view("cloud")).credential?._tag).toBe("ChoosingTarget")
+          yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: "ReadOnly" })
+          yield* rb.until("cloud", "Ready")
+          expect(yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: null })).toEqual(
+            { _tag: "NotOffered", field: "id", value: null, offered: [] },
+          )
+          expect((yield* rb.view("cloud")).credential).toMatchObject({
+            _tag: "Ready",
+            identity: who("111", "ReadOnly"),
+          })
+        }),
+    )
+    expect(argsOf("cloud", "select")).toEqual([[{ account: "111", role: "ReadOnly" }]])
+  })
+
+  it("takes a detected login with no target at an optional level: Ready if pinned, else Found", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" account="111" />',
+      { cloud: selecting(OPTIONAL_ROLE, who("111", null)) },
+      (rb) =>
+        Effect.gen(function* () {
+          const state = yield* rb.until("cloud", "Ready")
+          expect(state._tag === "Ready" && state.identity.targets.role).toBeNull()
+        }),
+    )
+    expect(movesOf("cloud")).toEqual(["Detecting", "Ready"])
+    expect(callsOf("cloud")).toEqual(["open", "describe", "detect", "env"])
+
+    await withCloud(
+      '<CloudLogin id="cloud" />',
+      { cloud: selecting(OPTIONAL_ROLE, who("111", null)) },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({ identity: who("111", null) })
+          yield* rb.act("cloud", { _tag: "Confirm" })
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({ identity: who("111", null) })
+        }),
+    )
+    expect(movesOf("cloud")).toEqual(["Detecting", "Found", "Ready"])
+    expect(callsOf("cloud")).toEqual(["open", "describe", "detect", "env"])
+  })
+
+  it("changes a Ready block's optional level to no target and back", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" account="111" />',
+      { cloud: selecting(OPTIONAL_ROLE, who("111")) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Ready")
+          expect(yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: null })).toEqual(
+            { _tag: "Accepted" },
+          )
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({ identity: who("111", null) })
+          yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: "ReadOnly" })
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({
+            identity: who("111", "ReadOnly"),
+          })
+        }),
+    )
+    expect(argsOf("cloud", "select")).toEqual([
+      [{ account: "111", role: null }],
+      [{ account: "111", role: "ReadOnly" }],
+    ])
+    expect(argsOf("cloud", "targets")).toEqual([["role", Option.some("111")]])
+  })
+
+  it("asks for a level that is not optional when the provider answers no target for it", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" account="111" />',
+      { cloud: selecting(CLOUD_INFO, who("111", null)) },
+      (rb) =>
+        Effect.gen(function* () {
+          const choosing = yield* rb.until("cloud", "ChoosingTarget")
+          expect(choosing._tag === "ChoosingTarget" && choosing.chosen).toEqual({
+            account: { id: "111", name: "acct-111" },
+          })
+        }),
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Requirements and an unavailable provider
 // ---------------------------------------------------------------------------
 
@@ -909,6 +1098,52 @@ describe("a login that cannot be used", () => {
         }),
     )
     expect(callsOf("cloud")).toEqual(["open", "describe", "detect", "open", "describe", "detect"])
+  })
+
+  /** A cloud provider whose `keys` method needs a tool that is not installed. */
+  const keysUnavailable = cloud({
+    info: {
+      ...CLOUD_INFO,
+      methods: CLOUD_INFO.methods.map((method) =>
+        method.name === "keys"
+          ? { ...method, unavailable: credentialError("toolMissing", "Install the keys tool.") }
+          : method,
+      ),
+    },
+  })
+
+  it("lists an unavailable method with its reason, and refuses a sign-in with it", async () => {
+    await withCloud('<CloudLogin id="cloud" detect={false} />', { cloud: keysUnavailable }, (rb) =>
+      Effect.gen(function* () {
+        const state = yield* rb.until("cloud", "SignedOut")
+        expect(
+          state._tag === "SignedOut" &&
+            state.methods.map((method) => [method.name, method.unavailable?.kind]),
+        ).toEqual([
+          ["sso", undefined],
+          ["keys", "toolMissing"],
+        ])
+        expect(yield* rb.act("cloud", { _tag: "SignIn", method: "keys", fields: {} })).toEqual({
+          _tag: "NotOffered",
+          field: "method",
+          value: "keys",
+          offered: ["sso"],
+        })
+      }),
+    )
+    expect(movesOf("cloud")).toEqual(["Detecting", "SignedOut"])
+    expect(callsOf("cloud")).toEqual(["open", "describe"])
+  })
+
+  it("does not default to an unavailable method", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" detect={false} method="keys" />',
+      { cloud: keysUnavailable },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.until("cloud", "SignedOut")).not.toHaveProperty("defaultMethod")
+        }),
+    )
   })
 
   it("is unavailable when the block's provider does not exist", async () => {
@@ -1504,10 +1739,8 @@ describe("each block's own credential", () => {
 
   // aws-env.test.ts: there the provider's answer; here what the engine keeps of it.
   it("returns found/valid identity metadata and never the key material", async () => {
-    const keys =
-      '<Script id="keys" label="keys" writesOutput={["accessKey=AKIAKEYS", "secretKey=keys-SECRET"]} declares={["accessKey", "secretKey"]} />'
     await withCloud(
-      runbookOf(keys, '<CloudLogin id="cloud" keysFrom="keys" />'),
+      runbookOf(KEYS, '<CloudLogin id="cloud" keysFrom="keys" />'),
       { cloud: cloud({ detect: () => found(who("111"), "keys") }) },
       (rb) =>
         Effect.gen(function* () {
