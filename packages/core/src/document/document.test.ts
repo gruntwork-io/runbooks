@@ -27,6 +27,7 @@ const encoded = {
       props: { command: "echo hi" },
       shared: { dependsOn: ["setup"], envFrom: ["aws"] },
       span,
+      errors: [],
     },
   ],
   edges: [

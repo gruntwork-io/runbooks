@@ -7,7 +7,7 @@
  */
 import type { BlockId, Capability } from "@runbooks/blocks-core/contract"
 import { type AnyBlock, type Registry, resolveTag } from "@runbooks/blocks-core/registry"
-import type { ConfigErrorCode, Span } from "./configError.ts"
+import type { BlockErrorCode, Span } from "./configError.ts"
 import type { BlockNode, Edge, EdgeSource } from "./document.ts"
 import { nearest } from "./nearest.ts"
 
@@ -24,15 +24,16 @@ export interface WrittenReference {
   readonly span: Span
 }
 
-/** Reports one configuration error at a reference. */
+/** Reports one configuration error at a reference, in the block at `index`, the reading block. */
 export type Report = (
-  code: ConfigErrorCode,
+  code: BlockErrorCode,
   message: string,
   span: Span,
   more: {
     readonly block: { readonly tag: string; readonly id?: string }
     readonly prop: string
     readonly suggestion?: string
+    readonly index: number
   },
 ) => void
 
@@ -118,6 +119,7 @@ function at(reference: WrittenReference, from: BlockNode) {
   return {
     block: { tag: from.tag, ...(from.idAsWritten !== undefined ? { id: from.idAsWritten } : {}) },
     prop: reference.prop,
+    index: from.index,
   }
 }
 

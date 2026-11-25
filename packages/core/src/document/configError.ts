@@ -1,6 +1,8 @@
 /**
  * What the parser reports about a runbook, each with the place to fix it.
- * Every client shows these at load, before anything runs.
+ * Every client shows these at load, before anything runs. An error that
+ * leaves nothing safe to show refuses the runbook; an error in one block
+ * stops only that block.
  */
 import { Schema } from "effect"
 
@@ -27,9 +29,12 @@ export const Location = Schema.Struct({
 })
 export type Location = typeof Location.Type
 
-/** Every kind of configuration error. A closed set: a client may branch on it. */
-export const ConfigErrorCode = Schema.Literals([
-  /** The MDX does not parse. */
+/**
+ * The configuration errors that refuse the whole runbook, because there is
+ * no document to show or showing it would be unsafe. Nothing opens.
+ */
+export const RunbookErrorCode = Schema.Literals([
+  /** The MDX, or the front matter's YAML, does not parse. */
   "syntax",
   /**
    * MDX that would run code or load a document when the runbook opens: an
@@ -41,6 +46,15 @@ export const ConfigErrorCode = Schema.Literals([
   "unknownBlock",
   /** The front matter's `runbooks:` range excludes this app's version. */
   "versionRequired",
+])
+export type RunbookErrorCode = typeof RunbookErrorCode.Type
+
+/**
+ * The configuration errors in one block. The runbook opens: the block's node
+ * carries them, its status is `Misconfigured`, and it never runs. The other
+ * blocks run.
+ */
+export const BlockErrorCode = Schema.Literals([
   /** A prop's value does not decode with the block's schema. */
   "badProp",
   /** An alias locks the prop, so the author may not set it. */
@@ -62,7 +76,30 @@ export const ConfigErrorCode = Schema.Literals([
   /** A file the block names is missing, or resolves outside the runbook's folder. */
   "badFile",
 ])
+export type BlockErrorCode = typeof BlockErrorCode.Type
+
+/** Every kind of configuration error. A closed set: a client may branch on it. */
+export const ConfigErrorCode = Schema.Union([RunbookErrorCode, BlockErrorCode])
 export type ConfigErrorCode = typeof ConfigErrorCode.Type
+
+/** Whether an error refuses the whole runbook, rather than stopping one block. */
+export const refusesRunbook = (code: ConfigErrorCode): code is RunbookErrorCode =>
+  Schema.is(RunbookErrorCode)(code)
+
+/**
+ * File order for errors and warnings: the runbook's own first, then those in
+ * each file its blocks name, by path.
+ */
+export const byPlace =
+  (runbook: string) =>
+  (a: { readonly location: Location }, b: { readonly location: Location }): number => {
+    const [fa, fb] = [a.location.file, b.location.file]
+    if (fa !== fb) return fa === runbook ? -1 : fb === runbook ? 1 : fa < fb ? -1 : 1
+    return (
+      a.location.span.start.line - b.location.span.start.line ||
+      a.location.span.start.column - b.location.span.start.column
+    )
+  }
 
 export class ConfigError extends Schema.TaggedError<ConfigError>()("ConfigError", {
   code: ConfigErrorCode,
