@@ -1,0 +1,94 @@
+import { Context, Effect } from "effect"
+import type { GitLabApiError } from "../errors/index.ts"
+
+export interface GitLabUser {
+  readonly login: string
+  readonly name?: string | undefined
+  readonly avatarUrl?: string | undefined
+  readonly email?: string | undefined
+}
+
+export interface GitLabTokenValidation {
+  readonly user: GitLabUser
+  /**
+   * GitLab's `GET /user` exposes no scope header, so scopes are introspected
+   * separately (best-effort): `/oauth/token/info` for OAuth tokens and
+   * `/personal_access_tokens/self` for personal access tokens. Undefined when
+   * scopes can't be determined (e.g. a project/group token or an introspection
+   * failure).
+   */
+  readonly scopes?: string[] | undefined
+  /**
+   * When the token expires, as an ISO timestamp, introspected with the
+   * scopes. Undefined for a token that doesn't expire or whose expiry can't
+   * be determined.
+   */
+  readonly expiresAt?: string | undefined
+}
+
+export type GitLabTokenType = "pat" | "oauth" | "unknown"
+
+/**
+ * Parameters for creating a merge request. Field names mirror GitHub's
+ * CreatePRParams so the domain layer can build either from one shape:
+ *   - `owner` is the project's namespace path (group, or group/subgroup).
+ *   - `repo` is the project name. `owner/repo` is URL-encoded into the
+ *     `:id` path segment (slashes become %2F).
+ *   - `headBranch` -> GitLab `source_branch`, `baseBranch` -> `target_branch`.
+ */
+export interface CreateMRParams {
+  readonly owner: string
+  readonly repo: string
+  readonly title: string
+  readonly body?: string | undefined
+  readonly baseBranch: string
+  readonly headBranch: string
+  readonly labels?: string[] | undefined
+  /**
+   * GitLab instance origin to target (e.g. `https://gitlab.example.com`).
+   * Defaults to gitlab.com when omitted; one that is given but doesn't parse
+   * fails the call rather than falling back to gitlab.com. Lets a self-hosted
+   * instance receive the MR instead of gitlab.com.
+   */
+  readonly baseUrl?: string
+}
+
+/**
+ * Result of a created merge request. `number` is the project-scoped **iid**
+ * (the user-facing `!42`), NOT the global `id`. Shape matches GitHub's
+ * PullRequestResult so the renderer's git:pr-result contract is reused.
+ */
+export interface MergeRequestResult {
+  readonly url: string
+  readonly number: number
+  readonly branch: string
+}
+
+export interface GitLabClientShape {
+  /**
+   * Validate a token against a GitLab instance. `baseUrl` is the instance
+   * origin (e.g. `https://gitlab.example.com`); a bare host or a full URL is
+   * accepted (the client normalizes it) and it defaults to gitlab.com when
+   * omitted. One that is given but doesn't parse fails with status 400 — never
+   * a fallback to gitlab.com, which would send another instance's token there.
+   */
+  readonly validateToken: (
+    token: string,
+    baseUrl?: string,
+  ) => Effect.Effect<GitLabTokenValidation, GitLabApiError>
+  readonly createMergeRequest: (
+    token: string,
+    params: CreateMRParams,
+  ) => Effect.Effect<MergeRequestResult, GitLabApiError>
+  /** `baseUrl` is the instance origin (bare host or full URL); see validateToken. */
+  readonly listLabels: (
+    token: string,
+    owner: string,
+    repo: string,
+    baseUrl?: string,
+  ) => Effect.Effect<string[], GitLabApiError>
+}
+
+export class GitLabClient extends Context.Service<GitLabClient, GitLabClientShape>()(
+  "GitLabClient",
+) {}

@@ -1,0 +1,131 @@
+import path from "path"
+import { promises as fs } from "node:fs"
+import { isContainedIn } from "@runbooks/core/path-validation"
+
+// Bound the manual symlink chasing in `canonicalizePath` so a cyclic or
+// pathologically deep set of symlinks fails closed instead of looping
+// forever. Mirrors the spirit of the kernel's SYMLOOP_MAX.
+const SYMLINK_RESOLVE_LIMIT = 64
+
+const WIN32_PATHS = path.sep === "\\"
+
+// Only win32 treats `\` as a separator; on POSIX it is a legal filename
+// character, and splitting on it would disagree with the kernel.
+const SEGMENT_SEPARATOR = WIN32_PATHS ? /[\\/]+/ : /\/+/
+
+function splitSegments(p: string): string[] {
+  return p.slice(path.parse(p).root.length).split(SEGMENT_SEPARATOR)
+}
+
+/**
+ * Resolve `inputPath` to a canonical absolute path with every symlink in it
+ * dereferenced.
+ *
+ * Walks the path one component at a time, the way the kernel does: each
+ * existing prefix is `lstat`ed, a symlink's target is spliced into the
+ * components still to walk (a relative target therefore resolves against the
+ * link's *real* parent), and `..` is applied to the already-dereferenced
+ * prefix. Nothing is collapsed lexically first, because `<symlink>/..` is the
+ * symlink target's parent, not the symlink's. The exception is `..` inside a
+ * link target on Windows, which collapses lexically (see the walk).
+ *
+ * Containment checks must also cover write targets that don't exist yet, so
+ * components past the deepest existing prefix are kept as a literal tail. A
+ * `..` pops that tail first, and walking resumes once it is empty, since a
+ * `mkdir -p` would create the missing directory and then follow whatever
+ * comes after the `..`. The existing prefix is finally `realpath`ed so its
+ * spelling (case on case-insensitive filesystems) matches other canonical
+ * paths.
+ *
+ * Throws on symlink cycles / excessive indirection so callers fail closed.
+ */
+async function canonicalizePath(inputPath: string): Promise<string> {
+  const abs = path.isAbsolute(inputPath) ? inputPath : `${process.cwd()}${path.sep}${inputPath}`
+  // Stack of components still to walk, next one on top.
+  const pending = splitSegments(abs).reverse()
+  // Deepest existing prefix, with every symlink in it already dereferenced.
+  let resolved = path.parse(abs).root
+  // Components past `resolved` that don't exist yet.
+  const tail: string[] = []
+  let links = 0
+  while (pending.length > 0) {
+    const segment = pending.pop()!
+    if (segment === "" || segment === ".") continue
+    if (segment === "..") {
+      if (tail.length > 0) tail.pop()
+      else resolved = path.dirname(resolved)
+      continue
+    }
+    if (tail.length > 0) {
+      tail.push(segment)
+      continue
+    }
+    const next = path.join(resolved, segment)
+    // Only a genuinely missing component may become literal tail. Any other
+    // failure fails closed: `next` is the fully dereferenced spelling, so it
+    // can exceed PATH_MAX (ENAMETOOLONG) while the kernel still resolves the
+    // caller's shorter, symlinked spelling and follows a link at `next`.
+    const stat = await fs.lstat(next).catch((err: NodeJS.ErrnoException) => {
+      if (err.code === "ENOENT" || err.code === "ENOTDIR") return null
+      throw err
+    })
+    if (!stat) {
+      tail.push(segment)
+      continue
+    }
+    if (stat.isSymbolicLink()) {
+      if (++links > SYMLINK_RESOLVE_LIMIT) {
+        throw new Error(`path canonicalization exceeded symlink limit: ${inputPath}`)
+      }
+      const raw = await fs.readlink(next)
+      // NT paths have no `..`, so Windows collapses a link target lexically
+      // against the link's (already dereferenced) parent: there
+      // `<symlink>/..` inside a target is the symlink's own parent. Leading
+      // `..` segments survive normalization and are applied to the real
+      // parent `resolved` below, as Windows does. POSIX dereferences first.
+      const target = WIN32_PATHS ? path.normalize(raw) : raw
+      const targetRoot = path.parse(target).root
+      if (targetRoot) resolved = path.resolve(resolved, targetRoot)
+      pending.push(...splitSegments(target).reverse())
+      continue
+    }
+    resolved = next
+  }
+  const real = await fs.realpath(resolved)
+  return tail.length === 0 ? real : path.join(real, ...tail)
+}
+
+/**
+ * Like {@link isContainedIn}, but dereferences symlinks in both paths before
+ * comparing. A symlink planted inside `container` that points outside it
+ * therefore fails the check, closing the lexical-vs-realpath gap that lets
+ * renderer-supplied paths escape the session root via symlink-following fs
+ * ops. Fails closed (returns `false`) if either path can't be canonicalized.
+ *
+ * A `..` in `filePath` has two readings, and callers use both: some hand the
+ * raw path to fs, where the kernel applies `..` after dereferencing the prefix
+ * (`<link>/..` is the link target's parent), while others normalize it
+ * lexically first (`path.join`/`path.resolve`, where `<link>/..` is the
+ * link's own parent) and read that instead. The two can land in different
+ * places, so `filePath` must be contained under both readings.
+ *
+ * When `filePath` already exists, the OS's own `realpath` must agree too. It
+ * backstops the platform semantics the walk models by hand, such as Windows'
+ * handling of `..` in link targets.
+ */
+export async function isContainedInReal(filePath: string, container: string): Promise<boolean> {
+  try {
+    const lexical = path.resolve(filePath)
+    const [resolvedContainer, ...candidates] = await Promise.all([
+      canonicalizePath(container),
+      canonicalizePath(filePath),
+      // An already-normalized absolute path (the common case) reads the same
+      // both ways, so the second walk would repeat the first.
+      lexical === filePath ? null : canonicalizePath(lexical),
+      fs.realpath(filePath).catch(() => null),
+    ])
+    return candidates.every((p) => p === null || isContainedIn(p, resolvedContainer))
+  } catch {
+    return false
+  }
+}

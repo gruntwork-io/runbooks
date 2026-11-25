@@ -20,7 +20,15 @@
       // core: packages/core
       "@runbooks/core/credential/*": ["./packages/core/src/credential/*.ts"],
       "@runbooks/core/document/*": ["./packages/core/src/document/*.ts"],
-      "@runbooks/core/protocol": ["./packages/core/src/engine/protocol.ts"]
+      "@runbooks/core/domain/*": ["./packages/core/src/domain/*.ts"],
+      "@runbooks/core/errors": ["./packages/core/src/errors/index.ts"],
+      "@runbooks/core/errors/*": ["./packages/core/src/errors/*.ts"],
+      "@runbooks/core/path-validation": ["./packages/core/src/path-validation.ts"],
+      "@runbooks/core/protocol": ["./packages/core/src/engine/protocol.ts"],
+      "@runbooks/core/remote-source": ["./packages/core/src/remote-source.ts"],
+      "@runbooks/core/services/*": ["./packages/core/src/services/*.ts"],
+      "@runbooks/core/test-utils/*": ["./packages/core/src/test-utils/*.ts"],
+      "@runbooks/core/types": ["./packages/core/src/types.ts"]
     }
   }
 }

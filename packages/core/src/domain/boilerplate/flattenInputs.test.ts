@@ -1,0 +1,611 @@
+import { describe, it, expect } from "bun:test"
+import { Effect, Layer } from "effect"
+import {
+  coerceToDeclaredTypes,
+  flattenVariables,
+  resolveInputTemplates,
+  stripTemplateValues,
+  isTemplateString,
+} from "./flattenInputs.ts"
+import { WasmRuntime } from "../../services/WasmRuntime.ts"
+import type { WasmRuntimeShape } from "../../services/WasmRuntime.ts"
+import { WasmError } from "../../errors/index.ts"
+
+// ---------------------------------------------------------------------------
+// Fake WasmRuntime
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal stand-in for `boilerplateRenderTemplate`. Supports
+ *   {{ .inputs.<NAME> }}            → look up varsJSON.inputs[NAME]
+ *   {{ .outputs.<BLOCK>.<FIELD> }}  → look up varsJSON.outputs[BLOCK][FIELD]
+ *   {{ .<NAME> }}                   → look up varsJSON[NAME] (lifted top-level)
+ * and reproduces the WASM build's OnMissingKey=ExitWithError behavior — if any
+ * reference is missing, the whole render fails (returns a WasmError).
+ *
+ * This keeps tests free of a real WASM runtime while exercising the exact
+ * decision tree resolveInputTemplates relies on (fail-or-fully-succeed, no
+ * partial output).
+ */
+const NAMESPACED_REF_RE =
+  /\{\{-?\s*\.(inputs|outputs)\.([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)\s*-?\}\}/g
+const TOPLEVEL_REF_RE = /\{\{-?\s*\.([a-zA-Z0-9_]+)\s*-?\}\}/g
+
+function fakeRenderTemplate(
+  template: string,
+  varsJSON: string,
+): { ok: true; value: string } | { ok: false; message: string } {
+  const vars = JSON.parse(varsJSON) as Record<string, unknown> & {
+    inputs?: Record<string, unknown>
+    outputs?: Record<string, Record<string, unknown>>
+  }
+  // Asserted rather than annotated: the callbacks below assign it, and an
+  // annotated `null` start would narrow it to `never` at the check after them.
+  let missing = null as string | null
+  // Namespaced refs first, so `.inputs.X` doesn't get partially matched by the
+  // top-level pattern.
+  let out = template.replace(NAMESPACED_REF_RE, (_match, ns, path: string) => {
+    if (ns === "inputs") {
+      const segments = path.split(".")
+      let cur: unknown = vars.inputs ?? {}
+      for (const seg of segments) {
+        if (cur && typeof cur === "object" && seg in (cur as Record<string, unknown>)) {
+          cur = (cur as Record<string, unknown>)[seg]
+        } else {
+          missing ??= `inputs.${path}`
+          return ""
+        }
+      }
+      return printed(cur)
+    }
+    // outputs.<block>.<field>
+    const dot = path.indexOf(".")
+    if (dot < 0) {
+      missing ??= `outputs.${path}`
+      return ""
+    }
+    const block = path.slice(0, dot)
+    const field = path.slice(dot + 1)
+    const blockMap = vars.outputs?.[block]
+    if (!blockMap || !(field in blockMap)) {
+      missing ??= `outputs.${path}`
+      return ""
+    }
+    return printed(blockMap[field])
+  })
+  out = out.replace(TOPLEVEL_REF_RE, (_match, name: string) => {
+    if (!(name in vars)) {
+      missing ??= name
+      return ""
+    }
+    return printed(vars[name])
+  })
+  if (missing) return { ok: false, message: `missing key: ${missing}` }
+  return { ok: true, value: out }
+}
+
+/** How the fake prints a value: empty for none, a list comma-joined, a map as JSON. */
+function printed(value: unknown): string {
+  if (value === undefined || value === null) return ""
+  if (Array.isArray(value)) return value.join(",")
+  if (typeof value === "object") return JSON.stringify(value)
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value)
+  }
+  return ""
+}
+
+interface FakeWasmOptions {
+  /** Force every renderTemplate call to fail (simulates load error / disabled). */
+  alwaysFail?: boolean
+  /** Optional spy hook — receives every (template, varsJSON) pair. */
+  onCall?: (template: string, varsJSON: string) => void
+}
+
+function makeFakeWasm(options: FakeWasmOptions = {}): WasmRuntimeShape {
+  const notImplemented = (name: string) =>
+    Effect.die(`fake WasmRuntime: ${name} not implemented in flattenInputs.test`)
+  return {
+    renderTemplate: (template, varsJSON) =>
+      Effect.suspend(() => {
+        options.onCall?.(template, varsJSON)
+        if (options.alwaysFail) {
+          return Effect.fail(new WasmError({ message: "fake: alwaysFail", kind: "load" }))
+        }
+        const result = fakeRenderTemplate(template, varsJSON)
+        if (result.ok) return Effect.succeed(result.value)
+        return Effect.fail(new WasmError({ message: result.message, kind: "internal" }))
+      }),
+    renderFiles: () => notImplemented("renderFiles") as never,
+    prepareBundle: () => notImplemented("prepareBundle") as never,
+    renderFilesWithHandle: () => notImplemented("renderFilesWithHandle") as never,
+    releaseBundle: () => Effect.void,
+    isReady: Effect.succeed(true),
+  }
+}
+
+function fakeWasmLayer(options: FakeWasmOptions = {}) {
+  return Layer.succeed(WasmRuntime, makeFakeWasm(options))
+}
+
+// ---------------------------------------------------------------------------
+// Pure helpers
+// ---------------------------------------------------------------------------
+
+describe("isTemplateString", () => {
+  it("matches Go-template syntax", () => {
+    expect(isTemplateString("{{ .inputs.X }}")).toBe(true)
+    expect(isTemplateString("hello {{ .x }} world")).toBe(true)
+  })
+
+  it("rejects non-templates", () => {
+    expect(isTemplateString("plain string")).toBe(false)
+    expect(isTemplateString("")).toBe(false)
+    expect(isTemplateString(42)).toBe(false)
+    expect(isTemplateString(null)).toBe(false)
+    expect(isTemplateString(undefined)).toBe(false)
+    expect(isTemplateString({})).toBe(false)
+  })
+})
+
+describe("stripTemplateValues", () => {
+  it("drops scalar templates and keeps literals", () => {
+    expect(stripTemplateValues("{{ .x }}")).toBeUndefined()
+    expect(stripTemplateValues("plain")).toBe("plain")
+    expect(stripTemplateValues(7)).toBe(7)
+  })
+
+  it("strips template entries from a map", () => {
+    expect(stripTemplateValues({ a: "x", b: "{{ .y }}" })).toEqual({ a: "x" })
+  })
+
+  it("drops an all-template map entirely", () => {
+    expect(stripTemplateValues({ a: "{{ .x }}" })).toBeUndefined()
+  })
+
+  it("strips entries whose key is a template, at any depth", () => {
+    expect(stripTemplateValues({ "{{ .x }}:Team": "DevOps", Owner: "ops" })).toEqual({
+      Owner: "ops",
+    })
+    expect(stripTemplateValues({ Envs: { "{{ .x }}": { size: "large" }, dev: {} } })).toEqual({
+      Envs: { dev: {} },
+    })
+    expect(stripTemplateValues({ "{{ .x }}": "v" })).toBeUndefined()
+  })
+
+  it("keeps a map that was already empty", () => {
+    // `{}` is an explicit user value (e.g. every MapInput entry removed), not
+    // an unresolved template, so it must not fall back to the default.
+    expect(stripTemplateValues({})).toEqual({})
+  })
+
+  it("keeps a nested empty map while stripping its template siblings", () => {
+    expect(stripTemplateValues({ a: {}, b: "{{ .x }}" })).toEqual({ a: {} })
+  })
+
+  it("keeps a structured-map entry with no fields", () => {
+    // StructuredMapInput stores `{}` for an entry whose schema fields are
+    // all unset; the entry (and so the parent map) must survive.
+    expect(stripTemplateValues({ Envs: { dev: {} } })).toEqual({
+      Envs: { dev: {} },
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveInputTemplates
+// ---------------------------------------------------------------------------
+
+describe("resolveInputTemplates", () => {
+  it("returns inputs unchanged when no template strings are present", async () => {
+    // No WASM call needed in this branch. Provide a fake that would die if called.
+    const dieingWasm = Layer.succeed(
+      WasmRuntime,
+      makeFakeWasm({
+        onCall: () => {
+          throw new Error("renderTemplate should not be called")
+        },
+      }),
+    )
+    const result = await Effect.runPromise(
+      resolveInputTemplates({ A: "literal", B: 42 }, {}).pipe(Effect.provide(dieingWasm)),
+    )
+    expect(result).toEqual({ A: "literal", B: 42 })
+  })
+
+  it("resolves a composed template against other inputs", async () => {
+    const result = await Effect.runPromise(
+      resolveInputTemplates(
+        {
+          EmailUsername: "alice",
+          EmailDomainName: "example.com",
+          LogsAccountEmail: "{{ .inputs.EmailUsername }}+logsct5@{{ .inputs.EmailDomainName }}",
+        },
+        {},
+      ).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    expect(result.LogsAccountEmail).toBe("alice+logsct5@example.com")
+  })
+
+  it("resolves all derived emails for the get-core-account-ids scenario", async () => {
+    // Mirrors the bootstrap runbook: a Template block exposes three derived
+    // email inputs (each composing EmailUsername + EmailDomainName) via
+    // inputsId, alongside a concrete output. The downstream Command script
+    // renders `{{ .inputs.LogsAccountEmail }}` etc., so these must resolve to
+    // concrete addresses before the script runs.
+    const result = await Effect.runPromise(
+      resolveInputTemplates(
+        {
+          EmailUsername: "acme",
+          EmailDomainName: "example.com",
+          LogsAccountEmail: "{{ .inputs.EmailUsername }}+logs@{{ .inputs.EmailDomainName }}",
+          SecurityAccountEmail:
+            "{{ .inputs.EmailUsername }}+security@{{ .inputs.EmailDomainName }}",
+          SharedAccountEmail: "{{ .inputs.EmailUsername }}+shared@{{ .inputs.EmailDomainName }}",
+        },
+        { get_management_account: { ManagementAccountId: "145770590841" } },
+      ).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    expect(result.LogsAccountEmail).toBe("acme+logs@example.com")
+    expect(result.SecurityAccountEmail).toBe("acme+security@example.com")
+    expect(result.SharedAccountEmail).toBe("acme+shared@example.com")
+  })
+
+  it("leaves partially unresolvable templates as-is (one ref missing)", async () => {
+    const original = "{{ .inputs.HaveThis }}+{{ .inputs.Missing }}@x"
+    const result = await Effect.runPromise(
+      resolveInputTemplates({ HaveThis: "alice", LogsAccountEmail: original }, {}).pipe(
+        Effect.provide(fakeWasmLayer()),
+      ),
+    )
+    // OnMissingKey=ExitWithError means the whole render fails — we leave the
+    // original template in place so the downstream strip pass drops it.
+    expect(result.LogsAccountEmail).toBe(original)
+  })
+
+  it("preserves outputs references untouched in the input value (outputs in context)", async () => {
+    const result = await Effect.runPromise(
+      resolveInputTemplates(
+        {
+          ManagementAccountEmail: "{{ .outputs.get_management_account.ManagementAccountEmail }}",
+        },
+        { get_management_account: { ManagementAccountEmail: "root@example.com" } },
+      ).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    // outputs are real values, so the template DOES resolve when outputs is
+    // populated — this is the same surface used elsewhere in boilerplate.
+    expect(result.ManagementAccountEmail).toBe("root@example.com")
+  })
+
+  it("falls back to original template when outputs context lacks the referenced field", async () => {
+    const original = "{{ .outputs.never_ran.something }}"
+    const result = await Effect.runPromise(
+      resolveInputTemplates({ X: original }, {}).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    // Missing output → render fails → we leave the original so strip + default
+    // can do their job.
+    expect(result.X).toBe(original)
+  })
+
+  it("resolves chained refs A → B → C across passes", async () => {
+    const result = await Effect.runPromise(
+      resolveInputTemplates(
+        {
+          A: "{{ .inputs.B }}",
+          B: "{{ .inputs.C }}",
+          C: "leaf",
+        },
+        {},
+      ).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    expect(result).toEqual({ A: "leaf", B: "leaf", C: "leaf" })
+  })
+
+  it("bails out on cycles without infinite looping", async () => {
+    const original = {
+      A: "{{ .inputs.B }}",
+      B: "{{ .inputs.A }}",
+    }
+    const result = await Effect.runPromise(
+      resolveInputTemplates(original, {}).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    // Neither can resolve — both stay as their original templates.
+    expect(result).toEqual(original)
+  })
+
+  it("exposes an explicitly empty map input in the render context", async () => {
+    const contexts: Array<Record<string, unknown>> = []
+    await Effect.runPromise(
+      resolveInputTemplates({ Tags: {}, Name: "n", Label: "{{ .inputs.Name }}" }, {}).pipe(
+        Effect.provide(
+          fakeWasmLayer({ onCall: (_t, varsJSON) => contexts.push(JSON.parse(varsJSON)) }),
+        ),
+      ),
+    )
+    expect(contexts.length).toBeGreaterThan(0)
+    expect(contexts[0]!.inputs).toEqual({ Tags: {}, Name: "n" })
+    expect(contexts[0]!.Tags).toEqual({})
+  })
+
+  it("treats every WASM call as a no-op when the runtime is failing", async () => {
+    const original = {
+      EmailUsername: "alice",
+      LogsAccountEmail: "{{ .inputs.EmailUsername }}+x@y",
+    }
+    const result = await Effect.runPromise(
+      resolveInputTemplates(original, {}).pipe(Effect.provide(fakeWasmLayer({ alwaysFail: true }))),
+    )
+    // Same shape as the legacy behavior — strip pass downstream still cleans up.
+    expect(result.EmailUsername).toBe("alice")
+    expect(result.LogsAccountEmail).toBe(original.LogsAccountEmail)
+  })
+
+  it("resolves template expressions in map keys", async () => {
+    // AccountDefaultTags default in bootstrap is exactly this shape:
+    //   "{{ .OrgNamePrefix }}:AWSAccountName": "{{ .AWSAccountName }}"
+    // A key left unresolved is stripped before the var file, so it must be
+    // resolved here or the entry is lost.
+    const result = await Effect.runPromise(
+      resolveInputTemplates(
+        {
+          OrgNamePrefix: "acme",
+          AWSAccountName: "logs",
+          AccountDefaultTags: {
+            "{{ .inputs.OrgNamePrefix }}:AWSAccountName": "{{ .inputs.AWSAccountName }}",
+          },
+        },
+        {},
+      ).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    expect(result.AccountDefaultTags).toEqual({
+      "acme:AWSAccountName": "logs",
+    })
+  })
+
+  it("resolves legacy top-level `{{ .X }}` refs in keys (no `.inputs.` prefix)", async () => {
+    // The bootstrap runbook uses top-level refs throughout — `{{ .OrgNamePrefix }}`
+    // rather than `{{ .inputs.OrgNamePrefix }}`. The resolver must expose lifted
+    // inputs at the top level of the context for this to work.
+    const result = await Effect.runPromise(
+      resolveInputTemplates(
+        {
+          OrgNamePrefix: "acme",
+          AWSAccountName: "logs",
+          AccountDefaultTags: {
+            "{{ .OrgNamePrefix }}:AWSAccountName": "{{ .AWSAccountName }}",
+          },
+        },
+        {},
+      ).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    expect(result.AccountDefaultTags).toEqual({
+      "acme:AWSAccountName": "logs",
+    })
+  })
+
+  it("leaves an unresolvable key in place", async () => {
+    const result = await Effect.runPromise(
+      resolveInputTemplates(
+        {
+          Known: "x",
+          Tags: {
+            "{{ .Missing }}:Team": "DevOps",
+          },
+        },
+        {},
+      ).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    expect(result.Tags).toEqual({
+      "{{ .Missing }}:Team": "DevOps",
+    })
+  })
+
+  it("descends into nested map / array inputs", async () => {
+    const result = await Effect.runPromise(
+      resolveInputTemplates(
+        {
+          Domain: "example.com",
+          AWSAccounts: {
+            logs: {
+              email: "logs+{{ .inputs.Domain }}",
+            },
+            list: ["a@{{ .inputs.Domain }}", "static"],
+          },
+        },
+        {},
+      ).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    expect(result).toEqual({
+      Domain: "example.com",
+      AWSAccounts: {
+        logs: { email: "logs+example.com" },
+        list: ["a@example.com", "static"],
+      },
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// flattenVariables — the public entry point used by the IPC handler.
+// ---------------------------------------------------------------------------
+
+describe("flattenVariables", () => {
+  const run = (vars: Record<string, unknown> | undefined, options: FakeWasmOptions = {}) =>
+    Effect.runPromise(flattenVariables(vars).pipe(Effect.provide(fakeWasmLayer(options))))
+
+  it("handles undefined / missing inputs", async () => {
+    expect(await run(undefined)).toEqual({ inputs: {} })
+    expect(await run({})).toEqual({ inputs: {} })
+  })
+
+  it("resolves a composed default and lifts it to the top level", async () => {
+    const result = await run({
+      inputs: {
+        EmailUsername: "alice",
+        EmailDomainName: "example.com",
+        LogsAccountEmail: "{{ .inputs.EmailUsername }}+logsct5@{{ .inputs.EmailDomainName }}",
+      },
+      outputs: {},
+    })
+    expect(result.inputs).toEqual({
+      EmailUsername: "alice",
+      EmailDomainName: "example.com",
+      LogsAccountEmail: "alice+logsct5@example.com",
+    })
+    // Lifted to top-level so legacy `{{ .LogsAccountEmail }}` access still works.
+    expect(result.LogsAccountEmail).toBe("alice+logsct5@example.com")
+  })
+
+  it("strips an unresolvable input but keeps the rest", async () => {
+    const result = await run({
+      inputs: {
+        EmailUsername: "alice",
+        // Only one ref is resolvable; whole render fails; strip drops the value.
+        LogsAccountEmail: "{{ .inputs.EmailUsername }}+x@{{ .inputs.Missing }}",
+      },
+      outputs: {},
+    })
+    expect(result.inputs).toEqual({ EmailUsername: "alice" })
+    expect("LogsAccountEmail" in result).toBe(false)
+  })
+
+  it("never passes a map key that is still a template to the var file", async () => {
+    // A key typed into a MapInput. The boilerplate CLI renders var-file keys
+    // with every helper, and `.This` exists only there, so this one fails to
+    // resolve here and would have run `touch` in the CLI.
+    const payload = '{{ if .This }}{{ shell "touch" "/tmp/runbooks-pwned" }}{{ end }}x'
+    const result = await run({
+      inputs: { Tags: { Team: "DevOps", [payload]: "v" } },
+      outputs: {},
+    })
+    expect(result.inputs).toEqual({ Tags: { Team: "DevOps" } })
+    expect(result.Tags).toEqual({ Team: "DevOps" })
+    expect(JSON.stringify(result)).not.toContain("shell")
+  })
+
+  it("keeps an explicitly empty map input instead of dropping it", async () => {
+    // A MapInput with every entry removed sends `{}`. Dropping it would make
+    // boilerplate apply the variable's `default:` (the old tags come back).
+    const result = await run({ inputs: { Tags: {}, Name: "x" } })
+    expect(result.inputs).toEqual({ Tags: {}, Name: "x" })
+    expect(result.Tags).toEqual({})
+    expect(result.Name).toBe("x")
+  })
+
+  it("preserves outputs verbatim and lets boilerplate-style output refs reach it", async () => {
+    const outputs = {
+      get_management_account: { ManagementAccountEmail: "root@example.com" },
+    }
+    const result = await run({
+      inputs: {
+        // This is what AWSAccounts.management.email looks like in real
+        // runbooks — a default that references an upstream block output.
+        ManagementAccountEmail: "{{ .outputs.get_management_account.ManagementAccountEmail }}",
+      },
+      outputs,
+    })
+    // The outputs namespace must reach boilerplate unchanged for .hcl files
+    // that reference it directly.
+    expect(result.outputs).toEqual(outputs)
+    // And our resolution pass also turned the input value into the resolved
+    // email so it flows through as a literal.
+    expect(result.inputs).toEqual({
+      ManagementAccountEmail: "root@example.com",
+    })
+  })
+
+  it("keeps an outputs-referencing input as a template when outputs is empty (legacy strip path still works)", async () => {
+    const result = await run({
+      inputs: {
+        ManagementAccountEmail: "{{ .outputs.get_management_account.ManagementAccountEmail }}",
+      },
+      outputs: {},
+    })
+    // No outputs yet → render fails → strip drops the value → boilerplate's
+    // own `default:` evaluation runs in the parent scope. This is the
+    // pre-existing behavior that the bootstrap runbook depends on.
+    expect(result.inputs).toEqual({})
+    expect("ManagementAccountEmail" in result).toBe(false)
+  })
+
+  it("respects the input/output reserved names when lifting", async () => {
+    // `inputs` and `outputs` inside the inputs namespace must NOT clobber the
+    // top-level namespaces of the same name.
+    const result = await run({
+      inputs: { Foo: "bar", inputs: "should-not-lift", outputs: "neither" },
+      outputs: { block: { x: "1" } },
+    })
+    expect(result.Foo).toBe("bar")
+    // Top-level inputs/outputs preserved as namespaces (not the lifted strings).
+    expect(result.inputs).toEqual({ Foo: "bar", inputs: "should-not-lift", outputs: "neither" })
+    expect(result.outputs).toEqual({ block: { x: "1" } })
+  })
+
+  it("explicit root-level keys win over lifted inputs", async () => {
+    const result = await run({
+      Foo: "root-wins",
+      inputs: { Foo: "lifted-loses" },
+    })
+    expect(result.Foo).toBe("root-wins")
+  })
+})
+
+describe("flattenVariables with declared types", () => {
+  it("turns output references to a list, a number and a bool into those types", async () => {
+    const result = await Effect.runPromise(
+      flattenVariables(
+        {
+          inputs: {
+            AllowedLocations: "{{ .outputs.query.AllowedLocations }}",
+            MonthlyBudgetAmount: "{{ .outputs.query.MonthlyBudgetAmount }}",
+            Enabled: "{{ .outputs.query.Enabled }}",
+            Name: "{{ .outputs.query.Name }}",
+          },
+          outputs: {
+            query: {
+              AllowedLocations: '["eastus","eastus2"]',
+              MonthlyBudgetAmount: "100",
+              Enabled: "true",
+              Name: "[not a list]",
+            },
+          },
+        },
+        { AllowedLocations: "list", MonthlyBudgetAmount: "int", Enabled: "bool", Name: "string" },
+      ).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    expect(result.inputs).toEqual({
+      AllowedLocations: ["eastus", "eastus2"],
+      MonthlyBudgetAmount: 100,
+      Enabled: true,
+      Name: "[not a list]",
+    })
+    // The lifted top-level copies get the same types.
+    expect(result.AllowedLocations).toEqual(["eastus", "eastus2"])
+  })
+})
+
+describe("coerceToDeclaredTypes", () => {
+  it("parses strings that match the declared type", () => {
+    expect(
+      coerceToDeclaredTypes(
+        { l: "[]", m: '{"a":"b"}', i: "-3", f: "1.5", b: "false" },
+        { l: "list", m: "map", i: "int", f: "float", b: "bool" },
+      ),
+    ).toEqual({ l: [], m: { a: "b" }, i: -3, f: 1.5, b: false })
+  })
+
+  it("leaves values that do not parse as the declared type, and undeclared names", () => {
+    const inputs = { l: "eastus", m: "[1]", i: "1.5", f: "", b: "yes", other: "[1]", already: [1] }
+    expect(
+      coerceToDeclaredTypes(inputs, {
+        l: "list",
+        m: "map",
+        i: "int",
+        f: "float",
+        b: "bool",
+        already: "list",
+      }),
+    ).toEqual(inputs)
+  })
+})

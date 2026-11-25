@@ -1,0 +1,914 @@
+import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { Effect } from "effect"
+import * as nodeFs from "node:fs"
+import * as nodePath from "node:path"
+import * as os from "node:os"
+import {
+  parseBoilerplateConfig,
+  extractOutputDependencies,
+  extractTemplateOutputDependencies,
+} from "@runbooks/core/domain/boilerplate/config"
+import { NodeFileSystemLive } from "../../../layers/NodeFileSystem.ts"
+
+function parse(yaml: string) {
+  return Effect.runPromise(parseBoilerplateConfig(yaml))
+}
+
+/** Parse `yaml`, collecting what the parser warns about. */
+async function parseWarning(yaml: string) {
+  const originalWarn = console.warn
+  const warnings: string[] = []
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "))
+  }
+  try {
+    return { result: await parse(yaml), warnings }
+  } finally {
+    console.warn = originalWarn
+  }
+}
+
+describe("parseBoilerplateConfig", () => {
+  it("returns empty config for null/empty YAML", async () => {
+    const result = await parse("")
+    expect(result.variables).toEqual([])
+    expect(result.sections).toEqual([])
+  })
+
+  it("returns empty config for YAML without variables", async () => {
+    const result = await parse("foo: bar")
+    expect(result.variables).toEqual([])
+  })
+
+  it("fails for invalid YAML", async () => {
+    const outcome = await parse("{{invalid").then(
+      () => "parsed",
+      (error: unknown) => error,
+    )
+    expect(outcome).toBeInstanceOf(Error)
+  })
+
+  it("parses a simple string variable", async () => {
+    const result = await parse(`
+variables:
+  - name: project_name
+    description: "The project name"
+`)
+    expect(result.variables).toHaveLength(1)
+    expect(result.variables[0]!.name).toBe("project_name")
+    expect(result.variables[0]!.description).toBe("The project name")
+    expect(result.variables[0]!.type).toBe("string")
+  })
+
+  it("coerces variable types correctly", async () => {
+    const result = await parse(`
+variables:
+  - name: a
+    type: int
+  - name: b
+    type: float
+  - name: c
+    type: bool
+  - name: d
+    type: list
+  - name: e
+    type: map
+  - name: f
+    type: enum
+    options: ["x", "y"]
+`)
+    expect(result.variables.map((v) => v.type)).toEqual([
+      "int",
+      "float",
+      "bool",
+      "list",
+      "map",
+      "enum",
+    ])
+  })
+
+  it("falls back to string for unknown type", async () => {
+    const result = await parse(`
+variables:
+  - name: x
+    type: foobar
+`)
+    expect(result.variables[0]!.type).toBe("string")
+  })
+
+  it("preserves default value", async () => {
+    const result = await parse(`
+variables:
+  - name: region
+    default: us-east-1
+`)
+    expect(result.variables[0]!.default).toBe("us-east-1")
+  })
+
+  it("preserves enum options", async () => {
+    const result = await parse(`
+variables:
+  - name: env
+    type: enum
+    options: ["dev", "staging", "prod"]
+`)
+    expect(result.variables[0]!.options).toEqual(["dev", "staging", "prod"])
+  })
+
+  it("surfaces x-options on a list as options (multi-select)", async () => {
+    const result = await parse(`
+variables:
+  - name: opt_in_regions
+    type: list
+    default: []
+    x-options:
+      - us-east-1
+      - us-west-2
+      - eu-west-1
+`)
+    expect(result.variables[0]!.type).toBe("list")
+    expect(result.variables[0]!.options).toEqual(["us-east-1", "us-west-2", "eu-west-1"])
+  })
+
+  it("ignores x-options on a plain list when absent", async () => {
+    const result = await parse(`
+variables:
+  - name: catalog_repos
+    type: list
+`)
+    expect(result.variables[0]!.options).toBeUndefined()
+  })
+
+  it("drops non-string x-options entries from untyped YAML, with a warning", async () => {
+    const { result, warnings } = await parseWarning(`
+variables:
+  - name: opt_in_regions
+    type: list
+    x-options:
+      - us-east-1
+      - 123
+      - true
+      - eu-west-1
+`)
+    expect(result.variables[0]!.options).toEqual(["us-east-1", "eu-west-1"])
+    expect(warnings).toEqual([
+      '[boilerplate config] variable "opt_in_regions": x-options[1] must be a string or { value, label }; ignoring it.',
+      '[boilerplate config] variable "opt_in_regions": x-options[2] must be a string or { value, label }; ignoring it.',
+    ])
+  })
+
+  it("leaves options unset when no x-options entry is a string", async () => {
+    const { result } = await parseWarning(`
+variables:
+  - name: opt_in_regions
+    type: list
+    x-options:
+      - 123
+      - true
+`)
+    expect(result.variables[0]!.options).toBeUndefined()
+  })
+
+  it("reads labelled options on an enum and on a list's x-options", async () => {
+    const result = await parse(`
+variables:
+  - name: Size
+    type: enum
+    options:
+      - value: small
+        label: Small (1 vCPU)
+      - large
+  - name: Regions
+    type: list
+    x-options:
+      - { value: eastus, label: East US }
+      - westus
+`)
+    expect(result.variables[0]!.options).toEqual(["small", "large"])
+    expect(result.variables[0]!.optionLabels).toEqual({ small: "Small (1 vCPU)", large: "large" })
+    expect(result.variables[1]!.options).toEqual(["eastus", "westus"])
+    expect(result.variables[1]!.optionLabels).toEqual({ eastus: "East US", westus: "westus" })
+  })
+
+  it("leaves optionLabels unset for plain strings", async () => {
+    const result = await parse(`
+variables:
+  - name: env
+    type: enum
+    options: [dev, prod]
+`)
+    expect(result.variables[0]!.options).toEqual(["dev", "prod"])
+    expect(result.variables[0]!.optionLabels).toBeUndefined()
+    expect(result.variables[0]!.optionsFrom).toBeUndefined()
+  })
+
+  it("reads options that come from a block's output", async () => {
+    const result = await parse(`
+variables:
+  - name: Location
+    type: enum
+    options: "{{ fromJson .outputs.list_regions.regions }}"
+    default: eastus
+  - name: AllowedLocations
+    type: list
+    x-options: "{{ fromJson .outputs.list-regions.regions }}"
+`)
+    expect(result.variables[0]!.options).toBeUndefined()
+    expect(result.variables[0]!.optionsFrom).toEqual({
+      expression: "{{ fromJson .outputs.list_regions.regions }}",
+      blockId: "list_regions",
+      outputName: "regions",
+    })
+    expect(result.variables[1]!.optionsFrom?.blockId).toBe("list-regions")
+  })
+
+  it("registers the output the options come from as an output dependency", () => {
+    const deps = extractOutputDependencies(`
+variables:
+  - name: Location
+    type: enum
+    options: "{{ fromJson .outputs.list_regions.regions }}"
+`)
+    expect(deps).toEqual([
+      { blockId: "list_regions", outputName: "regions", fullPath: "outputs.list_regions.regions" },
+    ])
+  })
+
+  it.each([
+    ["options", "enum", "eastus"],
+    ["options", "enum", "{{ .inputs.Regions }}"],
+    ["x-options", "list", "{{ fromJson .outputs.list_regions }}"],
+  ])(
+    "fails on %s that is neither a list nor an output reference (%s: %j)",
+    async (key, type, value) => {
+      const result = await Effect.runPromise(
+        Effect.result(
+          parseBoilerplateConfig(`
+variables:
+  - name: Location
+    type: ${type}
+    ${key}: ${JSON.stringify(value)}
+`),
+        ),
+      )
+      expect(result._tag).toBe("Failure")
+      if (result._tag !== "Failure") return
+      expect(result.failure.message).toContain(`variable "Location": ${key} must be a list`)
+    },
+  )
+
+  it("detects sensitive flag", async () => {
+    const result = await parse(`
+variables:
+  - name: secret
+    sensitive: true
+`)
+    expect(result.variables[0]!.sensitive).toBe(true)
+  })
+
+  it("maps required validation and sets isRequired", async () => {
+    const result = await parse(`
+variables:
+  - name: name
+    validations:
+      - type: required
+`)
+    expect(result.variables[0]!.required).toBe(true)
+    expect(result.variables[0]!.validations).toHaveLength(1)
+    expect(result.variables[0]!.validations[0]!.type).toBe("required")
+  })
+
+  it("accepts the YAML shorthand validation form (bare string)", async () => {
+    const result = await parse(`
+variables:
+  - name: name
+    validations:
+      - required
+`)
+    expect(result.variables[0]!.required).toBe(true)
+    expect(result.variables[0]!.validations).toHaveLength(1)
+    expect(result.variables[0]!.validations[0]!.type).toBe("required")
+  })
+
+  it("accepts a mix of shorthand and long-form validation entries", async () => {
+    const result = await parse(`
+variables:
+  - name: site
+    validations:
+      - required
+      - type: url
+        description: "Must be a URL"
+`)
+    expect(result.variables[0]!.required).toBe(true)
+    expect(result.variables[0]!.validations).toHaveLength(2)
+    expect(result.variables[0]!.validations[0]!.type).toBe("required")
+    expect(result.variables[0]!.validations[1]!.type).toBe("url")
+    expect(result.variables[0]!.validations[1]!.message).toBe("Must be a URL")
+  })
+
+  it("maps multiple validation types", async () => {
+    const result = await parse(`
+variables:
+  - name: site
+    validations:
+      - type: required
+      - type: url
+        description: "Must be a URL"
+`)
+    expect(result.variables[0]!.validations).toHaveLength(2)
+    expect(result.variables[0]!.validations[1]!.type).toBe("url")
+    expect(result.variables[0]!.validations[1]!.message).toBe("Must be a URL")
+  })
+
+  it("extracts shorthand args (regex, min, max)", async () => {
+    const result = await parse(`
+variables:
+  - name: code
+    validations:
+      - type: regex
+        regex: "^[A-Z]+$"
+      - type: length
+        min: 1
+        max: 10
+`)
+    expect(result.variables[0]!.validations[0]!.args).toEqual(["^[A-Z]+$"])
+    expect(result.variables[0]!.validations[1]!.args).toEqual([1, 10])
+  })
+
+  it("explicit args take precedence over shorthand", async () => {
+    const result = await parse(`
+variables:
+  - name: x
+    validations:
+      - type: regex
+        args: ["^custom$"]
+        regex: "^ignored$"
+`)
+    expect(result.variables[0]!.validations[0]!.args).toEqual(["^custom$"])
+  })
+
+  it("maps unknown validation type to custom", async () => {
+    const result = await parse(`
+variables:
+  - name: x
+    validations:
+      - type: special_check
+`)
+    expect(result.variables[0]!.validations[0]!.type).toBe("custom")
+  })
+
+  it("preserves x-schema extension", async () => {
+    const result = await parse(`
+variables:
+  - name: vpc
+    x-schema:
+      type: vpc
+      region: us-east-1
+`)
+    expect(result.variables[0]!.schema).toEqual({ type: "vpc", region: "us-east-1" })
+  })
+
+  it("preserves x-schema-instance-label", async () => {
+    const result = await parse(`
+variables:
+  - name: vpc
+    x-schema-instance-label: "VPC Name"
+`)
+    expect(result.variables[0]!.schemaInstanceLabel).toBe("VPC Name")
+  })
+
+  it("groups variables into sections by x-section", async () => {
+    const result = await parse(`
+variables:
+  - name: a
+  - name: b
+    x-section: Network
+  - name: c
+    x-section: Network
+  - name: d
+    x-section: Compute
+`)
+    expect(result.sections).toHaveLength(3)
+    expect(result.sections[0]!.name).toBe("")
+    expect(result.sections[0]!.variables).toEqual(["a"])
+    expect(result.sections[1]!.name).toBe("Network")
+    expect(result.sections[1]!.variables).toEqual(["b", "c"])
+    expect(result.sections[2]!.name).toBe("Compute")
+    expect(result.sections[2]!.variables).toEqual(["d"])
+  })
+
+  it("ensures unnamed section is always first", async () => {
+    const result = await parse(`
+variables:
+  - name: a
+    x-section: First
+  - name: b
+`)
+    expect(result.sections[0]!.name).toBe("")
+    expect(result.sections[1]!.name).toBe("First")
+  })
+
+  it("orders variables by order, lowest first, keeping declaration order for ties", async () => {
+    const result = await parse(`
+variables:
+  - name: c
+    order: 2
+  - name: a
+  - name: b
+    order: -1
+  - name: d
+    order: 2
+  - name: e
+`)
+    // Without an order a variable counts as 0, as it does in Boilerplate
+    expect(result.variables.map((v) => v.name)).toEqual(["b", "a", "e", "c", "d"])
+    expect(result.sections).toEqual([{ name: "", variables: ["b", "a", "e", "c", "d"] }])
+  })
+
+  it("orders sections by their first variable in form order, the unnamed one first", async () => {
+    const result = await parse(`
+variables:
+  - name: a
+    x-section: Advanced
+    order: 10
+  - name: b
+    x-section: Basic
+  - name: c
+    order: 20
+  - name: d
+    x-section: Advanced
+`)
+    expect(result.sections).toEqual([
+      { name: "", variables: ["c"] },
+      { name: "Basic", variables: ["b"] },
+      { name: "Advanced", variables: ["d", "a"] },
+    ])
+  })
+
+  it("ignores an order that isn't an integer, as Boilerplate rejects it, and warns", async () => {
+    const { result, warnings } = await parseWarning(`
+variables:
+  - name: a
+    order: "1"
+  - name: b
+    order: 1.5
+  - name: c
+    order: -1
+`)
+    expect(result.variables.map((v) => v.name)).toEqual(["c", "a", "b"])
+    expect(warnings.some((w) => w.includes('variable "a": order must be an integer'))).toBe(true)
+    expect(warnings.some((w) => w.includes('variable "b": order must be an integer'))).toBe(true)
+  })
+
+  it("locks an x-locked variable, and hides and locks an x-hidden one", async () => {
+    const result = await parse(`
+variables:
+  - name: open
+  - name: locked
+    x-locked: true
+  - name: hidden
+    x-hidden: true
+  - name: not_locked
+    x-locked: false
+`)
+    const byName = new Map(result.variables.map((v) => [v.name, v]))
+    expect(byName.get("open")).not.toHaveProperty("locked")
+    expect(byName.get("open")).not.toHaveProperty("hidden")
+    expect(byName.get("locked")).toMatchObject({ locked: true })
+    expect(byName.get("locked")).not.toHaveProperty("hidden")
+    expect(byName.get("hidden")).toMatchObject({ locked: true, hidden: true })
+    expect(byName.get("not_locked")).not.toHaveProperty("locked")
+  })
+
+  it("reads x-show-when as the values each variable must have, as strings", async () => {
+    const result = await parse(`
+variables:
+  - name: Layout
+    type: enum
+    options: [single, caf]
+  - name: Firewall
+    type: bool
+  - name: Identity
+    x-show-when:
+      Layout: caf
+  - name: Sku
+    x-show-when:
+      Layout: [caf, single]
+      Firewall: true
+  - name: Always
+`)
+    const byName = new Map(result.variables.map((v) => [v.name, v]))
+    expect(byName.get("Identity")?.showWhen).toEqual({ Layout: ["caf"] })
+    expect(byName.get("Sku")?.showWhen).toEqual({ Layout: ["caf", "single"], Firewall: ["true"] })
+    expect(byName.get("Always")).not.toHaveProperty("showWhen")
+  })
+
+  it("ignores a malformed x-show-when, and warns", async () => {
+    const { result, warnings } = await parseWarning(`
+variables:
+  - name: a
+    x-show-when: caf
+`)
+    expect(result.variables[0]).not.toHaveProperty("showWhen")
+    expect(warnings.some((w) => w.includes('variable "a": x-show-when must map'))).toBe(true)
+  })
+
+  it("ignores an x-hidden or x-locked that isn't true or false, and warns", async () => {
+    const { result, warnings } = await parseWarning(`
+variables:
+  - name: a
+    x-hidden: "yes"
+  - name: b
+    x-locked: 1
+`)
+    expect(result.variables[0]).not.toHaveProperty("hidden")
+    expect(result.variables[0]).not.toHaveProperty("locked")
+    expect(result.variables[1]).not.toHaveProperty("locked")
+    expect(warnings.some((w) => w.includes('variable "a": x-hidden must be true or false'))).toBe(
+      true,
+    )
+    expect(warnings.some((w) => w.includes('variable "b": x-locked must be true or false'))).toBe(
+      true,
+    )
+  })
+
+  it("folds the sections x-sections marks collapsed", async () => {
+    const result = await parse(`
+x-sections:
+  - name: Advanced
+    collapsed: true
+  - name: Basic
+    collapsed: false
+variables:
+  - name: a
+    x-section: Basic
+  - name: b
+    x-section: Advanced
+`)
+    // x-sections only sets how a section shows: the variables still order the sections
+    expect(result.sections).toEqual([
+      { name: "Basic", variables: ["a"] },
+      { name: "Advanced", variables: ["b"], collapsed: true },
+    ])
+  })
+
+  it("drops malformed x-sections entries and names no variable uses, and warns", async () => {
+    const { result, warnings } = await parseWarning(`
+x-sections:
+  - collapsed: true
+  - name: Advanced Setings
+    collapsed: true
+  - name: Advanced Settings
+    collapsed: maybe
+variables:
+  - name: a
+    x-section: Advanced Settings
+`)
+    expect(result.sections).toEqual([{ name: "Advanced Settings", variables: ["a"] }])
+    expect(warnings.some((w) => w.includes('x-sections[0] missing or invalid "name"'))).toBe(true)
+    expect(
+      warnings.some((w) =>
+        w.includes('x-sections names "Advanced Setings", but no variable has that x-section'),
+      ),
+    ).toBe(true)
+    expect(
+      warnings.some((w) => w.includes('x-sections[2] "collapsed" must be true or false')),
+    ).toBe(true)
+  })
+
+  it("warns and ignores when x-sections is not a list", async () => {
+    const { result, warnings } = await parseWarning(`
+x-sections:
+  Advanced:
+    collapsed: true
+variables:
+  - name: a
+    x-section: Advanced
+`)
+    expect(result.sections).toEqual([{ name: "Advanced", variables: ["a"] }])
+    expect(warnings.some((w) => w.includes("x-sections must be a list"))).toBe(true)
+  })
+
+  it("skips variables without names", async () => {
+    const result = await parse(`
+variables:
+  - description: "no name"
+  - name: valid
+`)
+    expect(result.variables).toHaveLength(1)
+    expect(result.variables[0]!.name).toBe("valid")
+  })
+
+  it("returns empty skipFiles when skip_files is absent", async () => {
+    const result = await parse(`
+variables:
+  - name: a
+`)
+    expect(result.skipFiles).toEqual([])
+  })
+
+  it("parses a valid skip_files block", async () => {
+    const result = await parse(`
+variables: []
+skip_files:
+  - path: a.txt
+    if: "{{ eq .inputs.mode \\"prod\\" }}"
+  - path: b.txt
+  - path: sub/dir/c.txt
+    if: "{{ .inputs.flag }}"
+`)
+    expect(result.skipFiles).toEqual([
+      { path: "a.txt", if: '{{ eq .inputs.mode "prod" }}' },
+      { path: "b.txt" },
+      { path: "sub/dir/c.txt", if: "{{ .inputs.flag }}" },
+    ])
+  })
+
+  it("drops skip_files entries that are missing a path and warns", async () => {
+    const originalWarn = console.warn
+    const warnings: string[] = []
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "))
+    }
+    try {
+      const result = await parse(`
+variables: []
+skip_files:
+  - path: ok.txt
+  - if: "{{ .inputs.x }}"
+  - path: ""
+  - path: also-ok.txt
+    if: "{{ .inputs.y }}"
+`)
+      expect(result.skipFiles).toEqual([
+        { path: "ok.txt" },
+        { path: "also-ok.txt", if: "{{ .inputs.y }}" },
+      ])
+      expect(warnings.length).toBeGreaterThanOrEqual(2)
+      // Both dropped entries should mention their index / path issue.
+      expect(warnings.some((w) => w.includes("skip_files[1]"))).toBe(true)
+      expect(warnings.some((w) => w.includes("skip_files[2]"))).toBe(true)
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
+  it("warns and ignores when skip_files is not a list", async () => {
+    const originalWarn = console.warn
+    const warnings: string[] = []
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "))
+    }
+    try {
+      const result = await parse(`
+variables: []
+skip_files: "not-a-list"
+`)
+      expect(result.skipFiles).toEqual([])
+      expect(warnings.some((w) => w.includes("skip_files must be a list"))).toBe(true)
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
+  it("parses skip_files when there are no variables", async () => {
+    const result = await parse(`
+skip_files:
+  - path: solo.txt
+`)
+    expect(result.variables).toEqual([])
+    expect(result.skipFiles).toEqual([{ path: "solo.txt" }])
+  })
+})
+
+describe("extractOutputDependencies", () => {
+  it("returns empty for content without template blocks", () => {
+    expect(extractOutputDependencies("plain text")).toEqual([])
+  })
+
+  it("extracts a single output dependency", () => {
+    const deps = extractOutputDependencies("{{ .outputs.block1.value }}")
+    expect(deps).toHaveLength(1)
+    expect(deps[0]!.blockId).toBe("block1")
+    expect(deps[0]!.outputName).toBe("value")
+    expect(deps[0]!.fullPath).toBe("outputs.block1.value")
+  })
+
+  it("extracts multiple dependencies", () => {
+    const deps = extractOutputDependencies("{{ .outputs.a.x }} and {{ .outputs.b.y }}")
+    expect(deps).toHaveLength(2)
+  })
+
+  it("deduplicates identical dependencies", () => {
+    const deps = extractOutputDependencies("{{ .outputs.a.x }} {{ .outputs.a.x }}")
+    expect(deps).toHaveLength(1)
+  })
+
+  it("normalizes block ID hyphens to underscores", () => {
+    const deps = extractOutputDependencies("{{ .outputs.my-block.val }}")
+    expect(deps[0]!.blockId).toBe("my-block")
+    expect(deps[0]!.fullPath).toBe("outputs.my_block.val")
+  })
+
+  it("handles whitespace-trimming markers", () => {
+    const deps = extractOutputDependencies("{{- .outputs.block.val -}}")
+    expect(deps).toHaveLength(1)
+    expect(deps[0]!.outputName).toBe("val")
+  })
+
+  it("ignores content outside template blocks", () => {
+    const deps = extractOutputDependencies("outputs.block.val")
+    expect(deps).toEqual([])
+  })
+
+  it("marks an output guarded with hasKey as optional", () => {
+    const deps = extractOutputDependencies(
+      `{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}`,
+    )
+    expect(deps).toEqual([
+      {
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+    ])
+  })
+
+  it("matches a guard on a parenthesized map and backquoted key", () => {
+    const deps = extractOutputDependencies(
+      "{{ if hasKey (.outputs.clone_repo) `repo_id` }}{{ .outputs.clone_repo.repo_id }}{{ end }}",
+    )
+    expect(deps).toEqual([
+      {
+        blockId: "clone_repo",
+        outputName: "repo_id",
+        fullPath: "outputs.clone_repo.repo_id",
+        optional: true,
+      },
+    ])
+  })
+
+  it("leaves outputs the guard does not name required", () => {
+    const deps = extractOutputDependencies(
+      `{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }} {{ .outputs.clone_repo.repo_owner }}`,
+    )
+    expect(deps).toEqual([
+      {
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+      {
+        blockId: "clone_repo",
+        outputName: "repo_owner",
+        fullPath: "outputs.clone_repo.repo_owner",
+      },
+    ])
+  })
+
+  it("keeps an output required when the content also reads it outside the guard", () => {
+    const deps = extractOutputDependencies(
+      `{{ if hasKey .outputs.clone_repo "org_id" }}a={{ .outputs.clone_repo.org_id }}{{ end }}
+b={{ .outputs.clone_repo.org_id }}`,
+    )
+    expect(deps).toEqual([
+      { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
+    ])
+  })
+
+  it("keeps an output required behind a negated or commented-out guard", () => {
+    for (const content of [
+      `{{ if not (hasKey .outputs.clone_repo "org_id") }}{{ fail "need org" }}{{ end }}{{ .outputs.clone_repo.org_id }}`,
+      `{{/* use hasKey .outputs.clone_repo "org_id" */}}{{ .outputs.clone_repo.org_id }}`,
+    ]) {
+      expect(extractOutputDependencies(content)).toEqual([
+        { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
+      ])
+    }
+  })
+
+  it("marks an output optional behind a guard on the root map inside range", () => {
+    const deps = extractOutputDependencies(
+      `{{ range .inputs.envs }}{{ if hasKey $.outputs.clone_repo "org_id" }}{{ $.outputs.clone_repo.org_id }}{{ end }}{{ end }}`,
+    )
+    expect(deps).toEqual([
+      {
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+    ])
+  })
+
+  it("ignores a hasKey guard outside template blocks", () => {
+    const deps = extractOutputDependencies(
+      `# hasKey .outputs.clone_repo "org_id" is explained here
+{{ .outputs.clone_repo.org_id }}`,
+    )
+    expect(deps).toEqual([
+      { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
+    ])
+  })
+})
+
+describe("extractTemplateOutputDependencies", () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "template-output-deps-"))
+  })
+
+  afterEach(() => {
+    nodeFs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  function write(relativePath: string, content: string) {
+    const filePath = nodePath.join(tmp, relativePath)
+    nodeFs.mkdirSync(nodePath.dirname(filePath), { recursive: true })
+    nodeFs.writeFileSync(filePath, content)
+  }
+
+  function extract(templateDir: string, boilerplateYaml = "variables: []") {
+    return Effect.runPromise(
+      extractTemplateOutputDependencies(templateDir, boilerplateYaml).pipe(
+        Effect.provide(NodeFileSystemLive),
+      ),
+    )
+  }
+
+  it("finds references in files nested at any depth", async () => {
+    write("boilerplate.yml", "variables: []")
+    write("{{ .inputs.Account }}/account.hcl", "id = {{ .outputs.detect_account.account_id }}")
+    write(
+      "{{ .inputs.Account }}/{{ .inputs.Region }}/unit/terragrunt.hcl",
+      "{{ .outputs.check.ok }}",
+    )
+
+    const deps = await extract(tmp)
+    expect(deps.map((d) => d.fullPath).sort()).toEqual([
+      "outputs.check.ok",
+      "outputs.detect_account.account_id",
+    ])
+  })
+
+  it("finds references in file and directory names", async () => {
+    write("{{ .outputs.detect_account.account_id }}/main.tf", "")
+    write("env/{{ .outputs.pick_env.name }}.hcl", "")
+
+    const deps = await extract(tmp)
+    expect(deps.map((d) => d.fullPath).sort()).toEqual([
+      "outputs.detect_account.account_id",
+      "outputs.pick_env.name",
+    ])
+  })
+
+  it("lists references from boilerplate.yml first and once", async () => {
+    const yaml = "variables:\n  - name: Id\n    default: '{{ .outputs.detect_account.account_id }}'"
+    write("boilerplate.yml", yaml)
+    write("nested/main.tf", "{{ .outputs.detect_account.account_id }} {{ .outputs.check.ok }}")
+
+    expect(await extract(tmp, yaml)).toEqual([
+      {
+        blockId: "detect_account",
+        outputName: "account_id",
+        fullPath: "outputs.detect_account.account_id",
+      },
+      { blockId: "check", outputName: "ok", fullPath: "outputs.check.ok" },
+    ])
+  })
+
+  it("keeps an output required when another file reads it without a guard", async () => {
+    write(
+      "a.tf",
+      `{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}`,
+    )
+    write("nested/b.tf", "{{ .outputs.clone_repo.org_id }}")
+
+    expect(await extract(tmp)).toEqual([
+      { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
+    ])
+  })
+
+  it("reads through a symlinked file and skips a symlinked directory", async () => {
+    const shared = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "template-output-deps-shared-"))
+    try {
+      nodeFs.writeFileSync(nodePath.join(shared, "linked.tf"), "{{ .outputs.check.ok }}")
+      nodeFs.symlinkSync(nodePath.join(shared, "linked.tf"), nodePath.join(tmp, "linked.tf"))
+      nodeFs.symlinkSync(shared, nodePath.join(tmp, "linked-dir"))
+
+      expect(await extract(tmp)).toEqual([
+        { blockId: "check", outputName: "ok", fullPath: "outputs.check.ok" },
+      ])
+    } finally {
+      nodeFs.rmSync(shared, { recursive: true, force: true })
+    }
+  })
+
+  it("scans only boilerplate.yml when the directory can't be walked", async () => {
+    const deps = await extract(nodePath.join(tmp, "missing"), "{{ .outputs.check.ok }}")
+    expect(deps).toEqual([{ blockId: "check", outputName: "ok", fullPath: "outputs.check.ok" }])
+  })
+})

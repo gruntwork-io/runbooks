@@ -1,0 +1,714 @@
+/**
+ * Live implementation of the VcsCredentials service.
+ *
+ * Owns: the per-(binary,host) 5-minute CLI read cache + its invalidation
+ * rules, the CLI version-probe cache, and the validation probe (both
+ * token shapes). Per-host glab spawn serialization and child-env hygiene live
+ * in the domain modules this layer composes.
+ */
+import { Context, Effect, Layer } from "effect"
+import { VcsCredentials } from "@runbooks/core/services/VcsCredentials"
+import type {
+  CliValidation,
+  DetectionResult,
+  GitHubHostsInfo,
+  MergedGitLabHosts,
+  VcsCredentialsShape,
+  VcsCliStatusInfo,
+  VcsCredentialSource,
+  VcsProvider,
+  VcsUserInfo,
+} from "@runbooks/core/services/VcsCredentials"
+import { Environment } from "@runbooks/core/services/Environment"
+import { FileSystem } from "@runbooks/core/services/FileSystem"
+import { ProcessSpawner, collectOutput } from "@runbooks/core/services/ProcessSpawner"
+import { GitHubClient } from "@runbooks/core/services/GitHubClient"
+import { GitLabClient } from "@runbooks/core/services/GitLabClient"
+import { GitHubApiError, GitLabApiError, VcsCliError } from "@runbooks/core/errors"
+import {
+  detectEnvCredentials as detectGitHubEnvCredentials,
+  detectCliCredentials as detectGitHubCliToken,
+  detectHostsYmlCredentials,
+  detectGhConfigHosts,
+  cliScopes as detectGhCliScopes,
+  configuredGhHost,
+  GH_ENV_OVERRIDES,
+} from "@runbooks/core/domain/github/auth"
+import {
+  detectEnvCredentials as detectGitLabEnvCredentials,
+  detectConfigCredentials,
+  detectConfigHosts,
+  detectHostMeta,
+  isSpawnEnoent,
+  readGlabTokenForHost,
+  runGlabForHost,
+  glabAuthStatusForHost,
+  mayAutoSendEnvToken,
+  mayAutoSendGlabToken,
+  envTokenHost,
+  DEFAULT_GITLAB_HOST,
+  GLAB_ENV_OVERRIDES,
+} from "@runbooks/core/domain/gitlab/auth"
+import type { GlabCliRead } from "@runbooks/core/domain/gitlab/auth"
+import { probeGhStatus, probeGlabStatus, probeGitSslBackend } from "@runbooks/core/domain/vcs/cli-status"
+import { redactSecrets } from "@runbooks/core/domain/vcs/redact"
+import { buildCliEnv } from "@runbooks/core/domain/git/cli-token"
+import {
+  isGitLabHost,
+  normalizeGitLabBaseUrl,
+  normalizeGitLabHost,
+} from "@runbooks/core/domain/git/gitlab-host"
+import {
+  DEFAULT_GITHUB_HOST,
+  githubHostKind,
+  isGitHubHost,
+  tryNormalizeGitHubHost,
+} from "@runbooks/core/domain/git/github-host"
+
+// exact copies — contracts.
+const GH_KEYRING_HINT = "gh stores this token in the OS keyring; install gh or paste a token."
+const GLAB_KEYRING_BLOCKED_HINT =
+  "glab stores this token in the OS keyring but could not read it — unlock your keyring or paste a token."
+const GLAB_KEYRING_ABSENT_HINT =
+  "glab is configured to store tokens in the keyring; install glab or paste a token"
+const ENV_DIVERGENCE_HINT =
+  "GH_TOKEN is also set and differs; Runbooks used GITHUB_TOKEN — gh would use GH_TOKEN."
+const glabOAuthStaleWarning = (host: string) =>
+  `GitLab CLI token for ${host} has expired. Run 'glab auth login --hostname ${host}' to refresh.`
+const glabInvalidWarning = (host: string) => `glab token for ${host} is invalid or expired`
+
+/** shortened from golang's process-lifetime cache — glab OAuth tokens rot in 2h. */
+const CLI_READ_TTL_MS = 5 * 60_000
+const PROBE_TIMEOUT_MS = 10_000
+
+interface CacheEntry<T> {
+  readonly value: T
+  readonly expiresAt: number
+}
+
+const absent = (extra: Partial<DetectionResult> = {}): DetectionResult => ({
+  outcome: "absent",
+  warnings: [],
+  ...extra,
+})
+
+interface DirectValidation {
+  readonly ok: boolean
+  readonly user?: VcsUserInfo
+  readonly scopes?: string[] | undefined
+  readonly expiresAt?: string | undefined
+  readonly status?: number
+  readonly kind?: DetectionResult["errorKind"]
+  readonly message?: string
+}
+
+/**
+ * Map a direct validation onto the tri-state result: ok → valid,
+ * transport kind → unreachable, else invalid (never "expired" — a 401 cannot
+ * distinguish expired from wrong-host).
+ */
+const toDetection = (
+  validation: DirectValidation,
+  base: Partial<DetectionResult>,
+  invalidWarnings: string[],
+): DetectionResult => {
+  if (validation.ok) {
+    return {
+      outcome: "valid",
+      ...base,
+      user: validation.user,
+      scopes: validation.scopes,
+      expiresAt: validation.expiresAt,
+      warnings: [],
+      validatedVia: "direct",
+    }
+  }
+  if (validation.kind) {
+    return {
+      outcome: "unreachable",
+      ...base,
+      errorKind: validation.kind,
+      status: validation.status,
+      error: validation.message,
+      warnings: [],
+    }
+  }
+  // A transport failure (no HTTP response — status 0) whose OpenSSL code
+  // classifyTlsError did not recognize is STILL unreachable, never "invalid":
+  // a 401/403 always carries an HTTP status, so status 0 cannot be a credential
+  // outcome. Default it to the generic cert-chain card ("tls") so the
+  // refresh + probe ladder still runs. Without this backstop an
+  // unenumerated cert code (e.g. a future/rare X509_V_ERR_*) resurrects the
+  // "Invalid credentials detected" misdiagnosis the tri-state exists to kill.
+  if (validation.status === 0) {
+    return {
+      outcome: "unreachable",
+      ...base,
+      errorKind: "tls",
+      status: 0,
+      error: validation.message,
+      warnings: [],
+    }
+  }
+  return {
+    outcome: "invalid",
+    ...base,
+    status: validation.status,
+    error: validation.message,
+    warnings: invalidWarnings,
+  }
+}
+
+/** Unprefixed 64-hex = glab OAuth-shaped. */
+const isGitLabOAuthShaped = (token: string): boolean => /^[0-9a-f]{64}$/i.test(token)
+
+export const VcsCredentialsLive = Layer.effect(
+  VcsCredentials,
+  Effect.gen(function* () {
+    const environment = yield* Environment
+    const spawner = yield* ProcessSpawner
+    const fs = yield* FileSystem
+    const githubClient = yield* GitHubClient
+    const gitlabClient = yield* GitLabClient
+
+    const domainContext = Context.empty().pipe(
+      Context.add(Environment, environment),
+      Context.add(ProcessSpawner, spawner),
+      Context.add(FileSystem, fs),
+    )
+    const run = <A, E>(
+      effect: Effect.Effect<A, E, Environment | ProcessSpawner | FileSystem>,
+    ): Effect.Effect<A, E> => Effect.provide(effect, domainContext)
+
+    // --- Caches (closure state) ---------------------------------------------
+
+    const cliReadCache = new Map<string, CacheEntry<unknown>>()
+    let cliStatusCache: CacheEntry<VcsCliStatusInfo> | undefined
+
+    const cachedRead = <T>(
+      key: string,
+      compute: Effect.Effect<T>,
+      cacheable: (value: T) => boolean,
+    ) =>
+      Effect.gen(function* () {
+        const hit = cliReadCache.get(key)
+        if (hit && hit.expiresAt > Date.now()) return hit.value as T
+        const value = yield* compute
+        // Only SUCCESSFUL reads are cached; failures must stay fresh.
+        if (cacheable(value)) {
+          cliReadCache.set(key, { value, expiresAt: Date.now() + CLI_READ_TTL_MS })
+        }
+        return value
+      })
+
+    /** invalidation: any auth failure flushes the relevant entry. */
+    const flushOnAuthFailure = (key: string) => Effect.sync(() => cliReadCache.delete(key))
+
+    // Keyed per host: a token gh stored for one host is never served for
+    // another.
+    const ghReadCached = (host: string) =>
+      cachedRead(`gh:${host}`, run(detectGitHubCliToken(host)), (token) => token !== undefined)
+    const glabReadCached = (host: string) =>
+      cachedRead(
+        `glab:${host}`,
+        run(readGlabTokenForHost(host)),
+        (read: GlabCliRead) => read.kind === "token",
+      )
+
+    const cliStatus = (): Effect.Effect<VcsCliStatusInfo> =>
+      Effect.gen(function* () {
+        if (cliStatusCache && cliStatusCache.expiresAt > Date.now()) return cliStatusCache.value
+        const allEnv = yield* environment.getAll()
+        const probes = {
+          gh: run(probeGhStatus(buildCliEnv(allEnv, GH_ENV_OVERRIDES))),
+          glab: run(probeGlabStatus(buildCliEnv(allEnv, GLAB_ENV_OVERRIDES))),
+        }
+        const status: VcsCliStatusInfo =
+          process.platform === "win32"
+            ? yield* Effect.all(
+                {
+                  ...probes,
+                  git: run(probeGitSslBackend()).pipe(Effect.map((sslBackend) => ({ sslBackend }))),
+                },
+                { concurrency: "unbounded" },
+              )
+            : yield* Effect.all(probes, { concurrency: "unbounded" })
+        cliStatusCache = { value: status, expiresAt: Date.now() + CLI_READ_TTL_MS }
+        return status
+      })
+
+    // --- Direct validation (one transport: global fetch via the clients) ---
+
+    const validateGitHubDirect = (token: string, host: string): Effect.Effect<DirectValidation> =>
+      githubClient.validateToken(token, host).pipe(
+        Effect.map((v): DirectValidation => ({
+          ok: true,
+          user: v.user,
+          scopes: v.scopes,
+          expiresAt: v.expiresAt,
+        })),
+        Effect.catch((err: GitHubApiError) =>
+          Effect.succeed<DirectValidation>({
+            ok: false,
+            status: err.status,
+            kind: err.kind,
+            message: err.message,
+          }),
+        ),
+      )
+
+    const validateGitLabDirect = (token: string, host: string): Effect.Effect<DirectValidation> =>
+      gitlabClient.validateToken(token, normalizeGitLabBaseUrl(host)).pipe(
+        Effect.map((v): DirectValidation => ({
+          ok: true,
+          user: v.user,
+          scopes: v.scopes,
+          expiresAt: v.expiresAt,
+        })),
+        Effect.catch((err: GitLabApiError) =>
+          Effect.succeed<DirectValidation>({
+            ok: false,
+            status: err.status,
+            kind: err.kind,
+            message: err.message,
+          }),
+        ),
+      )
+
+    // --- Detection legs -----------------------------------------
+
+    const detectGitHubEnv = (rawHost: string, prefix?: string): Effect.Effect<DetectionResult> =>
+      Effect.gen(function* () {
+        const host = tryNormalizeGitHubHost(rawHost)
+        if (!host) return absent()
+        // binding rule: only the env token bound to `host` is read, so it is
+        // never transmitted to any other host (githubEnvBindings).
+        const cred = yield* run(detectGitHubEnvCredentials(host, prefix))
+        if (!cred) return absent()
+        const validation = yield* validateGitHubDirect(cred.token, host)
+        const base = {
+          token: cred.token,
+          source: "env" as const,
+          envVar: cred.envVar,
+          divergenceHint: cred.shadowedVar ? ENV_DIVERGENCE_HINT : undefined,
+        }
+        return toDetection(validation, base, [`${cred.envVar} is not valid for ${host}`])
+      })
+
+    const detectGitHubCli = (rawHost: string): Effect.Effect<DetectionResult> =>
+      Effect.gen(function* () {
+        const host = tryNormalizeGitHubHost(rawHost)
+        if (!host) return absent()
+        let token = yield* ghReadCached(host)
+        let source: "cli" | "config" = "cli"
+        if (!token) {
+          // hosts.yml is the gh-BINARY-ABSENT-ONLY fallback.
+          const status = yield* cliStatus()
+          if (!status.gh.installed) {
+            const fallback = yield* run(detectHostsYmlCredentials(host))
+            if (fallback.token) {
+              token = fallback.token
+              source = "config"
+            } else if (fallback.entryExists) {
+              return absent({ hint: GH_KEYRING_HINT })
+            }
+          }
+          if (!token) return absent()
+        }
+        const validation = yield* validateGitHubDirect(token, host)
+        if (!validation.ok) yield* flushOnAuthFailure(`gh:${host}`)
+        // Supplement scopes via `gh auth status` for cli-sourced tokens
+        // — advisory; skipped for the binary-absent fallback.
+        let scopes = validation.scopes
+        if (validation.ok && (!scopes || scopes.length === 0) && source === "cli") {
+          scopes = (yield* run(detectGhCliScopes(host))) ?? scopes
+        }
+        return toDetection({ ...validation, scopes }, { token, source }, [
+          host === DEFAULT_GITHUB_HOST
+            ? "GitHub CLI token is invalid or expired"
+            : `GitHub CLI token for ${host} is invalid or expired`,
+        ])
+      })
+
+    const detectGitLabEnv = (instance: string, prefix?: string): Effect.Effect<DetectionResult> =>
+      Effect.gen(function* () {
+        const host = normalizeGitLabHost(instance)
+        const cred = yield* run(detectGitLabEnvCredentials(prefix))
+        if (!cred) return absent()
+        // binding rule: the env token is bound to exactly ONE host and
+        // is never transmitted to any other (a prefixed token by the
+        // prefixed host vars), nor over plain http — so check the instance
+        // origin it would be sent to, not just its host.
+        const allEnv = yield* environment.getAll()
+        if (!mayAutoSendEnvToken(instance, allEnv, prefix)) return absent()
+        const validation = yield* validateGitLabDirect(cred.token, instance)
+        const base = { token: cred.token, source: "env" as const, envVar: cred.envVar }
+        return toDetection(validation, base, [`${cred.envVar} is not valid for ${host}`])
+      })
+
+    const detectGitLabCli = (instance: string): Effect.Effect<DetectionResult> =>
+      Effect.gen(function* () {
+        const host = normalizeGitLabHost(instance)
+        // glab's token for `host` is sent only to that host, and over plain
+        // http only when glab itself uses http for it (its api_protocol).
+        if (!(yield* run(mayAutoSendGlabToken(instance, host)))) return absent()
+        const read = yield* glabReadCached(host)
+        let token: string | undefined
+        let source: "cli" | "config" = "cli"
+        switch (read.kind) {
+          case "token":
+            token = read.token
+            break
+          case "keyring-blocked":
+            // Contract (c): distinct copy, never "install glab".
+            return absent({ hint: GLAB_KEYRING_BLOCKED_HINT })
+          case "oauth-stale":
+            return {
+              outcome: "invalid",
+              source: "cli",
+              warnings: [glabOAuthStaleWarning(host)],
+              error: glabOAuthStaleWarning(host),
+            }
+          case "not-installed": {
+            // config.yml is the glab-BINARY-ABSENT-ONLY fallback.
+            token = yield* run(detectConfigCredentials(host))
+            source = "config"
+            if (!token) {
+              const meta = yield* run(detectHostMeta(host))
+              if (meta?.useKeyring) return absent({ hint: GLAB_KEYRING_ABSENT_HINT })
+              return absent()
+            }
+            break
+          }
+          case "absent":
+            return absent()
+        }
+        const validation = yield* validateGitLabDirect(token, instance)
+        if (!validation.ok) yield* flushOnAuthFailure(`glab:${host}`)
+        if (validation.ok || validation.kind) {
+          return toDetection(validation, { token, source }, [])
+        }
+        // an OAuth credential that still validates invalid after the
+        // staleness path gets the expired-token remediation.
+        const meta = yield* run(detectHostMeta(host))
+        const warning = meta?.isOAuth2 ? glabOAuthStaleWarning(host) : glabInvalidWarning(host)
+        return toDetection(validation, { token, source }, [warning])
+      })
+
+    const validateDirect = (
+      provider: VcsProvider,
+      host: string,
+      token: string,
+    ): Effect.Effect<DetectionResult> =>
+      Effect.gen(function* () {
+        const validation =
+          provider === "github"
+            ? yield* validateGitHubDirect(token, host)
+            : yield* validateGitLabDirect(token, host)
+        return toDetection(validation, { token }, [])
+      })
+
+    // --- provider detection (names + the user's own config, no network) --
+
+    const enumerateGitHubHosts = (): Effect.Effect<GitHubHostsInfo> =>
+      Effect.gen(function* () {
+        const configHosts = yield* run(detectGhConfigHosts())
+        const raw = configuredGhHost(yield* environment.getAll())
+        const envHost = raw !== undefined ? tryNormalizeGitHubHost(raw) : undefined
+        return {
+          configHosts,
+          ...(envHost ? { envHost } : {}),
+          defaultHost: envHost ?? DEFAULT_GITHUB_HOST,
+        }
+      })
+
+    const isKnownGitHub = (host: string): Effect.Effect<boolean> =>
+      Effect.gen(function* () {
+        if (isGitHubHost(host)) return true
+        const { configHosts, envHost } = yield* enumerateGitHubHosts()
+        return isGitHubHost(host, envHost ? [...configHosts, envHost] : configHosts)
+      })
+
+    // GitLab membership: union of glab config hosts + the env-bound host — not
+    // the name heuristic alone (the `git.corp.net` blind spot). The heuristic
+    // stays as the final fallback for never-configured-but-obvious hosts.
+    const isKnownGitLab = (host: string): Effect.Effect<boolean> =>
+      Effect.gen(function* () {
+        const allEnv = yield* environment.getAll()
+        const { hosts } = yield* run(detectConfigHosts())
+        return (
+          host === DEFAULT_GITLAB_HOST ||
+          hosts.some((h) => h.toLowerCase() === host) ||
+          envTokenHost(allEnv) === host ||
+          isGitLabHost(host)
+        )
+      })
+
+    const detectProvider = (rawHost: string): Effect.Effect<VcsProvider | undefined> =>
+      Effect.gen(function* () {
+        const host = rawHost.trim().toLowerCase()
+        if (!host) return undefined
+        if (yield* isKnownGitHub(host)) return "github" as const
+        if (yield* isKnownGitLab(host)) return "gitlab" as const
+        return undefined
+      })
+
+    // --- read-only host→token (golang semantics, no network) ----------
+
+    const tokenForHost = (rawHost: string): Effect.Effect<string | undefined> =>
+      Effect.gen(function* () {
+        const host = rawHost.trim().toLowerCase()
+        const provider = yield* detectProvider(host)
+        if (provider === undefined) return undefined // not an error; public repos must work
+
+        if (provider === "github") {
+          // Every source is read for exactly this host: the env token bound
+          // to it, gh's stored token for it, its hosts.yml entry.
+          const cred = yield* run(detectGitHubEnvCredentials(host))
+          if (cred) return cred.token
+          const cli = yield* ghReadCached(host)
+          if (cli) return cli
+          const status = yield* cliStatus()
+          if (!status.gh.installed) {
+            const fallback = yield* run(detectHostsYmlCredentials(host))
+            if (fallback.token) return fallback.token
+          }
+          return undefined
+        }
+
+        const allEnv = yield* environment.getAll()
+        if (mayAutoSendEnvToken(host, allEnv)) {
+          const cred = yield* run(detectGitLabEnvCredentials())
+          if (cred) return cred.token
+        }
+        const read = yield* glabReadCached(host)
+        if (read.kind === "token") return read.token
+        if (read.kind === "not-installed") {
+          return yield* run(detectConfigCredentials(host))
+        }
+        return undefined
+      })
+
+    // --- validation-only CLI probe -------------------------------------
+
+    const runCli = (
+      command: string,
+      args: string[],
+      childEnv: Record<string, string | undefined>,
+    ): Effect.Effect<{ exitCode: number; stdout: string[]; stderr: string[] }, VcsCliError> =>
+      Effect.gen(function* () {
+        const proc = yield* spawner.spawn(command, args, { env: childEnv }).pipe(
+          Effect.mapError(
+            (err) =>
+              new VcsCliError({
+                kind: isSpawnEnoent(err) ? "not-installed" : "spawn",
+                stderr: "",
+              }),
+          ),
+        )
+        const { exitCode, lines } = yield* collectOutput(proc, PROBE_TIMEOUT_MS).pipe(
+          Effect.mapError(() => new VcsCliError({ kind: "timeout", stderr: "" })),
+        )
+        return {
+          exitCode,
+          stdout: lines.filter((line) => line.source === "stdout").map((line) => line.line),
+          stderr: lines.filter((line) => line.source === "stderr").map((line) => line.line),
+        }
+      })
+
+    /** Parse `gh api user -i` output: status line + headers + JSON body. */
+    const parseGhApiUser = (output: string): CliValidation | undefined => {
+      const scopesMatch = /^x-oauth-scopes:\s*(.+)$/im.exec(output)
+      const scopes = scopesMatch
+        ? scopesMatch[1]!
+            .split(",")
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0)
+        : undefined
+      const jsonStart = output.indexOf("{")
+      if (jsonStart === -1) return undefined
+      try {
+        const data = JSON.parse(output.slice(jsonStart)) as {
+          login?: string
+          name?: string
+          avatar_url?: string
+          email?: string
+        }
+        if (!data.login) return undefined
+        return {
+          user: {
+            login: data.login,
+            name: data.name ?? undefined,
+            avatarUrl: data.avatar_url,
+            email: data.email ?? undefined,
+          },
+          scopes: scopes && scopes.length > 0 ? scopes : undefined,
+        }
+      } catch {
+        return undefined
+      }
+    }
+
+    const probeGitHub = (host: string, token: string): Effect.Effect<CliValidation, VcsCliError> =>
+      Effect.gen(function* () {
+        const status = yield* cliStatus()
+        if (!status.gh.installed) {
+          return yield* new VcsCliError({ kind: "not-installed", stderr: "" })
+        }
+        if (!status.gh.meetsFloor) {
+          return yield* new VcsCliError({
+            kind: "api",
+            stderr: `gh ${status.gh.version ?? "?"} is below the supported floor`,
+          })
+        }
+        const target = tryNormalizeGitHubHost(host)
+        if (!target) {
+          return yield* new VcsCliError({ kind: "api", stderr: `invalid GitHub host: ${host}` })
+        }
+        // Pin gh to validate exactly the candidate (env-over-stored-creds is
+        // documented gh behavior); token via CHILD ENV only, never argv. gh
+        // reads GH_TOKEN for github.com / ghe.com hosts and
+        // GH_ENTERPRISE_TOKEN for GHES, so set the one gh will use for the
+        // pinned host (the hygiene overrides strip all the others).
+        const tokenVar = githubHostKind(target) === "ghes" ? "GH_ENTERPRISE_TOKEN" : "GH_TOKEN"
+        const childEnv = {
+          ...buildCliEnv(yield* environment.getAll(), GH_ENV_OVERRIDES),
+          [tokenVar]: token,
+        }
+        // -i exposes headers, so X-OAuth-Scopes still yields scopes. The
+        // --hostname pin mirrors the detection path: without it, GH_HOST
+        // (which the hygiene overrides also strip) could aim the probe — and
+        // the candidate token — at a different host.
+        const result = yield* runCli("gh", ["api", "user", "-i", "--hostname", target], childEnv)
+        if (result.exitCode !== 0) {
+          return yield* new VcsCliError({
+            kind: "api",
+            stderr: redactSecrets(result.stderr.join("\n")),
+          })
+        }
+        const parsed = parseGhApiUser(result.stdout.join("\n"))
+        if (!parsed) {
+          return yield* new VcsCliError({ kind: "api", stderr: "unparseable gh api output" })
+        }
+        return parsed
+      })
+
+    const probeGitLab = (
+      host: string,
+      token: string,
+      source: VcsCredentialSource,
+    ): Effect.Effect<CliValidation, VcsCliError> =>
+      Effect.gen(function* () {
+        const status = yield* cliStatus()
+        if (!status.glab.installed) {
+          return yield* new VcsCliError({ kind: "not-installed", stderr: "" })
+        }
+        if (!status.glab.meetsFloor) {
+          return yield* new VcsCliError({
+            kind: "api",
+            stderr: `glab ${status.glab.version ?? "?"} is below the supported floor`,
+          })
+        }
+
+        if (isGitLabOAuthShaped(token)) {
+          // OAuth-shaped tokens are NEVER probed via token env injection —
+          // glab may send an env-injected GITLAB_TOKEN as PRIVATE-TOKEN, which
+          // OAuth tokens reject; a spurious 401 would corrupt the tri-state.
+          // When glab's stored credential IS the candidate, `glab auth status`
+          // (exit code + stderr, no token env) is the probe.
+          if (source !== "cli" && source !== "config") {
+            return yield* new VcsCliError({
+              kind: "api",
+              stderr: "env-sourced OAuth-shaped tokens are direct-fetch-only",
+            })
+          }
+          const authStatus = yield* run(glabAuthStatusForHost(host))
+          if (authStatus === "ok") {
+            // Identity is best-effort from glab's own status line.
+            return { user: { login: "glab" } }
+          }
+          if (authStatus === "not-logged-in") {
+            return yield* new VcsCliError({ kind: "not-authenticated", stderr: "No token found" })
+          }
+          return yield* new VcsCliError({ kind: "api", stderr: "API call failed" })
+        }
+
+        // glpat--shaped: candidate via child env (GITLAB_TOKEN — others are
+        // stripped by the hygiene overrides), per-host semaphore inside.
+        const result = yield* run(
+          runGlabForHost(host, ["api", "user", "--hostname", host], PROBE_TIMEOUT_MS, {
+            GITLAB_TOKEN: token,
+          }),
+        ).pipe(
+          Effect.mapError(
+            (err) =>
+              new VcsCliError({
+                kind: isSpawnEnoent(err) ? "not-installed" : "spawn",
+                stderr: "",
+              }),
+          ),
+        )
+        if (result.exitCode !== 0) {
+          return yield* new VcsCliError({
+            kind: "api",
+            stderr: redactSecrets(result.stderr.join("\n")),
+          })
+        }
+        return yield* Effect.try({
+          try: () => {
+            const data = JSON.parse(result.stdout.join("\n")) as {
+              username?: string
+              name?: string
+              avatar_url?: string
+              email?: string
+            }
+            if (!data.username) throw new Error("no username")
+            return {
+              user: {
+                login: data.username,
+                name: data.name ?? undefined,
+                avatarUrl: data.avatar_url,
+                email: data.email ?? undefined,
+              },
+            }
+          },
+          catch: () => new VcsCliError({ kind: "api", stderr: "unparseable glab api output" }),
+        })
+      })
+
+    const validateViaCli = (
+      provider: VcsProvider,
+      host: string,
+      token: string,
+      source: VcsCredentialSource,
+    ): Effect.Effect<CliValidation, VcsCliError> =>
+      provider === "github" ? probeGitHub(host, token) : probeGitLab(host, token, source)
+
+    const shape: VcsCredentialsShape = {
+      detectGitHubEnv,
+      detectGitHubCli,
+      detectGitLabEnv,
+      detectGitLabCli,
+      validateDirect,
+      tokenForHost,
+      enumerateGitLabHosts: (): Effect.Effect<MergedGitLabHosts> => run(detectConfigHosts()),
+      enumerateGitHubHosts,
+      detectProvider,
+      validateViaCli,
+      cliStatus,
+      invalidateCache: () =>
+        Effect.sync(() => {
+          cliReadCache.clear()
+          cliStatusCache = undefined
+        }),
+      markTransportDegraded: (host, code) =>
+        Effect.sync(() => {
+          // Structured support signal + field canary for Node system-store
+          // reader regressions.
+          console.warn(`transport degraded for ${host}: ${code}`)
+        }),
+    }
+
+    return shape
+  }),
+)
