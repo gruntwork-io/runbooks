@@ -19,8 +19,8 @@ const encoded = {
   blocks: [
     {
       index: 0,
-      tag: "Command",
-      block: "Command",
+      tag: "Run",
+      block: "Run",
       class: "task",
       id: "hello",
       idAsWritten: "hello",
@@ -89,7 +89,7 @@ describe("ConfigError", () => {
       location: {
         file: "runbook.mdx",
         span,
-        block: { tag: "Command", id: "hello" },
+        block: { tag: "Run", id: "hello" },
         prop: "envFrom",
       },
       expected: "the id of a block that provides env",

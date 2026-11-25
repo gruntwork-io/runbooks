@@ -31,25 +31,25 @@ const firstRefusal = (source: string) => {
 describe("remarkLiteralOnly", () => {
   describe("allows literal-only MDX", () => {
     it.each([
-      ["plain string props", '<Admonition type="info" title="Heads up" />'],
-      ["bare boolean props", "<Admonition allowPermanentHide />"],
-      ["boolean expressions", "<TemplateInline generateFile={true} />"],
-      ["string expressions", `<Command id={'a'} command={"echo hi"} />`],
+      ["plain string props", '<Note type="info" title="Heads up" />'],
+      ["bare boolean props", "<Note allowPermanentHide />"],
+      ["boolean expressions", "<X generateFile={true} />"],
+      ["string expressions", `<Run id={'a'} command={"echo hi"} />`],
       [
         "template strings without substitutions",
-        '<Command command={`echo "$HOME" > "$GENERATED_FILES/x"`} />',
+        '<Run command={`echo "$HOME" > "$GENERATED_FILES/x"`} />',
       ],
       ["signed numbers, null and regexes", "<X a={-1} b={+2.5} c={0} d={null} e={/ab+c/i} />"],
-      ["arrays of literals", '<Command args={["a", "b", 3]} />'],
+      ["arrays of literals", '<Run args={["a", "b", 3]} />'],
       [
         "nested objects and arrays",
-        `<AwsAuth detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']} />`,
+        `<X detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']} />`,
       ],
       ["quoted object keys", `<X a={{ 'quoted-key': 1, plain: [true, false] }} />`],
       ["comments", "Before\n\n{/* a comment */}\n\nInline {/* comment */} text"],
       ["empty expressions", "Before\n\n{}\n\nAfter"],
       ["literal text and flow expressions", `Price: {'$5'}\n\n{"A literal paragraph"}`],
-      ["nested blocks", '<Admonition title="Outer">\n  <Command args={["x"]} />\n</Admonition>'],
+      ["nested blocks", '<Note title="Outer">\n  <Run args={["x"]} />\n</Note>'],
       [
         "plain HTML elements",
         '<div style="color: red;">\nRed text\n</div>\n\nInline <img src="./x.png" alt="x" /> image',
@@ -58,10 +58,11 @@ describe("remarkLiteralOnly", () => {
         "object keys that only resemble __proto__",
         `<X a={{ proto: 1, '__proto': 2, constructor: 3 }} />`,
       ],
-      ["a block whose name matches a blocked element", '<Iframe src="https://example.com" />'],
+      // A capitalized name is a block, even when its lowercase is a blocked element.
+      ["a block whose name matches a blocked element", '<Script src="https://example.com" />'],
       [
         "links and text that only mention javascript:",
-        '<a href="https://example.com/javascript:">Docs</a>\n\n<Command command="echo javascript: is off" />',
+        '<a href="https://example.com/javascript:">Docs</a>\n\n<Run command="echo javascript: is off" />',
       ],
     ])("%s", (_name, source) => {
       // Unknown toy tags and missing ids are other errors; none is a refusal.
@@ -95,7 +96,7 @@ describe("remarkLiteralOnly", () => {
       ["a negated identifier", "<X a={-x} />"],
       ["a non-numeric unary", "<X a={!0} />"],
       ["a call nested in a literal", "<X a={[{ b: f() }]} />"],
-      ["a call in nested block children", "<Admonition>\n  {f()}\n</Admonition>"],
+      ["a call in nested block children", "<Note>\n  {f()}\n</Note>"],
       ["a script element", '<script async src="file:///tmp/x.js" />'],
       ["an iframe element", '<iframe src="./page.html" />'],
       ["a frame element", '<frame src="./page.html" />'],
@@ -114,7 +115,7 @@ describe("remarkLiteralOnly", () => {
         '<x-widget style={{ animationName: "spin" }} ONANIMATIONSTART="alert(1)" />',
       ],
       ["a custom element in text", 'Hello <x-widget oNfocus="alert(1)" /> there'],
-      ["a dotted element name", "<Admonition.constructor />"],
+      ["a dotted element name", "<Note.constructor />"],
       ["a namespaced script element", '<svg>\n  <svg:script href="file:///tmp/x.js" />\n</svg>'],
       [
         "a namespaced script element with inline code",
@@ -124,7 +125,7 @@ describe("remarkLiteralOnly", () => {
         "a namespaced element with another prefix",
         '<svg><html:script href="file:///tmp/x.js" /></svg>',
       ],
-      ["a __proto__ prop", '<Admonition __proto__={["a=1"]} />'],
+      ["a __proto__ prop", '<Note __proto__={["a=1"]} />'],
       ["a __proto__ object key", '<X a={{ __proto__: ["a=1"] }} />'],
       ["a quoted __proto__ object key", `<X a={[{ '__proto__': { b: 1 } }]} />`],
       // React only sanitizes `javascript:` URLs in `href`, `src`, `action`,
@@ -154,11 +155,11 @@ describe("remarkLiteralOnly", () => {
   })
 
   it("names the line, prop and block in the error", () => {
-    const prop = firstRefusal('# Title\n\n<Command id="a" command={run()} />')
-    expect(prop.location).toMatchObject({ block: { tag: "Command" }, prop: "command" })
+    const prop = firstRefusal('# Title\n\n<Run id="a" command={run()} />')
+    expect(prop.location).toMatchObject({ block: { tag: "Run" }, prop: "command" })
     expect(prop.location.span.start.line).toBe(3)
     expect(prop.message).toStartWith(
-      "the `command` prop of <Command> must be a literal value, not {run()}.",
+      "the `command` prop of <Run> must be a literal value, not {run()}.",
     )
 
     const esm = firstRefusal("# Title\n\nexport const x = 1")
@@ -189,9 +190,9 @@ const ATTACKS: Array<[string, string]> = [
   ],
   ["a call expression", `# Title\n\n{${EXEC}}`],
   ["a text expression", `Hello {String(${EXEC})} there`],
-  ["a prop expression", `<Admonition type="info" title={String(${EXEC})} />`],
-  ["a spread prop", `<Admonition type="info" {...${EXEC}} />`],
-  ["a template substitution", `<Admonition type="info" title={\`\${${EXEC}}\`} />`],
+  ["a prop expression", `<Note type="info" title={String(${EXEC})} />`],
+  ["a spread prop", `<Note type="info" {...${EXEC}} />`],
+  ["a template substitution", `<Note type="info" title={\`\${${EXEC}}\`} />`],
   [
     "a namespaced script element",
     `<svg><svg:script>window.api.invoke('runbook:executables')</svg:script></svg>`,
@@ -214,7 +215,7 @@ describe("MDXContainer — runbook code cannot run on open", () => {
       "",
       "{/* an author comment */}",
       "",
-      "<Admonition type=\"info\" title={'Literal title'} description={`No substitutions here`} />",
+      "<Note type=\"info\" title={'Literal title'} description={`No substitutions here`} />",
     ].join("\n")
     const result = parse(content)
     if (result._tag !== "Parsed") throw new Error(result.errors[0].message)
@@ -238,11 +239,11 @@ describe("MDXContainer — runbook code cannot run on open", () => {
       "",
       "# Title",
       "",
-      '<Command id="a" command={run()} />',
+      '<Run id="a" command={run()} />',
     ].join(eol)
     const refusal = firstRefusal(content)
     expect(refusal.location.span.start.line).toBe(7)
-    expect(refusal.message).toStartWith("the `command` prop of <Command> must be a literal value")
+    expect(refusal.message).toStartWith("the `command` prop of <Run> must be a literal value")
   })
 })
 
