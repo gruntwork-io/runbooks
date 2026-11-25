@@ -106,6 +106,17 @@ add() {
   url=$(gh pr create --repo "$REPO" --draft --base "$top" --head "$branch" --title "$title" --body-file "$body")
   echo "$url"
   gh stack link "$STACK" "${url##*/}"
+  # GitHub lists a linked PR in the stack a little later. Wait for it, so
+  # the next add bases its PR on this one, not on the one below.
+  for _ in $(seq 1 20); do
+    read_stack
+    if [ "${#heads[@]}" -gt 0 ] && [ "${heads[-1]}" = "$branch" ]; then
+      return 0
+    fi
+    sleep 3
+  done
+  echo "stack #$STACK does not list $branch on top after linking; check it before the next add" >&2
+  return 1
 }
 
 case ${1:-} in
