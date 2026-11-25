@@ -34,8 +34,24 @@ export interface WatchOptions {
   readonly depth?: number
 }
 
+/** The start of a file, and whether it held more. */
+export interface FileHead {
+  readonly text: string
+  /** The file held more than the bytes asked for; `text` is cut off. */
+  readonly truncated: boolean
+}
+
 export interface FileSystemShape {
   readonly readFile: (path: string) => Effect.Effect<string, FileNotFoundError | FileReadError>
+  /**
+   * At most `maxBytes` of a regular file, for a file something other than
+   * Runbooks wrote. It fails rather than wait on a named pipe, and reads
+   * nothing from anything else that is not a regular file.
+   */
+  readonly readFileUpTo: (
+    path: string,
+    maxBytes: number,
+  ) => Effect.Effect<FileHead, FileNotFoundError | FileReadError>
   readonly readFileBuffer: (
     path: string,
   ) => Effect.Effect<Buffer, FileNotFoundError | FileReadError>

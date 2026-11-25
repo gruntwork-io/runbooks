@@ -31,6 +31,7 @@ export function recordFileSystem(inner: FileSystemShape, calls: ServiceCall[]): 
   const { effect, stream } = noter("FileSystem", calls)
   return {
     readFile: (...args) => effect("readFile", args, () => inner.readFile(...args)),
+    readFileUpTo: (...args) => effect("readFileUpTo", args, () => inner.readFileUpTo(...args)),
     readFileBuffer: (...args) =>
       effect("readFileBuffer", args, () => inner.readFileBuffer(...args)),
     readdir: (...args) => effect("readdir", args, () => inner.readdir(...args)),

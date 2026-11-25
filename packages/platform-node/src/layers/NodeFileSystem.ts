@@ -1,6 +1,7 @@
 /**
  * Live implementation of the FileSystem service using Node.js fs/promises and chokidar.
  */
+import { constants as fsConstants } from "node:fs"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
@@ -32,6 +33,32 @@ const impl: FileSystemShape = {
   readFile: (filePath: string) =>
     Effect.tryPromise({
       try: () => fs.readFile(filePath, "utf-8"),
+      catch: (err) => mapReadError(err, filePath),
+    }),
+
+  readFileUpTo: (filePath: string, maxBytes: number) =>
+    Effect.tryPromise({
+      try: async () => {
+        // Non-blocking, so a named pipe in its place fails the read instead of
+        // waiting for a writer; then only a regular file is read.
+        const handle = await fs.open(filePath, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0))
+        try {
+          if (!(await handle.stat()).isFile()) throw new Error(`${filePath} is not a regular file`)
+          const buffer = Buffer.alloc(maxBytes + 1)
+          let length = 0
+          while (length < buffer.length) {
+            const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length)
+            if (bytesRead === 0) break
+            length += bytesRead
+          }
+          return {
+            text: buffer.subarray(0, Math.min(length, maxBytes)).toString("utf8"),
+            truncated: length > maxBytes,
+          }
+        } finally {
+          await handle.close()
+        }
+      },
       catch: (err) => mapReadError(err, filePath),
     }),
 

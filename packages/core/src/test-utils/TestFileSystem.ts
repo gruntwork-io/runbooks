@@ -22,6 +22,16 @@ export const testFileSystem = (
         : Effect.fail(new FileNotFoundError({ path }))
     },
 
+    readFileUpTo: (path, maxBytes) => {
+      const content = files[path]
+      if (content === undefined) return Effect.fail(new FileNotFoundError({ path }))
+      const bytes = Buffer.from(content)
+      return Effect.succeed({
+        text: bytes.subarray(0, maxBytes).toString("utf8"),
+        truncated: bytes.length > maxBytes,
+      })
+    },
+
     readFileBuffer: (path) => {
       const content = files[path]
       return content !== undefined
