@@ -67,6 +67,14 @@ export type BlockId = typeof BlockId.Type
 export const RunbookPath = Schema.NonEmptyString.pipe(Schema.brand("RunbookPath"))
 export type RunbookPath = typeof RunbookPath.Type
 
+/**
+ * The text of each file a block names in `runbookFiles`, as the engine read
+ * and hashed it when the runbook opened. A file is keyed by the path as the
+ * block named it; each file in a named folder, by its path joined to the
+ * folder's.
+ */
+export type RunbookTexts = ReadonlyMap<string, string>
+
 /** A reference prop's decoded value: one block, or an ordered list of them. */
 export type ReferenceValue = BlockId | ReadonlyArray<BlockId>
 
@@ -234,12 +242,13 @@ export interface DisplayBlock<P> extends BlockBase<P> {
  * valid. It may not declare a machine effect, and may read a driver plugin
  * only at `read`.
  */
-export interface FormBlock<P, R> extends BlockBase<P> {
+export interface FormBlock<P> extends BlockBase<P> {
   readonly class: "form"
   readonly provides: readonly ["values"]
   readonly effects: readonly []
   readonly outputs: (p: P) => OutputDecls<string>
-  readonly fields: (p: P) => Effect.Effect<FormSpec, PropError, R>
+  /** Read when the runbook opens, before trust: from the props and the files the block names. */
+  readonly fields: (p: P, files: RunbookTexts) => Effect.Effect<FormSpec, PropError>
   readonly plugins: ReadonlyArray<PluginUse<"read">>
   /** Whether it is a progress step, for a block whose props decide. Absent means yes. */
   readonly step?: (p: P) => boolean
@@ -254,7 +263,9 @@ export interface TaskBlock<P, K extends string, R> extends BlockBase<P> {
   readonly provides: readonly ["run", ...ReadonlyArray<TaskCapability>]
   readonly effects: ReadonlyArray<MachineEffect>
   readonly outputs: (p: P) => OutputDecls<K>
-  readonly fields?: (p: P) => Effect.Effect<FormSpec, PropError, R>
+  /** As a form block's: read when the runbook opens, before trust. */
+  readonly fields?: (p: P, files: RunbookTexts) => Effect.Effect<FormSpec, PropError>
+  /** The one function that gets services. The engine calls it only in a trusted session. */
   readonly run: (p: P, input: TaskInput) => Stream.Stream<TaskEvent<K>, TaskError, R>
   readonly instruction: (p: P, input: TaskInput) => Instruction
   readonly plugins: ReadonlyArray<PluginUse>
@@ -352,6 +363,69 @@ export interface CredentialBlock<P> extends BlockBase<P> {
 }
 
 // ---------------------------------------------------------------------------
+// Trust
+// ---------------------------------------------------------------------------
+
+/** Stands for the services a block asks for, so the types below can tell which functions get them. */
+interface AskedServices {
+  readonly askedServices: "the services a block asks for"
+}
+
+/** A block of each class, asking for `AskedServices`. */
+type EachClass =
+  | DisplayBlock<unknown>
+  | FormBlock<unknown>
+  | TaskBlock<unknown, string, AskedServices>
+  | CredentialBlock<unknown>
+
+/** The name of each function a block of some class declares. */
+type FunctionName<B> = B extends unknown
+  ? { [K in keyof B]-?: NonNullable<B[K]> extends (...args: never) => unknown ? K : never }[keyof B]
+  : never
+
+export type BlockFunction = FunctionName<EachClass>
+
+/** What the function named `F` returns, in each class that declares it. */
+type ReturnOf<F extends BlockFunction, B = EachClass> = B extends unknown
+  ? F extends keyof B
+    ? NonNullable<B[F]> extends (...args: never) => infer A
+      ? A
+      : never
+    : never
+  : never
+
+/** The services a returned effect or stream asks for. */
+type ServicesIn<A> =
+  A extends Effect.Effect<unknown, unknown, infer R>
+    ? R
+    : A extends Stream.Stream<unknown, unknown, infer R>
+      ? R
+      : never
+
+/** The function named `F` gets no services, so it can do no I/O. */
+type GetsNoServices<F extends BlockFunction> = [AskedServices] extends [ServicesIn<ReturnOf<F>>]
+  ? false
+  : true
+
+/**
+ * Whether the engine may call each function a block declares before the
+ * person trusts the session. One that may gets no services, only its
+ * arguments (props decode with none either), so it does no I/O. One that may
+ * not gets its block's services, which the engine holds only for a trusted
+ * session. The compiler checks each entry against the function's type, and
+ * fails while a block type declares a function this does not list.
+ */
+export const BEFORE_TRUST = {
+  runbookFiles: true,
+  outputs: true,
+  fields: true,
+  step: true,
+  instruction: true,
+  request: true,
+  run: false,
+} as const satisfies { readonly [F in BlockFunction]: GetsNoServices<F> }
+
+// ---------------------------------------------------------------------------
 // Definitions
 // ---------------------------------------------------------------------------
 
@@ -361,7 +435,7 @@ export interface CredentialBlock<P> extends BlockBase<P> {
  * literal against its class.
  */
 export const defineDisplay = <P>(block: DisplayBlock<P>): DisplayBlock<P> => block
-export const defineForm = <P, R = never>(block: FormBlock<P, R>): FormBlock<P, R> => block
+export const defineForm = <P>(block: FormBlock<P>): FormBlock<P> => block
 export const defineTask = <P, K extends string, R = never>(
   block: TaskBlock<P, K, R>,
 ): TaskBlock<P, K, R> => block

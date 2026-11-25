@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "bun:test"
-import { Effect, Option, Schema, Stream } from "effect"
+import { Context, Effect, Option, Schema, Stream } from "effect"
 import {
+  BEFORE_TRUST,
   BlockClass,
   BlockId,
   type CredentialBlock,
@@ -9,6 +10,7 @@ import {
   defineForm,
   defineTask,
   type FormBlock,
+  type PropError,
   type References,
   type TaskBlock,
   type TaskEvent,
@@ -131,9 +133,9 @@ describe("block definitions", () => {
 describe("what the compiler rejects", () => {
   it("a form block that declares a machine effect", () => {
     expectTypeOf<{ effects: readonly ["process"] }>().not.toExtend<
-      Pick<FormBlock<object, never>, "effects">
+      Pick<FormBlock<object>, "effects">
     >()
-    expectTypeOf<{ effects: readonly [] }>().toExtend<Pick<FormBlock<object, never>, "effects">>()
+    expectTypeOf<{ effects: readonly [] }>().toExtend<Pick<FormBlock<object>, "effects">>()
   })
 
   it("a run that streams an output the block did not declare", () => {
@@ -159,9 +161,29 @@ describe("what the compiler rejects", () => {
     expectTypeOf<readonly ["env", "git-credential"]>().toExtend<Provides>()
   })
 
+  it("a function allowed before trust that asks for a service", () => {
+    class Disk extends Context.Service<Disk, { readonly read: Effect.Effect<string> }>()("Disk") {}
+    type FormFields = FormBlock<object>["fields"]
+    type TaskFields = NonNullable<TaskBlock<object, never, Disk>["fields"]>
+    expectTypeOf<() => Effect.Effect<FormSpec, PropError, Disk>>().not.toExtend<FormFields>()
+    expectTypeOf<() => Effect.Effect<FormSpec, PropError, Disk>>().not.toExtend<TaskFields>()
+    expectTypeOf<() => Effect.Effect<FormSpec, PropError>>().toExtend<FormFields>()
+    // A run gets the services its block asks for.
+    expectTypeOf<() => Stream.Stream<TaskEvent<never>, never, Disk>>().toExtend<
+      TaskBlock<object, never, Disk>["run"]
+    >()
+  })
+
   it("a reference declared on a prop that cannot name a block", () => {
     type Refs = References<typeof UrlProps.Type>
     expectTypeOf<keyof Refs>().toEqualTypeOf<"dependsOn" | "repository" | "envFrom">()
+  })
+})
+
+describe("BEFORE_TRUST", () => {
+  it("lets the engine call every function a block declares before trust, but run", () => {
+    const afterTrust = Object.entries(BEFORE_TRUST).filter(([, allowed]) => !allowed)
+    expect(afterTrust.map(([name]) => name)).toEqual(["run"])
   })
 })
 
