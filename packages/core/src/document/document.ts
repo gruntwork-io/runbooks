@@ -37,6 +37,45 @@ export const DocumentHash = Schema.Struct({
 export type DocumentHash = typeof DocumentHash.Type
 
 // ---------------------------------------------------------------------------
+// Environment variable names
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether Runbooks sets `name` for every run: `RUNBOOK_OUTPUT`, `RUNBOOK_ENV`
+ * and the rest of the `RUNBOOK_` names, `GENERATED_FILES` and `REPO_FILES`.
+ * Nothing else a run's environment is built from may set one.
+ */
+export const isReservedEnvName = (name: string): boolean =>
+  name.startsWith("RUNBOOK_") || name === "GENERATED_FILES" || name === "REPO_FILES"
+
+/** What POSIX allows a shell to export. */
+const EXPORTABLE = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+/** Why a run's environment cannot take `name`, if it cannot. */
+export const envNameProblem = (name: string): "notExportable" | "reserved" | undefined =>
+  !EXPORTABLE.test(name) ? "notExportable" : isReservedEnvName(name) ? "reserved" : undefined
+
+const ENV_NAME_PROBLEMS = {
+  notExportable:
+    "not a variable name. Use letters, digits and underscores, and don't start with a digit",
+  reserved: "a variable Runbooks sets for every script. Pick another name",
+} as const
+
+/**
+ * A block's `env`: variables by name. Each name is checked here, on the
+ * whole record, because a record's key schema drops a key it refuses
+ * rather than failing, which would leave the variable silently unset.
+ */
+const EnvProp = Schema.Record(Schema.String, Schema.String).check(
+  Schema.makeFilter((env: { readonly [name: string]: string }) =>
+    Object.keys(env).flatMap((name) => {
+      const problem = envNameProblem(name)
+      return problem === undefined ? [] : [{ path: [name], issue: ENV_NAME_PROBLEMS[problem] }]
+    }),
+  ),
+)
+
+// ---------------------------------------------------------------------------
 // Shared props
 // ---------------------------------------------------------------------------
 
@@ -57,7 +96,7 @@ export const SharedProps = Schema.Struct({
   /** Task with the `process` effect: environment sources, in order, later winning (capability `env`). */
   envFrom: Schema.optionalKey(Schema.Array(BlockId)),
   /** Task with the `process` effect: variables set last, before the reserved `RUNBOOK_*` ones. Values may hold template references. */
-  env: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  env: Schema.optionalKey(EnvProp),
 })
 export type SharedProps = typeof SharedProps.Type
 
