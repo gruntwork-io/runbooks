@@ -28,13 +28,14 @@ import {
   type BlockNode,
   ContentHash,
   type DocumentHash,
+  type Edge,
   type FrontMatter,
   type ParseResult,
   SharedProps,
   type TreeNode,
 } from "./document.ts"
 import type { FileFact, FileText } from "./files.ts"
-import { referenceGraph, type WrittenReference } from "./graph.ts"
+import { blockName, referenceGraph, type WrittenReference } from "./graph.ts"
 import { refusals } from "./literalOnly.ts"
 import {
   attributeValue,
@@ -257,6 +258,7 @@ class Parse {
     )
     const refusing = this.errors.find((error) => refusesRunbook(error.code))
     if (refusing !== undefined) return this.invalid(refusing)
+    this.envNameConflicts(blocks, edges)
     const order = byPlace(this.options.file)
     return {
       _tag: "Parsed",
@@ -273,6 +275,47 @@ class Parse {
         warnings: [...this.warnings].sort(order),
       },
       texts,
+    }
+  }
+
+  /**
+   * A warning for each two credential blocks in one block's `envFrom` that
+   * declare a name in common: the later one sets or unsets each, so the
+   * earlier one's never reach a run. A task's exports are known only when
+   * it has run, so the engine warns about those when a run starts.
+   */
+  private envNameConflicts(blocks: ReadonlyArray<BlockNode>, edges: ReadonlyArray<Edge>): void {
+    const byIndex = new Map(blocks.map((node) => [node.index, node]))
+    const envNamesOf = (node: BlockNode) => {
+      const block = resolveTag(this.registry, node.tag)?.block
+      return block?.class === "credential" ? block.envNames : []
+    }
+    for (const reader of blocks) {
+      const sources = edges.flatMap((edge) => {
+        const target = byIndex.get(edge.to)
+        return edge.from === reader.index &&
+          edge.source._tag === "Prop" &&
+          edge.source.capability === "env" &&
+          target !== undefined
+          ? [{ target, names: envNamesOf(target), span: edge.span }]
+          : []
+      })
+      for (const [position, later] of sources.entries()) {
+        for (const earlier of sources.slice(0, position)) {
+          const shared = later.names.filter((name) => earlier.names.includes(name))
+          if (shared.length === 0) continue
+          this.warn(
+            "envConflict",
+            `\`envFrom\` on ${blockName(reader)} names ${blockName(earlier.target)} and ${blockName(later.target)}, which both declare ${shared.join(", ")}. A run gets ${shared.length === 1 ? "it" : "them"} from ${blockName(later.target)}, the later one.`,
+            later.span,
+            {
+              tag: reader.tag,
+              ...(reader.idAsWritten === undefined ? {} : { id: reader.idAsWritten }),
+            },
+            "envFrom",
+          )
+        }
+      }
     }
   }
 
