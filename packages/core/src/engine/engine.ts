@@ -4,7 +4,7 @@
  * it through a transport. The registry is passed in, so the core never
  * imports the blocks.
  */
-import { Context, Effect, Layer, Schema, Stream } from "effect"
+import { Context, Effect, Layer, Schema, Scope, Stream } from "effect"
 import type { Rpc } from "effect/rpc"
 import type { TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
@@ -104,32 +104,31 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
    */
   static readonly layer = <R extends Registry>(
     options: EngineOptions<R>,
-  ): Layer.Layer<Engine, never, FileSystem | ServicesOf<R>> =>
+  ): Layer.Layer<Engine, never, FileSystem | Exclude<ServicesOf<R>, Scope.Scope>> =>
     Layer.effect(
       Engine,
       Effect.gen(function* () {
         const { registry, appVersion, workingFolders } = options
         const base = baseEnvironment(options.processEnvironment, registry)
+        // The layer's context holds the layer's own scope too. A resource held
+        // there would outlast its run, so a run gets a scope of its own in its
+        // place, and the run files get the FileSystem alone.
         const services = yield* Effect.context<ServicesOf<R>>()
-        const fileSystem = yield* Effect.context<FileSystem>()
-        const files = yield* FileSystem
+        const fileSystem = Context.pick(FileSystem)(yield* Effect.context<FileSystem>())
         /** Handed to a session when the person trusts it, and not before. */
         const runner: Runner = {
-          start: (block, props, input) => {
+          start: (block, props, input, scope) => {
             // The block is one of `registry`'s, so what it asks for is in `ServicesOf<R>`.
             const run: Stream.Stream<TaskEvent<string>, TaskError, ServicesOf<R>> = block.run(
               props,
               input,
             )
-            return Stream.provideContext(run, services)
+            return Stream.provideContext(run, Context.add(services, Scope.Scope, scope))
           },
           resolve: (at, named, repository) =>
             resolvePaths(at, named, repository).pipe(Effect.provideContext(fileSystem)),
-          // The service alone: the layer's context also holds the layer's
-          // own scope, which would outlast the run's folder.
-          makeRunFiles: Effect.provideService(makeRunFiles, FileSystem, files),
-          readRunFiles: (written) =>
-            Effect.provideService(readRunFiles(written), FileSystem, files),
+          makeRunFiles: Effect.provideContext(makeRunFiles, fileSystem),
+          readRunFiles: (written) => Effect.provideContext(readRunFiles(written), fileSystem),
         }
         const sessions = new Map<SessionId, Session>()
 

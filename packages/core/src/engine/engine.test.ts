@@ -1303,3 +1303,38 @@ describe("Engine values", () => {
     )
   })
 })
+
+describe("a run's resources", () => {
+  it("are released when the run ends, not when the engine does", async () => {
+    const released: string[] = []
+    /** A task whose run holds a resource in the scope it is given. */
+    const hold = defineTask({
+      ...TOY_REGISTRY.Run,
+      run: () =>
+        Stream.fromEffect(
+          Effect.acquireRelease(Effect.void, () => Effect.sync(() => released.push("released"))),
+        ).pipe(Stream.drain),
+    })
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        expect((yield* rb.run("a"))._tag).toBe("Started")
+        const ran = yield* rb.wait("a")
+        expect(ran.block.status).toEqual({ _tag: "Done", outcome: "success" })
+        expect(released).toEqual(["released"])
+      }).pipe(
+        Effect.provide(
+          Engine.layer({
+            registry: { ...TOY_REGISTRY, Run: hold },
+            appVersion: "0.31.0",
+            workingFolders: "/work",
+            processEnvironment: {},
+          }),
+        ),
+        Effect.provide(makeTestFileSystem({ [RUNBOOK]: '<Run id="a" command="hold" />' })),
+        Effect.provideService(Caller, { origin: "person" }),
+      ),
+    )
+  })
+})
