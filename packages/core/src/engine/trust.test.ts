@@ -225,9 +225,16 @@ describe("an untrusted session", () => {
         yield* engine.resetBlock(target("deploy"))
         yield* engine.waitForBlock({ ...target("deploy"), timeoutMillis: 10 })
         yield* engine.getOutputs({ session })
+        const acted = []
+        for (const action of [{ _tag: "CheckAgain" }, { _tag: "SignOut" }] as const)
+          acted.push(yield* engine.actOnCredential({ ...target("cloud"), action }))
 
         expect(calls).toEqual(READING_THE_RUNBOOK)
         expect(providerCalls).toEqual([])
+        expect(acted).toEqual([
+          { _tag: "NotAllowed", state: "Blocked" },
+          { _tag: "NotAllowed", state: "Blocked" },
+        ])
         const untrusted: RunResult = {
           _tag: "Refused",
           reason: { _tag: "Blocked", by: [{ _tag: "Untrusted" }] },
@@ -309,7 +316,7 @@ describe("an untrusted session", () => {
         yield* engine.trustSession({ session, hash: trust.hash })
         const after = yield* engine.waitForBlock({ ...cloud, timeoutMillis: 5000 })
         expect(after.block.credential?._tag).toBe("SignedOut")
-        expect(after.block.actions).toEqual([])
+        expect(after.block.actions).toEqual(["credential"])
         expect(calls).toEqual(READING_THE_RUNBOOK)
         yield* engine.closeSession({ session })
       }),

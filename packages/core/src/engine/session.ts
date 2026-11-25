@@ -53,11 +53,12 @@ import { TaskCancelled, TaskFailed } from "@runbooks/blocks-core/contract"
 import type { FieldValue, FormSpec, FormValues } from "@runbooks/blocks-core/form"
 import { type AnyBlock, type Registry, resolveTag } from "@runbooks/blocks-core/registry"
 import { type Blocker, BlockStatus, type Outcome } from "@runbooks/blocks-core/status"
-import { statusOf as credentialStatus } from "../credential/lifecycle.ts"
+import { type CredentialAction, statusOf as credentialStatus } from "../credential/lifecycle.ts"
 import type { CredentialEnv } from "../credential/provider.ts"
 import { ConfigError, ConfigWarning } from "../document/configError.ts"
 import type { BlockNode, ContentHash, RunbookDocument } from "../document/document.ts"
 import {
+  type ActResult,
   type BlockAction,
   type BlockSummary,
   type BlockView,
@@ -468,6 +469,11 @@ export interface Session {
     logOffset: number | undefined,
     logLimit: number | undefined,
   ) => Effect.Effect<{ readonly block: BlockView; readonly timedOut: boolean }, UnknownBlock>
+  /** Moves a credential block as a person or agent asks, if its state takes the action. */
+  readonly actOnCredential: (
+    block: BlockId,
+    action: CredentialAction,
+  ) => Effect.Effect<ActResult, UnknownSession | UnknownBlock | WrongClass>
   /** Every done block's outputs, by block id. */
   readonly outputs: () => Record<string, Record<string, OutputView>>
   /** The values each Ready credential block's provider gave, for the session store (2.8) to save. */
@@ -1043,9 +1049,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     switch (slot.node.class) {
       case "display":
         return []
-      // It takes actions through ActOnCredential, which the engine does not serve yet.
       case "credential":
-        return []
+        return credentialSlotAt.has(slot.index) && credentials.acts(slot.index)
+          ? ["credential"]
+          : []
       // "run" submits a form.
       case "form":
       case "task":
@@ -1294,6 +1301,24 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         const outcome = yield* Effect.timeoutOption(settled, timeoutMillis)
         return { block: viewOf(slot, logOffset, logLimit), timedOut: Option.isNone(outcome) }
       }),
+
+    actOnCredential: (block, action) =>
+      lock.withPermit(
+        Effect.gen(function* () {
+          yield* notClosing
+          const slot = yield* byId(block)
+          if (slot.node.class !== "credential")
+            return yield* new WrongClass({
+              block,
+              class: slot.node.class,
+              expected: ["credential"],
+            })
+          if (!credentialSlotAt.has(slot.index))
+            return { _tag: "NotAllowed", state: "Misconfigured" } as const
+          if (trust._tag === "Untrusted") return { _tag: "NotAllowed", state: "Blocked" } as const
+          return yield* credentials.act(slot.index, action, trust.runner.openProvider)
+        }),
+      ),
 
     credentials: () => store.entries(),
 
