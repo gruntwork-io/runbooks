@@ -173,6 +173,14 @@ function ToolItem({
           </div>
         )}
         {checked && <ResultLine result={result} />}
+        {checked && problem && result?.error && (
+          <pre
+            data-testid={`tool-error-${tool.name}`}
+            className="my-1 overflow-x-auto whitespace-pre-wrap break-words rounded-sm bg-muted px-2 py-1 font-mono text-xs text-foreground"
+          >
+            {result.error}
+          </pre>
+        )}
         {installHint &&
           (checked ? (
             <Reserved
@@ -242,5 +250,7 @@ function resultParts({ tool, status, path, version }: ToolResult): [string, stri
       return [`${version} at `, path ?? "", ` doesn't meet ${tool.version}.`]
     case "unknown_version":
       return ["Found at ", path ?? "", ", but the check couldn't read its version. See the logs."]
+    case "broken":
+      return ["Found at ", path ?? "", ", but it doesn't run:"]
   }
 }

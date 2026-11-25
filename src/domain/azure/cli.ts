@@ -53,6 +53,10 @@ export function azErrorLine(stderr: readonly string[]): string {
   const lines = stderr.map((line) => line.trim()).filter((line) => line !== "")
   const error = lines.find((line) => line.startsWith("ERROR:"))
   if (error) return error.replace(/^ERROR:\s*/, "")
+  // A wrapper that runs az, such as a mise shim, prints its cause first and a
+  // generic "Run with --verbose" hint last.
+  const wrapperError = lines.find((line) => /^[\w-]+ ERROR\s/.test(line))
+  if (wrapperError) return wrapperError
   const useful = lines.filter(
     (line) => !line.startsWith("WARNING:") && !/Warning:/.test(line) && !line.startsWith('"""'),
   )

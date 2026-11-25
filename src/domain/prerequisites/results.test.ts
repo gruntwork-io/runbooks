@@ -120,6 +120,79 @@ describe("prerequisitesOutputs", () => {
   })
 })
 
+const MISE_SHIM_ERROR = [
+  "mise ERROR No version is set for shim: tofu",
+  "Set a global default version with one of the following:",
+  "mise use -g tofu@1.8.2",
+  "mise ERROR Version: 2026.9.1 linux-x64 (2026-09-02)",
+  "mise ERROR Run with --verbose or MISE_VERBOSE=1 for more information",
+].join("\n")
+
+describe("checkTool", () => {
+  it("fails a tool whose version command exits with an error, even when its output has a version that fits", () => {
+    const { result, note } = checkTool(TOFU, "/shims/tofu", {
+      output: MISE_SHIM_ERROR,
+      exitCode: 1,
+    })
+    expect(result).toEqual({
+      tool: TOFU,
+      status: "broken",
+      path: "/shims/tofu",
+      version: null,
+      error: [
+        '"tofu --version" exited with code 1. It printed:',
+        "mise ERROR No version is set for shim: tofu",
+        "Set a global default version with one of the following:",
+        "mise use -g tofu@1.8.2",
+      ].join("\n"),
+    })
+    expect(note).toBeNull()
+    expect(
+      prerequisitesStatus(SPEC, [
+        evaluateTool(GIT, "/g", null),
+        result,
+        evaluateTool(GH, "/gh", "2.0"),
+      ]),
+    ).toBe("fail")
+  })
+
+  it("fails a tool without a constraint whose versionArgs exit with an error", () => {
+    expect(checkTool(GH, "/gh", { output: "", exitCode: 127 }).result).toMatchObject({
+      status: "broken",
+      error: '"gh --version" exited with code 127 and printed nothing.',
+    })
+  })
+
+  it("fails a tool whose version command doesn't finish", () => {
+    expect(checkTool(TOFU, "/t", { reason: "timeout", timeoutMs: 15_000 }).result).toMatchObject({
+      status: "broken",
+      error: '"tofu --version" didn\'t finish within 15 seconds.',
+    })
+  })
+
+  it("keeps an unreadable version from a command that exits 0 as an unknown version", () => {
+    expect(checkTool(TOFU, "/t", { output: "OpenTofu", exitCode: 0 }).result.status).toBe(
+      "unknown_version",
+    )
+  })
+
+  it("logs each line a broken tool printed", () => {
+    const tofu = checkTool(TOFU, "/shims/tofu", { output: MISE_SHIM_ERROR, exitCode: 1 })
+    expect(checkLog(SPEC, [checkTool(GIT, "/g", null), tofu, checkTool(GH, null, null)])).toEqual([
+      { level: "INFO", text: "git: found at /g" },
+      {
+        level: "ERROR",
+        text: 'tofu at /shims/tofu doesn\'t run: "tofu --version" exited with code 1. It printed:',
+      },
+      { level: "ERROR", text: "  mise ERROR No version is set for shim: tofu" },
+      { level: "ERROR", text: "  Set a global default version with one of the following:" },
+      { level: "ERROR", text: "  mise use -g tofu@1.8.2" },
+      { level: "WARN", text: "gh: not found on PATH. This tool is optional." },
+      { level: "ERROR", text: "Tools to install or update: tofu, gh (optional)." },
+    ])
+  })
+})
+
 describe("resultsFromOutputs", () => {
   it("works out the results a run's outputs came from", () => {
     const results: ToolResult[] = [
@@ -128,6 +201,13 @@ describe("resultsFromOutputs", () => {
       evaluateTool(GH, null, null),
     ]
     expect(resultsFromOutputs(SPEC, prerequisitesOutputs(results))).toEqual(results)
+
+    const broken = [
+      evaluateTool(GIT, "/usr/bin/git", null),
+      evaluateTool(TOFU, "/bin/tofu", null, '"tofu --version" exited with code 1.'),
+      evaluateTool(GH, "/gh", null, '"gh --version" exited with code 2.'),
+    ]
+    expect(resultsFromOutputs(SPEC, prerequisitesOutputs(broken))).toEqual(broken)
   })
 
   it("has no result for a tool the run didn't check", () => {

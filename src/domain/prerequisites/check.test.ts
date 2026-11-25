@@ -50,8 +50,25 @@ beforeAll(() => {
   fs.mkdirSync(lateBinDir)
   writeTool(binDir, "fake-tofu", 'echo "OpenTofu v1.8.2"; echo "on darwin_arm64"')
   writeTool(binDir, "stderr-tool", 'echo "stderr-tool version 0.9.0" >&2')
-  writeTool(binDir, "args-tool", 'echo "args: $*"; [ "$1 $2" = "version --client" ] && echo 3.1.4')
+  writeTool(
+    binDir,
+    "args-tool",
+    'echo "args: $*"; if [ "$1 $2" = "version --client" ]; then echo 3.1.4; fi',
+  )
   writeTool(binDir, "quiet-tool", "exit 3")
+  writeTool(binDir, "no-version-tool", 'echo "no version here"')
+  // What a mise shim prints when no version of its tool is set for the directory
+  writeTool(
+    binDir,
+    "shim-tool",
+    [
+      'echo "mise ERROR No version is set for shim: shim-tool" >&2',
+      'echo "Set a global default version with one of the following:" >&2',
+      'echo "mise use -g shim-tool@2.85.0" >&2',
+      'echo "mise ERROR Run with --verbose or MISE_VERBOSE=1 for more information" >&2',
+      "exit 1",
+    ].join("\n"),
+  )
   writeTool(binDir, "not-executable", "echo 1.0.0", 0o644)
   writeTool(lateBinDir, "late-tool", "echo late-tool 2.0.0")
   // bash itself has to stay findable, as on any real PATH
@@ -103,7 +120,7 @@ tools:
 tools:
   - name: fake-tofu
     version: ">= 1.9"
-  - name: quiet-tool
+  - name: no-version-tool
     version: ">= 1"
   - name: args-tool
     version: ">= 1"
@@ -119,11 +136,48 @@ tools:
     ])
     expect(log).toContainEqual({
       level: "WARN",
-      text: '"quiet-tool --version" printed nothing (exit code 3).',
+      text: '"no-version-tool --version" printed: no version here',
     })
     expect(log).toContainEqual({
       level: "WARN",
       text: '"args-tool --version" printed: args: --version',
+    })
+  })
+
+  it("fails a tool whose version command exits with an error, and shows what it printed", async () => {
+    const { results, log } = await run(
+      checkPrerequisites(
+        spec(`
+tools:
+  - name: shim-tool
+    version: ">= 2.60"
+  - name: quiet-tool
+    versionArgs: [version]
+`),
+        session(),
+      ),
+    )
+
+    expect(results.map(({ status, version, error }) => [status, version, error])).toEqual([
+      [
+        "broken",
+        null,
+        [
+          '"shim-tool --version" exited with code 1. It printed:',
+          "mise ERROR No version is set for shim: shim-tool",
+          "Set a global default version with one of the following:",
+          "mise use -g shim-tool@2.85.0",
+        ].join("\n"),
+      ],
+      ["broken", null, '"quiet-tool version" exited with code 3 and printed nothing.'],
+    ])
+    expect(log).toContainEqual({
+      level: "ERROR",
+      text: "  mise ERROR No version is set for shim: shim-tool",
+    })
+    expect(log.at(-1)).toEqual({
+      level: "ERROR",
+      text: "Tools to install or update: shim-tool, quiet-tool.",
     })
   })
 
