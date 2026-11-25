@@ -7,8 +7,9 @@
  * `./credentials.ts` keeps it so). Every value stays `Redacted`.
  *
  * It is the secret half of what a saved session needs: the event log has
- * every state, identity and expiry and no value. The session store (2.8)
- * saves `entries()` beside it.
+ * every state, identity and expiry and no value. The session saves a Ready
+ * block's values, encrypted, through the session store, so its provider
+ * can find the login in them again when the session resumes.
  */
 import type { BlockId } from "@runbooks/blocks-core/contract"
 import type { CredentialEnv } from "../credential/provider.ts"
@@ -17,7 +18,7 @@ export interface CredentialStore {
   readonly get: (block: BlockId) => CredentialEnv | undefined
   readonly set: (block: BlockId, env: CredentialEnv) => void
   readonly delete: (block: BlockId) => void
-  /** Every Ready block's values, for the session store to save. */
+  /** Every Ready block's values. */
   readonly entries: () => ReadonlyArray<readonly [BlockId, CredentialEnv]>
 }
 

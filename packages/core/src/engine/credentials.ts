@@ -22,6 +22,10 @@
  *   expiry, which withdraws its values. Before then the engine refreshes it
  *   through `env`, and a later expiry keeps it Ready. A run that reads it in
  *   the window fails, and one that sees a later expiry moves it.
+ * - A resumed session's block takes back its saved login once, at its
+ *   first detection, and only if its provider still finds a login in the
+ *   values its `env` gave before (`resumed`). It is Ready with no click:
+ *   the person signed in or confirmed it before.
  * - A provider opens with the CA bundle and proxy the settings hold then,
  *   and keeps them while it is open: a settings change reopens nothing.
  *   CheckAgain opens it again if they have changed, as it does from
@@ -76,6 +80,7 @@ import type {
   Target,
 } from "../credential/provider.ts"
 import type { CredentialStore } from "./credentialStore.ts"
+import type { SavedCredential } from "./sessionStore.ts"
 import type { CredentialHandle } from "./env.ts"
 import { type Held, hold, reveal } from "./held.ts"
 import type { ActResult, EngineEvent } from "./protocol.ts"
@@ -127,6 +132,8 @@ export interface CredentialHost {
   readonly store: CredentialStore
   /** The CA bundle and proxy the settings hold now. */
   readonly network: Effect.Effect<ProviderNetwork>
+  /** A resumed session's saved logins, by block. */
+  readonly resuming: ReadonlyMap<BlockId, SavedCredential>
 }
 
 /** A sign-in method's fields as a client sends them: every one redacted. */
@@ -698,10 +705,49 @@ export function makeCredentials(
       }
     })
 
+  /** The saved logins not yet tried: each is tried once, at its block's first detection. */
+  const resuming = new Map(host.resuming)
+
+  /**
+   * The block's saved login, Ready, if its provider still finds a login in
+   * the values its `env` gave before, under the names it gave them, and
+   * the targets chosen then, the block's pins and the expiry still hold.
+   * Any other answer, or an error, leaves the block to detect as it would.
+   * A block that names another provider now does not try it.
+   */
+  const resumed = (credential: Credential, opened: Opened): Effect.Effect<Option.Option<Move>> => {
+    const { id, block, request } = credential.slot
+    const saved = resuming.get(id)
+    resuming.delete(id)
+    if (saved === undefined || saved.provider !== block.provider)
+      return Effect.succeed(Option.none())
+    const values = Object.fromEntries(
+      Object.entries(saved.values).map(([name, value]) => [name, Redacted.make(value)]),
+    )
+    return bounded(
+      opened.provider.detect([{ kind: "values", values, from: id }], constraintsOf(request)),
+    ).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.succeed(Option.none<Move>()),
+          onSome: ({ identity }) =>
+            Effect.map(
+              accept(credential, opened, identity, saved.source, saved.targets),
+              (next): Option.Option<Move> =>
+                next._tag === "Ready" ? Option.some(next) : Option.none(),
+            ),
+        }),
+      ),
+      Effect.orElseSucceed(() => Option.none<Move>()),
+    )
+  }
+
   const detect = (credential: Credential, open: OpenProvider) =>
     start(credential, () =>
       Effect.gen(function* () {
         const opened = yield* openFor(credential, open)
+        const login = yield* resumed(credential, opened)
+        if (Option.isSome(login)) return login.value
         const { request } = credential.slot
         if (request.detect.length === 0) return signedOut(credential, opened)
         const found = yield* bounded(

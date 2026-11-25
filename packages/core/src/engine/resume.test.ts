@@ -4,7 +4,7 @@
  * outlive each start, as the app's do.
  */
 import { describe, expect, it } from "bun:test"
-import { Effect, Fiber, Layer, Schema, Stream } from "effect"
+import { Duration, Effect, Fiber, Layer, Option, Redacted, Schema, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import {
   BlockId,
@@ -15,8 +15,19 @@ import {
   TaskFailed,
 } from "@runbooks/blocks-core/contract"
 import type { FieldValue } from "@runbooks/blocks-core/form"
+import type { CredentialAction, CredentialStateTag } from "../credential/lifecycle.ts"
+import type {
+  CredentialEnv,
+  Identity,
+  ProviderInfo,
+  ResolvedSource,
+} from "../credential/provider.ts"
 import { FileSystem } from "../services/FileSystem.ts"
-import { testCredentialProviders } from "../test-utils/TestCredentialProviders.ts"
+import {
+  type ProviderCall,
+  type ScriptedProvider,
+  testCredentialProviders,
+} from "../test-utils/TestCredentialProviders.ts"
 import { testFileSystem } from "../test-utils/TestFileSystem.ts"
 import { type TestCipherOptions, testCiphertext } from "../test-utils/TestSessionCipher.ts"
 import {
@@ -89,7 +100,19 @@ const machine = (runbook: string, more: Readonly<Record<string, string>> = {}): 
 const start = <A, E>(
   on: Machine,
   program: Effect.Effect<A, E, Engine | Caller>,
-  { cipher = {}, testClock = false }: { cipher?: TestCipherOptions; testClock?: boolean } = {},
+  {
+    cipher = {},
+    testClock = false,
+    providers = {},
+    calls = [],
+  }: {
+    cipher?: TestCipherOptions
+    testClock?: boolean
+    /** Each credential provider's script, by name. */
+    providers?: Readonly<Record<string, () => ScriptedProvider>>
+    /** Where every provider call is noted. */
+    calls?: ProviderCall[]
+  } = {},
 ): Promise<A> =>
   Effect.runPromise(
     program.pipe(
@@ -102,7 +125,7 @@ const start = <A, E>(
           processEnvironment: {},
         }),
       ),
-      Effect.provide(testCredentialProviders({}, [])),
+      Effect.provide(testCredentialProviders(providers, calls)),
       Effect.provide(testSettingsStore()),
       Effect.provide(testSessionStore({ database: on.database, cipher })),
       Effect.provide(on.fileSystem),
@@ -132,6 +155,25 @@ const open = Effect.gen(function* () {
     set: (block: string, values: Readonly<Record<string, FieldValue>>) =>
       engine.setValues({ ...target(block), values }),
     reset: (block: string) => engine.resetBlock(target(block)),
+    act: (block: string, action: CredentialAction) =>
+      engine.actOnCredential({ ...target(block), action }),
+    /** The block's credential state once it moves to `tag`. */
+    until: (block: string, tag: CredentialStateTag) =>
+      engine.events({ session }).pipe(
+        Stream.filter(
+          ({ event }) =>
+            event._tag === "CredentialChanged" && event.block === block && event.state._tag === tag,
+        ),
+        Stream.runHead,
+        Effect.flatMap(Effect.fromOption),
+        Effect.timeoutOrElse({
+          duration: Duration.seconds(5),
+          orElse: () => Effect.die(new Error(`${block} did not move to ${tag}`)),
+        }),
+        Effect.flatMap(({ event }) =>
+          event._tag === "CredentialChanged" ? Effect.succeed(event.state) : Effect.die(event),
+        ),
+      ),
     block: (block: string) => engine.getBlock({ ...target(block), logLimit: 1_000 }),
     /** Closes the session, and gives every event it logged. */
     close: Effect.andThen(
@@ -489,5 +531,158 @@ describe("resuming a session", () => {
       }),
     )
     expect(deployed).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Credentials
+// ---------------------------------------------------------------------------
+
+const CLOUD_INFO: ProviderInfo = {
+  methods: [],
+  levels: [
+    { name: "account", label: "Account", chosen: "afterSignIn" },
+    { name: "role", label: "Role", chosen: "afterSignIn" },
+  ],
+  sources: [],
+  requirements: [],
+  names: ["CLOUD_TOKEN", "CLOUD_ACCOUNT", "account", "token"],
+}
+
+const WHO: Identity = {
+  principal: "arn:cloud::111:role/Admin",
+  kind: "role",
+  method: "sso",
+  targets: { account: { id: "111", name: "acct-111" }, role: { id: "Admin", name: "Admin" } },
+}
+
+const CLOUD_ENV: CredentialEnv = {
+  values: [
+    { name: "CLOUD_TOKEN", value: Redacted.make("tok-SECRET"), sensitive: true, to: ["env"] },
+    { name: "CLOUD_ACCOUNT", value: Redacted.make("111"), sensitive: false, to: ["env"] },
+  ],
+  expiresAt: Option.none(),
+}
+
+/** A cloud provider that finds the login in what `finds` accepts, and gives `CLOUD_ENV`. */
+const cloud = (finds: (source: ResolvedSource) => boolean) => (): ScriptedProvider => ({
+  info: CLOUD_INFO,
+  env: Effect.succeed(CLOUD_ENV),
+  detect: (sources) =>
+    Effect.succeed(
+      Option.fromUndefinedOr(
+        sources.find(finds) === undefined ? undefined : { identity: WHO, source: "env" },
+      ),
+    ),
+})
+
+/** Finds the login in the environment, as on the first start. */
+const inEnvironment = cloud((source) => source.kind === "env")
+/** Finds the login only in the values the block's own `env` gave before. */
+const inSavedValues = cloud(
+  (source) =>
+    source.kind === "values" &&
+    source.from === "cloud" &&
+    source.values.CLOUD_TOKEN !== undefined &&
+    Redacted.value(source.values.CLOUD_TOKEN) === "tok-SECRET",
+)
+const findsNothing = cloud(() => false)
+
+const PINNED = '<CloudLogin id="cloud" account="111" role="Admin" />'
+
+/** Opens the runbook, trusts it, and waits for `cloud` to be Ready. */
+const signedIn = Effect.gen(function* () {
+  const rb = yield* open
+  yield* rb.trust
+  return yield* rb.until("cloud", "Ready")
+})
+
+/** Each detection source `cloud`'s provider was asked to look in, by kind. */
+const detectedIn = (calls: ReadonlyArray<ProviderCall>) =>
+  calls.flatMap(({ block, method, args }) =>
+    block === "cloud" && method === "detect"
+      ? [(args[0] as ReadonlyArray<ResolvedSource>).map((source) => source.kind)]
+      : [],
+  )
+
+describe("resuming a credential", () => {
+  it("brings a Ready login back Ready once trusted, its provider finding it in the values it gave", async () => {
+    const on = machine(PINNED)
+    await start(on, signedIn, { providers: { cloud: inEnvironment } })
+    expect(inClear(on.database, "tok-SECRET")).toBe(false)
+
+    const calls: ProviderCall[] = []
+    const state = await start(
+      on,
+      Effect.flatMap(open, (rb) => rb.until("cloud", "Ready")),
+      { providers: { cloud: inSavedValues }, calls },
+    )
+    expect(state).toMatchObject({ _tag: "Ready", source: "env", identity: WHO })
+    expect(detectedIn(calls)).toEqual([["values"]])
+  })
+
+  it("brings back with no click a login the person confirmed for a block that pins nothing (open decision 7)", async () => {
+    const on = machine('<CloudLogin id="cloud" />')
+    await start(
+      on,
+      Effect.gen(function* () {
+        const rb = yield* open
+        yield* rb.trust
+        yield* rb.until("cloud", "Found")
+        yield* rb.act("cloud", { _tag: "Confirm" })
+        yield* rb.until("cloud", "Ready")
+      }),
+      { providers: { cloud: inEnvironment } },
+    )
+    const state = await start(
+      on,
+      Effect.flatMap(open, (rb) => rb.until("cloud", "Ready")),
+      { providers: { cloud: inSavedValues } },
+    )
+    expect(state._tag).toBe("Ready")
+  })
+
+  it("detects anew when the provider no longer finds the saved login, and forgets it once signed out", async () => {
+    const on = machine(PINNED)
+    await start(on, signedIn, { providers: { cloud: inEnvironment } })
+    const calls: ProviderCall[] = []
+    await start(
+      on,
+      Effect.flatMap(open, (rb) => rb.until("cloud", "SignedOut")),
+      { providers: { cloud: findsNothing }, calls },
+    )
+    expect(detectedIn(calls)).toEqual([["values"], ["env"]])
+    expect(on.database.events().filter(({ kind }) => kind === "credential")).toEqual([])
+  })
+
+  it("keeps a saved login through a start whose provider cannot be reached", async () => {
+    const on = machine(PINNED)
+    await start(on, signedIn, { providers: { cloud: inEnvironment } })
+    await start(
+      on,
+      Effect.flatMap(open, (rb) => rb.until("cloud", "Unavailable")),
+      { providers: {} },
+    )
+    const state = await start(on, signedIn, { providers: { cloud: inSavedValues } })
+    expect(state._tag).toBe("Ready")
+  })
+
+  it("opens no provider for a resumed session that is not trusted", async () => {
+    const on = machine(PINNED)
+    await start(on, signedIn, { providers: { cloud: inEnvironment } })
+    on.files[RUNBOOK] = `${PINNED}\n\n<Note>Changed.</Note>`
+    const calls: ProviderCall[] = []
+    const view = await start(
+      on,
+      Effect.gen(function* () {
+        const rb = yield* open
+        return yield* rb.block("cloud")
+      }),
+      { providers: { cloud: inSavedValues }, calls },
+    )
+    // A trusted session starts the block's lifecycle in the step that trusts it.
+    expect(view.credential).toBeUndefined()
+    expect(view.status).toEqual(UNTRUSTED)
+    expect(calls).toEqual([])
   })
 })
