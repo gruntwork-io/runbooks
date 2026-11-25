@@ -67,7 +67,7 @@ const run = defineTask({
 })
 
 /** A field as a toy form's YAML writes it: a `Field` whose flags default to off. */
-const ToyField = Schema.Struct({
+export const ToyField = Schema.Struct({
   name: Schema.String,
   type: FieldType,
   default: Schema.optionalKey(FieldValue),
@@ -80,7 +80,7 @@ const ToyField = Schema.Struct({
   showWhen: Schema.optionalKey(Schema.Record(Schema.String, Schema.Array(Schema.String))),
 })
 
-const toyFormSpec = (fields: ReadonlyArray<typeof ToyField.Type>): FormSpec => ({
+export const toyFormSpec = (fields: ReadonlyArray<typeof ToyField.Type>): FormSpec => ({
   fields: fields.map((field) => ({
     description: "",
     required: false,
