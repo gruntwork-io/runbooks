@@ -15,13 +15,24 @@ import { nearest } from "./nearest.ts"
 export interface WrittenReference {
   /** The index of the block that reads. */
   readonly from: number
-  /** The prop the reference is written in. */
-  readonly prop: string
+  /**
+   * The prop the reference is written in, or that names the file it is in.
+   * Absent for a file no prop holds as written.
+   */
+  readonly prop?: string
   readonly target: BlockId
   /** The target's id as written, for messages. */
   readonly targetAsWritten: string
   readonly source: EdgeSource
+  /** In the runbook, or in `inFile` when there is one. */
   readonly span: Span
+  /** A file a block names, when the reference is written in it. */
+  readonly inFile?: {
+    /** Relative to the runbook's folder, for messages. */
+    readonly path: string
+    /** As error locations name it. */
+    readonly location: string
+  }
 }
 
 /** Reports one configuration error at a reference, in the block at `index`, the reading block. */
@@ -31,9 +42,10 @@ export type Report = (
   span: Span,
   more: {
     readonly block: { readonly tag: string; readonly id?: string }
-    readonly prop: string
+    readonly prop?: string
     readonly suggestion?: string
     readonly index: number
+    readonly file?: string
   },
 ) => void
 
@@ -93,7 +105,7 @@ export function referenceGraph(
       from: reference.from,
       to: target.index,
       source: reference.source,
-      file,
+      file: reference.inFile?.location ?? file,
       span: reference.span,
     })
     madeBy.push(reference)
@@ -104,8 +116,13 @@ export function referenceGraph(
 
 /** "`dependsOn` on <Command id="deploy"> names "setup"", or the template it reads. */
 function what(reference: WrittenReference, from: BlockNode): string {
-  const { source, prop, targetAsWritten } = reference
-  const where = `\`${prop}\` on ${named(from)}`
+  const { source, prop, targetAsWritten, inFile } = reference
+  const where =
+    inFile !== undefined
+      ? `${inFile.path}, a file ${named(from)} names,`
+      : prop === undefined
+        ? named(from)
+        : `\`${prop}\` on ${named(from)}`
   return source._tag === "Prop"
     ? `${where} names "${targetAsWritten}"`
     : `${where} reads {{ .outputs.${targetAsWritten}.${source.key} }}`
@@ -118,7 +135,8 @@ function named(node: BlockNode): string {
 function at(reference: WrittenReference, from: BlockNode) {
   return {
     block: { tag: from.tag, ...(from.idAsWritten !== undefined ? { id: from.idAsWritten } : {}) },
-    prop: reference.prop,
+    ...(reference.prop !== undefined ? { prop: reference.prop } : {}),
+    ...(reference.inFile !== undefined ? { file: reference.inFile.location } : {}),
     index: from.index,
   }
 }

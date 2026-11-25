@@ -5,9 +5,15 @@
  * same runbooks with the same messages.
  */
 import { createHash } from "node:crypto"
+import { posix } from "node:path"
 import { Result, Schema, SchemaAST, SchemaIssue } from "effect"
 import YAML from "yaml"
-import { BlockId, type Capability, type ReferenceValue } from "@runbooks/blocks-core/contract"
+import {
+  BlockId,
+  type Capability,
+  type ReferenceValue,
+  type RunbookPath,
+} from "@runbooks/blocks-core/contract"
 import { type AnyBlock, type Registry, resolveTag } from "@runbooks/blocks-core/registry"
 import {
   type BlockErrorCode,
@@ -27,6 +33,7 @@ import {
   SharedProps,
   type TreeNode,
 } from "./document.ts"
+import type { FileFact, FileText } from "./files.ts"
 import { referenceGraph, type WrittenReference } from "./graph.ts"
 import { refusals } from "./literalOnly.ts"
 import {
@@ -50,16 +57,37 @@ export interface ParseOptions {
 
 /**
  * The document `source` parses to with `registry`'s blocks, or every
- * configuration error in it. A runbook whose front matter needs another
- * version of Runbooks gets only that error: its other problems are likely the
- * blocks a later version added.
+ * configuration error in it. `files` holds what is at each path a block
+ * names, as `loadRunbook` reads it. A path missing from it is a `badFile`
+ * error, so a document's hash never leaves out a file a block uses.
+ *
+ * A runbook whose front matter needs another version of Runbooks gets only
+ * that error: its other problems are likely the blocks a later version added.
  */
 export function parseRunbook(
   source: string,
   registry: Registry,
   options: ParseOptions,
+  files: ReadonlyMap<RunbookPath, FileFact> = new Map(),
 ): ParseResult {
-  return new Parse(source, registry, options).run()
+  return startParse(source, registry, options).finish(files)
+}
+
+/** A parse in two steps, for a caller that reads the files the blocks name in between. */
+export interface StartedParse {
+  /** Each path a block names, once, relative to the runbook's folder. */
+  readonly files: ReadonlyArray<RunbookPath>
+  readonly finish: (files: ReadonlyMap<RunbookPath, FileFact>) => ParseResult
+}
+
+export function startParse(
+  source: string,
+  registry: Registry,
+  options: ParseOptions,
+): StartedParse {
+  const parse = new Parse(source, registry, options)
+  const files = parse.start()
+  return { files, finish: (facts) => parse.finish(facts) }
 }
 
 /**
@@ -122,10 +150,21 @@ interface Written {
 
 type Where = { readonly tag: string; readonly id?: string }
 
-/** The rest of an error: its details, and the block and prop it is in. */
+/** The rest of an error: its details, and the block, prop and file it is in. */
 type ErrorDetail = Partial<Pick<ConfigError, "expected" | "received" | "suggestion">> & {
   readonly block?: Where
   readonly prop?: string
+  /** A file the runbook's blocks name, when the error is in it. */
+  readonly file?: string
+}
+
+/** A path a block names, with the prop that names it when one holds it as written. */
+interface NamedFile {
+  readonly index: number
+  readonly path: RunbookPath
+  readonly where: Where
+  readonly prop?: string
+  readonly span: Span
 }
 
 class Parse {
@@ -139,6 +178,12 @@ class Parse {
   private readonly references: WrittenReference[] = []
   /** Attribute and expression nodes the literal check refused, which have no value to read. */
   private readonly refused = new Set<MdxNode>()
+  /** Every path a block names, in file order. */
+  private readonly named: NamedFile[] = []
+  private frontMatterRead: FrontMatter = {}
+  private tree: TreeNode = { type: "root", children: [] }
+  /** The result when the parse stopped early, at the front matter's version or a syntax error. */
+  private stopped: ParseResult | undefined
 
   private readonly source: string
   private readonly registry: Registry
@@ -150,16 +195,21 @@ class Parse {
     this.options = options
   }
 
-  run(): ParseResult {
+  /** Reads the runbook. Returns each path its blocks name, once, for `finish`. */
+  start(): ReadonlyArray<RunbookPath> {
     const { yaml, body } = splitFrontMatter(this.source)
-    const frontMatter = yaml === undefined ? {} : this.frontMatter(yaml)
+    if (yaml !== undefined) this.frontMatterRead = this.frontMatter(yaml)
     const version = this.errors.find((error) => error.code === "versionRequired")
-    if (version !== undefined) return this.invalid(version)
+    if (version !== undefined) {
+      this.stopped = this.invalid(version)
+      return []
+    }
 
     const parsed = parseMdx(body)
     if ("problem" in parsed) {
       const { reason, at } = parsed.problem
-      return this.invalid(this.error("syntax", reason, { start: at, end: at }))
+      this.stopped = this.invalid(this.error("syntax", reason, { start: at, end: at }))
+      return []
     }
 
     for (const refusal of refusals(parsed.tree)) {
@@ -172,8 +222,25 @@ class Parse {
       })
     }
 
-    const [tree = { type: "root", children: [] }] = this.node(parsed.tree)
+    const [tree] = this.node(parsed.tree)
+    if (tree !== undefined) this.tree = tree
     this.duplicateIds()
+    return [...new Set(this.named.map((named) => named.path))]
+  }
+
+  /** The result, given what is at each path `start` returned. */
+  finish(files: ReadonlyMap<RunbookPath, FileFact>): ParseResult {
+    if (this.stopped !== undefined) return this.stopped
+    const hashes = new Map<RunbookPath, ContentHash>()
+    for (const named of this.named) {
+      const fact = files.get(named.path)
+      if (fact?._tag === "Found") {
+        hashes.set(named.path, fact.hash)
+        this.fileReads(named, fact.texts)
+      } else {
+        this.badFile(named, fact)
+      }
+    }
     const blocks = this.blocks.filter((block) => block !== undefined)
     const edges = referenceGraph(
       blocks,
@@ -191,16 +258,56 @@ class Parse {
       _tag: "Parsed",
       document: {
         file: this.options.file,
-        frontMatter,
-        tree,
+        frontMatter: this.frontMatterRead,
+        tree: this.tree,
         blocks: blocks.map((node) => ({
           ...node,
           errors: [...(this.blockErrors.get(node.index) ?? [])].sort(order),
         })),
         edges,
-        hash: documentHash(this.source),
+        hash: documentHash(this.source, hashes),
         warnings: [...this.warnings].sort(order),
       },
+    }
+  }
+
+  /** A file the loader did not find inside the runbook's folder, or did not read. */
+  private badFile(named: NamedFile, fact: FileFact | undefined): void {
+    const { where, prop } = named
+    const block = where.id === undefined ? `<${where.tag}>` : `<${where.tag} id="${where.id}">`
+    const subject = `${prop === undefined ? block : `\`${prop}\` on ${block}`} names ${named.path}`
+    const message =
+      fact === undefined
+        ? `${subject}, which was not read. Load the runbook with loadRunbook, which reads the files its blocks name.`
+        : fact._tag === "Outside"
+          ? `${subject}, which is outside the runbook's folder. A block can only name files in its runbook's folder.`
+          : `${subject}, which doesn't exist. The path is relative to the runbook's folder.`
+    this.error("badFile", message, named.span, {
+      index: named.index,
+      block: where,
+      ...(prop !== undefined ? { prop } : {}),
+    })
+  }
+
+  /** Each `{{ .outputs.<id>.<key> }}` in the files a block names, at its line in the file. */
+  private fileReads(named: NamedFile, texts: ReadonlyArray<FileText>): void {
+    for (const { path: relative, text } of texts) {
+      const inFile = {
+        path: relative,
+        location: posix.join(posix.dirname(this.options.file), relative),
+      }
+      for (const reference of templateReferences(text)) {
+        if (reference._tag !== "Output") continue
+        this.references.push({
+          from: named.index,
+          ...(named.prop !== undefined ? { prop: named.prop } : {}),
+          target: reference.block,
+          targetAsWritten: reference.blockAsWritten,
+          source: { _tag: "Template", key: reference.key, guarded: reference.guarded },
+          span: reference.span,
+          inFile,
+        })
+      }
     }
   }
 
@@ -236,12 +343,12 @@ class Parse {
     span: Span,
     more: ErrorDetail & { readonly index?: number } = {},
   ): ConfigError {
-    const { block, prop, index, ...detail } = more
+    const { block, prop, index, file, ...detail } = more
     const error = new ConfigError({
       code,
       message,
       location: {
-        file: this.options.file,
+        file: file ?? this.options.file,
         span,
         ...(block ? { block } : {}),
         ...(prop !== undefined ? { prop } : {}),
@@ -439,6 +546,17 @@ class Parse {
       const skip = yamlRead ? undefined : childrenProp
       this.badProps(index, props.failure.issue, written, span, where, childrenProp, skip)
     } else {
+      for (const file of block.runbookFiles(props.success)) {
+        const prop = [...written].find(([, value]) => value.value === file)?.[0]
+        const at = prop === undefined ? undefined : written.get(prop)
+        this.named.push({
+          index,
+          path: file,
+          where,
+          span: at?.span ?? span,
+          ...(prop ? { prop } : {}),
+        })
+      }
       for (const [prop, capability] of Object.entries(block.references)) {
         const value: unknown = props.success[prop]
         if (capability === undefined || !isReferenceValue(value)) continue
@@ -804,13 +922,17 @@ function excerpt(value: PropValue): string {
   return text.length > 60 ? `${text.slice(0, 57)}...` : text
 }
 
-/**
- * The runbook's hash. The files a block names are hashed with it by the
- * loader; until then `combined` is over the runbook alone.
- */
-function documentHash(source: string): DocumentHash {
+/** The runbook's hash, each file's, and one over both, the files in path order. */
+function documentHash(source: string, files: ReadonlyMap<RunbookPath, ContentHash>): DocumentHash {
   const runbook = toHash(sha256(source))
-  return { runbook, files: {}, combined: toHash(sha256(JSON.stringify({ runbook, files: [] }))) }
+  const entries = [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  const record: Record<RunbookPath, ContentHash> = {}
+  for (const [file, hash] of entries) record[file] = hash
+  return {
+    runbook,
+    files: record,
+    combined: toHash(sha256(JSON.stringify({ runbook, files: entries }))),
+  }
 }
 
 const sha256 = (text: string) => `sha256:${createHash("sha256").update(text).digest("hex")}`
