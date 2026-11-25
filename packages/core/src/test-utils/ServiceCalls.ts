@@ -45,6 +45,8 @@ export function recordFileSystem(inner: FileSystemShape, calls: ServiceCall[]): 
     copyFile: (...args) => effect("copyFile", args, () => inner.copyFile(...args)),
     mkdtemp: (...args) => effect("mkdtemp", args, () => inner.mkdtemp(...args)),
     realpath: (...args) => effect("realpath", args, () => inner.realpath(...args)),
+    isContainedInReal: (...args) =>
+      effect("isContainedInReal", args, () => inner.isContainedInReal(...args)),
     walk: (...args) => stream("walk", args, () => inner.walk(...args)),
     watch: (...args) => stream("watch", args, () => inner.watch(...args)),
   }

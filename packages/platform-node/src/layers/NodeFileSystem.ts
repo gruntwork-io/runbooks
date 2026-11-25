@@ -19,6 +19,7 @@ import {
   FileWriteError,
   FileWatchError,
 } from "@runbooks/core/errors"
+import { isContainedInReal } from "../path-validation.ts"
 
 function mapReadError(err: unknown, filePath: string): FileNotFoundError | FileReadError {
   if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
@@ -127,6 +128,10 @@ const impl: FileSystemShape = {
       try: () => fs.realpath(filePath),
       catch: () => new FileNotFoundError({ path: filePath }),
     }),
+
+  // It answers false, never fails, when a path cannot be resolved.
+  isContainedInReal: (filePath: string, container: string) =>
+    Effect.promise(() => isContainedInReal(filePath, container)),
 
   walk: (dir: string) =>
     // The walk runs detached from the register effect, which only starts it,
