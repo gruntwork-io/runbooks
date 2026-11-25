@@ -120,6 +120,7 @@ export interface CredentialHost {
 type Fields = { readonly [name: string]: Redacted.Redacted<string> }
 
 type Ready = Extract<CredentialState, { readonly _tag: "Ready" }>
+type SigningIn = Extract<CredentialState, { readonly _tag: "SigningIn" }>
 type ChoosingTarget = Extract<CredentialState, { readonly _tag: "ChoosingTarget" }>
 
 /**
@@ -184,6 +185,9 @@ const signInFields = (method: MethodView, given: Fields): Fields => ({
   ),
   ...given,
 })
+
+/** A sign-in that has shown nothing yet. */
+const signingIn = (method: string): SigningIn => ({ _tag: "SigningIn", method, waiting: false })
 
 /** Whether an error means the provider cannot serve the block at all, so trying again needs it reopened. */
 function isUnavailable(kind: CredentialErrorKind): boolean {
@@ -686,12 +690,12 @@ export function makeCredentials(
           } satisfies Move
         }
         let identity: Identity | undefined
-        const prompt = (next: Extract<Move, { _tag: "SigningIn" }>["prompt"]) =>
-          record(credential, turn, {
-            _tag: "SigningIn",
-            method,
-            ...(next === undefined ? {} : { prompt: next }),
-          })
+        let shown = signingIn(method)
+        /** Shows a prompt on top of what the earlier ones showed. */
+        const show = (prompt: Partial<Omit<SigningIn, "_tag" | "method">>) => {
+          shown = { ...shown, ...prompt }
+          return record(credential, turn, shown)
+        }
         yield* bounded(
           Stream.runForEach(
             opened.provider.signIn(method, fields, {
@@ -704,8 +708,7 @@ export function makeCredentials(
                   identity = event.identity
                   return Effect.void
                 case "OpenUrl":
-                  return prompt({
-                    _tag: "OpenUrl",
+                  return show({
                     url: event.url,
                     ...Option.match(event.code, {
                       onNone: () => ({}),
@@ -713,9 +716,9 @@ export function makeCredentials(
                     }),
                   })
                 case "ShowCode":
-                  return prompt({ _tag: "ShowCode", code: event.code })
+                  return show({ code: event.code })
                 case "Waiting":
-                  return prompt({ _tag: "Waiting" })
+                  return show({ waiting: true })
               }
             },
           ),
@@ -775,9 +778,7 @@ export function makeCredentials(
       const next = choosing.value
       switch (next._tag) {
         case "SignIn":
-          yield* host.update((emit) =>
-            move(credential, { _tag: "SigningIn", method: next.method }, emit),
-          )
+          yield* host.update((emit) => move(credential, signingIn(next.method), emit))
           yield* signIn(credential, opened, next.method, next.fields, chosen)
           return accepted
         case "Accept": {
@@ -916,9 +917,7 @@ export function makeCredentials(
                 provider.methods.map((candidate) => candidate.name),
               )
             yield* stop(credential)
-            yield* host.update((emit) =>
-              move(credential, { _tag: "SigningIn", method: method.name }, emit),
-            )
+            yield* host.update((emit) => move(credential, signingIn(method.name), emit))
             yield* signIn(
               credential,
               provider,

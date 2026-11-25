@@ -28,13 +28,6 @@ export const MethodView = Schema.Struct({
 })
 export type MethodView = typeof MethodView.Type
 
-export const SignInPrompt = Schema.Union([
-  Schema.TaggedStruct("OpenUrl", { url: Schema.String, code: Schema.optionalKey(Schema.String) }),
-  Schema.TaggedStruct("ShowCode", { code: Schema.String }),
-  Schema.TaggedStruct("Waiting", {}),
-])
-export type SignInPrompt = typeof SignInPrompt.Type
-
 export const CredentialState = Schema.Union([
   Schema.TaggedStruct("Detecting", {}),
   /** A login was found in a source and the block pins nothing, so the person confirms it. */
@@ -45,9 +38,18 @@ export const CredentialState = Schema.Union([
     /** Why the last attempt did not sign in: cancelled, access denied. */
     lastError: Schema.optionalKey(CredentialError),
   }),
+  /**
+   * The sign-in's prompts add up: a device flow shows its URL and code, then
+   * says it is waiting, and the person still needs the code.
+   */
   Schema.TaggedStruct("SigningIn", {
     method: Schema.String,
-    prompt: Schema.optionalKey(SignInPrompt),
+    /** The page to open, from an `OpenUrl` prompt. */
+    url: Schema.optionalKey(Schema.String),
+    /** The code to enter, from `OpenUrl` or `ShowCode`. */
+    code: Schema.optionalKey(Schema.String),
+    /** False until the provider says it is waiting on the person. */
+    waiting: Schema.Boolean,
   }),
   /**
    * One level is being chosen. Before sign-in (GitAuth's provider and host)
@@ -100,7 +102,7 @@ export type CredentialAction = typeof CredentialAction.Type
 /**
  * Every move the engine may make. The engine's tests check each transition
  * it makes against this table. A state that lists itself may change its
- * fields in place: the next level to choose, a sign-in's next prompt, a
+ * fields in place: the next level to choose, a sign-in's prompts, a
  * refreshed credential's expiry.
  */
 export const TRANSITIONS: {

@@ -501,7 +501,7 @@ const HOSTS = [
 ]
 
 describe("signing in", () => {
-  it("shows each prompt of a sign-in, then is ready", async () => {
+  it("keeps a sign-in's URL and code while it waits, then is ready", async () => {
     let release = () => {}
     const released = new Promise<void>((resolve) => {
       release = resolve
@@ -538,16 +538,21 @@ describe("signing in", () => {
           expect(yield* rb.until("cloud", "SigningIn")).toEqual({
             _tag: "SigningIn",
             method: "sso",
+            waiting: false,
           })
           expect(yield* rb.until("cloud", "SigningIn")).toEqual({
             _tag: "SigningIn",
             method: "sso",
-            prompt: { _tag: "OpenUrl", url: "https://device.example/", code: "ABCD-1234" },
+            url: "https://device.example/",
+            code: "ABCD-1234",
+            waiting: false,
           })
           expect(yield* rb.until("cloud", "SigningIn")).toEqual({
             _tag: "SigningIn",
             method: "sso",
-            prompt: { _tag: "Waiting" },
+            url: "https://device.example/",
+            code: "ABCD-1234",
+            waiting: true,
           })
           expect(yield* rb.status("cloud")).toEqual({ _tag: "Running" })
           expect(yield* rb.status("deploy")).toEqual(WAITING_FOR_CLOUD)
