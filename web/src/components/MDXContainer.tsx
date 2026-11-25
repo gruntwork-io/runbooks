@@ -26,6 +26,7 @@ import { Finish } from "@/components/mdx/Finish"
 import { Prerequisites } from "@/components/mdx/Prerequisites"
 import { Admonition } from "@/components/mdx/Admonition"
 import { Chapter } from "@/components/mdx/Chapter"
+import { ShowWhen } from "@/components/mdx/ShowWhen"
 import { rehypeChapters } from "@/components/mdx/Chapter/rehypeChapters"
 import { Iframe } from "@/components/mdx/Iframe"
 import { AwsAuth } from "@/components/mdx/AwsAuth"
@@ -370,6 +371,7 @@ export const MDX_COMPONENTS = {
   // Utility components
   Admonition,
   Chapter,
+  ShowWhen,
   Iframe,
   a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
   pre: CodeBlock, // Code blocks with copy-on-hover button

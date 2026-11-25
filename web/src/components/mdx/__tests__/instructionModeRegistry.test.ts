@@ -57,7 +57,8 @@ const ALIAS_SOURCE: Record<string, string> = {
 // - Admonition is already a static callout.
 // - Iframe only displays a page.
 // - Chapter only groups other blocks, which flatten as themselves.
-const PASSTHROUGH_BLOCKS = ["Inputs", "Admonition", "Chapter", "Iframe"] as const
+// - ShowWhen shows every case, each with its condition, as nothing runs to decide.
+const PASSTHROUGH_BLOCKS = ["Inputs", "Admonition", "Chapter", "ShowWhen", "Iframe"] as const
 
 // Non-block element overrides (not runbook blocks).
 // - `input` makes GFM task-list checkboxes interactive (no instruction-mode behavior).

@@ -90,7 +90,7 @@ Every block with a button, picker or form gives an agent the same controls it gi
 
 Some steps need the person at the window: a browser sign-in, an MFA prompt, a device code, or a page in an `<Iframe>`. Then the block's `needsHuman` says what to do, such as "open https://microsoft.com/devicelogin and enter the code XYZ123", and the agent tells you and waits. An agent can sign in with a personal access token, but it never types other secrets, such as an access key or a client secret: use a credential the environment already has, or enter it in the window yourself.
 
-`<TemplateInline>` has no button. An agent sees its status and what it waits for. An `<Admonition>` reports its status, and one with a confirmation button can be confirmed, except the trust banner, which is yours to confirm. A `<Chapter>` reports its steps' progress and can be shown. When an agent acts on a block in a hidden chapter, the window shows that chapter first.
+`<TemplateInline>` has no button. An agent sees its status and what it waits for. An `<Admonition>` reports its status, and one with a confirmation button can be confirmed, except the trust banner, which is yours to confirm. A `<Chapter>` reports its steps' progress and can be shown. A `<ShowWhen>` reports its condition and whether its content shows; an agent can see and run the blocks in hidden content, as they stay loaded. When an agent acts on a block in a hidden chapter, the window shows that chapter first.
 
 ### Long runs and logs
 

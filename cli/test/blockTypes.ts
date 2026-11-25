@@ -29,6 +29,7 @@ export const BLOCK_TYPES = [
   "DirPicker",
   "Admonition",
   "Chapter",
+  "ShowWhen",
   "Iframe",
 ] as const
 

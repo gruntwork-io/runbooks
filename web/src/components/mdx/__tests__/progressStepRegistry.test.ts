@@ -57,13 +57,14 @@ const STEP_SOURCE: Record<string, string> = {
 // - TemplateInline renders files from another block's values, with nothing of
 //   its own for the user to do.
 // - Admonition and Iframe only display something.
-// - Chapter only groups other blocks, which count as themselves.
+// - Chapter and ShowWhen only group other blocks, which count as themselves.
 // - `a`, `pre` and `input` override plain elements. A task-list checkbox
 //   (`input`) belongs to the author's own list, not to a block.
 const NOT_STEPS = [
   "TemplateInline",
   "Admonition",
   "Chapter",
+  "ShowWhen",
   "Iframe",
   "a",
   "pre",

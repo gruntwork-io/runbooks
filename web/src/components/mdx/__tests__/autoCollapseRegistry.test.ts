@@ -74,6 +74,7 @@ const NOT_COLLAPSIBLE = [
   "TemplateInline",
   "Admonition",
   "Chapter",
+  "ShowWhen",
   "Iframe",
   "a",
   "pre",
