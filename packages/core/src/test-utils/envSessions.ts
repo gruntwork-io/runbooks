@@ -18,9 +18,11 @@
  *   script printed, and declares the outputs in `declares`.
  *
  * Credential blocks open their providers from `providers`, which by default
- * has none, so each such block is Unavailable.
+ * has none, so each such block is Unavailable. With `testClock`, time moves
+ * only when the test adjusts it.
  */
 import { Duration, Effect, Fiber, Layer, Redacted, Schema, Stream } from "effect"
+import { TestClock } from "effect/testing"
 import {
   BlockId,
   defineTask,
@@ -251,6 +253,7 @@ export const withEnvSession = <A>(
     readonly fileSystem: Layer.Layer<FileSystem>
     readonly spawner: Layer.Layer<ProcessSpawner>
     readonly providers?: Layer.Layer<CredentialProviders>
+    readonly testClock?: boolean
   },
   use: UseEnvSession<A>,
 ): Promise<A> => {
@@ -337,6 +340,7 @@ export const withEnvSession = <A>(
       Effect.provide(setup.providers ?? testCredentialProviders({}, [])),
       Effect.provide(Layer.merge(setup.fileSystem, setup.spawner)),
       Effect.provideService(Caller, { origin: "person" }),
+      setup.testClock === true ? Effect.provide(TestClock.layer()) : (effect) => effect,
     ),
   )
 }
