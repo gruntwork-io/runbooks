@@ -31,6 +31,20 @@ export const Field = Schema.StructWithRest(
     label: Schema.String,
     required: Schema.Boolean,
     secret: Schema.Boolean,
+    choices: Schema.optionalKey(
+      Schema.Array(
+        Schema.StructWithRest(Schema.Struct({ value: Schema.String, label: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
+        ]),
+      )
+        .annotate({
+          description:
+            "The values the view offers to pick from: AWS profiles. Never on a secret field. The plugin answers invalidParams for a value it did not list.",
+        })
+        .check(
+          Schema.isMaxLength(1000).annotate({ expected: "a value with a length of at most 1000" }),
+        ),
+    ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "field" })

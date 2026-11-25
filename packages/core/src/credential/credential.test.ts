@@ -11,7 +11,7 @@ import {
   confirmsDetected,
   statusOf,
 } from "./lifecycle.ts"
-import { Identity } from "./provider.ts"
+import { Identity, MethodField } from "./provider.ts"
 
 const decode =
   <S extends Schema.Top & { readonly DecodingServices: never }>(schema: S) =>
@@ -100,6 +100,19 @@ describe("credential wire schema", () => {
       expect(decode(schema)(warned(10)).warnings).toHaveLength(10)
       expect(() => decode(schema)(warned(11))).toThrow()
     }
+  })
+
+  it("lets a field list at most 1,000 choices, and never on a secret field", () => {
+    const profile = { name: "profile", label: "Profile", required: true }
+    const choices = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({ value: `p${i}`, label: `Profile ${i}` }))
+    for (const schema of [Wire.Field, MethodField]) {
+      expect(
+        decode(schema)({ ...profile, secret: false, choices: choices(1000) }).choices,
+      ).toHaveLength(1000)
+      expect(() => decode(schema)({ ...profile, secret: false, choices: choices(1001) })).toThrow()
+    }
+    expect(() => decode(MethodField)({ ...profile, secret: true, choices: choices(1) })).toThrow()
   })
 
   it("rejects an identity kind and a level timing it does not define", () => {

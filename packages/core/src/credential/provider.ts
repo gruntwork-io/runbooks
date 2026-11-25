@@ -50,13 +50,38 @@ export const Identity = Schema.Struct({
 })
 export type Identity = typeof Identity.Type
 
-/** One input of a sign-in method. A `secret` field is typed into a masked input and travels one way. */
-export const MethodField = Schema.Struct({
+/** The most choices one field lists, as the wire's `field.choices` allows. */
+const MAX_CHOICES = 1_000
+
+const fieldParts = {
   name: Schema.String,
   label: Schema.String,
   required: Schema.Boolean,
-  secret: Schema.Boolean,
-})
+}
+
+/**
+ * One input of a sign-in method. A `secret` field is typed into a masked
+ * input and travels one way, so it lists no choices.
+ */
+export const MethodField = Schema.Union([
+  Schema.Struct({
+    ...fieldParts,
+    secret: Schema.Literal(false),
+    /** The values the view offers to pick from: AWS profiles. The provider refuses any other. */
+    choices: Schema.optionalKey(
+      Schema.Array(Schema.Struct({ value: Schema.String, label: Schema.String })).check(
+        Schema.isMaxLength(MAX_CHOICES),
+      ),
+    ),
+  }),
+  Schema.Struct({
+    ...fieldParts,
+    secret: Schema.Literal(true),
+    choices: Schema.optionalKey(
+      Schema.Never.annotate({ message: "A secret field lists no choices." }),
+    ),
+  }),
+])
 export type MethodField = typeof MethodField.Type
 
 /** A sign-in method: one tab in the auth view. */
