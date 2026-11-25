@@ -3,9 +3,10 @@
  * and reads what each rule reports.
  */
 import { describe, expect, it } from "bun:test"
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import plugin from "./oxlint-plugin.ts"
 
 const REPO = path.resolve(import.meta.dirname, "..")
 const OXLINT = path.join(REPO, "node_modules", ".bin", "oxlint")
@@ -15,6 +16,7 @@ const RULES = [
   "no-import-between-blocks",
   "no-react-in-block-ts",
   "block-name-outside-its-folder",
+  "plugin-binary-outside-owner",
 ]
 
 interface Finding {
@@ -31,8 +33,8 @@ interface Diagnostic {
   readonly labels: ReadonlyArray<{ readonly span: { readonly line: number } }>
 }
 
-/** What this plugin's rules report on `files`, by path from the tree's root, in file and line order. */
-function lint(files: Record<string, string>): Finding[] {
+/** Runs oxlint with every rule of this plugin over `files`, in a temporary folder, with `args`. */
+function oxlint(files: Record<string, string>, args: ReadonlyArray<string>) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "runbooks-lint-")))
   try {
     for (const [file, text] of Object.entries(files)) {
@@ -44,22 +46,27 @@ function lint(files: Record<string, string>): Finding[] {
       rules: Object.fromEntries(RULES.map((rule) => [`runbooks/${rule}`, ["error", { root }]])),
     }
     writeFileSync(path.join(root, ".oxlintrc.json"), JSON.stringify(config))
-    const run = Bun.spawnSync([OXLINT, "-c", ".oxlintrc.json", "-f", "json", "."], { cwd: root })
-    const { diagnostics } = JSON.parse(run.stdout.toString()) as {
-      diagnostics: ReadonlyArray<Diagnostic>
-    }
-    return diagnostics
-      .filter((d) => d.code.startsWith("runbooks("))
-      .map((d) => ({
-        rule: d.code.slice("runbooks(".length, -1),
-        file: d.filename,
-        line: d.labels[0]?.span.line ?? 0,
-        message: d.message,
-      }))
-      .sort((a, b) => (a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1))
+    const run = Bun.spawnSync([OXLINT, "-c", ".oxlintrc.json", ...args, "."], { cwd: root })
+    return { exitCode: run.exitCode, output: run.stdout.toString() }
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+}
+
+/** What this plugin's rules report on `files`, by path from the tree's root, in file and line order. */
+function lint(files: Record<string, string>): Finding[] {
+  const { diagnostics } = JSON.parse(oxlint(files, ["-f", "json"]).output) as {
+    diagnostics: ReadonlyArray<Diagnostic>
+  }
+  return diagnostics
+    .filter((d) => d.code.startsWith("runbooks("))
+    .map((d) => ({
+      rule: d.code.slice("runbooks(".length, -1),
+      file: d.filename,
+      line: d.labels[0]?.span.line ?? 0,
+      message: d.message,
+    }))
+    .sort((a, b) => (a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1))
 }
 
 /** Each finding as `rule file:line`. */
@@ -227,5 +234,83 @@ describe("block-name-outside-its-folder", () => {
       'blocks/index.ts holds one line per block or alias, `export { command as Command } from "./command/block.ts"`, and nothing else.',
     )
     expect(lint({ "blocks/index.ts": "/** No blocks yet. */\nexport {}\n" })).toEqual([])
+  })
+})
+
+describe("plugin-binary-outside-owner", () => {
+  /** The transport contract as it is, so the rule reads today's kinds from it. */
+  const TRANSPORT = "packages/core/src/plugin/transport.ts"
+  const contract = { [TRANSPORT]: readFileSync(path.join(REPO, TRANSPORT), "utf8") }
+  const OWNER = "packages/platform-node/src/layers/NodePluginProcess.ts"
+
+  it("reports a plugin binary's name, or one being built, anywhere in the packages but the owner", () => {
+    const found = lint({
+      ...contract,
+      "packages/app-main/src/start.ts": [
+        'import { spawn } from "node:child_process"',
+        'export const a = () => spawn("/opt/runbooks/bin/runbooks-credential-aws", [])',
+        "export const b = (name: string) => `runbooks-driver-${name}`",
+        'export const c = (kind: string) => "runbooks-" + kind',
+        "export const d = (kind: string, name: string) => `${kind}/runbooks-${kind}-${name}`",
+        'export type E = "runbooks-credential-google.exe"',
+      ].join("\n"),
+      "packages/platform-node/src/layers/NodePluginProcess.test.ts":
+        'export const stub = "runbooks-credential-stub"\n',
+    })
+    expect(brief(found)).toEqual([
+      ...[2, 3, 4, 5, 6].map(
+        (line) => `plugin-binary-outside-owner packages/app-main/src/start.ts:${line}`,
+      ),
+      "plugin-binary-outside-owner packages/platform-node/src/layers/NodePluginProcess.test.ts:1",
+    ])
+    expect(found[0]?.message).toBe(
+      "runbooks-credential- names a plugin binary, `runbooks-<kind>-<name>`. Only packages/platform-node/src/layers/NodePluginProcess.ts starts a plugin: open one through PluginProcess, by its registry name.",
+    )
+    expect(found[2]?.message.startsWith("runbooks- names a plugin binary")).toBe(true)
+  })
+
+  it("leaves the owner, comments, Command's and git's spawns, other runbooks- names, and files outside the packages alone", () => {
+    const found = lint({
+      ...contract,
+      [OWNER]:
+        "export const binaryName = (kind: string, name: string) => `runbooks-${kind}-${name}`\n",
+      "packages/platform-node/src/layers/NodeSpawner.ts": [
+        'import { spawn } from "node:child_process"',
+        "// runbooks-credential-aws is started by the owner, not here",
+        'export const git = (url: string) => spawn("git", ["clone", "--", url])',
+        'export const command = (script: string) => spawn("bash", ["-c", script])',
+        'export const workDir = "runbooks-run-"',
+        'export const author = "runbooks-noreply@gruntwork.io"',
+        'export const adc = "/tmp/runbooks-gcp-A7oaHl/adc.json"',
+      ].join("\n"),
+      "src/legacy.ts": 'export const old = "runbooks-credential-aws"\n',
+      "scripts/x.ts": 'export const x = "runbooks-driver-tofu"\n',
+    })
+    expect(found).toEqual([])
+  })
+
+  it("fails the lint when it cannot read the kinds from the transport contract", () => {
+    const { exitCode, output } = oxlint(
+      {
+        [TRANSPORT]: 'export const PluginKind = Schema.Literal("credential")\n',
+        "packages/core/src/a.ts": 'export const a = "runbooks-credential-aws"\n',
+      },
+      [],
+    )
+    expect(exitCode).toBe(1)
+    expect(output).toContain(
+      "packages/core/src/plugin/transport.ts declares no `export const PluginKind = Schema.Literals([...])`",
+    )
+  })
+})
+
+describe("the plugin", () => {
+  it("has every rule on in .oxlintrc.json, as an error", () => {
+    const config = JSON.parse(readFileSync(path.join(REPO, ".oxlintrc.json"), "utf8")) as {
+      readonly rules: Record<string, unknown>
+    }
+    const rules = Object.keys(plugin.rules)
+    expect(rules).toEqual(RULES)
+    expect(rules.map((rule) => config.rules[`runbooks/${rule}`])).toEqual(rules.map(() => "error"))
   })
 })

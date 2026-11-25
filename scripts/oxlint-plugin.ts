@@ -25,6 +25,14 @@
  * when a string is its tag or holds `<Tag`, or a key, JSX element or export
  * is named for it. Comments and prose are not checked: "Check" and "Template"
  * are words too.
+ *
+ * plugin-binary-outside-owner: no file in the packages but the transport
+ * owner names a plugin binary, so nothing else can start one. A binary is
+ * `runbooks-<kind>-<name>` for a kind in `PluginKind`, read from the
+ * transport contract. Code names one when a string holds `runbooks-<kind>-`,
+ * or ends in `runbooks-` for a kind to follow, as `"runbooks-" + kind` and
+ * `` `runbooks-${kind}-` `` do. Command's and git's spawns name no plugin,
+ * and comments are not checked.
  */
 import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
@@ -301,6 +309,69 @@ const blockNameOutsideItsFolder = {
   },
 }
 
+/** The one file that may name a plugin binary: it starts every plugin. */
+const PLUGIN_OWNER = "packages/platform-node/src/layers/NodePluginProcess.ts"
+/** Where `PluginKind` is declared. */
+const TRANSPORT = "packages/core/src/plugin/transport.ts"
+const PLUGIN_KIND = /^export const PluginKind = Schema\.Literals\(\[([^\]]*)\]\)$/m
+
+const pluginBinaryByRoot = new Map<string, RegExp>()
+
+/** `runbooks-<kind>-` for each kind under `root`, or `runbooks-` at the end. Read once per root. */
+function pluginBinaryOf(root: string): RegExp {
+  const known = pluginBinaryByRoot.get(root)
+  if (known !== undefined) return known
+  const transport = path.join(root, TRANSPORT)
+  let kinds: string[] = []
+  if (existsSync(transport)) {
+    const [, literals] = PLUGIN_KIND.exec(readFileSync(transport, "utf8")) ?? []
+    if (literals === undefined) {
+      throw new Error(
+        `${TRANSPORT} declares no \`export const PluginKind = Schema.Literals([...])\`: plugin-binary-outside-owner reads the kinds from it`,
+      )
+    }
+    kinds = [...literals.matchAll(/"([\w-]+)"/g)].flatMap(([, kind]) =>
+      kind === undefined ? [] : [kind],
+    )
+  }
+  const binary = new RegExp(
+    kinds.length > 0 ? `runbooks-(?:${kinds.join("|")})-|runbooks-$` : "runbooks-$",
+  )
+  pluginBinaryByRoot.set(root, binary)
+  return binary
+}
+
+const pluginBinaryOutsideOwner = {
+  meta: {
+    type: "problem",
+    docs: { description: "Only the transport owner may name a plugin binary" },
+    messages: {
+      named:
+        "{{name}} names a plugin binary, `runbooks-<kind>-<name>`. Only {{owner}} starts a plugin: open one through PluginProcess, by its registry name.",
+    },
+    schema: ROOT_OPTION,
+  },
+  create(context: Context) {
+    const { root, file } = fileOf(context)
+    if (packageOf(file) === undefined || file === PLUGIN_OWNER) return {}
+    const binary = pluginBinaryOf(root)
+    const text = (value: unknown, node: Node) => {
+      if (typeof value !== "string") return
+      const [name] = binary.exec(value) ?? []
+      if (name !== undefined) {
+        context.report({ node, messageId: "named", data: { name, owner: PLUGIN_OWNER } })
+      }
+    }
+    return {
+      Literal: (node: Node) => text(node.value, node),
+      TemplateElement: (node: Node) => {
+        const value = node.value as { readonly cooked?: string | null; readonly raw: string }
+        text(value.cooked ?? value.raw, node)
+      },
+    }
+  },
+}
+
 /** Reports each statement in the registry that is not one registry line. `export {}` keeps an empty registry a module. */
 function registryLines(program: Node, context: Context): void {
   for (const node of program.body ?? []) {
@@ -319,5 +390,6 @@ export default {
     "no-import-between-blocks": noImportBetweenBlocks,
     "no-react-in-block-ts": noReactInBlockTs,
     "block-name-outside-its-folder": blockNameOutsideItsFolder,
+    "plugin-binary-outside-owner": pluginBinaryOutsideOwner,
   },
 }
