@@ -603,6 +603,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   readonly registry: Registry
   /** The session's folder of credential provider state, which the engine set. */
   readonly stateFolder: string
+  /** What a credential block's provider runs with, from the names the block declares. */
+  readonly providerEnvironment: (envNames: ReadonlyArray<string>) => BaseEnvironment
   /** The CA bundle and proxy the settings hold now: a provider reads them when it opens. */
   readonly network: Effect.Effect<ProviderNetwork>
   /** What the runbook's saved session lets this one take back, when the engine resumes it. */
@@ -1010,6 +1012,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     },
     scope,
     stateFolder: options.stateFolder,
+    environment: options.providerEnvironment,
     store,
     network: options.network,
     resuming: resume?.credentials ?? new Map(),

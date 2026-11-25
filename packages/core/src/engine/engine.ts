@@ -39,7 +39,7 @@ import {
   UnknownSession,
   type WaitForBlock,
 } from "./protocol.ts"
-import { baseEnvironment } from "./env.ts"
+import { baseEnvironment, providerEnvironment } from "./env.ts"
 import { resolvePaths, sessionRoots } from "./roots.ts"
 import { makeRunFiles, readRunFiles } from "./runFiles.ts"
 import { makeSession, type Runner, type Session } from "./session.ts"
@@ -256,6 +256,8 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
               baseEnvironment: base,
               registry,
               stateFolder: path.join(stateFolders, id),
+              providerEnvironment: (envNames) =>
+                providerEnvironment(base, options.processEnvironment, envNames),
               network,
               resume: Option.map(saved, (found) => resumeOf(document, registry, found)),
               saver,

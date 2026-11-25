@@ -15,11 +15,13 @@ import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { makeRecordingSpawner, type RecordedSpawn } from "../test-utils/TestSpawner.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import {
+  type BaseEnvironment,
   baseEnvironment,
   buildRunEnv,
   type CredentialHandle,
   credentialSource,
   type EnvSource,
+  providerEnvironment,
   taskSource,
   withReserved,
 } from "./env.ts"
@@ -94,6 +96,34 @@ describe("the base environment", () => {
     const base = baseEnvironment({ ...AMBIENT, GITHUB_TOKENS: "kept" }, registry)
     expect(Array.from(base.keys()).sort()).toEqual(["GITHUB_TOKENS", "HOME", "PATH"])
     expect(baseEnvironment(AMBIENT, { Still: TOY_REGISTRY.Run }).has("GITHUB_TOKEN")).toBe(true)
+  })
+})
+
+describe("a provider's environment", () => {
+  const base = baseEnvironment({ ...AMBIENT, CLOUD_TOKEN: "tok-ambient" }, TOY_REGISTRY)
+  const shown = (env: BaseEnvironment) =>
+    Object.fromEntries(Array.from(env, ([name, value]) => [name, Redacted.value(value)]))
+
+  it("is the base environment and the block's own names, taken back from the process's", () => {
+    const env = providerEnvironment(base, { ...AMBIENT, CLOUD_TOKEN: "tok-ambient" }, [
+      "CLOUD_TOKEN",
+      "CLOUD_ACCOUNT",
+    ])
+    expect(shown(env)).toEqual({
+      PATH: "/usr/bin:/bin",
+      HOME: "/home/someone",
+      CLOUD_TOKEN: "tok-ambient",
+    })
+  })
+
+  it("holds no other credential block's names, and no reserved name, even one the block declares", () => {
+    const env = providerEnvironment(base, AMBIENT, ["GITLAB_TOKEN", "RUNBOOK_OUTPUT"])
+    expect(shown(env)).toEqual({
+      PATH: "/usr/bin:/bin",
+      HOME: "/home/someone",
+      GITLAB_TOKEN: "glpat_ambient",
+    })
+    expect(providerEnvironment(base, AMBIENT, []).has("GITHUB_TOKEN")).toBe(false)
   })
 })
 
