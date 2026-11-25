@@ -122,6 +122,18 @@ const makeStubGitLabClient = (overrides: Partial<GitLabClientShape> = {}): GitLa
     Effect.fail(
       new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "listLabels") }),
     ),
+  listNamespaces: (_token) =>
+    Effect.fail(
+      new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "listNamespaces") }),
+    ),
+  listProjects: (_token, _namespace) =>
+    Effect.fail(
+      new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "listProjects") }),
+    ),
+  listRefs: (_token, _projectPath) =>
+    Effect.fail(
+      new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "listRefs") }),
+    ),
   ...overrides,
 })
 

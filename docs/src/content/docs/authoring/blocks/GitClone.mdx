@@ -4,9 +4,9 @@ title: <GitClone>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<GitClone>` block brings a git repository into a runbook, either by cloning it or by pointing at a checkout the user already has on disk. It works with any git upstream. When a GitHub token is available, it can also browse GitHub organizations, repositories, and branches.
+The `<GitClone>` block brings a git repository into a runbook, either by cloning it or by pointing at a checkout the user already has on disk. It works with any git upstream. When a GitHub token is available, it can also browse GitHub organizations, repositories, and branches. When linked to a GitLab sign-in, it can browse GitLab groups, projects, and branches.
 
-Compared with cloning from a [Command](/authoring/blocks/command/) block, GitClone adds a form for the clone, search of the GitHub API for orgs, repos, branches, and tags, and the [file workspace](/intro/files_workspace/), which shows the contents of the repository and any changes to it.
+Compared with cloning from a [Command](/authoring/blocks/command/) block, GitClone adds a form for the clone, search of the GitHub or GitLab API for repositories, branches, and tags, and the [file workspace](/intro/files_workspace/), which shows the contents of the repository and any changes to it.
 
 ### Basic usage
 
@@ -116,9 +116,9 @@ You can pre-fill the URL, ref, sparse checkout path, and local path fields. User
 
 The "Ref" field lets users specify a branch or tag to clone in place of the default branch. There are two ways to set it:
 
-1. **GitHub browser.** When a GitHub token is available and a repo is selected in the GitHub browser, a searchable "Ref" dropdown appears listing all branches and tags in that repo, with the default branch marked by a "default" badge. Picking a repo in the browser clears the "Ref" field and then selects that repo's default branch (a repo with no commits yet has none, so the field stays empty). The repo the browser opens on from `prefilledUrl` keeps `prefilledRef`.
+1. **Repository browser.** When a repo is selected in the GitHub browser, or a project in the GitLab browser, a searchable "Ref" dropdown appears listing all branches and tags in that repo, with the default branch marked by a "default" badge. Picking a repo or project in the browser clears the "Ref" field and then selects that repo's default branch (a repo with no commits yet has none, so the field stays empty). The repo the browser opens on from `prefilledUrl` keeps `prefilledRef`.
 
-2. **Text input.** The "Ref" field below the GitHub browser accepts any branch or tag name directly, independent of GitHub authentication. Use the `prefilledRef` prop to set this in advance.
+2. **Text input.** The "Ref" field below the browser accepts any branch or tag name directly, independent of authentication. Use the `prefilledRef` prop to set this in advance.
 
 The ref is passed to `git clone --branch`, which accepts both branch names and tag names.
 
@@ -211,7 +211,27 @@ The helper is scoped to `https://` on the token's own host (`GITHUB_HOST`, set b
 
 ### GitLab authentication
 
-When `gitAuthId` references a block signed in to GitLab, the GitClone block clones with that block's GitLab token. The URL placeholder shows the GitLab instance the block signed in to, such as `https://gitlab.com/group/project.git`. The "Browse GitHub repositories" section is hidden, even if the session also holds a GitHub token from another block. There is no GitLab repository browser, so the user enters the project's URL.
+When `gitAuthId` references a block signed in to GitLab, the GitClone block clones with that block's GitLab token. The URL placeholder shows the GitLab instance the block signed in to, such as `https://gitlab.com/group/project.git`. The "Browse GitHub repositories" section is hidden, even if the session also holds a GitHub token from another block.
+
+In its place, a **Browse GitLab projects** section lists, from that instance's API:
+
+- **Group.** The user's personal namespace and every group they are a member of, including subgroups.
+- **Project.** The projects in the chosen group and its subgroups, shown by their path inside the group. Picking one fills the Git URL with the project's HTTPS clone URL. A group with more than 500 projects lists the 500 most recently active ones, and typing in the search box searches all of them.
+- **Ref.** The project's branches and tags, as in the GitHub browser.
+
+A `prefilledUrl` on the auth block's GitLab instance pre-selects its group and project in the browser. Self-managed instances work the same way, including one on a custom port.
+
+The browser reads GitLab's API, so the token needs the `read_api` or `api` scope. A token with only `read_repository` and `write_repository` can still clone a URL the user enters, and the browser shows GitLab's error instead of a list.
+
+```mdx
+<GitAuth id="git-auth" title="Sign in to GitLab" provider="gitlab" />
+
+<GitClone
+  id="clone-repo"
+  gitAuthId="git-auth"
+  title="Clone a Project"
+/>
+```
 
 ### Sparse checkout
 

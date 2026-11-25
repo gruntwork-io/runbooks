@@ -16,6 +16,7 @@ import { parseSavedClone, type SavedClone } from "@/lib/sessionHistory"
 import { omitUndefined } from "@/lib/omitUndefined"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
+import { GitLabBrowser } from "./components/GitLabBrowser"
 import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
 import { hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
 import { gitRemoteOwnerRepo } from "@/lib/gitRemoteUrl"
@@ -206,6 +207,9 @@ function GitCloneInteractive({
     fetchOrgs,
     fetchRepos,
     fetchRefs,
+    fetchGitLabNamespaces,
+    fetchGitLabProjects,
+    fetchGitLabRefs,
   } = useGitClone({
     id,
     githubAuthId,
@@ -478,6 +482,16 @@ function GitCloneInteractive({
   // when the session also holds a GitHub token from another block.
   const linkedToGitLab = authProvider === "gitlab"
   const showGitHubBrowser = tokenChecked && hasGitHubToken && !linkedToGitLab
+  const showGitLabBrowser = linkedToGitLab && gitHubAuthMet
+
+  // Seed the GitLab browser's project, but only from a URL on the linked
+  // block's GitLab instance.
+  const prefilledGitLabProject = useMemo(() => {
+    const urlHost = hostFromRepoUrl(resolvedUrl)?.toLowerCase()
+    if (!resolvedUrl || urlHost !== gitlabHost.toLowerCase()) return undefined
+    const parsed = parseOwnerRepoFromURL(resolvedUrl)
+    return parsed ? `${parsed.org}/${parsed.repo}` : undefined
+  }, [resolvedUrl, gitlabHost])
   const urlPlaceholder = linkedToGitLab
     ? `https://${gitlabHost}/group/project.git`
     : `https://${githubHost}/org/repo.git`
@@ -960,6 +974,21 @@ function GitCloneInteractive({
                       />
                     )}
 
+                    {/* GitLab Browser (only when linked to a signed-in GitLab block) */}
+                    {showGitLabBrowser && (
+                      <GitLabBrowser
+                        key={gitlabHost}
+                        onRepoSelected={handleRepoSelected}
+                        onRefSelected={handleRefSelected}
+                        fetchNamespaces={fetchGitLabNamespaces}
+                        fetchProjects={fetchGitLabProjects}
+                        fetchRefs={fetchGitLabRefs}
+                        disabled={isFormDisabled}
+                        initialProject={prefilledGitLabProject}
+                        defaultOpen={false}
+                      />
+                    )}
+
                     {/* Additional Settings (Ref, Repo Path, Local Path) */}
                     <CollapsibleToggle
                       expanded={showAdditionalSettings}
@@ -976,11 +1005,12 @@ function GitCloneInteractive({
                             <InfoTooltip>
                               The branch or tag to clone. Defaults to the repository&apos;s default
                               branch if not specified.
-                              {showGitHubBrowser && (
+                              {(showGitHubBrowser || showGitLabBrowser) && (
                                 <>
                                   <br />
                                   <br />
-                                  <strong>Tip:</strong> Use the GitHub browser above to browse
+                                  <strong>Tip:</strong> Use the{" "}
+                                  {showGitLabBrowser ? "GitLab" : "GitHub"} browser above to browse
                                   branches and tags.
                                 </>
                               )}
