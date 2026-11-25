@@ -1,0 +1,12 @@
+diff --git a/testdata/feature-demos/github-pull-request/runbook.mdx b/testdata/feature-demos/github-pull-request/runbook.mdx
+index 35f6c48f..51bf7b80 100644
+--- a/testdata/feature-demos/github-pull-request/runbook.mdx
++++ b/testdata/feature-demos/github-pull-request/runbook.mdx
+@@ -30,6 +30,7 @@ This runbook demonstrates the GitHubPullRequest block, which provides a streamli
+ 
+ <Command
+   id="make-changes"
++  repository="clone-repo"
+   title="Update configuration"
+   description="Append a timestamp entry to the changelog"
+   command="date '+- Updated via runbook on %Y-%m-%d at %H:%M:%S' >> $REPO_FILES/CHANGELOG.md"

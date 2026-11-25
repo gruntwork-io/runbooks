@@ -1,0 +1,21 @@
+diff --git a/testdata/sample-runbooks/next-app/runbook.mdx b/testdata/sample-runbooks/next-app/runbook.mdx
+index 9279d662..13e5bc9e 100644
+--- a/testdata/sample-runbooks/next-app/runbook.mdx
++++ b/testdata/sample-runbooks/next-app/runbook.mdx
+@@ -75,6 +75,7 @@ Choose your project options, then run `create-next-app` to scaffold the app into
+ 
+ <Command
+   id="create-next-app"
++  repository="clone-repo"
+   path="scripts/create-next-app.sh"
+   env={{
+     APP_LANGUAGE: "{{ .inputs.Language }}",
+@@ -117,7 +118,7 @@ Choose your project options, then run `create-next-app` to scaffold the app into
+ 
+ Let's add a sample `WelcomeCard` component to demonstrate adding custom files to the scaffolded app. Customize the default title and description, then generate it into the repo.
+ 
+-<Template id="welcome-card" path="templates/welcome-card" target="worktree" />
++<Template id="welcome-card" path="templates/welcome-card" target="worktree" repository="clone-repo" />
+ 
+ ## Create a Pull Request
+ 

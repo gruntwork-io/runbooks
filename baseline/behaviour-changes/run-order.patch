@@ -1,0 +1,27 @@
+diff --git a/testdata/feature-demos/run-order/runbook.mdx b/testdata/feature-demos/run-order/runbook.mdx
+index e414b3b7..77b94c7b 100644
+--- a/testdata/feature-demos/run-order/runbook.mdx
++++ b/testdata/feature-demos/run-order/runbook.mdx
+@@ -21,19 +21,19 @@ Command and Check blocks can run at the same time. This runbook shows the three
+ 
+ ## dependsOn
+ 
+-`use-token` reads a variable that `log-in` exports. That isn't an output, so `use-token` names `log-in` in `dependsOn`.
++`use-token` reads a file that `log-in` writes. That isn't an output, so `use-token` names `log-in` in `dependsOn`.
+ 
+ <Command
+   id="log-in"
+   title="Log in"
+-  command="sleep 5; export DEMO_TOKEN=secret"
++  command="sleep 5; echo secret > .demo-token"
+ />
+ 
+ <Check
+   id="use-token"
+   title="Use the token"
+   dependsOn="log-in"
+-  command='test "$DEMO_TOKEN" = secret'
++  command='test "$(cat .demo-token)" = secret'
+ />
+ 
+ ## exclusive

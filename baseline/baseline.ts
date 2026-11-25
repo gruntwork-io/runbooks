@@ -1,7 +1,9 @@
 /**
  * The frozen baseline: what the rebuilt app must still do. Open decision 3,
  * built as recommended: today's behaviour, with the nine ruled changes
- * applied to the fixtures and specs that rely on the old behaviour.
+ * applied to the fixtures and specs that rely on the old behaviour
+ * (`behaviour-changes.ts`). Under the alternative, today's behaviour
+ * exactly, that file and its patches go.
  *
  * The baseline gate (phase 6) runs every fixture and e2e spec here on the
  * new tree, checks every frozen prop against the registry, and serves every

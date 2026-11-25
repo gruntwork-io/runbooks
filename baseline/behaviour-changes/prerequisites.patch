@@ -1,0 +1,86 @@
+diff --git a/testdata/feature-demos/prerequisites/runbook.mdx b/testdata/feature-demos/prerequisites/runbook.mdx
+index 97f293f6..6c878119 100644
+--- a/testdata/feature-demos/prerequisites/runbook.mdx
++++ b/testdata/feature-demos/prerequisites/runbook.mdx
+@@ -4,9 +4,9 @@ This runbook demonstrates the `<Prerequisites>` block, which checks that the too
+ 
+ ## 1. Check the tools
+ 
+-Click **Check**. `bash` and `git` are on almost every machine, so the check finds them. Nothing has installed `runbooks-demo-tool` yet, so the check fails, and the block says how to install it. The runbook also needs one of two stand-ins for the GitHub and GitLab CLIs, and neither is installed yet. The optional tool is never installed: it only makes the check warn.
++This check names **Install the demo tools** below in `envFrom`, so it waits for that block and checks with the `PATH` it passes. `bash` and `git` are on almost every machine, so the check finds them. The install block makes `runbooks-demo-tool` and one of two stand-ins for the GitHub and GitLab CLIs. The optional tool is never installed: it only makes the check warn.
+ 
+-<Prerequisites id="tools" description="The tools the rest of this runbook uses.">
++<Prerequisites id="tools" envFrom={["install-demo-tools"]} description="The tools the rest of this runbook uses.">
+ ```yaml
+ tools:
+   - bash
+@@ -31,18 +31,20 @@ tools:
+ 
+ ## 2. Install the missing tools
+ 
+-This block writes small `runbooks-demo-tool` and `runbooks-demo-glab` scripts to `bin/` in the working directory, and puts that directory on PATH for the blocks that run after it. Run it, then click **Check again** above: the check finds both without a restart. One tool of the `anyOf` list is enough, so `runbooks-demo-gh` isn't needed.
++This block writes small `runbooks-demo-tool` and `runbooks-demo-glab` scripts to `bin/` in the working directory, and writes a `PATH` with that directory on it to `$RUNBOOK_ENV`, for the blocks that name this one in `envFrom`. Run it, then click **Check** above: the check finds both. One tool of the `anyOf` list is enough, so `runbooks-demo-gh` isn't needed. Set `DEMO_TOOL_VERSION` before you start the app to install another version of `runbooks-demo-tool`.
+ 
+ <Command
+     id="install-demo-tools"
+     title="Install the demo tools"
+     command={`mkdir -p bin
++version=$DEMO_TOOL_VERSION
++[ -n "$version" ] || version=1.2.3
+ echo '#!/bin/sh' > bin/runbooks-demo-tool
+-echo 'echo "runbooks-demo-tool 1.2.3"' >> bin/runbooks-demo-tool
++echo "echo runbooks-demo-tool $version" >> bin/runbooks-demo-tool
+ echo '#!/bin/sh' > bin/runbooks-demo-glab
+ chmod +x bin/runbooks-demo-tool bin/runbooks-demo-glab
+-export PATH="$PWD/bin:$PATH"`}
+-    successMessage="Installed. Click **Check again** above."
++echo "PATH=$PWD/bin:$PATH" >> "$RUNBOOK_ENV"`}
++    successMessage="Installed. Click **Check** above."
+ />
+ 
+ ## 3. Use what the check found
+diff --git a/testdata/feature-demos/prerequisites/runbook_test.yml b/testdata/feature-demos/prerequisites/runbook_test.yml
+index e5c9321b..a26fc745 100644
+--- a/testdata/feature-demos/prerequisites/runbook_test.yml
++++ b/testdata/feature-demos/prerequisites/runbook_test.yml
+@@ -6,16 +6,16 @@ settings:
+   parallelizable: true
+ 
+ tests:
+-  - name: install-then-check-again
++  - name: install-then-check
+     description: |
+-      The first check fails: the demo tool isn't installed, and neither is
+-      either tool of the anyOf list. Once the install block has put the demo
+-      tool and one of the list's tools on PATH, checking again finds them.
+-      The optional tool is still missing, so the check warns, which lets the
+-      last blocks read its outputs.
++      The check names the install block in envFrom, so it waits for it. Once
++      the install block has passed a PATH with the demo tool and one of the
++      anyOf list's tools on it, the check finds them. The optional tool is
++      still missing, so the check warns, which lets the last blocks read its
++      outputs.
+     steps:
+       - block: tools
+-        expect: fail
++        expect: blocked
+       - block: install-demo-tools
+         expect: success
+       - block: tools
+@@ -44,9 +44,14 @@ tests:
+ 
+   - name: failed-check-publishes-no-outputs
+     description: |
+-      A check that fails publishes no outputs, so the block that reads them
+-      waits for them.
++      The installed demo tool is older than the check needs, so the check
++      fails. A check that fails publishes no outputs, so the block that
++      reads them waits for them.
++    env:
++      DEMO_TOOL_VERSION: "0.9.0"
+     steps:
++      - block: install-demo-tools
++        expect: success
+       - block: tools
+         expect: fail
+       - block: show-tool-paths
