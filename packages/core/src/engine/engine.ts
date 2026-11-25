@@ -10,6 +10,7 @@ import type { Rpc } from "effect/rpc"
 import type { TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { CredentialProviders } from "../credential/provider.ts"
+import { prepareStateDir } from "../credential/stateDir.ts"
 import { loadRunbook } from "../document/load.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import {
@@ -194,7 +195,12 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             resolvePaths(at, named, repository).pipe(Effect.provideContext(fileSystem)),
           makeRunFiles: Effect.provideContext(makeRunFiles, fileSystem),
           readRunFiles: (written) => Effect.provideContext(readRunFiles(written), fileSystem),
-          openProvider: providers.open,
+          // The block's state folder is made owner-only before its provider starts.
+          openProvider: (provider, config) =>
+            Effect.andThen(
+              Effect.provideContext(prepareStateDir(config.stateDir), fileSystem),
+              providers.open(provider, config),
+            ),
         }
         const sessions = new Map<SessionId, Session>()
 
