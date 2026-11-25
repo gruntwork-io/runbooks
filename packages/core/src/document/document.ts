@@ -37,14 +37,14 @@ export type DocumentHash = typeof DocumentHash.Type
 /**
  * The props the host owns for every block of a class, decoded by the parser
  * so no block repeats them. Which apply depends on the class and on the
- * block's effects; the parser rejects one that does not apply.
+ * block's effects; one that does not apply is an `unknownProp` warning.
  */
 export const SharedProps = Schema.Struct({
   title: Schema.optionalKey(Schema.String),
   description: Schema.optionalKey(Schema.String),
   /** Fold the block to its header once it is done. */
   autoCollapse: Schema.optionalKey(Schema.Boolean),
-  /** Form, task, credential: the forms whose values it reads (capability `values`). */
+  /** Any block: the forms whose values it reads (capability `values`). A display block reads them into its text. */
   inputsId: Schema.optionalKey(Schema.Array(BlockId)),
   /** Task: blocks that must be done first (capability `run`). */
   dependsOn: Schema.optionalKey(Schema.Array(BlockId)),
@@ -62,8 +62,12 @@ export type SharedProps = typeof SharedProps.Type
 /** How one block came to depend on another. */
 export const EdgeSource = Schema.Union([
   Schema.TaggedStruct("Prop", { prop: Schema.String, capability: Capability }),
-  /** `{{ .outputs.<id>.<key> }}` in a prop, a script or a template file. */
-  Schema.TaggedStruct("Template", { key: Schema.String }),
+  /**
+   * `{{ .outputs.<id>.<key> }}` in a prop, a script or a template file.
+   * `guarded`: behind a `hasKey` guard for the key, so the target must have
+   * run but the key may be absent. A key is required if any edge to it is not.
+   */
+  Schema.TaggedStruct("Template", { key: Schema.String, guarded: Schema.Boolean }),
 ])
 export type EdgeSource = typeof EdgeSource.Type
 
