@@ -295,7 +295,7 @@ describe("plugin-binary-outside-owner", () => {
         [TRANSPORT]: 'export const PluginKind = Schema.Literal("credential")\n',
         "packages/core/src/a.ts": 'export const a = "runbooks-credential-aws"\n',
       },
-      [],
+      ["-f", "default"],
     )
     expect(exitCode).toBe(1)
     expect(output).toContain(
