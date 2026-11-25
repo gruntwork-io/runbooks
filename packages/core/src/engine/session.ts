@@ -35,6 +35,7 @@ import {
 } from "effect"
 import type {
   BlockId,
+  CredentialError,
   OutputDecls,
   PathOutsideRoot,
   PropError,
@@ -51,6 +52,7 @@ import { TaskCancelled, TaskFailed } from "@runbooks/blocks-core/contract"
 import type { FieldValue, FormSpec, FormValues } from "@runbooks/blocks-core/form"
 import { type AnyBlock, type Registry, resolveTag } from "@runbooks/blocks-core/registry"
 import { type Blocker, BlockStatus, type Outcome } from "@runbooks/blocks-core/status"
+import type { CredentialProvider, ProviderConfig } from "../credential/provider.ts"
 import { ConfigError, ConfigWarning } from "../document/configError.ts"
 import type { BlockNode, ContentHash, RunbookDocument } from "../document/document.ts"
 import {
@@ -133,6 +135,11 @@ export interface Runner {
   readonly makeRunFiles: Effect.Effect<RunFiles, TaskFailed, Scope.Scope>
   /** Reads, within bounds, what the script wrote to them. */
   readonly readRunFiles: (files: RunFiles) => Effect.Effect<RunWrote, TaskFailed>
+  /** Opens a credential block's provider by its registry name, in the scope it is given. */
+  readonly openProvider: (
+    provider: string,
+    config: ProviderConfig,
+  ) => Effect.Effect<CredentialProvider, CredentialError, Scope.Scope>
 }
 
 /** Whether the person trusts the session. Only a trusted one can run a block. */
@@ -451,6 +458,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   /** What every run's environment starts from. */
   readonly baseEnvironment: BaseEnvironment
   readonly registry: Registry
+  /** The session's folder of credential provider state, which the engine set. */
+  readonly stateFolder: string
 }) {
   const { id, roots, baseEnvironment } = options
   const { document, specs } = yield* readForms(options.document, options.registry, options.texts)

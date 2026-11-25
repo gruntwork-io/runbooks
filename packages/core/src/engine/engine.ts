@@ -4,10 +4,12 @@
  * it through a transport. The registry is passed in, so the core never
  * imports the blocks.
  */
+import path from "node:path"
 import { Context, Effect, Layer, Schema, Scope, Stream } from "effect"
 import type { Rpc } from "effect/rpc"
 import type { TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
+import { CredentialProviders } from "../credential/provider.ts"
 import { loadRunbook } from "../document/load.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import {
@@ -79,6 +81,12 @@ export interface EngineOptions<R extends Registry> {
    */
   readonly workingFolders: string
   /**
+   * The folder that holds each session's credential provider state, by
+   * session id and then block id: the app's `<userData>/v0/sessions/state`.
+   * Only the entry point sets it.
+   */
+  readonly stateFolders: string
+  /**
    * The app's process environment, read at the entry point. Every run's
    * environment starts from it, less the names every credential block in
    * the registry declares and the reserved ones.
@@ -99,16 +107,21 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
    * The engine for `registry`. It needs the services every block in the
    * registry asks for, and gives them to each run: a session can start a run
    * only once the person trusts it. Before that, the engine reads the runbook
-   * and the files its blocks name, and nothing else. Closing the layer closes
-   * every session.
+   * and the files its blocks name, and nothing else: it opens no credential
+   * provider. Closing the layer closes every session.
    */
   static readonly layer = <R extends Registry>(
     options: EngineOptions<R>,
-  ): Layer.Layer<Engine, never, FileSystem | Exclude<ServicesOf<R>, Scope.Scope>> =>
+  ): Layer.Layer<
+    Engine,
+    never,
+    FileSystem | CredentialProviders | Exclude<ServicesOf<R>, Scope.Scope>
+  > =>
     Layer.effect(
       Engine,
       Effect.gen(function* () {
-        const { registry, appVersion, workingFolders } = options
+        const { registry, appVersion, workingFolders, stateFolders } = options
+        const providers = yield* CredentialProviders
         const base = baseEnvironment(options.processEnvironment, registry)
         // The layer's context holds the layer's own scope too. A resource held
         // there would outlast its run, so a run gets a scope of its own in its
@@ -129,6 +142,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             resolvePaths(at, named, repository).pipe(Effect.provideContext(fileSystem)),
           makeRunFiles: Effect.provideContext(makeRunFiles, fileSystem),
           readRunFiles: (written) => Effect.provideContext(readRunFiles(written), fileSystem),
+          openProvider: providers.open,
         }
         const sessions = new Map<SessionId, Session>()
 
@@ -171,6 +185,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
               roots: sessionRoots(file, workingFolders, id),
               baseEnvironment: base,
               registry,
+              stateFolder: path.join(stateFolders, id),
             })
             sessions.set(session.id, session)
             return { _tag: "Opened", session: session.view() } as const

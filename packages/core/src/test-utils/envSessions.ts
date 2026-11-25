@@ -33,6 +33,7 @@ import { Engine } from "../engine/engine.ts"
 import { Caller, type EventEnvelope, type OutputView } from "../engine/protocol.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import { collectOutput, ProcessSpawner } from "../services/ProcessSpawner.ts"
+import { testCredentialProviders } from "./TestCredentialProviders.ts"
 import { TOY_REGISTRY } from "./toyRegistry.ts"
 
 const blockId = Schema.decodeSync(BlockId)
@@ -267,9 +268,11 @@ export const withEnvSession = <A>(
           registry: envRegistry(noted),
           appVersion: "0.31.0",
           workingFolders: setup.workingFolders,
+          stateFolders: "/state",
           processEnvironment: setup.processEnvironment,
         }),
       ),
+      Effect.provide(testCredentialProviders({}, [])),
       Effect.provide(Layer.merge(setup.fileSystem, setup.spawner)),
       Effect.provideService(Caller, { origin: "person" }),
     ),

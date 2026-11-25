@@ -2,8 +2,8 @@
  * What an untrusted session may touch. A runbook someone sends you opens
  * before you trust it, so opening it, and every command a client may send
  * before trust, must read the runbook and the files it names and do nothing
- * else. The services are doubles that note every call, so each test asserts
- * on all the I/O the engine did.
+ * else, and opens no credential provider. The services are doubles that
+ * note every call, so each test asserts on all the I/O the engine did.
  */
 import { describe, expect, it } from "bun:test"
 import { Effect, Fiber, Layer, Schema, Stream } from "effect"
@@ -23,6 +23,10 @@ import {
   recordProcessSpawner,
   type ServiceCall,
 } from "../test-utils/ServiceCalls.ts"
+import {
+  type ProviderCall,
+  testCredentialProviders,
+} from "../test-utils/TestCredentialProviders.ts"
 import { testFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY, ToyField, toyFormSpec } from "../test-utils/toyRegistry.ts"
 import { Engine } from "./engine.ts"
@@ -129,8 +133,15 @@ const READING_THE_RUNBOOK: ServiceCall[] = [
   ]),
 ]
 
-/** Runs `program` against an engine whose services note each call in `calls`. */
-const withEngine = <A, E>(calls: ServiceCall[], program: Effect.Effect<A, E, Engine | Caller>) =>
+/**
+ * Runs `program` against an engine whose services note each call in
+ * `calls`, and whose credential providers note theirs in `providerCalls`.
+ */
+const withEngine = <A, E>(
+  calls: ServiceCall[],
+  providerCalls: ProviderCall[],
+  program: Effect.Effect<A, E, Engine | Caller>,
+) =>
   Effect.runPromise(
     program.pipe(
       Effect.provide(
@@ -138,9 +149,11 @@ const withEngine = <A, E>(calls: ServiceCall[], program: Effect.Effect<A, E, Eng
           registry,
           appVersion: "0.31.0",
           workingFolders: "/work",
+          stateFolders: "/state",
           processEnvironment: {},
         }),
       ),
+      Effect.provide(testCredentialProviders({}, providerCalls)),
       Effect.provide(
         Layer.mergeAll(
           Layer.succeed(FileSystem, recordFileSystem(testFileSystem({ ...FILES }, ["/rb"]), calls)),
@@ -169,8 +182,10 @@ const BLOCKS = ["config", "vars", "git", "deploy"]
 describe("an untrusted session", () => {
   it("reads only the runbook and the files it names, whatever a client sends, until it is trusted", async () => {
     const calls: ServiceCall[] = []
+    const providerCalls: ProviderCall[] = []
     await withEngine(
       calls,
+      providerCalls,
       Effect.gen(function* () {
         const engine = yield* Engine
         const opened = yield* engine.openSession({ path: RUNBOOK })
@@ -195,6 +210,7 @@ describe("an untrusted session", () => {
         yield* engine.getOutputs({ session })
 
         expect(calls).toEqual(READING_THE_RUNBOOK)
+        expect(providerCalls).toEqual([])
         const untrusted: RunResult = {
           _tag: "Refused",
           reason: { _tag: "Blocked", by: [{ _tag: "Untrusted" }] },
