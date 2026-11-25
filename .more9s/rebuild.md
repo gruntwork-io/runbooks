@@ -7,6 +7,7 @@ The running index of the rebuild stack. Update it whenever the stack changes.
 - Integration branch: `rebuild/main`, cut from `main` at ac543199 (2026-11-24).
 - Every PR is a draft. The bottom PR targets `rebuild/main`; each later PR targets the branch below it.
 - Nothing merges and no PR leaves draft without the human.
+- **Keep it stacked.** Every head must contain its base's tip. A commit to `rebuild/main` (an index update) or to a lower branch leaves the PRs above it behind. After one, run `.more9s/restack.sh <worktree>` (`--dry-run` first): it rebases each branch onto its base, bottom up, and force-pushes each with a lease on the tip it had. Each PR's CI then reruns.
 
 ## Finish line
 
@@ -57,7 +58,14 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 12 | #510 | 0 | `rebuild/p0-behaviour-changes` | p0-baseline-list | green | 0.8 (the nine changes) |
 | 13 | #511 | 1 | `rebuild/p1-packages` | p0-behaviour-changes | green | 1.1 |
 | 14 | #512 | 1 | `rebuild/p1-copy-core` | p1-packages | red: GitGuardian only, needs a human (fake secrets in copied tests) | 1.2 |
-| 15 | #513 | 1 | `rebuild/p1-registry` | p1-copy-core | open | 1.3 |
+| 15 | #513 | 1 | `rebuild/p1-registry` | p1-copy-core | green | 1.3 |
+| 16 | #514 | 1 | `rebuild/p1-block-id` | p1-registry | green | 1.6 (contract change: `BlockId` normalizes on decode) |
+| 17 | #515 | 1 | `rebuild/p1-template-references` | p1-block-id | green | 1.5 |
+| 18 | #516 | 1 | `rebuild/p1-document-contract` | p1-template-references | green | contract change for 1.4 (guarded edges, `unknownProp`, `notAllowed`) |
+| 19 | #517 | 1 | `rebuild/p1-parse` | p1-document-contract | open | 1.4, part 1: parse, props, ids, errors |
+| 20 | #518 | 1 | `rebuild/p1-edge-indices` | p1-parse | open | contract change for 1.4 (edges by block index) |
+
+The stack was restacked on 2026-11-24 after the human found it was not: #496 lacked four index commits on `rebuild/main`. Trees were unchanged apart from this file.
 
 Later phases and track A are added here as their PRs are cut.
 
@@ -81,6 +89,10 @@ Later phases and track A are added here as their PRs are cut.
 | 1.1 | Workspace packages with declared exports | #511 | open; `app-main`, `app-renderer` and `blocks` get their tsconfig when they get code |
 | 1.2 | Services, layers, shared domain code copied | #512 | open |
 | 1.3 | Registry and typed view map | #513 | open |
+| 1.4 | `parseRunbook` | #517, #516, #518 | open; still to come: the reference graph, then file hashes and `badFile` |
+| 1.5 | The one template-reference extractor | #515 | open |
+| 1.6 | The one id comparison | #514 | open |
+| 1.7 | Lint rules for blocks | none yet | planned, last PR of phase 1 |
 
 ## Open decisions built on
 
@@ -118,6 +130,13 @@ Choices of my own that need a ruling (not among the 18):
 | The registry is a module of re-exports keyed by tag; `registryProblems` checks name = tag | #513 |
 | Only display blocks must have a view; the other classes fall back to their class's view | #513 |
 | A view also gets its rendered markdown `children` | #513 |
+| The id comparison lives in the `BlockId` schema, so ids compare with `===` | #514 |
+| The extractor returns every occurrence; `outputsRead` merges | #515 |
+| An unknown prop is a warning, not an error (four baseline fixtures use one) | #516 |
+| Shared props apply by class and effects, not per block | #517 |
+| `*AuthId` aliases are `envFrom` sources after `envFrom`'s own; code in `parse.ts` (decision 5) | #517 |
+| An unknown block is one error per use; a regex prop value is `badProp` | #517 |
+| Edges name blocks by index | #518 |
 
 ## Failed attempts
 
@@ -133,3 +152,6 @@ Choices of my own that need a ruling (not among the 18):
 | `app-renderer` may import only the protocol from core: no rule enforces it yet | phase 3, when the package gets code |
 | `src/` and its copies in `packages/` drift until the old tree goes | phase 6 |
 | GitGuardian incidents 27121678, 33923057, 33923058 re-raised by the copy | the human, in the GitGuardian dashboard |
+| Decision 8 (declared outputs): 21 template reads in 9 testdata runbooks use a Command output no `outputs` prop declares, so they fail to load. They need `outputs` patches. | phase 3, with Command (Check in phase 4) |
+| The MDXContainer security tests' rendering half (the page shows literal props) | phase 3, with the tree walker |
+| `rebuild/main` is cut from main at ac543199; main has moved since | the human: merge main in only if the old tree's fixes must reach the rebuild |
