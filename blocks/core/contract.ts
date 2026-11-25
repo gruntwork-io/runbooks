@@ -243,12 +243,14 @@ export interface TaskInput<N extends string = never> {
   readonly gitCredential: Option.Option<GitCredentialRef>
 }
 
-/** What a run streams to the engine. Outputs and env are held until the run ends, then published. */
+/**
+ * What a run streams to the engine. Outputs are held until the run ends,
+ * then published. A run gives environment only through `$RUNBOOK_ENV`,
+ * which the engine reads once the run ends well.
+ */
 export type TaskEvent<K extends string> =
   | { readonly _tag: "Log"; readonly stream: "stdout" | "stderr"; readonly line: string }
   | { readonly _tag: "Output"; readonly key: K; readonly value: string }
-  /** A variable the script wrote to `$RUNBOOK_ENV`. */
-  | { readonly _tag: "Env"; readonly name: string; readonly value: Redacted.Redacted<string> }
   | {
       readonly _tag: "File"
       readonly path: string
