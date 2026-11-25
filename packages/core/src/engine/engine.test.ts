@@ -21,6 +21,7 @@ import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY, ToyField, toyFormSpec } from "../test-utils/toyRegistry.ts"
 import { Engine } from "./engine.ts"
 import {
+  ApprovalId,
   Caller,
   type EventEnvelope,
   type Origin,
@@ -297,6 +298,32 @@ describe("Engine", () => {
         expect((yield* rb.view).trust.trusted).toBe(false)
       }),
       "agent",
+    )
+  })
+
+  it("forbids an agent to answer an approval, and holds none for a person to answer", async () => {
+    const approval = Schema.decodeSync(ApprovalId)("a1")
+    const answer = (session: SessionId) =>
+      Effect.gen(function* () {
+        const engine = yield* Engine
+        return yield* Effect.flip(engine.resolveApproval({ session, approval, approve: true }))
+      })
+    await withEngine(
+      '<Run id="a" command="ok" />',
+      { ok },
+      Effect.gen(function* () {
+        const { session } = yield* open
+        expect(yield* answer(session)).toMatchObject({ _tag: "UnknownApproval", approval: "a1" })
+        expect(yield* answer(Schema.decodeSync(SessionId)("gone"))).toMatchObject({
+          _tag: "UnknownSession",
+          session: "gone",
+        })
+        expect(yield* asAgent(answer(session))).toMatchObject({
+          _tag: "Forbidden",
+          command: "ResolveApproval",
+          origin: "agent",
+        })
+      }),
     )
   })
 
