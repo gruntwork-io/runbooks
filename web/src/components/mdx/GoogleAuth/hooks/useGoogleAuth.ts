@@ -56,6 +56,10 @@ const NO_PROJECT_WARNING =
 const NO_USABLE_ADC_MESSAGE =
   "No usable Application Default Credentials. Run `gcloud auth application-default login`, then click Refresh."
 
+// The lookup depends on this joined string, not on the `scopes` array, whose
+// identity changes on every render of the runbook's MDX.
+const SCOPE_SEPARATOR = " "
+
 function describeFailure(error: unknown): string {
   return error instanceof Error ? error.message : "The request to the main process failed"
 }
@@ -1793,13 +1797,21 @@ export function useGoogleAuth({
   // Tab 3 — gcloud configuration
   // ---------------------------------------------------------------------------
 
+  const requiredScopesKey = (scopes ?? []).join(SCOPE_SEPARATOR)
   const lookUpAdcPrincipal = useCallback(async (): Promise<AdcPrincipalLookup> => {
     try {
-      return toAdcPrincipalLookup(await api.invoke("google:env-credentials", { source: "adc" }))
+      const requiredScopes = requiredScopesKey
+        ? { scopes: requiredScopesKey.split(SCOPE_SEPARATOR) }
+        : {}
+      const detection = await api.invoke("google:env-credentials", {
+        source: "adc",
+        ...requiredScopes,
+      })
+      return toAdcPrincipalLookup(detection)
     } catch (error) {
       return { status: "unusable", reason: describeFailure(error) }
     }
-  }, [api])
+  }, [api, requiredScopesKey])
 
   const showGcloudListing = useCallback(
     async (list: GcloudConfigInfo[], adc: AdcInfo | null) => {

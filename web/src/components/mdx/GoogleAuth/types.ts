@@ -122,6 +122,7 @@ export type AdcPrincipalLookup =
   | { status: "checking" }
   | { status: "missing" }
   | { status: "unusable"; reason: string }
+  | { status: "missing-scopes"; principal: string; missingScopes: string[] }
   | SignedInAdcPrincipal
 
 /** <- AccountInfo. What the success card renders. */

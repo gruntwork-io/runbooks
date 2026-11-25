@@ -622,6 +622,10 @@ function GoogleAuthInteractive({
                     setConfigSearch={auth.setConfigSearch}
                     adcInfo={auth.adcInfo}
                     adcPrincipal={auth.adcPrincipal}
+                    requiredScopes={scopes ?? []}
+                    pinnedProject={resolvedProject}
+                    defaultRegion={defaultRegion}
+                    defaultZone={defaultZone}
                     selectedRegion={auth.selectedRegion}
                     setSelectedRegion={auth.setSelectedRegion}
                     onGcloudAuth={auth.handleGcloudAuth}

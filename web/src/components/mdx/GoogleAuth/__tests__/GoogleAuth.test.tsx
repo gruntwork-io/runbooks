@@ -530,7 +530,12 @@ describe("GoogleAuth — gcloud tab", () => {
     }),
   }
 
-  it("shows who the credentials sign in as, then authenticates with the selected configuration", async () => {
+  const openGcloudTab = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
+    await screen.findAllByRole("button", { name: "Reload" })
+  }
+
+  it("names the account before the click, and continues with the configuration's settings", async () => {
     installApi({
       ...SIGNED_IN,
       "google:gcloud-configurations": () => listing,
@@ -544,17 +549,16 @@ describe("GoogleAuth — gcloud tab", () => {
     })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
+    await openGcloudTab()
 
-    fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
-
-    expect(await screen.findByText("Signed in as")).toBeInTheDocument()
-    // The account is the one Google reported, shown once. No row repeats it.
+    expect(screen.getAllByText("You will sign in as")).toHaveLength(1)
     expect(screen.getAllByText("dev@example.com")).toHaveLength(1)
     expect(callsTo("google:env-credentials")).toEqual([{ source: "adc" }])
-    expect(screen.getByText("staging").closest("button")!).toBeDisabled()
-    expect(screen.queryAllByText("No ADC")).toHaveLength(0)
+    expect(screen.getAllByText("proj-a")).toHaveLength(1)
+    expect(screen.getAllByText("from your gcloud configuration default")).toHaveLength(1)
+    expect(screen.queryAllByText("Signed in as")).toHaveLength(0)
 
-    fireEvent.click(screen.getByRole("button", { name: "Use These Credentials" }))
+    fireEvent.click(screen.getByRole("button", { name: "Continue as dev@example.com" }))
 
     expect(await screen.findByText("✓ Authenticated to Google Cloud")).toBeInTheDocument()
     expect(callsTo("google:gcloud-auth")).toEqual([
@@ -562,7 +566,7 @@ describe("GoogleAuth — gcloud tab", () => {
     ])
   })
 
-  it("does not offer the settings of a configuration set up for another account", async () => {
+  it("does not use a configuration set up for another account, and says so", async () => {
     installApi({
       ...SIGNED_IN,
       "google:gcloud-configurations": () => ({
@@ -588,20 +592,22 @@ describe("GoogleAuth — gcloud tab", () => {
     })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
-    fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
+    await openGcloudTab()
 
-    expect(await screen.findByText("Signed in as")).toBeInTheDocument()
+    expect(screen.getAllByText("Chosen after sign-in")).toHaveLength(1)
+    expect(screen.queryAllByText("other-org-proj")).toHaveLength(0)
+    expect(screen.getAllByText(/is set up for someone-else@example\.org/)).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole("button", { name: "Change" }))
     expect(screen.getByText("default").closest("button")!).toBeDisabled()
-    expect(screen.getAllByText("someone-else@example.org")).toHaveLength(1)
-    expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(1)
     expect(screen.getByRole("button", { pressed: true })).toHaveTextContent("No configuration")
 
-    fireEvent.click(screen.getByRole("button", { name: "Use These Credentials" }))
+    fireEvent.click(screen.getByRole("button", { name: "Continue as dev@example.com" }))
 
     await waitFor(() => expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp" }]))
   })
 
-  it("lets the reader sign in with no configuration although one matches", async () => {
+  it("lets the reader choose no configuration under Change", async () => {
     installApi({
       ...SIGNED_IN,
       "google:gcloud-configurations": () => listing,
@@ -613,14 +619,65 @@ describe("GoogleAuth — gcloud tab", () => {
     })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
-    fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
-    fireEvent.click(await screen.findByText("No configuration"))
-    fireEvent.click(screen.getByRole("button", { name: "Use These Credentials" }))
+    await openGcloudTab()
+    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    fireEvent.click(screen.getByText("No configuration"))
+    fireEvent.click(screen.getByRole("button", { name: "Done" }))
+
+    expect(screen.getAllByText("Chosen after sign-in")).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue as dev@example.com" }))
 
     await waitFor(() => expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp" }]))
   })
 
-  it("says Google did not confirm the credentials, and gives the reason", async () => {
+  it("shows the project the runbook pins, over the configuration's", async () => {
+    installApi({ ...SIGNED_IN, "google:gcloud-configurations": () => listing })
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={false} project="pinned-proj" />)
+    await openGcloudTab()
+
+    expect(screen.getAllByText("pinned-proj")).toHaveLength(1)
+    expect(screen.getAllByText("set by this runbook")).toHaveLength(1)
+    expect(screen.queryAllByText("proj-a")).toHaveLength(0)
+  })
+
+  it("says before the click when the login lacks a scope the runbook needs", async () => {
+    const directory = "https://www.googleapis.com/auth/admin.directory.rolemanagement"
+    const cloudPlatform = "https://www.googleapis.com/auth/cloud-platform"
+    installApi({
+      "google:env-credentials": () => ({
+        found: true,
+        valid: false,
+        source: "adc",
+        account: { principal: "dev@example.com", accountType: "user" },
+        insufficientScopes: true,
+        missingScopes: [directory],
+      }),
+      "google:gcloud-configurations": () => listing,
+    })
+
+    renderBlock(
+      <GoogleAuth id="gcp" detectCredentials={false} scopes={[cloudPlatform, directory]} />,
+    )
+    await openGcloudTab()
+
+    expect(
+      screen.getAllByText("Your gcloud login is missing scopes this runbook needs"),
+    ).toHaveLength(1)
+    expect(screen.getAllByText(directory)).toHaveLength(1)
+    expect(
+      screen.getAllByText(
+        `gcloud auth application-default login --scopes=${cloudPlatform},${directory}`,
+      ),
+    ).toHaveLength(1)
+    expect(callsTo("google:env-credentials")).toEqual([
+      { source: "adc", scopes: [cloudPlatform, directory] },
+    ])
+    expect(screen.queryAllByRole("button", { name: /^Continue/ })).toHaveLength(0)
+  })
+
+  it("says Google did not confirm the login, and gives the reason", async () => {
     installApi({
       "google:env-credentials": () => ({
         found: true,
@@ -632,26 +689,24 @@ describe("GoogleAuth — gcloud tab", () => {
     })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
-    fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
+    await openGcloudTab()
 
-    expect(await screen.findAllByText("Google did not confirm these credentials.")).toHaveLength(1)
+    expect(screen.getAllByText("Google did not confirm your gcloud login")).toHaveLength(1)
     expect(screen.getAllByText("getaddrinfo ENOTFOUND oauth2.googleapis.com")).toHaveLength(1)
-    expect(screen.getByRole("button", { name: "Use These Credentials" })).toBeDisabled()
-    expect(screen.queryAllByText("No configuration")).toHaveLength(0)
+    expect(screen.queryAllByRole("button", { name: /^Continue/ })).toHaveLength(0)
+    expect(screen.queryAllByRole("button", { name: "Change" })).toHaveLength(0)
   })
 
-  it("says how to create the credentials when there are none", async () => {
+  it("says how to create the login when there is none", async () => {
     const { adc: _adc, ...listingWithoutAdc } = listing
     installApi({ ...NO_CREDENTIALS, "google:gcloud-configurations": () => listingWithoutAdc })
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
-    fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
+    await openGcloudTab()
 
-    expect(await screen.findAllByText(/^No Application Default Credentials found\./)).toHaveLength(
-      1,
-    )
-    expect(screen.getByRole("button", { name: "Use These Credentials" })).toBeDisabled()
-    expect(screen.queryAllByText("default")).toHaveLength(0)
+    expect(screen.getAllByText("No gcloud login found")).toHaveLength(1)
+    expect(screen.getAllByText("gcloud auth application-default login")).toHaveLength(1)
+    expect(screen.queryAllByRole("button", { name: /^Continue/ })).toHaveLength(0)
   })
 })
 

@@ -79,22 +79,29 @@ export function getCredentialTypeLabel(type: GoogleCredentialType | undefined): 
   return type && Object.hasOwn(CREDENTIAL_TYPE_LABELS, type) ? CREDENTIAL_TYPE_LABELS[type] : null
 }
 
-const UNREADABLE_ADC = "Google could not confirm who these credentials belong to"
+const UNREADABLE_ADC = "Google could not confirm who this login belongs to"
 
-export function toAdcPrincipalLookup(detection: {
+interface AdcDetection {
   found: boolean
   valid?: boolean
   account?: { principal?: string }
   credentialType?: GoogleCredentialType
+  missingScopes?: string[]
   warning?: string
   error?: string
-}): AdcPrincipalLookup {
+}
+
+export function toAdcPrincipalLookup(detection: AdcDetection): AdcPrincipalLookup {
   const reason = detection.warning ?? detection.error
+  const principal = detection.account?.principal ?? ""
   if (!detection.found) return reason ? { status: "unusable", reason } : { status: "missing" }
+  if (detection.missingScopes?.length) {
+    return { status: "missing-scopes", principal, missingScopes: detection.missingScopes }
+  }
   if (!detection.valid) return { status: "unusable", reason: reason ?? UNREADABLE_ADC }
   return {
     status: "signed-in",
-    principal: detection.account?.principal ?? "",
+    principal,
     ...(detection.credentialType ? { credentialType: detection.credentialType } : {}),
   }
 }
@@ -139,6 +146,69 @@ export function chooseConfiguration(
     usable[0] ??
     null
   )
+}
+
+export interface GcloudSetting {
+  label: "Project" | "Region" | "Zone"
+  value: string
+  source?: string
+}
+
+export interface GcloudSettingSources {
+  configuration: GcloudConfigInfo | null
+  pinnedProject: string | undefined
+  quotaProject: string | undefined
+  pickedRegion: string
+  defaultRegion: string | undefined
+  defaultZone: string | undefined
+}
+
+const SET_BY_RUNBOOK = "set by this runbook"
+
+function fromConfiguration(configuration: GcloudConfigInfo): string {
+  return `from your gcloud configuration ${configuration.name}`
+}
+
+function describeProject(sources: GcloudSettingSources): GcloudSetting {
+  const { configuration, pinnedProject, quotaProject } = sources
+  if (pinnedProject) return { label: "Project", value: pinnedProject, source: SET_BY_RUNBOOK }
+  if (configuration?.project) {
+    return {
+      label: "Project",
+      value: configuration.project,
+      source: fromConfiguration(configuration),
+    }
+  }
+  if (quotaProject)
+    return { label: "Project", value: quotaProject, source: "from your gcloud login" }
+  return { label: "Project", value: "Chosen after sign-in" }
+}
+
+function describeRegion(sources: GcloudSettingSources): GcloudSetting {
+  const { configuration, pickedRegion, defaultRegion } = sources
+  if (pickedRegion) {
+    const source = pickedRegion === defaultRegion ? SET_BY_RUNBOOK : "your choice"
+    return { label: "Region", value: pickedRegion, source }
+  }
+  if (configuration?.region) {
+    return {
+      label: "Region",
+      value: configuration.region,
+      source: fromConfiguration(configuration),
+    }
+  }
+  return { label: "Region", value: "Not set" }
+}
+
+function describeZone(sources: GcloudSettingSources): GcloudSetting[] {
+  const { configuration, defaultZone } = sources
+  if (defaultZone) return [{ label: "Zone", value: defaultZone, source: SET_BY_RUNBOOK }]
+  if (!configuration?.zone) return []
+  return [{ label: "Zone", value: configuration.zone, source: fromConfiguration(configuration) }]
+}
+
+export function describeGcloudSettings(sources: GcloudSettingSources): GcloudSetting[] {
+  return [describeProject(sources), describeRegion(sources), ...describeZone(sources)]
 }
 
 // The tab the block opens on when the author sets no `defaultTab`.

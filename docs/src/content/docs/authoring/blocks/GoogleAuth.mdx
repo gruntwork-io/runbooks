@@ -327,21 +327,32 @@ The **gcloud Config** tab signs in with your Application Default Credentials: th
 | Windows | `%APPDATA%\gcloud` |
 | Any | `$CLOUDSDK_CONFIG`, when set |
 
-The tab shows the credentials first. It asks Google who they belong to and shows the answer as **Signed in as**, before you click anything. That account is the one your commands will run as.
+The tab starts with the account. It asks Google who the credentials belong to and shows the answer under **You will sign in as**, before you click anything. That account is the one your commands will run as, and the button reads **Continue as** followed by it.
 
 | The tab shows | Meaning |
 |---------------|---------|
-| **Signed in as** and an account | The credentials work. **Use These Credentials** signs in as that account |
-| *No Application Default Credentials found* | The file does not exist. Run `gcloud auth application-default login`, then click **Refresh** |
-| *Google did not confirm these credentials*, with a reason | The file exists, but Runbooks could not confirm it with Google. The reason says why: the login expired or was revoked, or Google could not be reached. For an expired login, run `gcloud auth application-default login`. Then click **Refresh** |
+| **You will sign in as** and an account | The credentials work. **Continue as** signs in as that account |
+| *No gcloud login found* | The file does not exist. Run `gcloud auth application-default login`, then click **Reload** |
+| *Google did not confirm your gcloud login*, with a reason | The file exists, but Runbooks could not confirm it with Google. The reason says why: the login expired or was revoked, or Google could not be reached. For an expired login, run `gcloud auth application-default login`. Then click **Reload** |
+| *Your gcloud login is missing scopes this runbook needs* | The block's `scopes` prop lists scopes the login does not grant. The tab shows the command that adds them. See [Google Sign-In](#google-sign-in) for scopes Google refuses to that command |
 
-To sign in as a different account, run `gcloud auth application-default login` again and choose that account in the browser. The new login replaces the file. Then click **Refresh**.
+**Reload** reads the credentials and your gcloud configurations again. To sign in as a different account, open **Not the right account?**: run `gcloud auth application-default login` again, choose that account in the browser, then click **Reload**. The new login replaces the file.
 
-### Settings from a gcloud configuration
+### Project, region and zone
 
-Below the credentials, the tab lists your gcloud configurations under **Settings from a gcloud configuration**. A configuration does not sign you in. The one you select supplies the project, region and zone, and `CLOUDSDK_ACTIVE_CONFIG_NAME` records its name. The active configuration is selected to start with. Select **No configuration** to sign in with the credentials on their own. The block then uses the `project` prop, or asks you to pick a project.
+Under the account, the tab lists the **Project** and **Region** it will use, and the **Zone** when one is set, each with where the value comes from:
 
-A configuration also records an account, set by `gcloud auth login` or `gcloud config set account`. When your Application Default Credentials are a user login, that account can differ from the one you signed in with, because the two commands do not affect each other. This is common when you have accounts in more than one organization. A configuration set up for another account is listed but cannot be selected, so its project, region and zone are never used with credentials for a different account. When no configuration can be selected, **No configuration** is selected for you.
+| Source shown | Meaning |
+|--------------|---------|
+| *set by this runbook* | The `project`, `defaultRegion` or `defaultZone` prop |
+| *from your gcloud configuration ...* | The selected gcloud configuration. The active one is selected to start with |
+| *from your gcloud login* | The quota project recorded in the credentials file, used when no configuration gives a project |
+| *your choice* | The region you picked under **Change** |
+| **Chosen after sign-in** | Nothing names a project. The block asks you to pick one, or selects it when the account can see only one |
+
+**Change** opens the choices: which gcloud configuration to take the project, region and zone from, or **No configuration** to use your gcloud login on its own, and a region to use in place of the configuration's. A configuration does not sign you in. Selecting one also records its name in `CLOUDSDK_ACTIVE_CONFIG_NAME`.
+
+A configuration also records an account, set by `gcloud auth login` or `gcloud config set account`. When your Application Default Credentials are a user login, that account can differ from the one you signed in with, because the two commands do not affect each other. This is common when you have accounts in more than one organization. A configuration set up for another account is listed under **Change** but cannot be selected, so its project, region and zone are never used with credentials for a different account. The tab says so under the project and region.
 
 The comparison applies to user logins only. Credentials that are a service account key, an impersonated service account or a workforce identity never have the same account as a configuration, so every configuration stays available with them.
 
@@ -600,9 +611,9 @@ If a federated configuration you rely on is refused, authenticate with a service
 | *"oauthClientId was supplied without oauthClientSecret"* | A custom Desktop client needs both. Google issues a secret with every Desktop client; without it the credential cannot be refreshed |
 | *"Supply either oauthClientId/oauthClientSecret or oauthClientFile"* | Those props are mutually exclusive. Pick one |
 | *"OAuth client credentials file is a Web client"* | Download a **Desktop app** client JSON from Google Cloud Console (`installed`), not a Web client (`web`) |
-| *No Application Default Credentials found* on the gcloud Config tab | There is no `application_default_credentials.json` in your gcloud configuration directory. Run `gcloud auth application-default login`, then click **Refresh**. If you keep gcloud's files elsewhere, set `CLOUDSDK_CONFIG` to that directory |
-| A configuration on the gcloud Config tab cannot be selected, and says it is set up for another account | The configuration's account is not the one your Application Default Credentials belong to, so its project, region and zone are not used. Sign in with **No configuration**, select a configuration set up for the signed-in account, or run `gcloud auth application-default login` as the configuration's account and click **Refresh** |
-| *gcloud configuration ... is set up for ..., but your Application Default Credentials sign in as ...* | The same mismatch, found when signing in: the credentials changed to another account after the tab last checked them. Click **Refresh** and sign in again |
+| *No gcloud login found* on the gcloud Config tab | There is no `application_default_credentials.json` in your gcloud configuration directory. Run `gcloud auth application-default login`, then click **Reload**. If you keep gcloud's files elsewhere, set `CLOUDSDK_CONFIG` to that directory |
+| A configuration on the gcloud Config tab cannot be selected, and says it is set up for another account | The configuration's account is not the one your Application Default Credentials belong to, so its project, region and zone are not used. Continue without it, select a configuration set up for the account shown, or run `gcloud auth application-default login` as the configuration's account and click **Reload** |
+| *gcloud configuration ... is set up for ..., but your Application Default Credentials sign in as ...* | The same mismatch, found when signing in: the credentials changed to another account after the tab last checked them. Click **Reload** and continue again |
 | The `'gcloud'` detection source finds nothing although a login exists | The active configuration is set up for a different account than the credentials belong to. Add `'adc'` to `detectCredentials` to use the credentials without the configuration's settings |
 | *Not a service account key (expected type: service_account)* | The JSON has no `type` field, as in an OAuth client file, or it is a service account key that is missing a field such as `private_key`. Use the file that Google Cloud produced from **IAM & Admin > Service Accounts > Keys** |
 | *...which Runbooks does not accept* / *...is not a Google API endpoint* | The credentials document is a workload identity federation config that fetches its subject token from a file, a URL, or a command, or that points at a host outside `*.googleapis.com`. Runbooks does not run those instructions. Use a service account key, **Google Sign-In**, or `gcloud auth application-default login` |

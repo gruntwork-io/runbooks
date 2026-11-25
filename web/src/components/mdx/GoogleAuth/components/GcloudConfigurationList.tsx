@@ -15,35 +15,33 @@ interface GcloudConfigurationListProps {
   disabled: boolean
 }
 
+const MOST_CONFIGURATIONS_WITHOUT_SEARCH = 6
+
 export function GcloudConfigurationList(props: GcloudConfigurationListProps) {
   const matching = props.configurations.filter((configuration) =>
     matchesSearch(configuration, props.search),
   )
   return (
     <div>
-      <SettingsHeading />
-      <SearchInput
-        value={props.search}
-        onChange={props.onSearch}
-        placeholder="Search configurations..."
-        disabled={props.disabled}
-      />
+      <div className="block text-sm font-medium text-foreground mb-2">
+        Take the project, region and zone from
+      </div>
+      {props.configurations.length > MOST_CONFIGURATIONS_WITHOUT_SEARCH && (
+        <ConfigurationSearch {...props} />
+      )}
       <ConfigurationRows {...props} matching={matching} />
     </div>
   )
 }
 
-function SettingsHeading() {
+function ConfigurationSearch(props: GcloudConfigurationListProps) {
   return (
-    <>
-      <div className="block text-sm font-medium text-foreground">
-        Settings from a gcloud configuration{" "}
-        <span className="font-normal text-muted-foreground">(optional)</span>
-      </div>
-      <p className="text-xs text-muted-foreground mb-2">
-        The selected configuration supplies the project, region and zone.
-      </p>
-    </>
+    <SearchInput
+      value={props.search}
+      onChange={props.onSearch}
+      placeholder="Search configurations..."
+      disabled={props.disabled}
+    />
   )
 }
 
@@ -56,7 +54,7 @@ function matchesSearch(configuration: GcloudConfigInfo, search: string): boolean
 
 function ConfigurationRows(props: GcloudConfigurationListProps & { matching: GcloudConfigInfo[] }) {
   return (
-    <div className="max-h-[300px] overflow-y-auto space-y-2 p-1 mt-2">
+    <div className="max-h-[300px] overflow-y-auto space-y-2 p-1">
       <NoConfigurationRow {...props} />
       {props.matching.map((configuration) => (
         <ConfigurationRow key={configuration.name} {...props} configuration={configuration} />
@@ -78,7 +76,7 @@ function NoConfigurationRow({ selected, onSelect, disabled }: GcloudConfiguratio
   return (
     <RowButton isSelected={selected === null} disabled={disabled} onClick={() => onSelect(null)}>
       <div className="font-medium text-foreground">No configuration</div>
-      <div className="text-sm text-muted-foreground">Use the credentials on their own.</div>
+      <div className="text-sm text-muted-foreground">Use your gcloud login on its own.</div>
     </RowButton>
   )
 }
@@ -115,7 +113,7 @@ function RowButton({ isSelected, disabled, onClick, children }: RowButtonProps) 
       onClick={onClick}
       disabled={disabled}
       aria-pressed={isSelected}
-      className={cn("w-full text-left px-4 py-3 rounded-md border", rowStyle(isSelected, disabled))}
+      className={cn("w-full text-left px-3 py-2 rounded-md border", rowStyle(isSelected, disabled))}
     >
       <div className="flex items-center gap-2 min-w-0">
         <Check className={cn("h-4 w-4 shrink-0 text-info", !isSelected && "opacity-0")} />
@@ -157,8 +155,7 @@ function ActiveBadge() {
 function AnotherAccountNote({ account }: { account: string | undefined }) {
   return (
     <div className="mt-1 text-xs text-muted-foreground">
-      Set up for <span className="font-mono">{account}</span>. Its settings are not used with these
-      credentials.
+      Set up for <span className="font-mono">{account}</span>, so it is not available.
     </div>
   )
 }
