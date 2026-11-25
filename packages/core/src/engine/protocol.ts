@@ -93,7 +93,8 @@ export const FieldView = Schema.Struct({
   required: Schema.Boolean,
   sensitive: Schema.Boolean,
   options: Schema.optionalKey(Schema.Array(Schema.String)),
-  value: Visible(FieldValue),
+  /** Absent while the field is empty: an optional int left blank has no value, not `""`. */
+  value: Schema.optionalKey(Visible(FieldValue)),
   /** The runbook's default. Left out for a sensitive field. */
   default: Schema.optionalKey(FieldValue),
   /** Imported from another block, or locked. */
