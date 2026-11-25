@@ -843,7 +843,7 @@ describe("GoogleAuth — required scopes", () => {
     expect(await screen.findByText(/Waiting for browser sign-in/i)).toBeInTheDocument()
   })
 
-  it("offers the OAuth client picker and a command that runs as copied when Sign-In has no client", async () => {
+  it("sends the reader to another sign-in method, with a command that runs as copied, when Sign-In has no client", async () => {
     installApi({
       "google:oauth-available": () => ({ available: false }),
       "google:env-credentials": () => insufficient,
@@ -859,31 +859,16 @@ describe("GoogleAuth — required scopes", () => {
     ).toHaveLength(1)
     expect(screen.queryAllByText(/GOOGLE_OAUTH_CLIENT_CREDENTIALS/)).toHaveLength(0)
     expect(screen.queryAllByText(/unavailable in this build/)).toHaveLength(0)
-    expect(
-      screen.getAllByRole("button", { name: "Choose Desktop OAuth client JSON" }),
-    ).toHaveLength(1)
+    expect(screen.queryAllByText(/OAuth client/)).toHaveLength(0)
     expect(screen.queryAllByRole("button", { name: "Sign in with required scopes" })).toHaveLength(
       0,
     )
     expect(screen.getAllByRole("button", { name: "Check again" })).toHaveLength(1)
-  })
 
-  it("offers Sign in with required scopes once an OAuth client file is chosen", async () => {
-    installApi({
-      "google:oauth-available": () => ({ available: false }),
-      "google:env-credentials": () => insufficient,
-      "native:show-open-dialog": () => ({ filePaths: ["/home/u/client_secret.json"] }),
-    })
+    fireEvent.click(screen.getByRole("button", { name: "Use Different Credentials" }))
 
-    renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} scopes={requiredScopes} />)
-    fireEvent.click(await screen.findByRole("button", { name: "Choose Desktop OAuth client JSON" }))
-
-    expect(
-      await screen.findAllByRole("button", { name: "Sign in with required scopes" }),
-    ).toHaveLength(1)
-    expect(
-      screen.queryAllByRole("button", { name: "Choose Desktop OAuth client JSON" }),
-    ).toHaveLength(0)
+    expect(await screen.findAllByRole("button", { name: "gcloud Config" })).toHaveLength(1)
+    expect(screen.queryAllByText("Credentials missing required scopes")).toHaveLength(0)
   })
 
   it("does not enforce default scopes when the author omits the prop", async () => {

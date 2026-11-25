@@ -11,7 +11,6 @@ interface InsufficientScopesPromptProps {
   oauthUnavailable: boolean
   recovering?: boolean
   onSignIn: () => void
-  onChooseOAuthClient: () => void
   onReject: () => void
   onRetryDetection: () => void
 }
@@ -27,7 +26,6 @@ export function InsufficientScopesPrompt({
   oauthUnavailable,
   recovering = false,
   onSignIn,
-  onChooseOAuthClient,
   onReject,
   onRetryDetection,
 }: InsufficientScopesPromptProps) {
@@ -89,17 +87,13 @@ export function InsufficientScopesPrompt({
             </Button>
           </div>
         ) : (
-          <div className="space-y-3">
-            <ChooseOAuthClient onChoose={onChooseOAuthClient} disabled={recovering} />
-            <GcloudLoginCommand command={formatGcloudAdcLoginCommand(requiredScopes)} />
-            <div className="flex items-center gap-3 flex-wrap">
-              <Button onClick={onRetryDetection} disabled={recovering} size="sm">
-                Check again
-              </Button>
-              <Button onClick={onReject} disabled={recovering} variant="outline" size="sm">
-                Use Different Credentials
-              </Button>
-            </div>
+          <div className="space-y-4">
+            <AddScopesInTerminal
+              command={formatGcloudAdcLoginCommand(requiredScopes)}
+              onRetryDetection={onRetryDetection}
+              disabled={recovering}
+            />
+            <SignInAnotherWay onReject={onReject} disabled={recovering} />
           </div>
         )}
       </div>
@@ -107,33 +101,51 @@ export function InsufficientScopesPrompt({
   )
 }
 
-function ChooseOAuthClient({ onChoose, disabled }: { onChoose: () => void; disabled: boolean }) {
+function SignInAnotherWay({ onReject, disabled }: { onReject: () => void; disabled: boolean }) {
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">
-        Google Sign-In can request these scopes, but it does not have an OAuth client yet. Choose
-        your Desktop OAuth client JSON file to sign in.
+        Alternatively, or if Google shows "This app is blocked", sign in with another method.
       </p>
-      <Button onClick={onChoose} disabled={disabled} size="sm">
-        Choose Desktop OAuth client JSON
+      <Button onClick={onReject} disabled={disabled} variant="outline" size="sm">
+        Use Different Credentials
       </Button>
     </div>
   )
 }
 
-function GcloudLoginCommand({ command }: { command: string }) {
+function AddScopesInTerminal(props: {
+  command: string
+  onRetryDetection: () => void
+  disabled: boolean
+}) {
   return (
     <div className="space-y-2">
-      <p className="text-sm text-muted-foreground">
-        If Google grants these scopes to gcloud's own OAuth client, you can instead run this command
-        and click <strong>Check again</strong>. Google shows "This app is blocked" when it does not.
-      </p>
-      <div className="flex items-start gap-2">
-        <code className="flex-1 bg-card border border-warning/30 rounded px-2 py-1.5 text-xs font-mono break-all">
-          {command}
-        </code>
-        <CopyButton text={command} />
-      </div>
+      <AddScopesInstructions />
+      <CopyableCommand command={props.command} />
+      <Button onClick={props.onRetryDetection} disabled={props.disabled} size="sm">
+        Check again
+      </Button>
+    </div>
+  )
+}
+
+function AddScopesInstructions() {
+  return (
+    <p className="text-sm text-muted-foreground">
+      To add the missing scopes to these credentials, run this command in a terminal. Then click{" "}
+      <strong>Check again</strong>.
+    </p>
+  )
+}
+
+function CopyableCommand({ command }: { command: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <code className="flex-1 bg-card border border-warning/30 rounded px-2 py-1.5 text-xs font-mono break-all">
+        {command}
+      </code>
+      <CopyButton text={command} />
     </div>
   )
 }

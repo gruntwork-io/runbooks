@@ -499,9 +499,6 @@ function GoogleAuthInteractive({
                   onSignIn={() => {
                     void auth.handleSignInWithRequiredScopes()
                   }}
-                  onChooseOAuthClient={() => {
-                    void auth.loadOAuthClientFromFile()
-                  }}
                   onReject={auth.handleRejectDetected}
                   onRetryDetection={auth.handleRetryDetection}
                 />
