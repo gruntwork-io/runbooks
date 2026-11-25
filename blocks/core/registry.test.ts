@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "bun:test"
 import { Context, Effect, Schema, Stream } from "effect"
-import { type Alias, defineDisplay, defineTask } from "./contract.ts"
+import { type Alias, defineDisplay, defineTask, type TaskBlock } from "./contract.ts"
 import {
   type BlockTags,
   type PropsOf,
@@ -100,6 +100,25 @@ describe("resolveTag", () => {
 describe("registryProblems", () => {
   it("finds none in a sound registry", () => {
     expect(registryProblems(toy)).toEqual([])
+  })
+
+  it("names a task that provides a repository without naming its path, or the reverse", () => {
+    const clone = {
+      ...shell,
+      name: "Clone",
+      provides: ["run", "repository"],
+      paths: () => ({ target: { root: "working", path: "repo" } }),
+      repository: "target",
+    } satisfies TaskBlock<typeof ShellProps.Type, "at", Clock, "target">
+    const broken = {
+      Clone: clone,
+      Lost: { ...clone, name: "Lost", repository: undefined },
+      Stray: { ...clone, name: "Stray", provides: ["run"] },
+    } satisfies Registry
+    expect(registryProblems(broken)).toEqual([
+      "Lost: provides repository, so it names the path it makes it in",
+      "Stray: names a repository path, but does not provide repository",
+    ])
   })
 
   it("names an entry filed under another tag, a bad tag or version, and a broken alias", () => {

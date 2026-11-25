@@ -210,16 +210,22 @@ const sameFields = Schema.toEquivalence(Schema.Array(FieldView))
  * What a task reads when it runs: `values` from the forms it reads, then its
  * own. The rest are empty until the work product that fills them lands: `env`
  * with the per-run environment builder (2.4), `repository` and
- * `gitCredential` with the blocks that provide them. `cwd` becomes a root the
- * engine sets (2.3).
+ * `gitCredential` with the blocks that provide them. Every root is the
+ * runbook's folder, and no path is resolved, until the engine sets the roots
+ * (2.3).
  */
-const taskInput = (document: RunbookDocument, values: FormValues): TaskInput => ({
-  values,
-  env: {},
-  cwd: path.dirname(document.file),
-  repository: Option.none(),
-  gitCredential: Option.none(),
-})
+const taskInput = (document: RunbookDocument, values: FormValues): TaskInput => {
+  const folder = path.dirname(document.file)
+  return {
+    values,
+    env: {},
+    cwd: folder,
+    roots: { runbook: folder, working: folder, generated: path.join(folder, "generated") },
+    paths: {},
+    repository: Option.none(),
+    gitCredential: Option.none(),
+  }
+}
 
 /**
  * Reads each form: a form block's, or a task's own, from its props and the
