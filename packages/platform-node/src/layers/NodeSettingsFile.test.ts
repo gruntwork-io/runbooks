@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import * as nodeFs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
-import { Effect, Option } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { Caller } from "@runbooks/core/protocol"
 import { MAX_SETTINGS_BYTES, SettingsFile } from "@runbooks/core/services/SettingsFile"
 import { DEFAULT_SETTINGS, SettingsStore } from "@runbooks/core/settings"
+import { NodeFileSystemLive } from "./NodeFileSystem.ts"
 import { nodeSettingsFile } from "./NodeSettingsFile.ts"
 
 let root = ""
@@ -144,5 +145,47 @@ describe("the settings store over the file", () => {
       version: 1,
       settings: { theme: "dark" },
     })
+  })
+
+  it("keeps today's settings on the first start, and leaves today's files as they were", async () => {
+    const legacy = nodePath.join(root, "legacy")
+    nodeFs.mkdirSync(legacy)
+    const today = {
+      "custom-ca.json": JSON.stringify({ path: "/etc/corp/ca.pem" }),
+      "theme.json": JSON.stringify({ theme: "dark" }),
+    }
+    for (const [name, text] of Object.entries(today))
+      nodeFs.writeFileSync(nodePath.join(legacy, name), text)
+    const before = nodeFs.readdirSync(legacy).map((name) => {
+      const stat = nodeFs.statSync(nodePath.join(legacy, name))
+      return [name, stat.mtimeMs, stat.mode]
+    })
+
+    const { settings } = await Effect.runPromise(
+      Effect.gen(function* () {
+        return yield* (yield* SettingsStore).get
+      }).pipe(
+        Effect.provide(SettingsStore.importing(legacy)),
+        Effect.provide(Layer.merge(nodeSettingsFile(data), NodeFileSystemLive)),
+      ),
+    )
+    expect(settings).toEqual({
+      ...DEFAULT_SETTINGS,
+      theme: "dark",
+      caBundleFile: "/etc/corp/ca.pem",
+    })
+    expect(JSON.parse(nodeFs.readFileSync(file, "utf8"))).toEqual({
+      version: 1,
+      settings: { caBundleFile: "/etc/corp/ca.pem", theme: "dark" },
+    })
+    expect(modeOf(file)).toBe(0o600)
+    expect(
+      nodeFs.readdirSync(legacy).map((name) => {
+        const stat = nodeFs.statSync(nodePath.join(legacy, name))
+        return [name, stat.mtimeMs, stat.mode]
+      }),
+    ).toEqual(before)
+    for (const [name, text] of Object.entries(today))
+      expect(nodeFs.readFileSync(nodePath.join(legacy, name), "utf8")).toBe(text)
   })
 })
