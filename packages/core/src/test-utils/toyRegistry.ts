@@ -157,6 +157,7 @@ const gitLogin = defineCredential({
   effects: ["network"],
   scope: "git",
   provider: "git",
+  envNames: ["GITHUB_TOKEN", "GITLAB_TOKEN"],
   outputs: () => ({ user: { sensitive: false } }),
   request: () => ({
     detect: [],

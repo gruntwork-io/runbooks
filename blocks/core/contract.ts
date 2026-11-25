@@ -400,6 +400,14 @@ export interface CredentialBlock<P> extends BlockBase<P> {
   readonly scope: string
   /** The credential provider that serves it, by registry name. */
   readonly provider: string
+  /**
+   * Every environment variable its provider may set for a run. A run gets
+   * only these from the block. The engine strips the names of every
+   * credential block in the registry from the base environment, so a script
+   * gets a credential only from a block it names in `envFrom`. Known without
+   * starting the provider, unlike its `describe` answer.
+   */
+  readonly envNames: ReadonlyArray<string>
   readonly outputs: (p: P) => OutputDecls<string>
   readonly request: (p: P) => CredentialRequest
   readonly instruction: (p: P) => Instruction

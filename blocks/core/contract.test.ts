@@ -110,6 +110,7 @@ describe("block definitions", () => {
       effects: ["network", "browser"],
       scope: "cloud",
       provider: "fake",
+      envNames: ["CLOUD_TOKEN"],
       outputs: () => ({ account: { sensitive: false } }),
       request: () => ({
         detect: [{ kind: "env", prefix: Option.none() }],
@@ -185,6 +186,12 @@ describe("what the compiler rejects", () => {
     type Provides = CredentialBlock<object>["provides"]
     expectTypeOf<readonly ["git-credential"]>().not.toExtend<Provides>()
     expectTypeOf<readonly ["env", "git-credential"]>().toExtend<Provides>()
+  })
+
+  it("a credential block that does not name the variables its provider sets", () => {
+    type Declared = Pick<CredentialBlock<object>, "envNames">
+    expectTypeOf<{ provider: "aws" }>().not.toExtend<Declared>()
+    expectTypeOf<{ envNames: readonly ["AWS_ACCESS_KEY_ID"] }>().toExtend<Declared>()
   })
 
   it("a function allowed before trust that asks for a service", () => {
