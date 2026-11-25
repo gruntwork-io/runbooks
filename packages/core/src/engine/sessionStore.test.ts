@@ -18,12 +18,15 @@ import { SessionId } from "./protocol.ts"
 import {
   MAX_EXPIRED_PER_START,
   MAX_KEPT_SESSIONS,
+  MAX_SAVED_LOG_CHARS,
+  MAX_SAVED_LOG_LINES,
   MAX_SAVED_PAYLOAD_CHARS,
   MAX_SESSION_AGE_MILLIS,
   resumeOf,
   SAVED_SESSION_VERSION,
   type Saved,
   type SavedEvent,
+  savedLogOf,
   type SavedSession,
   SessionStore,
 } from "./sessionStore.ts"
@@ -254,6 +257,30 @@ describe("saving a session", () => {
     )
     expect(result).toEqual(Option.none())
     expect(warnings).toHaveLength(6)
+  })
+})
+
+describe("a run's saved log", () => {
+  const out = (text: string) => ({ stream: "stdout" as const, text })
+
+  it(`keeps the last ${MAX_SAVED_LOG_LINES} lines, and says how many came before`, () => {
+    const lines = Array.from({ length: 600 }, (_, n) => out(`line ${n}`))
+    const saved = savedLogOf(lines.slice(100), 700)
+    expect(saved.omitted).toBe(700 - MAX_SAVED_LOG_LINES)
+    expect(saved.lines).toEqual(lines.slice(-MAX_SAVED_LOG_LINES))
+  })
+
+  it(`keeps no more than ${MAX_SAVED_LOG_CHARS} characters, whole lines from the end`, () => {
+    const saved = savedLogOf([out("a".repeat(40_000)), out("b".repeat(30_000)), out("c")], 3)
+    expect(saved).toEqual({ omitted: 1, lines: [out("b".repeat(30_000)), out("c")] })
+  })
+
+  it("keeps the end of a last line longer than that, as today's app does", () => {
+    const long = `${"x".repeat(10)}${"y".repeat(MAX_SAVED_LOG_CHARS)}`
+    expect(savedLogOf([out("before"), out(long)], 2)).toEqual({
+      omitted: 1,
+      lines: [out("y".repeat(MAX_SAVED_LOG_CHARS))],
+    })
   })
 })
 

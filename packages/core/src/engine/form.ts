@@ -179,6 +179,36 @@ export function enter(
   }
 }
 
+/**
+ * The values a person or agent may change, by field name, as a saved
+ * session keeps them: null for a field left empty. A locked or hidden field
+ * holds the runbook's own, so it is not kept.
+ */
+export const savedValuesOf = (form: Form): Record<string, FieldValue | null> =>
+  Object.fromEntries(
+    form
+      .filter(({ field }) => !field.locked && !field.hidden)
+      .map((entry) => [entry.field.name, revealed(entry) ?? null]),
+  )
+
+/**
+ * The form with a resumed session's values put back in the fields a person
+ * or agent may change, none of them reviewed: an agent of the session
+ * before has not seen them in this one. A value for a field the form no
+ * longer has is dropped; one the field no longer takes stays, with its
+ * error, as one typed would.
+ */
+export const restoreValues = (
+  form: Form,
+  saved: Readonly<Record<string, FieldValue | null>>,
+): Form =>
+  form.map((entry) => {
+    const { field } = entry
+    const value = Object.hasOwn(saved, field.name) ? saved[field.name] : undefined
+    if (value === undefined || field.locked || field.hidden) return entry
+    return { field, value: value === null ? undefined : fill(field, value), reviewed: false }
+  })
+
 function reviewedAfter(entry: Entry, origin: Origin, changed: boolean): boolean {
   switch (origin) {
     case "agent":

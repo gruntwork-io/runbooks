@@ -31,6 +31,7 @@ import {
 } from "../test-utils/TestCredentialProviders.ts"
 import { testFileSystem } from "../test-utils/TestFileSystem.ts"
 import { testSettingsStore } from "../test-utils/TestSettingsFile.ts"
+import { testSessionStore } from "../test-utils/TestSessionStore.ts"
 import { TOY_REGISTRY, ToyField, toyFormSpec } from "../test-utils/toyRegistry.ts"
 import { Engine } from "./engine.ts"
 import { RUN_FILE_LIMITS } from "./runFiles.ts"
@@ -173,6 +174,7 @@ const withEngine = <A, E>(
         ),
       ),
       Effect.provide(testSettingsStore()),
+      Effect.provide(testSessionStore()),
       Effect.provide(
         Layer.mergeAll(
           Layer.succeed(FileSystem, recordFileSystem(testFileSystem({ ...FILES }, ["/rb"]), calls)),
