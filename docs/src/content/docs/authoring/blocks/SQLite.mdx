@@ -1,0 +1,95 @@
+---
+title: <SQLite>
+---
+
+The `<SQLite>` block runs a SQL query against a SQLite database file and shows the result as an interactive table. Use it to seed a local database, inspect data, or validate state as part of a runbook.
+
+## Basic usage
+
+```mdx
+<SQLite
+    id="create-users"
+    db="./app.db"
+    query="CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"
+    title="Create the users table"
+/>
+
+<SQLite
+    id="insert-alice"
+    db="./app.db"
+    query="INSERT INTO users (name) VALUES (?)"
+    params={["Alice"]}
+    title="Insert Alice"
+/>
+
+<SQLite
+    id="list-users"
+    db="./app.db"
+    query="SELECT id, name FROM users ORDER BY id"
+    output="users"
+    title="List all users"
+/>
+```
+
+## How it works
+
+The query runs in the app's main process against a real SQLite database (Node's built-in `node:sqlite` — no external dependency). The database file path is resolved relative to the runbook's directory and must stay inside the session's working area. Use `db=":memory:"` for a throwaway in-memory database.
+
+Results are shown in an interactive table:
+
+- **Sort**: click a column name to sort ascending, click again for descending, a third time to clear the sort.
+- **Filter**: click the filter icon next to a column name to filter rows on that column. Filters on multiple columns combine.
+
+Write queries (`INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`, ...) show the number of affected rows instead of a table.
+
+## Props
+
+### Required props
+
+- `id` (string): unique identifier for this block.
+- `db` (string): path to the `.db` file, relative to the runbook's folder, or `:memory:`.
+- `query` (string): the SQL statement to run. Use `?` placeholders for parameterized values — never concatenate values into the SQL string. Set exactly one of `query` and `path`.
+- `path` (string): path to a `.sql` file to execute, relative to the runbook's folder, such as `scripts/seed.sql`. The file may contain multiple statements, which run in order — useful for seed files a [Template](/authoring/blocks/template/) block generates. Set exactly one of `query` and `path`.
+
+Note: SQL string literals use single quotes (`'value'`). Double quotes (`"value"`) are identifiers in SQL, and the bundled SQLite rejects them as strings.
+
+### Optional props
+
+- `params` (array): values bound to the `?` placeholders in `query`, in order. Supports strings, numbers, booleans (bound as 1/0) and `null`.
+- `output` (string): when set, the result rows are published as this block's output, readable by later blocks as `{{ .outputs.<block_id>.<output_name> }}`.
+- `title` (string): display title shown in the UI. Supports inline markdown.
+- `description` (string): longer description. Supports inline markdown.
+- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block for template variables. `db`, `query` and `params` support `{{ .inputs.* }}` and `{{ .outputs.* }}` references.
+- `successMessage` (string): message shown when the query succeeds. Default "Query executed successfully".
+- `failMessage` (string): message shown when the query fails. Default "Query failed".
+
+## Example: parameterized insert
+
+```mdx
+<SQLite
+    id="add-user"
+    db="./app.db"
+    query="INSERT INTO users (name, email) VALUES (?, ?)"
+    params={["{{ .inputs.Name }}", "{{ .inputs.Email }}"]}
+    inputsId="user-form"
+    title="Add a user"
+/>
+```
+
+## Example: run a generated SQL file
+
+```mdx
+<Template id="sql-seed" path="./templates/seed.sql.tpl" ... />
+
+<SQLite
+    id="apply-seed"
+    db="./app.db"
+    path="./generated/seed.sql"
+    title="Apply the generated seed"
+/>
+```
+
+## Safety
+
+- A relative `db` or `path` resolves against the runbook's folder. The resolved path must be inside the session working directory, a registered worktree, the session's initial directory, or the runbook's folder. `:memory:` is always allowed for `db`.
+- Put untrusted values in the `params` array (`?` placeholders): binding protects those values. Interpolating a value directly into the `query` text is not protected and must be avoided.

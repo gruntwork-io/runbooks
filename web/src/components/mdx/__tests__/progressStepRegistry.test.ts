@@ -32,6 +32,7 @@ const STEP_BLOCKS = [
   "GitHubPullRequest",
   "GitLabMergeRequest",
   "DirPicker",
+  "SQLite",
 ] as const
 
 // Steps whose <ProgressStep> lives in a file other than `<Block>/<Block>.tsx`,

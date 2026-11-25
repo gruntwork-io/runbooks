@@ -1,0 +1,32 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+  parallelizable: true
+
+tests:
+  - name: sqlite-crud-flow
+    description: |
+      Create a table, insert rows with bound params, select them back, and
+      run a failing query to check the fail path.
+    steps:
+      - block: create-users
+        expect: success
+      - block: insert-alice
+        expect: success
+      - block: insert-bob
+        expect: success
+      - block: list-users
+        expect: success
+      - block: count-users
+        expect: success
+      - block: bad-query
+        expect: fail
+        error_contains: "no such table"
+
+  - name: sql-file-path
+    description: A <SQLite> block with path= runs the .sql file as a script.
+    steps:
+      - block: seed-from-file
+        expect: success

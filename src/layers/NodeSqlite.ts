@@ -20,10 +20,23 @@ export function openSqliteDatabase(file: string): SqlDatabase {
       const statement = db.prepare(sql)
       return {
         run: (...params) => {
-          statement.run(...params)
+          const info = statement.run(...params)
+          return {
+            changes: Number(info.changes),
+            lastInsertRowid:
+              typeof info.lastInsertRowid === "bigint"
+                ? Number(info.lastInsertRowid)
+                : info.lastInsertRowid,
+          }
         },
         get: (...params) => statement.get(...params),
         all: (...params) => statement.all(...params),
+        columns: () => statement.columns().map((c) => ({ name: c.name })),
+        // Present on Node 22.16+ and Bun; lets the domain read rows
+        // positionally so duplicate column names keep each value.
+        ...(typeof statement.setReturnArrays === "function"
+          ? { setReturnArrays: (arrays: boolean) => statement.setReturnArrays(arrays) }
+          : {}),
       }
     },
     close: () => {

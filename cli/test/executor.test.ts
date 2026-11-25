@@ -4,7 +4,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 import { inspect } from "node:util"
-import { TestExecutor } from "./executor.ts"
+import { TestExecutor, maskValuesInText } from "./executor.ts"
 import { RUNBOOKS_VERSION } from "../../src/runbooks-version.ts"
 import { revealOutputs } from "../../src/domain/exec/outputValues.ts"
 import { loadConfig, type CleanupAction, type ExpectedStatus } from "./config.ts"
@@ -18,6 +18,26 @@ const fixtureAvailable =
   fs.existsSync(RUNBOOK) && fs.existsSync(path.join(FIXTURE_DIR, "runbook_test.yml"))
 
 const maybe = fixtureAvailable ? describe : describe.skip
+
+describe("maskValuesInText", () => {
+  it("replaces every occurrence of each value", () => {
+    expect(maskValuesInText("a s3cret and another s3cret", ["s3cret"])).toBe(
+      "a <redacted> and another <redacted>",
+    )
+  })
+
+  it("redacts the combined span when a public value is a prefix of a secret", () => {
+    // Replacing "token_" first would leave "f47ac981" exposed; matching against
+    // the original text and merging spans redacts the whole secret.
+    expect(maskValuesInText("open token_f47ac981.sql failed", ["token_", "token_f47ac981"])).toBe(
+      "open <redacted>.sql failed",
+    )
+  })
+
+  it("returns the text unchanged when no value matches", () => {
+    expect(maskValuesInText("nothing to hide", ["s3cret", ""])).toBe("nothing to hide")
+  })
+})
 
 maybe("TestExecutor — fixture smoke", () => {
   let tmpWorkDir: string

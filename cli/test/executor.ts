@@ -9,9 +9,12 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
-import { Result, ManagedRuntime } from "effect"
+import { Effect, Result, ManagedRuntime } from "effect"
 
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
+import { openSqliteDatabase } from "../../src/layers/NodeSqlite.ts"
+import { runQuery, runSqlScript } from "../../src/domain/sqlite/query.ts"
+import type { SqlParam, SqlQueryResult } from "../../src/domain/sqlite/result.ts"
 import { stringArrayProp, stringProp, type PropValue, type Props } from "../../src/mdx.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
@@ -314,6 +317,41 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
 
 /** The blocks whose templates read inputs, and so check options that come from an output before they run. */
 const OPTION_READING_BLOCK_TYPES = new Set(["Template", "TemplateInline", "Check", "Command"])
+
+/**
+ * Replace every occurrence of `values` in `text` with `<redacted>`.
+ *
+ * Matches are found against the ORIGINAL text and their spans merged, so an
+ * overlapping pair (a public value `token_` and a secret `token_f47ac981`)
+ * redacts the whole combined span instead of leaving the secret's suffix
+ * behind after the prefix is replaced first.
+ */
+export function maskValuesInText(text: string, values: string[]): string {
+  const spans: Array<[number, number]> = []
+  for (const value of values) {
+    if (!value) continue
+    let idx = text.indexOf(value)
+    while (idx !== -1) {
+      spans.push([idx, idx + value.length])
+      idx = text.indexOf(value, idx + 1)
+    }
+  }
+  if (spans.length === 0) return text
+  spans.sort((a, b) => a[0] - b[0] || b[1] - a[1])
+  const merged: Array<[number, number]> = []
+  for (const [start, end] of spans) {
+    const last = merged[merged.length - 1]
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end)
+    else merged.push([start, end])
+  }
+  let out = ""
+  let pos = 0
+  for (const [start, end] of merged) {
+    out += text.slice(pos, start) + "<redacted>"
+    pos = end
+  }
+  return out + text.slice(pos)
+}
 
 // ---------------------------------------------------------------------------
 // Executor options
@@ -1180,11 +1218,13 @@ export class TestExecutor {
 
     // Render template vars in block props. The app resolves props for display
     // and shows a sensitive output in them as <redacted>, so they get the
-    // same here.
+    // same here — except a SQLite block, which executes its props and needs
+    // the real output values.
+    const propOutputValues = block.type === "SQLite" ? revealOutputs : maskOutputs
     try {
       block = {
         ...block,
-        props: renderPropTemplates(block.props, this.buildTemplateVars(block.id, maskOutputs)),
+        props: renderPropTemplates(block.props, this.buildTemplateVars(block.id, propOutputValues)),
       }
     } catch (e: unknown) {
       result.passed = false
@@ -1299,6 +1339,9 @@ export class TestExecutor {
           "PR blocks can only be tested with expect: skip (test mode never opens a pull request)"
         result.duration = Date.now() - start
         return result
+
+      case "SQLite":
+        return this.runSQLite(block, step, start)
 
       default:
         result.passed = false
@@ -2341,6 +2384,95 @@ export class TestExecutor {
     return result
   }
 
+  // -----------------------------------------------------------------------
+  // SQLite block
+  // -----------------------------------------------------------------------
+
+  private runSQLite(block: ParsedComponent, step: TestStep, start: number): StepResult {
+    const result = makeStepResult(`sqlite:${block.id}`, step.expect)
+
+    const dbProp = stringProp(block.props, "db")
+    const query = stringProp(block.props, "query")
+    const pathProp = stringProp(block.props, "path")
+    if (!dbProp || (!query && !pathProp)) {
+      result.passed = false
+      result.actualStatus = "config_error"
+      result.error = `SQLite block "${block.id}" requires 'db' and one of 'query' or 'path'`
+      result.duration = Date.now() - start
+      return result
+    }
+    if (query && pathProp) {
+      result.passed = false
+      result.actualStatus = "config_error"
+      result.error = `SQLite block "${block.id}" takes either 'query' or 'path', not both`
+      result.duration = Date.now() - start
+      return result
+    }
+
+    // Resolve the db path against the runbook's folder, as the app's
+    // path-guard does (resolveAgainstRunbook). `:memory:` stays as-is.
+    const runbookDir = path.dirname(this.runbookPath)
+    const dbPath = dbProp === ":memory:" ? ":memory:" : path.resolve(runbookDir, dbProp)
+
+    // Read params prop (array of scalars)
+    const rawParams = block.props.params
+    const params: SqlParam[] = Array.isArray(rawParams)
+      ? rawParams.map((p) => {
+          if (p === null) return null
+          if (typeof p === "string" || typeof p === "number" || typeof p === "boolean") return p
+          return String(p)
+        })
+      : []
+
+    let db: ReturnType<typeof openSqliteDatabase> | undefined
+    try {
+      db = openSqliteDatabase(dbPath)
+      let queryResult: SqlQueryResult
+      if (pathProp) {
+        // Like a Command's `path`: relative to the runbook's folder, as in the app.
+        const sqlPath = path.resolve(runbookDir, pathProp)
+        const sql = fs.readFileSync(sqlPath, "utf8")
+        queryResult = Effect.runSync(runSqlScript(db, sql))
+      } else {
+        queryResult = Effect.runSync(runQuery(db, query ?? "", params))
+      }
+      result.actualStatus = "success"
+      result.passed = this.matchesExpectedStatus(step.expect, "success")
+      // Publish the output prop as a JSON-encoded rows array, as the app does
+      const outputName = stringProp(block.props, "output")
+      if (outputName) {
+        result.outputs = { [outputName]: JSON.stringify(queryResult.rows) }
+        this.blockOutputs.set(block.id, new Map([[outputName, JSON.stringify(queryResult.rows)]]))
+      }
+      this.passedScripts.add(normalizeBlockId(block.id))
+    } catch (err: unknown) {
+      // Query failure AND database-open failure land here: a missing parent
+      // directory makes openSqliteDatabase throw, and an expect: fail step
+      // should still match it.
+      this.passedScripts.delete(normalizeBlockId(block.id))
+      // A failed rerun must not leave the previous run's rows behind: later
+      // blocks would consume stale outputs.
+      this.blockOutputs.delete(block.id)
+      const msg = err instanceof Error ? err.message : String(err)
+      result.actualStatus = "fail"
+      result.passed = this.matchesExpectedStatus(step.expect, "fail")
+      // SQLite props render with revealOutputs, so an error can quote a
+      // revealed path (e.g. a missing SQL file whose path prop contains a
+      // sensitive output). Mask those values in the stored error; the raw
+      // msg stays for the error_contains comparison below.
+      const masked = this.maskRevealedValues(msg)
+      result.error = masked
+      if (step.error_contains && !msg.toLowerCase().includes(step.error_contains.toLowerCase())) {
+        result.passed = false
+        result.error = `Expected error to contain "${step.error_contains}" but got: ${masked}`
+      }
+    } finally {
+      db?.close()
+    }
+    result.duration = Date.now() - start
+    return result
+  }
+
   private runGitClone(block: ParsedComponent, step: TestStep, start: number): StepResult {
     const result = makeStepResult(`gitClone:${block.id}`, step.expect)
 
@@ -2704,6 +2836,18 @@ export class TestExecutor {
    * ID with hyphens turned into underscores, so `outputs.create_account`
    * finds block "create-account".
    */
+  /**
+   * Replace every revealed output value found in `text` with `<redacted>`.
+   * Used before storing an error message that may quote a prop rendered with
+   * revealOutputs (e.g. a resolved path).
+   */
+  private maskRevealedValues(text: string): string {
+    const values = Object.values(this.templateOutputs(revealOutputs)).flatMap((outputs) =>
+      Object.values(outputs),
+    )
+    return maskValuesInText(text, values)
+  }
+
   private templateOutputs(
     outputValues: (values: OutputValues) => Record<string, string> = revealOutputs,
   ): Record<string, Record<string, string>> {

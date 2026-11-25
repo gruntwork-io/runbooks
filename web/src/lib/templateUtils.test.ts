@@ -9,6 +9,7 @@ import {
   extractInputValueReferences,
   maskTemplateOutputs,
   resolveTemplateReferences,
+  resolveTemplateReferencesRevealed,
   revealTemplateOutputs,
   type TemplateOutputs,
 } from "./templateUtils"
@@ -179,6 +180,18 @@ describe("resolveTemplateReferences", () => {
     expect(resolveTemplateReferences("token: {{ .outputs.mint.token }}", withSecret)).toBe(
       "token: <redacted>",
     )
+  })
+
+  // Its results are executed (e.g. a <SQLite> query), so they need the value
+  it("resolveTemplateReferencesRevealed resolves a sensitive output to its real value", () => {
+    const withSecret = {
+      ...ctx,
+      outputs: { ...ctx.outputs, mint: { token: sensitiveOutput("s3cr3t") } },
+    }
+    expect(resolveTemplateReferencesRevealed("token: {{ .outputs.mint.token }}", withSecret)).toBe(
+      "token: s3cr3t",
+    )
+    expect(resolveTemplateReferencesRevealed("{{ .inputs.region }}", withSecret)).toBe("us-west-2")
   })
 
   it("should resolve output references", () => {
