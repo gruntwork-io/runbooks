@@ -124,6 +124,7 @@ export const withRootsSession = <A, E>(
           registry: rootsRegistry(seen),
           appVersion: "0.31.0",
           workingFolders: setup.workingFolders,
+          processEnvironment: {},
         }),
       ),
       Effect.provide(setup.fileSystem),

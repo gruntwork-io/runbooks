@@ -97,6 +97,7 @@ const withEngine = <A, E>(
           registry: registryWith(scripts),
           appVersion: "0.31.0",
           workingFolders: "/work",
+          processEnvironment: {},
         }),
       ),
       Effect.provide(makeTestFileSystem({ [RUNBOOK]: runbook })),
