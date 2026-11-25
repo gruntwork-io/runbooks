@@ -22,6 +22,10 @@
  *   expiry, which withdraws its values. Before then the engine refreshes it
  *   through `env`, and a later expiry keeps it Ready. A run that reads it in
  *   the window fails, and one that sees a later expiry moves it.
+ * - A provider opens with the CA bundle and proxy the settings hold then,
+ *   and keeps them while it is open: a settings change reopens nothing.
+ *   CheckAgain opens it again if they have changed, as it does from
+ *   Unavailable.
  *
  * A provider call runs in a fiber of the session's scope, so closing the
  * session stops it, one at a time for each block. It moves the block only
@@ -97,6 +101,13 @@ export interface CredentialSlot {
   readonly outputs: OutputDecls<string>
 }
 
+/** The settings a provider opens with that are the machine's, not the block's. */
+export type ProviderNetwork = Pick<ProviderConfig, "caBundleFile" | "proxy">
+
+const sameNetwork = (a: ProviderNetwork, b: ProviderNetwork): boolean =>
+  Option.getOrNull(a.caBundleFile) === Option.getOrNull(b.caBundleFile) &&
+  Option.getOrNull(a.proxy) === Option.getOrNull(b.proxy)
+
 /** Opens a block's provider by its registry name: the trusted session's runner does it. */
 export type OpenProvider = (
   provider: string,
@@ -114,6 +125,8 @@ export interface CredentialHost {
   /** The session's folder of provider state: each block's provider keeps its files in `<it>/<block>`. */
   readonly stateFolder: string
   readonly store: CredentialStore
+  /** The CA bundle and proxy the settings hold now. */
+  readonly network: Effect.Effect<ProviderNetwork>
 }
 
 /** A sign-in method's fields as a client sends them: every one redacted. */
@@ -139,6 +152,8 @@ interface Opened {
   readonly methods: ReadonlyArray<MethodView>
   /** Holds the provider; closing it closes the provider and signs nothing out. */
   readonly scope: Scope.Closeable
+  /** What it was opened with. */
+  readonly network: ProviderNetwork
 }
 
 /** What a ChoosingTarget is on its way to: a sign-in held until the levels before it are chosen, or Ready. */
@@ -286,7 +301,8 @@ const nextLevel = (
 /**
  * The states that take each action. An action's fields are checked after,
  * against what the state offers. CheckAgain also needs detection sources,
- * except from Unavailable, where it opens the provider again.
+ * except from Unavailable, where it opens the provider again. It opens it
+ * again from any state that takes it when the CA bundle or proxy changed.
  */
 const TAKEN_IN: {
   readonly [A in CredentialAction["_tag"]]: ReadonlyArray<CredentialStateTag>
@@ -525,11 +541,10 @@ export function makeCredentials(
         Effect.gen(function* () {
           const scope = yield* Scope.fork(host.scope)
           const { block, request, id } = credential.slot
+          const network = yield* host.network
           const config: ProviderConfig = {
             stateDir: path.join(host.stateFolder, id),
-            // The settings store (2.7) gives the CA bundle and proxy; until then a provider gets neither.
-            caBundleFile: Option.none(),
-            proxy: Option.none(),
+            ...network,
             settings: request.settings,
           }
           const provider = yield* Scope.provide(bounded(open(block.provider, config)), scope).pipe(
@@ -538,7 +553,13 @@ export function makeCredentials(
           const info = yield* bounded(provider.describe).pipe(
             Effect.onError(() => Scope.close(scope, Exit.void)),
           )
-          const opened: Opened = { provider, info, methods: methodViews(info, request), scope }
+          const opened: Opened = {
+            provider,
+            info,
+            methods: methodViews(info, request),
+            scope,
+            network,
+          }
           credential.opened = Option.some(opened)
           return opened
         }),
@@ -888,8 +909,13 @@ export function makeCredentials(
   const checkAgain = (credential: Credential, open: OpenProvider) =>
     Effect.gen(function* () {
       yield* stop(credential)
-      if (credential.state?._tag === "Unavailable" && Option.isSome(credential.opened)) {
-        yield* Scope.close(credential.opened.value.scope, Exit.void)
+      const { opened } = credential
+      if (
+        Option.isSome(opened) &&
+        (credential.state?._tag === "Unavailable" ||
+          !sameNetwork(opened.value.network, yield* host.network))
+      ) {
+        yield* Scope.close(opened.value.scope, Exit.void)
         credential.opened = Option.none()
       }
       yield* host.update((emit) => move(credential, { _tag: "Detecting" }, emit))

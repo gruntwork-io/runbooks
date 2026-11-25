@@ -7,7 +7,7 @@
  */
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
-import { DateTime, Effect, Exit, Option, Redacted, Schema, Scope, Stream } from "effect"
+import { DateTime, Effect, Exit, type Layer, Option, Redacted, Schema, Scope, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { BlockId, CredentialError } from "@runbooks/blocks-core/contract"
 import type { AnyBlock } from "@runbooks/blocks-core/registry"
@@ -28,12 +28,14 @@ import {
   testCredentialProviders,
 } from "../test-utils/TestCredentialProviders.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
+import { testSettingsStore } from "../test-utils/TestSettingsFile.ts"
 import { makeRecordingSpawner, type RecordedSpawn } from "../test-utils/TestSpawner.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import { makeCredentialStore } from "./credentialStore.ts"
 import { makeCredentials } from "./credentials.ts"
 import { Engine } from "./engine.ts"
 import { EventEnvelope, type EventEnvelope as Envelope } from "./protocol.ts"
+import { SettingsStore } from "./settings.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
 const blockId = Schema.decodeSync(BlockId)
@@ -141,6 +143,16 @@ const callsOf = (block: string) =>
 const argsOf = (block: string, method: ProviderCall["method"]) =>
   calls.filter((call) => call.block === block && call.method === method).map((call) => call.args)
 
+/**
+ * The CA bundle and proxy each of `block`'s providers was opened with, null
+ * for none. (`toMatchObject` matches an expected `Option.none()` to anything.)
+ */
+const networkOf = (block: string) =>
+  argsOf(block, "open").map(([, config]) => {
+    const { caBundleFile, proxy } = config as ProviderConfig
+    return { caBundleFile: Option.getOrNull(caBundleFile), proxy: Option.getOrNull(proxy) }
+  })
+
 /** Each block's moves, checked against `TRANSITIONS`; the first must be to Detecting. */
 function expectEveryMoveAllowed(events: ReadonlyArray<Envelope>) {
   const last = new Map<string, CredentialStateTag>()
@@ -169,12 +181,17 @@ const movesOf = (block: string) =>
  * A trusted session of `runbook` whose credential providers are `scripts`.
  * With `testClock`, the session's time starts at the epoch and moves only
  * when the test adjusts it, and `wallClockAhead` jumps the wall clock alone.
+ * The engine's settings are the defaults unless `settings` is given.
  */
 const withCloud = <A>(
   runbook: string,
   scripts: Readonly<Record<string, (config: ProviderConfig) => ScriptedProvider>>,
   use: UseEnvSession<A>,
-  options: { readonly testClock?: boolean; readonly wallClockAhead?: () => number } = {},
+  options: {
+    readonly testClock?: boolean
+    readonly wallClockAhead?: () => number
+    readonly settings?: Layer.Layer<SettingsStore>
+  } = {},
 ): Promise<A> => {
   calls = []
   log = []
@@ -227,15 +244,82 @@ describe("detecting a credential", () => {
     )
     const [name, config] = argsOf("cloud", "open")[0] ?? []
     expect(name).toBe("cloud")
-    expect(config).toMatchObject({
-      caBundleFile: Option.none(),
-      proxy: Option.none(),
-      settings: { defaultRegion: "eu-west-1" },
-    })
+    expect(config).toMatchObject({ settings: { defaultRegion: "eu-west-1" } })
+    expect(networkOf("cloud")).toEqual([{ caBundleFile: null, proxy: null }])
     const { stateDir } = config as ProviderConfig
     expect(path.basename(stateDir)).toBe("cloud")
     expect(path.dirname(path.dirname(stateDir))).toBe("/state")
     expect(callsOf("cloud")).toEqual(["open", "describe", "detect"])
+  })
+
+  it("opens the block's provider with the CA bundle and proxy the settings hold", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" />',
+      { cloud: cloud() },
+      (rb) => rb.until("cloud", "SignedOut"),
+      {
+        settings: testSettingsStore({
+          caBundleFile: "/etc/corp/ca.pem",
+          proxy: "http://proxy.corp:3128",
+        }),
+      },
+    )
+    expect(networkOf("cloud")).toEqual([
+      { caBundleFile: "/etc/corp/ca.pem", proxy: "http://proxy.corp:3128" },
+    ])
+  })
+
+  it("keeps an open provider's CA bundle and proxy when the settings change, until CheckAgain opens it with the new ones", async () => {
+    await withCloud('<CloudLogin id="cloud" />', { cloud: cloud() }, (rb) =>
+      Effect.gen(function* () {
+        yield* rb.until("cloud", "SignedOut")
+        const settings = yield* SettingsStore
+        yield* settings.change({
+          caBundleFile: "/etc/corp/ca.pem",
+          proxy: "http://proxy.corp:3128",
+        })
+        expect(callsOf("cloud")).toEqual(["open", "describe", "detect"])
+
+        expect(yield* rb.act("cloud", { _tag: "CheckAgain" })).toEqual({ _tag: "Accepted" })
+        yield* rb.until("cloud", "Detecting")
+        yield* rb.until("cloud", "SignedOut")
+        expect(callsOf("cloud")).toEqual([
+          "open",
+          "describe",
+          "detect",
+          "open",
+          "describe",
+          "detect",
+        ])
+
+        // Back to what it opened with: CheckAgain opens it again for that too.
+        yield* settings.change({ proxy: null })
+        yield* rb.act("cloud", { _tag: "CheckAgain" })
+        yield* rb.until("cloud", "Detecting")
+        yield* rb.until("cloud", "SignedOut")
+      }),
+    )
+    expect(networkOf("cloud")).toEqual([
+      { caBundleFile: null, proxy: null },
+      { caBundleFile: "/etc/corp/ca.pem", proxy: "http://proxy.corp:3128" },
+      { caBundleFile: "/etc/corp/ca.pem", proxy: null },
+    ])
+  })
+
+  it("keeps a Ready credential on the provider it opened, whatever the settings change to", async () => {
+    await withCloud(runbookOf(pinned, DEPLOY), { cloud: ready }, (rb) =>
+      Effect.gen(function* () {
+        yield* rb.until("cloud", "Ready")
+        yield* (yield* SettingsStore).change({ proxy: "http://proxy.corp:3128" })
+        expect(yield* rb.run("deploy")).toEqual(done)
+        expect(rb.envOf("deploy")).toMatchObject({ CLOUD_TOKEN: "tok-SECRET" })
+        expect(yield* rb.act("cloud", { _tag: "CheckAgain" })).toEqual({
+          _tag: "NotAllowed",
+          state: "Ready",
+        })
+      }),
+    )
+    expect(argsOf("cloud", "open")).toHaveLength(1)
   })
 
   // useAwsAuth.env.test.ts
@@ -1795,6 +1879,7 @@ describe("the credential store", () => {
           scope,
           stateFolder: "/state/s1",
           store,
+          network: Effect.succeed({ caBundleFile: Option.none(), proxy: Option.none() }),
         })
         const started = credentials.enter(
           () => true,

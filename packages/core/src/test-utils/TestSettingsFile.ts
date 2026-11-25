@@ -1,8 +1,11 @@
 /**
- * An in-memory `SettingsFile` for tests. A test reads back what was written and kept aside, and can make any of
+ * An in-memory `SettingsFile` for tests, and the settings store over one.
+ * A test reads back what was written and kept aside, and can make any of
  * the file's calls fail as the disk would.
  */
 import { Effect, Layer, Option } from "effect"
+import type { SettingsChange } from "../engine/protocol.ts"
+import { SETTINGS_VERSION, SettingsStore } from "../engine/settings.ts"
 import { FileReadError, FileWriteError } from "../errors/index.ts"
 import { MAX_SETTINGS_BYTES, SettingsFile } from "../services/SettingsFile.ts"
 
@@ -69,3 +72,11 @@ export function memorySettingsFile(initial?: string, fail: Failures = {}): Memor
     replaced,
   }
 }
+
+/** The settings store, its file holding `settings` as a person set them: none, by default. */
+export const testSettingsStore = (settings: SettingsChange = {}): Layer.Layer<SettingsStore> =>
+  SettingsStore.layer.pipe(
+    Layer.provide(
+      memorySettingsFile(JSON.stringify({ version: SETTINGS_VERSION, settings })).layer,
+    ),
+  )

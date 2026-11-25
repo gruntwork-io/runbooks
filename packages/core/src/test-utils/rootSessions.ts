@@ -13,6 +13,7 @@ import { Engine } from "../engine/engine.ts"
 import { Caller, type SessionId } from "../engine/protocol.ts"
 import type { FileSystem } from "../services/FileSystem.ts"
 import { testCredentialProviders } from "./TestCredentialProviders.ts"
+import { testSettingsStore } from "./TestSettingsFile.ts"
 import { TOY_REGISTRY, toyFormSpec } from "./toyRegistry.ts"
 
 const blockId = Schema.decodeSync(BlockId)
@@ -130,6 +131,7 @@ export const withRootsSession = <A, E>(
         }),
       ),
       Effect.provide(testCredentialProviders({}, [])),
+      Effect.provide(testSettingsStore()),
       Effect.provide(setup.fileSystem),
       Effect.provideService(Caller, { origin: "person" }),
     ),

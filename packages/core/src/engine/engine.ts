@@ -5,7 +5,7 @@
  * imports the blocks.
  */
 import path from "node:path"
-import { Context, Effect, Layer, Schema, Scope, Stream } from "effect"
+import { Context, Effect, Layer, Option, Schema, Scope, Stream } from "effect"
 import type { Rpc } from "effect/rpc"
 import type { TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
@@ -41,6 +41,7 @@ import { baseEnvironment } from "./env.ts"
 import { resolvePaths, sessionRoots } from "./roots.ts"
 import { makeRunFiles, readRunFiles } from "./runFiles.ts"
 import { makeSession, type Runner, type Session } from "./session.ts"
+import { SettingsStore } from "./settings.ts"
 
 /** Serves one protocol command, with the command's own payload, success and error types. */
 type Command<R extends Rpc.Any, Requires = never> = (
@@ -111,20 +112,26 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
    * registry asks for, and gives them to each run: a session can start a run
    * only once the person trusts it. Before that, the engine reads the runbook
    * and the files its blocks name, and nothing else: it opens no credential
-   * provider. Closing the layer closes every session.
+   * provider. A provider opens with the CA bundle and proxy the settings
+   * hold when it opens. Closing the layer closes every session.
    */
   static readonly layer = <R extends Registry>(
     options: EngineOptions<R>,
   ): Layer.Layer<
     Engine,
     never,
-    FileSystem | CredentialProviders | Exclude<ServicesOf<R>, Scope.Scope>
+    FileSystem | CredentialProviders | SettingsStore | Exclude<ServicesOf<R>, Scope.Scope>
   > =>
     Layer.effect(
       Engine,
       Effect.gen(function* () {
         const { registry, appVersion, workingFolders, stateFolders } = options
         const providers = yield* CredentialProviders
+        const settings = yield* SettingsStore
+        const network = Effect.map(settings.get, ({ settings: { caBundleFile, proxy } }) => ({
+          caBundleFile: Option.fromNullOr(caBundleFile),
+          proxy: Option.fromNullOr(proxy),
+        }))
         const base = baseEnvironment(options.processEnvironment, registry)
         // The layer's context holds the layer's own scope too. A resource held
         // there would outlast its run, so a run gets a scope of its own in its
@@ -189,6 +196,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
               baseEnvironment: base,
               registry,
               stateFolder: path.join(stateFolders, id),
+              network,
             })
             sessions.set(session.id, session)
             return { _tag: "Opened", session: session.view() } as const
