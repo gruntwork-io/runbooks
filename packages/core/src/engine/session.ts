@@ -58,6 +58,7 @@ import {
   UnknownSession,
   WrongClass,
 } from "./protocol.ts"
+import { type Held, hold, visible } from "./held.ts"
 
 /** Lines of a run's log the session keeps. Older lines are dropped; a log page says where it starts. */
 const MAX_RUN_LOG_LINES = 10_000
@@ -136,25 +137,20 @@ interface Slot {
   readonly runnable: Option.Option<Runnable>
 }
 
-/** An output as the session holds it. A sensitive value stays redacted inside the engine too. */
-type HeldOutput =
-  | { readonly sensitive: false; readonly value: string }
-  | { readonly sensitive: true; readonly value: Redacted.Redacted<string> }
-
 type RunState =
   | {
       readonly _tag: "Running"
       /** Closing it interrupts the run. */
       readonly scope: Scope.Closeable
       /** Held until the run ends well, then published. */
-      readonly outputs: Map<string, HeldOutput>
+      readonly outputs: Map<string, Held<string>>
       readonly env: Map<string, Redacted.Redacted<string>>
       warned: boolean
     }
   | {
       readonly _tag: "Done"
       readonly outcome: Outcome
-      readonly outputs: ReadonlyMap<string, HeldOutput>
+      readonly outputs: ReadonlyMap<string, Held<string>>
       /** For the per-run environment builder (work product 2.4), which reads a done block's env. */
       readonly env: ReadonlyMap<string, Redacted.Redacted<string>>
     }
@@ -216,11 +212,8 @@ function runnableOf(node: BlockNode, registry: Registry): Option.Option<Runnable
   return Option.some({ block, outputs: block.outputs(node.props) })
 }
 
-const outputView = (output: HeldOutput): OutputView =>
-  output.sensitive ? { _tag: "Hidden" } : { _tag: "Shown", value: output.value }
-
-const outputsView = (outputs: ReadonlyMap<string, HeldOutput>) =>
-  Object.fromEntries(Array.from(outputs, ([key, output]) => [key, outputView(output)]))
+const outputsView = (outputs: ReadonlyMap<string, Held<string>>): Record<string, OutputView> =>
+  Object.fromEntries(Array.from(outputs, ([key, output]) => [key, visible(output)]))
 
 /** Why a run ended badly. Interrupting a run cancels it. */
 function taskErrorOf(cause: Cause.Cause<TaskError>): TaskError {
@@ -398,13 +391,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
                 stream: "stderr",
                 text: `Output "${event.key}" was dropped: the block does not declare it.`,
               })
-            else
-              state.outputs.set(
-                event.key,
-                decl.sensitive
-                  ? { sensitive: true, value: Redacted.make(event.value) }
-                  : { sensitive: false, value: event.value },
-              )
+            else state.outputs.set(event.key, hold(decl.sensitive, event.value))
             break
           }
           case "Env":
