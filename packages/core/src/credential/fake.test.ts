@@ -19,6 +19,10 @@ import {
 import { TestClock } from "effect/testing"
 import type { CredentialError } from "@runbooks/blocks-core/contract"
 import { FileSystem, type FileSystemShape } from "../services/FileSystem.ts"
+import {
+  credentialProviderContract,
+  FAKE_SCENARIOS,
+} from "../test-utils/credentialProviderContract.ts"
 import { withEnvSession } from "../test-utils/envSessions.ts"
 import { makeTestFileSystem, testFileSystem } from "../test-utils/TestFileSystem.ts"
 import { makeRecordingSpawner } from "../test-utils/TestSpawner.ts"
@@ -433,4 +437,20 @@ describe("the engine, against the fake", () => {
     )
     expect(env).toEqual({ PATH: "/usr/bin", CLOUD_TOKEN: TOKEN, CLOUD_ACCOUNT: "111111111111" })
   })
+})
+
+credentialProviderContract("the fake, in memory", {
+  scenarios: FAKE_SCENARIOS,
+  open: async () => {
+    const fs = testFileSystem({}, [])
+    return {
+      layer: Layer.merge(
+        fakeCredentialProviders({ fake: FAKE_SCRIPT }),
+        Layer.succeed(FileSystem, fs),
+      ).pipe(Layer.provide(Layer.succeed(FileSystem, fs))),
+      provider: "fake",
+      config: config(),
+      release: async () => {},
+    }
+  },
 })

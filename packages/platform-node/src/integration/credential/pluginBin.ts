@@ -5,7 +5,7 @@
  * transport owner, on the real filesystem.
  */
 import { createHash } from "node:crypto"
-import { chmodSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { Layer, Schema } from "effect"
 import { pluginCredentialProviders } from "@runbooks/core/credential/plugin"
@@ -33,6 +33,27 @@ export const installFake = (binDir: string, name = "fake"): PluginEntry => {
   writeFileSync(binary, `#!/bin/sh\nexec "${process.execPath}" --no-env-file "${FAKE}"\n`)
   chmodSync(binary, 0o755)
   return { name, kind: "credential", version: "0.0.0", sha256: { [PLATFORM]: sha256Of(binary) } }
+}
+
+/**
+ * Copies a released binary into `binDir` as plugin `name`, pinned by
+ * `sha256`: the owner refuses it when the copy's hash is another.
+ */
+export const installBinary = (
+  binDir: string,
+  name: string,
+  from: string,
+  sha256: string,
+): PluginEntry => {
+  const binary = path.join(binDir, binaryName("credential", name, PLATFORM))
+  copyFileSync(from, binary)
+  chmodSync(binary, 0o755)
+  return {
+    name,
+    kind: "credential",
+    version: "0.0.0",
+    sha256: { [PLATFORM]: Schema.decodeUnknownSync(Sha256)(sha256) },
+  }
 }
 
 /** The app's credential providers over the plugins in `binDir`, and the filesystem they check files on. */
