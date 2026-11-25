@@ -303,7 +303,7 @@ class Parse {
           ...(named.prop !== undefined ? { prop: named.prop } : {}),
           target: reference.block,
           targetAsWritten: reference.blockAsWritten,
-          source: { _tag: "Template", key: reference.key, guarded: reference.guarded },
+          source: { _tag: "Output", key: reference.key, guarded: reference.guarded },
           span: reference.span,
           inFile,
         })
@@ -758,7 +758,7 @@ class Parse {
           prop,
           target: reference.block,
           targetAsWritten: reference.blockAsWritten,
-          source: { _tag: "Template", key: reference.key, guarded: reference.guarded },
+          source: { _tag: "Output", key: reference.key, guarded: reference.guarded },
           span,
         })
       }
