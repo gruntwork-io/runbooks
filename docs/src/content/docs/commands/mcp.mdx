@@ -78,7 +78,7 @@ Every block with a button, picker or form gives an agent the same controls it gi
 | Block | Actions |
 |---|---|
 | `<GitAuth>`, `<GitHubAuth>`, `<GitLabAuth>` | `reload_detection`, `select_host`, `select_provider`, `start_browser_sign_in`, `cancel_sign_in`, `sign_in_with_token`, `sign_out`, `retry` |
-| `<AzureAuth>` | `confirm_detected`, `reject_detected`, `retry_detection`, `start_browser_sign_in`, `start_device_code_sign_in`, `cancel_sign_in`, `select_context` (tenant and subscription), `sign_out` |
+| `<AzureAuth>` | `confirm_detected`, `reject_detected`, `retry_detection`, `start_browser_sign_in`, `start_device_code_sign_in`, `cancel_sign_in`, `select_context` (tenant and subscription), `change_tenant`, `cancel_change_tenant`, `sign_out` |
 | `<AwsAuth>` | `confirm_detected`, `reject_detected`, `retry_detection`, `sign_in_with_profile`, `start_sso_sign_in`, `select_sso_account`, `select_sso_role`, `cancel_sign_in`, `sign_out` |
 | `<GoogleAuth>` | `confirm_detected`, `reject_detected`, `retry_detection`, `sign_in_with_gcloud`, `start_browser_sign_in`, `cancel_sign_in`, `select_project`, `change_project`, `sign_out` |
 | `<GitClone>` | `clone` (URL, ref, paths), `use_local_checkout`, `cancel`, `start_over` |

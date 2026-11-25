@@ -72,6 +72,8 @@ export class GoogleOAuthError extends Data.TaggedError("GoogleOAuthError")<{
 export class AzureAuthError extends Data.TaggedError("AzureAuthError")<{
   readonly message: string
   readonly cliMissing?: boolean | undefined
+  /** Azure wants the user to sign in to the tenant again, in a browser. */
+  readonly interactionRequired?: boolean | undefined
   readonly command?: string | undefined
   readonly cause?: unknown
 }> {}

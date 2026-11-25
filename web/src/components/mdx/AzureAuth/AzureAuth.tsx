@@ -129,6 +129,11 @@ function AzureAuthInteractive({
       ...(detectionInvalid || rolesInvalid ? ["The block's configuration is invalid"] : []),
     ],
     needsHuman: () => {
+      if (auth.tenantSignIn) {
+        return auth.deviceCode
+          ? `Tenant ${auth.tenantSignIn.tenantId} needs a new sign-in: the person at the window must open ${auth.deviceCode.verificationUri} and enter the code ${auth.deviceCode.userCode}.`
+          : `Tenant ${auth.tenantSignIn.tenantId} needs a new sign-in: the person at the window must finish it in the browser window az login opened.`
+      }
       if (signingIn && auth.deviceCode) {
         return `The person at the window must open ${auth.deviceCode.verificationUri} and enter the code ${auth.deviceCode.userCode} to finish signing in to Azure.`
       }
@@ -206,7 +211,27 @@ function AzureAuthInteractive({
         name: "cancel_sign_in",
         description: "Stop a sign-in that is waiting.",
         changes: false,
-        ...(signingIn ? {} : { unavailable: "No sign-in is in progress." }),
+        ...(signingIn || auth.tenantSignIn ? {} : { unavailable: "No sign-in is in progress." }),
+      },
+      {
+        name: "change_tenant",
+        description:
+          "Open the tenant and subscription picker on this block's sign-in, as the block's Change tenant does, without signing in again. Then use select_context.",
+        changes: false,
+        ...(signedIn && auth.canChangeTenant
+          ? {}
+          : {
+              unavailable:
+                "Only a signed-in user sign-in, with no tenant or subscription pinned, can change tenant.",
+            }),
+      },
+      {
+        name: "cancel_change_tenant",
+        description: "Close the picker Change tenant opened and keep the current tenant.",
+        changes: false,
+        ...(auth.authStatus === "select_context" && auth.changingTenant
+          ? {}
+          : { unavailable: "Change tenant isn't open." }),
       },
       {
         name: "select_context",
@@ -254,7 +279,14 @@ function AzureAuthInteractive({
           auth.startDeviceCodeLogin()
           return { ok: true, note: "Waiting for the person at the window; see needsHuman." }
         case "cancel_sign_in":
-          auth.handleCancelLogin()
+          if (auth.tenantSignIn) auth.handleCancelTenantSignIn()
+          else auth.handleCancelLogin()
+          return { ok: true }
+        case "change_tenant":
+          auth.handleChangeTenant()
+          return { ok: true }
+        case "cancel_change_tenant":
+          auth.handleCancelPicker()
           return { ok: true }
         case "select_context": {
           const tenant = stringParam(params, "tenant_id")
@@ -382,7 +414,10 @@ function AzureAuthInteractive({
               <AuthSuccess
                 info={auth.signInInfo}
                 warningMessage={auth.warningMessage}
+                errorMessage={auth.errorMessage}
                 onReAuthenticate={auth.handleManualAuth}
+                onChangeTenant={auth.canChangeTenant ? auth.handleChangeTenant : undefined}
+                loadingTenants={auth.loadingTenants}
               />
             )}
 
@@ -434,7 +469,14 @@ function AzureAuthInteractive({
                 onSelectSubscription={auth.setSelectedSubscriptionId}
                 authenticating={auth.selecting}
                 onContinue={auth.handleSelectContext}
-                onCancel={auth.handleManualAuth}
+                onCancel={auth.handleCancelPicker}
+                tenantSignIn={
+                  auth.tenantSignIn && {
+                    deviceCodeFlow: auth.pickerAuthType === "device_code",
+                    deviceCode: auth.deviceCode,
+                    onCancel: auth.handleCancelTenantSignIn,
+                  }
+                }
               />
             )}
 

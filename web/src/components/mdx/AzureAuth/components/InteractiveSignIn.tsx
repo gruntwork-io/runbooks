@@ -1,5 +1,6 @@
-import { ExternalLink, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { DeviceCodePrompt } from "./DeviceCodePrompt"
 import { TenantField } from "./TenantField"
 
 interface InteractiveSignInProps {
@@ -39,27 +40,7 @@ export function InteractiveSignIn({
       />
 
       {authenticating && deviceCodeFlow && deviceCode && (
-        <div
-          className="bg-info-muted border border-info/40 rounded p-3 text-sm"
-          data-testid="azure-device-code"
-        >
-          <div className="mb-2">
-            Open{" "}
-            <a
-              href={deviceCode.verificationUri}
-              target="_blank"
-              rel="noreferrer"
-              className="text-info underline inline-flex items-center gap-1"
-            >
-              {deviceCode.verificationUri}
-              <ExternalLink className="size-3" />
-            </a>{" "}
-            and enter this code:
-          </div>
-          <div className="font-mono text-lg font-bold tracking-widest select-all">
-            {deviceCode.userCode}
-          </div>
-        </div>
+        <DeviceCodePrompt deviceCode={deviceCode} />
       )}
 
       {authenticating && (

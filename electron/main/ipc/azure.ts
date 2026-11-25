@@ -1,5 +1,6 @@
 import { ipcMain } from "electron"
 import {
+  handleChangeTenant,
   handleConfirmDetected,
   handleDetect,
   handleCancel,
@@ -7,6 +8,7 @@ import {
   handleLoginStart,
   handleSelectContext,
   handleServicePrincipal,
+  handleTenantLoginStart,
   handleValidateSession,
 } from "./azure-signin.ts"
 import type { IpcChannelMap } from "../../shared/channels.ts"
@@ -21,6 +23,9 @@ export function registerAzureHandlers(): void {
   ipcMain.handle("azure:login-start", (_event, params: Params<"azure:login-start">) =>
     handleLoginStart(params),
   )
+  ipcMain.handle("azure:tenant-login-start", (_event, params: Params<"azure:tenant-login-start">) =>
+    handleTenantLoginStart(params),
+  )
   ipcMain.handle("azure:login-poll", (_event, params: Params<"azure:login-poll">) =>
     handleLoginPoll(params),
   )
@@ -30,6 +35,9 @@ export function registerAzureHandlers(): void {
   )
   ipcMain.handle("azure:select-context", (_event, params: Params<"azure:select-context">) =>
     handleSelectContext(params),
+  )
+  ipcMain.handle("azure:change-tenant", (_event, params: Params<"azure:change-tenant">) =>
+    handleChangeTenant(params),
   )
   ipcMain.handle("azure:validate-session", (_event, params: Params<"azure:validate-session">) =>
     handleValidateSession(params),

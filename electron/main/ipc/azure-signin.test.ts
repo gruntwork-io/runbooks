@@ -6,12 +6,14 @@ import { Effect, Layer } from "effect"
 import { runtime, sessionManager } from "./runtime.ts"
 import {
   handleCancel,
+  handleChangeTenant,
   handleConfirmDetected,
   handleDetect,
   handleLoginPoll,
   handleLoginStart,
   handleSelectContext,
   handleServicePrincipal,
+  handleTenantLoginStart,
   handleValidateSession,
   resetAzureSignIns,
 } from "./azure-signin.ts"
@@ -43,7 +45,14 @@ interface FakeAz {
   loginFails?: string
   refreshed?: unknown[]
   refreshFails?: string
+  /** Tenants that give no token until az login --tenant signs in to them. */
+  mfaTenants?: string[]
+  /** Tenants that refuse this account outright. */
+  refusingTenants?: string[]
 }
+
+const tenantArg = (args: string[]) =>
+  args.includes("--tenant") ? args[args.indexOf("--tenant") + 1] : undefined
 
 let az: FakeAz
 let processEnv: Record<string, string>
@@ -53,6 +62,8 @@ function respond(args: string[]): SpawnResponse {
   const cmd = args.slice(0, 3).join(" ")
   if (args[0] === "login") {
     if (az.loginFails) return out(`ERROR: ${az.loginFails}`, "stderr", 1)
+    const tenant = tenantArg(args)
+    if (tenant && az.mfaTenants) az.mfaTenants = az.mfaTenants.filter((t) => t !== tenant)
     if (args.includes("--use-device-code")) {
       return out(
         "To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code ABCD1234 to authenticate.",
@@ -75,7 +86,25 @@ function respond(args: string[]): SpawnResponse {
       : out("ERROR: Please run 'az login' to setup account.", "stderr", 1)
   }
   if (cmd.startsWith("account set")) return out("")
-  if (cmd.startsWith("account get-access-token")) return out(jwt(az.token))
+  if (cmd.startsWith("account get-access-token")) {
+    const tenant = tenantArg(args)
+    if (tenant && az.mfaTenants?.includes(tenant)) {
+      return out(
+        `ERROR: AADSTS50076: Due to a configuration change made by your administrator, or because you moved to a new location, you must use multi-factor authentication to access '${tenant}'.`,
+        "stderr",
+        1,
+      )
+    }
+    if (tenant && az.refusingTenants?.includes(tenant)) {
+      return out(
+        `ERROR: AADSTS50020: User account from identity provider does not exist in tenant '${tenant}'.`,
+        "stderr",
+        1,
+      )
+    }
+    const known = (az.tenants as Array<{ tenantId: string }>).some((t) => t.tenantId === tenant)
+    return out(jwt({ ...az.token, ...(known ? { tid: tenant } : {}) }))
+  }
   if (args[0] === "rest") return out(JSON.stringify({ value: az.tenants }))
   if (cmd.startsWith("role assignment list")) return out(JSON.stringify(az.assignments))
   return out(`ERROR: unexpected az ${args.join(" ")}`, "stderr", 2)
@@ -584,5 +613,257 @@ describe("azure:validate-session", () => {
         tenantId: GUEST_TENANT,
       }),
     ).toEqual({ valid: true })
+  })
+})
+
+describe("changing tenant", () => {
+  const twoTenants = () => {
+    az.accounts = [
+      { id: "sub-home", name: "Home", tenantId: HOME_TENANT, isDefault: true },
+      { id: "sub-1", name: "LZ Testing", tenantId: GUEST_TENANT },
+    ]
+    az.tenants = [
+      { tenantId: HOME_TENANT, displayName: "Home" },
+      { tenantId: GUEST_TENANT, displayName: "LZ Testing" },
+    ]
+  }
+
+  const settle = async <T extends { status: string }>(next: () => Promise<T>) => {
+    let polled = await next()
+    for (let i = 0; polled.status === "pending" && i < 50; i++) {
+      await Bun.sleep(5)
+      polled = await next()
+    }
+    return polled
+  }
+
+  /** Sign a block in with the browser, to the picker. */
+  const toPicker = async (blockId: string) => {
+    const started = await handleLoginStart({ blockId, deviceCode: false })
+    const polled = await settle(() => handleLoginPoll({ flowId: started.flowId! }))
+    if (polled.status !== "select_context") throw new Error(`got ${JSON.stringify(polled)}`)
+    return polled
+  }
+
+  const signedInTo = async (blockId: string, tenantId: string, subscriptionId: string) => {
+    await toPicker(blockId)
+    return authenticated(await handleSelectContext({ blockId, tenantId, subscriptionId }))
+  }
+
+  const logins = () => spawner.calls.filter((call) => call.args[0] === "login")
+
+  it("lists the tenants of the block's sign-in, then commits another without signing in again", async () => {
+    twoTenants()
+    const home = await signedInTo("lz", HOME_TENANT, "sub-home")
+    const loginsBefore = logins().length
+
+    const picker = await handleChangeTenant({
+      blockId: "lz",
+      configDir: home.configDir,
+      authType: "cli",
+      tenantId: HOME_TENANT,
+    })
+    expect(picker).toMatchObject({ status: "select_context", authType: "cli" })
+    if (picker.status !== "select_context") return
+    expect(picker.tenants.map((t) => t.tenantId)).toEqual([HOME_TENANT, GUEST_TENANT])
+    expect(picker.subscriptions.map((s) => s.id)).toEqual(["sub-home", "sub-1"])
+    expect(sessionEnv().AZURE_TENANT_ID).toBe(HOME_TENANT)
+
+    const guest = authenticated(
+      await handleSelectContext({ blockId: "lz", tenantId: GUEST_TENANT, subscriptionId: "sub-1" }),
+    )
+    expect(guest).toMatchObject({ tenantId: GUEST_TENANT, subscriptionId: "sub-1" })
+    expect(guest.configDir).toBe(home.configDir)
+    expect(fs.existsSync(home.configDir)).toBe(true)
+    expect(sessionEnv()).toMatchObject({
+      AZURE_TENANT_ID: GUEST_TENANT,
+      ARM_SUBSCRIPTION_ID: "sub-1",
+    })
+    expect(logins()).toHaveLength(loginsBefore)
+  })
+
+  it("makes a tenant-level choice the CLI's default tenant", async () => {
+    az.accounts = [
+      { id: "sub-home", name: "Home", tenantId: HOME_TENANT, isDefault: true },
+      { id: "sub-off", name: "Old", tenantId: GUEST_TENANT, state: "Disabled" },
+      { id: GUEST_TENANT, name: "N/A(tenant level account)", tenantId: GUEST_TENANT },
+    ]
+    az.tenants = [
+      { tenantId: HOME_TENANT, displayName: "Home" },
+      { tenantId: GUEST_TENANT, displayName: "Billing" },
+    ]
+    await signedInTo("billing", HOME_TENANT, "sub-home")
+    const setsBefore = spawner.calls.filter((call) => call.args[1] === "set").length
+
+    authenticated(await handleSelectContext({ blockId: "billing", tenantId: GUEST_TENANT }))
+
+    const sets = spawner.calls.filter((call) => call.args[1] === "set").slice(setsBefore)
+    expect(sets.map((call) => call.args.at(-1))).toEqual([GUEST_TENANT])
+  })
+
+  it("signs in to a tenant that wants MFA in the block's own dir, then commits it", async () => {
+    twoTenants()
+    az.mfaTenants = [GUEST_TENANT]
+    const home = await signedInTo("lz", HOME_TENANT, "sub-home")
+    await handleChangeTenant({
+      blockId: "lz",
+      configDir: home.configDir,
+      authType: "cli",
+      tenantId: HOME_TENANT,
+    })
+
+    const refused = await handleSelectContext({
+      blockId: "lz",
+      tenantId: GUEST_TENANT,
+      subscriptionId: "sub-1",
+    })
+    expect(refused).toMatchObject({ status: "failed", interactionRequired: true })
+    expect(JSON.stringify(refused)).not.toContain("AADSTS")
+    expect(sessionEnv().AZURE_TENANT_ID).toBe(HOME_TENANT)
+    expect(spawner.calls.some((call) => call.args.includes("sub-1"))).toBe(false)
+
+    const started = await handleTenantLoginStart({
+      blockId: "lz",
+      tenantId: GUEST_TENANT,
+      subscriptionId: "sub-1",
+    })
+    const login = logins().at(-1)!
+    expect(login.args).toEqual(expect.arrayContaining(["--tenant", GUEST_TENANT]))
+    expect(login.args).not.toContain("--use-device-code")
+    expect(login.env?.AZURE_CONFIG_DIR).toBe(home.configDir)
+
+    const guest = authenticated(await settle(() => handleLoginPoll({ flowId: started.flowId! })))
+    expect(guest).toMatchObject({
+      tenantId: GUEST_TENANT,
+      subscriptionId: "sub-1",
+      authType: "cli",
+    })
+    expect(guest.configDir).toBe(home.configDir)
+    expect(sessionEnv().AZURE_TENANT_ID).toBe(GUEST_TENANT)
+  })
+
+  it("does the same from the picker after the first sign-in", async () => {
+    twoTenants()
+    az.mfaTenants = [GUEST_TENANT]
+    await toPicker("lz")
+    const dir = logins()[0]!.env!.AZURE_CONFIG_DIR!
+
+    expect(
+      await handleSelectContext({ blockId: "lz", tenantId: GUEST_TENANT, subscriptionId: "sub-1" }),
+    ).toMatchObject({ status: "failed", interactionRequired: true })
+    const started = await handleTenantLoginStart({
+      blockId: "lz",
+      tenantId: GUEST_TENANT,
+      subscriptionId: "sub-1",
+    })
+    expect(logins().at(-1)!.env?.AZURE_CONFIG_DIR).toBe(dir)
+    const guest = authenticated(await settle(() => handleLoginPoll({ flowId: started.flowId! })))
+    expect(guest.configDir).toBe(dir)
+  })
+
+  it("keeps the block's sign-in when its tenant sign-in is cancelled", async () => {
+    twoTenants()
+    az.mfaTenants = [GUEST_TENANT]
+    await toPicker("lz")
+    const dir = logins()[0]!.env!.AZURE_CONFIG_DIR!
+
+    const started = await handleTenantLoginStart({ blockId: "lz", tenantId: GUEST_TENANT })
+    handleCancel({ blockId: "lz" })
+    expect(await handleLoginPoll({ flowId: started.flowId! })).toMatchObject({ status: "failed" })
+    expect(fs.existsSync(dir)).toBe(true)
+
+    const home = authenticated(
+      await handleSelectContext({
+        blockId: "lz",
+        tenantId: HOME_TENANT,
+        subscriptionId: "sub-home",
+      }),
+    )
+    expect(home.configDir).toBe(dir)
+  })
+
+  it("gives the dir its default subscription back when the new tenant can't be committed", async () => {
+    twoTenants()
+    az.mfaTenants = [GUEST_TENANT]
+    const home = await signedInTo("lz", HOME_TENANT, "sub-home")
+    const started = await handleTenantLoginStart({
+      blockId: "lz",
+      tenantId: GUEST_TENANT,
+      subscriptionId: "sub-1",
+    })
+    const result = await settle(() =>
+      handleLoginPoll({ flowId: started.flowId!, requiredRoles: [{ role: "Owner" }] }),
+    )
+    expect(result).toMatchObject({ status: "failed", missingRoles: [{ role: "Owner" }] })
+    const sets = spawner.calls.filter((call) => call.args[1] === "set")
+    expect(sets.at(-1)!.args).toEqual(expect.arrayContaining(["--subscription", "sub-home"]))
+    expect(sets.at(-1)!.env?.AZURE_CONFIG_DIR).toBe(home.configDir)
+    expect(sessionEnv().AZURE_TENANT_ID).toBe(HOME_TENANT)
+  })
+
+  it("asks the user to choose when the signed-in tenant refuses a token but another works", async () => {
+    twoTenants()
+    az.refusingTenants = [HOME_TENANT]
+    const picker = await toPicker("lz")
+    expect(picker.principal.tenantId).toBe(GUEST_TENANT)
+  })
+
+  it("changes one block's tenant without touching another block's sign-in", async () => {
+    twoTenants()
+    const a = await signedInTo("a", HOME_TENANT, "sub-home")
+    const b = await signedInTo("b", HOME_TENANT, "sub-home")
+    const from = spawner.calls.length
+
+    await handleChangeTenant({
+      blockId: "a",
+      configDir: a.configDir,
+      authType: "cli",
+      tenantId: HOME_TENANT,
+    })
+    authenticated(
+      await handleSelectContext({ blockId: "a", tenantId: GUEST_TENANT, subscriptionId: "sub-1" }),
+    )
+    const dirs = new Set(spawner.calls.slice(from).map((call) => call.env?.AZURE_CONFIG_DIR))
+    expect([...dirs]).toEqual([a.configDir])
+    expect(fs.existsSync(b.configDir)).toBe(true)
+  })
+
+  it("picks up a block's sign-in again after a runbook switch forgot it", async () => {
+    twoTenants()
+    const home = await signedInTo("lz", HOME_TENANT, "sub-home")
+    resetAzureSignIns()
+    const picker = await handleChangeTenant({
+      blockId: "lz",
+      configDir: home.configDir,
+      authType: "cli",
+      tenantId: HOME_TENANT,
+      extensionDir: `${home.configDir}/cliextensions`,
+    })
+    expect(picker.status).toBe("select_context")
+    const guest = authenticated(
+      await handleSelectContext({ blockId: "lz", tenantId: GUEST_TENANT, subscriptionId: "sub-1" }),
+    )
+    expect(guest.configDir).toBe(home.configDir)
+    expect(guest.env.AZURE_EXTENSION_DIR).toBe(`${home.configDir}/cliextensions`)
+  })
+
+  it("refuses a service principal, and a dir main didn't create", async () => {
+    expect(
+      await handleChangeTenant({
+        blockId: "sp",
+        configDir: "/tmp/whatever",
+        authType: "service_principal",
+        tenantId: GUEST_TENANT,
+      }),
+    ).toMatchObject({ status: "failed" })
+    expect(
+      await handleChangeTenant({
+        blockId: "x",
+        configDir: "/home/me/.azure",
+        authType: "cli",
+        tenantId: GUEST_TENANT,
+      }),
+    ).toMatchObject({ status: "failed" })
+    expect(spawner.calls).toHaveLength(0)
   })
 })

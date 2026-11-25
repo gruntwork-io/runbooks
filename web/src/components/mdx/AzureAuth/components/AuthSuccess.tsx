@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { AzureSignInInfo } from "../types"
 import { authTypeLabel, principalTypeLabel } from "../utils"
@@ -6,10 +6,21 @@ import { authTypeLabel, principalTypeLabel } from "../utils"
 interface AuthSuccessProps {
   info: AzureSignInInfo
   warningMessage: string | null
+  errorMessage?: string | null
   onReAuthenticate: () => void
+  /** Offered for a user sign-in the block may move to another tenant. */
+  onChangeTenant?: (() => void) | undefined
+  loadingTenants?: boolean
 }
 
-export function AuthSuccess({ info, warningMessage, onReAuthenticate }: AuthSuccessProps) {
+export function AuthSuccess({
+  info,
+  warningMessage,
+  errorMessage,
+  onReAuthenticate,
+  onChangeTenant,
+  loadingTenants = false,
+}: AuthSuccessProps) {
   const { principal } = info
   return (
     <div className="mb-4">
@@ -57,10 +68,22 @@ export function AuthSuccess({ info, warningMessage, onReAuthenticate }: AuthSucc
           <div className="min-w-0">{warningMessage}</div>
         </div>
       )}
-      <div className="mt-3">
-        <Button variant="outline" size="sm" onClick={onReAuthenticate}>
+      {errorMessage && (
+        <div className="mt-3 text-destructive text-sm flex items-start gap-2" role="alert">
+          <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+          <div className="min-w-0">{errorMessage}</div>
+        </div>
+      )}
+      <div className="mt-3 flex gap-2">
+        <Button variant="outline" size="sm" onClick={onReAuthenticate} disabled={loadingTenants}>
           Re-authenticate
         </Button>
+        {onChangeTenant && (
+          <Button variant="outline" size="sm" onClick={onChangeTenant} disabled={loadingTenants}>
+            {loadingTenants && <Loader2 className="size-4 mr-2 animate-spin" />}
+            Change tenant
+          </Button>
+        )}
       </div>
     </div>
   )

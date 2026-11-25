@@ -124,6 +124,12 @@ export function useAzureAuth({
   const [selectedTenantId, setSelectedTenantId] = useState("")
   const [selectedSubscriptionId, setSelectedSubscriptionId] = useState("")
   const [selecting, setSelecting] = useState(false)
+  const [pickerAuthType, setPickerAuthType] = useState<AzureSignInInfo["authType"]>("cli")
+  // The picker is open on a sign-in the block already has: Cancel goes back to it.
+  const [changingTenant, setChangingTenant] = useState(false)
+  const [loadingTenants, setLoadingTenants] = useState(false)
+  // A tenant chosen in the picker that wants the user to sign in to it again.
+  const [tenantSignIn, setTenantSignIn] = useState<{ tenantId: string } | null>(null)
 
   const flowRef = useRef(0)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -132,6 +138,10 @@ export function useAzureAuth({
   // A restored sign-in whose config dir ended with Runbooks: the next detection
   // signs in with it again, without asking, if it finds the same sign-in.
   const resumeFromRef = useRef<SavedSignIn | undefined>(undefined)
+  // Where the block's current sign-in lives, for Change tenant.
+  const signedInDirRef = useRef<{ configDir: string; env: Record<string, string> } | undefined>(
+    restoredAtMount,
+  )
 
   const roles = requiredRoles && requiredRoles.length > 0 ? { requiredRoles } : {}
   const pins = {
@@ -160,8 +170,11 @@ export function useAzureAuth({
   function publish(result: Authenticated) {
     const info = infoOf(result)
     registerOutputs(id, outputsFor(result.env, info))
+    signedInDirRef.current = { configDir: result.configDir, env: result.env }
     setSignInInfo(info)
     setAuthStatus("authenticated")
+    setChangingTenant(false)
+    setTenantSignIn(null)
     setErrorMessage(null)
     setNotice(null)
     setWarningMessage(result.sessionEnvWarning ?? null)
@@ -184,15 +197,32 @@ export function useAzureAuth({
   function handleResult(result: AzureSignInResultIpc) {
     if (result.status === "authenticated") return publish(result)
     if (result.status === "failed") return fail(result.error, result.cliMissing)
+    showPicker(result)
+  }
+
+  function showPicker(
+    result: Extract<AzureSignInResultIpc, { status: "select_context" }>,
+    current?: { tenantId: string; subscriptionId?: string | undefined },
+  ) {
     setPickerPrincipal(result.principal)
+    setPickerAuthType(result.authType)
     setTenants(result.tenants)
     setSubscriptions(result.subscriptions)
     const tenant =
-      (result.tenants.find((t) => t.tenantId === result.principal.tenantId) ?? result.tenants[0])
-        ?.tenantId ?? ""
+      (
+        result.tenants.find(
+          (t) => t.tenantId === (current?.tenantId ?? result.principal.tenantId),
+        ) ?? result.tenants[0]
+      )?.tenantId ?? ""
     setSelectedTenantId(tenant)
     const inTenant = result.subscriptions.filter((s) => s.tenantId === tenant)
-    setSelectedSubscriptionId((inTenant.find((s) => s.isDefault) ?? inTenant[0])?.id ?? "")
+    setSelectedSubscriptionId(
+      (
+        inTenant.find((s) => current && s.id === current.subscriptionId) ??
+        inTenant.find((s) => s.isDefault) ??
+        inTenant[0]
+      )?.id ?? "",
+    )
     setAuthStatus("select_context")
     setErrorMessage(null)
   }
@@ -399,27 +429,40 @@ export function useAzureAuth({
       if (flowRef.current !== flow) return
       const flowId = started.flowId
       if (!flowId) return fail(started.error ?? "Couldn't start az login", started.cliMissing)
-      const poll = async () => {
-        try {
-          const data = await api.invoke("azure:login-poll", { flowId, ...pins, ...tenantPin })
-          if (flowRef.current !== flow) return
-          if (data.status === "pending") {
-            if (data.verificationUri && data.userCode) {
-              setDeviceCode({ verificationUri: data.verificationUri, userCode: data.userCode })
-            }
-            pollTimerRef.current = setTimeout(() => void poll(), POLL_INTERVAL_MS)
-            return
-          }
-          setDeviceCode(null)
-          handleResult(data)
-        } catch (err) {
-          if (flowRef.current === flow) fail(errorText(err))
-        }
-      }
-      pollTimerRef.current = setTimeout(() => void poll(), POLL_INTERVAL_MS / 2)
+      pollLogin(flow, flowId, { ...pins, ...tenantPin }, handleResult, (err) =>
+        fail(errorText(err)),
+      )
     } catch (err) {
       if (flowRef.current === flow) fail(errorText(err))
     }
+  }
+
+  /** Poll an az login flow until it ends, showing a device code az prints. */
+  function pollLogin(
+    flow: number,
+    flowId: string,
+    pollPins: typeof pins,
+    onDone: (result: AzureSignInResultIpc) => void,
+    onError: (err: unknown) => void,
+  ) {
+    const poll = async () => {
+      try {
+        const data = await api.invoke("azure:login-poll", { flowId, ...pollPins })
+        if (flowRef.current !== flow) return
+        if (data.status === "pending") {
+          if (data.verificationUri && data.userCode) {
+            setDeviceCode({ verificationUri: data.verificationUri, userCode: data.userCode })
+          }
+          pollTimerRef.current = setTimeout(() => void poll(), POLL_INTERVAL_MS)
+          return
+        }
+        setDeviceCode(null)
+        onDone(data)
+      } catch (err) {
+        if (flowRef.current === flow) onError(err)
+      }
+    }
+    pollTimerRef.current = setTimeout(() => void poll(), POLL_INTERVAL_MS / 2)
   }
 
   function handleCancelLogin() {
@@ -451,23 +494,104 @@ export function useAzureAuth({
   async function handleSelectContext() {
     if (!selectedTenantId) return
     const flow = ++flowRef.current
+    const choice = {
+      tenantId: selectedTenantId,
+      ...(selectedSubscriptionId ? { subscriptionId: selectedSubscriptionId } : {}),
+    }
     setSelecting(true)
     setErrorMessage(null)
     try {
-      const result = await api.invoke("azure:select-context", {
-        blockId: id,
-        tenantId: selectedTenantId,
-        ...(selectedSubscriptionId ? { subscriptionId: selectedSubscriptionId } : {}),
-        ...roles,
-      })
+      const result = await api.invoke("azure:select-context", { blockId: id, ...choice, ...roles })
       if (flowRef.current !== flow) return
+      if (result.status === "failed" && result.interactionRequired) {
+        return await signInToTenant(flow, choice)
+      }
+      setSelecting(false)
       if (result.status === "failed") setErrorMessage(result.error)
       else handleResult(result)
     } catch (err) {
+      if (flowRef.current !== flow) return
+      setTenantSignIn(null)
+      setSelecting(false)
+      setErrorMessage(errorText(err))
+    }
+  }
+
+  /**
+   * The chosen tenant gives no token without a new sign-in (MFA, consent):
+   * sign in to it with the block's own sign-in, then commit the choice.
+   */
+  async function signInToTenant(
+    flow: number,
+    choice: { tenantId: string; subscriptionId?: string },
+  ) {
+    const backToPicker = (message: string) => {
+      setTenantSignIn(null)
+      setSelecting(false)
+      setErrorMessage(message)
+    }
+    setTenantSignIn({ tenantId: choice.tenantId })
+    const started = await api.invoke("azure:tenant-login-start", { blockId: id, ...choice })
+    if (flowRef.current !== flow) return
+    if (!started.flowId) return backToPicker(started.error ?? "Couldn't start az login")
+    pollLogin(
+      flow,
+      started.flowId,
+      roles,
+      (result) => {
+        if (result.status === "failed") return backToPicker(result.error)
+        setTenantSignIn(null)
+        setSelecting(false)
+        handleResult(result)
+      },
+      (err) => backToPicker(errorText(err)),
+    )
+  }
+
+  function handleCancelTenantSignIn() {
+    stopAttempt()
+    setTenantSignIn(null)
+    setSelecting(false)
+  }
+
+  async function handleChangeTenant() {
+    const signedIn = signedInDirRef.current
+    if (!signInInfo || !signedIn) return
+    const current = { tenantId: signInInfo.tenantId, subscriptionId: signInInfo.subscriptionId }
+    const flow = ++flowRef.current
+    setLoadingTenants(true)
+    setErrorMessage(null)
+    try {
+      const extensionDir = signedIn.env.AZURE_EXTENSION_DIR
+      const result = await api.invoke("azure:change-tenant", {
+        blockId: id,
+        configDir: signedIn.configDir,
+        authType: signInInfo.authType,
+        tenantId: signInInfo.tenantId,
+        ...(extensionDir ? { extensionDir } : {}),
+      })
+      if (flowRef.current !== flow) return
+      if (result.status === "select_context") {
+        setChangingTenant(true)
+        showPicker(result, current)
+      } else if (result.status === "failed") {
+        setErrorMessage(result.error)
+      }
+    } catch (err) {
       if (flowRef.current === flow) setErrorMessage(errorText(err))
     } finally {
-      if (flowRef.current === flow) setSelecting(false)
+      if (flowRef.current === flow) setLoadingTenants(false)
     }
+  }
+
+  function handleCancelPicker() {
+    if (!changingTenant) return handleManualAuth()
+    stopAttempt()
+    setChangingTenant(false)
+    setTenantSignIn(null)
+    setSelecting(false)
+    setErrorMessage(null)
+    setAuthStatus("authenticated")
   }
 
   function handleManualAuth() {
@@ -480,6 +604,8 @@ export function useAzureAuth({
     setWarningMessage(null)
     setSignInInfo(null)
     setSelecting(false)
+    setChangingTenant(false)
+    setTenantSignIn(null)
     detectedFromRef.current = undefined
     resumeFromRef.current = undefined
     setDetected(null)
@@ -525,6 +651,15 @@ export function useAzureAuth({
     selectedSubscriptionId,
     setSelectedSubscriptionId,
     selecting,
+    pickerAuthType,
+    changingTenant,
+    loadingTenants,
+    tenantSignIn,
+    canChangeTenant:
+      !tenantId && !subscriptionId && !!signInInfo && signInInfo.authType !== "service_principal",
+    handleChangeTenant: () => void handleChangeTenant(),
+    handleCancelPicker,
+    handleCancelTenantSignIn,
     handleConfirmDetected,
     handleRejectDetected,
     handleRetryDetection,
