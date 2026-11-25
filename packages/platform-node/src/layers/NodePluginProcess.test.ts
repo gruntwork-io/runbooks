@@ -47,6 +47,9 @@ const BINARY = binaryName("credential", "stub", PLATFORM)
 /** Bun for the stub's `#!`, and `/bin` for its `sleep`: the only environment a test gives it. */
 const PATH = `${path.dirname(process.execPath)}:/usr/bin:/bin`
 
+/** Bun's per-test timeout for a test that waits out `LIMITS.exitGraceMillis`. */
+const WAITS_OUT_GRACE = LIMITS.exitGraceMillis + 5_000
+
 const pinned = (sha256: Partial<Record<Platform, Sha256>>): PluginEntry => ({
   name: "stub",
   kind: "credential",
@@ -324,16 +327,20 @@ describe("timeouts", () => {
     expect(stopped).toBe(true)
   })
 
-  it("stop a plugin that keeps running after standard input closes, without waiting for the scope", async () => {
-    const stopped = await run(
-      Effect.gen(function* () {
-        const session = yield* open({ STUB_IGNORES_STDIN: "1" })
-        yield* Effect.flip(session.call(hang, {}))
-        return yield* Effect.promise(() => gone(stubPid(), LIMITS.exitGraceMillis + 1_000))
-      }),
-    )
-    expect(stopped).toBe(true)
-  })
+  it(
+    "stop a plugin that keeps running after standard input closes, without waiting for the scope",
+    async () => {
+      const stopped = await run(
+        Effect.gen(function* () {
+          const session = yield* open({ STUB_IGNORES_STDIN: "1" })
+          yield* Effect.flip(session.call(hang, {}))
+          return yield* Effect.promise(() => gone(stubPid(), LIMITS.exitGraceMillis + 1_000))
+        }),
+      )
+      expect(stopped).toBe(true)
+    },
+    WAITS_OUT_GRACE,
+  )
 
   it("apply to configure", async () => {
     const error = await run(Effect.flip(open({ STUB_CONFIGURE: "hang" }, stubProtocol(300))))
@@ -558,26 +565,30 @@ describe("closing the session", () => {
     }
   })
 
-  it("kills a plugin that keeps running after standard input closes, after the grace period", async () => {
-    let grandchild = 0
-    let closed = 0
-    try {
-      await run(
-        Effect.gen(function* () {
-          const session = yield* open({ STUB_IGNORES_STDIN: "1" })
-          grandchild = (yield* session.call(child, {})).pid
-          closed = Date.now()
-        }),
-      )
-      const took = Date.now() - closed
-      expect(took).toBeGreaterThanOrEqual(LIMITS.exitGraceMillis - 50)
-      expect(took).toBeLessThan(LIMITS.exitGraceMillis + 1_000)
-      expect(alive(stubPid())).toBe(false)
-      expect(await gone(grandchild)).toBe(true)
-    } finally {
-      for (const pid of [grandchild, existsSync(started) ? stubPid() : 0]) {
-        if (pid > 0 && alive(pid)) process.kill(pid, "SIGKILL")
+  it(
+    "kills a plugin that keeps running after standard input closes, after the grace period",
+    async () => {
+      let grandchild = 0
+      let closed = 0
+      try {
+        await run(
+          Effect.gen(function* () {
+            const session = yield* open({ STUB_IGNORES_STDIN: "1" })
+            grandchild = (yield* session.call(child, {})).pid
+            closed = Date.now()
+          }),
+        )
+        const took = Date.now() - closed
+        expect(took).toBeGreaterThanOrEqual(LIMITS.exitGraceMillis - 50)
+        expect(took).toBeLessThan(LIMITS.exitGraceMillis + 1_000)
+        expect(alive(stubPid())).toBe(false)
+        expect(await gone(grandchild)).toBe(true)
+      } finally {
+        for (const pid of [grandchild, existsSync(started) ? stubPid() : 0]) {
+          if (pid > 0 && alive(pid)) process.kill(pid, "SIGKILL")
+        }
       }
-    }
-  })
+    },
+    WAITS_OUT_GRACE,
+  )
 })

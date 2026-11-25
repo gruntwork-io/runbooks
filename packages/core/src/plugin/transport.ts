@@ -60,8 +60,13 @@ export const LIMITS = {
   maxStderrBytes: 64 * 1024,
   /** Notifications one streaming call may produce. */
   maxStreamItems: 10_000,
-  /** After standard input closes, how long the plugin has to exit before it is killed. */
-  exitGraceMillis: 2_000,
+  /**
+   * After standard input closes, how long the plugin has to exit before it
+   * is killed. A plugin must stop what it started within it: the owner's
+   * kill reaches only the plugin's process group, and the Azure plugin
+   * starts `az` in a group of its own, which it kills itself.
+   */
+  exitGraceMillis: 5_000,
 } as const
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ import {
   Request,
   ResultResponse,
 } from "./generated/base.ts"
-import { PluginEntry, PluginTransportError } from "./transport.ts"
+import { LIMITS, PluginEntry, PluginTransportError } from "./transport.ts"
 
 const decode =
   <S extends Schema.Top & { readonly DecodingServices: never }>(schema: S) =>
@@ -138,5 +138,15 @@ describe("transport errors", () => {
       limit: "stderr",
     })
     expect(Option.isNone(stderr)).toBe(true)
+  })
+})
+
+describe("limits", () => {
+  /** How long runbooks-plugins gives a plugin to stop what it started once standard input closes: Azure's `az` group. */
+  const PLUGIN_CLEANUP_MILLIS = 3_000
+
+  it("give a plugin longer to exit than runbooks-plugins gives itself to stop what it started", () => {
+    // At 2 s the owner killed the Azure plugin while it was still killing `az`, and `az` was orphaned.
+    expect(LIMITS.exitGraceMillis).toBeGreaterThanOrEqual(PLUGIN_CLEANUP_MILLIS + 2_000)
   })
 })
