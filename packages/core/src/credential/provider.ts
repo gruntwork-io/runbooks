@@ -163,6 +163,8 @@ export interface ProviderConfig {
   readonly stateDir: string
   readonly caBundleFile: Option.Option<string>
   readonly proxy: Option.Option<string>
+  /** The block's own, from its request: a default region, a default zone. */
+  readonly settings: CredentialRequest["settings"]
 }
 
 /**

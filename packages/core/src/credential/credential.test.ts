@@ -54,6 +54,19 @@ describe("credential wire schema", () => {
     ).toThrow()
   })
 
+  it("gives a provider the block's settings when it is configured", () => {
+    const params = decode(Wire.ConfigureParams)({
+      protocolVersion: "1",
+      caller: "runbooks/0.31.0",
+      stateDir: "/state/s1/aws",
+      settings: { defaultRegion: "eu-west-1" },
+    })
+    expect(params.settings).toEqual({ defaultRegion: "eu-west-1" })
+    expect(() =>
+      decode(Wire.ConfigureParams)({ ...params, settings: { defaultRegion: 1 } }),
+    ).toThrow()
+  })
+
   it("decodes detect, signIn.prompt, env and the error data a block branches on", () => {
     expect(decode(Wire.DetectResult)({ found: false }).found).toBe(false)
     expect(decode(Wire.DetectResult)({ found: true, identity, source: "env" }).found).toBe(true)

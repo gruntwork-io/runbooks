@@ -10,6 +10,12 @@ export const ConfigureParams = Schema.StructWithRest(
     }),
     caBundleFile: Schema.optionalKey(Schema.String),
     proxy: Schema.optionalKey(Schema.String),
+    settings: Schema.optionalKey(
+      Schema.Record(Schema.String, Schema.String).annotate({
+        description:
+          "The block's settings, neither secret nor identity: a default region, a default zone.",
+      }),
+    ),
     protocolVersion: Schema.String,
     caller: Schema.String.annotate({
       description: "The calling app and its version: runbooks/0.31.0.",
