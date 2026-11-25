@@ -19,6 +19,7 @@ import {
   RunBlock,
   RunResult,
   SessionId,
+  SessionView,
   Settings,
   SettingsView,
   UnknownSession,
@@ -182,6 +183,36 @@ describe("engine protocol", () => {
     expect(wire.at).toBe("2026-11-24T12:00:00.000Z")
     expect(wire.event.outputs.token).toEqual({ _tag: "Hidden" })
     expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
+  })
+
+  it("says what a resumed session did not restore, and carries it through JSON", () => {
+    const json = Schema.toCodecJson(SessionView)
+    const view: SessionView = {
+      session,
+      name: "rb",
+      path: "/rb/runbook.mdx",
+      blocks: [],
+      trust: { trusted: false, hash },
+      warnings: [],
+      resumed: {
+        lastUsed: at,
+        problems: [
+          { _tag: "OlderVersion", version: 1, blocks: [greet] },
+          { _tag: "RunbookChanged", blocks: [] },
+        ],
+      },
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(view)))
+    expect(wire.resumed.lastUsed).toBe("2026-11-24T12:00:00.000Z")
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(view)
+    const { resumed: _, ...started } = view
+    expect(Schema.decodeUnknownSync(json)(Schema.encodeSync(json)(started))).toEqual(started)
+    expect(() =>
+      Schema.decodeUnknownSync(json)({
+        ...wire,
+        resumed: { ...wire.resumed, problems: [{ _tag: "Lost", blocks: [] }] },
+      }),
+    ).toThrow()
   })
 
   it("tells an empty field from one holding an empty string", () => {
