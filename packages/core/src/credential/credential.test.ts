@@ -133,6 +133,11 @@ describe("credential lifecycle", () => {
     }
   })
 
+  it("lets a sign-in show its next prompt, and a refresh move a ready credential's expiry", () => {
+    expect(TRANSITIONS.SigningIn).toContain("SigningIn")
+    expect(TRANSITIONS.Ready).toContain("Ready")
+  })
+
   it("publishes env only while Ready", () => {
     expect(statusOf({ _tag: "Ready", identity, source: "env" })).toEqual({
       _tag: "Done",
