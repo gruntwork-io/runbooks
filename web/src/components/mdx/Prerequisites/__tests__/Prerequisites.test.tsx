@@ -190,6 +190,31 @@ describe("Prerequisites", () => {
     )
   })
 
+  it("shows what a tool that doesn't run printed", async () => {
+    renderBlock()
+
+    await userEvent.click(screen.getByRole("button", { name: "Check" }))
+    await act(async () =>
+      endRun(
+        finished("fail", {
+          git_path: "/usr/bin/git",
+          tofu_path: "/shims/tofu",
+          tofu_version: "",
+          tofu_error:
+            '"tofu --version" exited with code 1. It printed:\nmise ERROR No version is set for shim: tofu',
+          gh_path: "/usr/bin/gh",
+        }),
+      ),
+    )
+
+    expect(row("tofu")).toHaveAttribute("data-status", "broken")
+    expect(row("tofu")).toHaveTextContent("Found at /shims/tofu, but it doesn't run:")
+    expect(screen.getByTestId("tool-error-tofu")).toHaveTextContent(
+      "mise ERROR No version is set for shim: tofu",
+    )
+    expect(within(row("tofu")).getByRole("link", { name: "Install OpenTofu" })).toBeVisible()
+  })
+
   it("marks a tool it found differently from a check that passed", async () => {
     renderBlock()
 

@@ -15,8 +15,10 @@ import { extractVersion, parseVersion, satisfiesConstraint } from "./version.ts"
  * - missing: not on PATH
  * - wrong_version: on PATH, at a version that doesn't meet its constraint
  * - unknown_version: on PATH, but it printed no version to check
+ * - broken: on PATH, but its version command exited with an error, didn't
+ *   finish, or couldn't run, so a script that runs it would fail too
  */
-export type ToolStatus = "found" | "missing" | "wrong_version" | "unknown_version"
+export type ToolStatus = "found" | "missing" | "wrong_version" | "unknown_version" | "broken"
 
 export interface ToolResult {
   readonly tool: PrerequisiteTool
@@ -25,6 +27,8 @@ export interface ToolResult {
   readonly path: string | null
   /** The version the tool printed, or null when it wasn't read or printed none. */
   readonly version: string | null
+  /** For a broken tool, how its version command failed and the first lines it printed. */
+  readonly error?: string
 }
 
 /**
@@ -56,15 +60,24 @@ export interface CheckedTool {
 const MAX_QUOTED_OUTPUT = 200
 
 /**
+ * How many lines of a broken tool's output its error quotes. A wrapper such
+ * as a mise shim prints the cause first and a generic hint last.
+ */
+const MAX_QUOTED_ERROR_LINES = 3
+
+/**
  * The result for `tool`, found at `path` (null when it isn't on PATH), which
  * printed `version` (null when its version wasn't read or it printed none).
+ * An `error` says how its version command failed, which makes it broken.
  */
 export function evaluateTool(
   tool: PrerequisiteTool,
   path: string | null,
   version: string | null,
+  error: string | null = null,
 ): ToolResult {
   if (!path) return { tool, status: "missing", path: null, version: null }
+  if (error) return { tool, status: "broken", path, version: null, error }
   if (!tool.constraint) return { tool, status: "found", path, version }
   const parsed = version === null ? null : parseVersion(version)
   if (!parsed) return { tool, status: "unknown_version", path, version: null }
@@ -87,27 +100,51 @@ export function checkTool(
   const command = versionCommand(tool)
   if ("reason" in probe) {
     return {
-      result: evaluateTool(tool, path, null),
-      note: `"${command}" ${describeRunFailure(probe)}.`,
+      result: evaluateTool(tool, path, null, `"${command}" ${describeRunFailure(probe)}.`),
+      note: null,
+    }
+  }
+  // Checked before the version is read: a failing wrapper can print a
+  // version number in its error, such as mise's "mise use -g az@2.85.0".
+  if (probe.exitCode !== 0) {
+    return {
+      result: evaluateTool(tool, path, null, describeFailedProbe(command, probe)),
+      note: null,
     }
   }
   const version = extractVersion(probe.output)
   return {
     result: evaluateTool(tool, path, version),
-    note: version ? null : quoteOutput(command, probe.output, probe.exitCode),
+    note: version ? null : quoteOutput(command, probe.output),
   }
 }
 
 /** What a version command printed when no version could be read from it. */
-function quoteOutput(command: string, output: string, exitCode: number): string {
+function quoteOutput(command: string, output: string): string {
   const firstLine = output
     .split("\n")
     .find((line) => line.trim() !== "")
     ?.trim()
-  if (!firstLine) return `"${command}" printed nothing (exit code ${exitCode}).`
+  if (!firstLine) return `"${command}" printed nothing.`
   const quoted =
     firstLine.length > MAX_QUOTED_OUTPUT ? `${firstLine.slice(0, MAX_QUOTED_OUTPUT)}…` : firstLine
   return `"${command}" printed: ${quoted}`
+}
+
+/** How a version command that exited with an error failed, with the first lines it printed. */
+function describeFailedProbe(command: string, probe: { output: string; exitCode: number }): string {
+  const lines = probe.output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .slice(0, MAX_QUOTED_ERROR_LINES)
+    .map((line) =>
+      line.length > MAX_QUOTED_OUTPUT ? `${line.slice(0, MAX_QUOTED_OUTPUT)}…` : line,
+    )
+  const failed = `"${command}" exited with code ${probe.exitCode}`
+  return lines.length === 0
+    ? `${failed} and printed nothing.`
+    : `${failed}. It printed:\n${lines.join("\n")}`
 }
 
 /** What went wrong, worded to follow a command: "didn't finish within 15 seconds". */
@@ -123,7 +160,11 @@ export function checkLog(spec: PrerequisitesSpec, checked: readonly CheckedTool[
   const log: LogEntry[] = []
   for (const { result, note } of checked) {
     const instead = foundInstead(spec, result, results)
-    log.push(describeResult(result, instead))
+    const described = describeResult(result, instead)
+    log.push(described)
+    // describeResult gives a broken tool's error its first line; a log entry is one line.
+    const [, ...printed] = result.error?.split("\n") ?? []
+    for (const line of printed) log.push({ level: described.level, text: `  ${line}` })
     if (note) {
       log.push({ level: result.status === "found" || instead ? "INFO" : "WARN", text: note })
     }
@@ -188,16 +229,17 @@ export function statusExitCode(status: PrerequisitesStatus): number {
 
 /**
  * The block's outputs: `<key>_path` for every tool, empty when it isn't on
- * PATH, and `<key>_version` for every tool whose version was read, empty when
- * it printed none. A run returns them whatever its status, since a failed
- * check shows what it found from them, but only a check that passes or warns
- * publishes them for other blocks.
+ * PATH, `<key>_version` for every tool whose version was read, empty when
+ * it printed none, and `<key>_error` for a broken tool. A run returns them
+ * whatever its status, since a failed check shows what it found from them,
+ * but only a check that passes or warns publishes them for other blocks.
  */
 export function prerequisitesOutputs(results: readonly ToolResult[]): Record<string, string> {
   const outputs: Record<string, string> = {}
-  for (const { tool, path, version } of results) {
+  for (const { tool, path, version, error } of results) {
     outputs[`${tool.outputKey}_path`] = path ?? ""
     if (tool.versionArgs && path) outputs[`${tool.outputKey}_version`] = version ?? ""
+    if (error) outputs[`${tool.outputKey}_error`] = error
   }
   return outputs
 }
@@ -214,7 +256,12 @@ export function resultsFromOutputs(
   return spec.tools.map((tool) => {
     const path = outputs[`${tool.outputKey}_path`]
     if (path === undefined) return null
-    return evaluateTool(tool, path || null, outputs[`${tool.outputKey}_version`] || null)
+    return evaluateTool(
+      tool,
+      path || null,
+      outputs[`${tool.outputKey}_version`] || null,
+      outputs[`${tool.outputKey}_error`] || null,
+    )
   })
 }
 
@@ -237,7 +284,7 @@ export function describeResult(
   result: ToolResult,
   instead: PrerequisiteTool | null = null,
 ): LogEntry {
-  const { tool, status, path, version } = result
+  const { tool, status, path, version, error } = result
   const name = version ? `${tool.name} ${version}` : tool.name
   const needs = tool.version ? ` (needs ${tool.version})` : ""
   const failLevel: LogLevel = instead ? "INFO" : tool.optional ? "WARN" : "ERROR"
@@ -260,6 +307,11 @@ export function describeResult(
       return {
         level: failLevel,
         text: `${tool.name} at ${path}: "${versionCommand(tool)}" printed no version number to check against ${tool.version}.${after}`,
+      }
+    case "broken":
+      return {
+        level: failLevel,
+        text: `${tool.name} at ${path} doesn't run: ${error?.split("\n")[0] ?? ""}${after}`,
       }
   }
 }

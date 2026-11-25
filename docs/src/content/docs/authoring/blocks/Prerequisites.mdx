@@ -2,7 +2,7 @@
 title: <Prerequisites>
 ---
 
-The `<Prerequisites>` block lists the tools a runbook needs and checks that each one is installed: on PATH, and at the version the runbook asks for. It marks each tool that is missing or out of date and says how to install it. Once the user has installed it, they click **Check again**, and Runbooks finds the tool without a restart.
+The `<Prerequisites>` block lists the tools a runbook needs and checks that each one is installed: on PATH, at the version the runbook asks for, and able to run. It marks each tool that is missing or out of date and says how to install it. Once the user has installed it, they click **Check again**, and Runbooks finds the tool without a restart.
 
 Put it near the top of the runbook, before the blocks that use the tools.
 
@@ -55,7 +55,7 @@ The block's content is a YAML code fence with a `tools:` list, and nothing else.
 | `name` | Required. The command to look for on PATH, such as `tofu`. It starts with a letter or digit, and has only letters, digits, `.`, `_`, `+` and `-`, so it can't be a path. |
 | `description` | What the runbook uses the tool for. Supports inline markdown. |
 | `version` | The versions the runbook works with, such as `">= 1.6"`. See [Version constraints](#version-constraints). Quote it: YAML reads an unquoted `1.10` as the number 1.1. |
-| `versionArgs` | The arguments that make the tool print its version, as a list such as `[version, --client]`, or a string that is split at spaces. Defaults to `--version` for a tool with a `version`. Give it to a tool without a `version` to publish the version it prints. |
+| `versionArgs` | The arguments that make the tool print its version, as a list such as `[version, --client]`, or a string that is split at spaces. Defaults to `--version` for a tool with a `version`. Give it to a tool without a `version` to publish the version it prints and to check that the tool runs. |
 | `install` | How to install the tool, shown when it's missing or out of date. Supports inline markdown, such as a link or a command in backticks. |
 | `optional` | `true` for a tool the runbook can do without. A missing or outdated optional tool makes the check warn. Default `false`. |
 
@@ -106,12 +106,15 @@ When the user clicks **Check**, Runbooks:
 
 1. Looks for each tool on PATH, with the session's environment and working directory, the way a script finds a command (`type -P` in bash). Only an executable file counts, not a shell function or alias.
 2. If a tool the runbook needs isn't found, reads PATH again from your login shell and looks for the missing tools once more. A tool of an `anyOf` list doesn't count when the check found another of its tools. See [Tools installed after Runbooks started](#tools-installed-after-runbooks-started).
-3. Runs each tool it found that has a `version` or `versionArgs`, with its version arguments, and reads the first version number in what the tool prints, on stdout or stderr. A version number is two or more numbers joined by dots, such as `1.8.2`. Each tool gets 15 seconds.
-4. Compares each version with the tool's constraint.
+3. Runs each tool it found that has a `version` or `versionArgs`, with its version arguments. Each tool gets 15 seconds. A tool whose version command exits with a non-zero code, or doesn't finish, is broken, whatever it printed. A version manager's shim, such as mise's, can be on PATH and still fail to run a tool, and its error can name a version.
+4. Reads the first version number in what each tool that ran printed, on stdout or stderr. A version number is two or more numbers joined by dots, such as `1.8.2`.
+5. Compares each version with the tool's constraint.
 
 The check runs only when the user clicks **Check**. Opening the runbook runs nothing, and neither does resuming its [session](/commands/sessions/): the block shows the last check's result. While the check runs, **Stop** stops it.
 
-**View Logs** shows a line for each tool: where it found the tool and the version it read, or what went wrong. When a tool printed no version number, the log quotes the first line it printed.
+**View Logs** shows a line for each tool: where it found the tool and the version it read, or what went wrong. When a tool printed no version number, the log quotes the first line it printed. For a broken tool, the block and the log quote the first lines it printed.
+
+A tool with neither `version` nor `versionArgs` is only looked for on PATH, since not every tool takes `--version`. To check that such a tool runs, give it `versionArgs`, such as `-V` for `ssh`.
 
 ### Version constraints
 
@@ -134,7 +137,8 @@ A tool is one of:
 - **Found**: on PATH, at a version that meets its constraint if it has one.
 - **Missing**: not on PATH.
 - **Wrong version**: on PATH, at a version that doesn't meet its constraint.
-- **Unknown version**: on PATH, but the check couldn't read a version to compare with its `version`: the tool printed no version number, or didn't finish within 15 seconds. The log says which.
+- **Unknown version**: on PATH, and its version command succeeded, but it printed no version number to compare with its `version`. The log quotes what it printed.
+- **Broken**: on PATH, but its version command exited with a non-zero code, didn't finish within 15 seconds, or couldn't run. The block shows what it printed.
 
 The block succeeds when every tool is found, counting an `anyOf` list as found when one of its tools is. It warns when only optional tools or lists aren't found. A required one that isn't found fails it.
 
@@ -154,6 +158,7 @@ A check that succeeds or warns publishes outputs for later blocks:
 |--------|-------|
 | `<tool>_path` | Where the tool is, or empty when it isn't on PATH |
 | `<tool>_version` | The version the check read, or empty when it couldn't read one. Only for a tool with a `version` or `versionArgs` that is on PATH. |
+| `<tool>_error` | How the tool's version command failed. Only for a broken tool. |
 
 `<tool>` is the tool's name with each character that isn't a letter, a digit or `_` turned into `_`, so `session-manager-plugin` publishes `session_manager_plugin_path`. A name that starts with a digit gets a `_` in front. Two tools whose names come out the same, such as `docker-compose` and `docker_compose`, are a configuration error.
 

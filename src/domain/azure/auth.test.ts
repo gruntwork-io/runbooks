@@ -85,6 +85,20 @@ describe("showAccount", () => {
     )
     expect(failureMessage(exit)).toContain("the network is down")
   })
+
+  it("shows the first error of a wrapper such as a mise shim, not its closing hint", () => {
+    const { exit } = run(showAccount(CTX), () =>
+      stderr(
+        [
+          "mise ERROR No version is set for shim: az",
+          "Set a global default version with one of the following:",
+          "mise use -g azure-cli@2.85.0",
+          "mise ERROR Run with --verbose or MISE_VERBOSE=1 for more information",
+        ].join("\n"),
+      ),
+    )
+    expect(failureMessage(exit)).toContain("mise ERROR No version is set for shim: az")
+  })
 })
 
 describe("listAccounts", () => {
