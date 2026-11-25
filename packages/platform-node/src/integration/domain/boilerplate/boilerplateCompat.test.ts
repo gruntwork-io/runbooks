@@ -4,7 +4,10 @@ import * as nodeFs from "node:fs"
 import * as nodePath from "node:path"
 import * as os from "node:os"
 import YAML from "yaml"
-import { boilerplateCompatibleConfig, goFacingTemplateDir } from "@runbooks/core/domain/boilerplate/boilerplateCompat"
+import {
+  boilerplateCompatibleConfig,
+  goFacingTemplateDir,
+} from "@runbooks/core/domain/boilerplate/boilerplateCompat"
 import { NodeFileSystemLive } from "../../../layers/NodeFileSystem.ts"
 
 describe("boilerplateCompatibleConfig", () => {

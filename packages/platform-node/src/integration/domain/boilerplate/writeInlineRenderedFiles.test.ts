@@ -3,7 +3,10 @@ import { Effect, Exit } from "effect"
 import * as nodeFs from "node:fs"
 import * as nodePath from "node:path"
 import * as os from "node:os"
-import { writeInlineRenderedFiles, type InlineWriteRecord } from "@runbooks/core/domain/boilerplate/writeInlineRenderedFiles"
+import {
+  writeInlineRenderedFiles,
+  type InlineWriteRecord,
+} from "@runbooks/core/domain/boilerplate/writeInlineRenderedFiles"
 import { NodeFileSystemLive } from "../../../layers/NodeFileSystem.ts"
 
 // Runs against a real temp directory: the bug this pins was a key being

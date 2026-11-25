@@ -50,7 +50,11 @@ import {
   GLAB_ENV_OVERRIDES,
 } from "@runbooks/core/domain/gitlab/auth"
 import type { GlabCliRead } from "@runbooks/core/domain/gitlab/auth"
-import { probeGhStatus, probeGlabStatus, probeGitSslBackend } from "@runbooks/core/domain/vcs/cli-status"
+import {
+  probeGhStatus,
+  probeGlabStatus,
+  probeGitSslBackend,
+} from "@runbooks/core/domain/vcs/cli-status"
 import { redactSecrets } from "@runbooks/core/domain/vcs/redact"
 import { buildCliEnv } from "@runbooks/core/domain/git/cli-token"
 import {
