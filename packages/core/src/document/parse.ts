@@ -232,10 +232,14 @@ class Parse {
   finish(files: ReadonlyMap<RunbookPath, FileFact>): ParseResult {
     if (this.stopped !== undefined) return this.stopped
     const hashes = new Map<RunbookPath, ContentHash>()
+    const texts = new Map<number, Map<string, string>>()
     for (const named of this.named) {
       const fact = files.get(named.path)
       if (fact?._tag === "Found") {
         hashes.set(named.path, fact.hash)
+        const own = texts.get(named.index) ?? new Map<string, string>()
+        for (const file of fact.texts) own.set(file.path, file.text)
+        texts.set(named.index, own)
         this.fileReads(named, fact.texts)
       } else {
         this.badFile(named, fact)
@@ -268,6 +272,7 @@ class Parse {
         hash: documentHash(this.source, hashes),
         warnings: [...this.warnings].sort(order),
       },
+      texts,
     }
   }
 

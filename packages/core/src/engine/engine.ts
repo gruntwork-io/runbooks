@@ -6,8 +6,7 @@
  */
 import { Context, Effect, Layer, Schema, Stream } from "effect"
 import type { Rpc } from "effect/rpc"
-import type { PropError, TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
-import type { FormSpec } from "@runbooks/blocks-core/form"
+import type { TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { loadRunbook } from "../document/load.ts"
 import type { FileSystem } from "../services/FileSystem.ts"
@@ -34,7 +33,7 @@ import {
   UnknownSession,
   type WaitForBlock,
 } from "./protocol.ts"
-import { makeSession, type ReadForm, type Session, type StartRun } from "./session.ts"
+import { makeSession, type Session, type StartRun } from "./session.ts"
 
 /** Serves one protocol command, with the command's own payload, success and error types. */
 type Command<R extends Rpc.Any, Requires = never> = (
@@ -79,7 +78,9 @@ const unreadable = (file: string, message: string) =>
 export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/core/engine/Engine") {
   /**
    * The engine for `registry`. It needs the services every block in the
-   * registry asks for, and gives them to each run. Closing the layer closes
+   * registry asks for, and gives them to each run: a session can start a run
+   * only once the person trusts it. Before that, the engine reads the runbook
+   * and the files its blocks name, and nothing else. Closing the layer closes
    * every session.
    */
   static readonly layer = <R extends Registry>(
@@ -97,11 +98,6 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             input,
           )
           return Stream.provideContext(run, services)
-        }
-        const readForm: ReadForm = (fields, props) => {
-          // As for `start`: the block is one of `registry`'s.
-          const read: Effect.Effect<FormSpec, PropError, ServicesOf<R>> = fields(props, new Map())
-          return Effect.provideContext(read, services)
         }
         const fileSystem = yield* Effect.context<FileSystem>()
         const sessions = new Map<SessionId, Session>()
@@ -137,9 +133,8 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             const session = yield* makeSession({
               id: decodeSessionId(crypto.randomUUID()),
               document: result.document,
+              texts: result.texts,
               registry,
-              start,
-              readForm,
             })
             sessions.set(session.id, session)
             return { _tag: "Opened", session: session.view() } as const
@@ -161,7 +156,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             const { origin } = yield* Caller
             if (origin !== "person")
               return yield* new Forbidden({ command: "TrustSession", origin })
-            return yield* (yield* lookup(session)).trust(hash)
+            return yield* (yield* lookup(session)).trust(hash, start)
           }),
 
           events: ({ session, after }) =>

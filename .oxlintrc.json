@@ -506,6 +506,42 @@
       }
     },
     {
+      "files": ["blocks/**"],
+      "rules": {
+        "no-restricted-globals": [
+          "error",
+          {
+            "name": "fetch",
+            "message": "A block reaches the OS only through the services its run gets, so its other functions, which the engine calls before trust, do no I/O (BEFORE_TRUST in blocks/core/contract.ts)."
+          },
+          {
+            "name": "XMLHttpRequest",
+            "message": "A block reaches the OS only through the services its run gets, so its other functions, which the engine calls before trust, do no I/O (BEFORE_TRUST in blocks/core/contract.ts)."
+          },
+          {
+            "name": "WebSocket",
+            "message": "A block reaches the OS only through the services its run gets, so its other functions, which the engine calls before trust, do no I/O (BEFORE_TRUST in blocks/core/contract.ts)."
+          },
+          {
+            "name": "EventSource",
+            "message": "A block reaches the OS only through the services its run gets, so its other functions, which the engine calls before trust, do no I/O (BEFORE_TRUST in blocks/core/contract.ts)."
+          },
+          {
+            "name": "Bun",
+            "message": "A block reaches the OS only through the services its run gets, so its other functions, which the engine calls before trust, do no I/O (BEFORE_TRUST in blocks/core/contract.ts)."
+          },
+          {
+            "name": "process",
+            "message": "A block reaches the OS only through the services its run gets, so its other functions, which the engine calls before trust, do no I/O (BEFORE_TRUST in blocks/core/contract.ts)."
+          },
+          {
+            "name": "require",
+            "message": "A block reaches the OS only through the services its run gets, so its other functions, which the engine calls before trust, do no I/O (BEFORE_TRUST in blocks/core/contract.ts)."
+          }
+        ]
+      }
+    },
+    {
       "files": ["blocks/**/*.test.ts", "blocks/**/*.test.tsx", "packages/core/**/*.test.ts"],
       "rules": {
         "no-restricted-imports": [

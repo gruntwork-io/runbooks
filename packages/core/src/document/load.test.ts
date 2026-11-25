@@ -98,6 +98,30 @@ describe("loadRunbook", () => {
     ])
   })
 
+  it("keeps the text of the files each block names, a folder's under its path, for its form", async () => {
+    const files = {
+      [RUNBOOK]:
+        '<Run id="a" path="a.sh" />\n\n<Note>Hi</Note>\n\n<Run id="plan" path="templates" />',
+      "/rb/a.sh": "echo hi\n",
+      "/rb/templates/main.tf": 'provider "aws" {}\n',
+      "/rb/templates/modules/vars.tf": "variable x {}\n",
+    }
+    const result = await load(files, ["/rb/templates", "/rb/templates/modules"])
+    if (result._tag === "Invalid") throw new Error(result.errors.map((e) => e.message).join("\n"))
+    expect(result.texts).toEqual(
+      new Map([
+        [0, new Map([["a.sh", "echo hi\n"]])],
+        [
+          2,
+          new Map([
+            ["templates/main.tf", 'provider "aws" {}\n'],
+            ["templates/modules/vars.tf", "variable x {}\n"],
+          ]),
+        ],
+      ]),
+    )
+  })
+
   it("reports a template reference in a file at its line in that file, after the runbook's errors", async () => {
     expect(
       await refused({

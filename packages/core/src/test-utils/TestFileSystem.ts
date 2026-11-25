@@ -1,12 +1,19 @@
 import { Effect, Layer, Stream } from "effect"
 import { FileSystem } from "../services/FileSystem.ts"
-import type { WalkEntry } from "../services/FileSystem.ts"
+import type { FileSystemShape, WalkEntry } from "../services/FileSystem.ts"
 import { FileNotFoundError, FileWriteError } from "../errors/index.ts"
 
-export const makeTestFileSystem = (files: Record<string, string> = {}) => {
-  const dirs = new Set<string>()
+export const makeTestFileSystem = (files: Record<string, string> = {}) =>
+  Layer.succeed(FileSystem, testFileSystem(files))
 
-  return Layer.succeed(FileSystem, {
+/** An in-memory filesystem holding `files`, and `folders` as folders. */
+export const testFileSystem = (
+  files: Record<string, string> = {},
+  folders: ReadonlyArray<string> = [],
+): FileSystemShape => {
+  const dirs = new Set<string>(folders)
+
+  return {
     readFile: (path) => {
       const content = files[path]
       return content !== undefined
@@ -115,7 +122,7 @@ export const makeTestFileSystem = (files: Record<string, string> = {}) => {
     },
 
     watch: (_paths) => Stream.empty,
-  })
+  }
 }
 
 /** The distinct first path segments under `path`, in insertion order. */
