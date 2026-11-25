@@ -6,9 +6,8 @@
  *   <Command id="rerun-plan" showWhenBlock={{ id: "check-plan", status: "fail" }} ... />
  *
  * `status` is one of success, warn or fail, or a list of them. The block it
- * names must be a Command, Check, Finish or Prerequisites block, the blocks
- * that have runs. While that block hasn't run, or is running, the condition
- * doesn't hold.
+ * names must be one that runs, which the reference graph checks. While that
+ * block hasn't run, or is running, the condition doesn't hold.
  *
  * Both the app (web/) and the `runbooks test` CLI use this module, so they
  * agree on when a block shows. Imports nothing, so the renderer can bundle it.
@@ -36,9 +35,6 @@ export interface ShowWhenBlock {
 export type ParsedShowWhenBlock =
   | { readonly ok: true; readonly condition: ShowWhenBlock | null }
   | { readonly ok: false; readonly error: string }
-
-/** The block types whose runs a `showWhenBlock` condition can read. */
-export const SHOW_WHEN_BLOCK_TARGET_TYPES = ["Check", "Command", "Finish", "Prerequisites"] as const
 
 const EXAMPLE = 'showWhenBlock={{ id: "check-plan", status: "fail" }}'
 
