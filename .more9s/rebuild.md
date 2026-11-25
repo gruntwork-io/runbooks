@@ -35,7 +35,7 @@ The top of the stack passes, in CI:
 | `packages/app-renderer/` | React: walks the document | core (protocol only), `blocks/views.ts` |
 | `packages/cli/` | `runbooks` CLI: open, test, validate, mcp | core, platform-node, `blocks/index.ts` |
 | `plugin/` | `base.schema.json`, `credential.schema.json` | none |
-| `signin/` | track A Rust binaries, liftable into their own repo | none |
+| `gruntwork-io/runbooks-plugins` | track A Rust sign-in binaries: their own repo, made by the human on 2026-11-24 (empty, public, `main`) | none |
 | `baseline/` | frozen baseline list, props, security test names, behaviour-change patches | none |
 
 ## Stack
@@ -65,14 +65,20 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 16 | #514 | 1 | `rebuild/p1-block-id` | p1-registry | green | 1.6 (contract change: `BlockId` normalizes on decode) |
 | 17 | #515 | 1 | `rebuild/p1-template-references` | p1-block-id | green | 1.5 |
 | 18 | #516 | 1 | `rebuild/p1-document-contract` | p1-template-references | green | contract change for 1.4 (guarded edges, `unknownProp`, `notAllowed`) |
-| 19 | #517 | 1 | `rebuild/p1-parse` | p1-document-contract | open | 1.4, part 1: parse, props, ids, errors |
-| 20 | #518 | 1 | `rebuild/p1-edge-indices` | p1-parse | open | contract change for 1.4 (edges by block index) |
+| 19 | #517 | 1 | `rebuild/p1-parse` | p1-document-contract | green | 1.4, part 1: parse, props, ids, errors |
+| 20 | #518 | 1 | `rebuild/p1-edge-indices` | p1-parse | green | contract change for 1.4 (edges by block index; drops the unused `Reference` type) |
+| 21 | #521 | 1 | `rebuild/p1-graph` | p1-edge-indices | green | 1.4, part 2: the reference graph |
+| 22 | #522 | 1 | `rebuild/p1-block-errors` | p1-graph | green | contract change: an error in one block stops that block, not the runbook (`error-scenarios` failed the old contract) |
+| 23 | #523 | 1 | `rebuild/p1-files` | p1-block-errors | green | 1.4, part 3: `loadRunbook`, file hashes, `badFile` |
+| 24 | #524 | 1 | `rebuild/p1-edge-source-name` | p1-files | green | contract change: the template-read edge is tagged `"Output"` (`"Template"` is a block's tag) |
+| 25 | #525 | 1 | `rebuild/p1-toy-blocks` | p1-edge-source-name | open | refactor for 1.7: the core names no block (toy tags, a dead block list) |
+| 26 | #526 | 1 | `rebuild/p1-block-lint` | p1-toy-blocks | open | 1.7; **phase 1's Done when** is in its description |
 
 On 2026-11-24 the human found the PRs were not properly stacked:
 - #496 lacked four index commits on `rebuild/main`. Every branch was rebased; trees were unchanged apart from this file.
 - The PRs were not linked as a GitHub stack. They now are, with `gh stack link --base rebuild/main 496 … 518` (gh-stack v0.2.0), which created stack #519.
 
-Later phases and track A are added here as their PRs are cut.
+Phase 1 ended with #526 on 2026-11-24. Later phases and track A are added here as their PRs are cut.
 
 ## Work products
 
@@ -94,10 +100,10 @@ Later phases and track A are added here as their PRs are cut.
 | 1.1 | Workspace packages with declared exports | #511 | open; `app-main`, `app-renderer` and `blocks` get their tsconfig when they get code |
 | 1.2 | Services, layers, shared domain code copied | #512 | open |
 | 1.3 | Registry and typed view map | #513 | open |
-| 1.4 | `parseRunbook` | #517, #516, #518 | open; still to come: the reference graph, then file hashes and `badFile` |
+| 1.4 | `parseRunbook` | #516, #517, #518, #521, #522, #523 | open |
 | 1.5 | The one template-reference extractor | #515 | open |
 | 1.6 | The one id comparison | #514 | open |
-| 1.7 | Lint rules for blocks | none yet | planned, last PR of phase 1 |
+| 1.7 | Lint rules for blocks | #526 (#524, #525 make the tree pass) | open |
 
 ## Open decisions built on
 
@@ -142,6 +148,12 @@ Choices of my own that need a ruling (not among the 18):
 | `*AuthId` aliases are `envFrom` sources after `envFrom`'s own; code in `parse.ts` (decision 5) | #517 |
 | An unknown block is one error per use; a regex prop value is `badProp` | #517 |
 | Edges name blocks by index | #518 |
+| `githubAuthId` on a block with its own git-credential prop (GitClone, GitHubPullRequest) is that prop's alias, not an `envFrom` source | #517 |
+| A cycle is one error per set of blocks that wait for each other, at its first block, naming the shortest loop | #521 |
+| `syntax`, `notAllowed`, `unknownBlock`, `versionRequired` refuse the runbook; every other error stops its block (`Misconfigured`), and the second of two blocks with one id is the misconfigured one | #522 |
+| Parsing takes two steps so the loader reads only the files blocks name; a missing or outside file is `badFile` at its prop; a folder hashes as `hashTemplateDir` | #523 |
+| The block-name lint counts the baseline's 21 blocks before they land, counts code (a string equal to a tag or holding `<Tag`, a key, element or export) and not comments or imported names, and covers the packages only | #526 |
+| A `views.ts` entry is one line naming its folder | #526 |
 
 ## Failed attempts
 
@@ -160,3 +172,9 @@ Choices of my own that need a ruling (not among the 18):
 | Decision 8 (declared outputs): 21 template reads in 9 testdata runbooks use a Command output no `outputs` prop declares, so they fail to load. They need `outputs` patches. | phase 3, with Command (Check in phase 4) |
 | The MDXContainer security tests' rendering half (the page shows literal props) | phase 3, with the tree walker |
 | `rebuild/main` is cut from main at ac543199; main has moved since | the human: merge main in only if the old tree's fixes must reach the rebuild |
+| `error-scenarios` expects `config_error` per step: the test CLI maps `Misconfigured` to it (#522) | phase 2, the test CLI |
+| A block's errors show in place of its view (#522) | phase 3, the renderer |
+| `showWhenBlock`'s target check becomes a `run`-capability reference on Command, Check and Finish (#525 removed the old type list) | phases 3 and 4 |
+| `<Iframe>` passes the literal-only check: a test in the Iframe block's folder (#525 moved the core's case to `<Script>`) | phase 4, Iframe |
+| No size limit on a file a block names; it is read whole to hash it (#523) | before phase 6 |
+| The block-name lint reads `baseline/props.json`; when the baseline retires, the registry alone names the blocks (#526) | phase 6 |
