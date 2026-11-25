@@ -10,6 +10,7 @@ import {
   type EngineCommand,
   EngineProtocol,
   EventEnvelope,
+  FieldView,
   Forbidden,
   type Origin,
   RunBlock,
@@ -164,6 +165,27 @@ describe("engine protocol", () => {
     expect(wire.at).toBe("2026-11-24T12:00:00.000Z")
     expect(wire.event.outputs.token).toEqual({ _tag: "Hidden" })
     expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
+  })
+
+  it("tells an empty field from one holding an empty string", () => {
+    const json = Schema.toCodecJson(FieldView)
+    const field = (value: Partial<FieldView>): FieldView => ({
+      name: "port",
+      type: "int",
+      description: "",
+      required: false,
+      sensitive: false,
+      readOnly: false,
+      validations: [],
+      reviewed: false,
+      unresolved: [],
+      ...value,
+    })
+    const empty = JSON.parse(JSON.stringify(Schema.encodeSync(json)(field({}))))
+    expect("value" in empty).toBe(false)
+    expect(Schema.decodeUnknownSync(json)(empty)).toEqual(field({}))
+    const blank = field({ type: "string", value: { _tag: "Shown", value: "" } })
+    expect(Schema.decodeUnknownSync(json)(Schema.encodeSync(json)(blank))).toEqual(blank)
   })
 
   it("serves every baseline MCP tool with a command (decision 12)", () => {
