@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { Effect, Option, Stream } from "effect"
+import { Context, Effect, Exit, Fiber, Layer, Option, Scope, Stream } from "effect"
 import { MAX_SETTINGS_BYTES } from "../services/SettingsFile.ts"
 import {
   type MemorySettingsFile,
@@ -272,5 +272,24 @@ describe("the settings store", () => {
       ["dark", false],
       ["light", true],
     ])
+  })
+
+  it("ends each watch when the store closes, so a watcher does not wait forever", async () => {
+    const seen = await Effect.runPromise(
+      Effect.gen(function* () {
+        const storeScope = yield* Scope.make()
+        const context = yield* Layer.buildWithScope(
+          SettingsStore.layer.pipe(Layer.provide(memorySettingsFile().layer)),
+          storeScope,
+        )
+        const watcher = yield* Effect.forkChild(
+          Stream.runCollect(Context.get(context, SettingsStore).watch),
+          { startImmediately: true },
+        )
+        yield* Scope.close(storeScope, Exit.void)
+        return yield* Fiber.join(watcher).pipe(Effect.timeout("1 second"))
+      }),
+    )
+    expect(seen.map(({ settings }) => settings.theme)).toEqual(["system"])
   })
 })

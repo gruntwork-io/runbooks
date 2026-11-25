@@ -667,7 +667,10 @@ export class ChangeSettings extends Rpc.make("ChangeSettings", {
   error: Schema.Union([Forbidden, SettingsNotSaved]),
 }).annotate(Rpc.ParseOptions, { onExcessProperty: "error", errors: "all" }) {}
 
-/** The settings now, then again after each change. A reader that falls behind gets the latest, not each one. */
+/**
+ * The settings now, then again after each change. A reader that falls
+ * behind gets the latest, not each one. Ends when the engine stops.
+ */
 export class WatchSettings extends Rpc.make("WatchSettings", {
   success: SettingsView,
   stream: true,
