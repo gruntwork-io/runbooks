@@ -6,7 +6,8 @@
  */
 import { Context, Effect, Layer, Schema, Stream } from "effect"
 import type { Rpc } from "effect/rpc"
-import type { TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
+import type { PropError, TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
+import type { FormSpec } from "@runbooks/blocks-core/form"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { loadRunbook } from "../document/load.ts"
 import type { FileSystem } from "../services/FileSystem.ts"
@@ -21,17 +22,19 @@ import {
   type GetOutputs,
   type GetSession,
   LIMITS,
+  type ConfirmValues,
   type ListSessions,
   type OpenSession,
   type ResetBlock,
   type RunBlock,
   RunbookUnreadable,
   SessionId,
+  type SetValues,
   type TrustSession,
   UnknownSession,
   type WaitForBlock,
 } from "./protocol.ts"
-import { makeSession, type Session, type StartRun } from "./session.ts"
+import { makeSession, type ReadForm, type Session, type StartRun } from "./session.ts"
 
 /** Serves one protocol command, with the command's own payload, success and error types. */
 type Command<R extends Rpc.Any, Requires = never> = (
@@ -50,7 +53,12 @@ export interface EngineShape {
     payload: Rpc.Payload<typeof Events>,
   ) => Stream.Stream<EventEnvelope, UnknownSession>
   readonly getBlock: Command<typeof GetBlock>
-  readonly runBlock: Command<typeof RunBlock>
+  /** Enters values as if typed. An agent's are reviewed; a value a person changes is not. */
+  readonly setValues: Command<typeof SetValues, Caller>
+  /** An agent's counts every field the form shows as reviewed, defaults included; a person's changes nothing. */
+  readonly confirmValues: Command<typeof ConfirmValues, Caller>
+  /** Runs a task or submits a form. An agent's is refused until every field it reads is reviewed. */
+  readonly runBlock: Command<typeof RunBlock, Caller>
   readonly cancelBlock: Command<typeof CancelBlock>
   readonly resetBlock: Command<typeof ResetBlock>
   readonly waitForBlock: Command<typeof WaitForBlock>
@@ -90,6 +98,11 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
           )
           return Stream.provideContext(run, services)
         }
+        const readForm: ReadForm = (fields, props) => {
+          // As for `start`: the block is one of `registry`'s.
+          const read: Effect.Effect<FormSpec, PropError, ServicesOf<R>> = fields(props)
+          return Effect.provideContext(read, services)
+        }
         const fileSystem = yield* Effect.context<FileSystem>()
         const sessions = new Map<SessionId, Session>()
 
@@ -126,6 +139,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
               document: result.document,
               registry,
               start,
+              readForm,
             })
             sessions.set(session.id, session)
             return { _tag: "Opened", session: session.view() } as const
@@ -162,8 +176,19 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             return yield* (yield* lookup(session)).getBlock(block, logOffset, logLimit)
           }),
 
+          setValues: Effect.fn("Engine.setValues")(function* ({ session, block, values }) {
+            const { origin } = yield* Caller
+            return yield* (yield* lookup(session)).setValues(block, values, origin)
+          }),
+
+          confirmValues: Effect.fn("Engine.confirmValues")(function* ({ session, block }) {
+            const { origin } = yield* Caller
+            return yield* (yield* lookup(session)).confirmValues(block, origin)
+          }),
+
           runBlock: Effect.fn("Engine.runBlock")(function* ({ session, block }) {
-            return yield* (yield* lookup(session)).runBlock(block)
+            const { origin } = yield* Caller
+            return yield* (yield* lookup(session)).runBlock(block, origin)
           }),
 
           cancelBlock: Effect.fn("Engine.cancelBlock")(function* ({ session, block }) {

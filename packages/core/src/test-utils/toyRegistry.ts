@@ -14,6 +14,7 @@ import {
   defineTask,
   RunbookPath,
 } from "@runbooks/blocks-core/contract"
+import { FieldType, FieldValue, type FormSpec, Validation } from "@runbooks/blocks-core/form"
 import type { Registry } from "@runbooks/blocks-core/registry"
 
 const toPath = Schema.decodeSync(RunbookPath)
@@ -65,21 +66,46 @@ const run = defineTask({
   plugins: [],
 })
 
+/** A field as a toy form's YAML writes it: a `Field` whose flags default to off. */
+export const ToyField = Schema.Struct({
+  name: Schema.String,
+  type: FieldType,
+  default: Schema.optionalKey(FieldValue),
+  required: Schema.optionalKey(Schema.Boolean),
+  options: Schema.optionalKey(Schema.Array(Schema.String)),
+  validations: Schema.optionalKey(Schema.Array(Validation)),
+  sensitive: Schema.optionalKey(Schema.Boolean),
+  locked: Schema.optionalKey(Schema.Boolean),
+  hidden: Schema.optionalKey(Schema.Boolean),
+  showWhen: Schema.optionalKey(Schema.Record(Schema.String, Schema.Array(Schema.String))),
+})
+
+export const toyFormSpec = (fields: ReadonlyArray<typeof ToyField.Type>): FormSpec => ({
+  fields: fields.map((field) => ({
+    description: "",
+    required: false,
+    validations: [],
+    sensitive: false,
+    locked: false,
+    hidden: false,
+    ...field,
+  })),
+  sections: [],
+})
+
 /** Form whose fields come from fenced YAML children. */
 const form = defineForm({
   name: "Form",
   since: "0.1.0",
   class: "form",
-  props: Schema.Struct({
-    variables: Schema.Array(Schema.Struct({ name: Schema.String, type: Schema.String })),
-  }),
+  props: Schema.Struct({ variables: Schema.Array(ToyField) }),
   children: { kind: "yaml", prop: "variables" },
   references: {},
   runbookFiles: () => [],
   provides: ["values"],
   effects: [],
   outputs: (p) => Object.fromEntries(p.variables.map((v) => [v.name, { sensitive: false }])),
-  fields: () => Effect.succeed({ fields: [], sections: [] }),
+  fields: (p) => Effect.succeed(toyFormSpec(p.variables)),
   plugins: [],
 })
 
