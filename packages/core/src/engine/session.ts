@@ -19,9 +19,9 @@
  * its whole length. A run's own events and its end are recorded without the
  * lock, each in one synchronous step.
  *
- * Saving: after every change the session saves each block's form, run and
- * submit that changed, and its trust, through its `SessionSaver`, one save
- * at a time. A resumed session starts from what `resumeOf` let it take
+ * Saving: after every change the session saves each block's form, run,
+ * submit and credential that changed, and its trust, through its
+ * `SessionSaver`, one save at a time. A resumed session starts from what `resumeOf` let it take
  * back, and its first save writes every block as it holds it, so what it
  * did not take back is not offered again.
  */
@@ -60,6 +60,7 @@ import type { FieldValue, FormSpec, FormValues } from "@runbooks/blocks-core/for
 import { type AnyBlock, type Registry, resolveTag } from "@runbooks/blocks-core/registry"
 import { type Blocker, BlockStatus, type Outcome } from "@runbooks/blocks-core/status"
 import { type CredentialAction, statusOf as credentialStatus } from "../credential/lifecycle.ts"
+import type { CredentialState } from "../credential/lifecycle.ts"
 import type { CredentialEnv } from "../credential/provider.ts"
 import { ConfigError, ConfigWarning } from "../document/configError.ts"
 import type { BlockNode, ContentHash, RunbookDocument } from "../document/document.ts"
@@ -586,8 +587,6 @@ export interface Session {
   ) => Effect.Effect<ActResult, UnknownSession | UnknownBlock | WrongClass>
   /** Every done block's outputs, by block id. */
   readonly outputs: () => Record<string, Record<string, OutputView>>
-  /** The values each Ready credential block's provider gave, for the session store (2.8) to save. */
-  readonly credentials: () => ReadonlyArray<readonly [BlockId, CredentialEnv]>
   /** Interrupts every run, logs `SessionClosed` and ends every `events` stream. Idempotent. */
   readonly close: Effect.Effect<void>
 }
@@ -660,6 +659,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       readonly form: Form | undefined
       readonly submitted: boolean | undefined
       readonly run: RunState | null | undefined
+      readonly credential: CredentialState | undefined
+      readonly env: CredentialEnv | undefined
     }
   >()
   let savedTrust = false
@@ -667,8 +668,54 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   const fileHashes = fileHashesOf(document, options.registry)
 
   /**
-   * Saves the trust, and each block's form, submit and run, that changed
-   * since the last save. It runs to its end, so what it marks saved is.
+   * What saving a credential block in `state` does: a Ready login is saved
+   * with the values its provider gave; one signed out, expired or short of
+   * a requirement is dropped. Any other state leaves what was saved, so a
+   * login not yet checked again, or a provider that is down, keeps it.
+   */
+  const credentialWrite = (
+    slot: CredentialSlot,
+    state: CredentialState | undefined,
+    env: CredentialEnv | undefined,
+    files: Readonly<Record<string, string>>,
+  ): Effect.Effect<void> | undefined => {
+    switch (state?._tag) {
+      case "Ready":
+        return env === undefined
+          ? undefined
+          : saver.put(
+              slot.id,
+              {
+                kind: "credential",
+                payload: {
+                  provider: slot.block.provider,
+                  source: state.source,
+                  targets: state.identity.targets,
+                  values: Object.fromEntries(
+                    env.values.map(({ name, value }) => [name, Redacted.value(value)]),
+                  ),
+                },
+              },
+              files,
+            )
+      case "SignedOut":
+      case "Expired":
+      case "RequirementNotMet":
+        return saver.drop(slot.id, "credential")
+      case undefined:
+      case "Detecting":
+      case "Found":
+      case "SigningIn":
+      case "ChoosingTarget":
+      case "Unavailable":
+        return undefined
+    }
+  }
+
+  /**
+   * Saves the trust, and each block's form, submit, run and credential,
+   * that changed since the last save. It runs to its end, so what it marks
+   * saved is.
    */
   const persist: Effect.Effect<void> = Effect.uninterruptible(
     saving.withPermit(
@@ -683,6 +730,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
             form: undefined,
             submitted: undefined,
             run: undefined,
+            credential: undefined,
+            env: undefined,
           }
           const files = fileHashes.get(slot.id) ?? {}
           const form = forms.get(slot.index)
@@ -710,8 +759,23 @@ export const makeSession = Effect.fnUntraced(function* (options: {
                 ? saver.drop(slot.id, "run")
                 : saver.put(slot.id, { kind: "run", payload: savedRunOf(run) }, files),
             )
-          if (formChanged || submitChanged || runChanged)
-            saved.set(slot.index, { form, submitted: isSubmitted, run: state })
+          const credential = credentialSlotAt.get(slot.index)
+          const login = credential === undefined ? undefined : credentials.stateOf(slot.index)
+          const env = store.get(slot.id)
+          const loginChanged = login !== last.credential || env !== last.env
+          const loginWrite =
+            credential !== undefined && loginChanged
+              ? credentialWrite(credential, login, env, files)
+              : undefined
+          if (loginWrite !== undefined) writes.push(loginWrite)
+          if (formChanged || submitChanged || runChanged || loginChanged)
+            saved.set(slot.index, {
+              form,
+              submitted: isSubmitted,
+              run: state,
+              credential: login,
+              env,
+            })
         }
         return Effect.all(writes, { discard: true })
       }),
@@ -948,6 +1012,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     stateFolder: options.stateFolder,
     store,
     network: options.network,
+    resuming: resume?.credentials ?? new Map(),
   })
 
   const isCurrent = (run: Run) => runs.get(run.slot.index) === run
@@ -1520,8 +1585,6 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           return yield* credentials.act(slot.index, action, trust.runner.openProvider)
         }),
       ),
-
-    credentials: () => store.entries(),
 
     outputs: () =>
       Object.fromEntries(

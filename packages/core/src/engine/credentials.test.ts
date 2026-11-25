@@ -1880,6 +1880,7 @@ describe("the credential store", () => {
           stateFolder: "/state/s1",
           store,
           network: Effect.succeed({ caBundleFile: Option.none(), proxy: Option.none() }),
+          resuming: new Map(),
         })
         const started = credentials.enter(
           () => true,
