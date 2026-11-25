@@ -555,6 +555,7 @@ export function makeCredentials(
           const outputs = host.outputsOf(source.from) ?? new Map<string, Held<string>>()
           return {
             kind: "values",
+            from: source.from,
             values: Object.fromEntries(
               Array.from(outputs, ([key, held]) => [key, Redacted.make(reveal(held))]),
             ),

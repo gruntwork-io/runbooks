@@ -99,6 +99,10 @@ export const Source = Schema.Union(
       Schema.Struct({
         kind: Schema.Literal("values"),
         values: Schema.Record(Schema.String, Schema.String),
+        from: Schema.String.annotate({
+          description:
+            "The id of the block the values were read from. A login found in them has it as its source.",
+        }),
       }),
       [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
     ).annotate({ description: "Values the engine read from an earlier block's outputs." }),
@@ -417,7 +421,10 @@ export const DetectResult = Schema.Union(
       Schema.Struct({
         found: Schema.Literal(true),
         identity: Identity,
-        source: Schema.String.annotate({ description: "The source it was found in." }),
+        source: Schema.String.annotate({
+          description:
+            "The source it was found in: env, a named source, or a values source's from.",
+        }),
       }),
       [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
     ),

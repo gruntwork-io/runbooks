@@ -164,6 +164,8 @@ export type ResolvedSource =
   | {
       readonly kind: "values"
       readonly values: { readonly [name: string]: Redacted.Redacted<string> }
+      /** The id of the block the values were read from. A login found in them has it as its source. */
+      readonly from: string
     }
   | { readonly kind: "named"; readonly name: string }
 
@@ -175,7 +177,7 @@ export interface Constraints {
 
 export interface Detected {
   readonly identity: Identity
-  /** The source it was found in: env, cli, adc, or the block it was read from. */
+  /** The source it was found in: env, cli, adc, or a values source's `from`. */
   readonly source: string
 }
 

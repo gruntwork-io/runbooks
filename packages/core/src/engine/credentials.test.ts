@@ -208,6 +208,10 @@ const WAITING_FOR_CLOUD: BlockStatus = {
 
 const runbookOf = (...blocks: ReadonlyArray<string>) => blocks.join("\n\n")
 
+/** A block whose outputs hold access keys, for a `keysFrom` detection source. */
+const KEYS =
+  '<Script id="keys" label="keys" writesOutput={["accessKey=AKIAKEYS", "secretKey=keys-SECRET"]} declares={["accessKey", "secretKey"]} />'
+
 /** A block that pins its targets, and a provider that detects the login it pins. */
 const pinned = '<CloudLogin id="cloud" account="111" role="Admin" />'
 const ready = cloud({ detect: () => found(who("111")) })
@@ -357,10 +361,8 @@ describe("detecting a credential", () => {
 
   // useGoogleAuth.test.ts
   it("pauses on a block source that has not executed, then resumes when it has", async () => {
-    const keys =
-      '<Script id="keys" label="keys" writesOutput={["accessKey=AKIAKEYS", "secretKey=keys-SECRET"]} declares={["accessKey", "secretKey"]} />'
     await withCloud(
-      runbookOf(keys, '<CloudLogin id="cloud" keysFrom="keys" />'),
+      runbookOf(KEYS, '<CloudLogin id="cloud" keysFrom="keys" />'),
       { cloud: cloud({ detect: () => found(who("111"), "keys") }) },
       (rb) =>
         Effect.gen(function* () {
@@ -378,6 +380,7 @@ describe("detecting a credential", () => {
       { kind: "env", prefix: Option.none() },
       {
         kind: "values",
+        from: "keys",
         values: { accessKey: expect.anything(), secretKey: expect.anything() },
       },
     ])
@@ -386,6 +389,29 @@ describe("detecting a credential", () => {
     expect(
       Object.values(values).map((value) => Redacted.value(value as Redacted.Redacted)),
     ).toEqual(["AKIAKEYS", "keys-SECRET"])
+  })
+
+  it("names the block a login was found through", async () => {
+    await withCloud(
+      runbookOf(KEYS, '<CloudLogin id="cloud" keysFrom="keys" />'),
+      {
+        cloud: cloud({
+          // As a provider answers: a login found in a values source has its block as the source.
+          detect: (sources) =>
+            Effect.suspend(() => {
+              const read = sources.find((source) => source.kind === "values")
+              return read?.kind === "values"
+                ? found(who("111"), read.from)
+                : Effect.succeed(Option.none())
+            }),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.run("keys")
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({ source: "keys" })
+        }),
+    )
   })
 })
 
@@ -1713,10 +1739,8 @@ describe("each block's own credential", () => {
 
   // aws-env.test.ts: there the provider's answer; here what the engine keeps of it.
   it("returns found/valid identity metadata and never the key material", async () => {
-    const keys =
-      '<Script id="keys" label="keys" writesOutput={["accessKey=AKIAKEYS", "secretKey=keys-SECRET"]} declares={["accessKey", "secretKey"]} />'
     await withCloud(
-      runbookOf(keys, '<CloudLogin id="cloud" keysFrom="keys" />'),
+      runbookOf(KEYS, '<CloudLogin id="cloud" keysFrom="keys" />'),
       { cloud: cloud({ detect: () => found(who("111"), "keys") }) },
       (rb) =>
         Effect.gen(function* () {
