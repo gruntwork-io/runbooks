@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "base.schema.json",
+  "title": "Runbooks plugin transport",
+  "description": "JSON-RPC 2.0, one JSON object per line. Requests on standard input; responses and notifications on standard output; logs on standard error. Every request has an id; no batches. Only the plugin sends notifications, and each names its request in params.request. `configure` is the first call. Closing standard input stops the plugin. Unknown fields are ignored, except a field that narrows what a call may do, which needs a new protocol version.",
+  "$defs": {
+    "id": {
+      "description": "A request id. The caller chooses it; the plugin echoes it.",
+      "type": ["integer", "string"]
+    },
+    "request": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "method"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/id" },
+        "method": { "type": "string" },
+        "params": { "type": "object" }
+      }
+    },
+    "resultResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/id" },
+        "result": { "type": "object" }
+      }
+    },
+    "errorResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "error"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/id" },
+        "error": { "$ref": "#/$defs/rpcError" }
+      }
+    },
+    "notification": {
+      "description": "Sent only by the plugin, never with an id. The generator cannot express `not`, so the transport owner rejects a message with both an id and a method where it classifies lines.",
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "type": "string" },
+        "params": {
+          "type": "object",
+          "required": ["request"],
+          "properties": { "request": { "$ref": "#/$defs/id" } }
+        }
+      }
+    },
+    "rpcError": {
+      "type": "object",
+      "required": ["code", "message", "data"],
+      "properties": {
+        "code": {
+          "description": "-32000 for every kind below except invalidParams (-32602); the JSON-RPC codes for a malformed request.",
+          "enum": [-32000, -32602, -32600, -32601, -32700]
+        },
+        "message": {
+          "description": "For a person. Never parsed, and never carries a secret.",
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "required": ["kind"],
+          "properties": { "kind": { "type": "string" } }
+        }
+      }
+    },
+    "baseErrorKind": {
+      "description": "The error kinds every plugin may return, whatever its kind.",
+      "enum": ["notConfigured", "unsupportedProtocolVersion", "invalidParams", "internal"]
+    },
+    "configureParams": {
+      "type": "object",
+      "required": ["protocolVersion", "caller"],
+      "properties": {
+        "protocolVersion": { "type": "string" },
+        "caller": {
+          "description": "The calling app and its version: runbooks/0.31.0.",
+          "type": "string"
+        }
+      }
+    },
+    "configureResult": {
+      "type": "object",
+      "required": ["protocolVersion", "driverVersion"],
+      "properties": {
+        "protocolVersion": { "type": "string" },
+        "driverVersion": {
+          "description": "The plugin's own version. RFC-188's name, kept for every kind.",
+          "type": "string"
+        },
+        "cloud": {
+          "description": "RFC-188's field: the cloud a driver serves. A credential plugin may leave it out.",
+          "enum": ["aws", "gcp", "azure"]
+        }
+      }
+    }
+  }
+}
