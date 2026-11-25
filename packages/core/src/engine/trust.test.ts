@@ -26,6 +26,7 @@ import {
 import { testFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY, ToyField, toyFormSpec } from "../test-utils/toyRegistry.ts"
 import { Engine } from "./engine.ts"
+import { RUN_FILE_LIMITS } from "./runFiles.ts"
 import { Caller, type RunResult } from "./protocol.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
@@ -210,11 +211,18 @@ describe("an untrusted session", () => {
         expect(ran.block.status).toEqual({ _tag: "Done", outcome: "success" })
 
         const working = `/work/${session}`
+        // The folder the engine makes for the files the script writes to.
+        const runFolder = expect.stringMatching(/^runbooks-run-\w+$/)
+        const runFile = (name: string) =>
+          expect.stringMatching(new RegExp(`^runbooks-run-\\w+/${name}$`))
         expect(calls).toEqual([
           ...READING_THE_RUNBOOK,
           FileSystemCall("mkdir", working, { recursive: true }),
           FileSystemCall("isContainedInReal", "/rb/deploy.sh", "/rb"),
           FileSystemCall("isContainedInReal", `${working}/run.log`, working),
+          FileSystemCall("mkdtemp", "runbooks-run-"),
+          FileSystemCall("writeFile", runFile("output"), ""),
+          FileSystemCall("writeFile", runFile("env"), ""),
           FileSystemCall(
             "writeFile",
             `${working}/run.log`,
@@ -225,6 +233,9 @@ describe("an untrusted session", () => {
             method: "spawn",
             args: ["bash", ["/rb/deploy.sh"], { cwd: working }],
           },
+          FileSystemCall("readFileUpTo", runFile("output"), RUN_FILE_LIMITS.bytes),
+          FileSystemCall("readFileUpTo", runFile("env"), RUN_FILE_LIMITS.bytes),
+          FileSystemCall("rm", runFolder, { recursive: true, force: true }),
         ])
         yield* engine.closeSession({ session })
         yield* Fiber.join(events)

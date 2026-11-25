@@ -94,8 +94,10 @@ import {
   type EnvConflict,
   type EnvSource,
   taskSource,
+  withReserved,
 } from "./env.ts"
 import { type Held, hold, reveal, visible } from "./held.ts"
+import type { RunFiles, RunWrote } from "./runFiles.ts"
 import type { RunRoots } from "./roots.ts"
 
 /** Lines of a run's log the session keeps. Older lines are dropped; a log page says where it starts. */
@@ -126,6 +128,10 @@ export interface Runner {
     named: Readonly<Record<string, RootedPath>>,
     repository: string | undefined,
   ) => Effect.Effect<Record<string, string>, PathOutsideRoot | TaskFailed>
+  /** Makes the files a process task's script writes to, in a folder that goes when the scope closes. */
+  readonly makeRunFiles: Effect.Effect<RunFiles, TaskFailed, Scope.Scope>
+  /** Reads, within bounds, what the script wrote to them. */
+  readonly readRunFiles: (files: RunFiles) => Effect.Effect<RunWrote, TaskFailed>
 }
 
 /** Whether the person trusts the session. Only a trusted one can run a block. */
@@ -217,6 +223,8 @@ type RunState =
       readonly repository: Option.Option<RepositoryRef>
     }
   | { readonly _tag: "Failed"; readonly error: TaskError }
+
+type Running = Extract<RunState, { readonly _tag: "Running" }>
 
 /** A block's latest run. A block with none is idle. */
 interface Run {
@@ -656,6 +664,39 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       emit({ _tag: "LogLines", block: run.slot.id, run: run.id, offset, lines })
   }
 
+  /**
+   * Holds an output the block declares, sensitive if the block declares it
+   * so or the script marked it; or notes in the log that it was dropped.
+   */
+  const holdOutput = (
+    state: Running,
+    runnable: Runnable,
+    key: string,
+    value: string,
+    marked: boolean,
+    lines: LogLine[],
+  ) => {
+    const decl = Object.hasOwn(runnable.outputs, key) ? runnable.outputs[key] : undefined
+    if (decl === undefined)
+      lines.push({
+        stream: "stderr",
+        text: `Output "${key}" was dropped: the block does not declare it.`,
+      })
+    else state.outputs.set(key, hold(decl.sensitive || marked, value))
+  }
+
+  /** What a run's script wrote to `$RUNBOOK_OUTPUT` and `$RUNBOOK_ENV`, held as its events are. */
+  const recordWrote = (run: Run, runnable: Runnable, wrote: RunWrote) =>
+    update(() => {
+      const state = run.state
+      if (state._tag !== "Running") return
+      const lines: LogLine[] = []
+      for (const [key, { value, marked }] of wrote.outputs)
+        holdOutput(state, runnable, key, Redacted.value(value), marked, lines)
+      for (const [name, value] of wrote.env) state.env.set(name, value)
+      run.log.push(lines)
+    })
+
   const record = (run: Run, runnable: Runnable, batch: ReadonlyArray<TaskEvent<string>>) =>
     update((emit) => {
       const state = run.state
@@ -667,18 +708,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           case "Log":
             lines.push({ stream: event.stream, text: event.line })
             break
-          case "Output": {
-            const decl = Object.hasOwn(runnable.outputs, event.key)
-              ? runnable.outputs[event.key]
-              : undefined
-            if (decl === undefined)
-              lines.push({
-                stream: "stderr",
-                text: `Output "${event.key}" was dropped: the block does not declare it.`,
-              })
-            else state.outputs.set(event.key, hold(decl.sensitive, event.value))
+          case "Output":
+            holdOutput(state, runnable, event.key, event.value, false, lines)
             break
-          }
           case "Env":
             state.env.set(event.name, event.value)
             break
@@ -781,8 +813,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
 
   /**
    * The run itself: its environment built and its paths resolved inside
-   * their roots, before anything is made or started; then its events
-   * recorded as they come, its log flushed now and then, its end recorded.
+   * their roots, before anything is made or started; then, for a process
+   * task, the files its script writes to; then its events recorded as they
+   * come, its log flushed now and then. Only a run whose events end well
+   * (exit 0 or 2) has its files read; then its end is recorded, and the
+   * folder holding the files goes.
    */
   const task = (
     run: Run,
@@ -801,18 +836,32 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     )
     const { block } = runnable
     const props = run.slot.node.props
-    return Effect.gen(function* () {
-      yield* Effect.forkChild(flushEvery)
-      const env = yield* runEnv(run, runnable, sources)
-      const named = block.paths?.(props, values) ?? {}
-      const paths = yield* runner.resolve(at, named, block.repository)
-      if (block.repository !== undefined && run.state._tag === "Running")
-        run.state.repository = Option.fromUndefinedOr(paths[block.repository])
-      yield* Stream.runForEachArray(
-        runner.start(block, props, taskInput(at, values, env, paths)),
-        (batch) => record(run, runnable, batch),
-      )
-    }).pipe(
+    // The run files' own scope, closed when the run's events and files are
+    // done with, before the run's end is recorded.
+    return Effect.scopedWith((filesScope) =>
+      Effect.gen(function* () {
+        yield* Effect.forkChild(flushEvery)
+        const env = yield* runEnv(run, runnable, sources)
+        const named = block.paths?.(props, values) ?? {}
+        const paths = yield* runner.resolve(at, named, block.repository)
+        if (block.repository !== undefined && run.state._tag === "Running")
+          run.state.repository = Option.fromUndefinedOr(paths[block.repository])
+        const files = block.effects.includes("process")
+          ? yield* Scope.provide(runner.makeRunFiles, filesScope)
+          : undefined
+        const input = taskInput(
+          at,
+          values,
+          files === undefined ? env : withReserved(env, files),
+          paths,
+        )
+        yield* Stream.runForEachArray(runner.start(block, props, input), (batch) =>
+          record(run, runnable, batch),
+        )
+        if (files !== undefined)
+          yield* recordWrote(run, runnable, yield* runner.readRunFiles(files))
+      }),
+    ).pipe(
       Effect.onExit((exit) => Effect.andThen(finish(run, exit), Scope.close(runScope, Exit.void))),
     )
   }

@@ -10,11 +10,10 @@ import { Effect, Option, Redacted, Result, Schema } from "effect"
 import { BlockId, CredentialError } from "@runbooks/blocks-core/contract"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import type { CredentialEnv, CredentialValue } from "../credential/provider.ts"
-import { type EnvSession, revealed, withEnvSession } from "../test-utils/envSessions.ts"
+import { revealed, type UseEnvSession, withEnvSession } from "../test-utils/envSessions.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { makeRecordingSpawner, type RecordedSpawn } from "../test-utils/TestSpawner.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
-import type { Engine } from "./engine.ts"
 import {
   baseEnvironment,
   buildRunEnv,
@@ -22,8 +21,8 @@ import {
   credentialSource,
   type EnvSource,
   taskSource,
+  withReserved,
 } from "./env.ts"
-import type { Caller } from "./protocol.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
 const blockId = Schema.decodeSync(BlockId)
@@ -39,7 +38,7 @@ let spawns: RecordedSpawn[] = []
 const withSession = <A>(
   runbook: string,
   processEnvironment: Readonly<Record<string, string>>,
-  use: (rb: EnvSession) => Effect.Effect<A, unknown, Engine | Caller>,
+  use: UseEnvSession<A>,
 ): Promise<A> => {
   const spawner = makeRecordingSpawner(() => ({ lines: [], exitCode: 0 }))
   spawns = spawner.calls
@@ -215,13 +214,27 @@ describe("a run's environment", () => {
   it("never lets a source set a name Runbooks sets for every run", async () => {
     const runbook = [
       '<Run id="a" command="a" args={["RUNBOOK_OUTPUT=/elsewhere", "REPO_FILES=/x", "OK=1"]} />',
-      '<Run id="c" command="c" envFrom={["a"]} />',
+      '<Run id="c" command="c" />',
     ].join("\n\n")
     await withSession(runbook, AMBIENT, (rb) =>
       Effect.gen(function* () {
-        yield* rb.run("a")
-        yield* rb.run("c")
-        expect(rb.envOf("c")).toEqual({ PATH: "/usr/bin:/bin", HOME: "/home/someone", OK: "1" })
+        expect(yield* rb.run("a")).toMatchObject({
+          _tag: "Failed",
+          error: {
+            _tag: "TaskFailed",
+            message: [
+              "The script wrote what Runbooks cannot read, so the run failed.",
+              "$RUNBOOK_ENV line 1: RUNBOOK_OUTPUT is a variable Runbooks sets for every script.",
+              "$RUNBOOK_ENV line 2: REPO_FILES is a variable Runbooks sets for every script.",
+            ].join("\n"),
+          },
+        })
+        // The app's RUNBOOK_OUTPUT is not the run's: the engine's file is.
+        expect(yield* rb.run("c")).toEqual(done)
+        expect(rb.runFilesOf("c")).toEqual({
+          RUNBOOK_OUTPUT: expect.stringMatching(/^runbooks-run-\w+\/output$/),
+          RUNBOOK_ENV: expect.stringMatching(/^runbooks-run-\w+\/env$/),
+        })
       }),
     )
   })
@@ -270,7 +283,13 @@ describe("a run's environment", () => {
         Effect.gen(function* () {
           expect(yield* rb.run("s")).toEqual(done)
           expect(spawns.map(({ env }) => env)).toEqual([
-            { PATH: "/usr/bin:/bin", HOME: "/home/someone", OWN: "own" },
+            {
+              PATH: "/usr/bin:/bin",
+              HOME: "/home/someone",
+              OWN: "own",
+              RUNBOOK_OUTPUT: expect.stringMatching(/\/output$/),
+              RUNBOOK_ENV: expect.stringMatching(/\/env$/),
+            },
           ])
         }),
     )
@@ -443,6 +462,36 @@ describe("the layers", () => {
     expect(Result.isSuccess(result) && result.success).toEqual({
       env: { PATH: "/usr/bin", BUCKET: "block-bucket", GITHUB_TOKEN: "ghp_own" },
       conflicts: [],
+    })
+  })
+
+  it("sets the names Runbooks sets for every run over every layer, and no layer sets one", async () => {
+    const { env } = await Effect.runPromise(
+      buildRunEnv({
+        base: baseEnvironment({ RUNBOOK_ENV: "/app/env", GENERATED_FILES: "/app" }, TOY_REGISTRY),
+        sources: [
+          taskSource(
+            blockId("a"),
+            new Map([
+              ["RUNBOOK_ENV", Redacted.make("/source/env")],
+              ["REPO_FILES", Redacted.make("/source/files")],
+              ["OK", Redacted.make("1")],
+            ]),
+          ),
+          credentialSource(
+            GIT,
+            ["RUNBOOK_LOG", "TOKEN"],
+            toyHandle([value("RUNBOOK_LOG", "/credential/log"), value("TOKEN", "t")]),
+          ),
+        ],
+        own: {},
+      }),
+    )
+    expect(revealed(env)).toEqual({ OK: "1", TOKEN: "t" })
+    expect(revealed(withReserved(env, { RUNBOOK_ENV: "/run/env" }))).toEqual({
+      OK: "1",
+      TOKEN: "t",
+      RUNBOOK_ENV: "/run/env",
     })
   })
 

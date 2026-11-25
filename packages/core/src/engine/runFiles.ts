@@ -199,11 +199,8 @@ export const runFilesFailed = (problems: ReadonlyArray<RunFileProblem>): TaskFai
   })
 }
 
-/** Where a run's script writes. */
-export interface RunFiles {
-  readonly RUNBOOK_OUTPUT: string
-  readonly RUNBOOK_ENV: string
-}
+/** Where a run's script writes, by the variable that names each file. */
+export type RunFiles = { readonly [file in RunFile]: string }
 
 /** What a run's script wrote, once it is read. */
 export interface RunWrote {
