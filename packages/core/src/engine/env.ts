@@ -64,7 +64,7 @@ export const taskSource = (
   exported: ReadonlyMap<string, Redacted.Redacted<string>>,
 ): EnvSource => ({ block, contribution: Effect.succeed({ set: exported, unset: new Set() }) })
 
-/** What a ready credential block's provider gives a run, through the credential lifecycle (2.6). */
+/** What a Ready credential block gives a run: its provider's `env`, read as the run starts (`./credentials.ts`). */
 export interface CredentialHandle {
   /** The provider refreshes first if it can. */
   readonly env: Effect.Effect<CredentialEnv, CredentialError>

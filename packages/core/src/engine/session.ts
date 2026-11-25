@@ -11,7 +11,8 @@
  * A form is done while it is submitted and nothing stops it: a change that
  * makes it invalid takes it out of `Done`, and fixing it brings it back, as
  * the app's Inputs keeps a submitted form submitted. Outputs exist exactly
- * while a block is done, so a form's are derived the same way.
+ * while a block is done, so a form's are derived the same way, and so are a
+ * credential block's, from what its provider gave (`./credentials.ts`).
  *
  * Concurrency: a command that changes a block's run or values (run, submit,
  * cancel, reset, set or confirm values, close) holds the session's lock for
@@ -35,7 +36,7 @@ import {
 } from "effect"
 import type {
   BlockId,
-  CredentialError,
+  CredentialBlock,
   OutputDecls,
   PathOutsideRoot,
   PropError,
@@ -52,7 +53,8 @@ import { TaskCancelled, TaskFailed } from "@runbooks/blocks-core/contract"
 import type { FieldValue, FormSpec, FormValues } from "@runbooks/blocks-core/form"
 import { type AnyBlock, type Registry, resolveTag } from "@runbooks/blocks-core/registry"
 import { type Blocker, BlockStatus, type Outcome } from "@runbooks/blocks-core/status"
-import type { CredentialProvider, ProviderConfig } from "../credential/provider.ts"
+import { statusOf as credentialStatus } from "../credential/lifecycle.ts"
+import type { CredentialEnv } from "../credential/provider.ts"
 import { ConfigError, ConfigWarning } from "../document/configError.ts"
 import type { BlockNode, ContentHash, RunbookDocument } from "../document/document.ts"
 import {
@@ -90,9 +92,12 @@ import {
   unreviewedOf,
   valuesOf,
 } from "./form.ts"
+import { type CredentialSlot, makeCredentials, type OpenProvider } from "./credentials.ts"
+import { makeCredentialStore } from "./credentialStore.ts"
 import {
   type BaseEnvironment,
   buildRunEnv,
+  credentialSource,
   type EnvConflict,
   type EnvSource,
   taskSource,
@@ -136,10 +141,7 @@ export interface Runner {
   /** Reads, within bounds, what the script wrote to them. */
   readonly readRunFiles: (files: RunFiles) => Effect.Effect<RunWrote, TaskFailed>
   /** Opens a credential block's provider by its registry name, in the scope it is given. */
-  readonly openProvider: (
-    provider: string,
-    config: ProviderConfig,
-  ) => Effect.Effect<CredentialProvider, CredentialError, Scope.Scope>
+  readonly openProvider: OpenProvider
 }
 
 /** Whether the person trusts the session. Only a trusted one can run a block. */
@@ -253,8 +255,8 @@ const sameFields = Schema.toEquivalence(Schema.Array(FieldView))
  * What a task reads when it runs: `values` from the forms it reads, then its
  * own; its environment; the session's roots and the repository it names, and
  * each path it names, resolved. It starts in the repository, or else the
- * working folder. `gitCredential` is empty until the credential lifecycle
- * (2.6) fills it.
+ * working folder. `gitCredential` stays empty until the engine resolves the
+ * `git-credential` capability from a Ready git credential block.
  */
 const taskInput = (
   at: RunRoots,
@@ -356,6 +358,30 @@ function slotsOf(document: RunbookDocument, registry: Registry): ReadonlyArray<S
   })
 }
 
+/** The credential blocks with no configuration errors, and the request each one's props make. */
+function credentialSlotsOf(
+  slots: ReadonlyArray<Slot>,
+  registry: Registry,
+): ReadonlyArray<CredentialSlot> {
+  return slots.flatMap(({ node, index, id }) => {
+    if (node.class !== "credential" || node.errors.length > 0) return []
+    const block: AnyBlock | undefined = resolveTag(registry, node.tag)?.block
+    // The parser resolved this tag against the same registry, so it resolves here.
+    if (block?.class !== "credential")
+      throw new Error(`<${node.tag}> does not resolve to a credential block`)
+    const credential: CredentialBlock<unknown> = block
+    return [
+      {
+        index,
+        id,
+        block: credential,
+        request: credential.request(node.props),
+        outputs: credential.outputs(node.props),
+      },
+    ]
+  })
+}
+
 function formOutputsOf(node: BlockNode, registry: Registry): OutputDecls<string> {
   if (node.class !== "form" || node.errors.length > 0) return {}
   const block: AnyBlock | undefined = resolveTag(registry, node.tag)?.block
@@ -444,6 +470,8 @@ export interface Session {
   ) => Effect.Effect<{ readonly block: BlockView; readonly timedOut: boolean }, UnknownBlock>
   /** Every done block's outputs, by block id. */
   readonly outputs: () => Record<string, Record<string, OutputView>>
+  /** The values each Ready credential block's provider gave, for the session store (2.8) to save. */
+  readonly credentials: () => ReadonlyArray<readonly [BlockId, CredentialEnv]>
   /** Interrupts every run, logs `SessionClosed` and ends every `events` stream. Idempotent. */
   readonly close: Effect.Effect<void>
 }
@@ -464,6 +492,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   const { id, roots, baseEnvironment } = options
   const { document, specs } = yield* readForms(options.document, options.registry, options.texts)
   const slots = slotsOf(document, options.registry)
+  const credentialSlots = credentialSlotsOf(slots, options.registry)
+  const credentialSlotAt = new Map(credentialSlots.map((slot) => [slot.index, slot]))
   const scope = yield* Scope.make()
   const lock = yield* Semaphore.make(1)
   /** Wakes `events` and `waitForBlock` readers. Each keeps one pending wake at most. */
@@ -479,7 +509,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   const forms = new Map(Array.from(specs, ([index, spec]) => [index, makeForm(spec)] as const))
   /** The form blocks submitted since they were last reset. */
   const submitted = new Set<number>()
-  /** Each done form's outputs, as last published. */
+  /** Each done form's and credential block's outputs, as last published. */
   const published = new Map<number, ReadonlyMap<string, Held<string>>>()
   const statuses = new Map<number, BlockStatus>()
   const log = makeWindow<EventEnvelope>(MAX_SESSION_EVENTS)
@@ -588,8 +618,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     switch (slot.node.class) {
       case "display":
         return undefined
-      case "form":
       case "credential":
+        return credentialStatusOf(slot)
+      case "form":
       case "task":
         break
     }
@@ -609,18 +640,46 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     return notReady(slot) ?? { _tag: "Idle" }
   }
 
-  /** Publishes a form's outputs as it becomes done or its values change, and withdraws them as it stops being done. */
-  const formOutputChanges = (): ReadonlyArray<EngineEvent> =>
+  /**
+   * A credential block's lifecycle decides its status once it has started,
+   * which it does once nothing blocks it.
+   */
+  const credentialStatusOf = (slot: Slot): BlockStatus => {
+    if (slot.node.errors.length > 0) return { _tag: "Misconfigured" }
+    const by = blockersOf(slot)
+    if (by.length > 0) return { _tag: "Blocked", by }
+    const state = credentials.stateOf(slot.index)
+    return state === undefined ? { _tag: "Idle" } : credentialStatus(state)
+  }
+
+  /** What a done form or credential block publishes: a form's from its values, a credential's from its provider. */
+  const derivedOutputs = (slot: Slot): ReadonlyMap<string, Held<string>> | undefined => {
+    switch (slot.node.class) {
+      case "form": {
+        const form = forms.get(slot.index)
+        return form === undefined ? undefined : outputsOf(form, slot.formOutputs)
+      }
+      case "credential":
+        return credentialSlotAt.has(slot.index) ? credentials.outputs(slot.index) : undefined
+      case "display":
+      case "task":
+        return undefined
+    }
+  }
+
+  /**
+   * Publishes a form's or credential block's outputs as it becomes done or
+   * they change, and withdraws them as it stops being done.
+   */
+  const derivedOutputChanges = (): ReadonlyArray<EngineEvent> =>
     slots.flatMap((slot): ReadonlyArray<EngineEvent> => {
-      const form = forms.get(slot.index)
-      if (slot.node.class !== "form" || form === undefined) return []
       const before = published.get(slot.index)
-      if (statusOf(slot)?._tag !== "Done") {
+      const outputs = statusOf(slot)?._tag === "Done" ? derivedOutputs(slot) : undefined
+      if (outputs === undefined) {
         if (before === undefined) return []
         published.delete(slot.index)
         return [{ _tag: "OutputsWithdrawn", block: slot.id }]
       }
-      const outputs = outputsOf(form, slot.formOutputs)
       if (before !== undefined && sameOutputs(before, outputs)) return []
       published.set(slot.index, outputs)
       return [{ _tag: "OutputsPublished", block: slot.id, outputs: outputsView(outputs) }]
@@ -635,31 +694,59 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       return [{ _tag: "BlockStatusChanged" as const, block: slot.id, status }]
     })
 
+  /** A credential block may start its lifecycle: the session is trusted and nothing blocks it. */
+  const startable = (index: number): boolean => {
+    const slot = slotAt.get(index)
+    return !closing && slot !== undefined && blockersOf(slot).length === 0
+  }
+
   /**
-   * Applies `change` and logs the events it emits, then each form's outputs
-   * that moved, then a status change for each block whose status moved, all
-   * in one synchronous step.
+   * Applies `change` and logs the events it emits; starts the lifecycle of
+   * each credential block that nothing blocks now; then logs each form's
+   * and credential block's outputs that moved, and a status change for each
+   * block whose status moved, all in one synchronous step. Then it opens the
+   * started blocks' providers.
    */
   const update = <A>(change: (emit: (event: EngineEvent) => void) => A): Effect.Effect<A> =>
     Effect.clockWith((clock) =>
       Effect.sync(() => {
         const events: EngineEvent[] = []
-        const result = change((event) => events.push(event))
-        events.push(...formOutputChanges(), ...statusChanges())
-        if (closed) return { result, logged: false }
+        const emit = (event: EngineEvent) => events.push(event)
+        const result = change(emit)
+        const started = credentials.enter(startable, emit)
+        events.push(...derivedOutputChanges(), ...statusChanges())
+        if (closed) return { result, logged: false, started }
         const at = DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())
         const first = log.end()
         log.push(events.map((event, i) => ({ session: id, sequence: first + i, at, event })))
-        return { result, logged: events.length > 0 }
+        return { result, logged: events.length > 0, started }
       }),
     ).pipe(
       Effect.tap(({ logged }) => (logged ? PubSub.publish(changed, undefined) : Effect.void)),
+      Effect.tap(({ started }) =>
+        // `startable` holds only in a trusted session.
+        started.length === 0 || trust._tag === "Untrusted"
+          ? Effect.void
+          : credentials.begin(started, trust.runner.openProvider),
+      ),
       Effect.map(({ result }) => result),
     )
 
+  const store = makeCredentialStore(credentialSlots.map((slot) => slot.id))
+  const credentials = makeCredentials(credentialSlots, {
+    update,
+    outputsOf: (block) => {
+      const slot = slots.find((candidate) => candidate.id === block)
+      return slot === undefined ? undefined : doneOutputs(slot)
+    },
+    scope,
+    stateFolder: options.stateFolder,
+    store,
+  })
+
   const isCurrent = (run: Run) => runs.get(run.slot.index) === run
 
-  /** A done block's outputs: its run's, or a form's as last published. */
+  /** A done block's outputs: its run's, or a form's or credential block's as last published. */
   const doneOutputs = (slot: Slot): ReadonlyMap<string, Held<string>> | undefined => {
     const run = runs.get(slot.index)
     return run?.state._tag === "Done" ? run.state.outputs : published.get(slot.index)
@@ -765,15 +852,21 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     })
 
   /**
-   * The `envFrom` sources of a run, in the order written, each read as the
-   * run is started: a done task's exports as its latest run left them.
+   * The `envFrom` sources of a run, in the order written: a done task's
+   * exports as its latest run left them, or a credential block's handle,
+   * which its provider answers when the run reads it.
    */
   const envSourcesFor = (slot: Slot): Effect.Effect<ReadonlyArray<EnvSource>> =>
     Effect.forEach(slot.node.shared.envFrom ?? [], (block) => {
       const target = slots.find((candidate) => candidate.id === block)
+      const credential = target === undefined ? undefined : credentialSlotAt.get(target.index)
+      if (target !== undefined && credential !== undefined)
+        return Effect.succeed(
+          credentialSource(block, credential.block.envNames, credentials.handle(target.index)),
+        )
       const state = target === undefined ? undefined : runs.get(target.index)?.state
-      // `notReady` waits for every source to be done, and until the
-      // credential lifecycle (2.6) only a task can be.
+      // `notReady` waits for every source to be done; a credential's handle
+      // checks that it still is when the run reads it.
       return state?._tag === "Done"
         ? Effect.succeed(taskSource(block, state.env))
         : Effect.die(new Error(`The envFrom source ${block} was not done when a run started.`))
@@ -950,7 +1043,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     switch (slot.node.class) {
       case "display":
         return []
-      // Its actions arrive with the credential lifecycle's work product.
+      // It takes actions through ActOnCredential, which the engine does not serve yet.
       case "credential":
         return []
       // "run" submits a form.
@@ -1006,11 +1099,15 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     const run = runs.get(slot.index)
     const form = forms.get(slot.index)
     const outputs = doneOutputs(slot)
+    const credential = credentialSlotAt.has(slot.index)
+      ? credentials.stateOf(slot.index)
+      : undefined
     return {
       ...summaryOf(slot),
       ...(run === undefined ? {} : { log: logPage(run, logOffset, logLimit) }),
       outputs: outputs === undefined ? {} : outputsView(outputs),
       ...(form === undefined ? {} : { fields: fieldViews(form) }),
+      ...(credential === undefined ? {} : { credential }),
     }
   }
 
@@ -1191,12 +1288,14 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         const settled = Effect.scoped(
           Effect.gen(function* () {
             const wake = yield* PubSub.subscribe(changed)
-            while (runs.get(slot.index)?.state._tag === "Running") yield* PubSub.take(wake)
+            while (statusOf(slot)?._tag === "Running") yield* PubSub.take(wake)
           }),
         )
         const outcome = yield* Effect.timeoutOption(settled, timeoutMillis)
         return { block: viewOf(slot, logOffset, logLimit), timedOut: Option.isNone(outcome) }
       }),
+
+    credentials: () => store.entries(),
 
     outputs: () =>
       Object.fromEntries(

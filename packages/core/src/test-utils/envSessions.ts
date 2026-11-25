@@ -16,8 +16,11 @@
  * - `Shell` runs its `script` with `/bin/bash -c`, handing the spawner the
  *   run's environment, and ends with the exit-code table. It notes what the
  *   script printed, and declares the outputs in `declares`.
+ *
+ * Credential blocks open their providers from `providers`, which by default
+ * has none, so each such block is Unavailable.
  */
-import { Effect, Fiber, Layer, Redacted, Schema, Stream } from "effect"
+import { Duration, Effect, Fiber, Layer, Redacted, Schema, Stream } from "effect"
 import {
   BlockId,
   defineTask,
@@ -29,8 +32,10 @@ import {
   TaskTimedOut,
 } from "@runbooks/blocks-core/contract"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
+import type { CredentialState, CredentialStateTag } from "../credential/lifecycle.ts"
+import type { CredentialProviders } from "../credential/provider.ts"
 import { Engine } from "../engine/engine.ts"
-import { Caller, type EventEnvelope, type OutputView } from "../engine/protocol.ts"
+import { type BlockView, Caller, type EventEnvelope, type OutputView } from "../engine/protocol.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import { collectOutput, ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { testCredentialProviders } from "./TestCredentialProviders.ts"
@@ -180,6 +185,8 @@ export interface EnvSession {
   readonly run: (block: string) => Effect.Effect<BlockStatus | undefined, unknown, Caller>
   /** Starts the block's run and does not wait. */
   readonly start: (block: string) => Effect.Effect<void, unknown, Caller>
+  /** Waits for the block to stop running. */
+  readonly wait: (block: string) => Effect.Effect<BlockStatus | undefined, unknown, Caller>
   /** Stops the block's run and waits for it to end. */
   readonly stop: (block: string) => Effect.Effect<BlockStatus | undefined, unknown, Caller>
   readonly reset: (block: string) => Effect.Effect<void, unknown, Caller>
@@ -202,6 +209,16 @@ export interface EnvSession {
   readonly wrote: (label: string) => number
   /** What a `Shell` block's latest run printed. */
   readonly printedBy: (label: string) => ReadonlyArray<string> | undefined
+  readonly view: (block: string) => Effect.Effect<BlockView, unknown, Caller>
+  /**
+   * The next state `tag` the credential block moves to, after the one the
+   * last `until` for that block returned. Fails if it does not come within
+   * five seconds.
+   */
+  readonly until: (
+    block: string,
+    tag: CredentialStateTag,
+  ) => Effect.Effect<CredentialState, unknown, Caller>
   /** Ends the session and returns its whole event log. */
   readonly close: Effect.Effect<ReadonlyArray<EventEnvelope>, unknown, Caller>
 }
@@ -218,6 +235,7 @@ export const withEnvSession = <A>(
     readonly processEnvironment: Readonly<Record<string, string>>
     readonly fileSystem: Layer.Layer<FileSystem>
     readonly spawner: Layer.Layer<ProcessSpawner>
+    readonly providers?: Layer.Layer<CredentialProviders>
   },
   use: UseEnvSession<A>,
 ): Promise<A> => {
@@ -247,9 +265,35 @@ export const withEnvSession = <A>(
         return Object.entries(revealed(input.env))
       }
       const isRunFile = (name: string) => RUN_FILES.some((file) => file === name)
+      /** Each block's last state `until` returned, by its sequence. */
+      const cursors = new Map<string, number>()
+      const until = (block: string, tag: CredentialStateTag) => {
+        const after = cursors.get(block)
+        return engine.events({ session, ...(after === undefined ? {} : { after }) }).pipe(
+          Stream.filter(
+            (envelope) =>
+              envelope.event._tag === "CredentialChanged" &&
+              envelope.event.block === block &&
+              envelope.event.state._tag === tag,
+          ),
+          Stream.runHead,
+          Effect.flatMap(Effect.fromOption),
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(5),
+            orElse: () => Effect.die(new Error(`${block} did not move to ${tag}`)),
+          }),
+          Effect.flatMap(({ sequence, event }) => {
+            cursors.set(block, sequence)
+            return event._tag === "CredentialChanged"
+              ? Effect.succeed(event.state)
+              : Effect.die(event)
+          }),
+        )
+      }
       return yield* use({
         run: (block) => Effect.andThen(start(block), wait(block)),
         start,
+        wait,
         stop: (block) => Effect.andThen(engine.cancelBlock(target(block)), wait(block)),
         reset: (block) => engine.resetBlock(target(block)),
         status: (block) => Effect.map(engine.getBlock(target(block)), (view) => view.status),
@@ -260,6 +304,8 @@ export const withEnvSession = <A>(
         inputOf: (label) => noted.inputs.get(label),
         printedBy: (label) => noted.printed.get(label),
         wrote: (label) => noted.wrote.get(label) ?? 0,
+        view: (block) => engine.getBlock(target(block)),
+        until,
         close: Effect.andThen(engine.closeSession({ session }), Fiber.join(recording)),
       })
     }).pipe(
@@ -272,7 +318,7 @@ export const withEnvSession = <A>(
           processEnvironment: setup.processEnvironment,
         }),
       ),
-      Effect.provide(testCredentialProviders({}, [])),
+      Effect.provide(setup.providers ?? testCredentialProviders({}, [])),
       Effect.provide(Layer.merge(setup.fileSystem, setup.spawner)),
       Effect.provideService(Caller, { origin: "person" }),
     ),

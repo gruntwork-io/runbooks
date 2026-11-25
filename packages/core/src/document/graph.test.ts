@@ -128,7 +128,7 @@ describe("the reference graph", () => {
         [
           "missingCapability",
           8,
-          '`envFrom` on <Run id="deploy"> names <Form id="config">, which doesn\'t give environment variables. Blocks that do: <Bash>, <GitHubLogin>, <GitLogin>, <Run>.',
+          '`envFrom` on <Run id="deploy"> names <Form id="config">, which doesn\'t give environment variables. Blocks that do: <Bash>, <CloudLogin>, <GitHubLogin>, <GitLogin>, <Run>.',
         ],
         [
           "missingCapability",

@@ -1,9 +1,9 @@
 /**
  * A run's environment (work product 2.4). The engine tests run toy tasks
  * that note the environment they were given; a credential source is tested
- * through its seam with a toy handle, since no credential block can be done
- * before the credential lifecycle (2.6). Four tests are today's security
- * regression tests for the script environment allowlist, by name.
+ * through its seam with a toy handle, and `credentials.test.ts` runs one in
+ * a session. Four tests are today's security regression tests for the
+ * script environment allowlist, by name.
  */
 import { describe, expect, it } from "bun:test"
 import { Effect, Option, Redacted, Result, Schema } from "effect"
@@ -161,12 +161,13 @@ describe("a run's environment", () => {
     )
   })
 
-  // A credential block is ready, not done, so until the credential lifecycle
-  // (2.6) wires its handle in as a source, a block that names one waits.
+  // A credential block gives a run its variables only while it is Ready.
+  // This one's provider does not exist, so it is Unavailable.
   it("waits for a credential block it names", async () => {
     const runbook = '<GitLogin id="git" />\n\n<Run id="c" command="c" envFrom={["git"]} />'
     await withSession(runbook, AMBIENT, (rb) =>
       Effect.gen(function* () {
+        yield* rb.until("git", "Unavailable")
         expect(yield* rb.status("c")).toEqual({
           _tag: "Blocked",
           by: [{ _tag: "WaitingFor", block: blockId("git"), capability: "env" }],
@@ -353,9 +354,9 @@ describe("a credential source", () => {
   // src/domain/exec/executor.test.ts and one from
   // electron/main/ipc/session-env.test.ts. The block's provider takes the
   // place of the auth block's override, and the base environment the
-  // session's. Until a credential block can be done in a session (2.6) they
-  // run on the layers: the session builds them before it resolves a path or
-  // starts the block, so a refused source runs nothing.
+  // session's. They run on the layers: the session builds them before it
+  // resolves a path or starts the block, so a refused source runs nothing.
+  // `credentials.test.ts` runs the first in a session too.
   it("refuses names no auth block passes, before creating or spawning anything", async () => {
     const result = await build({
       base: baseEnvironment({ PATH: "/usr/bin" }, TOY_REGISTRY),
