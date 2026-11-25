@@ -238,6 +238,8 @@ export type Refusal = typeof Refusal.Type
 
 export const RunResult = Schema.Union([
   Schema.TaggedStruct("Started", { run: RunId }),
+  /** A form was submitted: it is done, with no run to follow. */
+  Schema.TaggedStruct("Submitted", {}),
   /** The person is asked to approve it in the window; it starts if they do. */
   Schema.TaggedStruct("AwaitingApproval", { approval: ApprovalId }),
   Schema.TaggedStruct("Refused", { reason: Refusal }),

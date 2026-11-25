@@ -14,6 +14,7 @@ import {
   Forbidden,
   type Origin,
   RunBlock,
+  RunResult,
   SessionId,
   UnknownSession,
   WaitForBlock,
@@ -186,6 +187,11 @@ describe("engine protocol", () => {
     expect(Schema.decodeUnknownSync(json)(empty)).toEqual(field({}))
     const blank = field({ type: "string", value: { _tag: "Shown", value: "" } })
     expect(Schema.decodeUnknownSync(json)(Schema.encodeSync(json)(blank))).toEqual(blank)
+  })
+
+  it("answers a form's submit with no run to follow", () => {
+    const json = Schema.toCodecJson(RunResult)
+    expect(Schema.decodeUnknownSync(json)({ _tag: "Submitted" })).toEqual({ _tag: "Submitted" })
   })
 
   it("serves every baseline MCP tool with a command (decision 12)", () => {
