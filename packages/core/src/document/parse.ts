@@ -1,0 +1,623 @@
+/**
+ * `parseRunbook`: a runbook's source to a typed document, or every
+ * configuration error in it, each with its file, line and block. Nothing in
+ * the runbook is evaluated. Every client calls it, so every client refuses the
+ * same runbooks with the same messages.
+ */
+import { createHash } from "node:crypto"
+import { Result, Schema, SchemaAST, SchemaIssue } from "effect"
+import YAML from "yaml"
+import { BlockId } from "@runbooks/blocks-core/contract"
+import { type AnyBlock, type Registry, resolveTag } from "@runbooks/blocks-core/registry"
+import { ConfigError, type ConfigErrorCode, ConfigWarning, type Span } from "./configError.ts"
+import {
+  type BlockNode,
+  ContentHash,
+  type DocumentHash,
+  type FrontMatter,
+  type ParseResult,
+  SharedProps,
+  type TreeNode,
+} from "./document.ts"
+import { refusals } from "./literalOnly.ts"
+import {
+  attributeValue,
+  expressionValue,
+  type MdxNode,
+  parseMdx,
+  type PropValue,
+  splitFrontMatter,
+} from "./mdx.ts"
+import { nearest } from "./nearest.ts"
+import { REQUIREMENT_KEY, versionProblem } from "./runbooksVersion.ts"
+
+export interface ParseOptions {
+  /** The runbook file, as every location names it. */
+  readonly file: string
+  /** This app's version, checked against the front matter's `runbooks:`. */
+  readonly appVersion: string
+}
+
+/**
+ * The document `source` parses to with `registry`'s blocks, or every
+ * configuration error in it. A runbook whose front matter needs another
+ * version of Runbooks gets only that error: its other problems are likely the
+ * blocks a later version added.
+ */
+export function parseRunbook(
+  source: string,
+  registry: Registry,
+  options: ParseOptions,
+): ParseResult {
+  return new Parse(source, registry, options).run()
+}
+
+/**
+ * The props named `<cloud>AuthId` that `envFrom` replaces (open decision 5).
+ * On a block that takes `envFrom` and has no prop of that name, each is read
+ * as one more `envFrom` source, after `envFrom`'s own, with a warning.
+ */
+const ENV_FROM_ALIASES: ReadonlySet<string> = new Set([
+  "awsAuthId",
+  "googleAuthId",
+  "azureAuthId",
+  "githubAuthId",
+  "gitAuthId",
+])
+
+type SharedKey = keyof typeof SharedProps.fields
+const SHARED_KEYS: ReadonlySet<string> = new Set(Object.keys(SharedProps.fields))
+const isShared = (key: string): key is SharedKey => SHARED_KEYS.has(key)
+
+/** Whether `block` takes the shared prop `key`: it depends on its class and its effects. */
+function takes(block: AnyBlock, key: SharedKey): boolean {
+  switch (key) {
+    case "title":
+    case "description":
+    case "inputsId":
+      return true
+    case "autoCollapse":
+      return block.class !== "display"
+    case "dependsOn":
+      return block.class === "task"
+    case "envFrom":
+    case "env":
+      return block.class === "task" && block.effects.some((effect) => effect === "process")
+  }
+}
+
+const toBlockId = Schema.decodeSync(BlockId)
+const toHash = Schema.decodeSync(ContentHash)
+const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1()
+
+/** One prop as written: its value, where it is, and its attribute node. */
+interface Written {
+  readonly value: PropValue
+  readonly span: Span
+}
+
+class Parse {
+  private readonly errors: ConfigError[] = []
+  private readonly warnings: ConfigWarning[] = []
+  private readonly blocks: Array<BlockNode | undefined> = []
+  /** Attribute and expression nodes the literal check refused, which have no value to read. */
+  private readonly refused = new Set<MdxNode>()
+
+  private readonly source: string
+  private readonly registry: Registry
+  private readonly options: ParseOptions
+
+  constructor(source: string, registry: Registry, options: ParseOptions) {
+    this.source = source
+    this.registry = registry
+    this.options = options
+  }
+
+  run(): ParseResult {
+    const { yaml, body } = splitFrontMatter(this.source)
+    const frontMatter = yaml === undefined ? {} : this.frontMatter(yaml)
+    const version = this.errors.find((error) => error.code === "versionRequired")
+    if (version !== undefined) return this.invalid(version)
+
+    const parsed = parseMdx(body)
+    if ("problem" in parsed) {
+      const { reason, at } = parsed.problem
+      return this.invalid(this.error("syntax", reason, { start: at, end: at }))
+    }
+
+    for (const refusal of refusals(parsed.tree)) {
+      this.refused.add(refusal.node)
+      const { element } = refusal
+      const tag = element !== undefined && /^[A-Z]/.test(element) ? element : undefined
+      this.error("notAllowed", refusal.message, spanOf(refusal.node), {
+        ...(tag !== undefined ? { block: { tag } } : {}),
+        ...(refusal.prop !== undefined ? { prop: refusal.prop } : {}),
+      })
+    }
+
+    const [tree = { type: "root", children: [] }] = this.node(parsed.tree)
+    this.duplicateIds()
+    const [first] = this.errors
+    if (first !== undefined) return this.invalid(first)
+    return {
+      _tag: "Parsed",
+      document: {
+        file: this.options.file,
+        frontMatter,
+        tree,
+        blocks: this.blocks.filter((block) => block !== undefined),
+        edges: [],
+        hash: documentHash(this.source),
+        warnings: [...this.warnings].sort(byPlace),
+      },
+    }
+  }
+
+  /** Every error so far, in file order. `first` is one of them, so there is at least one. */
+  private invalid(first: ConfigError): ParseResult {
+    const errors: [ConfigError, ...ConfigError[]] = [
+      first,
+      ...this.errors.filter((error) => error !== first),
+    ]
+    return {
+      _tag: "Invalid",
+      errors: errors.sort(byPlace),
+      warnings: [...this.warnings].sort(byPlace),
+    }
+  }
+
+  private error(
+    code: ConfigErrorCode,
+    message: string,
+    span: Span,
+    more: Partial<Pick<ConfigError, "expected" | "received" | "suggestion">> & {
+      readonly block?: { readonly tag: string; readonly id?: string }
+      readonly prop?: string
+    } = {},
+  ): ConfigError {
+    const { block, prop, ...detail } = more
+    const error = new ConfigError({
+      code,
+      message,
+      location: {
+        file: this.options.file,
+        span,
+        ...(block ? { block } : {}),
+        ...(prop !== undefined ? { prop } : {}),
+      },
+      ...detail,
+    })
+    this.errors.push(error)
+    return error
+  }
+
+  private warn(
+    code: ConfigWarning["code"],
+    message: string,
+    span: Span,
+    block: { readonly tag: string; readonly id?: string },
+    prop: string,
+    suggestion?: string,
+  ): void {
+    this.warnings.push(
+      new ConfigWarning({
+        code,
+        message,
+        location: { file: this.options.file, span, block, prop },
+        ...(suggestion !== undefined ? { suggestion } : {}),
+      }),
+    )
+  }
+
+  // -------------------------------------------------------------------------
+  // Front matter
+  // -------------------------------------------------------------------------
+
+  private frontMatter(yaml: string): FrontMatter {
+    const doc = YAML.parseDocument(yaml)
+    const [problem] = doc.errors
+    if (problem) {
+      // The YAML starts on the file's second line, after `---`.
+      const line = 1 + (problem.linePos?.[0].line ?? 1)
+      this.error("syntax", `The front matter isn't valid YAML: ${problem.message}`, lineSpan(line))
+      return {}
+    }
+    const fields: unknown = doc.toJS()
+    if (typeof fields !== "object" || fields === null) return {}
+    const record = fields as Record<string, unknown>
+
+    const frontMatter: { runbooks?: string; title?: string } = {}
+    if (typeof record.title === "string") frontMatter.title = record.title
+    if (REQUIREMENT_KEY in record) {
+      const requirement = record[REQUIREMENT_KEY]
+      const unmet = versionProblem(requirement, this.options.appVersion)
+      if (unmet !== undefined) {
+        const index = yaml.split("\n").findIndex((l) => l.startsWith(`${REQUIREMENT_KEY}:`))
+        this.error("versionRequired", unmet, lineSpan(index + 2), {
+          expected: `a version range such as ${REQUIREMENT_KEY}: ">= 0.28"`,
+        })
+      } else if (typeof requirement === "string") {
+        frontMatter.runbooks = requirement
+      }
+    }
+    return frontMatter
+  }
+
+  // -------------------------------------------------------------------------
+  // The tree
+  // -------------------------------------------------------------------------
+
+  /** `node` as the document's tree holds it: none, one, or a fragment's children. */
+  private node(node: MdxNode): TreeNode[] {
+    switch (node.type) {
+      case "mdxjsEsm":
+        return []
+      case "mdxFlowExpression":
+      case "mdxTextExpression": {
+        const value = expressionValue(node)
+        return typeof value === "string" || typeof value === "number"
+          ? [{ type: "text", value: String(value) }]
+          : []
+      }
+      case "mdxJsxFlowElement":
+      case "mdxJsxTextElement": {
+        const name = node.name
+        if (!name) return this.children(node)
+        if (/^[a-z]/.test(name) && !/[.:-]/.test(name)) return [this.element(node, name)]
+        if (/^[A-Z]/.test(name) && !/[.:-]/.test(name)) return this.block(node, name)
+        return []
+      }
+      default: {
+        const { position: _position, data: _data, children, ...fields } = node
+        return [{ ...fields, ...(children ? { children: this.children(node) } : {}) }]
+      }
+    }
+  }
+
+  private children(node: MdxNode): TreeNode[] {
+    return (node.children ?? []).flatMap((child) => this.node(child))
+  }
+
+  /** An HTML element: its literal props and its children. */
+  private element(node: MdxNode, name: string): TreeNode {
+    const props: Record<string, PropValue> = {}
+    for (const attribute of node.attributes ?? []) {
+      if (attribute.type !== "mdxJsxAttribute" || !attribute.name) continue
+      const value = attributeValue(attribute.value)
+      if (value !== undefined) props[attribute.name] = value
+    }
+    return { type: node.type, name, props, children: this.children(node) }
+  }
+
+  // -------------------------------------------------------------------------
+  // Blocks
+  // -------------------------------------------------------------------------
+
+  private block(node: MdxNode, tag: string): TreeNode[] {
+    const span = spanOf(node)
+    const resolved = resolveTag(this.registry, tag)
+    if (resolved === undefined) {
+      const suggestion = nearest(tag, Object.keys(this.registry))
+      this.error(
+        "unknownBlock",
+        `This runbook uses <${tag}>, a block that Runbooks ${this.options.appVersion} doesn't have. If a later version of Runbooks added it, update Runbooks to use this runbook. Otherwise, check its name.`,
+        span,
+        { block: { tag }, ...(suggestion ? { suggestion: `<${suggestion}>` } : {}) },
+      )
+      return []
+    }
+    const { block, locked } = resolved
+    const index = this.blocks.push(undefined) - 1
+
+    const written = this.written(node, tag)
+    const id = this.id(written, tag, block, span)
+    const where = { tag, ...(id ? { id: id.asWritten } : {}) }
+    const own = propKeys(block.props)
+    const childrenProp = block.children.kind === "yaml" ? block.children.prop : undefined
+
+    const shared: Record<string, PropValue> = {}
+    const aliases: Array<[string, Written]> = []
+    const input: Record<string, unknown> = {}
+    for (const [key, prop] of written) {
+      if (key === "id") continue
+      const ownsKey = own === undefined ? !isShared(key) : own.has(key)
+      if (isShared(key) && takes(block, key)) shared[key] = prop.value
+      else if (ENV_FROM_ALIASES.has(key) && !ownsKey && takes(block, "envFrom")) {
+        aliases.push([key, prop])
+      } else if (!ownsKey && key !== childrenProp) {
+        const known = [
+          ...(own ?? []),
+          ...[...SHARED_KEYS].filter(isShared).filter((k) => takes(block, k)),
+        ]
+        const suggestion = nearest(key, known)
+        this.warn(
+          "unknownProp",
+          `<${tag}> has no \`${key}\` prop, so it is ignored.`,
+          prop.span,
+          where,
+          key,
+          suggestion,
+        )
+      }
+      if (ownsKey) input[key] = prop.value
+    }
+
+    for (const key of Object.keys(locked)) {
+      const prop = written.get(key)
+      if (prop) {
+        this.error(
+          "lockedProp",
+          `<${tag}> sets \`${key}\` itself. Remove the prop, or use <${block.name}>.`,
+          prop.span,
+          { block: where, prop: key },
+        )
+      }
+    }
+    Object.assign(input, locked)
+
+    let children: TreeNode[] = []
+    if (block.children.kind === "markdown") children = this.children(node)
+    const yamlRead =
+      childrenProp === undefined || this.yamlChildren(node, childrenProp, input, where)
+
+    const decodedShared = this.decodeShared(shared, aliases, written, span, where)
+    const props = Schema.decodeUnknownResult(block.props)(input)
+    if (Result.isFailure(props)) {
+      // YAML that did not parse is already reported; its prop's absence is not news.
+      const skip = yamlRead ? undefined : childrenProp
+      this.badProps(props.failure.issue, written, span, where, childrenProp, skip)
+    }
+
+    this.blocks[index] = {
+      index,
+      tag,
+      block: block.name,
+      class: block.class,
+      ...(id ? { id: id.id, idAsWritten: id.asWritten } : {}),
+      props: Result.isSuccess(props) ? props.success : undefined,
+      shared: decodedShared,
+      span,
+    }
+    return [{ type: "block", index, children }]
+  }
+
+  /** The props as written, in order. A later duplicate wins, as in JSX. */
+  private written(node: MdxNode, tag: string): Map<string, Written> {
+    const written = new Map<string, Written>()
+    for (const attribute of node.attributes ?? []) {
+      if (attribute.type !== "mdxJsxAttribute" || !attribute.name) continue
+      if (this.refused.has(attribute)) continue
+      const value = attributeValue(attribute.value)
+      const span = spanOf(attribute)
+      if (value === undefined) {
+        this.error(
+          "badProp",
+          `the \`${attribute.name}\` prop of <${tag}> holds a regular expression or a bigint, which no block takes.`,
+          span,
+          { block: { tag }, prop: attribute.name },
+        )
+        continue
+      }
+      written.delete(attribute.name)
+      written.set(attribute.name, { value, span })
+    }
+    return written
+  }
+
+  private id(
+    written: ReadonlyMap<string, Written>,
+    tag: string,
+    block: AnyBlock,
+    span: Span,
+  ): { readonly id: BlockId; readonly asWritten: string } | undefined {
+    const prop = written.get("id")
+    if (prop !== undefined) {
+      if (typeof prop.value === "string" && prop.value !== "") {
+        return { id: toBlockId(prop.value), asWritten: prop.value }
+      }
+      this.error(
+        "badProp",
+        `the \`id\` of <${tag}> must be text, such as id="deploy".`,
+        prop.span,
+        {
+          block: { tag },
+          prop: "id",
+          expected: "a block id",
+          received: excerpt(prop.value),
+        },
+      )
+      return undefined
+    }
+    if (block.class !== "display") {
+      this.error(
+        "missingId",
+        `<${tag}> needs an id, such as id="deploy", so other blocks and the runbook's tests can name it.`,
+        span,
+        { block: { tag }, prop: "id", expected: "a block id" },
+      )
+    }
+    return undefined
+  }
+
+  /**
+   * The fenced YAML among a block's children, parsed into the prop that takes
+   * it. False when the YAML does not parse, which it reports.
+   */
+  private yamlChildren(
+    node: MdxNode,
+    prop: string,
+    input: Record<string, unknown>,
+    where: { readonly tag: string; readonly id?: string },
+  ): boolean {
+    const fence = (node.children ?? []).find(
+      (child) => child.type === "code" && (child.lang === "yaml" || child.lang === "yml"),
+    )
+    if (fence === undefined || typeof fence.value !== "string") return true
+    const doc = YAML.parseDocument(fence.value)
+    const [problem] = doc.errors
+    if (problem) {
+      // The YAML starts on the line after the fence's opening line.
+      const line = spanOf(fence).start.line + (problem.linePos?.[0].line ?? 1)
+      this.error(
+        "badChildren",
+        `The YAML in <${where.tag}> isn't valid: ${problem.message}`,
+        lineSpan(line),
+        {
+          block: where,
+          prop,
+        },
+      )
+      return false
+    }
+    input[prop] = doc.toJS()
+    return true
+  }
+
+  private decodeShared(
+    shared: Record<string, PropValue>,
+    aliases: ReadonlyArray<[string, Written]>,
+    written: ReadonlyMap<string, Written>,
+    span: Span,
+    where: { readonly tag: string; readonly id?: string },
+  ): SharedProps {
+    const decoded = Schema.decodeUnknownResult(SharedProps)(shared)
+    if (Result.isFailure(decoded)) {
+      this.badProps(decoded.failure.issue, written, span, where, undefined)
+      return {}
+    }
+    const envFrom = [...(decoded.success.envFrom ?? [])]
+    for (const [key, prop] of aliases) {
+      if (typeof prop.value !== "string" || prop.value === "") {
+        this.error("badProp", `\`${key}\` must be a block id, such as ${key}="aws".`, prop.span, {
+          block: where,
+          prop: key,
+          expected: "a block id",
+          received: excerpt(prop.value),
+        })
+        continue
+      }
+      envFrom.push(toBlockId(prop.value))
+      this.warn(
+        "deprecatedProp",
+        `\`${key}\` still works, and \`envFrom\` replaces it: envFrom={["${prop.value}"]} passes the same variables.`,
+        prop.span,
+        where,
+        key,
+        `envFrom={["${prop.value}"]}`,
+      )
+    }
+    return envFrom.length > 0 ? { ...decoded.success, envFrom } : decoded.success
+  }
+
+  /** One error per prop the schema refused. */
+  private badProps(
+    issue: SchemaIssue.Issue,
+    written: ReadonlyMap<string, Written>,
+    fallback: Span,
+    where: { readonly tag: string; readonly id?: string },
+    childrenProp: string | undefined,
+    skip?: string,
+  ): void {
+    const byProp = new Map<string, string[]>()
+    for (const { message, path = [] } of formatIssue(issue).issues) {
+      const [head, ...rest] = path.map((segment) =>
+        typeof segment === "object" ? String(segment.key) : String(segment),
+      )
+      const prop = head ?? ""
+      const at = rest.length > 0 ? ` (at ${rest.join(".")})` : ""
+      byProp.set(prop, [...(byProp.get(prop) ?? []), `${message}${at}`])
+    }
+    for (const [prop, messages] of byProp) {
+      if (prop === skip) continue
+      const value = written.get(prop)
+      const missing = value === undefined && messages.every((m) => m === "Missing key")
+      const code: ConfigErrorCode = prop === childrenProp ? "badChildren" : "badProp"
+      const message = missing
+        ? `<${where.tag}> needs the \`${prop}\` prop.`
+        : `the \`${prop}\` prop of <${where.tag}>: ${messages.join("; ")}`
+      this.error(code, message, value?.span ?? fallback, {
+        block: where,
+        ...(prop !== "" ? { prop } : {}),
+        ...(value !== undefined ? { received: excerpt(value.value) } : {}),
+      })
+    }
+  }
+
+  /** An error for every block whose id another block before it already has. */
+  private duplicateIds(): void {
+    const first = new Map<BlockId, BlockNode>()
+    for (const node of this.blocks) {
+      if (node?.id === undefined) continue
+      const earlier = first.get(node.id)
+      if (earlier === undefined) {
+        first.set(node.id, node)
+        continue
+      }
+      const line = earlier.span.start.line
+      const same = earlier.idAsWritten === node.idAsWritten
+      this.error(
+        "duplicateId",
+        same
+          ? `<${earlier.tag}> on line ${line} already has the id "${node.idAsWritten}". Each block needs its own id.`
+          : `"${node.idAsWritten}" is the same id as "${earlier.idAsWritten}" on line ${line}: a hyphen and an underscore are the same in an id. Each block needs its own id.`,
+        node.span,
+        {
+          block: { tag: node.tag, ...(node.idAsWritten ? { id: node.idAsWritten } : {}) },
+          prop: "id",
+        },
+      )
+    }
+  }
+}
+
+const LINE_ONE: Span = { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } }
+
+function lineSpan(line: number): Span {
+  return { start: { line, column: 1 }, end: { line: line + 1, column: 1 } }
+}
+
+function spanOf(node: MdxNode): Span {
+  const { start, end } = node.position ?? { start: LINE_ONE.start, end: LINE_ONE.end }
+  return {
+    start: { line: start.line, column: start.column },
+    end: { line: end.line, column: end.column },
+  }
+}
+
+const byPlace = (a: { location: { span: Span } }, b: { location: { span: Span } }) =>
+  a.location.span.start.line - b.location.span.start.line ||
+  a.location.span.start.column - b.location.span.start.column
+
+/**
+ * The keys a props schema reads, from its encoded side. Undefined when the
+ * schema takes any key (a record) or its shape cannot be read, so no prop is
+ * reported unknown.
+ */
+function propKeys(schema: Schema.Top): ReadonlySet<string> | undefined {
+  const keys = new Set<string>()
+  const collect = (ast: SchemaAST.AST): boolean => {
+    if (ast._tag === "Objects") {
+      for (const signature of ast.propertySignatures) keys.add(String(signature.name))
+      return ast.indexSignatures.length === 0
+    }
+    if (ast._tag === "Union") return ast.types.every(collect)
+    return false
+  }
+  return collect(SchemaAST.toEncoded(schema.ast)) ? keys : undefined
+}
+
+function excerpt(value: PropValue): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value)
+  return text.length > 60 ? `${text.slice(0, 57)}...` : text
+}
+
+/**
+ * The runbook's hash. The files a block names are hashed with it by the
+ * loader; until then `combined` is over the runbook alone.
+ */
+function documentHash(source: string): DocumentHash {
+  const runbook = toHash(sha256(source))
+  return { runbook, files: {}, combined: toHash(sha256(JSON.stringify({ runbook, files: [] }))) }
+}
+
+const sha256 = (text: string) => `sha256:${createHash("sha256").update(text).digest("hex")}`
