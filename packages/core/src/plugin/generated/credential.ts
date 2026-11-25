@@ -195,6 +195,19 @@ export const Identity = Schema.StructWithRest(
       description: "What is selected at each level, by level name.",
     }),
     expiresAt: Schema.optionalKey(Schema.String.annotate({ format: "date-time" })),
+    warnings: Schema.optionalKey(
+      Schema.Array(
+        Schema.StructWithRest(Schema.Struct({ message: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
+        ]),
+      )
+        .annotate({
+          description: "Shown with the identity, and never fatal: a region that is not enabled.",
+        })
+        .check(
+          Schema.isMaxLength(10).annotate({ expected: "a value with a length of at most 10" }),
+        ),
+    ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "identity" })
@@ -209,6 +222,19 @@ export const SignInResult = Schema.StructWithRest(
       description: "What is selected at each level, by level name.",
     }),
     expiresAt: Schema.optionalKey(Schema.String.annotate({ format: "date-time" })),
+    warnings: Schema.optionalKey(
+      Schema.Array(
+        Schema.StructWithRest(Schema.Struct({ message: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
+        ]),
+      )
+        .annotate({
+          description: "Shown with the identity, and never fatal: a region that is not enabled.",
+        })
+        .check(
+          Schema.isMaxLength(10).annotate({ expected: "a value with a length of at most 10" }),
+        ),
+    ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "signInResult" })
@@ -229,6 +255,19 @@ export const SelectResult = Schema.StructWithRest(
       description: "What is selected at each level, by level name.",
     }),
     expiresAt: Schema.optionalKey(Schema.String.annotate({ format: "date-time" })),
+    warnings: Schema.optionalKey(
+      Schema.Array(
+        Schema.StructWithRest(Schema.Struct({ message: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
+        ]),
+      )
+        .annotate({
+          description: "Shown with the identity, and never fatal: a region that is not enabled.",
+        })
+        .check(
+          Schema.isMaxLength(10).annotate({ expected: "a value with a length of at most 10" }),
+        ),
+    ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "selectResult" })

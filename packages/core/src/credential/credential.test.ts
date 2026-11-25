@@ -11,6 +11,7 @@ import {
   confirmsDetected,
   statusOf,
 } from "./lifecycle.ts"
+import { Identity } from "./provider.ts"
 
 const decode =
   <S extends Schema.Top & { readonly DecodingServices: never }>(schema: S) =>
@@ -86,6 +87,19 @@ describe("credential wire schema", () => {
       }).unmet,
     ).toHaveLength(1)
     expect(() => decode(Wire.ToolMissingData)({ kind: "toolMissing", tool: "az" })).toThrow()
+  })
+
+  it("carries at most 10 warnings with an identity, on the wire and in the engine", () => {
+    const warned = (count: number) => ({
+      ...identity,
+      warnings: Array.from({ length: count }, (_, i) => ({
+        message: `Region ${i} is not enabled.`,
+      })),
+    })
+    for (const schema of [Wire.Identity, Identity]) {
+      expect(decode(schema)(warned(10)).warnings).toHaveLength(10)
+      expect(() => decode(schema)(warned(11))).toThrow()
+    }
   })
 
   it("rejects an identity kind and a level timing it does not define", () => {

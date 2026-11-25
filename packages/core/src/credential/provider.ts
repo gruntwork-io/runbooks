@@ -30,6 +30,9 @@ export const IdentityKind = Schema.Literals([
 ])
 export type IdentityKind = typeof IdentityKind.Type
 
+/** The most warnings one identity carries, as the wire's `identity.warnings` allows. */
+const MAX_WARNINGS = 10
+
 /** Who is signed in and what is selected. Never a secret: the auth view draws its card from this. */
 export const Identity = Schema.Struct({
   /** An ARN, an email, an object id, a login. */
@@ -40,6 +43,10 @@ export const Identity = Schema.Struct({
   /** What is selected at each level, by level name. */
   targets: Schema.Record(Schema.String, Target),
   expiresAt: Schema.optionalKey(Schema.DateTimeUtc),
+  /** Shown with the identity, and never fatal: a region that is not enabled. */
+  warnings: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ message: Schema.String })).check(Schema.isMaxLength(MAX_WARNINGS)),
+  ),
 })
 export type Identity = typeof Identity.Type
 

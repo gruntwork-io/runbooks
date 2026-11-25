@@ -253,6 +253,20 @@ describe("detecting a credential", () => {
     expect(callsOf("cloud")).not.toContain("env")
   })
 
+  it("shows a found login's warnings, and keeps them once it is used", async () => {
+    const warnings = [{ message: "Region eu-south-2 is not enabled." }]
+    await withCloud(
+      '<CloudLogin id="cloud" />',
+      { cloud: cloud({ detect: () => found({ ...who("111"), warnings }) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({ identity: { warnings } })
+          yield* rb.act("cloud", { _tag: "Confirm" })
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({ identity: { warnings } })
+        }),
+    )
+  })
+
   // useAwsAuth.env.test.ts
   it("falls through to manual auth when nothing is found", async () => {
     await withCloud('<CloudLogin id="cloud" method="sso" />', { cloud: cloud() }, (rb) =>
