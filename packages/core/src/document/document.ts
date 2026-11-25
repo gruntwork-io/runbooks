@@ -4,7 +4,7 @@
  * `edges`. Every client gets the same document.
  */
 import { Schema } from "effect"
-import { BlockClass, BlockId, Capability, RunbookPath } from "../../../../blocks/core/contract.ts"
+import { BlockClass, BlockId, Capability, RunbookPath } from "@runbooks/blocks-core/contract"
 import { ConfigError, ConfigWarning, Span } from "./configError.ts"
 
 // ---------------------------------------------------------------------------

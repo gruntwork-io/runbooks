@@ -16,7 +16,7 @@ import {
   type CredentialError,
   type CredentialRequest,
   Requirement,
-} from "../../../../blocks/core/contract.ts"
+} from "@runbooks/blocks-core/contract"
 
 export const Target = Schema.Struct({ id: Schema.String, name: Schema.String })
 export type Target = typeof Target.Type

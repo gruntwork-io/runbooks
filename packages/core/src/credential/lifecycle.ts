@@ -13,8 +13,8 @@ import {
   CredentialError,
   type CredentialRequest,
   Requirement,
-} from "../../../../blocks/core/contract.ts"
-import type { BlockStatus } from "../../../../blocks/core/status.ts"
+} from "@runbooks/blocks-core/contract"
+import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { Identity, Level, Method, Target } from "./provider.ts"
 
 /** How long before expiry the block asks to sign in again: 5 minutes, as today. */

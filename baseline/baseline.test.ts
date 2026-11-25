@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
-import { BASELINE_MCP_TOOLS } from "../packages/core/src/engine/protocol.ts"
+import { BASELINE_MCP_TOOLS } from "@runbooks/core/protocol"
 import {
   E2E_SPECS,
   FIXTURES,
