@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.packages.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx",
+    "declarationDir": "../node_modules/.tmp/packages/blocks",
+    "tsBuildInfoFile": "../node_modules/.tmp/packages/blocks.tsbuildinfo"
+  },
+  "references": [{ "path": "./core" }, { "path": "../packages/core" }],
+  "include": ["**/*"],
+  "exclude": ["core"]
+}

@@ -6,6 +6,7 @@
     { "path": "./tsconfig.src.json" },
     { "path": "./baseline" },
     { "path": "./blocks/core" },
+    { "path": "./blocks" },
     { "path": "./packages/core" },
     { "path": "./packages/platform-node" },
     { "path": "./packages/cli" },
