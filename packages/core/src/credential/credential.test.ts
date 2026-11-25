@@ -59,6 +59,7 @@ describe("credential wire schema", () => {
     const params = decode(Wire.ConfigureParams)({
       protocolVersion: "1",
       caller: "runbooks/0.31.0",
+      callTimeoutsMillis: { configure: 30_000 },
       stateDir: "/state/s1/aws",
       settings: { defaultRegion: "eu-west-1" },
     })

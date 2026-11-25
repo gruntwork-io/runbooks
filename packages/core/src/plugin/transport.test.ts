@@ -8,7 +8,14 @@ import {
   Request,
   ResultResponse,
 } from "./generated/base.ts"
-import { LIMITS, PluginEntry, PluginTransportError } from "./transport.ts"
+import {
+  callTimeoutsOf,
+  LIMITS,
+  type Method,
+  PluginEntry,
+  type PluginProtocol,
+  PluginTransportError,
+} from "./transport.ts"
 
 const decode =
   <S extends Schema.Top & { readonly DecodingServices: never }>(schema: S) =>
@@ -53,12 +60,25 @@ describe("wire messages", () => {
   })
 
   it("keep fields they do not know", () => {
-    const params = decode(ConfigureParams)({
+    const given = {
       protocolVersion: "1",
       caller: "runbooks/0.31.0",
+      callTimeoutsMillis: { configure: 30_000 },
       stateDir: "/s",
-    })
-    expect(params).toEqual({ protocolVersion: "1", caller: "runbooks/0.31.0", stateDir: "/s" })
+    }
+    expect(decode(ConfigureParams)(given)).toEqual(given)
+  })
+
+  it("give configure each method's limit, as a whole number of milliseconds from 1", () => {
+    const params = { protocolVersion: "1", caller: "runbooks/0.31.0" }
+    expect(
+      decode(ConfigureParams)({ ...params, callTimeoutsMillis: { configure: 30_000, env: 1 } })
+        .callTimeoutsMillis,
+    ).toEqual({ configure: 30_000, env: 1 })
+    for (const callTimeoutsMillis of [undefined, { env: 0 }, { env: 1.5 }, { env: "30" }]) {
+      const refused = Schema.decodeUnknownOption(ConfigureParams)({ ...params, callTimeoutsMillis })
+      expect(Option.isNone(refused)).toBe(true)
+    }
   })
 
   it("reject a request with no id, a notification that names no request, and an unknown error code", () => {
@@ -142,6 +162,27 @@ describe("transport errors", () => {
 })
 
 describe("limits", () => {
+  const method = (name: string, timeoutMillis?: number): Method<unknown, unknown> => ({
+    name,
+    params: Schema.Unknown,
+    result: Schema.Unknown,
+    ...(timeoutMillis === undefined ? {} : { timeoutMillis }),
+  })
+
+  it("are each method's own, or callTimeoutMillis, by name, configure's own included", () => {
+    const protocol: PluginProtocol<never, unknown, unknown> = {
+      kind: "credential",
+      errorKinds: [],
+      configure: method("configure"),
+      methods: [method("detect", 120_000), method("signOut")],
+    }
+    expect(callTimeoutsOf(protocol)).toEqual({
+      configure: LIMITS.callTimeoutMillis,
+      detect: 120_000,
+      signOut: LIMITS.callTimeoutMillis,
+    })
+  })
+
   /** How long runbooks-plugins gives a plugin to stop what it started once standard input closes: Azure's `az` group. */
   const PLUGIN_CLEANUP_MILLIS = 3_000
 

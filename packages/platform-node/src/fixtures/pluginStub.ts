@@ -29,6 +29,8 @@ type Params = { readonly [key: string]: unknown }
 
 const speaks = process.env.STUB_SPEAKS ?? "1"
 let configured = false
+/** Each method's limit, from `configure`'s `callTimeoutsMillis`. */
+let limits: Params = {}
 
 const write = (message: unknown) => process.stdout.write(`${JSON.stringify(message)}\n`)
 const answer = (id: unknown, result: unknown) => write({ jsonrpc: "2.0", id, result })
@@ -45,6 +47,8 @@ const methods: Record<string, (id: number, params: Params) => void> = {
       return
     }
     configured = true
+    const given = params.callTimeoutsMillis
+    limits = typeof given === "object" && given !== null ? { ...given } : {}
     answer(id, {
       protocolVersion: process.env.STUB_ANSWERS ?? speaks,
       driverVersion: "0.0.0",
@@ -69,6 +73,12 @@ const methods: Record<string, (id: number, params: Params) => void> = {
     answer(id, { pad: "x".repeat(Number(params.bytes) - empty) })
   },
   hang: () => {},
+  /** Answers `timedOut` a second before its limit, as a plugin does with a call it cannot finish. */
+  budget: (id) =>
+    setTimeout(
+      () => refuse(id, "timedOut", "the stub ran out of time"),
+      Number(limits.budget) - 1_000,
+    ),
   exit: (_id, params) => exit(Number(params.code), String(params.stderr)),
   /** `bytes` of standard error, ending in `tail`, then exits 1. */
   flood: (_id, params) => {

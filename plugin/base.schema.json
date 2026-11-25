@@ -79,12 +79,17 @@
     },
     "configureParams": {
       "type": "object",
-      "required": ["protocolVersion", "caller"],
+      "required": ["protocolVersion", "caller", "callTimeoutsMillis"],
       "properties": {
         "protocolVersion": { "type": "string" },
         "caller": {
           "description": "The calling app and its version: runbooks/0.31.0.",
           "type": "string"
+        },
+        "callTimeoutsMillis": {
+          "description": "How long the app waits for each method's answer, in milliseconds, keyed by method name, configure's own included. A plugin answers a call it cannot finish in time with error kind timedOut at least 1000 ms before its method's limit. The app's own timer, at the limit, ends the session.",
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
         }
       }
     },
