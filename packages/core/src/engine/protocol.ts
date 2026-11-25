@@ -230,6 +230,8 @@ export const Refusal = Schema.Union([
     unreviewed: Schema.NonEmptyArray(Schema.String),
   }),
   Schema.TaggedStruct("AlreadyRunning", {}),
+  /** The block's configuration has errors (its document node's `errors`), so it never runs. */
+  Schema.TaggedStruct("Misconfigured", {}),
 ])
 export type Refusal = typeof Refusal.Type
 
