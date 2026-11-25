@@ -54,6 +54,7 @@ import { FileSystem } from "../services/FileSystem.ts"
 import { collectOutput, ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { testCredentialProviders } from "./TestCredentialProviders.ts"
 import { testSettingsStore } from "./TestSettingsFile.ts"
+import { testSessionStore } from "./TestSessionStore.ts"
 import { TOY_REGISTRY } from "./toyRegistry.ts"
 
 const blockId = Schema.decodeSync(BlockId)
@@ -370,6 +371,7 @@ export const withEnvSession = <A>(
       ),
       Effect.provide(setup.providers ?? testCredentialProviders({}, [])),
       Effect.provide(setup.settings ?? testSettingsStore()),
+      Effect.provide(testSessionStore()),
       Effect.provide(Layer.merge(setup.fileSystem, setup.spawner)),
       Effect.provideService(Caller, { origin: "person" }),
       (effect) => {

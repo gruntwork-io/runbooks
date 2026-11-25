@@ -18,6 +18,12 @@
  * cancel, reset, set or confirm values, close) holds the session's lock for
  * its whole length. A run's own events and its end are recorded without the
  * lock, each in one synchronous step.
+ *
+ * Saving: after every change the session saves each block's form, run and
+ * submit that changed, and its trust, through its `SessionSaver`, one save
+ * at a time. A resumed session starts from what `resumeOf` let it take
+ * back, and its first save writes every block as it holds it, so what it
+ * did not take back is not offered again.
  */
 import path from "node:path"
 import type { Duration } from "effect"
@@ -90,6 +96,8 @@ import {
   type Form,
   makeForm,
   outputsOf,
+  restoreValues,
+  savedValuesOf,
   unreviewedOf,
   valuesOf,
 } from "./form.ts"
@@ -112,6 +120,14 @@ import {
 import { type Held, hold, reveal, visible } from "./held.ts"
 import type { RunFiles, RunWrote } from "./runFiles.ts"
 import type { RunRoots } from "./roots.ts"
+import {
+  fileHashesOf,
+  type Resume,
+  type Saved,
+  savedLogOf,
+  type SavedRun,
+  type SessionSaver,
+} from "./sessionStore.ts"
 
 /** Lines of a run's log the session keeps. Older lines are dropped; a log page says where it starts. */
 const MAX_RUN_LOG_LINES = 10_000
@@ -168,9 +184,9 @@ interface Window<A> {
   readonly slice: (from: number, to?: number) => ReadonlyArray<A>
 }
 
-function makeWindow<A>(capacity: number): Window<A> {
+/** A window whose list has had `start` items already, none of them kept. */
+function makeWindow<A>(capacity: number, start = 0): Window<A> {
   const items: A[] = []
-  let start = 0
   return {
     start: () => start,
     end: () => start + items.length,
@@ -428,6 +444,95 @@ function taskErrorOf(cause: Cause.Cause<TaskError>): TaskError {
   })
 }
 
+/** A submitted form, as it is saved: a submit is the form's run. */
+const SUBMITTED: Saved = { kind: "run", payload: { _tag: "Submitted" } }
+
+/** A run as it is saved. Its log is saved from the end. */
+function savedRunOf(run: Run): SavedRun {
+  const { state, log } = run
+  switch (state._tag) {
+    case "Running":
+      return { _tag: "Running" }
+    case "Done":
+      return {
+        _tag: "Done",
+        outcome: state.outcome,
+        outputs: Array.from(state.outputs, ([key, output]) => ({
+          key,
+          value: reveal(output),
+          sensitive: output.sensitive,
+        })),
+        env: Object.fromEntries(
+          Array.from(state.env, ([name, value]) => [name, Redacted.value(value)]),
+        ),
+        repository: Option.match(state.repository, {
+          onNone: () => null,
+          onSome: (ref) => ({ path: ref.path, remoteUrl: Option.getOrNull(ref.remoteUrl) }),
+        }),
+        log: savedLogOf(log.slice(log.start()), log.end()),
+      }
+    case "Failed":
+      return {
+        _tag: "Failed",
+        error: state.error,
+        log: savedLogOf(log.slice(log.start()), log.end()),
+      }
+  }
+}
+
+/**
+ * A task's run as a resumed session takes it back, under a new id. One the
+ * app stopped on before it ended comes back failed. A form's submit and a
+ * block that is no runnable task's give none.
+ */
+function restoredRun(slot: Slot, saved: SavedRun): Run | undefined {
+  if (Option.isNone(slot.runnable)) return undefined
+  const restore = (
+    state: RunState,
+    kept: { readonly omitted: number; readonly lines: ReadonlyArray<LogLine> },
+  ): Run => {
+    const log = makeWindow<LogLine>(MAX_RUN_LOG_LINES, kept.omitted)
+    log.push(kept.lines)
+    return { id: decodeRunId(crypto.randomUUID()), slot, log, flushed: log.start(), state }
+  }
+  switch (saved._tag) {
+    case "Submitted":
+      return undefined
+    case "Running":
+      return restore(
+        {
+          _tag: "Failed",
+          error: new TaskFailed({ message: "Runbooks stopped before the run ended." }),
+        },
+        { omitted: 0, lines: [] },
+      )
+    case "Done":
+      return restore(
+        {
+          _tag: "Done",
+          outcome: saved.outcome,
+          outputs: new Map(
+            saved.outputs.map(({ key, value, sensitive }) => [key, hold(sensitive, value)]),
+          ),
+          env: new Map(
+            Object.entries(saved.env).map(([name, value]) => [name, Redacted.make(value)]),
+          ),
+          repository: Option.map(
+            Option.fromNullOr(saved.repository),
+            ({ path: folder, remoteUrl }) => ({
+              block: slot.id,
+              path: folder,
+              remoteUrl: Option.fromNullOr(remoteUrl),
+            }),
+          ),
+        },
+        saved.log,
+      )
+    case "Failed":
+      return restore({ _tag: "Failed", error: saved.error }, saved.log)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The session
 // ---------------------------------------------------------------------------
@@ -501,8 +606,13 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   readonly stateFolder: string
   /** The CA bundle and proxy the settings hold now: a provider reads them when it opens. */
   readonly network: Effect.Effect<ProviderNetwork>
+  /** What the runbook's saved session lets this one take back, when the engine resumes it. */
+  readonly resume: Option.Option<Resume>
+  /** Where the session saves what it holds. */
+  readonly saver: SessionSaver
 }) {
-  const { id, roots, baseEnvironment } = options
+  const { id, roots, baseEnvironment, saver } = options
+  const resume = Option.getOrUndefined(options.resume)
   const { document, specs } = yield* readForms(options.document, options.registry, options.texts)
   const slots = slotsOf(document, options.registry)
   const credentialSlots = credentialSlotsOf(slots, options.registry)
@@ -526,6 +636,87 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   const published = new Map<number, ReadonlyMap<string, Held<string>>>()
   const statuses = new Map<number, BlockStatus>()
   const log = makeWindow<EventEnvelope>(MAX_SESSION_EVENTS)
+
+  for (const slot of slots) {
+    const values = resume?.values.get(slot.id)
+    const form = forms.get(slot.index)
+    if (values !== undefined && form !== undefined)
+      forms.set(slot.index, restoreValues(form, values.values))
+    const saved = resume?.runs.get(slot.id)
+    if (saved === undefined) continue
+    if (slot.node.class === "form" && slot.node.errors.length === 0 && saved._tag === "Submitted")
+      submitted.add(slot.index)
+    const run = slot.node.class === "task" ? restoredRun(slot, saved) : undefined
+    if (run !== undefined) runs.set(slot.index, run)
+  }
+
+  /**
+   * What the session last saved of each block, by block index: it saves
+   * only what changed since. Undefined is nothing saved yet; a null run, none.
+   */
+  const saved = new Map<
+    number,
+    {
+      readonly form: Form | undefined
+      readonly submitted: boolean | undefined
+      readonly run: RunState | null | undefined
+    }
+  >()
+  let savedTrust = false
+  const saving = yield* Semaphore.make(1)
+  const fileHashes = fileHashesOf(document, options.registry)
+
+  /**
+   * Saves the trust, and each block's form, submit and run, that changed
+   * since the last save. It runs to its end, so what it marks saved is.
+   */
+  const persist: Effect.Effect<void> = Effect.uninterruptible(
+    saving.withPermit(
+      Effect.suspend(() => {
+        const writes: Array<Effect.Effect<void>> = []
+        if (trust._tag === "Trusted" && !savedTrust) {
+          savedTrust = true
+          writes.push(saver.trust(document.hash.combined))
+        }
+        for (const slot of slots) {
+          const last = saved.get(slot.index) ?? {
+            form: undefined,
+            submitted: undefined,
+            run: undefined,
+          }
+          const files = fileHashes.get(slot.id) ?? {}
+          const form = forms.get(slot.index)
+          const formChanged = form !== undefined && form !== last.form
+          if (formChanged)
+            writes.push(
+              saver.put(
+                slot.id,
+                { kind: "values", payload: { values: savedValuesOf(form) } },
+                files,
+              ),
+            )
+          const isSubmitted = submitted.has(slot.index)
+          const submitChanged = slot.node.class === "form" && isSubmitted !== last.submitted
+          if (submitChanged)
+            writes.push(
+              isSubmitted ? saver.put(slot.id, SUBMITTED, files) : saver.drop(slot.id, "run"),
+            )
+          const run = runs.get(slot.index)
+          const state = run?.state ?? null
+          const runChanged = slot.node.class === "task" && state !== last.run
+          if (runChanged)
+            writes.push(
+              run === undefined
+                ? saver.drop(slot.id, "run")
+                : saver.put(slot.id, { kind: "run", payload: savedRunOf(run) }, files),
+            )
+          if (formChanged || submitChanged || runChanged)
+            saved.set(slot.index, { form, submitted: isSubmitted, run: state })
+        }
+        return Effect.all(writes, { discard: true })
+      }),
+    ),
+  )
 
   const byId = (block: BlockId): Effect.Effect<Slot, UnknownBlock> => {
     const slot = slots.find((candidate) => candidate.id === block)
@@ -736,6 +927,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       }),
     ).pipe(
       Effect.tap(({ logged }) => (logged ? PubSub.publish(changed, undefined) : Effect.void)),
+      Effect.tap(() => persist),
       Effect.tap(({ started }) =>
         // `startable` holds only in a trusted session.
         started.length === 0 || trust._tag === "Untrusted"
@@ -1148,6 +1340,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       trust: { trusted: trust._tag === "Trusted", hash: document.hash.combined },
       blocks: slots.map(summaryOf),
       warnings: document.warnings,
+      ...(resume === undefined ? {} : { resumed: resume.resumed }),
     }),
 
     trust: (hash, runner) =>
@@ -1345,16 +1538,23 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         yield* Scope.close(scope, Exit.void)
         yield* update((emit) => emit({ _tag: "SessionClosed" }))
         closed = true
+        yield* saver.close
       }),
     ),
   }
 
-  // The first fields and statuses, so the log alone tells a client every block's state.
+  // The first fields, resumed runs and statuses, so the log alone tells a
+  // client every block's state.
   yield* update((emit) => {
     for (const slot of slots) {
       const form = forms.get(slot.index)
       if (form !== undefined)
         emit({ _tag: "FieldsChanged", block: slot.id, fields: fieldViews(form) })
+      const run = runs.get(slot.index)
+      if (run === undefined) continue
+      flush(run, emit)
+      if (run.state._tag === "Done")
+        emit({ _tag: "OutputsPublished", block: slot.id, outputs: outputsView(run.state.outputs) })
     }
   })
   return session

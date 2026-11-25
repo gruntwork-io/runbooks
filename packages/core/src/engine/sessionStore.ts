@@ -65,6 +65,29 @@ export const SavedLog = Schema.Struct({
 })
 export type SavedLog = typeof SavedLog.Type
 
+/**
+ * A run's log as it is saved: its last `MAX_SAVED_LOG_LINES` lines, no more
+ * than `MAX_SAVED_LOG_CHARS` characters. A last line longer than that is
+ * kept as its end, as today's app keeps it. `last` is the end of the log
+ * the session holds, and `total` how many lines the run has written.
+ */
+export function savedLogOf(last: ReadonlyArray<LogLine>, total: number): SavedLog {
+  const final = last.at(-1)
+  if (final !== undefined && final.text.length > MAX_SAVED_LOG_CHARS)
+    return {
+      omitted: total - 1,
+      lines: [{ ...final, text: final.text.slice(-MAX_SAVED_LOG_CHARS) }],
+    }
+  const lines: LogLine[] = []
+  let chars = 0
+  for (const line of last.slice(-MAX_SAVED_LOG_LINES).reverse()) {
+    chars += line.text.length
+    if (chars > MAX_SAVED_LOG_CHARS) break
+    lines.push(line)
+  }
+  return { omitted: total - lines.length, lines: lines.reverse() }
+}
+
 export const SavedRun = Schema.Union([
   /** A form block, submitted. */
   Schema.TaggedStruct("Submitted", {}),

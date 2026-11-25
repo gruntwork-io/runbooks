@@ -5,7 +5,7 @@
  * imports the blocks.
  */
 import path from "node:path"
-import { Context, Effect, Layer, Option, Schema, Scope, Stream } from "effect"
+import { Clock, Context, Effect, Layer, Option, Schema, Scope, Stream } from "effect"
 import type { Rpc } from "effect/rpc"
 import type { TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
@@ -41,6 +41,7 @@ import { baseEnvironment } from "./env.ts"
 import { resolvePaths, sessionRoots } from "./roots.ts"
 import { makeRunFiles, readRunFiles } from "./runFiles.ts"
 import { makeSession, type Runner, type Session } from "./session.ts"
+import { resumeOf, SessionStore } from "./sessionStore.ts"
 import { SettingsStore } from "./settings.ts"
 
 /** Serves one protocol command, with the command's own payload, success and error types. */
@@ -49,6 +50,10 @@ type Command<R extends Rpc.Any, Requires = never> = (
 ) => Effect.Effect<Rpc.Success<R>, Rpc.Error<R>, Requires>
 
 export interface EngineShape {
+  /**
+   * Resumes the runbook's most recently used saved session, unless it is
+   * open already (open decision 18: one window); otherwise starts one.
+   */
   readonly openSession: Command<typeof OpenSession>
   /** Interrupts the session's runs and ends its event streams. */
   readonly closeSession: Command<typeof CloseSession>
@@ -114,13 +119,20 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
    * and the files its blocks name, and nothing else: it opens no credential
    * provider. A provider opens with the CA bundle and proxy the settings
    * hold when it opens. Closing the layer closes every session.
+   *
+   * Each session saves what it holds through the `SessionStore`, and the
+   * engine resumes it when the runbook is opened again (`openSession`).
    */
   static readonly layer = <R extends Registry>(
     options: EngineOptions<R>,
   ): Layer.Layer<
     Engine,
     never,
-    FileSystem | CredentialProviders | SettingsStore | Exclude<ServicesOf<R>, Scope.Scope>
+    | FileSystem
+    | CredentialProviders
+    | SettingsStore
+    | SessionStore
+    | Exclude<ServicesOf<R>, Scope.Scope>
   > =>
     Layer.effect(
       Engine,
@@ -128,6 +140,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
         const { registry, appVersion, workingFolders, stateFolders } = options
         const providers = yield* CredentialProviders
         const settings = yield* SettingsStore
+        const store = yield* SessionStore
         const network = Effect.map(settings.get, ({ settings: { caBundleFile, proxy } }) => ({
           caBundleFile: Option.fromNullOr(caBundleFile),
           proxy: Option.fromNullOr(proxy),
@@ -187,18 +200,41 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             )
             if (result._tag === "Invalid")
               return { _tag: "Invalid", errors: result.errors, warnings: result.warnings } as const
-            const id = decodeSessionId(crypto.randomUUID())
+            const { document } = result
+            const saved = Option.filter(
+              yield* store.latest(file),
+              (found) => !sessions.has(found.id),
+            )
+            const id = Option.match(saved, {
+              onNone: () => decodeSessionId(crypto.randomUUID()),
+              onSome: (found) => found.id,
+            })
+            const saver = yield* store.keep({
+              id,
+              runbook: file,
+              runbookHash: document.hash.runbook,
+              createdAt: yield* Option.match(saved, {
+                onNone: () => Clock.currentTimeMillis,
+                onSome: (found) => Effect.succeed(found.createdAt),
+              }),
+            })
+            // A resumed session keeps its id, and with it its working and state folders.
             const session = yield* makeSession({
               id,
-              document: result.document,
+              document,
               texts: result.texts,
               roots: sessionRoots(file, workingFolders, id),
               baseEnvironment: base,
               registry,
               stateFolder: path.join(stateFolders, id),
               network,
+              resume: Option.map(saved, (found) => resumeOf(document, registry, found)),
+              saver,
             })
             sessions.set(session.id, session)
+            // Trust comes back only for the content it was given for: `trust` refuses another hash.
+            const trusted = Option.flatMap(saved, (found) => found.trusted)
+            if (Option.isSome(trusted)) yield* session.trust(trusted.value, runner)
             return { _tag: "Opened", session: session.view() } as const
           }),
 
