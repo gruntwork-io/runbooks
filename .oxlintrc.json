@@ -10,6 +10,10 @@
     {
       "name": "react-compiler",
       "specifier": "eslint-plugin-react-hooks"
+    },
+    {
+      "name": "runbooks",
+      "specifier": "./scripts/oxlint-plugin.ts"
     }
   ],
   "rules": {
@@ -65,7 +69,8 @@
     "react-compiler/set-state-in-render": "error",
     "react-compiler/unsupported-syntax": "warn",
     "react-compiler/config": "error",
-    "react-compiler/gating": "error"
+    "react-compiler/gating": "error",
+    "runbooks/no-relative-import-across-packages": "error"
   },
   "overrides": [
     {
@@ -300,6 +305,230 @@
       ],
       "rules": {
         "no-restricted-properties": "off"
+      }
+    },
+    {
+      "files": [
+        "blocks/**",
+        "packages/core/**",
+        "packages/platform-node/**",
+        "packages/cli/**",
+        "packages/app-renderer/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "electron",
+                "message": "Only packages/app-main imports Electron: the core, the layers and the blocks run in the CLI too (scripts/packages.ts)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["blocks/**", "packages/core/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "electron",
+                "message": "Only packages/app-main imports Electron: the core, the layers and the blocks run in the CLI too (scripts/packages.ts)."
+              },
+              {
+                "name": "fs",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:fs",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "fs/promises",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:fs/promises",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "child_process",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:child_process",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "net",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:net",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "http",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:http",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "https",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:https",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "http2",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:http2",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "tls",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:tls",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "dgram",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:dgram",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "dns",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:dns",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "os",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:os",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "readline",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:readline",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "worker_threads",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:worker_threads",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "cluster",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:cluster",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "vm",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:vm",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "inspector",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:inspector",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "sqlite",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:sqlite",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "zlib",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:zlib",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              }
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "@aws-sdk/*",
+                  "@smithy/*",
+                  "@modelcontextprotocol/*",
+                  "google-auth-library",
+                  "chokidar",
+                  "electron-updater"
+                ],
+                "message": "Only packages/platform-node imports an SDK: wrap it in a layer behind a service in packages/core (scripts/packages.ts)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["blocks/**/*.test.ts", "blocks/**/*.test.tsx", "packages/core/**/*.test.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "electron",
+                "message": "Only packages/app-main imports Electron: the core, the layers and the blocks run in the CLI too (scripts/packages.ts)."
+              }
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "@aws-sdk/*",
+                  "@smithy/*",
+                  "@modelcontextprotocol/*",
+                  "google-auth-library",
+                  "chokidar",
+                  "electron-updater"
+                ],
+                "message": "Only packages/platform-node imports an SDK: wrap it in a layer behind a service in packages/core (scripts/packages.ts)."
+              }
+            ]
+          }
+        ]
       }
     }
   ],

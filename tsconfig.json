@@ -4,7 +4,10 @@
     { "path": "./tsconfig.main.json" },
     { "path": "./tsconfig.preload.json" },
     { "path": "./tsconfig.src.json" },
-    { "path": "./tsconfig.rebuild.json" },
+    { "path": "./baseline" },
+    { "path": "./blocks/core" },
+    { "path": "./packages/core" },
+    { "path": "./packages/cli" },
     { "path": "./tsconfig.e2e.json" },
     { "path": "./web/tsconfig.json" }
   ],

@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "bun:test"
 import { DateTime, Redacted, Schema } from "effect"
-import { CredentialError, type CredentialErrorKind } from "../../../../blocks/core/contract.ts"
+import { CredentialError, type CredentialErrorKind } from "@runbooks/blocks-core/contract"
 import * as Wire from "../plugin/generated/credential.ts"
 import {
   CredentialAction,

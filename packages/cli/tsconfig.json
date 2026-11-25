@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.packages.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "declarationDir": "../../node_modules/.tmp/packages/cli",
+    "tsBuildInfoFile": "../../node_modules/.tmp/packages/cli.tsbuildinfo"
+  },
+  "references": [{ "path": "../core" }, { "path": "../../blocks/core" }],
+  "include": ["**/*"]
+}

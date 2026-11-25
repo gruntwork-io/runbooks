@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.packages.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "declarationDir": "../../node_modules/.tmp/packages/blocks-core",
+    "tsBuildInfoFile": "../../node_modules/.tmp/packages/blocks-core.tsbuildinfo"
+  },
+  "include": ["**/*"]
+}

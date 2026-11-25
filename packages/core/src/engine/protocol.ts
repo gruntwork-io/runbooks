@@ -15,9 +15,9 @@
  */
 import { Context, Schema } from "effect"
 import { Rpc, RpcGroup, RpcMiddleware } from "effect/rpc"
-import { BlockClass, BlockId } from "../../../../blocks/core/contract.ts"
-import { FieldType, FieldValue, Validation } from "../../../../blocks/core/form.ts"
-import { Blocker, BlockStatus } from "../../../../blocks/core/status.ts"
+import { BlockClass, BlockId } from "@runbooks/blocks-core/contract"
+import { FieldType, FieldValue, Validation } from "@runbooks/blocks-core/form"
+import { Blocker, BlockStatus } from "@runbooks/blocks-core/status"
 import { CredentialAction, CredentialState } from "../credential/lifecycle.ts"
 import { ConfigError, ConfigWarning } from "../document/configError.ts"
 import { ContentHash } from "../document/document.ts"

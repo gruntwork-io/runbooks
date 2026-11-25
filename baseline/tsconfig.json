@@ -1,0 +1,14 @@
+// baseline/ checks today's tree against the frozen baseline, so it imports
+// both trees. It is not a package: it compiles today's files it reaches as
+// its own, and reaches the new tree's packages by name.
+{
+  "extends": "../tsconfig.packages.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "tsBuildInfoFile": "../node_modules/.tmp/baseline.tsbuildinfo"
+  },
+  "references": [{ "path": "../packages/core" }, { "path": "../blocks/core" }],
+  "include": ["**/*"]
+}

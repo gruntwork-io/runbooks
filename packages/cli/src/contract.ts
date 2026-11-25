@@ -14,8 +14,8 @@
 import type { Effect } from "effect"
 import { Config, Schema } from "effect"
 import { Argument, Command, Flag } from "effect/cli"
-import { ConfigError, ConfigWarning } from "../../core/src/document/configError.ts"
-import { OutputView } from "../../core/src/engine/protocol.ts"
+import { ConfigError, ConfigWarning } from "@runbooks/core/document/configError"
+import { OutputView } from "@runbooks/core/protocol"
 
 /**
  * Open decision 13: the CLI is `runbooks`, and `runbooks-test`, the

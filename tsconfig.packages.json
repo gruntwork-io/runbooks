@@ -1,0 +1,26 @@
+// What every package in the new tree compiles with, and what each package
+// exports. A package's tsconfig.json extends this file and references the
+// packages it may import (scripts/packages.ts). An import resolves only
+// through these paths: a subpath not listed here fails with TS2307, and a
+// package the importer does not reference fails with TS6307.
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "types": ["bun-types"],
+    "erasableSyntaxOnly": true,
+    "paths": {
+      // blocks-core: blocks/core
+      "@runbooks/blocks-core/contract": ["./blocks/core/contract.ts"],
+      "@runbooks/blocks-core/form": ["./blocks/core/form.ts"],
+      "@runbooks/blocks-core/status": ["./blocks/core/status.ts"],
+
+      // core: packages/core
+      "@runbooks/core/credential/*": ["./packages/core/src/credential/*.ts"],
+      "@runbooks/core/document/*": ["./packages/core/src/document/*.ts"],
+      "@runbooks/core/protocol": ["./packages/core/src/engine/protocol.ts"]
+    }
+  }
+}

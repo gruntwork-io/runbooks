@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { DateTime, Effect, Layer, Schema, Stream } from "effect"
 import { type RpcClient, RpcTest } from "effect/rpc"
-import { BlockId } from "../../../../blocks/core/contract.ts"
+import { BlockId } from "@runbooks/blocks-core/contract"
 import { ContentHash } from "../document/document.ts"
 import {
   BASELINE_MCP_TOOLS,
