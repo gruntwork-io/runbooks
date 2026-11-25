@@ -9,7 +9,9 @@
  * default can change in a later version. Reading the file never fails the
  * engine and never loses what the file holds:
  *
- * - No file: the defaults.
+ * - No file: the defaults. On the first start, with `importing`, what
+ *   today's app kept in its own files (`legacySettings.ts`), saved so it is
+ *   read once; today's files are never written.
  * - A setting whose value this version does not take, or that it does not
  *   know: the default applies, a problem names it, and the file keeps it.
  * - A newer version: the settings this version knows apply, and every
@@ -24,8 +26,9 @@
  */
 import { Context, Effect, Layer, Option, PubSub, Result, Schema, Semaphore, Stream } from "effect"
 import { errorMessage } from "../errors/message.ts"
-import type { FileHead } from "../services/FileSystem.ts"
+import type { FileHead, FileSystem } from "../services/FileSystem.ts"
 import { MAX_SETTINGS_BYTES, SettingsFile } from "../services/SettingsFile.ts"
+import { readLegacySettings } from "./legacySettings.ts"
 import {
   Caller,
   type ChangeSettingsResult,
@@ -124,6 +127,20 @@ function settingsIn(stored: Readonly<Record<string, unknown>>): {
   return { chosen: Schema.decodeUnknownSync(SettingsChange)(taken), problems }
 }
 
+/**
+ * What the store keeps of the settings today's app held: each this version
+ * takes that is not its default, so the rest follow the defaults.
+ */
+function importable(found: Readonly<Record<string, unknown>>): SettingsChange {
+  const { chosen } = settingsIn(found)
+  return Object.fromEntries(
+    Object.entries(chosen).filter(
+      ([setting, value]) =>
+        JSON.stringify(value) !== JSON.stringify(DEFAULT_SETTINGS[setting as keyof Settings]),
+    ),
+  )
+}
+
 /** What the settings file's text holds: settings this version reads, a newer version's, or no settings at all. */
 type Content =
   | { readonly _tag: "Settings"; readonly held: Held }
@@ -156,22 +173,36 @@ function contentOf(head: FileHead): Content {
 const textOf = (stored: Readonly<Record<string, unknown>>): string =>
   `${JSON.stringify({ version: SETTINGS_VERSION, settings: stored }, null, 2)}\n`
 
-export class SettingsStore extends Context.Service<SettingsStore, SettingsStoreShape>()(
-  "@runbooks/core/engine/SettingsStore",
-) {
-  /** Reads the settings file once, as the module comment says, and keeps it from then on. */
-  static readonly layer: Layer.Layer<SettingsStore, never, SettingsFile> = Layer.effect(
-    SettingsStore,
+/**
+ * The store. With no settings file, it starts from what `firstStart` finds,
+ * by setting name, and saves what it keeps of it. It takes its own service
+ * tag, as `SettingsStore`'s statics call it before the class is defined.
+ */
+const make = <R>(
+  store: typeof SettingsStore,
+  firstStart: Effect.Effect<Readonly<Record<string, unknown>>, never, R>,
+): Layer.Layer<SettingsStore, never, SettingsFile | R> =>
+  Layer.effect(
+    store,
     Effect.gen(function* () {
       const file = yield* SettingsFile
       const unreadable = (reason: string): Held => {
         const problem: ReadOnly = { _tag: "Unreadable", reason }
         return { ...EMPTY, problems: [problem], readOnly: Option.some(problem) }
       }
-      const load: Effect.Effect<Held> = file.read.pipe(
+      const firstStartHeld = Effect.gen(function* () {
+        const chosen = importable(yield* firstStart)
+        if (Object.keys(chosen).length === 0) return EMPTY
+        const stored = Schema.encodeSync(SettingsChange)(chosen)
+        // Saved, so it is not read again. If it cannot be, it applies now and
+        // is read again at the next start, to the same settings.
+        yield* Effect.ignore(file.replace(textOf(stored)))
+        return { ...EMPTY, stored, chosen }
+      })
+      const load: Effect.Effect<Held, never, R> = file.read.pipe(
         Effect.flatMap(
           Option.match({
-            onNone: () => Effect.succeed(EMPTY),
+            onNone: () => firstStartHeld,
             onSome: (head) => {
               const content = contentOf(head)
               if (content._tag === "Settings") return Effect.succeed(content.held)
@@ -237,7 +268,7 @@ export class SettingsStore extends Context.Service<SettingsStore, SettingsStoreS
           yield* PubSub.publish(changed, undefined)
         })
 
-      return SettingsStore.of({
+      return store.of({
         get: Effect.sync(view),
 
         change: (changes) =>
@@ -271,4 +302,22 @@ export class SettingsStore extends Context.Service<SettingsStore, SettingsStoreS
       })
     }),
   )
+
+export class SettingsStore extends Context.Service<SettingsStore, SettingsStoreShape>()(
+  "@runbooks/core/engine/SettingsStore",
+) {
+  /** Reads the settings file once, as the module comment says, and keeps it from then on. */
+  static readonly layer: Layer.Layer<SettingsStore, never, SettingsFile> = make(
+    SettingsStore,
+    Effect.succeed({}),
+  )
+
+  /**
+   * The store, which on the first start, with no settings file, keeps what
+   * today's app's files in `legacyFolder` (its data folder) hold.
+   */
+  static readonly importing = (
+    legacyFolder: string,
+  ): Layer.Layer<SettingsStore, never, SettingsFile | FileSystem> =>
+    make(SettingsStore, readLegacySettings(legacyFolder))
 }
