@@ -31,11 +31,17 @@ export type Location = typeof Location.Type
 export const ConfigErrorCode = Schema.Literals([
   /** The MDX does not parse. */
   "syntax",
+  /**
+   * MDX that would run code or load a document when the runbook opens: an
+   * import or export, an expression that is not a literal, a script or frame
+   * element, a prop that injects HTML, a `javascript:` URL.
+   */
+  "notAllowed",
   /** A tag no block or alias in the registry has. */
   "unknownBlock",
   /** The front matter's `runbooks:` range excludes this app's version. */
   "versionRequired",
-  /** A prop's value does not decode with the block's schema, or the block does not have the prop. */
+  /** A prop's value does not decode with the block's schema. */
   "badProp",
   /** An alias locks the prop, so the author may not set it. */
   "lockedProp",
@@ -76,6 +82,8 @@ export const ConfigWarningCode = Schema.Literals([
   "deprecatedProp",
   /** Two `envFrom` sources set the same variable. The later one wins. */
   "envConflict",
+  /** A prop the block does not take. It is ignored, as today. */
+  "unknownProp",
 ])
 export type ConfigWarningCode = typeof ConfigWarningCode.Type
 
