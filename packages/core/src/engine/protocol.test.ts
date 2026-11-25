@@ -12,6 +12,7 @@ import {
   EventEnvelope,
   FieldView,
   Forbidden,
+  OpenSession,
   type Origin,
   RunBlock,
   RunResult,
@@ -110,6 +111,14 @@ describe("engine protocol", () => {
         timeoutMillis: 600_000,
       }),
     ).toThrow(/at \["timeoutMillis"\]/)
+  })
+
+  it("takes a runbook only by an absolute path, since its folder is a root", () => {
+    const open = Schema.decodeUnknownSync(OpenSession.payloadSchema)
+    for (const path of ["/rb/runbook.mdx", "C:\\rb\\runbook.mdx", "C:/rb/runbook.mdx"])
+      expect(open({ path })).toEqual({ path })
+    for (const path of ["rb/runbook.mdx", "./runbook.mdx", "C:runbook.mdx"])
+      expect(() => open({ path })).toThrow(/Expected an absolute path/)
   })
 
   it("answers an expected outcome in the success channel and a fault as a typed error", async () => {

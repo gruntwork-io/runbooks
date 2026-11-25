@@ -26,7 +26,7 @@ import type {
 export type AnyBlock =
   | DisplayBlock<any>
   | FormBlock<any>
-  | TaskBlock<any, any, any>
+  | TaskBlock<any, any, any, any>
   | CredentialBlock<any>
 
 /** What a registry line names: a block, or an alias of one. */
@@ -62,7 +62,7 @@ export type TagsOfClass<R extends Registry, C extends BlockClass> = {
  * it does.
  */
 export type ServicesOf<R extends Registry> = {
-  [T in BlockTags<R>]: R[T] extends TaskBlock<any, any, infer S> ? S : never
+  [T in BlockTags<R>]: R[T] extends TaskBlock<any, any, infer S, any> ? S : never
 }[BlockTags<R>]
 
 /** A tag resolved to its block, with the props an alias locks. */
@@ -97,6 +97,12 @@ export function registryProblems(registry: Registry): ReadonlyArray<string> {
       if (target === undefined)
         problems.push(`${tag}: aliases ${entry.of}, which is not in the registry`)
       else if (isAlias(target)) problems.push(`${tag}: aliases ${entry.of}, which is an alias`)
+    } else if (entry.class === "task") {
+      const provides = entry.provides.includes("repository")
+      if (provides && entry.repository === undefined)
+        problems.push(`${tag}: provides repository, so it names the path it makes it in`)
+      if (!provides && entry.repository !== undefined)
+        problems.push(`${tag}: names a repository path, but does not provide repository`)
     }
     return problems
   })

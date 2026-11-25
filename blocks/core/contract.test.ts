@@ -146,6 +146,32 @@ describe("what the compiler rejects", () => {
     expectTypeOf<() => Stream.Stream<TaskEvent<"status">, never, never>>().toExtend<Run>()
   })
 
+  it("a run that reads a path its task did not name", () => {
+    const clone = defineTask({
+      name: "Clone",
+      since: "0.31.0",
+      class: "task",
+      props: UrlProps,
+      children: none,
+      references: {},
+      runbookFiles: () => [],
+      provides: ["run", "repository"],
+      effects: ["repository"],
+      outputs: () => ({}),
+      paths: () => ({ target: { root: "working", path: "repo" } }),
+      repository: "target",
+      run: () => Stream.empty,
+      instruction: (p, input) => [
+        { kind: "code", language: "bash", code: `git clone ${p.url} ${input.paths.target}` },
+      ],
+      plugins: [],
+    })
+    type Input = Parameters<typeof clone.run>[1]
+    expectTypeOf<Input["paths"]>().toEqualTypeOf<{ readonly target: string }>()
+    expectTypeOf<"elsewhere">().not.toExtend<keyof Input["paths"]>()
+    expectTypeOf<"elsewhere">().not.toExtend<NonNullable<typeof clone.repository>>()
+  })
+
   it("a task that does not provide run, and a display block that provides anything", () => {
     type TaskProvides = TaskBlock<object, never, never>["provides"]
     expectTypeOf<readonly ["values"]>().not.toExtend<TaskProvides>()

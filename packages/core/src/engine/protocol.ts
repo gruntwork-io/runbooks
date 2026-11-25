@@ -357,8 +357,17 @@ export type EventEnvelope = typeof EventEnvelope.Type
 const session = { session: SessionId }
 const block = { session: SessionId, block: BlockId }
 
+/**
+ * An absolute path. The engine reads a relative one against its own working
+ * directory, which no client sees, and the runbook's folder is a root.
+ */
+export const AbsolutePath = Schema.NonEmptyString.check(
+  Schema.isPattern(/^(?:\/|[A-Za-z]:[\\/]|\\\\)/, { expected: "an absolute path" }),
+)
+
 export class OpenSession extends Rpc.make("OpenSession", {
-  payload: { path: Schema.NonEmptyString },
+  /** The runbook the person chose. Its folder is the session's `runbook` root. */
+  payload: { path: AbsolutePath },
   success: OpenResult,
   error: RunbookUnreadable,
 }) {}

@@ -169,6 +169,24 @@ export class TaskTimedOut extends Schema.TaggedError<TaskTimedOut>()("TaskTimedO
   afterMillis: Schema.Int,
 }) {}
 
+/**
+ * A folder the engine sets for a session. No client names one.
+ * - `runbook`: the folder the runbook is in.
+ * - `working`: the session's own folder. A run starts here, and a clone goes here.
+ * - `generated`: where generated files go, `generated` in the working folder.
+ * - `repository`: the repository the task names with `repository`.
+ */
+export const Root = Schema.Literals(["runbook", "working", "generated", "repository"])
+export type Root = typeof Root.Type
+
+/** A path a task named that leaves its root, as written or through a symbolic link. */
+export class PathOutsideRoot extends Schema.TaggedError<PathOutsideRoot>()("PathOutsideRoot", {
+  root: Root,
+  /** As the task named it. */
+  path: Schema.String,
+  message: Schema.String,
+}) {}
+
 /** Why a task did not finish. A closed set; a client branches on the tag. */
 export const TaskError = Schema.Union([
   PropError,
@@ -176,6 +194,7 @@ export const TaskError = Schema.Union([
   TaskFailed,
   TaskCancelled,
   TaskTimedOut,
+  PathOutsideRoot,
 ])
 export type TaskError = typeof TaskError.Type
 
@@ -201,13 +220,25 @@ export interface GitCredentialRef {
   readonly token: Redacted.Redacted<string>
 }
 
-/** What the engine resolves before a task runs. */
-export interface TaskInput {
+/** A path a task names, relative to one of the roots. An absolute one must still be inside it. */
+export interface RootedPath {
+  readonly root: Root
+  readonly path: string
+}
+
+/** The session's roots, as absolute paths. The repository's is `TaskInput.repository`. */
+export type Roots = { readonly [R in Exclude<Root, "repository">]: string }
+
+/** What the engine resolves before a task runs. `N` names the task's `paths`. */
+export interface TaskInput<N extends string = never> {
   /** The values the task reads: from its `inputsId` targets, then its own form. */
   readonly values: FormValues
   readonly env: RunEnv
-  /** The session's working directory, or the repository the task names. */
+  /** Where the run starts: the repository the task names, or else the working folder. */
   readonly cwd: string
+  readonly roots: Roots
+  /** Each path the task names in `paths`, resolved inside its root, as an absolute path. */
+  readonly paths: { readonly [Name in N]: string }
   readonly repository: Option.Option<RepositoryRef>
   readonly gitCredential: Option.Option<GitCredentialRef>
 }
@@ -258,16 +289,28 @@ export interface FormBlock<P> extends BlockBase<P> {
 export type TaskCapability = Exclude<Capability, "run" | "git-credential">
 
 /** Runs on a click and gives outputs, files, and a pass or fail. May carry a form for its own parameters. */
-export interface TaskBlock<P, K extends string, R> extends BlockBase<P> {
+export interface TaskBlock<P, K extends string, R, N extends string = never> extends BlockBase<P> {
   readonly class: "task"
   readonly provides: readonly ["run", ...ReadonlyArray<TaskCapability>]
   readonly effects: ReadonlyArray<MachineEffect>
   readonly outputs: (p: P) => OutputDecls<K>
   /** As a form block's: read when the runbook opens, before trust. */
   readonly fields?: (p: P, files: RunbookTexts) => Effect.Effect<FormSpec, PropError>
+  /**
+   * Each path the task reads or writes, by name, inside a root. Before a run
+   * the engine resolves each one and fails the run with `PathOutsideRoot` if
+   * it leaves its root; `run` gets them as `TaskInput.paths`.
+   */
+  readonly paths?: (p: P, values: FormValues) => { readonly [Name in N]: RootedPath }
+  /**
+   * For a task that provides `repository`, the one of its `paths` it makes
+   * the repository in. That path must be a folder inside the working folder,
+   * not the working folder itself, since the task may delete what is there.
+   */
+  readonly repository?: N
   /** The one function that gets services. The engine calls it only in a trusted session. */
-  readonly run: (p: P, input: TaskInput) => Stream.Stream<TaskEvent<K>, TaskError, R>
-  readonly instruction: (p: P, input: TaskInput) => Instruction
+  readonly run: (p: P, input: TaskInput<N>) => Stream.Stream<TaskEvent<K>, TaskError, R>
+  readonly instruction: (p: P, input: TaskInput<N>) => Instruction
   readonly plugins: ReadonlyArray<PluginUse>
   readonly step?: (p: P) => boolean
 }
@@ -371,16 +414,23 @@ interface AskedServices {
   readonly askedServices: "the services a block asks for"
 }
 
-/** A block of each class, asking for `AskedServices`. */
+/** A block of each class, asking for `AskedServices`, and naming paths. */
 type EachClass =
   | DisplayBlock<unknown>
   | FormBlock<unknown>
-  | TaskBlock<unknown, string, AskedServices>
+  | TaskBlock<unknown, string, AskedServices, string>
   | CredentialBlock<unknown>
+
+/** Whether `A` is a function. `never`, which extends every type, is not one. */
+type IsFunction<A> = [A] extends [never]
+  ? false
+  : A extends (...args: never) => unknown
+    ? true
+    : false
 
 /** The name of each function a block of some class declares. */
 type FunctionName<B> = B extends unknown
-  ? { [K in keyof B]-?: NonNullable<B[K]> extends (...args: never) => unknown ? K : never }[keyof B]
+  ? { [K in keyof B]-?: IsFunction<NonNullable<B[K]>> extends true ? K : never }[keyof B]
   : never
 
 export type BlockFunction = FunctionName<EachClass>
@@ -419,6 +469,7 @@ export const BEFORE_TRUST = {
   runbookFiles: true,
   outputs: true,
   fields: true,
+  paths: true,
   step: true,
   instruction: true,
   request: true,
@@ -436,9 +487,9 @@ export const BEFORE_TRUST = {
  */
 export const defineDisplay = <P>(block: DisplayBlock<P>): DisplayBlock<P> => block
 export const defineForm = <P>(block: FormBlock<P>): FormBlock<P> => block
-export const defineTask = <P, K extends string, R = never>(
-  block: TaskBlock<P, K, R>,
-): TaskBlock<P, K, R> => block
+export const defineTask = <P, K extends string, R = never, N extends string = never>(
+  block: TaskBlock<P, K, R, N>,
+): TaskBlock<P, K, R, N> => block
 export const defineCredential = <P>(block: CredentialBlock<P>): CredentialBlock<P> => block
 
 /**
