@@ -41,7 +41,7 @@ describe("parseRunbook", () => {
         "```",
         "</Inputs>",
         "",
-        '<Command id="create-account" command="make account" dependsOn={["config"]} />',
+        '<Command id="create-account" command="make account" inputsId={["config"]} />',
       ].join("\n"),
     )
     expect(
@@ -52,7 +52,7 @@ describe("parseRunbook", () => {
     ])
     expect(doc.blocks[0]?.props).toEqual({ variables: [{ name: "region", type: "string" }] })
     expect(doc.blocks[1]?.props).toEqual({ command: "make account" })
-    expect(doc.blocks[1]?.shared).toEqual({ dependsOn: [id("config")] })
+    expect(doc.blocks[1]?.shared).toEqual({ inputsId: [id("config")] })
     expect(doc.tree.children?.map((node) => node.type)).toEqual(["heading", "block", "block"])
     expect(doc.tree.children?.[2]).toEqual({ type: "block", index: 1, children: [] })
   })
@@ -265,7 +265,9 @@ describe("parseRunbook", () => {
     })
 
     it("reads an *AuthId prop as an envFrom source, with a warning", () => {
-      const doc = parsed('<Command id="a" command="ls" envFrom={["setup"]} awsAuthId="aws-prod" />')
+      const doc = parsed(
+        '<Command id="a" command="ls" envFrom={["setup"]} awsAuthId="aws-prod" />\n\n<Command id="setup" command="make" />\n\n<GitAuth id="aws-prod" />',
+      )
       expect(doc.blocks[0]?.shared.envFrom).toEqual([id("setup"), id("aws-prod")])
       expect(brief(doc.warnings)).toEqual([
         [
@@ -277,7 +279,9 @@ describe("parseRunbook", () => {
     })
 
     it("reads githubAuthId as the block's git-credential prop, with a warning", () => {
-      const doc = parsed('<GitClone id="g" url="https://example.com/r.git" githubAuthId="gh" />')
+      const doc = parsed(
+        '<GitClone id="g" url="https://example.com/r.git" githubAuthId="gh" />\n\n<GitHubAuth id="gh" />',
+      )
       expect(doc.blocks[0]?.props).toEqual({ url: "https://example.com/r.git", gitAuthId: "gh" })
       expect(doc.blocks[0]?.shared).toEqual({})
       expect(brief(doc.warnings)).toEqual([
@@ -292,7 +296,7 @@ describe("parseRunbook", () => {
 
     it("keeps the block's own git-credential prop when githubAuthId is written too", () => {
       const doc = parsed(
-        '<GitClone id="g" url="https://example.com/r.git" githubAuthId="gh" gitAuthId="git" />',
+        '<GitClone id="g" url="https://example.com/r.git" githubAuthId="gh" gitAuthId="git" />\n\n<GitHubAuth id="gh" />\n\n<GitAuth id="git" />',
       )
       expect(doc.blocks[0]?.props).toMatchObject({ gitAuthId: "git" })
       expect(brief(doc.warnings)).toEqual([
@@ -301,7 +305,9 @@ describe("parseRunbook", () => {
     })
 
     it("leaves an *AuthId prop to a block that has it as its own", () => {
-      const doc = parsed('<GitClone id="g" url="https://example.com/r.git" gitAuthId="git-auth" />')
+      const doc = parsed(
+        '<GitClone id="g" url="https://example.com/r.git" gitAuthId="git-auth" />\n\n<GitAuth id="git-auth" />',
+      )
       expect(doc.blocks[0]?.props).toEqual({
         url: "https://example.com/r.git",
         gitAuthId: "git_auth",
