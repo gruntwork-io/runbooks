@@ -83,14 +83,6 @@ export type ReferenceProp<P> = {
  */
 export type References<P> = { readonly [K in ReferenceProp<P>]?: Capability }
 
-/** One edge of the document's graph, as the parser extracts it. */
-export interface Reference {
-  /** The prop that names the target, for the error's location. */
-  readonly prop: string
-  readonly target: BlockId
-  readonly capability: Capability
-}
-
 // ---------------------------------------------------------------------------
 // What a block declares
 // ---------------------------------------------------------------------------
