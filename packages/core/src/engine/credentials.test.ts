@@ -7,7 +7,8 @@
  */
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
-import { Effect, Exit, Option, Redacted, Schema, Scope, Stream } from "effect"
+import { DateTime, Effect, Exit, Option, Redacted, Schema, Scope, Stream } from "effect"
+import { TestClock } from "effect/testing"
 import { BlockId, CredentialError } from "@runbooks/blocks-core/contract"
 import type { AnyBlock } from "@runbooks/blocks-core/registry"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
@@ -161,11 +162,16 @@ const movesOf = (block: string) =>
     event._tag === "CredentialChanged" && event.block === block ? [event.state._tag] : [],
   )
 
-/** A trusted session of `runbook` whose credential providers are `scripts`. */
+/**
+ * A trusted session of `runbook` whose credential providers are `scripts`.
+ * With `testClock`, the session's time starts at the epoch and moves only
+ * when the test adjusts it, and `wallClockAhead` jumps the wall clock alone.
+ */
 const withCloud = <A>(
   runbook: string,
   scripts: Readonly<Record<string, (config: ProviderConfig) => ScriptedProvider>>,
   use: UseEnvSession<A>,
+  options: { readonly testClock?: boolean; readonly wallClockAhead?: () => number } = {},
 ): Promise<A> => {
   calls = []
   log = []
@@ -179,6 +185,7 @@ const withCloud = <A>(
       fileSystem: makeTestFileSystem({ [RUNBOOK]: runbook }),
       spawner: spawner.layer,
       providers: testCredentialProviders(scripts, calls),
+      ...options,
     },
     (rb) =>
       Effect.gen(function* () {
@@ -1093,6 +1100,257 @@ describe("a run that names the block in envFrom", () => {
           })
           expect(rb.inputOf("deploy")).toBeUndefined()
         }),
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Expiry
+// ---------------------------------------------------------------------------
+
+const MINUTE = 60_000
+/** On the test clock, which starts at the epoch: `minutes` after it. */
+const at = (minutes: number) => DateTime.makeUnsafe(minutes * MINUTE)
+/** What `env` gives, each call the next entry, the last one from then on. */
+const expiring = (...minutes: ReadonlyArray<number>) => {
+  let given = 0
+  return Effect.sync((): CredentialEnv => ({
+    ...cloudEnv("tok-SECRET"),
+    expiresAt: Option.some(at(minutes[Math.min(given++, minutes.length - 1)] ?? 0)),
+  }))
+}
+const envCalls = () => callsOf("cloud").filter((method) => method === "env").length
+
+describe("a credential that expires", () => {
+  // useCredentialExpiry.test.ts "is valid, then expiring for the last 5
+  // minutes, then expired". Expiring and expired are now one state, which
+  // withdraws the values; `identity.expiresAt` tells the two apart.
+  it("is Ready, then Expired for its last five minutes, which withdraws its values", async () => {
+    await withCloud(
+      runbookOf(pinned, DEPLOY),
+      { cloud: cloud({ detect: () => found(who("111")), env: expiring(60) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({
+            identity: { expiresAt: at(60) },
+          })
+          yield* TestClock.adjust(54 * MINUTE + 59_999)
+          expect(yield* rb.status("cloud")).toEqual(done)
+          expect(yield* rb.status("deploy")).toEqual({ _tag: "Idle" })
+          yield* TestClock.adjust(1)
+          expect(yield* rb.until("cloud", "Expired")).toEqual({
+            _tag: "Expired",
+            identity: { ...who("111"), expiresAt: at(60) },
+          })
+          const status = yield* rb.status("cloud")
+          expect(status?._tag === "Failed" && status.error).toMatchObject({ kind: "expired" })
+          expect((yield* rb.outputs).cloud).toBeUndefined()
+          expect(yield* rb.status("deploy")).toEqual(WAITING_FOR_CLOUD)
+        }),
+      { testClock: true },
+    )
+    // Once to become Ready, once to try to refresh.
+    expect(envCalls()).toBe(2)
+  })
+
+  it("refreshes through env in the warning window, and stays Ready while the expiry moves", async () => {
+    await withCloud(
+      runbookOf(pinned, DEPLOY),
+      { cloud: cloud({ detect: () => found(who("111")), env: expiring(60, 120) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Ready")
+          yield* TestClock.adjust(55 * MINUTE)
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({
+            identity: { expiresAt: at(120) },
+          })
+          expect(yield* rb.status("cloud")).toEqual(done)
+          expect(yield* rb.run("deploy")).toEqual(done)
+          yield* TestClock.adjust(60 * MINUTE)
+          yield* rb.until("cloud", "Expired")
+        }),
+      { testClock: true },
+    )
+    // Ready, the refresh at 55, the run, and the refresh at 115 that gave the same expiry.
+    expect(envCalls()).toBe(4)
+    expect(movesOf("cloud")).toEqual(["Detecting", "Ready", "Ready", "Expired"])
+  })
+
+  // useCredentialExpiry.test.ts "starts expiring or expired for a credential
+  // already that close". A credential that close is never Ready now.
+  it("refuses a credential already within five minutes of its expiry", async () => {
+    await withCloud(
+      runbookOf(pinned, DEPLOY),
+      { cloud: cloud({ detect: () => found(who("111")), env: expiring(4) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.until("cloud", "SignedOut")).toMatchObject({
+            lastError: { kind: "expired" },
+          })
+          expect(yield* rb.status("deploy")).toEqual(WAITING_FOR_CLOUD)
+        }),
+      { testClock: true },
+    )
+    expect(movesOf("cloud")).toEqual(["Detecting", "SignedOut"])
+  })
+
+  it("fails a run that would get a credential in its warning window, and is Expired", async () => {
+    await withCloud(
+      runbookOf(pinned, DEPLOY),
+      { cloud: cloud({ detect: () => found(who("111")), env: expiring(60, 3) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Ready")
+          yield* rb.start("deploy")
+          const status = yield* rb.wait("deploy")
+          expect(status).toMatchObject({
+            _tag: "Failed",
+            error: {
+              message:
+                "cloud could not give the run its credentials: cloud's credential expires within 5 minutes, so it was not used.",
+            },
+          })
+          expect(rb.inputOf("deploy")).toBeUndefined()
+          expect(yield* rb.until("cloud", "Expired")).toMatchObject({
+            identity: { expiresAt: at(3) },
+          })
+          expect(spawns).toEqual([])
+        }),
+      { testClock: true },
+    )
+  })
+
+  it("waits for the later expiry a run's refresh gave before it refreshes again", async () => {
+    await withCloud(
+      runbookOf(pinned, DEPLOY),
+      { cloud: cloud({ detect: () => found(who("111")), env: expiring(60, 120) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Ready")
+          expect(yield* rb.run("deploy")).toEqual(done)
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({
+            identity: { expiresAt: at(120) },
+          })
+          yield* TestClock.adjust(60 * MINUTE)
+          expect(envCalls()).toBe(2)
+          expect(yield* rb.status("cloud")).toEqual(done)
+          yield* TestClock.adjust(55 * MINUTE)
+          yield* rb.until("cloud", "Expired")
+        }),
+      { testClock: true },
+    )
+    expect(envCalls()).toBe(3)
+  })
+
+  it("wakes for an earlier expiry a run's refresh gave", async () => {
+    await withCloud(
+      runbookOf(pinned, DEPLOY),
+      { cloud: cloud({ detect: () => found(who("111")), env: expiring(120, 15.75) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Ready")
+          // Halfway through one of the watch's waits, which ends at 11 minutes.
+          yield* TestClock.adjust(10.5 * MINUTE)
+          expect(yield* rb.run("deploy")).toEqual(done)
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({
+            identity: { expiresAt: at(15.75) },
+          })
+          // The new window opens at 10.75 minutes, before that wait ends.
+          yield* TestClock.adjust(MINUTE / 4)
+          expect(yield* rb.until("cloud", "Expired")).toMatchObject({
+            identity: { expiresAt: at(15.75) },
+          })
+        }),
+      { testClock: true },
+    )
+    expect(envCalls()).toBe(3)
+  })
+
+  it("shows Expired within a minute of the machine waking past the window", async () => {
+    let ahead = 0
+    await withCloud(
+      runbookOf(pinned, DEPLOY),
+      { cloud: cloud({ detect: () => found(who("111")), env: expiring(60) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Ready")
+          // The machine sleeps an hour and a half: the wall clock jumps, and no timer fires.
+          ahead = 90 * MINUTE
+          expect(yield* rb.status("cloud")).toEqual(done)
+          yield* TestClock.adjust(MINUTE)
+          expect(yield* rb.until("cloud", "Expired")).toMatchObject({
+            identity: { expiresAt: at(60) },
+          })
+        }),
+      { testClock: true, wallClockAhead: () => ahead },
+    )
+    // Once to become Ready, once to try to refresh on waking.
+    expect(envCalls()).toBe(2)
+  })
+
+  it("signs in again from Expired", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" detect={false} />',
+      {
+        cloud: cloud({
+          signIn: () => Stream.make(signedIn(who("111"))),
+          env: expiring(10, 10, 80),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "SignedOut")
+          yield* rb.act("cloud", { _tag: "SignIn", method: "sso", fields: {} })
+          yield* rb.until("cloud", "Ready")
+          yield* TestClock.adjust(5 * MINUTE)
+          yield* rb.until("cloud", "Expired")
+          expect(yield* rb.act("cloud", { _tag: "SignIn", method: "sso", fields: {} })).toEqual({
+            _tag: "Accepted",
+          })
+          expect(yield* rb.until("cloud", "Ready")).toMatchObject({
+            identity: { expiresAt: at(80) },
+          })
+        }),
+      { testClock: true },
+    )
+  })
+})
+
+describe("a provider that does not answer", () => {
+  it("is given up on after a minute", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" />',
+      { cloud: cloud({ detect: () => Effect.never }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Detecting")
+          yield* TestClock.adjust(MINUTE)
+          expect(yield* rb.until("cloud", "SignedOut")).toMatchObject({
+            lastError: { kind: "timedOut", message: "The credential provider did not answer." },
+          })
+        }),
+      { testClock: true },
+    )
+  })
+
+  it("gives a sign-in fifteen minutes", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" detect={false} />',
+      { cloud: cloud({ signIn: () => Stream.concat(Stream.make(WAITING), Stream.never) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "SignedOut")
+          yield* rb.act("cloud", { _tag: "SignIn", method: "sso", fields: {} })
+          yield* rb.until("cloud", "SigningIn")
+          yield* rb.until("cloud", "SigningIn")
+          yield* TestClock.adjust(15 * MINUTE - 1)
+          expect(yield* rb.status("cloud")).toEqual({ _tag: "Running" })
+          yield* TestClock.adjust(1)
+          expect(yield* rb.until("cloud", "SignedOut")).toMatchObject({
+            lastError: { kind: "timedOut" },
+          })
+        }),
+      { testClock: true },
     )
   })
 })

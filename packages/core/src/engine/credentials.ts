@@ -18,6 +18,10 @@
  * - A person or agent moves the block with an action (`act`). `TAKEN_IN`
  *   says which states take which action; anything else is NotAllowed, and
  *   a method, level or target the state does not offer is NotOffered.
+ * - A Ready credential is Expired from `EXPIRY_WARNING_MILLIS` before its
+ *   expiry, which withdraws its values. Before then the engine refreshes it
+ *   through `env`, and a later expiry keeps it Ready. A run that reads it in
+ *   the window fails, and one that sees a later expiry moves it.
  *
  * A provider call runs in a fiber of the session's scope, so closing the
  * session stops it, one at a time for each block. It moves the block only
@@ -26,7 +30,19 @@
  */
 import path from "node:path"
 import type { Duration } from "effect"
-import { Cause, Effect, Exit, Fiber, Option, Redacted, Scope, Stream } from "effect"
+import {
+  Cause,
+  Clock,
+  DateTime,
+  Effect,
+  Exit,
+  Fiber,
+  Latch,
+  Option,
+  Redacted,
+  Scope,
+  Stream,
+} from "effect"
 import {
   type BlockId,
   type CredentialBlock,
@@ -38,6 +54,7 @@ import {
 import {
   confirmsDetected,
   type CredentialAction,
+  EXPIRY_WARNING_MILLIS,
   type CredentialState,
   type CredentialStateTag,
   type MethodView,
@@ -63,6 +80,12 @@ import type { ActResult, EngineEvent } from "./protocol.ts"
 const PROVIDER_CALL_TIMEOUT: Duration.Input = "60 seconds"
 /** How long a sign-in may wait on the person: a device code lives about 10 minutes. */
 const SIGN_IN_TIMEOUT: Duration.Input = "15 minutes"
+/**
+ * The longest an expiry watch sleeps before it reads the clock again.
+ * Timers stop while the machine sleeps, so a watch that slept until the
+ * warning window in one go would show Ready past expiry after a wake-up.
+ */
+const EXPIRY_CHECK_MILLIS = 60_000
 
 /** A credential block with no configuration errors, and the request its props make. */
 export interface CredentialSlot {
@@ -133,6 +156,8 @@ interface Credential {
   turn: number
   /** What the ChoosingTarget the block is in goes on to. */
   choosing: Option.Option<Choosing>
+  /** Opened by the block's next move, so a watch waiting on its expiry looks again. */
+  moved: Latch.Latch
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +309,32 @@ const bounded = <A, R>(
     }),
   )
 
+/** When a credential expires: its values' expiry, or its identity's when they give none. */
+const expiryOf = (identity: Identity, env: CredentialEnv): Option.Option<DateTime.Utc> =>
+  Option.orElse(env.expiresAt, () => Option.fromUndefinedOr(identity.expiresAt))
+
+/** Whether a credential that expires at `expiry` is within the warning window at `now`, or past it. */
+const isExpiring = (expiry: Option.Option<DateTime.Utc>, now: number): boolean =>
+  Option.isSome(expiry) && DateTime.toEpochMillis(expiry.value) - now <= EXPIRY_WARNING_MILLIS
+
+/** The identity, showing when the credential expires. */
+const withExpiry = (identity: Identity, expiry: Option.Option<DateTime.Utc>): Identity =>
+  Option.match(expiry, {
+    onNone: () => identity,
+    onSome: (expiresAt) => ({ ...identity, expiresAt }),
+  })
+
+const sameExpiry = (a: Identity, b: Identity): boolean =>
+  a.expiresAt === undefined || b.expiresAt === undefined
+    ? a.expiresAt === b.expiresAt
+    : DateTime.toEpochMillis(a.expiresAt) === DateTime.toEpochMillis(b.expiresAt)
+
+const expiringError = (block: BlockId) =>
+  new CredentialError({
+    kind: "expired",
+    message: `${block}'s credential expires within ${EXPIRY_WARNING_MILLIS / 60_000} minutes, so it was not used.`,
+  })
+
 // ---------------------------------------------------------------------------
 // The blocks
 // ---------------------------------------------------------------------------
@@ -328,6 +379,7 @@ export function makeCredentials(
         call: undefined,
         turn: 0,
         choosing: Option.none(),
+        moved: Latch.makeUnsafe(false),
       },
     ]),
   )
@@ -360,6 +412,7 @@ export function makeCredentials(
       state = choosing
     } else state = next
     credential.state = state
+    credential.moved.openUnsafe()
     emit({ _tag: "CredentialChanged", block: credential.slot.id, state })
   }
 
@@ -405,7 +458,8 @@ export function makeCredentials(
   /**
    * Runs `call` for the block in a fiber of the session's scope, and moves
    * the block to the state it ends in, or the one its error leaves it in,
-   * if no action came since it started. A stopped call moves nothing.
+   * if no action came since it started. A stopped call moves nothing. A
+   * call that ends Ready goes on to `watch` its expiry.
    */
   const start = (
     credential: Credential,
@@ -420,6 +474,7 @@ export function makeCredentials(
             : Effect.sync(() => afterError(credential, errorOf(cause))),
         ),
         Effect.flatMap((next) => record(credential, turn, next)),
+        Effect.andThen(watch(credential, turn)),
       )
       credential.call = yield* Effect.forkIn(ended, host.scope, { startImmediately: true })
     })
@@ -530,7 +585,59 @@ export function makeCredentials(
       const unmet = unmetPins(pins, selected)
       if (unmet.length > 0) return signedOut(credential, opened, pinMismatch(unmet, selected))
       const env = yield* bounded(opened.provider.env)
-      return { _tag: "Ready", identity: selected, source, env }
+      const expiry = expiryOf(selected, env)
+      if (isExpiring(expiry, yield* Clock.currentTimeMillis))
+        return signedOut(credential, opened, expiringError(credential.slot.id))
+      return { _tag: "Ready", identity: withExpiry(selected, expiry), source, env }
+    })
+
+  /**
+   * While the block is Ready with an expiry and no action has come since
+   * `turn`: waits for the warning window, reading the clock at least every
+   * `EXPIRY_CHECK_MILLIS`, then refreshes through `env`. A later expiry is
+   * Ready again, and the watch goes on; otherwise, or if the provider cannot
+   * refresh, the block is Expired. A move wakes it at once, so a run's
+   * refresh that moves the expiry moves the wake-up with it.
+   */
+  const watch = (credential: Credential, turn: number): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      while (credential.turn === turn) {
+        // Made in the same step as the state is read, so no move falls between.
+        const nextMove = Latch.makeUnsafe(false)
+        credential.moved = nextMove
+        const { state, opened } = credential
+        if (state?._tag !== "Ready" || Option.isNone(opened)) return
+        const expiry = Option.fromUndefinedOr(state.identity.expiresAt)
+        if (Option.isNone(expiry)) return
+        const wake = DateTime.toEpochMillis(expiry.value) - EXPIRY_WARNING_MILLIS
+        const now = yield* Clock.currentTimeMillis
+        if (now < wake) {
+          yield* Effect.race(
+            Effect.sleep(Math.min(wake - now, EXPIRY_CHECK_MILLIS)),
+            nextMove.await,
+          )
+          continue
+        }
+        const refreshed = yield* Effect.option(bounded(opened.value.provider.env))
+        const answered = yield* Clock.currentTimeMillis
+        const next = Option.filter(
+          refreshed,
+          (env) => !isExpiring(expiryOf(state.identity, env), answered),
+        )
+        const moved: Move = Option.match(next, {
+          onNone: () => ({ _tag: "Expired", identity: state.identity }),
+          onSome: (env) => ({
+            _tag: "Ready",
+            identity: withExpiry(state.identity, expiryOf(state.identity, env)),
+            source: state.source,
+            env,
+          }),
+        })
+        // A run may have moved the block meanwhile; then the watch looks again.
+        yield* host.update((emit) => {
+          if (credential.turn === turn && credential.state === state) move(credential, moved, emit)
+        })
+      }
     })
 
   const detect = (credential: Credential, open: OpenProvider) =>
@@ -850,22 +957,36 @@ export function makeCredentials(
           const { state, opened, turn } = credential
           if (state?._tag !== "Ready" || Option.isNone(opened))
             return Effect.fail(noLongerReady(credential))
-          return bounded(opened.value.provider.env).pipe(
-            Effect.flatMap((env) =>
-              host
-                .update(() => {
-                  // Signed out, or moved on, while the provider answered.
-                  if (credential.turn !== turn || credential.state?._tag !== "Ready") return false
-                  host.store.set(credential.slot.id, env)
-                  return true
-                })
-                .pipe(
-                  Effect.flatMap((current) =>
-                    current ? Effect.succeed(env) : Effect.fail(noLongerReady(credential)),
-                  ),
-                ),
-            ),
-          )
+          return Effect.gen(function* () {
+            const env = yield* bounded(opened.value.provider.env)
+            const now = yield* Clock.currentTimeMillis
+            const given = yield* host.update((emit) => {
+              const current = credential.state
+              // Signed out, or moved on, while the provider answered.
+              if (credential.turn !== turn || current?._tag !== "Ready") return "gone" as const
+              const expiry = expiryOf(current.identity, env)
+              if (isExpiring(expiry, now)) {
+                move(
+                  credential,
+                  { _tag: "Expired", identity: withExpiry(current.identity, expiry) },
+                  emit,
+                )
+                return "expiring" as const
+              }
+              const identity = withExpiry(current.identity, expiry)
+              if (sameExpiry(identity, current.identity)) host.store.set(credential.slot.id, env)
+              else move(credential, { _tag: "Ready", identity, source: current.source, env }, emit)
+              return "given" as const
+            })
+            switch (given) {
+              case "gone":
+                return yield* noLongerReady(credential)
+              case "expiring":
+                return yield* expiringError(credential.slot.id)
+              case "given":
+                return env
+            }
+          })
         }),
       }
     },
