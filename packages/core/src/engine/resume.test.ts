@@ -22,7 +22,9 @@ import type {
   ProviderInfo,
   ResolvedSource,
 } from "../credential/provider.ts"
+import { FileWriteError } from "../errors/index.ts"
 import { FileSystem } from "../services/FileSystem.ts"
+import { SessionDatabase, type SessionRow } from "../services/SessionDatabase.ts"
 import {
   type ProviderCall,
   type ScriptedProvider,
@@ -39,7 +41,12 @@ import { testSettingsStore } from "../test-utils/TestSettingsFile.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import { Engine } from "./engine.ts"
 import { Caller, type EventEnvelope } from "./protocol.ts"
-import { MAX_SAVED_LOG_CHARS, MAX_SAVED_LOG_LINES, SAVED_SESSION_VERSION } from "./sessionStore.ts"
+import {
+  MAX_SAVED_LOG_CHARS,
+  MAX_SAVED_LOG_LINES,
+  MAX_SESSION_AGE_MILLIS,
+  SAVED_SESSION_VERSION,
+} from "./sessionStore.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
 const blockId = Schema.decodeSync(BlockId)
@@ -684,5 +691,96 @@ describe("resuming a credential", () => {
     expect(view.credential).toBeUndefined()
     expect(view.status).toEqual(UNTRUSTED)
     expect(calls).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Retention
+// ---------------------------------------------------------------------------
+
+/** Saves `row` in the machine's database as it would be after time passed. */
+const putSession = (on: Machine, row: SessionRow) =>
+  Effect.runPromise(
+    Effect.flatMap(SessionDatabase, (db) => db.putSession(row)).pipe(
+      Effect.provide(on.database.layer),
+    ),
+  )
+
+/** Opens the runbook in one start, gives it a value and files in both its folders, and gives its row. */
+const leftAlone = async (on: Machine) => {
+  const id = await start(
+    on,
+    Effect.gen(function* () {
+      const rb = yield* open
+      yield* rb.set("form", { region: "eu-west-1" })
+      return rb.view.session
+    }),
+  )
+  on.files[`/work/${id}/repo/main.tf`] = "terraform {}"
+  on.files[`/state/${id}/cloud/token`] = "tok-SECRET"
+  const [row] = on.database.sessions()
+  if (row === undefined) throw new Error("The session was not saved.")
+  return row
+}
+
+const STALE = Date.now() - MAX_SESSION_AGE_MILLIS - 60_000
+
+describe("retention", () => {
+  it(`drops a session unused for ${MAX_SESSION_AGE_MILLIS / 86_400_000} days, with its folders, when the app starts`, async () => {
+    const on = machine(FORM_AND_DEPLOY)
+    const row = await leftAlone(on)
+    await putSession(on, { ...row, usedAt: STALE })
+
+    const view = await start(
+      on,
+      Effect.map(open, (rb) => rb.view),
+    )
+    expect(Object.keys(on.files).filter((file) => file.includes(row.id))).toEqual([])
+    expect(String(view.session)).not.toBe(row.id)
+    expect(view.resumed).toBeUndefined()
+    expect(on.database.sessions().map(({ id }) => id)).toEqual([view.session])
+  })
+
+  it("keeps a session used since, and its folders", async () => {
+    const on = machine(FORM_AND_DEPLOY)
+    const row = await leftAlone(on)
+    const view = await start(
+      on,
+      Effect.map(open, (rb) => rb.view),
+    )
+    expect(String(view.session)).toBe(row.id)
+    expect(on.files[`/work/${row.id}/repo/main.tf`]).toBe("terraform {}")
+  })
+
+  it("keeps a session whose folders cannot be deleted, for the next start to try again", async () => {
+    const on = machine(FORM_AND_DEPLOY)
+    const row = await leftAlone(on)
+    await putSession(on, { ...row, usedAt: STALE })
+    const stuck: Machine = {
+      ...on,
+      fileSystem: Layer.succeed(FileSystem, {
+        ...testFileSystem(on.files, ["/rb"]),
+        rm: (folder) =>
+          Effect.fail(new FileWriteError({ path: folder, cause: new Error("Device busy") })),
+      }),
+    }
+    await start(stuck, Effect.void)
+    expect(on.database.sessions().map(({ id }) => id)).toEqual([row.id])
+    await start(on, Effect.void)
+    expect(on.database.sessions()).toEqual([])
+  })
+
+  it("deletes no folder for a row whose id the engine did not make", async () => {
+    const on = machine(FORM_AND_DEPLOY)
+    await putSession(on, {
+      id: "../rb",
+      runbook: RUNBOOK,
+      createdAt: 0,
+      usedAt: STALE,
+      trusted: Option.none(),
+    })
+    await start(on, Effect.void)
+    expect(on.files[RUNBOOK]).toBe(FORM_AND_DEPLOY)
+    expect(on.database.sessions()).toEqual([])
   })
 })
