@@ -280,7 +280,8 @@ export const withEnvSession = <A>(
     readonly processEnvironment: Readonly<Record<string, string>>
     readonly fileSystem: Layer.Layer<FileSystem>
     readonly spawner: Layer.Layer<ProcessSpawner>
-    readonly providers?: Layer.Layer<CredentialProviders>
+    /** The providers, which may write files where the engine reads them. */
+    readonly providers?: Layer.Layer<CredentialProviders, never, FileSystem>
     /** The engine's settings, and the test's: the defaults, unless given. */
     readonly settings?: Layer.Layer<SettingsStore>
     readonly testClock?: boolean
