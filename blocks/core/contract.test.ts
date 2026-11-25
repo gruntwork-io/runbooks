@@ -27,6 +27,33 @@ const UrlProps = Schema.Struct({
   envFrom: Schema.optionalKey(Schema.Array(BlockId)),
 })
 
+describe("BlockId", () => {
+  const decode = Schema.decodeUnknownSync(BlockId)
+
+  it("is the same id with a hyphen or an underscore", () => {
+    expect(decode("create-account")).toBe(decode("create_account"))
+  })
+
+  it("tells ids apart by case", () => {
+    expect(decode("Deploy")).not.toBe(decode("deploy"))
+  })
+
+  it("normalizes an id inside a list, so a reference matches its target", () => {
+    expect(Schema.decodeUnknownSync(Schema.Array(BlockId))(["a-b", "c"])).toEqual([
+      decode("a_b"),
+      decode("c"),
+    ])
+  })
+
+  it("encodes to the form it compares by", () => {
+    expect(Schema.encodeSync(BlockId)(decode("create-account"))).toBe("create_account")
+  })
+
+  it("refuses an empty id", () => {
+    expect(() => decode("")).toThrow()
+  })
+})
+
 describe("block definitions", () => {
   it("accepts one block of each class", () => {
     const note = defineDisplay({
