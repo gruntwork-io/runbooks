@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto"
 import { Result, Schema, SchemaAST, SchemaIssue } from "effect"
 import YAML from "yaml"
-import { BlockId } from "@runbooks/blocks-core/contract"
+import { BlockId, type Capability, type ReferenceValue } from "@runbooks/blocks-core/contract"
 import { type AnyBlock, type Registry, resolveTag } from "@runbooks/blocks-core/registry"
 import { ConfigError, type ConfigErrorCode, ConfigWarning, type Span } from "./configError.ts"
 import {
@@ -19,6 +19,7 @@ import {
   SharedProps,
   type TreeNode,
 } from "./document.ts"
+import { referenceGraph, type WrittenReference } from "./graph.ts"
 import { refusals } from "./literalOnly.ts"
 import {
   attributeValue,
@@ -30,6 +31,7 @@ import {
 } from "./mdx.ts"
 import { nearest } from "./nearest.ts"
 import { REQUIREMENT_KEY, versionProblem } from "./runbooksVersion.ts"
+import { templateReferences } from "./templateReferences.ts"
 
 export interface ParseOptions {
   /** The runbook file, as every location names it. */
@@ -76,6 +78,13 @@ type SharedKey = keyof typeof SharedProps.fields
 const SHARED_KEYS: ReadonlySet<string> = new Set(Object.keys(SharedProps.fields))
 const isShared = (key: string): key is SharedKey => SHARED_KEYS.has(key)
 
+/** The shared props that name other blocks, each with the capability its targets must provide. */
+const SHARED_REFERENCES = [
+  ["inputsId", "values"],
+  ["dependsOn", "run"],
+  ["envFrom", "env"],
+] as const satisfies ReadonlyArray<readonly [SharedKey, Capability]>
+
 /** Whether `block` takes the shared prop `key`: it depends on its class and its effects. */
 function takes(block: AnyBlock, key: SharedKey): boolean {
   switch (key) {
@@ -107,6 +116,8 @@ class Parse {
   private readonly errors: ConfigError[] = []
   private readonly warnings: ConfigWarning[] = []
   private readonly blocks: Array<BlockNode | undefined> = []
+  /** Every reference a block makes, in file order, checked once every block is known. */
+  private readonly references: WrittenReference[] = []
   /** Attribute and expression nodes the literal check refused, which have no value to read. */
   private readonly refused = new Set<MdxNode>()
 
@@ -144,6 +155,16 @@ class Parse {
 
     const [tree = { type: "root", children: [] }] = this.node(parsed.tree)
     this.duplicateIds()
+    const blocks = this.blocks.filter((block) => block !== undefined)
+    const edges = referenceGraph(
+      blocks,
+      this.references,
+      this.registry,
+      this.options.file,
+      (code, message, span, more) => {
+        this.error(code, message, span, more)
+      },
+    )
     const [first] = this.errors
     if (first !== undefined) return this.invalid(first)
     return {
@@ -152,8 +173,8 @@ class Parse {
         file: this.options.file,
         frontMatter,
         tree,
-        blocks: this.blocks.filter((block) => block !== undefined),
-        edges: [],
+        blocks,
+        edges,
         hash: documentHash(this.source),
         warnings: [...this.warnings].sort(byPlace),
       },
@@ -376,12 +397,24 @@ class Parse {
     const yamlRead =
       childrenProp === undefined || this.yamlChildren(node, childrenProp, input, where)
 
-    const decodedShared = this.decodeShared(shared, aliases, written, span, where)
+    const decodedShared = this.decodeShared(index, shared, aliases, written, span, where)
     const props = Schema.decodeUnknownResult(block.props)(input)
     if (Result.isFailure(props)) {
       // YAML that did not parse is already reported; its prop's absence is not news.
       const skip = yamlRead ? undefined : childrenProp
       this.badProps(props.failure.issue, written, span, where, childrenProp, skip)
+    } else {
+      for (const [prop, capability] of Object.entries(block.references)) {
+        const value: unknown = props.success[prop]
+        if (capability === undefined || !isReferenceValue(value)) continue
+        // Read from `githubAuthId`: the edge names the prop the author wrote.
+        const alias = prop === credentialProp && !written.has(prop) ? credentialAlias : undefined
+        const as = alias === undefined ? prop : GIT_CREDENTIAL_ALIAS
+        this.refer(index, as, capability, alias ?? written.get(prop), value, span)
+      }
+    }
+    for (const [prop, value] of [...Object.entries(input), ...Object.entries(shared)]) {
+      this.templateReads(index, prop, value, written.get(prop)?.span ?? span)
     }
 
     this.blocks[index] = {
@@ -531,7 +564,49 @@ class Parse {
     )
   }
 
+  /** Each block a reference prop names, in order, with its id as written. */
+  private refer(
+    from: number,
+    prop: string,
+    capability: Capability,
+    at: Written | undefined,
+    value: ReferenceValue,
+    fallback: Span,
+  ): void {
+    const targets = typeof value === "string" ? [value] : value
+    const written = at === undefined ? [] : Array.isArray(at.value) ? at.value : [at.value]
+    for (const [position, target] of targets.entries()) {
+      const asWritten = written[position]
+      this.references.push({
+        from,
+        prop,
+        target,
+        targetAsWritten: typeof asWritten === "string" ? asWritten : target,
+        source: { _tag: "Prop", prop, capability },
+        span: at?.span ?? fallback,
+      })
+    }
+  }
+
+  /** Each `{{ .outputs.<id>.<key> }}` in the strings of one prop. */
+  private templateReads(from: number, prop: string, value: unknown, span: Span): void {
+    for (const text of strings(value)) {
+      for (const reference of templateReferences(text)) {
+        if (reference._tag !== "Output") continue
+        this.references.push({
+          from,
+          prop,
+          target: reference.block,
+          targetAsWritten: reference.blockAsWritten,
+          source: { _tag: "Template", key: reference.key, guarded: reference.guarded },
+          span,
+        })
+      }
+    }
+  }
+
   private decodeShared(
+    index: number,
     shared: Record<string, PropValue>,
     aliases: ReadonlyArray<[string, Written]>,
     written: ReadonlyMap<string, Written>,
@@ -542,6 +617,10 @@ class Parse {
     if (Result.isFailure(decoded)) {
       this.badProps(decoded.failure.issue, written, span, where, undefined)
       return {}
+    }
+    for (const [key, capability] of SHARED_REFERENCES) {
+      const value = decoded.success[key]
+      if (value !== undefined) this.refer(index, key, capability, written.get(key), value, span)
     }
     const envFrom = [...(decoded.success.envFrom ?? [])]
     for (const [key, prop] of aliases) {
@@ -554,7 +633,9 @@ class Parse {
         })
         continue
       }
-      envFrom.push(toBlockId(prop.value))
+      const id = toBlockId(prop.value)
+      envFrom.push(id)
+      this.refer(index, key, "env", prop, id, span)
       this.warn(
         "deprecatedProp",
         `\`${key}\` still works, and \`envFrom\` replaces it: envFrom={["${prop.value}"]} passes the same variables.`,
@@ -626,6 +707,18 @@ class Parse {
       )
     }
   }
+}
+
+const isReferenceValue = (value: unknown): value is ReferenceValue =>
+  typeof value === "string" ||
+  (Array.isArray(value) && value.every((entry) => typeof entry === "string"))
+
+/** Every string in a prop's value, at any depth. */
+function strings(value: unknown): string[] {
+  if (typeof value === "string") return [value]
+  if (Array.isArray(value)) return value.flatMap(strings)
+  if (typeof value === "object" && value !== null) return Object.values(value).flatMap(strings)
+  return []
 }
 
 const LINE_ONE: Span = { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } }

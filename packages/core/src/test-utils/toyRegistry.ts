@@ -3,10 +3,11 @@
  * must handle, for tests that need blocks before phase 3 adds real ones.
  * The tags are today's, so ported tests read as they did.
  */
-import { Effect, Schema, Stream } from "effect"
+import { Effect, Option, Schema, Stream } from "effect"
 import {
   type Alias,
   BlockId,
+  defineCredential,
   defineDisplay,
   defineForm,
   defineTask,
@@ -42,7 +43,11 @@ const CommandProps = Schema.Struct({
   outputs: Schema.optionalKey(Schema.Array(Schema.String)),
 })
 
-/** Task with the process effect: takes `dependsOn`, `envFrom` and `env`. Outputs what `outputs` lists. */
+/**
+ * Task with the process effect: takes `dependsOn`, `envFrom` and `env`, and
+ * gives environment to blocks that name it in `envFrom`. Outputs what
+ * `outputs` lists.
+ */
 const command = defineTask({
   name: "Command",
   since: "0.1.0",
@@ -51,7 +56,7 @@ const command = defineTask({
   children: { kind: "none" },
   references: {},
   runbookFiles: (p) => (p.path === undefined ? [] : [toPath(p.path)]),
-  provides: ["run"],
+  provides: ["run", "env"],
   effects: ["process"],
   outputs: (p) => Object.fromEntries((p.outputs ?? []).map((key) => [key, { sensitive: false }])),
   run: () => Stream.empty,
@@ -97,6 +102,42 @@ const clone = defineTask({
   plugins: [],
 })
 
+const GitAuthProps = Schema.Struct({
+  provider: Schema.optionalKey(Schema.Literals(["github", "gitlab"])),
+})
+
+/** Credential: gives environment, and a git credential to blocks that name it in `gitAuthId`. */
+const gitAuth = defineCredential({
+  name: "GitAuth",
+  since: "0.1.0",
+  class: "credential",
+  props: GitAuthProps,
+  children: { kind: "none" },
+  references: {},
+  runbookFiles: () => [],
+  provides: ["env", "git-credential"],
+  effects: ["network"],
+  scope: "git",
+  provider: "git",
+  outputs: () => ({ user: { sensitive: false } }),
+  request: () => ({
+    detect: [],
+    pins: {},
+    requirements: [],
+    settings: {},
+    defaultMethod: Option.none(),
+    methodDefaults: {},
+  }),
+  instruction: () => [],
+})
+
+const gitHubAuth: Alias<typeof GitAuthProps.Type> = {
+  name: "GitHubAuth",
+  since: "0.1.0",
+  of: "GitAuth",
+  locked: { provider: "github" },
+}
+
 const bash: Alias<typeof CommandProps.Type> = {
   name: "Bash",
   since: "0.2.0",
@@ -109,5 +150,7 @@ export const TOY_REGISTRY = {
   Command: command,
   Inputs: inputs,
   GitClone: clone,
+  GitAuth: gitAuth,
+  GitHubAuth: gitHubAuth,
   Bash: bash,
 } satisfies Registry
