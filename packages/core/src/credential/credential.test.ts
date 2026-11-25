@@ -133,6 +133,14 @@ describe("credential lifecycle", () => {
     }
   })
 
+  it("holds an unmet requirement the provider reported without naming who lacks it", () => {
+    const wire = Schema.encodeSync(json)({
+      _tag: "RequirementNotMet",
+      unmet: [{ kind: "scopes", scopes: ["repo"] }],
+    })
+    expect(Schema.decodeUnknownSync(json)(wire)._tag).toBe("RequirementNotMet")
+  })
+
   it("lets a sign-in show its next prompt, and a refresh move a ready credential's expiry", () => {
     expect(TRANSITIONS.SigningIn).toContain("SigningIn")
     expect(TRANSITIONS.Ready).toContain("Ready")

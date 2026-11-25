@@ -61,7 +61,12 @@ export const CredentialState = Schema.Union([
     identity: Schema.optionalKey(Identity),
   }),
   Schema.TaggedStruct("RequirementNotMet", {
-    identity: Identity,
+    /**
+     * Who lacks them, when the engine already holds the identity: a target
+     * chosen after sign-in. A detection or sign-in the provider refused with
+     * `requirementNotMet` names nobody.
+     */
+    identity: Schema.optionalKey(Identity),
     unmet: Schema.Array(Requirement),
   }),
   Schema.TaggedStruct("Ready", { identity: Identity, source: Schema.String }),
