@@ -269,7 +269,7 @@ const GoogleSignInSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("block"), blockId: z.string() }),
   z.object({ kind: z.literal("key-file"), keyPath: z.string() }),
-  z.object({ kind: z.literal("gcloud"), configuration: z.string() }),
+  z.object({ kind: z.literal("gcloud"), configuration: z.string().optional() }),
 ])
 
 export type GoogleSignIn = z.infer<typeof GoogleSignInSchema>

@@ -23,10 +23,9 @@ import { GoogleOAuthError } from "../../errors/index.ts"
  * default, an author prop may override it.
  *
  * TODO(release): populate from the Gruntwork GCP project before shipping. While
- * empty, google:oauth-start returns
- * { error: "OAuth login is not configured for this build" } and the OAuth tab
- * renders disabled with that copy — unless the author or operator supplies a
- * client via props, a client JSON file, or env vars.
+ * empty, google:oauth-start returns { error: OAUTH_NOT_CONFIGURED } unless the
+ * author or operator supplies a client via props, a client JSON file, or env
+ * vars.
  */
 export const DEFAULT_GOOGLE_OAUTH_CLIENT_ID = ""
 
@@ -45,7 +44,8 @@ export const GOOGLE_OAUTH_CLIENT_ID_ENV = "GOOGLE_OAUTH_CLIENT_ID"
 export const GOOGLE_OAUTH_CLIENT_SECRET_ENV = "GOOGLE_OAUTH_CLIENT_SECRET"
 
 /** User-facing copy for a build with no OAuth client configured anywhere. */
-export const OAUTH_NOT_CONFIGURED = "OAuth login is not configured for this build"
+export const OAUTH_NOT_CONFIGURED =
+  "Google Sign-In is not configured yet. It needs the JSON file of a Desktop OAuth client."
 
 /**
  * A Desktop client without its secret cannot be refreshed. The code exchange

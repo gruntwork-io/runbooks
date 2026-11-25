@@ -1,11 +1,15 @@
 import { CheckCircle, XCircle, Loader2, KeyRound, FolderOpen } from "lucide-react"
 import type {
+  AdcPrincipalLookup,
+  GcloudConfigInfo,
   GoogleAuthMethod,
   GoogleAuthStatus,
   GoogleCredentialType,
   GoogleDetectionSource,
+  SignedInAdcPrincipal,
 } from "./types"
 import { makeStatusStyles } from "../_shared/lib/statusStyles"
+import { namesAnotherAccount } from "../../../../../src/domain/google/account-mismatch"
 
 // Status-based styling for the container, icon, and icon color. Maps are
 // GoogleAuth-specific: the accent is `info` (blue) for the pending,
@@ -73,6 +77,68 @@ const CREDENTIAL_TYPE_LABELS: Record<GoogleCredentialType, string> = {
 // value like 'toString' must not resolve to an Object.prototype member.
 export function getCredentialTypeLabel(type: GoogleCredentialType | undefined): string | null {
   return type && Object.hasOwn(CREDENTIAL_TYPE_LABELS, type) ? CREDENTIAL_TYPE_LABELS[type] : null
+}
+
+const UNREADABLE_ADC = "Google could not confirm who these credentials belong to"
+
+export function toAdcPrincipalLookup(detection: {
+  found: boolean
+  valid?: boolean
+  account?: { principal?: string }
+  credentialType?: GoogleCredentialType
+  warning?: string
+  error?: string
+}): AdcPrincipalLookup {
+  const reason = detection.warning ?? detection.error
+  if (!detection.found) return reason ? { status: "unusable", reason } : { status: "missing" }
+  if (!detection.valid) return { status: "unusable", reason: reason ?? UNREADABLE_ADC }
+  return {
+    status: "signed-in",
+    principal: detection.account?.principal ?? "",
+    ...(detection.credentialType ? { credentialType: detection.credentialType } : {}),
+  }
+}
+
+export function isForAnotherAccount(
+  configuration: GcloudConfigInfo,
+  signedIn: SignedInAdcPrincipal,
+): boolean {
+  if (!signedIn.credentialType) return false
+  const identity = { email: signedIn.principal, credentialType: signedIn.credentialType }
+  return namesAnotherAccount(configuration.account, identity)
+}
+
+function hasCredentials(configuration: GcloudConfigInfo): boolean {
+  return configuration.authType !== "config-only" && configuration.authType !== "unsupported"
+}
+
+export function isUsableWith(
+  configuration: GcloudConfigInfo,
+  signedIn: SignedInAdcPrincipal,
+): boolean {
+  return hasCredentials(configuration) && !isForAnotherAccount(configuration, signedIn)
+}
+
+export function configurationsUsableWith(
+  configurations: GcloudConfigInfo[],
+  lookup: AdcPrincipalLookup,
+): GcloudConfigInfo[] {
+  if (lookup.status !== "signed-in") return []
+  return configurations.filter((configuration) => isUsableWith(configuration, lookup))
+}
+
+export function chooseConfiguration(
+  usable: GcloudConfigInfo[],
+  previousName: string | undefined,
+  pinnedName: string | undefined,
+): GcloudConfigInfo | null {
+  return (
+    usable.find((configuration) => configuration.name === previousName) ??
+    usable.find((configuration) => configuration.name === pinnedName) ??
+    usable.find((configuration) => configuration.isActive) ??
+    usable[0] ??
+    null
+  )
 }
 
 // The tab the block opens on when the author sets no `defaultTab`.

@@ -499,6 +499,9 @@ function GoogleAuthInteractive({
                   onSignIn={() => {
                     void auth.handleSignInWithRequiredScopes()
                   }}
+                  onChooseOAuthClient={() => {
+                    void auth.loadOAuthClientFromFile()
+                  }}
                   onReject={auth.handleRejectDetected}
                   onRetryDetection={auth.handleRetryDetection}
                 />
@@ -621,7 +624,7 @@ function GoogleAuthInteractive({
                     configSearch={auth.configSearch}
                     setConfigSearch={auth.setConfigSearch}
                     adcInfo={auth.adcInfo}
-                    configRoot={auth.gcloudConfigRoot}
+                    adcPrincipal={auth.adcPrincipal}
                     selectedRegion={auth.selectedRegion}
                     setSelectedRegion={auth.setSelectedRegion}
                     onGcloudAuth={auth.handleGcloudAuth}

@@ -9,6 +9,7 @@ import { useSessionHistory } from "@/contexts/useSessionHistory"
 import { parseSavedGoogleAuth, type GoogleSignIn, type SavedGoogleAuth } from "@/lib/sessionHistory"
 import type {
   AdcInfo,
+  AdcPrincipalLookup,
   DetectedGoogleCredentials,
   GcloudConfigInfo,
   GoogleAccountInfo,
@@ -19,7 +20,12 @@ import type {
   GoogleDetectionStatus,
   GoogleProjectInfo,
 } from "../types"
-import { resolveDefaultAuthMethod } from "../utils"
+import {
+  chooseConfiguration,
+  configurationsUsableWith,
+  resolveDefaultAuthMethod,
+  toAdcPrincipalLookup,
+} from "../utils"
 import { signInHint } from "@/components/mdx/_shared/lib/signInHint"
 
 // ---------------------------------------------------------------------------
@@ -46,6 +52,17 @@ const OAUTH_NOT_CONFIGURED_PATTERN = /not configured/i
  */
 const NO_PROJECT_WARNING =
   'Authenticated, but no Google Cloud project is set. Commands that need a project will fail until one is chosen — set the block\'s `project` prop, set `core/project` in your gcloud configuration, or use "Change project".'
+
+const NO_USABLE_ADC_MESSAGE =
+  "No usable Application Default Credentials. Run `gcloud auth application-default login`, then click Refresh."
+
+function describeFailure(error: unknown): string {
+  return error instanceof Error ? error.message : "The request to the main process failed"
+}
+
+function gcloudReplaySource(signIn: { configuration?: string | undefined }): "gcloud" | "adc" {
+  return signIn.configuration ? "gcloud" : "adc"
+}
 
 /** Shown by a resumed session's block whose sign-in can't be done again. */
 const NOT_RESUMABLE_MESSAGE =
@@ -201,15 +218,14 @@ export interface UseGoogleAuthReturn {
   // ---- gcloud tab -----------------------------------------------------------
   gcloudConfigs: GcloudConfigInfo[]
   selectedConfig: GcloudConfigInfo | null
-  setSelectedConfig: (c: GcloudConfigInfo) => void
+  setSelectedConfig: (c: GcloudConfigInfo | null) => void
   loadingConfigs: boolean
   configSearch: string
   setConfigSearch: (v: string) => void
   loadGcloudConfigs: () => Promise<void>
   /** Metadata for the well-known ADC file, or null when absent. */
   adcInfo: AdcInfo | null
-  /** Resolved gcloud config root, for the "no configurations found at X" copy. */
-  gcloudConfigRoot: string | null
+  adcPrincipal: AdcPrincipalLookup
 
   // ---- OAuth tab ------------------------------------------------------------
   /** Non-null while a loopback flow is live. Renders the "finish in the browser" card. */
@@ -372,10 +388,11 @@ export function useGoogleAuth({
   // ---- gcloud tab -----------------------------------------------------------
   const [gcloudConfigs, setGcloudConfigs] = useState<GcloudConfigInfo[]>([])
   const [selectedConfig, setSelectedConfig] = useState<GcloudConfigInfo | null>(null)
+  const choseNoConfigurationRef = useRef(false)
   const [loadingConfigs, setLoadingConfigs] = useState(false)
   const [configSearch, setConfigSearch] = useState("")
   const [adcInfo, setAdcInfo] = useState<AdcInfo | null>(null)
-  const [gcloudConfigRoot, setGcloudConfigRoot] = useState<string | null>(null)
+  const [adcPrincipal, setAdcPrincipal] = useState<AdcPrincipalLookup>({ status: "checking" })
 
   // ---- OAuth tab ------------------------------------------------------------
   const [oauthFlowId, setOauthFlowId] = useState<string | null>(null)
@@ -1776,74 +1793,71 @@ export function useGoogleAuth({
   // Tab 3 — gcloud configuration
   // ---------------------------------------------------------------------------
 
-  /** Pure disk read of the gcloud config root; no gcloud binary is invoked. */
+  const lookUpAdcPrincipal = useCallback(async (): Promise<AdcPrincipalLookup> => {
+    try {
+      return toAdcPrincipalLookup(await api.invoke("google:env-credentials", { source: "adc" }))
+    } catch (error) {
+      return { status: "unusable", reason: describeFailure(error) }
+    }
+  }, [api])
+
+  const showGcloudListing = useCallback(
+    async (list: GcloudConfigInfo[], adc: AdcInfo | null) => {
+      setGcloudConfigs(list)
+      setAdcInfo(adc)
+      const lookup: AdcPrincipalLookup = adc ? await lookUpAdcPrincipal() : { status: "missing" }
+      setAdcPrincipal(lookup)
+      const usable = configurationsUsableWith(list, lookup)
+      setSelectedConfig((previous) =>
+        choseNoConfigurationRef.current
+          ? null
+          : chooseConfiguration(usable, previous?.name, gcloudConfiguration),
+      )
+    },
+    [gcloudConfiguration, lookUpAdcPrincipal],
+  )
+
+  const selectConfiguration = useCallback((configuration: GcloudConfigInfo | null) => {
+    choseNoConfigurationRef.current = configuration === null
+    setSelectedConfig(configuration)
+  }, [])
+
+  const showGcloudListingFailure = useCallback((error: unknown) => {
+    console.error("Failed to load gcloud configurations:", error)
+    setGcloudConfigs([])
+    setSelectedConfig(null)
+    setAdcPrincipal({ status: "unusable", reason: describeFailure(error) })
+  }, [])
+
   const loadGcloudConfigs = useCallback(async () => {
     setLoadingConfigs(true)
+    setAdcPrincipal({ status: "checking" })
     try {
       const data = await api.invoke("google:gcloud-configurations", {})
       const list = (data.configurations ?? []) as GcloudConfigInfo[]
-      setGcloudConfigs(list)
-      setAdcInfo((data.adc as AdcInfo | undefined) ?? null)
-      setGcloudConfigRoot(data.configRoot ?? null)
-
-      // A configuration without Application Default Credentials cannot
-      // authenticate, so it is listed but never auto-selected.
-      const usable = (c: GcloudConfigInfo) =>
-        c.authType !== "config-only" && c.authType !== "unsupported"
-      const pinned = gcloudConfiguration
-        ? list.find((c) => c.name === gcloudConfiguration)
-        : undefined
-      const active = list.find((c) => c.isActive && usable(c))
-      const firstUsable = list.find(usable)
-      // "Refresh configurations" keeps the user's pick while it is still listed
-      // and usable, taking the FRESH entry (its ADC state may have changed).
-      // Otherwise the default choice applies, and when there is none the
-      // selection clears rather than keeping a configuration that is gone.
-      setSelectedConfig(
-        (prev) =>
-          (prev && list.find((c) => c.name === prev.name && usable(c))) ??
-          pinned ??
-          active ??
-          firstUsable ??
-          null,
-      )
+      await showGcloudListing(list, (data.adc as AdcInfo | undefined) ?? null)
     } catch (error) {
-      console.error("Failed to load gcloud configurations:", error)
-      setGcloudConfigs([])
-      setSelectedConfig(null)
+      showGcloudListingFailure(error)
     } finally {
       setLoadingConfigs(false)
     }
-  }, [api, gcloudConfiguration])
+  }, [api, showGcloudListing, showGcloudListingFailure])
 
   const handleGcloudAuth = useCallback(async () => {
-    if (!selectedConfig) {
+    if (adcPrincipal.status !== "signed-in") {
       setAuthStatus("failed")
-      setErrorMessage("Please select a gcloud configuration")
+      setErrorMessage(NO_USABLE_ADC_MESSAGE)
       return
     }
 
-    if (selectedConfig.authType === "config-only") {
-      setAuthStatus("failed")
-      setErrorMessage(
-        "Configuration found, but no Application Default Credentials — run `gcloud auth application-default login`.",
-      )
-      return
-    }
-
-    if (selectedConfig.authType === "unsupported") {
-      setAuthStatus("failed")
-      setErrorMessage("This authentication method is not supported")
-      return
-    }
-
-    signInRef.current = { kind: "gcloud", configuration: selectedConfig.name }
+    const configuration = selectedConfig ? { configuration: selectedConfig.name } : {}
+    signInRef.current = { kind: "gcloud", ...configuration }
     setAuthStatus("authenticating")
     setErrorMessage(null)
     setWarningMessage(null)
     invalidateBlockOutputs()
 
-    const requestedProject = project || selectedConfig.project || ""
+    const requestedProject = project || selectedConfig?.project || ""
 
     try {
       // Only the user's explicit region/zone is sent, never this listing's. With
@@ -1853,7 +1867,7 @@ export function useGoogleAuth({
       // set-project that follows, and echoes what it wrote.
       const data = await api.invoke("google:gcloud-auth", {
         blockId: id,
-        configuration: selectedConfig.name,
+        ...configuration,
         ...(requestedProject ? { projectId: requestedProject } : {}),
         ...(effectiveRegion ? { region: effectiveRegion } : {}),
         ...(effectiveZone ? { zone: effectiveZone } : {}),
@@ -1863,7 +1877,7 @@ export function useGoogleAuth({
       if (!data.valid) {
         setAuthStatus("failed")
         setErrorMessage(
-          data.error || "Failed to authenticate with the selected gcloud configuration",
+          data.error || "Failed to authenticate with the Application Default Credentials",
         )
         return
       }
@@ -1876,8 +1890,7 @@ export function useGoogleAuth({
       const identity: PendingAccount = {
         ...(data.account?.principal ? { principal: data.account.principal } : {}),
         ...(data.account?.accountType ? { accountType: data.account.accountType } : {}),
-        credentialType:
-          selectedConfig.authType === "adc-service-account" ? "service_account" : "authorized_user",
+        credentialType: adcInfo?.type === "service_account" ? "service_account" : "authorized_user",
         ...(data.account?.scopes ? { scopes: data.account.scopes } : {}),
         ...(data.account?.expiresAt ? { expiresAt: data.account.expiresAt } : {}),
         ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
@@ -1937,6 +1950,8 @@ export function useGoogleAuth({
     api,
     id,
     selectedConfig,
+    adcPrincipal,
+    adcInfo,
     project,
     scopes,
     effectiveRegion,
@@ -2088,7 +2103,7 @@ export function useGoogleAuth({
         case "detected":
         case "gcloud": {
           const detected = await api.invoke("google:env-credentials", {
-            source: signIn.kind === "gcloud" ? "gcloud" : signIn.source,
+            source: signIn.kind === "gcloud" ? gcloudReplaySource(signIn) : signIn.source,
             ...(signIn.kind === "detected" && signIn.prefix ? { prefix: signIn.prefix } : {}),
             ...(signIn.configuration ? { configuration: signIn.configuration } : {}),
             ...scopeParams,
@@ -2131,7 +2146,7 @@ export function useGoogleAuth({
         case "gcloud":
           return api.invoke("google:gcloud-auth", {
             blockId: id,
-            configuration: signIn.configuration,
+            ...(signIn.configuration ? { configuration: signIn.configuration } : {}),
             ...placement,
             ...scopeParams,
           })
@@ -2242,13 +2257,13 @@ export function useGoogleAuth({
     // gcloud tab
     gcloudConfigs,
     selectedConfig,
-    setSelectedConfig,
+    setSelectedConfig: selectConfiguration,
     loadingConfigs,
     configSearch,
     setConfigSearch,
     loadGcloudConfigs,
     adcInfo,
-    gcloudConfigRoot,
+    adcPrincipal,
 
     // OAuth tab
     oauthFlowId,

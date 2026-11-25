@@ -543,7 +543,7 @@ export interface IpcChannelMap {
   "google:gcloud-auth": {
     params: {
       blockId?: string
-      configuration: string
+      configuration?: string
       projectId?: string
       region?: string
       zone?: string

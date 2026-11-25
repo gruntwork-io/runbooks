@@ -113,25 +113,29 @@ describe("evaluateRequiredGoogleScopes", () => {
 })
 
 describe("formatGcloudAdcLoginCommand", () => {
-  it("omits --scopes when none were requested but still requires a Desktop client file", () => {
-    expect(formatGcloudAdcLoginCommand([])).toBe(
-      'gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS"',
-    )
+  it("is the plain login when no scopes were requested", () => {
+    expect(formatGcloudAdcLoginCommand([])).toBe("gcloud auth application-default login")
   })
 
   it("joins scopes for the directory-grants shape", () => {
     expect(formatGcloudAdcLoginCommand([CLOUD_PLATFORM, DIRECTORY, EMAIL, "openid"])).toBe(
-      `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=${CLOUD_PLATFORM},${DIRECTORY},${EMAIL},openid`,
+      `gcloud auth application-default login --scopes=${CLOUD_PLATFORM},${DIRECTORY},${EMAIL},openid`,
     )
+  })
+
+  it("names no variable or file the reader would have to set up first", () => {
+    const command = formatGcloudAdcLoginCommand([CLOUD_PLATFORM, DIRECTORY])
+    expect(command.match(/\$|client-id-file/g) ?? []).toHaveLength(0)
   })
 })
 
 describe("insufficientScopesErrorMessage", () => {
-  it("lists the missing scopes and the recovery command", () => {
-    const message = insufficientScopesErrorMessage([DIRECTORY], [CLOUD_PLATFORM, DIRECTORY])
-    expect(message).toContain(DIRECTORY)
-    expect(message).toContain(
-      `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=${CLOUD_PLATFORM},${DIRECTORY}`,
+  it("sends the reader to Google Sign-In first, then gives the command", () => {
+    expect(insufficientScopesErrorMessage([DIRECTORY], [CLOUD_PLATFORM, DIRECTORY])).toBe(
+      `These credentials are missing required OAuth scopes: ${DIRECTORY}. ` +
+        "Use Google Sign-In to get them. " +
+        "If Google grants these scopes to gcloud's own OAuth client, you can instead run: " +
+        `gcloud auth application-default login --scopes=${CLOUD_PLATFORM},${DIRECTORY}`,
     )
   })
 })

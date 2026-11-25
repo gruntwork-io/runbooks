@@ -89,11 +89,8 @@ export function evaluateRequiredGoogleScopes(params: {
 
 /** Hand-run equivalent of Google Sign-In with the author's scopes. */
 export function formatGcloudAdcLoginCommand(scopes: readonly string[]): string {
-  const clientFile = '--client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS"'
-  if (scopes.length === 0) {
-    return `gcloud auth application-default login ${clientFile}`
-  }
-  return `gcloud auth application-default login ${clientFile} --scopes=${scopes.join(",")}`
+  const login = "gcloud auth application-default login"
+  return scopes.length === 0 ? login : `${login} --scopes=${scopes.join(",")}`
 }
 
 /** User-facing copy when an ambient / gcloud credential fails the check. */
@@ -104,7 +101,8 @@ export function insufficientScopesErrorMessage(
   const listed = missing.join(", ")
   return (
     `These credentials are missing required OAuth scopes: ${listed}. ` +
-    `Sign in again with the required scopes, or run: ` +
+    `Use Google Sign-In to get them. ` +
+    `If Google grants these scopes to gcloud's own OAuth client, you can instead run: ` +
     formatGcloudAdcLoginCommand(required)
   )
 }

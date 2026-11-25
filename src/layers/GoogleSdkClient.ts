@@ -50,6 +50,7 @@ import {
   resolveActiveConfigName,
   resolveGcloudConfigPaths,
 } from "../domain/google/gcloud-config.ts"
+import { OAUTH_NOT_CONFIGURED } from "../domain/google/oauth-client.ts"
 import { assertFederatedCredentialAllowed } from "../domain/google/credential-policy.ts"
 
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
@@ -971,7 +972,7 @@ const impl: GoogleClientShape = {
     Effect.tryPromise({
       try: async (): Promise<OAuthFlowStart> => {
         if (!params.clientId) {
-          throw new Error("OAuth login is not configured for this build")
+          throw new Error(OAUTH_NOT_CONFIGURED)
         }
 
         // Distinct from `state`, and generated up front so the listener's own

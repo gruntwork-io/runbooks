@@ -1,7 +1,7 @@
 import { AlertTriangle, Copy, Loader2, LogIn } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { formatGcloudAdcLoginCommand } from "../constants"
+import { formatGcloudAdcLoginCommand } from "../../../../../../src/domain/google/scopes"
 import type { DetectedGoogleCredentials } from "../types"
 import { getSourceLabel } from "../utils"
 
@@ -11,6 +11,7 @@ interface InsufficientScopesPromptProps {
   oauthUnavailable: boolean
   recovering?: boolean
   onSignIn: () => void
+  onChooseOAuthClient: () => void
   onReject: () => void
   onRetryDetection: () => void
 }
@@ -26,22 +27,11 @@ export function InsufficientScopesPrompt({
   oauthUnavailable,
   recovering = false,
   onSignIn,
+  onChooseOAuthClient,
   onReject,
   onRetryDetection,
 }: InsufficientScopesPromptProps) {
-  const [copied, setCopied] = useState(false)
   const missing = credentials.missingScopes ?? []
-  const command = formatGcloudAdcLoginCommand(requiredScopes)
-
-  const copyCommand = async () => {
-    try {
-      await navigator.clipboard.writeText(command)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard may be denied; the command is still selectable in the UI.
-    }
-  }
 
   return (
     <div className="mb-4">
@@ -100,20 +90,8 @@ export function InsufficientScopesPrompt({
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Google Sign-In is unavailable in this build. Run the command below as the same
-              principal, then check again — or authenticate manually with a credential that already
-              carries these scopes.
-            </p>
-            <div className="flex items-start gap-2">
-              <code className="flex-1 bg-card border border-warning/30 rounded px-2 py-1.5 text-xs font-mono break-all">
-                {command}
-              </code>
-              <Button type="button" variant="outline" size="sm" onClick={() => void copyCommand()}>
-                <Copy className="size-3.5 mr-1" />
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            </div>
+            <ChooseOAuthClient onChoose={onChooseOAuthClient} disabled={recovering} />
+            <GcloudLoginCommand command={formatGcloudAdcLoginCommand(requiredScopes)} />
             <div className="flex items-center gap-3 flex-wrap">
               <Button onClick={onRetryDetection} disabled={recovering} size="sm">
                 Check again
@@ -126,5 +104,56 @@ export function InsufficientScopesPrompt({
         )}
       </div>
     </div>
+  )
+}
+
+function ChooseOAuthClient({ onChoose, disabled }: { onChoose: () => void; disabled: boolean }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        Google Sign-In can request these scopes, but it does not have an OAuth client yet. Choose
+        your Desktop OAuth client JSON file to sign in.
+      </p>
+      <Button onClick={onChoose} disabled={disabled} size="sm">
+        Choose Desktop OAuth client JSON
+      </Button>
+    </div>
+  )
+}
+
+function GcloudLoginCommand({ command }: { command: string }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        If Google grants these scopes to gcloud's own OAuth client, you can instead run this command
+        and click <strong>Check again</strong>. Google shows "This app is blocked" when it does not.
+      </p>
+      <div className="flex items-start gap-2">
+        <code className="flex-1 bg-card border border-warning/30 rounded px-2 py-1.5 text-xs font-mono break-all">
+          {command}
+        </code>
+        <CopyButton text={command} />
+      </div>
+    </div>
+  )
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const copyText = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard may be denied; the command is still selectable in the UI.
+    }
+  }
+
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={() => void copyText()}>
+      <Copy className="size-3.5 mr-1" />
+      {copied ? "Copied" : "Copy"}
+    </Button>
   )
 }

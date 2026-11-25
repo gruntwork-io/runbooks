@@ -520,9 +520,19 @@ describe("GoogleAuth — gcloud tab", () => {
     },
   }
 
-  it("lists configurations on tab entry and authenticates with the selected one", async () => {
+  const SIGNED_IN: Handlers = {
+    "google:env-credentials": () => ({
+      found: true,
+      valid: true,
+      source: "adc",
+      credentialType: "authorized_user",
+      account: { principal: "dev@example.com", accountType: "user" },
+    }),
+  }
+
+  it("shows who the credentials sign in as, then authenticates with the selected configuration", async () => {
     installApi({
-      ...NO_CREDENTIALS,
+      ...SIGNED_IN,
       "google:gcloud-configurations": () => listing,
       "google:gcloud-auth": () => ({
         valid: true,
@@ -533,26 +543,115 @@ describe("GoogleAuth — gcloud tab", () => {
       "google:check-project": () => ({ enabled: true }),
     })
 
-    renderBlock(<GoogleAuth id="gcp" />)
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
 
     fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
 
-    // The listing is a pure disk read in MAIN; no gcloud binary is invoked.
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("google:gcloud-configurations", {}))
-    expect(await screen.findByText("default")).toBeInTheDocument()
-    // A configuration with no ADC is listed but not selectable.
-    const staging = screen.getByText("staging").closest("button")!
-    expect(staging).toBeDisabled()
-    expect(screen.getByText("No ADC")).toBeInTheDocument()
+    expect(await screen.findByText("Signed in as")).toBeInTheDocument()
+    // The account is the one Google reported, shown once. No row repeats it.
+    expect(screen.getAllByText("dev@example.com")).toHaveLength(1)
+    expect(callsTo("google:env-credentials")).toEqual([{ source: "adc" }])
+    expect(screen.getByText("staging").closest("button")!).toBeDisabled()
+    expect(screen.queryAllByText("No ADC")).toHaveLength(0)
 
-    fireEvent.click(screen.getByRole("button", { name: "Use Selected Configuration" }))
+    fireEvent.click(screen.getByRole("button", { name: "Use These Credentials" }))
 
     expect(await screen.findByText("✓ Authenticated to Google Cloud")).toBeInTheDocument()
-    expect(invoke).toHaveBeenCalledWith("google:gcloud-auth", {
-      blockId: "gcp",
-      configuration: "default",
-      projectId: "proj-a",
+    expect(callsTo("google:gcloud-auth")).toEqual([
+      { blockId: "gcp", configuration: "default", projectId: "proj-a" },
+    ])
+  })
+
+  it("does not offer the settings of a configuration set up for another account", async () => {
+    installApi({
+      ...SIGNED_IN,
+      "google:gcloud-configurations": () => ({
+        ...listing,
+        configurations: [
+          {
+            name: "default",
+            isActive: true,
+            account: "someone-else@example.org",
+            project: "other-org-proj",
+            authType: "adc-user",
+          },
+        ],
+      }),
+      "google:gcloud-auth": () => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        projects: [
+          { projectId: "proj-a", displayName: "A" },
+          { projectId: "proj-b", displayName: "B" },
+        ],
+      }),
     })
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
+    fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
+
+    expect(await screen.findByText("Signed in as")).toBeInTheDocument()
+    expect(screen.getByText("default").closest("button")!).toBeDisabled()
+    expect(screen.getAllByText("someone-else@example.org")).toHaveLength(1)
+    expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(1)
+    expect(screen.getByRole("button", { pressed: true })).toHaveTextContent("No configuration")
+
+    fireEvent.click(screen.getByRole("button", { name: "Use These Credentials" }))
+
+    await waitFor(() => expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp" }]))
+  })
+
+  it("lets the reader sign in with no configuration although one matches", async () => {
+    installApi({
+      ...SIGNED_IN,
+      "google:gcloud-configurations": () => listing,
+      "google:gcloud-auth": () => ({
+        valid: true,
+        account: { principal: "dev@example.com", accountType: "user" },
+        projectId: "proj-z",
+      }),
+    })
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
+    fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
+    fireEvent.click(await screen.findByText("No configuration"))
+    fireEvent.click(screen.getByRole("button", { name: "Use These Credentials" }))
+
+    await waitFor(() => expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp" }]))
+  })
+
+  it("says Google did not confirm the credentials, and gives the reason", async () => {
+    installApi({
+      "google:env-credentials": () => ({
+        found: true,
+        valid: false,
+        source: "adc",
+        warning: "getaddrinfo ENOTFOUND oauth2.googleapis.com",
+      }),
+      "google:gcloud-configurations": () => listing,
+    })
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
+    fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
+
+    expect(await screen.findAllByText("Google did not confirm these credentials.")).toHaveLength(1)
+    expect(screen.getAllByText("getaddrinfo ENOTFOUND oauth2.googleapis.com")).toHaveLength(1)
+    expect(screen.getByRole("button", { name: "Use These Credentials" })).toBeDisabled()
+    expect(screen.queryAllByText("No configuration")).toHaveLength(0)
+  })
+
+  it("says how to create the credentials when there are none", async () => {
+    const { adc: _adc, ...listingWithoutAdc } = listing
+    installApi({ ...NO_CREDENTIALS, "google:gcloud-configurations": () => listingWithoutAdc })
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
+    fireEvent.click(await screen.findByRole("button", { name: "gcloud Config" }))
+
+    expect(await screen.findAllByText(/^No Application Default Credentials found\./)).toHaveLength(
+      1,
+    )
+    expect(screen.getByRole("button", { name: "Use These Credentials" })).toBeDisabled()
+    expect(screen.queryAllByText("default")).toHaveLength(0)
   })
 })
 
@@ -744,7 +843,7 @@ describe("GoogleAuth — required scopes", () => {
     expect(await screen.findByText(/Waiting for browser sign-in/i)).toBeInTheDocument()
   })
 
-  it("shows the gcloud --scopes command when Sign-In is unavailable", async () => {
+  it("offers the OAuth client picker and a command that runs as copied when Sign-In has no client", async () => {
     installApi({
       "google:oauth-available": () => ({ available: false }),
       "google:env-credentials": () => insufficient,
@@ -754,12 +853,37 @@ describe("GoogleAuth — required scopes", () => {
 
     expect(await screen.findByText("Credentials missing required scopes")).toBeInTheDocument()
     expect(
-      screen.getByText(
-        `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=${CLOUD_PLATFORM},${DIRECTORY}`,
+      screen.getAllByText(
+        `gcloud auth application-default login --scopes=${CLOUD_PLATFORM},${DIRECTORY}`,
       ),
-    ).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Sign in with required scopes" })).toBeNull()
-    expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument()
+    ).toHaveLength(1)
+    expect(screen.queryAllByText(/GOOGLE_OAUTH_CLIENT_CREDENTIALS/)).toHaveLength(0)
+    expect(screen.queryAllByText(/unavailable in this build/)).toHaveLength(0)
+    expect(
+      screen.getAllByRole("button", { name: "Choose Desktop OAuth client JSON" }),
+    ).toHaveLength(1)
+    expect(screen.queryAllByRole("button", { name: "Sign in with required scopes" })).toHaveLength(
+      0,
+    )
+    expect(screen.getAllByRole("button", { name: "Check again" })).toHaveLength(1)
+  })
+
+  it("offers Sign in with required scopes once an OAuth client file is chosen", async () => {
+    installApi({
+      "google:oauth-available": () => ({ available: false }),
+      "google:env-credentials": () => insufficient,
+      "native:show-open-dialog": () => ({ filePaths: ["/home/u/client_secret.json"] }),
+    })
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={["env"]} scopes={requiredScopes} />)
+    fireEvent.click(await screen.findByRole("button", { name: "Choose Desktop OAuth client JSON" }))
+
+    expect(
+      await screen.findAllByRole("button", { name: "Sign in with required scopes" }),
+    ).toHaveLength(1)
+    expect(
+      screen.queryAllByRole("button", { name: "Choose Desktop OAuth client JSON" }),
+    ).toHaveLength(0)
   })
 
   it("does not enforce default scopes when the author omits the prop", async () => {

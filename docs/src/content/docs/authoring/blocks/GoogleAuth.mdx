@@ -27,7 +27,7 @@ The block has three tabs:
 |-----|-------------|
 | **Service Account Key** | Paste (or load from disk) a service account JSON key |
 | **Google Sign-In** | Interactive browser sign-in that produces user credentials, the same thing `gcloud auth application-default login` produces. Requires an OAuth client. See [Google Sign-In](#google-sign-in) |
-| **gcloud Config** | Reuse a configuration and Application Default Credentials that already exist on the machine |
+| **gcloud Config** | Sign in with the Application Default Credentials that already exist on the machine. A gcloud configuration can supply the project, region and zone |
 
 All three tabs also offer an optional **Default Region** picker, which seeds the region environment variables for subsequent commands. It starts on `defaultRegion`; choosing **No default region** sets no region at all (on the gcloud Config tab, the configuration's own `compute/region` then applies).
 
@@ -86,7 +86,7 @@ These are set only when the corresponding value is known:
 |----------|--------|
 | `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_REGION` | `defaultRegion`, the Default Region picker, or else the gcloud configuration's `compute/region` (or, for a credential detected in environment variables, their region) |
 | `CLOUDSDK_COMPUTE_ZONE`, `GOOGLE_ZONE` | `defaultZone`, or else the gcloud configuration's `compute/zone` (or the detected environment's zone) |
-| `CLOUDSDK_ACTIVE_CONFIG_NAME` | gcloud Config tab only. The name of the configuration you authenticated with |
+| `CLOUDSDK_ACTIVE_CONFIG_NAME` | gcloud Config tab only. The name of the configuration whose settings you used. Not set when you signed in without one |
 
 Google client libraries and the OpenTofu/Terraform `google` provider read `GOOGLE_APPLICATION_CREDENTIALS`. The `gcloud` CLI reads `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, which GoogleAuth also sets. See [Bridging to the gcloud CLI](#bridging-to-the-gcloud-cli).
 
@@ -253,7 +253,9 @@ The requested scopes default to:
 
 Override them with the `scopes` prop. The tab's **What permissions does this grant?** disclosure lists what will be requested.
 
-When `scopes` is set, existing credentials must grant them too. Auto-detected env/ADC credentials and the gcloud Config tab refuse a user credential whose tokeninfo grant is missing any listed scope. The block shows the missing scopes and offers **Sign in with required scopes**, or a copyable `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=...` command when Sign-In has no Desktop client. The default scopes apply to Sign-In requests only and are not enforced on existing ADC.
+When `scopes` is set, existing credentials must grant them too. Auto-detected env/ADC credentials and the gcloud Config tab refuse a user credential whose tokeninfo grant is missing any listed scope. The block shows the missing scopes and offers **Sign in with required scopes**. When Sign-In has no Desktop client yet, it offers **Choose Desktop OAuth client JSON** in its place, and **Sign in with required scopes** appears once you have chosen the file. The default scopes apply to Sign-In requests only and are not enforced on existing ADC.
+
+The card also shows a copyable `gcloud auth application-default login --scopes=...` command for the terminal. That command signs in with gcloud's own OAuth client, and Google refuses some scopes to that client, such as Admin SDK scopes. When it does, Google shows *"This app is blocked"*, and Google Sign-In with your own Desktop client is the way to get them. See Google's [Troubleshoot your ADC setup](https://docs.cloud.google.com/docs/authentication/troubleshoot-adc).
 
 ```mdx
 <GoogleAuth
@@ -317,7 +319,7 @@ When no client is configured, the **Google Sign-In** tab stays selectable and is
 
 ## gcloud Config
 
-The **gcloud Config** tab lists the configurations found in your gcloud configuration directory:
+The **gcloud Config** tab signs in with your Application Default Credentials: the `application_default_credentials.json` file that `gcloud auth application-default login` writes. It reads the file from your gcloud configuration directory:
 
 | Platform | Location |
 |----------|----------|
@@ -325,23 +327,25 @@ The **gcloud Config** tab lists the configurations found in your gcloud configur
 | Windows | `%APPDATA%\gcloud` |
 | Any | `$CLOUDSDK_CONFIG`, when set |
 
-Each row shows the configuration's account, project, and a badge describing what it can authenticate with:
+The tab shows the credentials first. It asks Google who they belong to and shows the answer as **Signed in as**, before you click anything. That account is the one your commands will run as.
 
-| Badge | Meaning |
-|-------|---------|
-| **User ADC** | Application Default Credentials from `gcloud auth application-default login` |
-| **Service Account ADC** | Application Default Credentials backed by a service account key |
-| **Federated ADC** | Workforce-pool sign-in or an impersonated service account. Workload identity federation that sources its subject token from a file, a URL, or an executable (`credential_source`) is listed but rejected on use. See [Federated credential limits](#federated-credential-limits) |
-| **No ADC** | A configuration exists, but there are no Application Default Credentials to use. Not selectable |
-| **Unsupported** | Nothing usable could be read from this configuration |
+| The tab shows | Meaning |
+|---------------|---------|
+| **Signed in as** and an account | The credentials work. **Use These Credentials** signs in as that account |
+| *No Application Default Credentials found* | The file does not exist. Run `gcloud auth application-default login`, then click **Refresh** |
+| *Google did not confirm these credentials*, with a reason | The file exists, but Runbooks could not confirm it with Google. The reason says why: the login expired or was revoked, or Google could not be reached. For an expired login, run `gcloud auth application-default login`. Then click **Refresh** |
 
-A gcloud configuration records which account and project to use. The credential itself is in `application_default_credentials.json`. Rows marked **No ADC** are listed but not selectable, with a hint to run:
+To sign in as a different account, run `gcloud auth application-default login` again and choose that account in the browser. The new login replaces the file. Then click **Refresh**.
 
-```bash
-gcloud auth application-default login
-```
+### Settings from a gcloud configuration
 
-Authenticating from this tab copies nothing. `GOOGLE_APPLICATION_CREDENTIALS` points at your existing credentials file, and `CLOUDSDK_ACTIVE_CONFIG_NAME` records the configuration name.
+Below the credentials, the tab lists your gcloud configurations under **Settings from a gcloud configuration**. A configuration does not sign you in. The one you select supplies the project, region and zone, and `CLOUDSDK_ACTIVE_CONFIG_NAME` records its name. The active configuration is selected to start with. Select **No configuration** to sign in with the credentials on their own. The block then uses the `project` prop, or asks you to pick a project.
+
+A configuration also records an account, set by `gcloud auth login` or `gcloud config set account`. When your Application Default Credentials are a user login, that account can differ from the one you signed in with, because the two commands do not affect each other. This is common when you have accounts in more than one organization. A configuration set up for another account is listed but cannot be selected, so its project, region and zone are never used with credentials for a different account. When no configuration can be selected, **No configuration** is selected for you.
+
+The comparison applies to user logins only. Credentials that are a service account key, an impersonated service account or a workforce identity never have the same account as a configuration, so every configuration stays available with them.
+
+Authenticating from this tab copies nothing. `GOOGLE_APPLICATION_CREDENTIALS` points at your existing credentials file.
 
 To pre-select a configuration on this tab, set the `gcloudConfiguration` prop. Set `defaultTab="gcloud"` too, so the block opens on the tab:
 
@@ -354,7 +358,7 @@ To pre-select a configuration on this tab, set the `gcloudConfiguration` prop. S
 />
 ```
 
-The user can still pick another configuration. `gcloudConfiguration` doesn't affect [credential detection](#credential-detection): the `'gcloud'` source always reads the active configuration.
+The user can still pick another configuration. A configuration set up for another account is not pre-selected. `gcloudConfiguration` doesn't affect [credential detection](#credential-detection): the `'gcloud'` source always reads the active configuration.
 
 <Aside type="note">
 Only `application_default_credentials.json` is read. The `gcloud` CLI keeps its own login state in a `credentials.db` SQLite database, which Runbooks does not open, so being logged in with `gcloud auth login` alone is not enough. Run `gcloud auth application-default login` as well.
@@ -398,7 +402,7 @@ GitAuth uses detected credentials without asking. GoogleAuth always asks for con
 | `'env'` | Environment variables (see below) |
 | `{ env: { prefix: 'PREFIX_' } }` | The same variables with a prefix, e.g. `PREFIX_GOOGLE_APPLICATION_CREDENTIALS` |
 | `'adc'` | The well-known `application_default_credentials.json` under the gcloud configuration directory |
-| `'gcloud'` | The active gcloud configuration: its account, project, and compute defaults, with that same credentials file |
+| `'gcloud'` | The active gcloud configuration's project and compute defaults, with that same credentials file. Finds nothing when the configuration is set up for a different account than the credentials belong to |
 | `{ block: 'block-id' }` | Credentials published by an earlier Command block. Only one block source is allowed per GoogleAuth block |
 
 The `'env'` source reads, in precedence order:
@@ -545,11 +549,13 @@ If a credential is found but does not validate, the block shows *"Invalid creden
 
 ## Instruction mode
 
-In [instruction mode](/intro/instruction-mode/), GoogleAuth captures nothing. It renders a single instruction, *"Log into Google Cloud"*, or *"Log into Google Cloud in the `my-project-123456` project"* when `project` is set. The configured project, region, gcloud configuration, and scopes are listed as notes, along with the equivalent command to run by hand. The command reads the Desktop OAuth client from `GOOGLE_OAUTH_CLIENT_CREDENTIALS`, so the user sets that variable to the path of a Desktop-app client JSON first. See [Using your own OAuth client](#using-your-own-oauth-client). When the author sets `scopes`, the command includes `--scopes=...`:
+In [instruction mode](/intro/instruction-mode/), GoogleAuth captures nothing. It renders a single instruction, *"Log into Google Cloud"*, or *"Log into Google Cloud in the `my-project-123456` project"* when `project` is set. The configured project, region, gcloud configuration, and scopes are listed as notes, along with the equivalent command to run by hand. When the author sets `scopes`, the command includes `--scopes=...`:
 
 ```bash
-gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/userinfo.email,openid
+gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/userinfo.email,openid
 ```
+
+The command signs in with gcloud's own OAuth client, unless the author set `oauthClientFile`: the command then ends with `--client-id-file` and that path. For scopes Google refuses to gcloud's own client, add `--client-id-file` and the path of a Desktop-app client JSON yourself. See [Using your own OAuth client](#using-your-own-oauth-client).
 
 No detection runs, no browser opens, and no credentials are read or written.
 
@@ -594,13 +600,17 @@ If a federated configuration you rely on is refused, authenticate with a service
 | *"oauthClientId was supplied without oauthClientSecret"* | A custom Desktop client needs both. Google issues a secret with every Desktop client; without it the credential cannot be refreshed |
 | *"Supply either oauthClientId/oauthClientSecret or oauthClientFile"* | Those props are mutually exclusive. Pick one |
 | *"OAuth client credentials file is a Web client"* | Download a **Desktop app** client JSON from Google Cloud Console (`installed`), not a Web client (`web`) |
-| *No gcloud configurations found* | There is no gcloud configuration directory at the reported path. Run `gcloud init`, or set `CLOUDSDK_CONFIG` to the directory you use |
-| A configuration shows **No ADC** and cannot be selected | The configuration has no Application Default Credentials. Run `gcloud auth application-default login` |
+| *No Application Default Credentials found* on the gcloud Config tab | There is no `application_default_credentials.json` in your gcloud configuration directory. Run `gcloud auth application-default login`, then click **Refresh**. If you keep gcloud's files elsewhere, set `CLOUDSDK_CONFIG` to that directory |
+| A configuration on the gcloud Config tab cannot be selected, and says it is set up for another account | The configuration's account is not the one your Application Default Credentials belong to, so its project, region and zone are not used. Sign in with **No configuration**, select a configuration set up for the signed-in account, or run `gcloud auth application-default login` as the configuration's account and click **Refresh** |
+| *gcloud configuration ... is set up for ..., but your Application Default Credentials sign in as ...* | The same mismatch, found when signing in: the credentials changed to another account after the tab last checked them. Click **Refresh** and sign in again |
+| The `'gcloud'` detection source finds nothing although a login exists | The active configuration is set up for a different account than the credentials belong to. Add `'adc'` to `detectCredentials` to use the credentials without the configuration's settings |
 | *Not a service account key (expected type: service_account)* | The JSON has no `type` field, as in an OAuth client file, or it is a service account key that is missing a field such as `private_key`. Use the file that Google Cloud produced from **IAM & Admin > Service Accounts > Keys** |
 | *...which Runbooks does not accept* / *...is not a Google API endpoint* | The credentials document is a workload identity federation config that fetches its subject token from a file, a URL, or a command, or that points at a host outside `*.googleapis.com`. Runbooks does not run those instructions. Use a service account key, **Google Sign-In**, or `gcloud auth application-default login` |
 | *Invalid credentials detected: ... are invalid or expired (...)* | The detected credential does not authenticate; the text in parentheses says why. For a missing or unreadable file, fix the path the variable points at. For an expired or revoked credential, refresh it (`gcloud auth application-default login`). Or authenticate manually |
-| *Credentials missing required scopes* | The block's `scopes` prop lists scopes the detected user ADC does not grant (for example Admin SDK scopes). Use **Sign in with required scopes**, or run the shown `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=...` command and click **Check again** |
-| gcloud Config / confirm fails with *missing required OAuth scopes* | Same check as detection: the selected ADC is too narrow for this block. Re-authenticate with the required scopes via Sign-In or `gcloud auth application-default login --client-id-file=... --scopes=...` |
+| *Credentials missing required scopes* | The block's `scopes` prop lists scopes the detected user ADC does not grant (for example Admin SDK scopes). Use **Sign in with required scopes**. If the card shows **Choose Desktop OAuth client JSON**, choose your Desktop client file first. Or run the shown `gcloud auth application-default login --scopes=...` command and click **Check again** |
+| Google shows *"This app is blocked"* after you run the shown `gcloud` command | Google refuses some of the requested scopes to gcloud's own OAuth client. Use **Google Sign-In** with your own Desktop client, or add `--client-id-file` and the path of that client's JSON to the command |
+| gcloud Config / confirm fails with *missing required OAuth scopes* | Same check as detection: the Application Default Credentials are too narrow for this block. Sign in on the **Google Sign-In** tab, or run the command in the message when Google grants those scopes to gcloud's own client |
+| *Google Sign-In is not configured yet* | Sign-in started with no OAuth client. Choose a Desktop client JSON on the **Google Sign-In** tab. See [Using your own OAuth client](#using-your-own-oauth-client) |
 | The project picker is empty | The credential cannot list projects. Grant `resourcemanager.projects.list`, or set the `project` prop / type the project ID directly |
 | *Could not list projects: ...* | Google refused or failed the project listing (for example, the Cloud Resource Manager API is disabled). The current authentication is untouched: **Cancel** returns to the success card. Fix the cause shown, or set the `project` prop |
 | *Project ... is not accessible with these credentials* | Advisory warning: the credential authenticated, but Google definitively refused (404/permission denied) on that project. Check the project ID and the principal's IAM roles. An inconclusive answer, such as a disabled Cloud Resource Manager API or a network error, produces no warning, because it says nothing about whether your commands will work |

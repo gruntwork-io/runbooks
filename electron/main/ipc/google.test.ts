@@ -322,6 +322,110 @@ describe("the region/zone a sign-in writes is the one it returns", () => {
     expect(env.GOOGLE_CLOUD_REGION).toBe("europe-west1")
     expect(env.CLOUDSDK_COMPUTE_ZONE).toBe("europe-west1-b")
   })
+
+  it("google:gcloud-auth with no configuration signs in with the credentials file alone", async () => {
+    const result = await invoke("google:gcloud-auth", { blockId: "gcp" })
+
+    expect(result).toMatchObject({ valid: true, credentialsPath: ADC_PATH })
+    expect(result.projectId).toBeUndefined()
+    expect(result.region).toBeUndefined()
+    expect(result.zone).toBeUndefined()
+    const env = await sessionEnv()
+    expect(env.GOOGLE_APPLICATION_CREDENTIALS).toBe(ADC_PATH)
+    expect(env.GOOGLE_CLOUD_REGION).toBeUndefined()
+    expect(env.CLOUDSDK_ACTIVE_CONFIG_NAME).toBeUndefined()
+  })
+
+  describe("when the configuration is set up for another account", () => {
+    const OTHER_ACCOUNT = "someone-else@example.org"
+    const MISMATCH =
+      `gcloud configuration "default" is set up for ${OTHER_ACCOUNT}, ` +
+      `but your Application Default Credentials sign in as ${USER.email}. ` +
+      `Choose a configuration set up for ${USER.email}, or sign in without one.`
+
+    beforeEach(() => {
+      google = {
+        ...google,
+        listGcloudConfigurations: () =>
+          Effect.succeed({
+            configurations: [
+              {
+                name: "default",
+                isActive: true,
+                account: OTHER_ACCOUNT,
+                project: "other-org-proj",
+                region: "us-west1",
+                authType: "adc-user" as const,
+              },
+            ],
+            activeConfiguration: "default",
+            configRoot: "/home/u/.config/gcloud",
+            adc: { path: ADC_PATH, type: "authorized_user" as const },
+          }),
+      }
+    })
+
+    it("google:gcloud-auth refuses it and writes nothing to the session", async () => {
+      const result = await invoke("google:gcloud-auth", {
+        blockId: "gcp",
+        configuration: "default",
+      })
+
+      expect(result).toEqual({ valid: false, error: MISMATCH })
+      const env = await sessionEnv()
+      expect(env.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined()
+      expect(env.GOOGLE_CLOUD_PROJECT).toBeUndefined()
+    })
+
+    it("google:gcloud-auth uses it when the credentials are not a user login", async () => {
+      google = {
+        ...google,
+        validateAdcDocument: () =>
+          Effect.succeed({
+            ...USER,
+            email: "deployer@proj.iam.gserviceaccount.com",
+            credentialType: "impersonated_service_account" as const,
+          }),
+      }
+
+      const result = await invoke("google:gcloud-auth", {
+        blockId: "gcp",
+        configuration: "default",
+      })
+
+      expect(result).toMatchObject({ valid: true, projectId: "other-org-proj" })
+      expect((await sessionEnv()).CLOUDSDK_ACTIVE_CONFIG_NAME).toBe("default")
+    })
+
+    it("google:env-credentials finds nothing for the 'gcloud' source", async () => {
+      const result = await invoke("google:env-credentials", { source: "gcloud" })
+
+      expect(result).toEqual({ found: false, source: "gcloud", error: MISMATCH })
+    })
+
+    it("google:env-credentials still finds the credentials file for the 'adc' source", async () => {
+      google = {
+        ...google,
+        readApplicationDefaultCredentials: () =>
+          Effect.succeed({ path: ADC_PATH, type: "authorized_user" as const }),
+      }
+
+      const result = await invoke("google:env-credentials", { source: "adc" })
+
+      expect(result).toMatchObject({ found: true, valid: true, source: "adc", path: ADC_PATH })
+      expect(result.projectId).toBeUndefined()
+    })
+
+    it("google:env-credentials-confirm refuses the 'gcloud' source", async () => {
+      const result = await invoke("google:env-credentials-confirm", {
+        blockId: "gcp",
+        source: "gcloud",
+      })
+
+      expect(result).toEqual({ valid: false, error: MISMATCH })
+      expect((await sessionEnv()).GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined()
+    })
+  })
 })
 
 describe("google:check-project", () => {

@@ -115,11 +115,15 @@ const PLACEMENT = { projectId: "proj-p", region: "us-east1", zone: "us-east1-b" 
 const SA_KEY = JSON.stringify({ type: "service_account", project_id: "key-project" })
 
 describe("useGoogleAuth in a session — recording", () => {
+  const ADC = { path: "/home/u/.config/gcloud/adc.json", type: "service_account" as const }
+
   it("records a gcloud sign-in with its configuration", async () => {
+    testApi.handle("google:env-credentials", () => ({ found: true, valid: true, account: ACCOUNT }))
     testApi.handle("google:gcloud-configurations", () => ({
       configurations: [
         { name: "prod", isActive: true, project: "proj-p", authType: "adc-service-account" },
       ],
+      adc: ADC,
     }))
     testApi.handle("google:gcloud-auth", () => ({
       valid: true,
@@ -133,6 +137,23 @@ describe("useGoogleAuth in a session — recording", () => {
 
     await waitFor(() => expect(signIns()).toEqual([{ kind: "gcloud", configuration: "prod" }]))
     expect(recorded()[0]).toMatchObject({ block: "google", projectId: "proj-p" })
+  })
+
+  it("records a gcloud sign-in made without a configuration", async () => {
+    testApi.handle("google:env-credentials", () => ({ found: true, valid: true, account: ACCOUNT }))
+    testApi.handle("google:gcloud-configurations", () => ({ configurations: [], adc: ADC }))
+    testApi.handle("google:gcloud-auth", () => ({
+      valid: true,
+      account: ACCOUNT,
+      projectId: "proj-p",
+    }))
+    const { result } = renderGoogleAuth()
+
+    await act(() => result.current.loadGcloudConfigs())
+    await act(() => result.current.handleGcloudAuth())
+
+    await waitFor(() => expect(signIns()).toEqual([{ kind: "gcloud" }]))
+    expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp" }])
   })
 
   it("records a confirmed detection with its source", async () => {
@@ -386,6 +407,17 @@ describe("useGoogleAuth in a session — resuming", () => {
         registerSession: true,
       }),
     )
+  })
+
+  it("does a gcloud sign-in made without a configuration again from the credentials file", async () => {
+    testApi.handle("google:env-credentials", () => ({ found: true, valid: true, account: ACCOUNT }))
+    testApi.handle("google:gcloud-auth", () => ({ valid: true, account: ACCOUNT }))
+    renderGoogleAuth({}, saved({ kind: "gcloud" }))
+
+    await waitFor(() =>
+      expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp", ...PLACEMENT }]),
+    )
+    expect(callsTo("google:env-credentials")).toEqual([{ source: "adc" }])
   })
 
   it("goes back to sign-in, and keeps the sign-in for the next resume, when it can't be done again", async () => {
