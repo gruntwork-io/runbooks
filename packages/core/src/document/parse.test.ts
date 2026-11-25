@@ -142,6 +142,37 @@ describe("parseRunbook", () => {
       expect(bad?.received).toBe("x")
     })
 
+    // The next two are today's src/domain/exec/blockEnv.test.ts guards, by
+    // name: the parser checks the `env` prop's names, as parseBlockEnv did.
+    it("refuses a name a shell can't export", () => {
+      for (const name of ["1ST", "MY-VAR", "A B", "X=Y", ""]) {
+        const found = errors(`<Run id="a" env={{ ${JSON.stringify(name)}: "x", OK: "y" }} />`)
+        expect(found.map((e) => [e.code, e.location.prop])).toEqual([["badProp", "env"]])
+        expect(found[0]?.message).toContain(`not a variable name`)
+        expect(found[0]?.message).toEndWith(`(at ${name})`)
+      }
+    })
+
+    it("refuses the names Runbooks sets for every run", () => {
+      for (const name of [
+        "RUNBOOK_OUTPUT",
+        "RUNBOOK_ENV",
+        "RUNBOOK_LOG",
+        "RUNBOOK_ERROR_LOG",
+        "GENERATED_FILES",
+        "REPO_FILES",
+      ]) {
+        const found = errors(`<Run id="a" env={{ ${name}: "/elsewhere" }} />`)
+        expect(found.map((e) => [e.code, e.location.prop])).toEqual([["badProp", "env"]])
+        expect(found[0]?.message).toContain("a variable Runbooks sets for every script")
+        expect(found[0]?.message).toEndWith(`(at ${name})`)
+      }
+      // A name that only contains a reserved one is the author's.
+      expect(
+        configErrors(parse('<Run id="a" env={{ MY_RUNBOOK_OUTPUT: "x", REPO_FILES_DIR: "y" }} />')),
+      ).toEqual([])
+    })
+
     it("says when a required prop is missing", () => {
       expect(brief(errors('<Clone id="g" />'))).toEqual([
         ["badProp", 1, "<Clone> needs the `url` prop."],

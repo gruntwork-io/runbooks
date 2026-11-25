@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "bun:test"
-import { Context, Effect, Option, Schema, Stream } from "effect"
+import { Context, Effect, Option, Result, Schema, Stream } from "effect"
 import {
   BEFORE_TRUST,
   BlockClass,
@@ -9,6 +9,7 @@ import {
   defineDisplay,
   defineForm,
   defineTask,
+  endWithExitCode,
   type FormBlock,
   type PropError,
   type References,
@@ -110,6 +111,7 @@ describe("block definitions", () => {
       effects: ["network", "browser"],
       scope: "cloud",
       provider: "fake",
+      envNames: ["CLOUD_TOKEN"],
       outputs: () => ({ account: { sensitive: false } }),
       request: () => ({
         detect: [{ kind: "env", prefix: Option.none() }],
@@ -187,6 +189,12 @@ describe("what the compiler rejects", () => {
     expectTypeOf<readonly ["env", "git-credential"]>().toExtend<Provides>()
   })
 
+  it("a credential block that does not name the variables its provider sets", () => {
+    type Declared = Pick<CredentialBlock<object>, "envNames">
+    expectTypeOf<{ provider: "aws" }>().not.toExtend<Declared>()
+    expectTypeOf<{ envNames: readonly ["AWS_ACCESS_KEY_ID"] }>().toExtend<Declared>()
+  })
+
   it("a function allowed before trust that asks for a service", () => {
     class Disk extends Context.Service<Disk, { readonly read: Effect.Effect<string> }>()("Disk") {}
     type FormFields = FormBlock<object>["fields"]
@@ -210,6 +218,24 @@ describe("BEFORE_TRUST", () => {
   it("lets the engine call every function a block declares before trust, but run", () => {
     const afterTrust = Object.entries(BEFORE_TRUST).filter(([, allowed]) => !allowed)
     expect(afterTrust.map(([name]) => name)).toEqual(["run"])
+  })
+})
+
+describe("the exit-code table", () => {
+  const end = (exitCode: number) =>
+    Effect.runPromise(Effect.result(Stream.runCollect(endWithExitCode(exitCode))))
+
+  it("succeeds on 0, warns on 2 and fails on any other code, with the code", async () => {
+    expect(await end(0)).toEqual(Result.succeed([]))
+    const warned = await end(2)
+    expect(Result.isSuccess(warned) && warned.success.map((e) => e._tag)).toEqual(["Warning"])
+    for (const exitCode of [1, 3, 126, 127, 130, 255, -1]) {
+      const failed = await end(exitCode)
+      expect(Result.isFailure(failed) && failed.failure).toMatchObject({
+        _tag: "TaskFailed",
+        exitCode,
+      })
+    }
   })
 })
 

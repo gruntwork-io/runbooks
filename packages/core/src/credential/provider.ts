@@ -80,7 +80,11 @@ export const ProviderInfo = Schema.Struct({
   /** The detection sources it names itself: cli, adc, gcloud. */
   sources: Schema.Array(Schema.String),
   requirements: Schema.Array(Schema.Literals(["scopes", "roles"])),
-  /** Every env and output name it may set. The base environment strips these. */
+  /**
+   * Every env and output name it may set. The base environment strips the
+   * credential blocks' `envNames` instead: those are known before any
+   * provider starts.
+   */
   names: Schema.Array(Schema.String),
 })
 export type ProviderInfo = typeof ProviderInfo.Type
