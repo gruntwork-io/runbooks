@@ -25,7 +25,7 @@ import type {
 /** A block of any class. */
 export type AnyBlock =
   | DisplayBlock<any>
-  | FormBlock<any, any>
+  | FormBlock<any>
   | TaskBlock<any, any, any>
   | CredentialBlock<any>
 
@@ -56,16 +56,13 @@ export type TagsOfClass<R extends Registry, C extends BlockClass> = {
 }[BlockTags<R>]
 
 /**
- * The services every block in `R` needs. The app's and the CLI's layers must
- * provide all of them, so a block that needs a new service fails the build
- * of each client until it does.
+ * The services every block in `R` needs. Only a task's `run` gets any
+ * (`BEFORE_TRUST`). The app's and the CLI's layers must provide all of them,
+ * so a block that needs a new service fails the build of each client until
+ * it does.
  */
 export type ServicesOf<R extends Registry> = {
-  [T in BlockTags<R>]: R[T] extends FormBlock<any, infer S>
-    ? S
-    : R[T] extends TaskBlock<any, any, infer S>
-      ? S
-      : never
+  [T in BlockTags<R>]: R[T] extends TaskBlock<any, any, infer S> ? S : never
 }[BlockTags<R>]
 
 /** A tag resolved to its block, with the props an alias locks. */

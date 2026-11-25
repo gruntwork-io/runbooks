@@ -100,7 +100,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
         }
         const readForm: ReadForm = (fields, props) => {
           // As for `start`: the block is one of `registry`'s.
-          const read: Effect.Effect<FormSpec, PropError, ServicesOf<R>> = fields(props)
+          const read: Effect.Effect<FormSpec, PropError, ServicesOf<R>> = fields(props, new Map())
           return Effect.provideContext(read, services)
         }
         const fileSystem = yield* Effect.context<FileSystem>()
