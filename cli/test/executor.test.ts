@@ -742,6 +742,94 @@ describe("TestExecutor — explicit steps", () => {
     ])
   })
 
+  const SHOW_WHEN_RUNBOOK = [
+    "# Show when",
+    "",
+    `<Command id="pick-provider" command='echo "GIT_PROVIDER=$PROVIDER" >> "$RUNBOOK_OUTPUT"' />`,
+    "",
+    `<ShowWhen output="pick-provider.GIT_PROVIDER" equals="gitlab">`,
+    "",
+    `<Command id="gitlab-only" command="echo gitlab" />`,
+    "",
+    "</ShowWhen>",
+    "",
+    `<ShowWhen output="pick_provider.GIT_PROVIDER" notEquals="gitlab" whenUnknown="hide">`,
+    "",
+    `<Command id="not-gitlab" command="echo not gitlab" />`,
+    "",
+    "</ShowWhen>",
+    "",
+  ].join("\n")
+
+  it("runs a block in a <ShowWhen> only while the output it reads shows it", async () => {
+    const executor = await makeExecutor(SHOW_WHEN_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "show-when",
+      env: { PROVIDER: "github" },
+      steps: [
+        { block: "gitlab-only", expect: "success" },
+        { block: "not-gitlab", expect: "hidden" },
+        { block: "pick-provider", expect: "success" },
+        { block: "gitlab-only", expect: "hidden" },
+        { block: "not-gitlab", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["command:gitlab-only", "success"],
+      ["command:not-gitlab", "hidden"],
+      ["command:pick-provider", "success"],
+      ["command:gitlab-only", "hidden"],
+      ["command:not-gitlab", "success"],
+    ])
+  })
+
+  it("says which <ShowWhen> hides a block a step expects to run", async () => {
+    const executor = await makeExecutor(SHOW_WHEN_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "hidden",
+      env: { PROVIDER: "github" },
+      steps: [
+        { block: "pick-provider", expect: "success" },
+        { block: "gitlab-only", expect: "success" },
+      ],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[1]?.error).toBe(
+      'Block is hidden: it is in a <ShowWhen> that shows only when pick-provider.GIT_PROVIDER is "gitlab", and it is "github"',
+    )
+  })
+
+  it("passes the hidden blocks of a <ShowWhen> in a test without steps", async () => {
+    const executor = await makeExecutor(SHOW_WHEN_RUNBOOK)
+
+    const result = executor.runTest({ name: "no-steps", env: { PROVIDER: "gitlab" } })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["command:pick-provider", "success"],
+      ["command:gitlab-only", "success"],
+      ["command:not-gitlab", "hidden"],
+    ])
+  })
+
+  it("fails every test of a runbook with a <ShowWhen> the app shows an error for", async () => {
+    const executor = await makeExecutor(
+      `# Show when\n\n<ShowWhen output="nowhere.GIT_PROVIDER" equals="gitlab">\n\nText\n\n</ShowWhen>\n`,
+    )
+
+    const result = executor.runTest({ name: "invalid" })
+
+    expect(result.status).toBe("failed")
+    expect(result.error).toBe(
+      '<ShowWhen> reads the output "GIT_PROVIDER" of block "nowhere", but no block has that id.',
+    )
+  })
+
   it("skips a block whose auth block hasn't run when the step expects skip", async () => {
     const executor = await makeExecutor(
       `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" awsAuthId="aws" command="echo deploy" />\n`,

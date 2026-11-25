@@ -1,0 +1,80 @@
+---
+title: <ShowWhen>
+---
+
+The `<ShowWhen>` block shows its content only while another block's [output](/authoring/inputs-and-outputs/#block-outputs) has a given value. Use it for text that applies to one choice the user made earlier, such as the steps for GitHub or for GitLab after a [`<GitAuth>`](/authoring/blocks/gitauth/) block.
+
+## Basic usage
+
+```mdx
+<GitAuth id="git-auth" />
+
+<ShowWhen output="git_auth.GIT_PROVIDER" equals="github">
+
+**On GitHub**, install the Gruntwork.io GitHub App on your repository.
+
+</ShowWhen>
+
+<ShowWhen output="git_auth.GIT_PROVIDER" equals="gitlab">
+
+**On GitLab**, add a `PIPELINES_GITLAB_TOKEN` CI/CD variable to the project.
+
+<Admonition type="note" title="Default branch">
+
+Pipelines on GitLab applies only changes merged into the default branch.
+
+</Admonition>
+
+</ShowWhen>
+```
+
+`output` names the block and the output the way templates do, without `.outputs`: `git_auth.GIT_PROVIDER` reads what `{{ .outputs.git_auth.GIT_PROVIDER }}` does. Write hyphens in the block's ID as underscores, as in templates, or as they are in the ID: `git-auth.GIT_PROVIDER` works too.
+
+Leave a blank line after the opening tag and before the closing tag, so that the content between them is read as markdown. The content can be anything a runbook holds: text, lists, code blocks, other blocks, and other `<ShowWhen>` blocks.
+
+## When the content shows
+
+The content shows while the output's value matches, and follows it as it changes: when the user picks another provider in `<GitAuth>`, the content for the old one hides and the content for the new one shows. Values are compared as text, exactly, so `GitLab` doesn't match `gitlab`.
+
+Until the output exists, because its block hasn't run or didn't publish it, `whenUnknown` decides:
+
+- `whenUnknown="show"`, the default, shows the content. A reader who hasn't got that far yet sees every case, and nothing disappears that they were about to read. Write each case so it makes sense next to the others, such as starting it with "On GitHub" or "On GitLab".
+- `whenUnknown="hide"` hides the content until the output exists, for content that only makes sense once the choice is made.
+
+## Blocks inside a ShowWhen
+
+`<ShowWhen>` only changes what's on screen. Hidden content stays loaded, so:
+
+- Block IDs stay unique across the whole runbook, hidden or not.
+- A block in hidden content keeps its state, and its outputs stay available to other blocks.
+- A block in hidden content isn't a [step](/authoring/blocks/#progress) while it's hidden, so it doesn't hold up the runbook's progress. It counts again once its content shows.
+
+The user can't run a block they can't see, so a block that the rest of the runbook needs, such as one that publishes outputs that later blocks read, belongs outside any `<ShowWhen>`.
+
+## Props
+
+### Required props
+
+- `output` (string): the block and output to read, as `<block_id>.<OUTPUT_NAME>`.
+- Exactly one of:
+  - `equals` (string): show the content while the output is this value.
+  - `notEquals` (string): show the content while the output is anything but this value.
+  - `in` (string[]): show the content while the output is one of these values, such as `in={["github", "gitlab"]}`.
+
+### Optional props
+
+- `whenUnknown` (`"show"` or `"hide"`): what the content does until the output exists. Default `"show"`. See [When the content shows](#when-the-content-shows).
+
+A `<ShowWhen>` with props it can't read, or whose `output` names a block that isn't in the runbook, shows a configuration error, and shows its content.
+
+## Instruction mode
+
+In [instruction mode](/intro/instruction-mode/), nothing runs, so no output decides. Every `<ShowWhen>` shows its content, under a line that gives its condition, such as `Only when git_auth.GIT_PROVIDER is "gitlab":`.
+
+## Testing
+
+[Runbook tests](/authoring/testing/) follow `<ShowWhen>` as the app does. A block inside a `<ShowWhen>` whose condition doesn't hold, from the outputs of the blocks that ran before it, is `hidden` and doesn't run. See [Expected status values](/authoring/testing/#expected-status-values). A runbook with a `<ShowWhen>` that shows a configuration error fails every test.
+
+:::tip[See it in action]
+The [show-when feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/show-when) shows different steps for each choice of a command's output, with a test for each choice.
+:::

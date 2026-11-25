@@ -36,6 +36,7 @@ const AGENT_BLOCKS = [
   "Iframe",
   "Admonition",
   "Chapter",
+  "ShowWhen",
 ] as const
 
 // Blocks whose adapter lives in a file other than `<Block>/<Block>.tsx`.

@@ -8,6 +8,7 @@ import {
   parseAuthDependencies,
   parseRunDependencies,
   parseShowWhenBlocks,
+  parseShowWhens,
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
 } from "./validation.ts"
@@ -331,6 +332,55 @@ ${nestedInputs("next-steps")}
 })
 
 // ---------------------------------------------------------------------------
+// parseShowWhens
+// ---------------------------------------------------------------------------
+
+describe("parseShowWhens", () => {
+  it("finds each ShowWhen's condition and the span it holds", () => {
+    const source = `<GitAuth id="git-auth" />
+
+<ShowWhen output="git_auth.GIT_PROVIDER" in={["github", "gitlab"]}>
+
+Text
+
+</ShowWhen>
+`
+    const { spans, errors } = parseShowWhens(writeRunbook(source))
+    expect(errors).toEqual([])
+    expect(spans).toEqual([
+      {
+        condition: {
+          blockId: "git_auth",
+          output: "GIT_PROVIDER",
+          negate: false,
+          values: ["github", "gitlab"],
+          whenUnknown: "show",
+        },
+        start: source.indexOf("<ShowWhen"),
+        end: source.indexOf("</ShowWhen>") + "</ShowWhen>".length,
+      },
+    ])
+  })
+
+  it("reports a ShowWhen with props it can't read, or that reads a block not on the page", () => {
+    const { spans, errors } = parseShowWhens(
+      writeRunbook(`
+<Command id="pick" command="echo pick" />
+
+<ShowWhen output="pick.GIT_PROVIDER">Text</ShowWhen>
+
+<ShowWhen output="nowhere.GIT_PROVIDER" equals="gitlab">Text</ShowWhen>
+`),
+    )
+    expect(spans).toEqual([])
+    expect(errors).toEqual([
+      "<ShowWhen> takes exactly one of equals, notEquals or in.",
+      '<ShowWhen> reads the output "GIT_PROVIDER" of block "nowhere", but no block has that id.',
+    ])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // parseAuthDependencies
 // ---------------------------------------------------------------------------
 
@@ -445,6 +495,22 @@ describe("InputValidator", () => {
     v.init()
     expect(v.hasConfigErrors()).toBe(false)
     expect(v.getComponents().map((c) => c.id)).toEqual(["first", "between", "last"])
+  })
+
+  it("recognizes ShowWhen, and finds the blocks in it", () => {
+    const p = writeRunbook(`
+<Command id="pick" command="echo pick" />
+
+<ShowWhen output="pick.GIT_PROVIDER" equals="gitlab">
+
+<Command id="inside" command="echo inside" />
+
+</ShowWhen>
+`)
+    const v = new InputValidator(p)
+    v.init()
+    expect(v.hasConfigErrors()).toBe(false)
+    expect(v.getComponents().map((c) => c.id)).toEqual(["pick", "inside"])
   })
 
   it("parses GoogleAuth blocks into the component list", () => {
