@@ -21,7 +21,8 @@
  * has none, so each such block is Unavailable. With `testClock`, time moves
  * only when the test adjusts it.
  */
-import { Duration, Effect, Fiber, Layer, Redacted, Schema, Stream } from "effect"
+
+import { Clock, Duration, Effect, Fiber, Layer, Redacted, Schema, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import {
   BlockId,
@@ -54,6 +55,28 @@ import { testCredentialProviders } from "./TestCredentialProviders.ts"
 import { TOY_REGISTRY } from "./toyRegistry.ts"
 
 const blockId = Schema.decodeSync(BlockId)
+
+/**
+ * `clock`, with its wall time read `ahead()` milliseconds later: a machine
+ * that slept, as its timers see it. Its sleeps and its monotonic time are
+ * still `clock`'s, and `TestClock.adjust` still moves `clock`.
+ */
+const aheadBy = (clock: TestClock.TestClock, ahead: () => number): TestClock.TestClock => {
+  const millis = () => clock.currentTimeMillisUnsafe() + ahead()
+  const nanos = () => clock.currentTimeNanosUnsafe() + BigInt(ahead()) * BigInt(1_000_000)
+  return {
+    currentTimeMillisUnsafe: millis,
+    currentTimeMillis: Effect.sync(millis),
+    currentTimeNanosUnsafe: nanos,
+    currentTimeNanos: Effect.sync(nanos),
+    monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
+    monotonicTimeNanos: clock.monotonicTimeNanos,
+    sleep: (duration) => clock.sleep(duration),
+    adjust: (duration) => clock.adjust(duration),
+    setTime: (timestamp) => clock.setTime(timestamp),
+    withLive: (effect) => clock.withLive(effect),
+  }
+}
 
 /** Every variable, revealed, as a block hands them to its process. */
 export const revealed = (env: RunEnv): Record<string, string> =>
@@ -254,6 +277,8 @@ export const withEnvSession = <A>(
     readonly spawner: Layer.Layer<ProcessSpawner>
     readonly providers?: Layer.Layer<CredentialProviders>
     readonly testClock?: boolean
+    /** On the test clock: how far the wall clock has jumped ahead of it, as after the machine slept. */
+    readonly wallClockAhead?: () => number
   },
   use: UseEnvSession<A>,
 ): Promise<A> => {
@@ -340,6 +365,14 @@ export const withEnvSession = <A>(
       Effect.provide(setup.providers ?? testCredentialProviders({}, [])),
       Effect.provide(Layer.merge(setup.fileSystem, setup.spawner)),
       Effect.provideService(Caller, { origin: "person" }),
+      (effect) => {
+        const ahead = setup.wallClockAhead
+        return ahead === undefined
+          ? effect
+          : TestClock.testClockWith((clock) =>
+              Effect.provideService(effect, Clock.Clock, aheadBy(clock, ahead)),
+            )
+      },
       setup.testClock === true ? Effect.provide(TestClock.layer()) : (effect) => effect,
     ),
   )

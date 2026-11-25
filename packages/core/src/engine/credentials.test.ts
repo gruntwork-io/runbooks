@@ -165,13 +165,13 @@ const movesOf = (block: string) =>
 /**
  * A trusted session of `runbook` whose credential providers are `scripts`.
  * With `testClock`, the session's time starts at the epoch and moves only
- * when the test adjusts it.
+ * when the test adjusts it, and `wallClockAhead` jumps the wall clock alone.
  */
 const withCloud = <A>(
   runbook: string,
   scripts: Readonly<Record<string, (config: ProviderConfig) => ScriptedProvider>>,
   use: UseEnvSession<A>,
-  options: { readonly testClock?: boolean } = {},
+  options: { readonly testClock?: boolean; readonly wallClockAhead?: () => number } = {},
 ): Promise<A> => {
   calls = []
   log = []
@@ -1245,22 +1245,47 @@ describe("a credential that expires", () => {
   it("wakes for an earlier expiry a run's refresh gave", async () => {
     await withCloud(
       runbookOf(pinned, DEPLOY),
-      { cloud: cloud({ detect: () => found(who("111")), env: expiring(120, 60) }) },
+      { cloud: cloud({ detect: () => found(who("111")), env: expiring(120, 15.75) }) },
       (rb) =>
         Effect.gen(function* () {
           yield* rb.until("cloud", "Ready")
+          // Halfway through one of the watch's waits, which ends at 11 minutes.
+          yield* TestClock.adjust(10.5 * MINUTE)
           expect(yield* rb.run("deploy")).toEqual(done)
           expect(yield* rb.until("cloud", "Ready")).toMatchObject({
-            identity: { expiresAt: at(60) },
+            identity: { expiresAt: at(15.75) },
           })
-          yield* TestClock.adjust(55 * MINUTE)
+          // The new window opens at 10.75 minutes, before that wait ends.
+          yield* TestClock.adjust(MINUTE / 4)
           expect(yield* rb.until("cloud", "Expired")).toMatchObject({
-            identity: { expiresAt: at(60) },
+            identity: { expiresAt: at(15.75) },
           })
         }),
       { testClock: true },
     )
     expect(envCalls()).toBe(3)
+  })
+
+  it("shows Expired within a minute of the machine waking past the window", async () => {
+    let ahead = 0
+    await withCloud(
+      runbookOf(pinned, DEPLOY),
+      { cloud: cloud({ detect: () => found(who("111")), env: expiring(60) }) },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "Ready")
+          // The machine sleeps an hour and a half: the wall clock jumps, and no timer fires.
+          ahead = 90 * MINUTE
+          expect(yield* rb.status("cloud")).toEqual(done)
+          yield* TestClock.adjust(MINUTE)
+          expect(yield* rb.until("cloud", "Expired")).toMatchObject({
+            identity: { expiresAt: at(60) },
+          })
+        }),
+      { testClock: true, wallClockAhead: () => ahead },
+    )
+    // Once to become Ready, once to try to refresh on waking.
+    expect(envCalls()).toBe(2)
   })
 
   it("signs in again from Expired", async () => {

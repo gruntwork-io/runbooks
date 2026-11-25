@@ -80,6 +80,12 @@ import type { ActResult, EngineEvent } from "./protocol.ts"
 const PROVIDER_CALL_TIMEOUT: Duration.Input = "60 seconds"
 /** How long a sign-in may wait on the person: a device code lives about 10 minutes. */
 const SIGN_IN_TIMEOUT: Duration.Input = "15 minutes"
+/**
+ * The longest an expiry watch sleeps before it reads the clock again.
+ * Timers stop while the machine sleeps, so a watch that slept until the
+ * warning window in one go would show Ready past expiry after a wake-up.
+ */
+const EXPIRY_CHECK_MILLIS = 60_000
 
 /** A credential block with no configuration errors, and the request its props make. */
 export interface CredentialSlot {
@@ -587,10 +593,11 @@ export function makeCredentials(
 
   /**
    * While the block is Ready with an expiry and no action has come since
-   * `turn`: sleeps until the warning window, then refreshes through `env`. A
-   * later expiry is Ready again, and the watch goes on; otherwise, or if the
-   * provider cannot refresh, the block is Expired. A run's refresh that
-   * moves the expiry, either way, moves the wake-up with it.
+   * `turn`: waits for the warning window, reading the clock at least every
+   * `EXPIRY_CHECK_MILLIS`, then refreshes through `env`. A later expiry is
+   * Ready again, and the watch goes on; otherwise, or if the provider cannot
+   * refresh, the block is Expired. A move wakes it at once, so a run's
+   * refresh that moves the expiry moves the wake-up with it.
    */
   const watch = (credential: Credential, turn: number): Effect.Effect<void> =>
     Effect.gen(function* () {
@@ -605,7 +612,10 @@ export function makeCredentials(
         const wake = DateTime.toEpochMillis(expiry.value) - EXPIRY_WARNING_MILLIS
         const now = yield* Clock.currentTimeMillis
         if (now < wake) {
-          yield* Effect.race(Effect.sleep(wake - now), nextMove.await)
+          yield* Effect.race(
+            Effect.sleep(Math.min(wake - now, EXPIRY_CHECK_MILLIS)),
+            nextMove.await,
+          )
           continue
         }
         const refreshed = yield* Effect.option(bounded(opened.value.provider.env))
