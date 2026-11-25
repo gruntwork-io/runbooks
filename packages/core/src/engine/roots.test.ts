@@ -76,7 +76,12 @@ describe("the roots", () => {
         return yield* Effect.flip(engine.openSession({ path: "rb/runbook.mdx" }))
       }).pipe(
         Effect.provide(
-          Engine.layer({ registry: TOY_REGISTRY, appVersion: "0.31.0", workingFolders: "/work" }),
+          Engine.layer({
+            registry: TOY_REGISTRY,
+            appVersion: "0.31.0",
+            workingFolders: "/work",
+            processEnvironment: {},
+          }),
         ),
         Effect.provide(makeTestFileSystem({ "rb/runbook.mdx": '<Run id="a" />' })),
       ),

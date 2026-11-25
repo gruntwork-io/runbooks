@@ -34,6 +34,7 @@ import {
   UnknownSession,
   type WaitForBlock,
 } from "./protocol.ts"
+import { baseEnvironment } from "./env.ts"
 import { resolvePaths, sessionRoots } from "./roots.ts"
 import { makeSession, type Runner, type Session } from "./session.ts"
 
@@ -76,6 +77,12 @@ export interface EngineOptions<R extends Registry> {
    * point sets it; no protocol command names a root.
    */
   readonly workingFolders: string
+  /**
+   * The app's process environment, read at the entry point. Every run's
+   * environment starts from it, less the names every credential block in
+   * the registry declares and the reserved ones.
+   */
+  readonly processEnvironment: Readonly<Record<string, string>>
 }
 
 const decodeSessionId = Schema.decodeSync(SessionId)
@@ -101,6 +108,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
       Engine,
       Effect.gen(function* () {
         const { registry, appVersion, workingFolders } = options
+        const base = baseEnvironment(options.processEnvironment, registry)
         const services = yield* Effect.context<ServicesOf<R>>()
         const fileSystem = yield* Effect.context<FileSystem>()
         /** Handed to a session when the person trusts it, and not before. */
@@ -155,6 +163,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
               document: result.document,
               texts: result.texts,
               roots: sessionRoots(file, workingFolders, id),
+              baseEnvironment: base,
               registry,
             })
             sessions.set(session.id, session)

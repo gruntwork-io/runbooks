@@ -132,7 +132,14 @@ const READING_THE_RUNBOOK: ServiceCall[] = [
 const withEngine = <A, E>(calls: ServiceCall[], program: Effect.Effect<A, E, Engine | Caller>) =>
   Effect.runPromise(
     program.pipe(
-      Effect.provide(Engine.layer({ registry, appVersion: "0.31.0", workingFolders: "/work" })),
+      Effect.provide(
+        Engine.layer({
+          registry,
+          appVersion: "0.31.0",
+          workingFolders: "/work",
+          processEnvironment: {},
+        }),
+      ),
       Effect.provide(
         Layer.mergeAll(
           Layer.succeed(FileSystem, recordFileSystem(testFileSystem({ ...FILES }, ["/rb"]), calls)),
