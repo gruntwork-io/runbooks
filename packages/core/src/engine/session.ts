@@ -37,6 +37,7 @@ import type {
   BlockId,
   OutputDecls,
   PropError,
+  RunbookTexts,
   TaskError,
   TaskEvent,
   TaskInput,
@@ -94,18 +95,18 @@ const LOG_FLUSH_INTERVAL: Duration.Input = "250 millis"
 /** The task blocks among `B`. */
 type TaskOf<B> = Extract<B, { readonly class: "task" }>
 
-/** Starts a task block's run, with the services every block needs already provided. */
+/**
+ * Starts a task block's run, with the services every block needs already
+ * provided. The engine hands it to a session only when the person trusts it.
+ */
 export type StartRun = (
   block: TaskOf<AnyBlock>,
   props: unknown,
   input: TaskInput,
 ) => Stream.Stream<TaskEvent<string>, TaskError>
 
-/** A form block's `fields`, or a task's. */
-type ReadsFields = NonNullable<Extract<AnyBlock, { readonly class: "form" | "task" }>["fields"]>
-
-/** Reads a block's form from its props, with the services every block needs already provided. */
-export type ReadForm = (fields: ReadsFields, props: unknown) => Effect.Effect<FormSpec, PropError>
+/** Whether the person trusts the session. Only a trusted one can start a run. */
+type Trust = { readonly _tag: "Untrusted" } | { readonly _tag: "Trusted"; readonly start: StartRun }
 
 // ---------------------------------------------------------------------------
 // A bounded list
@@ -221,20 +222,23 @@ const taskInput = (document: RunbookDocument, values: FormValues): TaskInput => 
 })
 
 /**
- * Reads each form: a form block's, or a task's own. A form that cannot be read
- * is a configuration error in its block, which the block's node then holds
- * beside the parser's, so the block is `Misconfigured` like any other.
+ * Reads each form: a form block's, or a task's own, from its props and the
+ * files it names. `fields` gets no services, so this does no I/O, as it
+ * happens before trust. A form that cannot be read is a configuration error
+ * in its block, which the block's node then holds beside the parser's, so
+ * the block is `Misconfigured` like any other.
  */
 const readForms = Effect.fnUntraced(function* (
   document: RunbookDocument,
   registry: Registry,
-  readForm: ReadForm,
+  texts: ReadonlyMap<number, RunbookTexts>,
 ) {
   const read = yield* Effect.forEach(document.blocks, (node) => {
     const block = node.errors.length > 0 ? undefined : resolveTag(registry, node.tag)?.block
     const fields = block?.class === "form" || block?.class === "task" ? block.fields : undefined
     if (fields === undefined) return Effect.succeed({ node, spec: Option.none<FormSpec>() })
-    return Effect.match(readForm(fields, node.props), {
+    const files = texts.get(node.index) ?? new Map<string, string>()
+    return Effect.match(fields(node.props, files), {
       onSuccess: (spec) => ({ node, spec: Option.some(spec) }),
       onFailure: (error) => ({
         node: { ...node, errors: [...node.errors, formError(document, node, error)] },
@@ -350,7 +354,8 @@ export interface Session {
   readonly id: SessionId
   readonly summary: () => SessionSummary
   readonly view: () => SessionView
-  readonly trust: (hash: ContentHash) => Effect.Effect<TrustResult>
+  /** Trusts the session if `hash` is its document's, and takes `start` to run its blocks with. */
+  readonly trust: (hash: ContentHash, start: StartRun) => Effect.Effect<TrustResult>
   /** Every event after `after`, then each new one. Ends with `SessionClosed`. */
   readonly events: (after: number | undefined) => Stream.Stream<EventEnvelope>
   readonly getBlock: (
@@ -396,19 +401,19 @@ export interface Session {
 export const makeSession = Effect.fnUntraced(function* (options: {
   readonly id: SessionId
   readonly document: RunbookDocument
+  /** The text of the files each block names, by block index, as loaded. */
+  readonly texts: ReadonlyMap<number, RunbookTexts>
   readonly registry: Registry
-  readonly start: StartRun
-  readonly readForm: ReadForm
 }) {
-  const { id, start } = options
-  const { document, specs } = yield* readForms(options.document, options.registry, options.readForm)
+  const { id } = options
+  const { document, specs } = yield* readForms(options.document, options.registry, options.texts)
   const slots = slotsOf(document, options.registry)
   const scope = yield* Scope.make()
   const lock = yield* Semaphore.make(1)
   /** Wakes `events` and `waitForBlock` readers. Each keeps one pending wake at most. */
   const changed = yield* PubSub.sliding<void>(1)
 
-  let trusted = false
+  let trust: Trust = { _tag: "Untrusted" }
   /** Set when closing starts: no command changes the session after it. */
   let closing = false
   /** Set once `SessionClosed` is logged: nothing is logged after it. */
@@ -464,7 +469,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   }
 
   const blockersOf = (slot: Slot): ReadonlyArray<Blocker> => [
-    ...(trusted ? [] : [{ _tag: "Untrusted" as const }]),
+    ...(trust._tag === "Trusted" ? [] : [{ _tag: "Untrusted" as const }]),
     ...slot.waits.filter((wait) => !isSatisfied(wait)).map((wait) => wait.blocker),
   ]
 
@@ -671,7 +676,13 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     })
 
   /** The run itself: its events recorded as they come, its log flushed now and then, its end recorded. */
-  const task = (run: Run, runnable: Runnable, runScope: Scope.Closeable, input: TaskInput) => {
+  const task = (
+    run: Run,
+    runnable: Runnable,
+    runScope: Scope.Closeable,
+    input: TaskInput,
+    start: StartRun,
+  ) => {
     const flushEvery = Effect.forever(
       Effect.andThen(
         Effect.sleep(LOG_FLUSH_INTERVAL),
@@ -848,18 +859,18 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       name,
       path: document.file,
       ...(title === undefined ? {} : { title }),
-      trust: { trusted, hash: document.hash.combined },
+      trust: { trusted: trust._tag === "Trusted", hash: document.hash.combined },
       blocks: slots.map(summaryOf),
       warnings: document.warnings,
     }),
 
-    trust: (hash) =>
+    trust: (hash, start) =>
       update((emit): TrustResult => {
         const current = document.hash.combined
         if (hash !== current) return { _tag: "HashChanged", current }
-        if (!trusted) {
-          trusted = true
-          emit({ _tag: "TrustChanged", trust: { trusted, hash: current } })
+        if (trust._tag === "Untrusted") {
+          trust = { _tag: "Trusted", start }
+          emit({ _tag: "TrustChanged", trust: { trusted: true, hash: current } })
         }
         return { _tag: "Trusted" }
       }),
@@ -896,6 +907,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
             return { _tag: "Refused", reason: { _tag: "AlreadyRunning" } } as const
           const reason = notReady(slot) ?? reviewFor(slot, origin)
           if (reason !== undefined) return { _tag: "Refused", reason } as const
+          // `notReady` refuses an untrusted session's block, so this holds the starter.
+          if (trust._tag === "Untrusted")
+            return yield* Effect.die(new Error("A block was ready in an untrusted session."))
+          const { start } = trust
 
           // Approvals are a later work product: an agent's run starts as a person's does.
           const input = taskInput(document, valuesFor(slot))
@@ -918,7 +933,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
             runs.set(slot.index, run)
           })
           // Started at once, so a cancel that comes before the run's first step still ends it.
-          yield* Effect.forkIn(task(run, runnable, runScope, input), runScope, {
+          yield* Effect.forkIn(task(run, runnable, runScope, input, start), runScope, {
             startImmediately: true,
           })
           return { _tag: "Started", run: run.id } as const

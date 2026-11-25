@@ -4,7 +4,13 @@
  * `edges`. Every client gets the same document.
  */
 import { Schema } from "effect"
-import { BlockClass, BlockId, Capability, RunbookPath } from "@runbooks/blocks-core/contract"
+import {
+  BlockClass,
+  BlockId,
+  Capability,
+  RunbookPath,
+  type RunbookTexts,
+} from "@runbooks/blocks-core/contract"
 import { byPlace, ConfigError, ConfigWarning, Span } from "./configError.ts"
 
 // ---------------------------------------------------------------------------
@@ -174,7 +180,16 @@ export type RunbookDocument = typeof RunbookDocument.Type
  * each block's errors are on its node.
  */
 export type ParseResult =
-  | { readonly _tag: "Parsed"; readonly document: RunbookDocument }
+  | {
+      readonly _tag: "Parsed"
+      readonly document: RunbookDocument
+      /**
+       * The text of the files each block names, by the block's index, as the
+       * document hashed them. A block's `fields` gets its own, so nothing
+       * reads a file again.
+       */
+      readonly texts: ReadonlyMap<number, RunbookTexts>
+    }
   | {
       readonly _tag: "Invalid"
       readonly errors: readonly [ConfigError, ...ReadonlyArray<ConfigError>]
