@@ -12,7 +12,7 @@ The running index of the rebuild stack. Update it whenever the stack changes.
 
 The top of the stack passes, in CI:
 
-- all 37 runbook fixtures (the frozen baseline copies) through the new `runbooks test`;
+- all 37 runbook fixtures, with `baseline/behaviour-changes/*.patch` applied, through the new `runbooks test`;
 - all 25 e2e specs, plus the phase 0 files-panel and system specs, against the new app;
 - the app's CSP has no `'unsafe-eval'`;
 - no block runs against the fake credential provider;
@@ -32,7 +32,7 @@ The top of the stack passes, in CI:
 | `packages/cli/` | `runbooks` CLI: open, test, validate, mcp | core, platform-node, `blocks/index.ts` |
 | `plugin/` | `base.schema.json`, `credential.schema.json` | none |
 | `signin/` | track A Rust binaries, liftable into their own repo | none |
-| `baseline/` | frozen baseline list and fixture copies | none |
+| `baseline/` | frozen baseline list, props, security test names, behaviour-change patches | none |
 
 ## Stack
 
@@ -45,15 +45,16 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 |---|---|---|---|---|---|---|
 | 1 | #496 | 0 | `rebuild/p0-block-contract` | `rebuild/main` | green | 0.2 |
 | 2 | #497 | 0 | `rebuild/p0-document` | p0-block-contract | green | 0.4 |
-| 3 | #499 | 0 | `rebuild/p0-plugin-transport` | p0-document | open | 0.5 |
-| 4 | #501 | 0 | `rebuild/p0-auth-contract` | p0-plugin-transport | open | 0.6 |
-| 5 | #502 | 0 | `rebuild/p0-engine-protocol` | p0-auth-contract | open | 0.3 |
-| 6 | | 0 | `rebuild/p0-cli-contract` | p0-engine-protocol | planned | 0.7 |
-| 7 | | 0 | `rebuild/p0-security-tests` | p0-cli-contract | planned | 0.11 |
-| 8 | | 0 | `rebuild/p0-e2e-files-panel` | p0-security-tests | planned | 0.9 |
-| 9 | | 0 | `rebuild/p0-e2e-system` | p0-e2e-files-panel | planned | 0.10 |
-| 10 | | 0 | `rebuild/p0-schema-bundle` | p0-e2e-system | planned | 0.12 |
-| 11 | | 0 | `rebuild/p0-baseline` | p0-schema-bundle | planned | 0.8 |
+| 3 | #499 | 0 | `rebuild/p0-plugin-transport` | p0-document | green | 0.5 |
+| 4 | #501 | 0 | `rebuild/p0-auth-contract` | p0-plugin-transport | green | 0.6 |
+| 5 | #502 | 0 | `rebuild/p0-engine-protocol` | p0-auth-contract | green | 0.3 |
+| 6 | #503 | 0 | `rebuild/p0-cli-contract` | p0-engine-protocol | green | 0.7 |
+| 7 | #504 | 0 | `rebuild/p0-security-tests` | p0-cli-contract | green | 0.11 |
+| 8 | #505 | 0 | `rebuild/p0-schema-bundle` | p0-security-tests | green | 0.12 |
+| 9 | #507 | 0 | `rebuild/p0-e2e-files-panel` | p0-schema-bundle | open | 0.9 |
+| 10 | | 0 | `rebuild/p0-e2e-system` | p0-e2e-files-panel | in progress | 0.10 |
+| 11 | | 0 | `rebuild/p0-baseline-list` | p0-e2e-system | committed, not pushed | 0.8 (the list) |
+| 12 | | 0 | `rebuild/p0-behaviour-changes` | p0-baseline-list | committed, not pushed | 0.8 (the nine changes) |
 
 Phases 1 to 6 and track A are added here as their PRs are cut.
 
@@ -67,6 +68,12 @@ Phases 1 to 6 and track A are added here as their PRs are cut.
 | 0.4 | Document type | #497 | open |
 | 0.5 | `plugin/base.schema.json` | #499 | open |
 | 0.6 | `plugin/credential.schema.json` | #501 | open |
+| 0.7 | CLI contract | #503 | open |
+| 0.8 | Frozen baseline list, nine changes applied | rows 11, 12 | committed, not pushed |
+| 0.9 | Files panel e2e spec | #507 | open |
+| 0.10 | System integration e2e spec | row 10 | in progress |
+| 0.11 | Security regression tests by name | #504 | open |
+| 0.12 | Renderer bundle carries Effect Schema | #505 | open |
 | 0.13 | Throwaway prototype | none | see Gaps once decided |
 
 ## Open decisions built on
@@ -83,6 +90,10 @@ Each row names the PR whose description carries the Decisions entry.
 | 7 | No click when pins match; confirm when the block pins nothing (`confirmsDetected`) | #501 |
 | 12 | MCP baseline is the in-app server's ten tools (`BASELINE_MCP_TOOLS`) | #502 |
 | 18 | More than one window left out; the protocol is session-scoped | #502 |
+| 13 | CLI named `runbooks`, `runbooks-test` kept as an alias | #503 |
+| 3 | Baseline is today's behaviour with the nine ruled changes applied | row 11 |
+| 5 | `*AuthId` aliases kept with a warning, no removal date; fixtures keep them | row 12 |
+| 17 | Finish needs a clean success; gh and az still read their own config | row 12 |
 
 Choices of my own that need a ruling (not among the 18):
 
@@ -90,6 +101,11 @@ Choices of my own that need a ruling (not among the 18):
 |---|---|
 | An expired credential withdraws its env (today it stays published while shown as failed) | #501 |
 | `act_on_block` actions with no generic command (GitClone `use_local_checkout`, GitPullRequest `push`/`delete_branch_and_retry`, Iframe, Chapter, Admonition) settled per block in phase 4 | #502 |
+| The baseline gate also runs the two step 0 e2e specs (27, not the plan's 25) | row 11 |
+| `$RUNBOOK_ENV` takes multiline values as `NAME<<DELIMITER` (the plan says only `KEY=VALUE`) | row 12 |
+| `$RUNBOOK_ENV` may set `PATH`; a block takes it only by naming the writer in `envFrom` | row 12 |
+| A block whose `envFrom` source has not run is Blocked, as for `dependsOn` | row 12 |
+| Every block that reads or writes a repository names it, not only pull request blocks on two-repository pages | row 12 |
 
 ## Failed attempts
 
