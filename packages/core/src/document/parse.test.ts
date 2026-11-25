@@ -276,6 +276,30 @@ describe("parseRunbook", () => {
       ])
     })
 
+    it("reads githubAuthId as the block's git-credential prop, with a warning", () => {
+      const doc = parsed('<GitClone id="g" url="https://example.com/r.git" githubAuthId="gh" />')
+      expect(doc.blocks[0]?.props).toEqual({ url: "https://example.com/r.git", gitAuthId: "gh" })
+      expect(doc.blocks[0]?.shared).toEqual({})
+      expect(brief(doc.warnings)).toEqual([
+        [
+          "deprecatedProp",
+          1,
+          '`githubAuthId` still works, and `gitAuthId` replaces it: gitAuthId="gh" names the same block.',
+        ],
+      ])
+      expect(doc.warnings[0]?.suggestion).toBe('gitAuthId="gh"')
+    })
+
+    it("keeps the block's own git-credential prop when githubAuthId is written too", () => {
+      const doc = parsed(
+        '<GitClone id="g" url="https://example.com/r.git" githubAuthId="gh" gitAuthId="git" />',
+      )
+      expect(doc.blocks[0]?.props).toMatchObject({ gitAuthId: "git" })
+      expect(brief(doc.warnings)).toEqual([
+        ["deprecatedProp", 1, "`githubAuthId` is ignored: `gitAuthId` replaces it, and is set."],
+      ])
+    })
+
     it("leaves an *AuthId prop to a block that has it as its own", () => {
       const doc = parsed('<GitClone id="g" url="https://example.com/r.git" gitAuthId="git-auth" />')
       expect(doc.blocks[0]?.props).toEqual({

@@ -65,6 +65,13 @@ const ENV_FROM_ALIASES: ReadonlySet<string> = new Set([
   "gitAuthId",
 ])
 
+/**
+ * The name `gitAuthId` replaced (open decision 5). On a block whose own
+ * reference prop needs `git-credential`, it is read as that prop, with a
+ * warning; when both are written, the block's own prop wins.
+ */
+const GIT_CREDENTIAL_ALIAS = "githubAuthId"
+
 type SharedKey = keyof typeof SharedProps.fields
 const SHARED_KEYS: ReadonlySet<string> = new Set(Object.keys(SharedProps.fields))
 const isShared = (key: string): key is SharedKey => SHARED_KEYS.has(key)
@@ -314,15 +321,21 @@ class Parse {
     const where = { tag, ...(id ? { id: id.asWritten } : {}) }
     const own = propKeys(block.props)
     const childrenProp = block.children.kind === "yaml" ? block.children.prop : undefined
+    const credentialProp = Object.entries(block.references).find(
+      ([, capability]) => capability === "git-credential",
+    )?.[0]
 
     const shared: Record<string, PropValue> = {}
     const aliases: Array<[string, Written]> = []
     const input: Record<string, unknown> = {}
+    let credentialAlias: Written | undefined
     for (const [key, prop] of written) {
       if (key === "id") continue
       const ownsKey = own === undefined ? !isShared(key) : own.has(key)
       if (isShared(key) && takes(block, key)) shared[key] = prop.value
-      else if (ENV_FROM_ALIASES.has(key) && !ownsKey && takes(block, "envFrom")) {
+      else if (key === GIT_CREDENTIAL_ALIAS && !ownsKey && credentialProp !== undefined) {
+        credentialAlias = prop
+      } else if (ENV_FROM_ALIASES.has(key) && !ownsKey && takes(block, "envFrom")) {
         aliases.push([key, prop])
       } else if (!ownsKey && key !== childrenProp) {
         const known = [
@@ -340,6 +353,9 @@ class Parse {
         )
       }
       if (ownsKey) input[key] = prop.value
+    }
+    if (credentialAlias !== undefined && credentialProp !== undefined) {
+      this.credentialAlias(credentialAlias, credentialProp, input, where)
     }
 
     for (const key of Object.keys(locked)) {
@@ -471,6 +487,48 @@ class Parse {
     }
     input[prop] = doc.toJS()
     return true
+  }
+
+  /** `githubAuthId` read as the block's `git-credential` prop, unless that prop is written too. */
+  private credentialAlias(
+    alias: Written,
+    prop: string,
+    input: Record<string, unknown>,
+    where: { readonly tag: string; readonly id?: string },
+  ): void {
+    if (typeof alias.value !== "string" || alias.value === "") {
+      this.error(
+        "badProp",
+        `\`${GIT_CREDENTIAL_ALIAS}\` must be a block id, such as ${prop}="git-auth".`,
+        alias.span,
+        {
+          block: where,
+          prop: GIT_CREDENTIAL_ALIAS,
+          expected: "a block id",
+          received: excerpt(alias.value),
+        },
+      )
+      return
+    }
+    if (input[prop] !== undefined) {
+      this.warn(
+        "deprecatedProp",
+        `\`${GIT_CREDENTIAL_ALIAS}\` is ignored: \`${prop}\` replaces it, and is set.`,
+        alias.span,
+        where,
+        GIT_CREDENTIAL_ALIAS,
+      )
+      return
+    }
+    input[prop] = alias.value
+    this.warn(
+      "deprecatedProp",
+      `\`${GIT_CREDENTIAL_ALIAS}\` still works, and \`${prop}\` replaces it: ${prop}="${alias.value}" names the same block.`,
+      alias.span,
+      where,
+      GIT_CREDENTIAL_ALIAS,
+      `${prop}="${alias.value}"`,
+    )
   }
 
   private decodeShared(
