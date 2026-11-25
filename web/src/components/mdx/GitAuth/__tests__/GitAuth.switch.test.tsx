@@ -262,6 +262,38 @@ describe("GitAuth — provider switch (real hook)", () => {
     })
   })
 
+  it("keeps the provider picker after detection signs in, so the user can switch to GitLab", async () => {
+    const testApi = installApi({
+      "github:env-credentials": () => ({
+        found: true,
+        valid: true,
+        user: { login: "octocat" },
+        envVar: "GITHUB_TOKEN",
+      }),
+      "gitlab:cli-credentials": () => ({ found: true, user: { login: "tanuki" } }),
+      "session:set-env": () => ({ ok: true }),
+    })
+
+    renderWithApi(
+      <>
+        <GitAuth id="git" />
+        <OutputsProbe id="git" />
+      </>,
+    )
+
+    await screen.findByText(/Authenticated to GitHub/i)
+    const picker = screen.getByRole("tablist", { name: "Git provider" })
+    expect(picker).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("tab", { name: /GitLab/ }))
+
+    await screen.findByText(/Authenticated to GitLab/i)
+    expect(testApi.callsTo("gitlab:cli-credentials").length).toBeGreaterThan(0)
+    expect(publishedOutputs()).toMatchObject({ GIT_PROVIDER: "gitlab" })
+    expect(publishedOutputs()).not.toHaveProperty("GITHUB_TOKEN")
+    expect(screen.getByRole("tab", { name: /GitLab/ })).toHaveAttribute("aria-selected", "true")
+  })
+
   it("publishes the new provider as GIT_PROVIDER on a switch", async () => {
     renderWithApi(
       <>

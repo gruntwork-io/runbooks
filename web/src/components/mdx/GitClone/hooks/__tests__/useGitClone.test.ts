@@ -413,3 +413,25 @@ describe("useGitClone — GitHub host of the linked auth block", () => {
     expect(result.current.githubHost).toBe("github.com")
   })
 })
+
+describe("useGitClone — GitLab host of the linked auth block", () => {
+  it("defaults to gitlab.com", () => {
+    const { result } = renderGitClone({ id: "clone" })
+    expect(result.current.gitlabHost).toBe("gitlab.com")
+  })
+
+  it("follows the auth block's GITLAB_HOST output, keeping a port", () => {
+    blockOutputs = {
+      gitauth: {
+        values: {
+          __AUTHENTICATED: "true",
+          GIT_PROVIDER: "gitlab",
+          GITLAB_HOST: "gitlab.corp:8443",
+        },
+      },
+    }
+    const { result } = renderGitClone({ id: "clone", gitAuthId: "gitauth" })
+    expect(result.current.gitlabHost).toBe("gitlab.corp:8443")
+    expect(result.current.authProvider).toBe("gitlab")
+  })
+})

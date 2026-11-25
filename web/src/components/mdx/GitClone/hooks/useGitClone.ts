@@ -10,6 +10,7 @@ import {
   DEFAULT_GITHUB_HOST,
   tryNormalizeGitHubHost,
 } from "@/components/mdx/_shared/lib/githubHost"
+import { normalizeInstanceBaseUrl } from "@/components/mdx/GitAuth/utils"
 import type { LogEntry } from "@/hooks/useApiExec"
 import type {
   GitCloneStatus,
@@ -27,6 +28,8 @@ const CloneLogEventSchema = z.object({
   replace: z.boolean().optional(),
   cloneId: z.string().optional(),
 })
+
+const DEFAULT_GITLAB_HOST = "gitlab.com"
 
 function createLogEntry(line: string, timestamp?: string): LogEntry {
   return {
@@ -207,6 +210,19 @@ export function useGitClone({
       if (host) return host
     }
     return DEFAULT_GITHUB_HOST
+  }, [gitAuthId, githubAuthId, allOutputs])
+
+  // The GitLab instance of the linked auth block (its GITLAB_HOST output,
+  // host and port only). Defaults to gitlab.com.
+  const gitlabHost = useMemo((): string => {
+    for (const authId of [gitAuthId, githubAuthId]) {
+      if (!authId) continue
+      const origin = normalizeInstanceBaseUrl(
+        revealOutput(allOutputs[normalizeBlockId(authId)]?.values?.GITLAB_HOST),
+      )
+      if (origin) return new URL(origin).host
+    }
+    return DEFAULT_GITLAB_HOST
   }, [gitAuthId, githubAuthId, allOutputs])
 
   // Fetch session working directory for path preview
@@ -589,6 +605,8 @@ export function useGitClone({
     tokenChecked,
     gitHubAuthMet,
     githubHost,
+    gitlabHost,
+    authProvider,
     workingDir,
     localPreview,
     localPreviewStatus,

@@ -209,6 +209,10 @@ git -c credential.helper= \
 
 The helper is scoped to `https://` on the token's own host (`GITHUB_HOST`, set by the GitHub Auth block), so git never offers the token to another remote or over plain `http://`. For a GitLab checkout, scope it to your GitLab host, such as `credential.https://gitlab.com.helper`, and use `username=oauth2` and `${GITLAB_TOKEN}` in the helper.
 
+### GitLab authentication
+
+When `gitAuthId` references a block signed in to GitLab, the GitClone block clones with that block's GitLab token. The URL placeholder shows the GitLab instance the block signed in to, such as `https://gitlab.com/group/project.git`. The "Browse GitHub repositories" section is hidden, even if the session also holds a GitHub token from another block. There is no GitLab repository browser, so the user enters the project's URL.
+
 ### Sparse checkout
 
 Use the `prefilledRepoPath` prop (or the "Repo Path" input field) to check out only one directory of a large repository:

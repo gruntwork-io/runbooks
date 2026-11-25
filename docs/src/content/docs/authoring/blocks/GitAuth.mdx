@@ -4,7 +4,7 @@ title: <GitAuth>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<GitAuth>` block authenticates the user to GitHub or GitLab. A dropdown on the block selects the provider.
+The `<GitAuth>` block authenticates the user to GitHub or GitLab. A dropdown on the block selects the provider. The dropdown stays visible after the user signs in, including a sign-in from detected credentials, so the user can always switch to the other provider. Switching signs out of the current provider and looks for credentials for the new one.
 
 It detects whether the user is already authenticated by checking their environment variables and the provider's CLI (`gh` for GitHub, `glab` for GitLab). Users can also authenticate manually. GitHub supports OAuth and a Personal Access Token (PAT). GitLab supports a PAT. Once authenticated, the credentials are available to later [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), and [GitClone](/authoring/blocks/gitclone/) blocks.
 
