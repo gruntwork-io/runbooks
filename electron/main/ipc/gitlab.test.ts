@@ -536,3 +536,26 @@ describe("gitlab:namespaces, gitlab:projects, gitlab:refs — the repository bro
     },
   )
 })
+
+describe("gitlab:refresh-cli-credential", () => {
+  it("leaves a pasted token alone: no request, no session change", async () => {
+    await invoke("gitlab:validate", {
+      token: "glpat-manual",
+      host: "gitlab.com",
+      registerSession: true,
+    })
+    fetchCalls = []
+
+    expect(await invoke("gitlab:refresh-cli-credential", { host: "gitlab.com" })).toEqual({
+      outcome: "not-glab",
+    })
+    expect(fetchCalls).toEqual([])
+    expect((await sessionEnv()).GITLAB_TOKEN).toBe("glpat-manual")
+  })
+
+  it("answers not-glab for an unparseable host", async () => {
+    expect(await invoke("gitlab:refresh-cli-credential", { host: "ho%st" })).toEqual({
+      outcome: "not-glab",
+    })
+  })
+})

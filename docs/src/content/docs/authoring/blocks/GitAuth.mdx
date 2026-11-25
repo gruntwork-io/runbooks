@@ -115,6 +115,8 @@ The block warns before a token expires when the provider says when that is. GitH
 
 Five minutes before the token expires, the block turns red, says when it expires, and offers **Sign in again**. Once it has expired, the block says so. It stays signed in until you sign in again, so a script that runs in the meantime gets the expired token.
 
+A sign-in detected from `glab` is kept fresh. GitLab OAuth tokens last two hours, and glab replaces its token when it refreshes it, which revokes the old one. As the token nears expiry, the block reads glab's current token and, when needed, runs `glab auth status` so that glab refreshes it. The block then uses the new token without asking. Runbooks does the same before a git operation, a GitLab API call or a script that would use a token about to expire, and after GitLab refuses the token. After Runbooks restarts, a saved glab sign-in is read from glab again rather than shown with its old expiry. The block turns red only when glab cannot renew the sign-in. It then names glab, asks you to run `glab auth login`, and offers **Re-authenticate**, which checks for credentials again. Personal access tokens, environment tokens and pasted tokens are never replaced.
+
 ## Props
 
 | Prop | Type | Required | Default | Description |

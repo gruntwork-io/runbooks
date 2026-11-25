@@ -34,6 +34,11 @@ export interface ProviderConfig {
     enumerateHosts?: "github:enumerate-hosts" | "gitlab:enumerate-hosts"
     /** Persist an explicit host pick so it survives restart. */
     hostPicked?: "github:host-picked" | "gitlab:host-picked"
+    /**
+     * Swap a fresher CLI token into the session when a CLI OAuth sign-in nears
+     * expiry. Only for a CLI that renews its own short-lived tokens (glab).
+     */
+    refreshCliCredential?: "gitlab:refresh-cli-credential"
   }
   /**
    * Whether this provider supports choosing among multiple hosts/instances
