@@ -7,7 +7,7 @@
  * it in `status.ts` and `form.ts`.
  */
 import type { Effect, Option, Redacted, Stream } from "effect"
-import { Schema } from "effect"
+import { Schema, SchemaGetter } from "effect"
 import type { FormSpec, FormValues } from "./form.ts"
 
 // ---------------------------------------------------------------------------
@@ -46,10 +46,21 @@ export type PluginLevel = typeof PluginLevel.Type
 // ---------------------------------------------------------------------------
 
 /**
- * A block's id, as the one id comparison normalizes it. Only the parser
- * makes one, after it has checked the id the author wrote.
+ * The one id comparison: a hyphen and an underscore are the same, and case
+ * counts. A Go template reads a hyphen as subtraction, so `id="create-account"`
+ * is read as `.outputs.create_account`.
  */
-export const BlockId = Schema.NonEmptyString.pipe(Schema.brand("BlockId"))
+const sameIdAs = SchemaGetter.transform((written: string) => written.replaceAll("-", "_"))
+
+/**
+ * A block's id, normalized as it decodes, so two ids compare with `===`
+ * wherever they came from: a prop, a template reference, a test file, an MCP
+ * call. It encodes to the normalized form.
+ */
+export const BlockId = Schema.NonEmptyString.pipe(
+  Schema.decode({ decode: sameIdAs, encode: sameIdAs }),
+  Schema.brand("BlockId"),
+)
 export type BlockId = typeof BlockId.Type
 
 /** A path relative to the runbook's folder, checked to stay inside it. */
