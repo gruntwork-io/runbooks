@@ -50,6 +50,24 @@ export const Field = Schema.StructWithRest(
 ).annotate({ identifier: "field" })
 export type Field = typeof Field.Type
 
+export const ErrorKind = Schema.Literals([
+  "notConfigured",
+  "unsupportedProtocolVersion",
+  "invalidParams",
+  "notSignedIn",
+  "expired",
+  "pinMismatch",
+  "requirementNotMet",
+  "accessDenied",
+  "cancelled",
+  "timedOut",
+  "network",
+  "tlsError",
+  "toolMissing",
+  "internal",
+]).annotate({ identifier: "errorKind" })
+export type ErrorKind = typeof ErrorKind.Type
+
 export const Level = Schema.StructWithRest(
   Schema.Struct({
     name: Schema.String,
@@ -160,24 +178,6 @@ export const SignOutResult = Schema.Record(
 ).annotate({ identifier: "signOutResult" })
 export type SignOutResult = typeof SignOutResult.Type
 
-export const ErrorKind = Schema.Literals([
-  "notConfigured",
-  "unsupportedProtocolVersion",
-  "invalidParams",
-  "notSignedIn",
-  "expired",
-  "pinMismatch",
-  "requirementNotMet",
-  "accessDenied",
-  "cancelled",
-  "timedOut",
-  "network",
-  "tlsError",
-  "toolMissing",
-  "internal",
-]).annotate({ identifier: "errorKind" })
-export type ErrorKind = typeof ErrorKind.Type
-
 export const ToolMissingData = Schema.StructWithRest(
   Schema.Struct({
     kind: Schema.Literal("toolMissing"),
@@ -210,6 +210,14 @@ export const Method = Schema.StructWithRest(
         .check(
           Schema.isMaxLength(10).annotate({ expected: "a value with a length of at most 10" }),
         ),
+    ),
+    unavailable: Schema.optionalKey(
+      Schema.StructWithRest(Schema.Struct({ kind: ErrorKind, message: Schema.String }), [
+        Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" })),
+      ]).annotate({
+        description:
+          "Why the method cannot be used now: no az installed. Runbooks still lists it, with this reason, and refuses a sign-in with it.",
+      }),
     ),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],

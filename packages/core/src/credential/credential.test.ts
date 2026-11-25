@@ -135,6 +135,16 @@ describe("credential wire schema", () => {
     ).toThrow()
   })
 
+  it("says why a method is unavailable with an error kind and message", () => {
+    const cli = { name: "cli", label: "Azure CLI", fields: [] }
+    const unavailable = { kind: "toolMissing", message: "Install the Azure CLI." } as const
+    expect(decode(Wire.Method)({ ...cli, unavailable }).unavailable).toEqual(unavailable)
+    expect(() => decode(Wire.Method)({ ...cli, unavailable: { kind: "toolMissing" } })).toThrow()
+    expect(() =>
+      decode(Wire.Method)({ ...cli, unavailable: { ...unavailable, kind: "gone" } }),
+    ).toThrow()
+  })
+
   it("rejects an identity kind and a level timing it does not define", () => {
     expect(() => decode(Wire.Identity)({ ...identity, kind: "robot" })).toThrow()
     expect(() => decode(Wire.Level)({ name: "a", label: "A", chosen: "never" })).toThrow()

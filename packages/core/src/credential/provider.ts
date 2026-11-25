@@ -13,7 +13,7 @@
 import type { DateTime, Effect, Option, Redacted, Scope, Stream } from "effect"
 import { Context, Schema } from "effect"
 import {
-  type CredentialError,
+  CredentialError,
   type CredentialRequest,
   Requirement,
 } from "@runbooks/blocks-core/contract"
@@ -101,6 +101,11 @@ export const Method = Schema.Struct({
       Schema.Array(Schema.String).check(Schema.isMinLength(2), Schema.isMaxLength(MAX_ONE_OF)),
     ).check(Schema.isMaxLength(MAX_ONE_OF)),
   ),
+  /**
+   * Why the method cannot be used now: no `az` installed. The view still
+   * lists it, with this reason, and the engine refuses a sign-in with it.
+   */
+  unavailable: Schema.optionalKey(CredentialError),
 }).check(
   Schema.makeFilter(
     (method: {

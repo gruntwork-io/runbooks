@@ -186,6 +186,10 @@ const signInFields = (method: MethodView, given: Fields): Fields => ({
   ...given,
 })
 
+/** The methods a sign-in may use: every one its provider does not mark unavailable. */
+const available = (methods: ReadonlyArray<MethodView>): ReadonlyArray<MethodView> =>
+  methods.filter((method) => method.unavailable === undefined)
+
 /** A sign-in that has shown nothing yet. */
 const signingIn = (method: string): SigningIn => ({ _tag: "SigningIn", method, waiting: false })
 
@@ -426,10 +430,10 @@ export function makeCredentials(
       if (credential.turn === turn) move(credential, next, emit)
     })
 
-  /** The sign-in methods, the block's default first if its provider describes it, and why the last attempt failed. */
+  /** The sign-in methods, the block's default if it is one available, and why the last attempt failed. */
   const signedOut = (credential: Credential, opened: Opened, lastError?: CredentialError): Move => {
     const preferred = Option.filter(credential.slot.request.defaultMethod, (name) =>
-      opened.methods.some((method) => method.name === name),
+      available(opened.methods).some((method) => method.name === name),
     )
     return {
       _tag: "SignedOut",
@@ -909,12 +913,13 @@ export function makeCredentials(
             yield* host.update((emit) => move(credential, signedOut(credential, provider), emit))
             return accepted
           case "SignIn": {
-            const method = provider.methods.find((candidate) => candidate.name === action.method)
+            const offered = available(provider.methods)
+            const method = offered.find((candidate) => candidate.name === action.method)
             if (method === undefined)
               return notOffered(
                 "method",
                 action.method,
-                provider.methods.map((candidate) => candidate.name),
+                offered.map((candidate) => candidate.name),
               )
             yield* stop(credential)
             yield* host.update((emit) => move(credential, signingIn(method.name), emit))

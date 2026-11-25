@@ -930,6 +930,52 @@ describe("a login that cannot be used", () => {
     expect(callsOf("cloud")).toEqual(["open", "describe", "detect", "open", "describe", "detect"])
   })
 
+  /** A cloud provider whose `keys` method needs a tool that is not installed. */
+  const keysUnavailable = cloud({
+    info: {
+      ...CLOUD_INFO,
+      methods: CLOUD_INFO.methods.map((method) =>
+        method.name === "keys"
+          ? { ...method, unavailable: credentialError("toolMissing", "Install the keys tool.") }
+          : method,
+      ),
+    },
+  })
+
+  it("lists an unavailable method with its reason, and refuses a sign-in with it", async () => {
+    await withCloud('<CloudLogin id="cloud" detect={false} />', { cloud: keysUnavailable }, (rb) =>
+      Effect.gen(function* () {
+        const state = yield* rb.until("cloud", "SignedOut")
+        expect(
+          state._tag === "SignedOut" &&
+            state.methods.map((method) => [method.name, method.unavailable?.kind]),
+        ).toEqual([
+          ["sso", undefined],
+          ["keys", "toolMissing"],
+        ])
+        expect(yield* rb.act("cloud", { _tag: "SignIn", method: "keys", fields: {} })).toEqual({
+          _tag: "NotOffered",
+          field: "method",
+          value: "keys",
+          offered: ["sso"],
+        })
+      }),
+    )
+    expect(movesOf("cloud")).toEqual(["Detecting", "SignedOut"])
+    expect(callsOf("cloud")).toEqual(["open", "describe"])
+  })
+
+  it("does not default to an unavailable method", async () => {
+    await withCloud(
+      '<CloudLogin id="cloud" detect={false} method="keys" />',
+      { cloud: keysUnavailable },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.until("cloud", "SignedOut")).not.toHaveProperty("defaultMethod")
+        }),
+    )
+  })
+
   it("is unavailable when the block's provider does not exist", async () => {
     await withCloud('<GitLogin id="git" />', {}, (rb) =>
       Effect.gen(function* () {
