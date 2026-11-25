@@ -84,12 +84,39 @@ export const MethodField = Schema.Union([
 ])
 export type MethodField = typeof MethodField.Type
 
+/** The most groups in a method's `oneOf`, and the most names in one group, as the wire allows. */
+const MAX_ONE_OF = 10
+
 /** A sign-in method: one tab in the auth view. */
 export const Method = Schema.Struct({
   name: Schema.String,
   label: Schema.String,
   fields: Schema.Array(MethodField),
-})
+  /**
+   * Groups of the method's field names. A sign-in gives exactly one field of
+   * each group: a client secret or a certificate. The provider checks it.
+   */
+  oneOf: Schema.optionalKey(
+    Schema.Array(
+      Schema.Array(Schema.String).check(Schema.isMinLength(2), Schema.isMaxLength(MAX_ONE_OF)),
+    ).check(Schema.isMaxLength(MAX_ONE_OF)),
+  ),
+}).check(
+  Schema.makeFilter(
+    (method: {
+      readonly name: string
+      readonly fields: ReadonlyArray<{ readonly name: string }>
+      readonly oneOf?: ReadonlyArray<ReadonlyArray<string>>
+    }) =>
+      (method.oneOf ?? []).flatMap((group, at) =>
+        group.flatMap((name, index) =>
+          method.fields.some((field) => field.name === name)
+            ? []
+            : [{ path: ["oneOf", at, index], issue: `${method.name} has no field ${name}.` }],
+        ),
+      ),
+  ),
+)
 export type Method = typeof Method.Type
 
 /**

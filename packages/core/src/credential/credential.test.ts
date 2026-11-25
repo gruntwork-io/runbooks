@@ -11,7 +11,7 @@ import {
   confirmsDetected,
   statusOf,
 } from "./lifecycle.ts"
-import { Identity, MethodField } from "./provider.ts"
+import { Identity, Method, MethodField } from "./provider.ts"
 
 const decode =
   <S extends Schema.Top & { readonly DecodingServices: never }>(schema: S) =>
@@ -113,6 +113,26 @@ describe("credential wire schema", () => {
       expect(() => decode(schema)({ ...profile, secret: false, choices: choices(1001) })).toThrow()
     }
     expect(() => decode(MethodField)({ ...profile, secret: true, choices: choices(1) })).toThrow()
+  })
+
+  it("lets a method ask for exactly one field of a group, naming only its own fields", () => {
+    const servicePrincipal = {
+      name: "servicePrincipal",
+      label: "Service principal",
+      fields: [
+        { name: "clientId", label: "Client ID", required: true, secret: false },
+        { name: "clientSecret", label: "Client secret", required: false, secret: true },
+        { name: "certificate", label: "Certificate", required: false, secret: false },
+      ],
+      oneOf: [["clientSecret", "certificate"]],
+    }
+    for (const schema of [Wire.Method, Method]) {
+      expect(decode(schema)(servicePrincipal).oneOf).toEqual([["clientSecret", "certificate"]])
+      expect(() => decode(schema)({ ...servicePrincipal, oneOf: [["clientSecret"]] })).toThrow()
+    }
+    expect(() =>
+      decode(Method)({ ...servicePrincipal, oneOf: [["clientSecret", "password"]] }),
+    ).toThrow()
   })
 
   it("rejects an identity kind and a level timing it does not define", () => {

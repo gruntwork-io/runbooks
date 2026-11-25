@@ -189,7 +189,29 @@ export const ToolMissingData = Schema.StructWithRest(
 export type ToolMissingData = typeof ToolMissingData.Type
 
 export const Method = Schema.StructWithRest(
-  Schema.Struct({ name: Schema.String, label: Schema.String, fields: Schema.Array(Field) }),
+  Schema.Struct({
+    name: Schema.String,
+    label: Schema.String,
+    fields: Schema.Array(Field),
+    oneOf: Schema.optionalKey(
+      Schema.Array(
+        Schema.Array(Schema.String)
+          .check(
+            Schema.isMinLength(2).annotate({ expected: "a value with a length of at least 2" }),
+          )
+          .check(
+            Schema.isMaxLength(10).annotate({ expected: "a value with a length of at most 10" }),
+          ),
+      )
+        .annotate({
+          description:
+            "Groups of the method's field names. A sign-in gives exactly one field of each group: a client secret or a certificate. The plugin answers invalidParams for one that does not.",
+        })
+        .check(
+          Schema.isMaxLength(10).annotate({ expected: "a value with a length of at most 10" }),
+        ),
+    ),
+  }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "method" })
 export type Method = typeof Method.Type
