@@ -7,7 +7,10 @@ The running index of the rebuild stack. Update it whenever the stack changes.
 - Integration branch: `rebuild/main`, cut from `main` at ac543199 (2026-11-24).
 - Every PR is a draft. The bottom PR targets `rebuild/main`; each later PR targets the branch below it.
 - Nothing merges and no PR leaves draft without the human.
-- **Keep it stacked.** Every head must contain its base's tip. A commit to `rebuild/main` (an index update) or to a lower branch leaves the PRs above it behind. After one, run `.more9s/restack.sh <worktree>` (`--dry-run` first): it rebases each branch onto its base, bottom up, and force-pushes each with a lease on the tip it had. Each PR's CI then reruns.
+- **Keep it stacked.** The PRs are GitHub stack #519, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/519`). `.more9s/stack.sh` keeps it that way:
+  - `add <branch> <title> <body-file>` opens each new PR as a draft on the top of the stack and links it into #519. Don't open a rebuild PR with `gh pr create` alone.
+  - `restack` (`--dry-run` first, in a linked worktree) is needed after any commit to `rebuild/main`, such as an index update, or to a lower branch. It rebases each branch onto the one below and force-pushes it with a lease. CI then reruns on every PR above the change, so batch index updates.
+  - `check` exits 1 if a PR's base is not the head below it, or if a head lacks commits its base has.
 
 ## Finish line
 
@@ -65,7 +68,9 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 19 | #517 | 1 | `rebuild/p1-parse` | p1-document-contract | open | 1.4, part 1: parse, props, ids, errors |
 | 20 | #518 | 1 | `rebuild/p1-edge-indices` | p1-parse | open | contract change for 1.4 (edges by block index) |
 
-The stack was restacked on 2026-11-24 after the human found it was not: #496 lacked four index commits on `rebuild/main`. Trees were unchanged apart from this file.
+On 2026-11-24 the human found the PRs were not properly stacked:
+- #496 lacked four index commits on `rebuild/main`. Every branch was rebased; trees were unchanged apart from this file.
+- The PRs were not linked as a GitHub stack. They now are, with `gh stack link --base rebuild/main 496 … 518` (gh-stack v0.2.0), which created stack #519.
 
 Later phases and track A are added here as their PRs are cut.
 
