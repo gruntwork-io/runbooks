@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["bun-types"],
+    "erasableSyntaxOnly": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.rebuild.tsbuildinfo"
+  },
+  "include": ["blocks/**/*", "packages/**/*"]
+}
