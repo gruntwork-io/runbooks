@@ -196,11 +196,45 @@ export const SessionSummary = Schema.Struct({
 })
 export type SessionSummary = typeof SessionSummary.Type
 
+/**
+ * Why part of a saved session was not restored. Each block a problem names
+ * starts over in that part; the rest of the session is as it was left.
+ */
+export const ResumeProblem = Schema.Union([
+  /**
+   * A Runbooks older than this one saved the runs of `blocks`, in
+   * saved-session version `version`. Their form values and credentials were
+   * kept, and their runs were not (open decision 6).
+   */
+  Schema.TaggedStruct("OlderVersion", { version: Schema.Int, blocks: Schema.Array(BlockId) }),
+  /** A newer Runbooks saved what `blocks` hold, in saved-session version `version`, which this one does not read. */
+  Schema.TaggedStruct("NewerVersion", { version: Schema.Int, blocks: Schema.Array(BlockId) }),
+  /**
+   * The runbook, or a file it names, changed since the session was saved. A
+   * session that was trusted is untrusted until the person trusts it again,
+   * and the runs of `blocks`, whose runbook or files changed, were not kept.
+   */
+  Schema.TaggedStruct("RunbookChanged", { blocks: Schema.Array(BlockId) }),
+  /** What `blocks` hold could not be decrypted, as when the system's key changed. */
+  Schema.TaggedStruct("Unreadable", { blocks: Schema.Array(BlockId) }),
+])
+export type ResumeProblem = typeof ResumeProblem.Type
+
+/** The runbook's saved session, which the engine resumed instead of starting one. */
+export const Resumed = Schema.Struct({
+  /** When the session was last opened or closed before. */
+  lastUsed: Schema.DateTimeUtc,
+  problems: Schema.Array(ResumeProblem),
+})
+export type Resumed = typeof Resumed.Type
+
 export const SessionView = Schema.Struct({
   ...SessionSummary.fields,
   trust: TrustState,
   blocks: Schema.Array(BlockSummary),
   warnings: Schema.Array(ConfigWarning),
+  /** Present when the engine resumed the runbook's saved session. */
+  resumed: Schema.optionalKey(Resumed),
 })
 export type SessionView = typeof SessionView.Type
 
