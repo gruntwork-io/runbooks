@@ -524,3 +524,183 @@ describe("GitLabHttpClient — self-hosted base URL", () => {
     },
   )
 })
+
+describe("GitLabHttpClient — repository browser", () => {
+  const SELF_HOSTED = "https://gitlab.corp:8443"
+  const client = <A>(f: (c: typeof GitLabClient.Service) => Effect.Effect<A, GitLabApiError>) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        return yield* f(yield* GitLabClient)
+      }).pipe(Effect.provide(GitLabHttpClientLive)),
+    )
+
+  const paged = (body: unknown, headers: Record<string, string> = {}) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...headers },
+    })
+
+  const rawProject = (id: number, path: string) => ({
+    id,
+    name: path.split("/").pop(),
+    path_with_namespace: path,
+    http_url_to_repo: `${SELF_HOSTED}/${path}.git`,
+    default_branch: "main",
+    visibility: "private",
+  })
+
+  it("lists the personal namespace first, then member groups by path, without groups pending deletion", async () => {
+    const urls: string[] = []
+    mockFetch((url) => {
+      urls.push(url)
+      const { pathname } = new URL(url)
+      if (pathname === "/api/v4/user") return json({ id: 7, username: "tanuki" })
+      if (pathname === "/api/v4/groups") {
+        return json([
+          { id: 11, full_path: "acme/platform" },
+          { id: 12, full_path: "acme/old", marked_for_deletion_on: "2026-01-01" },
+          { id: 10, full_path: "acme" },
+        ])
+      }
+      return new Response("not found", { status: 404 })
+    })
+
+    const namespaces = await client((c) => c.listNamespaces("glpat-abc", SELF_HOSTED))
+
+    expect(namespaces).toEqual([
+      { id: 7, kind: "user", fullPath: "tanuki" },
+      { id: 10, kind: "group", fullPath: "acme" },
+      { id: 11, kind: "group", fullPath: "acme/platform" },
+    ])
+    const groups = new URL(urls.find((u) => u.includes("/groups"))!)
+    expect(groups.origin).toBe(SELF_HOSTED)
+    expect(groups.searchParams.get("min_access_level")).toBe("10")
+    expect(groups.searchParams.get("all_available")).toBe("false")
+  })
+
+  it("lists a group's projects with its subgroups, sorted by path", async () => {
+    let requested: URL | undefined
+    mockFetch((url) => {
+      requested = new URL(url)
+      return paged([rawProject(2, "acme/tools"), rawProject(1, "acme/platform/infra")])
+    })
+
+    const result = await client((c) =>
+      c.listProjects("glpat-abc", { id: 10, kind: "group" }, undefined, SELF_HOSTED),
+    )
+
+    expect(requested!.origin + requested!.pathname).toBe(`${SELF_HOSTED}/api/v4/groups/10/projects`)
+    expect(requested!.searchParams.get("include_subgroups")).toBe("true")
+    expect(requested!.searchParams.get("with_shared")).toBe("false")
+    expect(requested!.searchParams.has("search")).toBe(false)
+    expect(result).toEqual({
+      projects: [
+        {
+          id: 1,
+          name: "infra",
+          pathWithNamespace: "acme/platform/infra",
+          httpUrlToRepo: `${SELF_HOSTED}/acme/platform/infra.git`,
+          defaultBranch: "main",
+          visibility: "private",
+        },
+        expect.objectContaining({ pathWithNamespace: "acme/tools" }),
+      ],
+      truncated: false,
+    })
+  })
+
+  it("lists a personal namespace's projects and passes a search to the server", async () => {
+    let requested: URL | undefined
+    mockFetch((url) => {
+      requested = new URL(url)
+      return paged([])
+    })
+
+    await client((c) => c.listProjects("glpat-abc", { id: 7, kind: "user" }, " infra "))
+
+    expect(requested!.origin + requested!.pathname).toBe(
+      "https://gitlab.com/api/v4/users/7/projects",
+    )
+    expect(requested!.searchParams.get("search")).toBe("infra")
+    expect(requested!.searchParams.has("include_subgroups")).toBe(false)
+  })
+
+  it("stops at five pages of projects, fetched together, and says the list is truncated", async () => {
+    const pages: number[] = []
+    mockFetch((url) => {
+      const page = Number(new URL(url).searchParams.get("page"))
+      pages.push(page)
+      return paged(
+        Array.from({ length: 100 }, (_, i) => rawProject(page * 1000 + i, `acme/p${page}-${i}`)),
+        { "x-total-pages": "8", "x-next-page": String(page + 1) },
+      )
+    })
+
+    const result = await client((c) => c.listProjects("glpat-abc", { id: 10, kind: "group" }))
+
+    expect([...pages].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5])
+    expect(result.projects).toHaveLength(500)
+    expect(result.truncated).toBe(true)
+  })
+
+  it("follows x-next-page when GitLab omits the page count", async () => {
+    const pages: number[] = []
+    mockFetch((url) => {
+      const page = Number(new URL(url).searchParams.get("page"))
+      pages.push(page)
+      const full = Array.from({ length: 100 }, (_, i) => rawProject(page * 1000 + i, `a/p${i}`))
+      return page < 3 ? paged(full, { "x-next-page": String(page + 1) }) : paged(full.slice(0, 5))
+    })
+
+    const result = await client((c) => c.listProjects("glpat-abc", { id: 10, kind: "group" }))
+
+    expect(pages).toEqual([1, 2, 3])
+    expect(result).toMatchObject({ truncated: false })
+    expect(result.projects).toHaveLength(205)
+  })
+
+  it("refuses a namespace id that is not a number, without a request", async () => {
+    let calls = 0
+    mockFetch(() => {
+      calls++
+      return paged([])
+    })
+
+    const error = await Effect.runPromise(
+      Effect.flip(
+        Effect.gen(function* () {
+          const c = yield* GitLabClient
+          return yield* c.listProjects("glpat-abc", {
+            id: "10/../../users" as unknown as number,
+            kind: "group",
+          })
+        }).pipe(Effect.provide(GitLabHttpClientLive)),
+      ),
+    )
+
+    expect(error.status).toBe(400)
+    expect(calls).toBe(0)
+  })
+
+  it("lists branches then tags of a project addressed by its encoded path", async () => {
+    const urls: string[] = []
+    mockFetch((url) => {
+      urls.push(url)
+      return new URL(url).pathname.endsWith("/tags")
+        ? paged([{ name: "v1.0.0" }])
+        : paged([{ name: "main" }, { name: "feature" }])
+    })
+
+    const refs = await client((c) => c.listRefs("glpat-abc", "acme/platform/infra", SELF_HOSTED))
+
+    expect(refs).toEqual([
+      { ref: "main", type: "branch" },
+      { ref: "feature", type: "branch" },
+      { ref: "v1.0.0", type: "tag" },
+    ])
+    expect(urls.map((u) => new URL(u).origin + new URL(u).pathname).sort()).toEqual([
+      `${SELF_HOSTED}/api/v4/projects/acme%2Fplatform%2Finfra/repository/branches`,
+      `${SELF_HOSTED}/api/v4/projects/acme%2Fplatform%2Finfra/repository/tags`,
+    ])
+  })
+})

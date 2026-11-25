@@ -953,6 +953,20 @@ export interface IpcChannelMap {
     params: { owner: string; repo: string; host?: string }
     result: { labels?: string[] }
   }
+  // Repository browser queries. They use the session's GitLab token, sent
+  // only to the instance it is bound to; `host` (bare host, port kept) names
+  // that instance and defaults to it. A failure rejects.
+  "gitlab:namespaces": { params: { host?: string }; result: GitLabNamespace[] }
+  "gitlab:projects": {
+    params: {
+      namespace: { id: number; kind: GitLabNamespace["kind"] }
+      search?: string
+      host?: string
+    }
+    result: { projects: GitLabProject[]; truncated: boolean }
+  }
+  // `project` is the project's full path, such as `group/subgroup/project`.
+  "gitlab:refs": { params: { project: string; host?: string }; result: GitLabRef[] }
 
   // Git Operations
   /** A clone that fails rejects. */
@@ -1394,6 +1408,27 @@ export interface GitHubRepo {
 }
 
 export interface GitHubRef {
+  ref: string
+  type: "branch" | "tag"
+}
+
+export interface GitLabNamespace {
+  id: number
+  kind: "group" | "user"
+  /** `group/subgroup`, or the username for a personal namespace. */
+  fullPath: string
+}
+
+export interface GitLabProject {
+  id: number
+  name: string
+  pathWithNamespace: string
+  httpUrlToRepo: string
+  defaultBranch?: string
+  visibility: string
+}
+
+export interface GitLabRef {
   ref: string
   type: "branch" | "tag"
 }

@@ -58,6 +58,29 @@ import {
 type HostSource = "glab" | "env" | "session" | "recent"
 
 /**
+ * The session's GitLab token and the origin of `host` (else its bound host).
+ * An unparseable host fails rather than becoming gitlab.com; the token goes
+ * only to its bound host (port included), over https.
+ */
+const getSessionCredential = (host: string | undefined) =>
+  Effect.gen(function* () {
+    const baseUrl = tryNormalizeGitLabBaseUrl(host ?? (yield* getGitLabSessionBoundHost()))
+    if (!baseUrl) {
+      return yield* new MissingSessionCredentialError({
+        message: "No GitLab instance to send the request to",
+      })
+    }
+    const token = yield* getGitLabSessionTokenForOrigin(
+      baseUrl,
+      () =>
+        new MissingSessionCredentialError({
+          message: "No GitLab token for this host available in session",
+        }),
+    )
+    return { token, baseUrl }
+  })
+
+/**
  * Resolve a GitLab instance string (a bare host or a scheme-qualified URL) to
  * the API ORIGIN (scheme preserved — plain-http instances exist) that feeds
  * validation, plus the bare HOST that keys probe/session/recents/copy. Both
@@ -353,26 +376,7 @@ export function registerGitLabHandlers(): void {
       const program = Effect.gen(function* () {
         // Target the repo's own GitLab instance (passed by the renderer from the
         // repo's remote); fall back to the host the session token is bound to.
-        // A bare host or a URL normalizes to the API origin. One that doesn't
-        // parse returns no labels rather than asking gitlab.com, as the client
-        // itself would refuse it.
-        const baseUrl = tryNormalizeGitLabBaseUrl(
-          params.host ?? (yield* getGitLabSessionBoundHost()),
-        )
-        if (!baseUrl) {
-          return yield* new MissingSessionCredentialError({
-            message: "No GitLab instance to list labels from",
-          })
-        }
-        // The session token goes only to the host it is bound to (port
-        // included), over https.
-        const token = yield* getGitLabSessionTokenForOrigin(
-          baseUrl,
-          () =>
-            new MissingSessionCredentialError({
-              message: "No GitLab token for this host available in session",
-            }),
-        )
+        const { token, baseUrl } = yield* getSessionCredential(params.host)
         const client = yield* GitLabClient
         return yield* client.listLabels(token, params.owner, params.repo, baseUrl)
       })
@@ -384,5 +388,47 @@ export function registerGitLabHandlers(): void {
         return { labels: [] }
       }
     },
+  )
+
+  // Repository browser queries. Like gitlab:labels they use the session token,
+  // so the renderer never handles it, but a failure rejects so the browser can
+  // say why a list is empty.
+  ipcMain.handle("gitlab:namespaces", async (_event, params?: { host?: string }) =>
+    runtime.runPromise(
+      Effect.gen(function* () {
+        const { token, baseUrl } = yield* getSessionCredential(params?.host)
+        const client = yield* GitLabClient
+        return yield* client.listNamespaces(token, baseUrl)
+      }),
+    ),
+  )
+
+  ipcMain.handle(
+    "gitlab:projects",
+    async (
+      _event,
+      params: {
+        namespace: { id: number; kind: "group" | "user" }
+        search?: string
+        host?: string
+      },
+    ) =>
+      runtime.runPromise(
+        Effect.gen(function* () {
+          const { token, baseUrl } = yield* getSessionCredential(params.host)
+          const client = yield* GitLabClient
+          return yield* client.listProjects(token, params.namespace, params.search, baseUrl)
+        }),
+      ),
+  )
+
+  ipcMain.handle("gitlab:refs", async (_event, params: { project: string; host?: string }) =>
+    runtime.runPromise(
+      Effect.gen(function* () {
+        const { token, baseUrl } = yield* getSessionCredential(params.host)
+        const client = yield* GitLabClient
+        return yield* client.listRefs(token, params.project, baseUrl)
+      }),
+    ),
   )
 }
