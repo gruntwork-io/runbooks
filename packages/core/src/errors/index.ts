@@ -177,12 +177,6 @@ export class SessionEventError extends Data.TaggedError("SessionEventError")<{
   readonly message: string
 }> {}
 
-/** The sessions database could not be opened or migrated, or rejected a statement. */
-export class SessionStoreError extends Data.TaggedError("SessionStoreError")<{
-  readonly message: string
-  readonly cause?: unknown
-}> {}
-
 /** The session has no credential it may send to the requested host. */
 export class MissingSessionCredentialError extends Data.TaggedError(
   "MissingSessionCredentialError",
