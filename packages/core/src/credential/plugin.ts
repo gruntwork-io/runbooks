@@ -20,15 +20,15 @@
  *
  * The three secret rules, as the client holds a plugin to them:
  * 1. Only `env` returns secret values, and they are `Redacted` from the
- *    moment they arrive. A value equal to a secret the client knows must be
- *    marked sensitive.
+ *    moment they arrive. A value that holds a secret the client knows must
+ *    be marked sensitive.
  * 2. A secret the person types goes only into `signIn`'s params.
  * 3. A value marked `file` is a path inside the block's state directory,
  *    which only its owner can read.
  * No identity, target, prompt or error may carry a secret the client knows:
- * one typed into a secret field, or one `env` returned as sensitive. A
- * call that breaks a rule fails with `providerFailed`, and the message
- * names what broke it, never the value.
+ * one typed into a secret field, one sent in a values source as secret, or
+ * one `env` returned as sensitive. A call that breaks a rule fails with
+ * `providerFailed`, and the message names what broke it, never the value.
  */
 import path from "node:path"
 import { Effect, Exit, Layer, Option, Redacted, Schema, Scope, Semaphore, Stream } from "effect"
@@ -133,6 +133,29 @@ export const CREDENTIAL_PROTOCOL: PluginProtocol<
 const fixedPartOf = (info: ProviderInfo) =>
   JSON.stringify({ levels: info.levels, names: info.names, requirements: info.requirements })
 
+/**
+ * Every string in `value`, object keys included, as the plugin sent it: a
+ * secret scan reads these, not JSON text, where `"`, `\` and control
+ * characters are escaped.
+ */
+export const stringsIn = (value: unknown): ReadonlyArray<string> => {
+  const found: Array<string> = []
+  const seen = new Set<object>()
+  const pending: Array<unknown> = [value]
+  while (pending.length > 0) {
+    const next = pending.pop()
+    if (typeof next === "string") found.push(next)
+    else if (typeof next === "object" && next !== null && !seen.has(next)) {
+      seen.add(next)
+      for (const [key, inner] of Object.entries(next)) {
+        if (!Array.isArray(next)) found.push(key)
+        pending.push(inner)
+      }
+    }
+  }
+  return found
+}
+
 /** A secret shorter than this is not looked for: so short a string turns up in ordinary text. */
 const MIN_SCANNED_SECRET = 8
 /** The most secrets one provider remembers to look for; the oldest go first. */
@@ -191,7 +214,7 @@ export const openPluginProvider = (
     let running: Running | undefined
     /** What the latest session described: a later one must give the same levels, names and requirements. */
     let described: ProviderInfo | undefined
-    /** Secrets the client knows and looks for: typed into a secret field, or returned sensitive by env. */
+    /** Secrets the client knows and looks for: typed into a secret field, sent as secret in detect, or returned sensitive by env. */
     const secrets: Array<Redacted.Redacted<string>> = []
 
     const failed = (message: string) => new CredentialError({ kind: "providerFailed", message })
@@ -203,11 +226,14 @@ export const openPluginProvider = (
       secrets.push(Redacted.make(value))
       if (secrets.length > MAX_KNOWN_SECRETS) secrets.shift()
     }
-    const holdsSecret = (text: string) =>
-      secrets.some((known) => text.includes(Redacted.value(known)))
+    /** Whether any string in `value` holds a secret the client knows. */
+    const holdsSecret = (value: unknown) => {
+      const strings = stringsIn(value)
+      return secrets.some((known) => strings.some((text) => text.includes(Redacted.value(known))))
+    }
     /** Fails when any string in `value` holds a secret the client knows; `what` says where. */
     const noSecretIn = (what: string, value: unknown) =>
-      holdsSecret(JSON.stringify(value) ?? "")
+      holdsSecret(value)
         ? Effect.fail(failed(`${name} put a secret in ${what}, so the app refused it.`))
         : Effect.void
 
@@ -267,7 +293,7 @@ export const openPluginProvider = (
       error: PluginTransportError | PluginRemoteError<Wire.ErrorKind>,
     ): CredentialError => {
       if (error._tag !== "PluginRemoteError") return failed(transportMessage(plugin, error))
-      if (holdsSecret(error.message) || holdsSecret(JSON.stringify(error.data)))
+      if (holdsSecret([error.message, error.data]))
         return failed(`${name} put a secret in an error, so the app does not show it.`)
       const message =
         error.kind === "unknown"
@@ -396,6 +422,8 @@ export const openPluginProvider = (
     const envOf = (wire: Wire.EnvResult) =>
       Effect.gen(function* () {
         const info = described
+        // First, so a plain copy of one in the same answer is refused too.
+        for (const value of wire.values) if (value.sensitive) remember(value.value)
         const seen = new Set<string>()
         for (const value of wire.values) {
           if (info !== undefined && !info.names.includes(value.name))
@@ -408,7 +436,6 @@ export const openPluginProvider = (
             )
           if (value.file) yield* checkFile(value)
         }
-        for (const value of wire.values) if (value.sensitive) remember(value.value)
         const expiresAt =
           wire.expiresAt === undefined
             ? Option.none()
@@ -456,6 +483,10 @@ export const openPluginProvider = (
       detect: (sources, constraints) =>
         withSession((session) =>
           Effect.gen(function* () {
+            for (const source of sources)
+              if (source.kind === "values")
+                for (const { value, secret } of Object.values(source.values))
+                  if (secret) remember(Redacted.value(value))
             const result = yield* session.call(Detect, {
               sources: sources.map(sourceOf),
               ...constraintsOf(constraints),
