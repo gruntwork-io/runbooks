@@ -384,12 +384,21 @@ describe("Engine", () => {
   }, 60_000)
 
   it("decides each update's statuses, and the session's, once for all its blocks", async () => {
-    // Deciding each block's status apart decides the ones it waits for again:
-    // for 16 times the blocks, about 256 times the work, against 16.
+    // One ladder of 800 blocks against 16 of 50: the same blocks, so about the
+    // same time when each update decides each block once (1.2 to 1.5 times).
+    // Deciding each block's status apart decides the ones it waits for again,
+    // and the long ladder takes 5 to 8 times as long. The 16 short opens add
+    // up to tens of milliseconds, so a millisecond of jitter barely moves it.
     await openAndAsk(50, 5)
-    const short = await median(50, 5)
+    const sixteen = async () => {
+      let ms = 0
+      for (let i = 0; i < 16; i++) ms += (await openAndAsk(50, 5)).ms
+      return ms
+    }
+    const runs = [await sixteen(), await sixteen(), await sixteen()]
+    const short = runs.sort((x, y) => x - y)[1]!
     const long = await median(800, 5)
-    expect(long / short).toBeLessThan(32)
+    expect(long / short).toBeLessThan(3)
   }, 60_000)
 
   it("unblocks a task's dependents when it is done and blocks them again when it is reset", async () => {
