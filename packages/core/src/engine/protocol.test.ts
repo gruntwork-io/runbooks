@@ -3,6 +3,7 @@ import { Cause, Context, DateTime, Effect, Exit, Layer, Option, Schema, Stream }
 import { Rpc, type RpcClient, RpcTest } from "effect/rpc"
 import { BlockId } from "@runbooks/blocks-core/contract"
 import { type CredentialStateTag, TRANSITIONS } from "../credential/lifecycle.ts"
+import { ConfigError } from "../document/configError.ts"
 import { ContentHash } from "../document/document.ts"
 import {
   ActResult,
@@ -11,6 +12,7 @@ import {
   Caller,
   CallerMiddleware,
   ChangeSettings,
+  DocumentView,
   type EngineCommand,
   EngineProtocol,
   EventEnvelope,
@@ -359,6 +361,62 @@ describe("engine protocol", () => {
     const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(view)))
     expect(wire.settings.proxy).toBeNull()
     expect(Schema.decodeUnknownSync(json)(wire)).toEqual(view)
+  })
+
+  it("carries a document through JSON: only JSON props, and a misconfigured block's errors", () => {
+    const json = Schema.toCodecJson(DocumentView)
+    const span = { start: { line: 3, column: 1 }, end: { line: 3, column: 30 } }
+    const place = { tag: "Run", block: "Run", class: "task", span } as const
+    const document: DocumentView = {
+      title: "Deploy",
+      tree: {
+        type: "root",
+        children: [
+          { type: "heading", depth: 1, children: [{ type: "text", value: "Deploy" }] },
+          { type: "block", index: 0, children: [] },
+          { type: "block", index: 1, children: [] },
+        ],
+      },
+      blocks: [
+        {
+          _tag: "Configured",
+          index: 0,
+          ...place,
+          id: greet,
+          title: "Greet",
+          props: { command: "echo hi", args: ["-n", 1, true, null] },
+        },
+        {
+          _tag: "Misconfigured",
+          index: 1,
+          ...place,
+          errors: [
+            new ConfigError({
+              code: "badProp",
+              message: "`args` is not a list.",
+              location: { file: "/rb/runbook.mdx", span, block: { tag: "Run" }, prop: "args" },
+            }),
+          ],
+        },
+      ],
+      warnings: [],
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(document)))
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(document)
+
+    const [configured, misconfigured] = wire.blocks
+    expect(() =>
+      Schema.encodeUnknownSync(json)({
+        ...document,
+        blocks: [{ ...document.blocks[0]!, props: { at: new Date(0) } }],
+      }),
+    ).toThrow(/Expected JSON value/)
+    expect(() =>
+      Schema.decodeUnknownSync(json)({
+        ...wire,
+        blocks: [configured, { ...misconfigured, errors: [] }],
+      }),
+    ).toThrow(/at \["blocks"\]\[1\]/)
   })
 
   it("serves every baseline MCP tool with a command (decision 12)", () => {
