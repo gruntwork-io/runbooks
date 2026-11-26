@@ -17,7 +17,13 @@ import {
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { Identity, Level, Method, Target } from "./provider.ts"
 
-/** How long before expiry the block asks to sign in again: 5 minutes, as today. */
+/**
+ * How long before expiry the block asks to sign in again: 5 minutes, as
+ * today. It is also how close to expiry a plugin's `env` refreshes a
+ * credential: `envResult`'s description in plugin/credential.schema.json
+ * states the same 5 minutes, and plugins built from that schema keep them,
+ * so a change here is a protocol change.
+ */
 export const EXPIRY_WARNING_MILLIS = 5 * 60_000
 
 /** A sign-in method as the view draws it: the provider's method with the block's defaults filled in. */

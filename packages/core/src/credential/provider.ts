@@ -247,7 +247,11 @@ export interface CredentialProvider {
   readonly select: (targets: {
     readonly [level: string]: string | null
   }) => Effect.Effect<Identity, CredentialError>
-  /** The only call that returns secret values. The provider refreshes first if it can. */
+  /**
+   * The only call that returns secret values. The provider first refreshes a
+   * credential that has expired or expires within `EXPIRY_WARNING_MILLIS`,
+   * if it can, and `expiresAt` is the new expiry.
+   */
   readonly env: Effect.Effect<CredentialEnv, CredentialError>
   /** Drops what the provider holds and deletes the files it wrote. */
   readonly signOut: Effect.Effect<void, CredentialError>

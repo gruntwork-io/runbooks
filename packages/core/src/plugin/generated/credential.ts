@@ -401,7 +401,7 @@ export const EnvResult = Schema.StructWithRest(
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({
   description:
-    "What a run gets. The plugin refreshes first if it can. A declared name that is not returned is unset.",
+    "What a run gets. A credential that has expired, or that expires within 5 minutes, is refreshed before env answers if the plugin can refresh it, and expiresAt is the new expiry. A declared name that is not returned is unset.",
   identifier: "envResult",
 })
 export type EnvResult = typeof EnvResult.Type
