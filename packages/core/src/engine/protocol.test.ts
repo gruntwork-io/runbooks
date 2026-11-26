@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "bun:test"
 import { Cause, Context, DateTime, Effect, Exit, Layer, Option, Schema, Stream } from "effect"
 import { Rpc, type RpcClient, RpcTest } from "effect/rpc"
-import { BlockId } from "@runbooks/blocks-core/contract"
+import { BlockId, type Instruction as ContractInstruction } from "@runbooks/blocks-core/contract"
 import { type CredentialStateTag, TRANSITIONS } from "../credential/lifecycle.ts"
 import { ConfigError } from "../document/configError.ts"
 import { ContentHash } from "../document/document.ts"
@@ -19,6 +19,7 @@ import {
   EventEnvelope,
   Events,
   FieldView,
+  type Instruction,
   type FileChange,
   Forbidden,
   LIMITS,
@@ -202,6 +203,25 @@ describe("engine protocol", () => {
     const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(Exit.fail(refused))))
     const back = Schema.decodeUnknownSync(json)(wire)
     expect(Exit.isFailure(back) && Cause.findErrorOption(back.cause)).toEqual(Option.some(refused))
+  })
+
+  it("carries the contract's instruction, every kind of step, through JSON", () => {
+    expectTypeOf<Instruction>().toEqualTypeOf<ContractInstruction>()
+    const json = Schema.toCodecJson(BlockView)
+    const view: BlockView = {
+      block: greet,
+      tag: "Run",
+      class: "task",
+      actions: [],
+      outputs: {},
+      instruction: [
+        { kind: "text", markdown: "Run this command:" },
+        { kind: "code", language: "bash", code: "echo hi" },
+        { kind: "link", label: "The docs", url: "https://docs.example.com/" },
+      ],
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(view)))
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(view)
   })
 
   it("lists the files a block's run touched by absolute path, up to a limit it says it reached", () => {

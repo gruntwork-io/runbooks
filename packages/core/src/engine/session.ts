@@ -80,6 +80,7 @@ import {
   type EngineEvent,
   type EventEnvelope,
   FieldView,
+  type Instruction,
   type FileChange,
   type LogLine,
   type LogPage,
@@ -1661,6 +1662,13 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     return { offset: from, total: run.log.end(), lines: run.log.slice(from, from + limit) }
   }
 
+  /** A task's or credential block's instruction. It gets no services, so it is built in any trust state. */
+  const instructionOf = (slot: Slot): Instruction | undefined => {
+    if (Option.isSome(slot.runnable))
+      return slot.runnable.value.block.instruction(slot.node.props, readsFor(slot))
+    return credentialSlotAt.get(slot.index)?.block.instruction(slot.node.props)
+  }
+
   const viewOf = (
     slot: Slot,
     logOffset = 0,
@@ -1672,8 +1680,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     const credential = credentialSlotAt.has(slot.index)
       ? credentials.stateOf(slot.index)
       : undefined
+    const instruction = instructionOf(slot)
     return {
       ...summaryOf(slot),
+      ...(instruction === undefined ? {} : { instruction }),
       ...(run === undefined ? {} : { log: logPage(run, logOffset, logLimit) }),
       outputs: outputs === undefined ? {} : outputsView(outputs),
       ...(form === undefined ? {} : { fields: fieldViews(form) }),

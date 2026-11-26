@@ -187,8 +187,25 @@ export const FileChange = Schema.Struct({
 })
 export type FileChange = typeof FileChange.Type
 
+/** One step of an instruction: the contract's `InstructionStep`. */
+export const InstructionStep = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("text"), markdown: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("code"), language: Schema.String, code: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("link"), label: Schema.String, url: Schema.String }),
+])
+
+/** What instruction mode shows in place of running a block: the contract's `Instruction`. */
+export const Instruction = Schema.Array(InstructionStep)
+export type Instruction = typeof Instruction.Type
+
 export const BlockView = Schema.Struct({
   ...BlockSummary.fields,
+  /**
+   * A task's or credential block's instruction, from its props and what it
+   * reads now, built before trust as the contract has it. Absent for a form
+   * or display block, and for one whose configuration has errors.
+   */
+  instruction: Schema.optionalKey(Instruction),
   log: Schema.optionalKey(LogPage),
   outputs: Schema.Record(Schema.String, OutputView),
   /** A form block's fields, or a task's own form. */

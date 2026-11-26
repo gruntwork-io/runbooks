@@ -24,6 +24,7 @@ import { type Rpc, RpcClient, RpcSchema, RpcSerialization, RpcServer } from "eff
 import {
   BlockId,
   CredentialError,
+  defineCredential,
   defineDisplay,
   defineForm,
   defineTask,
@@ -72,6 +73,38 @@ const registryWith = (scripts: Readonly<Record<string, Script>>) => ({
         (p.outputs ?? []).map((key) => [key, { sensitive: key.startsWith("secret") }]),
       ),
     run: (p) => scripts[p.command ?? ""]?.() ?? Stream.empty,
+  }),
+  /** A credential block whose instruction is a line of text and a link. */
+  CloudLogin: defineCredential({
+    ...TOY_REGISTRY.CloudLogin,
+    instruction: (p) => [
+      { kind: "text", markdown: `Sign in to the account ${p.account ?? "you use"}.` },
+      { kind: "link", label: "The cloud's console", url: "https://console.example.com/" },
+    ],
+  }),
+  /** A task whose instruction prints each value it reads, as a careless block's might. */
+  Says: defineTask({
+    name: "Says",
+    since: "0.1.0",
+    class: "task",
+    props: Schema.Struct({}),
+    children: { kind: "none" },
+    references: {},
+    runbookFiles: () => [],
+    provides: ["run"],
+    effects: [],
+    outputs: (): OutputDecls<string> => ({}),
+    run: () => Stream.empty,
+    instruction: (_p, reads) => [
+      {
+        kind: "text",
+        markdown: Array.from(
+          reads.values,
+          ([name, value]) => `${name}=${JSON.stringify(value)}`,
+        ).join(" "),
+      },
+    ],
+    plugins: [],
   }),
   /** A display block whose prop is a number written as text, as a client is sent it. */
   Gauge: defineDisplay({
@@ -986,5 +1019,64 @@ describe("the in-process transport's streams", () => {
       }),
     )
     expect(Exit.isFailure(ended) && Cause.hasInterruptsOnly(ended.cause)).toBe(true)
+  })
+})
+
+describe("a block's instruction", () => {
+  const INSTRUCTED = [
+    [
+      '<Form id="config">',
+      "```yaml",
+      "- name: region",
+      "  type: string",
+      "  default: us-east-1",
+      "- name: token",
+      "  type: string",
+      "  sensitive: true",
+      `  default: ${SECRET_DEFAULT}`,
+      "```",
+      "</Form>",
+    ].join("\n"),
+    '<Bash id="deploy" command="tofu apply" />',
+    '<Says id="says" inputsId="config" />',
+    '<Run id="broken" args="not-a-list" />',
+    '<CloudLogin id="cloud" account="111" detect={false} />',
+  ].join("\n\n")
+
+  it("is in a task's and a credential block's view before the session is trusted", async () => {
+    await withClients({ runbook: INSTRUCTED }, ({ person }) =>
+      Effect.gen(function* () {
+        const view = yield* opened(person)
+        expect(view.trust.trusted).toBe(false)
+        const on = (block: string) =>
+          person.GetBlock({ session: view.session, block: blockId(block) })
+
+        expect((yield* on("deploy")).instruction).toEqual([
+          { kind: "code", language: "bash", code: "tofu apply" },
+        ])
+        expect((yield* on("cloud")).instruction).toEqual([
+          { kind: "text", markdown: "Sign in to the account 111." },
+          { kind: "link", label: "The cloud's console", url: "https://console.example.com/" },
+        ])
+        expect(yield* on("config")).not.toHaveProperty("instruction")
+        expect(yield* on("broken")).not.toHaveProperty("instruction")
+      }),
+    )
+  })
+
+  it("is built from the values the task reads, each one redacted", async () => {
+    await withClients({ runbook: INSTRUCTED }, ({ person }) =>
+      Effect.gen(function* () {
+        const view = yield* opened(person)
+        const says = yield* person.GetBlock({ session: view.session, block: blockId("says") })
+        expect(says.instruction).toEqual([
+          { kind: "text", markdown: `region="<redacted>" token="<redacted>"` },
+        ])
+        for (const text of printed(says)) {
+          expect(text).not.toContain("us-east-1")
+          expect(text).not.toContain(SECRET_DEFAULT)
+        }
+      }),
+    )
   })
 })
