@@ -78,6 +78,10 @@ jobs:
       #      (fetch-boilerplate deletes the alternate). Each arch must be
       #      packaged with its matching boilerplate, so we re-fetch between
       #      passes — a both-at-once build would bundle the wrong-arch CLI.
+      #      The plugin binaries are arch-specific too: fetch-plugins
+      #      replaces them per pass, and check-plugins refuses the pass if
+      #      resources/bin, or the built app, holds any plugin binary that
+      #      resources/plugins.lock does not pin for that arch.
       #   2. A matrix had each job build BOTH arches anyway (the package.json
       #      `mac.target` arch arrays override the `--arm64`/`--x64` flag), so
       #      every artifact was produced twice under two artifact bundles. The
@@ -113,7 +117,12 @@ jobs:
           # also push to the release (its implicit tag-publish caused duplicate,
           # racing uploads of identically named assets).
           just fetch-boilerplate darwin arm64
+          just fetch-plugins darwin-arm64
+          just check-plugins darwin-arm64
           mise x node -- npx electron-builder --mac --arm64 --publish never
+          # Signing must leave the plugin binaries as their release signed
+          # them (mac.signIgnore), or their pinned hashes no longer match.
+          just check-plugins darwin-arm64 out/mac-arm64/Runbooks.app/Contents/Resources/bin
 
           # Preserve the arm64 auto-update manifest: the x64 pass below rewrites
           # latest-mac.yml from scratch with only its own artifacts (electron-
@@ -123,7 +132,10 @@ jobs:
 
           # x64 pass (boilerplate arch amd64). Cross-built on the arm64 runner.
           just fetch-boilerplate darwin amd64
+          just fetch-plugins darwin-amd64
+          just check-plugins darwin-amd64
           mise x node -- npx electron-builder --mac --x64 --publish never
+          just check-plugins darwin-amd64 out/mac/Runbooks.app/Contents/Resources/bin
 
           # Merge the arm64 entries back into the now-x64-only latest-mac.yml so
           # the published manifest lists both arches. electron-updater picks the
@@ -182,9 +194,19 @@ jobs:
       - name: Fetch boilerplate
         run: just fetch-boilerplate linux amd64
 
+      - name: Fetch plugins
+        run: just fetch-plugins linux-amd64
+
+      # Nothing but the binaries resources/plugins.lock pins may be bundled.
+      - name: Check plugins before packaging
+        run: just check-plugins linux-amd64
+
       # `--publish never`: the upload-assets job is the sole uploader.
       - name: Package for Linux
         run: mise x node -- npx electron-builder --linux --publish never
+
+      - name: Check the packaged plugins
+        run: just check-plugins linux-amd64 out/linux-unpacked/resources/bin
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -218,9 +240,22 @@ jobs:
         shell: bash
         run: just fetch-boilerplate windows amd64
 
+      - name: Fetch plugins
+        shell: bash
+        run: just fetch-plugins windows-amd64
+
+      # Nothing but the binaries resources/plugins.lock pins may be bundled.
+      - name: Check plugins before packaging
+        shell: bash
+        run: just check-plugins windows-amd64
+
       # `--publish never`: the upload-assets job is the sole uploader.
       - name: Package for Windows
         run: mise x node -- npx electron-builder --win --publish never
+
+      - name: Check the packaged plugins
+        shell: bash
+        run: just check-plugins windows-amd64 out/win-unpacked/resources/bin
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

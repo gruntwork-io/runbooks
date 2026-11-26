@@ -133,6 +133,10 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/plugins.lock",
+        "to": "plugins.lock"
       }
     ],
     "publish": {
@@ -148,6 +152,9 @@
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
       "hardenedRuntime": true,
+      "signIgnore": [
+        "/Contents/Resources/bin/runbooks-(credential|driver)-[^/]+$"
+      ],
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
