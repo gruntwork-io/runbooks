@@ -16,11 +16,14 @@
  * no-react-in-block-ts: a block's `block.ts` imports no React and no `.tsx`
  * file, so the engine and the CLI load it without a view. The `blocks/**`
  * override already keeps Electron, Node I/O and SDKs out of every block file.
+ * Only `block.ts`'s own imports are checked: scripts/import-graph.test.ts
+ * follows the rest, through the packages' aliases.
  *
  * no-node-in-block-ts: a block's `block.ts` imports no Node built-in, not even
  * `node:path`, so every client loads it, the renderer included. It reaches
  * the OS through the services its run gets, and pure helpers it needs live
- * in `packages/core`. Only `block.ts`'s own imports are checked.
+ * in `packages/core`. Only `block.ts`'s own imports are checked, as for
+ * no-react-in-block-ts.
  *
  * block-name-outside-its-folder: no file in the packages names a block
  * outside the block's folder and its lines in the registry files, so adding
