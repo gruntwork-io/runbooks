@@ -72,12 +72,36 @@ describe("the settings file", () => {
     expect(modeOf(nodePath.join(fresh, "settings.json"))).toBe(0o600)
   })
 
-  it("is written over a temporary file a crash left behind, which goes", async () => {
+  it("is written though a temporary file a crash left behind is there", async () => {
     nodeFs.mkdirSync(data)
     nodeFs.writeFileSync(`${file}.tmp`, "half a file", { mode: 0o644 })
     await run((settings) => settings.replace('{"version":1,"settings":{}}'))
-    expect(nodeFs.readdirSync(data)).toEqual(["settings.json"])
+    expect(nodeFs.readFileSync(file, "utf8")).toBe('{"version":1,"settings":{}}')
     expect(modeOf(file)).toBe(0o600)
+  })
+
+  it("is replaced whole by each of several writes at once, as by two Runbooks, one of them last", async () => {
+    const texts = Array.from({ length: 8 }, (_, n) =>
+      JSON.stringify({ version: 1, settings: { n }, pad: "x".repeat(65_536) }),
+    )
+    await run((settings) =>
+      Effect.all(
+        texts.map((text) => settings.replace(text)),
+        { concurrency: "unbounded" },
+      ),
+    )
+    expect(texts).toContain(nodeFs.readFileSync(file, "utf8"))
+    expect(nodeFs.readdirSync(data)).toEqual(["settings.json"])
+  })
+
+  it("leaves no temporary file behind when a write fails", async () => {
+    // A folder where the file goes: the rename into place fails.
+    nodeFs.mkdirSync(nodePath.join(file, "in-the-way"), { recursive: true })
+    const failed = await run((settings) =>
+      Effect.flip(settings.replace('{"version":1,"settings":{}}')),
+    )
+    expect(failed._tag).toBe("FileWriteError")
+    expect(nodeFs.readdirSync(data)).toEqual(["settings.json"])
   })
 
   it("is read up to its limit, saying it held more, however large it is", async () => {
