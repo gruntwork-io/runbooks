@@ -634,6 +634,8 @@ export interface Session {
   readonly outputs: () => Record<string, Record<string, OutputView>>
   /** Interrupts every run, logs `SessionClosed` and ends every `events` stream. Idempotent. */
   readonly close: Effect.Effect<void>
+  /** Whether `close` has begun. Once begun, it ends, however its caller does. */
+  readonly closing: () => boolean
 }
 
 export const makeSession = Effect.fnUntraced(function* (options: {
@@ -1603,36 +1605,44 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           const at: RunRoots = { roots, repository: repositoryFor(slot) }
           const reads = readsFor(slot)
           const sources = yield* envSourcesFor(slot)
-          const runScope = yield* Scope.fork(scope)
-          const run: Run = {
-            id: decodeRunId(crypto.randomUUID()),
-            slot,
-            log: makeWindow(MAX_RUN_LOG_LINES),
-            flushed: 0,
-            files: new Map(),
-            filesTruncated: false,
-            state: {
-              _tag: "Running",
-              scope: runScope,
-              outputs: new Map(),
-              env: new Map(),
-              warned: false,
-              repository: Option.none(),
-            },
-          }
-          yield* update((emit) => {
-            if (previous?.state._tag === "Done") emit({ _tag: "OutputsWithdrawn", block: slot.id })
-            runs.set(slot.index, run)
-          })
-          // Started at once, so a cancel that comes before the run's first step still ends it.
-          yield* Effect.forkIn(
-            task(run, runnable, runScope, at, reads, sources, runner),
-            runScope,
-            {
-              startImmediately: true,
-            },
+          // The run starts, or nothing changes: a RunBlock cancelled here would
+          // leave the block Running with nothing to run it. The run itself
+          // stays interruptible, as every fork starts.
+          return yield* Effect.uninterruptible(
+            Effect.gen(function* () {
+              const runScope = yield* Scope.fork(scope)
+              const run: Run = {
+                id: decodeRunId(crypto.randomUUID()),
+                slot,
+                log: makeWindow(MAX_RUN_LOG_LINES),
+                flushed: 0,
+                files: new Map(),
+                filesTruncated: false,
+                state: {
+                  _tag: "Running",
+                  scope: runScope,
+                  outputs: new Map(),
+                  env: new Map(),
+                  warned: false,
+                  repository: Option.none(),
+                },
+              }
+              yield* update((emit) => {
+                if (previous?.state._tag === "Done")
+                  emit({ _tag: "OutputsWithdrawn", block: slot.id })
+                runs.set(slot.index, run)
+              })
+              // Started at once, so a cancel that comes before the run's first step still ends it.
+              yield* Effect.forkIn(
+                task(run, runnable, runScope, at, reads, sources, runner),
+                runScope,
+                {
+                  startImmediately: true,
+                },
+              )
+              return { _tag: "Started", run: run.id } as const
+            }),
           )
-          return { _tag: "Started", run: run.id } as const
         }),
       ),
 
@@ -1739,15 +1749,20 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         }),
       ),
 
+    // Once begun, a close ends: one cancelled halfway would leave the session
+    // closing, with its `events` streams waiting for a `SessionClosed`.
+    closing: () => closing,
     close: lock.withPermit(
-      Effect.gen(function* () {
-        if (closing) return
-        closing = true
-        yield* Scope.close(scope, Exit.void)
-        yield* update((emit) => emit({ _tag: "SessionClosed" }))
-        closed = true
-        yield* saver.close
-      }),
+      Effect.uninterruptible(
+        Effect.gen(function* () {
+          if (closing) return
+          closing = true
+          yield* Scope.close(scope, Exit.void)
+          yield* update((emit) => emit({ _tag: "SessionClosed" }))
+          closed = true
+          yield* saver.close
+        }),
+      ),
     ),
   }
 

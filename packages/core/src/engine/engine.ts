@@ -278,8 +278,14 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
 
           closeSession: Effect.fn("Engine.closeSession")(function* ({ session }) {
             const found = yield* lookup(session)
-            sessions.delete(session)
-            yield* found.close
+            // Forgotten once its close begins, however this call ends. One cancelled
+            // before it began leaves the session open, to be closed again.
+            yield* Effect.ensuring(
+              found.close,
+              Effect.sync(() => {
+                if (found.closing()) sessions.delete(session)
+              }),
+            )
           }),
 
           listSessions: Effect.sync(() => Array.from(sessions.values(), (s) => s.summary())),
