@@ -11,9 +11,11 @@ import {
   copyFileSync,
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -57,6 +59,18 @@ const pinned = (sha256: Partial<Record<Platform, Sha256>>): PluginEntry => ({
   version: "0.0.0",
   sha256,
 })
+
+/** The plugins `run` takes, with a binary of exactly `text` pinned as the stub. */
+const pinnedText = (text: string) => [
+  pinned({
+    [PLATFORM]: Schema.decodeUnknownSync(Sha256)(
+      new Bun.CryptoHasher("sha256").update(text).digest("hex"),
+    ),
+  }),
+]
+
+/** A shell plugin's answer to configure, the first request. A shell plugin starts faster than the stub. */
+const SHELL_CONFIGURED = `printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1","driverVersion":"0.0.0","received":{},"pid":0}}'`
 
 const Empty = Schema.Struct({})
 const method = <P, R>(
@@ -159,14 +173,19 @@ const stubProtocol = (
 })
 
 let bin = ""
+let runDir = ""
 let started = ""
 beforeEach(() => {
   bin = realpathSync(mkdtempSync(path.join(tmpdir(), "runbooks-plugin-")))
+  runDir = realpathSync(mkdtempSync(path.join(tmpdir(), "runbooks-run-")))
   copyFileSync(STUB, path.join(bin, BINARY))
   chmodSync(path.join(bin, BINARY), 0o755)
   started = path.join(bin, "started")
 })
-afterEach(() => rmSync(bin, { recursive: true, force: true }))
+afterEach(() => {
+  rmSync(bin, { recursive: true, force: true })
+  rmSync(runDir, { recursive: true, force: true })
+})
 
 /** The stub's environment: `extra`, and a HOME of its own so Bun never reads or writes the real one. */
 const environment = (extra: Record<string, string> = {}) => ({
@@ -190,7 +209,13 @@ const run = <A, E>(
     effect.pipe(
       Effect.scoped,
       Effect.provide(
-        nodePluginProcess({ binDir: bin, platform: PLATFORM, plugins, caller: "runbooks/test" }),
+        nodePluginProcess({
+          binDir: bin,
+          runDir,
+          platform: PLATFORM,
+          plugins,
+          caller: "runbooks/test",
+        }),
       ),
     ),
   )
@@ -291,7 +316,7 @@ describe("starting a plugin", () => {
     }
   })
 
-  it("refuses a binary whose SHA-256 is not the pinned one, and starts nothing", async () => {
+  it("refuses a binary whose SHA-256 is not the pinned one, starts nothing and keeps no copy", async () => {
     appendFileSync(path.join(bin, BINARY), "\n// changed after it was pinned\n")
     const actual = new Bun.CryptoHasher("sha256")
       .update(readFileSync(path.join(bin, BINARY)))
@@ -304,6 +329,7 @@ describe("starting a plugin", () => {
       actual,
     })
     expect(existsSync(started)).toBe(false)
+    expect(readdirSync(runDir)).toEqual([])
   })
 
   it("refuses a plugin that is not pinned, not pinned for this platform, or has no binary", async () => {
@@ -315,6 +341,7 @@ describe("starting a plugin", () => {
     )
     rmSync(path.join(bin, BINARY))
     expect(await run(Effect.flip(open()))).toMatchObject(notInstalled)
+    expect(readdirSync(runDir)).toEqual([])
   })
 
   it("finds a plugin by its kind and name: a driver of the same name is another binary", async () => {
@@ -323,20 +350,57 @@ describe("starting a plugin", () => {
     expect(error).toMatchObject({ _tag: "PluginNotInstalled", plugin: "stub" })
   })
 
-  it("fails with spawnFailed when the pinned binary cannot be run", async () => {
-    chmodSync(path.join(bin, BINARY), 0o644)
-    const error = await run(Effect.flip(open()))
+  it("fails with spawnFailed when the pinned binary cannot be run, and keeps no copy", async () => {
+    const unrunnable = "#!/nonexistent/interpreter\n"
+    writeFileSync(path.join(bin, BINARY), unrunnable)
+    const error = await run(Effect.flip(open()), pinnedText(unrunnable))
     expect(error).toMatchObject({ _tag: "PluginSpawnFailed", plugin: "stub" })
-    expect(error.message).toContain("EACCES")
+    expect(error.message).toContain("ENOENT")
+    expect(readdirSync(runDir)).toEqual([])
   })
 })
 
 describe("the binary that runs", () => {
-  /** A shell plugin, cheaper to start than the stub: it answers configure, then waits for standard input to close. */
+  /** Writes the path it runs from to `RAN_FROM`, answers configure, then waits for standard input to close. */
+  const SAYS_WHERE = [
+    "#!/bin/sh",
+    `printf '%s' "$0" > "$RAN_FROM"`,
+    "read -r request",
+    SHELL_CONFIGURED,
+    "while read -r request; do :; done",
+    "",
+  ].join("\n")
+
+  it("is a copy in a folder of its own in runDir, which only this user can open, removed when the session ends", async () => {
+    writeFileSync(path.join(bin, BINARY), SAYS_WHERE)
+    const ranFrom = path.join(bin, "ran-from")
+    const seen = await run(
+      Effect.flatMap(open({ RAN_FROM: ranFrom }), () =>
+        Effect.sync(() => {
+          const copy = readFileSync(ranFrom, "utf8")
+          return {
+            copy,
+            text: readFileSync(copy, "utf8"),
+            folderMode: statSync(path.dirname(copy)).mode & 0o777,
+            copyMode: statSync(copy).mode & 0o777,
+          }
+        }),
+      ),
+      pinnedText(SAYS_WHERE),
+    )
+    expect(path.dirname(path.dirname(seen.copy))).toBe(runDir)
+    expect(path.basename(seen.copy)).toBe(BINARY)
+    expect(seen.text).toBe(SAYS_WHERE)
+    expect(seen.folderMode).toBe(0o700)
+    expect(seen.copyMode).toBe(0o700)
+    expect(readdirSync(runDir)).toEqual([])
+  })
+
+  /** Answers configure, then waits for standard input to close. */
   const PINNED_SCRIPT = [
     "#!/bin/sh",
     "read -r request",
-    `printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1","driverVersion":"0.0.0","received":{},"pid":0}}'`,
+    SHELL_CONFIGURED,
     "while read -r request; do :; done",
     "",
   ].join("\n")
@@ -358,7 +422,7 @@ describe("the binary that runs", () => {
   const OPENS = 20
   /**
    * Bun's timeout for the race. On macOS an open takes about 100 ms, not
-   * 5: Gatekeeper checks each program whose file has changed before it runs.
+   * 5: Gatekeeper checks each new program file before it first runs.
    */
   const RACE_TIMEOUT = 15_000
 
@@ -375,13 +439,7 @@ describe("the binary that runs", () => {
       const otherScript = script("other.sh", OTHER_SCRIPT)
       copyFileSync(pinnedScript, target)
       const marker = path.join(bin, "ran-other")
-      const plugins = [
-        pinned({
-          [PLATFORM]: Schema.decodeUnknownSync(Sha256)(
-            new Bun.CryptoHasher("sha256").update(PINNED_SCRIPT).digest("hex"),
-          ),
-        }),
-      ]
+      const plugins = pinnedText(PINNED_SCRIPT)
       const swapper = Bun.spawn([process.execPath, "--no-env-file", "-e", SWAPPER], {
         cwd: bin,
         env: {

@@ -5,8 +5,12 @@
  * (`plugin/base.schema.json`).
  *
  * - A plugin is found by kind and name among the pinned plugins, as the
- *   binary `runbooks-<kind>-<name>` in `binDir`. Its SHA-256 is checked
- *   before it starts, with no shell and only the environment it is given.
+ *   binary `runbooks-<kind>-<name>` in `binDir`. Each start copies it into
+ *   a new folder in `runDir`, hashing the bytes as it writes them, and runs
+ *   the copy once their SHA-256 is the pinned one: a change to `binDir`
+ *   during or after the copy cannot change what runs. It runs with no shell
+ *   and only the environment it is given. The folder is removed when the
+ *   session's scope closes, after the plugin is stopped.
  * - `configure` goes first, with `PROTOCOL_VERSION`, the caller and each
  *   method's limit, and its answer must name the same version.
  * - Responses are matched to requests by id, and notifications to their
@@ -20,7 +24,7 @@
  */
 import { type ChildProcessByStdio, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { createReadStream } from "node:fs"
+import { createReadStream, createWriteStream, mkdtemp, rm } from "node:fs"
 import * as path from "node:path"
 import type { Readable, Writable } from "node:stream"
 import {
@@ -80,6 +84,12 @@ const STREAM_BUFFER = 16
 export interface PluginProcessConfig {
   /** The folder the binaries are in: `resources/bin`. */
   readonly binDir: string
+  /**
+   * Where a start copies the binary it runs: a folder only this user can
+   * write, on a filesystem that allows running programs. Each start makes
+   * its own folder in it, removed when the session ends.
+   */
+  readonly runDir: string
   readonly platform: Platform
   /** The pinned plugins, from `resources/plugins.lock`. */
   readonly plugins: ReadonlyArray<PluginEntry>
@@ -93,11 +103,11 @@ export const nodePluginProcess = (config: PluginProcessConfig): Layer.Layer<Plug
     PluginProcess.of({
       open: (protocol, plugin, env, configure) =>
         Effect.gen(function* () {
-          const binary = yield* verify(config, protocol.kind, plugin)
           const scope = yield* Scope.fork(yield* Effect.scope)
-          return yield* start(config, protocol, plugin, binary, env, configure, scope).pipe(
-            Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))),
-          )
+          return yield* Effect.gen(function* () {
+            const binary = yield* verify(config, protocol.kind, plugin, scope)
+            return yield* start(config, protocol, plugin, binary, env, configure, scope)
+          }).pipe(Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))))
         }),
     }),
   )
@@ -112,37 +122,92 @@ const isWindows = (platform: Platform) => platform.startsWith("windows-")
 export const binaryName = (kind: PluginKind, name: string, platform: Platform) =>
   `runbooks-${kind}-${name}${isWindows(platform) ? ".exe" : ""}`
 
-/** The binary's path, once its SHA-256 is the pinned one. */
+/**
+ * Copies the pinned binary into a new folder in `runDir`, and returns the
+ * copy's path once the SHA-256 of the bytes it wrote is the pinned one.
+ * The folder is removed when `scope` closes: at once when the open fails,
+ * and after the plugin is stopped when the session ends.
+ */
 const verify = (
   config: PluginProcessConfig,
   kind: PluginKind,
   plugin: string,
+  scope: Scope.Scope,
 ): Effect.Effect<string, PluginNotInstalled | PluginHashMismatch | PluginSpawnFailed> =>
   Effect.gen(function* () {
     const entry = config.plugins.find((pinned) => pinned.kind === kind && pinned.name === plugin)
     const expected = entry?.sha256[config.platform]
     const notInstalled = new PluginNotInstalled({ plugin, platform: config.platform })
     if (expected === undefined) return yield* notInstalled
-    const binary = path.join(config.binDir, binaryName(kind, plugin, config.platform))
-    const actual = yield* sha256(binary).pipe(
-      Effect.mapError((error) =>
-        Predicate.hasProperty(error, "code") && error.code === "ENOENT"
+    const spawnFailed = (error: Error) => new PluginSpawnFailed({ plugin, message: error.message })
+    const folder = yield* makeRunFolder(config.runDir).pipe(Effect.mapError(spawnFailed))
+    // Added before `start` adds the stop, so it runs after it: Windows cannot remove a running program.
+    yield* Scope.addFinalizer(scope, removeFolder(folder))
+    const name = binaryName(kind, plugin, config.platform)
+    const copy = path.join(folder, name)
+    const actual = yield* copyHashing(path.join(config.binDir, name), copy).pipe(
+      Effect.mapError(({ stage, error }) =>
+        stage === "read" && Predicate.hasProperty(error, "code") && error.code === "ENOENT"
           ? notInstalled
-          : new PluginSpawnFailed({ plugin, message: error.message }),
+          : spawnFailed(error),
       ),
     )
     if (actual !== expected) return yield* new PluginHashMismatch({ plugin, expected, actual })
-    return binary
+    return copy
   })
 
-const sha256 = (file: string): Effect.Effect<string, Error> =>
+/** A new folder in `runDir`, which only this user can open (0700 on POSIX). */
+const makeRunFolder = (runDir: string): Effect.Effect<string, Error> =>
+  Effect.callback((resume) => {
+    mkdtemp(path.join(runDir, "plugin-"), (error, folder) =>
+      resume(error === null ? Effect.succeed(folder) : Effect.fail(error)),
+    )
+  })
+
+/** Removes a start's folder. One that cannot be removed stays, as it would after a crash. */
+const removeFolder = (folder: string): Effect.Effect<void> =>
+  Effect.callback((resume) => {
+    rm(folder, { recursive: true, force: true }, () => resume(Effect.void))
+  })
+
+/** Why a copy failed: reading `binDir`'s file, or writing the copy. */
+interface CopyFailed {
+  readonly stage: "read" | "write"
+  readonly error: Error
+}
+
+/**
+ * Streams `from` into the new file `to` (0700; it must not exist yet), and
+ * returns the SHA-256 of the bytes it wrote. What runs is what was hashed,
+ * so a change to `from` during or after the copy cannot change it.
+ */
+const copyHashing = (from: string, to: string): Effect.Effect<string, CopyFailed> =>
   Effect.callback((resume) => {
     const hash = createHash("sha256")
-    const input = createReadStream(file)
-    input.on("data", (chunk) => hash.update(chunk))
-    input.on("error", (error) => resume(Effect.fail(error)))
-    input.on("end", () => resume(Effect.succeed(hash.digest("hex"))))
-    return Effect.sync(() => input.destroy())
+    const input = createReadStream(from)
+    const output = createWriteStream(to, { flags: "wx", mode: 0o700 })
+    let failure: CopyFailed | undefined
+    const fail = (stage: CopyFailed["stage"]) => (error: Error) => {
+      failure ??= { stage, error }
+      input.destroy()
+      output.destroy()
+    }
+    input.on("error", fail("read"))
+    output.on("error", fail("write"))
+    input.on("data", (chunk) => {
+      hash.update(chunk)
+      if (!output.write(chunk)) input.pause()
+    })
+    output.on("drain", () => input.resume())
+    input.on("end", () => output.end())
+    // Once the copy's descriptor is closed: Linux refuses to run a file open for writing.
+    output.on("close", () =>
+      resume(failure === undefined ? Effect.succeed(hash.digest("hex")) : Effect.fail(failure)),
+    )
+    return Effect.sync(() => {
+      input.destroy()
+      output.destroy()
+    })
   })
 
 const isConfigureParams = Schema.is(ConfigureParams)

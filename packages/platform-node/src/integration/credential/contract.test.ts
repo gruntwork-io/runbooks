@@ -83,6 +83,8 @@ const subject =
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), "runbooks-contract-")))
     const binDir = path.join(root, "bin")
     mkdirSync(binDir)
+    const runDir = path.join(root, "run")
+    mkdirSync(runDir, { mode: 0o700 })
     mkdirSync(path.join(root, "home"))
     const proxy = reach === "offline" ? await blackhole() : undefined
     const environment = {
@@ -100,7 +102,7 @@ const subject =
       settings: more.settings ?? {},
     }
     return {
-      layer: pluginProviders(binDir, [install(binDir)]),
+      layer: pluginProviders(binDir, runDir, [install(binDir)]),
       provider,
       config,
       release: async () => {

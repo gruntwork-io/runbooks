@@ -56,14 +56,18 @@ export const installBinary = (
   }
 }
 
-/** The app's credential providers over the plugins in `binDir`, and the filesystem they check files on. */
+/**
+ * The app's credential providers over the plugins in `binDir`, each run
+ * from a copy in `runDir`, and the filesystem they check files on.
+ */
 export const pluginProviders = (
   binDir: string,
+  runDir: string,
   plugins: ReadonlyArray<PluginEntry>,
 ): Layer.Layer<CredentialProviders | FileSystem> =>
   pluginCredentialProviders.pipe(
     Layer.provideMerge(
-      nodePluginProcess({ binDir, platform: PLATFORM, plugins, caller: "runbooks/test" }),
+      nodePluginProcess({ binDir, runDir, platform: PLATFORM, plugins, caller: "runbooks/test" }),
     ),
     Layer.provideMerge(NodeFileSystemLive),
   )
