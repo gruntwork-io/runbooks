@@ -420,6 +420,12 @@ describe("parseRunbook", () => {
       })
     })
 
+    it("refuses an empty path as a bad prop of its block, and throws nothing", () => {
+      expect(
+        errors('<Run id="r" path="" />').map((e) => [e.code, e.location.prop, e.location.block]),
+      ).toEqual([["badProp", "path", { tag: "Run", id: "r" }]])
+    })
+
     it("refuses a value no block takes", () => {
       expect(brief(errors('<Run id="a" command={/ls/} />'))).toEqual([
         [
@@ -473,7 +479,7 @@ describe("parseRunbook", () => {
           p.command !== undefined
             ? [{ _tag: "Prop", prop: "command" }]
             : p.path !== undefined
-              ? [{ _tag: "File", path: toPath(p.path) }]
+              ? [{ _tag: "File", path: p.path }]
               : [],
       }),
     }

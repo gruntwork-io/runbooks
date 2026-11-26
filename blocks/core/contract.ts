@@ -167,6 +167,9 @@ interface BlockBase<P> {
   /**
    * Files and folders the block reads from the runbook's folder: its script,
    * its template. The document hashes each, and trust is keyed by the hashes.
+   * The parser calls it while it parses, so it must not throw: a prop that
+   * names a file decodes as `RunbookPath` in `props`, and a bad one is a
+   * `badProp` error at its line.
    */
   readonly runbookFiles: (p: P) => ReadonlyArray<RunbookPath>
 }
