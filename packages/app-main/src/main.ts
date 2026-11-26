@@ -16,12 +16,15 @@
  * script.
  *
  * It hosts the engine (`engine.ts`), which keeps its files in the user data
- * folder, and reads the process's environment once, here, for its runs.
+ * folder, and reads the process's environment once, here, for its runs. The
+ * engine serves the window's page over IPC (`ipcServer.ts`), and only it.
  */
 import path from "node:path"
+import { pathToFileURL } from "node:url"
 import { app, BrowserWindow, session, shell } from "electron"
-import { Effect, Layer } from "effect"
+import { Cause, Effect } from "effect"
 import { appEngine } from "./engine.ts"
+import { makeIpcServerProtocol, servePage } from "./ipcServer.ts"
 
 /** The repository's version, set by the build (electron.vite.app.config.ts). */
 declare const __RUNBOOKS_VERSION__: string
@@ -69,28 +72,50 @@ app.on("window-all-closed", () => app.quit())
 app
   .whenReady()
   .then(() => {
+    const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
+    const page = devServerUrl === undefined ? pathToFileURL(RENDERER_PAGE) : new URL(devServerUrl)
+    const appWindow = openWindow(devServerUrl !== undefined)
     Effect.runFork(
-      Layer.launch(
-        appEngine({
-          userData: app.getPath("userData"),
-          appVersion: __RUNBOOKS_VERSION__,
-          processEnvironment,
-        }),
+      Effect.gen(function* () {
+        // Listening before the page loads, so its first message is heard.
+        const protocol = yield* makeIpcServerProtocol({
+          contents: appWindow.webContents,
+          page,
+          log: (line) => console.warn(line),
+        })
+        appWindow
+          .loadURL(page.href)
+          .catch((error: unknown) => console.error("The window could not load its page:", error))
+        return yield* servePage(protocol).pipe(
+          Effect.provide(
+            appEngine({
+              userData: app.getPath("userData"),
+              appVersion: __RUNBOOKS_VERSION__,
+              processEnvironment,
+            }),
+          ),
+        )
+      }).pipe(
+        Effect.scoped,
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.void
+            : Effect.sync(() => console.error("The engine stopped:", Cause.pretty(cause))),
+        ),
       ),
     )
-    openWindow(app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL)
   })
   .catch((error: unknown) => {
     console.error("The app could not open its window:", error)
     app.exit(1)
   })
 
-/** Opens the window on the renderer's page, or on the dev server's when there is one. */
-function openWindow(devServerUrl: string | undefined): void {
+/** Opens the window, which loads no page yet; on a dev server's, it sets no CSP. */
+function openWindow(devServer: boolean): BrowserWindow {
   const windowSession = session.fromPartition(PARTITION)
   windowSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   windowSession.setPermissionCheckHandler(() => false)
-  if (devServerUrl === undefined) {
+  if (!devServer) {
     windowSession.webRequest.onHeadersReceived((details, callback) => {
       callback({
         responseHeaders: {
@@ -121,10 +146,7 @@ function openWindow(devServerUrl: string | undefined): void {
     event.preventDefault()
     openInBrowser(url)
   })
-
-  const loaded =
-    devServerUrl === undefined ? appWindow.loadFile(RENDERER_PAGE) : appWindow.loadURL(devServerUrl)
-  loaded.catch((error: unknown) => console.error("The window could not load its page:", error))
+  return appWindow
 }
 
 /** Opens an http or https URL in the browser, and does nothing with any other. */
