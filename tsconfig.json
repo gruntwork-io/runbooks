@@ -11,7 +11,9 @@
     { "path": "./packages/platform-node" },
     { "path": "./packages/cli" },
     { "path": "./packages/app-main" },
+    { "path": "./packages/app-main/tsconfig.test.json" },
     { "path": "./packages/app-renderer" },
+    { "path": "./packages/app-renderer/tsconfig.test.json" },
     { "path": "./tsconfig.e2e.json" },
     { "path": "./web/tsconfig.json" }
   ],

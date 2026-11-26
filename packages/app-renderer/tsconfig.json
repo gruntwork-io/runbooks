@@ -5,6 +5,9 @@
 // protocol only and the blocks' view map only (scripts/packages.test.ts), so
 // any other package export fails the compile with TS2307. Their own imports
 // resolve with their packages' options.
+//
+// Its tests run under bun test, and tsconfig.test.json checks them with
+// Bun's types and these paths.
 {
   "extends": "../../tsconfig.packages.json",
   "compilerOptions": {
@@ -20,5 +23,6 @@
     }
   },
   "references": [{ "path": "../core" }, { "path": "../../blocks" }],
-  "include": ["**/*"]
+  "include": ["**/*"],
+  "exclude": ["**/*.test.ts"]
 }

@@ -10,7 +10,7 @@
     ".github/scripts/**/*.mjs",
     "{src,electron,cli,scripts,test}/**/*.test.ts",
     "packages/cli/src/{main,writeTestFileSchema}.ts",
-    "packages/app-main/src/main.ts",
+    "packages/app-main/src/{main,preload}.ts",
     "packages/app-renderer/src/main.tsx",
     "{packages,blocks,baseline}/**/*.test.{ts,tsx}",
     "blocks/core/{contract,form,registry,status}.ts",

@@ -5,96 +5,13 @@
  * keeps nothing in storage across a restart.
  *
  * Runs against the build in app-out/: `just app-test-e2e` builds it first.
+ * Each test launches it through the shared fixture (fixtures.ts).
  */
 import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
-import { pathToFileURL } from "node:url"
-import {
-  _electron as electron,
-  expect,
-  test as base,
-  type ElectronApplication,
-  type Page,
-} from "@playwright/test"
+import type { ElectronApplication } from "@playwright/test"
 import { readFromMain, runInMain } from "../electron/e2e/main-process.ts"
-
-const OUT = path.join(import.meta.dirname, "..", "app-out")
-const MAIN = path.join(OUT, "main", "index.js")
-const PAGE = pathToFileURL(path.join(OUT, "renderer", "index.html")).href
-
-interface Launched {
-  readonly app: ElectronApplication
-  readonly page: Page
-}
-
-/**
- * How a test launches the app. By default it passes `--user-data-dir`
- * naming the test's folder. `defaultUserData` launches without it, with the
- * environment added, to see where the app keeps its user data by itself.
- */
-interface LaunchOptions {
-  readonly defaultUserData?: { readonly env: Readonly<Record<string, string>> }
-}
-
-const test = base.extend<{
-  /** A user data folder of the test's own, removed after it. */
-  userDataDir: string
-  /** Launches the app, on `userDataDir` unless told otherwise, and waits for its page. Each app still open is closed after the test. */
-  launch: (options?: LaunchOptions) => Promise<Launched>
-}>({
-  userDataDir: async ({}, use) => {
-    // Electron reports the folder with symlinks resolved, and macOS's /var is /private/var.
-    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-app-e2e-")))
-    await use(dir)
-    fs.rmSync(dir, { recursive: true, force: true })
-  },
-  launch: async ({ userDataDir }, use) => {
-    const open = new Set<ElectronApplication>()
-    await use(async (options = {}) => {
-      const { defaultUserData } = options
-      // On Linux, Playwright adds --no-sandbox unless it's told to keep Chromium's sandbox.
-      const app = await electron.launch({
-        args: defaultUserData ? [MAIN] : [MAIN, `--user-data-dir=${userDataDir}`],
-        ...(defaultUserData && { env: { ...definedEnvironment(), ...defaultUserData.env } }),
-        chromiumSandbox: true,
-      })
-      open.add(app)
-      app.on("close", () => open.delete(app))
-      const page = await app.firstWindow()
-      await expect(page.getByRole("heading", { name: "Runbooks" })).toBeVisible()
-      return { app, page }
-    })
-    for (const app of open) await app.close()
-  },
-})
-
-/** This process's environment, less the names it holds no value for. */
-function definedEnvironment(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] => entry[1] !== undefined,
-    ),
-  )
-}
-
-/**
- * What `script` gives when it runs as the page's own script. Code that
- * page.evaluate runs is DevTools code, which Chromium lets evaluate strings
- * whatever the page's CSP says, so this runs it through the window's
- * executeJavaScript.
- */
-function runAsPage(app: ElectronApplication, script: string): Promise<unknown> {
-  return readFromMain(
-    app,
-    ({ BrowserWindow }, code) => {
-      const [appWindow] = BrowserWindow.getAllWindows()
-      if (!appWindow) throw new Error("the app has no window")
-      return appWindow.webContents.executeJavaScript(code)
-    },
-    script,
-  )
-}
+import { expect, PAGE, runAsPage, test } from "./fixtures.ts"
 
 /** Has the app record each URL it would open in the browser, and returns a reader of that list. */
 async function recordBrowserOpens(app: ElectronApplication): Promise<() => Promise<unknown>> {

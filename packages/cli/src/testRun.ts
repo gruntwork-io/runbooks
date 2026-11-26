@@ -30,13 +30,14 @@ import { BlockId } from "@runbooks/blocks-core/contract"
 import { type Registry, resolveTag, type ServicesOf } from "@runbooks/blocks-core/registry"
 import type { BlockNode, RunbookDocument } from "@runbooks/core/document/document"
 import { serveEngine } from "@runbooks/core/handlers"
-import { type EngineClient, makeInProcessClient } from "@runbooks/core/inProcess"
-import { type BlockView, LIMITS, type SessionId } from "@runbooks/core/protocol"
+import { makeInProcessClient } from "@runbooks/core/inProcess"
+import { type BlockView, type EngineClient, LIMITS, type SessionId } from "@runbooks/core/protocol"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
+import { NoSavedSessions } from "@runbooks/core/sessionStore"
 import type { AssertionReport, ExpectedStatus, StepReport, TestCaseReport } from "./contract.ts"
 
 type AssertionResult = typeof AssertionReport.Type
-import { DefaultSettings, NoCredentialProviders, NoSavedSessions } from "./testIsolation.ts"
+import { DefaultSettings, NoCredentialProviders } from "./testIsolation.ts"
 import {
   type Assertion,
   DEFAULT_EXPECT,

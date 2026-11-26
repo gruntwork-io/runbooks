@@ -17,24 +17,15 @@
  *   the client's calls and streams, and the server's work for them.
  */
 import { Deferred, Effect, Option, Queue, type Scope } from "effect"
-import {
-  type Rpc,
-  RpcClient,
-  type RpcClientError,
-  type RpcMessage,
-  RpcSerialization,
-  RpcServer,
-} from "effect/rpc"
+import { type Rpc, RpcClient, type RpcMessage, RpcSerialization, RpcServer } from "effect/rpc"
 import {
   Caller,
   CallerMiddleware,
+  type EngineClient,
   type EngineCommand,
   EngineProtocol,
   type Origin,
 } from "./protocol.ts"
-
-/** A client of the engine, as every transport gives one. */
-export type EngineClient = RpcClient.RpcClient<EngineCommand, RpcClientError.RpcClientError>
 
 /** The id the one client of each server has. */
 const CLIENT = 0

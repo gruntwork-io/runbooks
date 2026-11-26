@@ -8,6 +8,9 @@ import { defineConfig } from "@playwright/test"
 export default defineConfig({
   testDir: ".",
   testMatch: "**/*.spec.ts",
+  // Beside this file, where CI uploads it from. Playwright empties it at the
+  // start of each run, so a test's folders a killed worker left go then.
+  outputDir: "test-results",
   timeout: 60_000,
   reporter: [["list"]],
   use: {

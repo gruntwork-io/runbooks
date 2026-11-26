@@ -1,0 +1,18 @@
+// app-renderer's tests. They run under bun test, so they get Bun's types,
+// which the window's own files do not (tsconfig.json), and they keep its
+// paths: a test imports what the window may. Like baseline/, this is not a
+// package: it compiles the files the tests import as its own.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "declarationDir": null,
+    "types": ["bun-types"],
+    "tsBuildInfoFile": "../../node_modules/.tmp/packages/app-renderer.test.tsbuildinfo"
+  },
+  "references": [{ "path": "../core" }, { "path": "../../blocks" }],
+  "include": ["**/*.test.ts"],
+  "exclude": []
+}
