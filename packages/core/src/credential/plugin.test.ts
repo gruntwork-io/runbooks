@@ -644,6 +644,36 @@ describe("the secret rules", () => {
     ).toEqual(Option.some(`key ${RETURNED_SECRET}`))
   })
 
+  it("knows detect's secrets before it asks: its own error, or a source named by one, is refused", async () => {
+    const detectAnswering = (detect: Answer) =>
+      withProvider({ detect }, (provider) =>
+        failureOf(
+          provider.detect(
+            [
+              {
+                kind: "values",
+                from: "keys",
+                values: {
+                  CLOUD_TOKEN: { value: Redacted.make(RETURNED_SECRET), secret: true },
+                },
+              },
+            ],
+            { pins: {}, requirements: [] },
+          ),
+        ),
+      )
+    const [error, source] = [
+      await detectAnswering(refuse("notSignedIn", `bad token ${RETURNED_SECRET}`)),
+      await detectAnswering(
+        answers({ found: true, identity: IDENTITY, source: `keys ${RETURNED_SECRET}` }),
+      ),
+    ]
+    expect([quotesNoSecret(error).message, quotesNoSecret(source).message]).toEqual([
+      "The cloud credential plugin put a secret in an error, so the app does not show it.",
+      "The cloud credential plugin put a secret in a detection source's name, so the app refused it.",
+    ])
+  })
+
   it("refuses a plain copy of a value env marks sensitive in the same answer", async () => {
     const error = await withProvider(
       {
