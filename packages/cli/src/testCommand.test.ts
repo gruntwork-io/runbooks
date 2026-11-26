@@ -53,6 +53,10 @@ const ScriptProps = Schema.Struct({
   hang: Schema.optionalKey(Schema.Boolean),
   signal: Schema.optionalKey(Schema.String),
   waitFor: Schema.optionalKey(Schema.String),
+  /** How long the run takes before it ends. */
+  takesMillis: Schema.optionalKey(Schema.Int),
+  /** The block's own time limit, as a Command's `timeoutMs` gives it. */
+  timeLimitMillis: Schema.optionalKey(Schema.Int),
 })
 type ScriptProps = typeof ScriptProps.Type
 
@@ -73,6 +77,7 @@ const script = defineTask({
   provides: ["run"],
   effects: ["process"],
   outputs: (p) => Object.fromEntries(outputPairs(p).map(([key]) => [key, { sensitive: false }])),
+  timeLimit: (p) => p.timeLimitMillis,
   run: (p, input) =>
     Stream.unwrap(
       Effect.gen(function* () {
@@ -121,6 +126,8 @@ const script = defineTask({
               ),
             ),
           )
+        if (p.takesMillis !== undefined)
+          steps.push(Stream.fromEffect(Effect.sleep(p.takesMillis)).pipe(Stream.drain))
         steps.push(endWithExitCode(p.exit ?? 0))
         return steps.reduce((all, next) => Stream.concat(all, next))
       }),
@@ -554,6 +561,17 @@ tests:
       name: "nope",
       runbooks: 1,
     })
+  })
+
+  it("ignores a block's own time limit, as today's runner does: the timeout setting limits every step", async () => {
+    runbook(
+      '# Slow\n\n<Script id="slow" takesMillis={200} timeLimitMillis={20} />\n',
+      "version: 1\ntests:\n  - name: slow\n",
+    )
+    const { code, stdout } = await runTest(["rb", "--output", "json"])
+    const [rb] = decodeReport(JSON.parse(stdout)).runbooks
+    expect(rb!.tests[0]!.steps[0]).toMatchObject({ block: "slow", actual: "success", passed: true })
+    expect(code).toBe(0)
   })
 
   it("tests runbooks at once with --max-parallel, each with its own engine", async () => {
