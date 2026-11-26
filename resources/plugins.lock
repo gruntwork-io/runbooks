@@ -1,0 +1,40 @@
+{
+  "plugins": [
+    {
+      "name": "aws",
+      "kind": "credential",
+      "version": "0.2.1",
+      "sha256": {
+        "darwin-arm64": "cba658573387778d11ed3f35cb4702716668b5524776a5770c281d63e0b54bb1",
+        "darwin-amd64": "898a802becb4946971514396cfa94bc0ff43d9622f71ba6bf32fa600e2057c12",
+        "linux-arm64": "5de0ac42d8c471c47578d43804b1a42cdbef8a01ed212f5f83942cf0887dac7e",
+        "linux-amd64": "b4d9e597632b9619fddad569019fb3a8838594f134c340d62299a73d5bbc1eb6",
+        "windows-amd64": "6d74ef84e39e17c8cd8a04a39750cb166732229317982318138017212d921fba"
+      }
+    },
+    {
+      "name": "azure",
+      "kind": "credential",
+      "version": "0.2.1",
+      "sha256": {
+        "darwin-arm64": "8b321865201ceab83a6164293b325657234750e6317679ceff92af0918ed6f41",
+        "darwin-amd64": "d47bee4454bfabd8843fe2e2a8b48cebd9fca9c1db39420c65c8f30956b04969",
+        "linux-arm64": "1d87ed1166d6ce8baa5e3de690dc87fc94ad65ff86b62e3fb01ed3652948e6db",
+        "linux-amd64": "5555c79a54ee3c4e0dbd4332647ef3a1e06d6f53c737df5aeaec09b2dc5648a4",
+        "windows-amd64": "b1a30f276f77540f51dddf37e5344be3b7e87fd39d7662c386c4b2fca743ec34"
+      }
+    },
+    {
+      "name": "google",
+      "kind": "credential",
+      "version": "0.2.1",
+      "sha256": {
+        "darwin-arm64": "e94a57714a58bf445e3558697274ab750e1ef50736689a29e50dd55ed34121a2",
+        "darwin-amd64": "899fc9d3d3b020e9cff9128c1cc3abf881a37f218e94362f6f9278107d0b4a20",
+        "linux-arm64": "67739dbe41441f8d721f37459f3efdef18a0ec693632c0713b7175f42d0baf49",
+        "linux-amd64": "e8063758b3a3fca2861bc868b1cf1c9baf520ef1511cac80292ce8f042589530",
+        "windows-amd64": "e7d1d100e1459122e0de6a6e45332bd02099e1c302aebb72321fb6dd09d09df2"
+      }
+    }
+  ]
+}
