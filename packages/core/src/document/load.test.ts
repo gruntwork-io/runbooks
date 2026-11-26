@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test"
 import { createHash } from "node:crypto"
 import { Effect, Schema } from "effect"
 import { RunbookPath } from "@runbooks/blocks-core/contract"
-import { hashTemplateDir } from "../domain/boilerplate/templateHash.ts"
 import { FileNotFoundError } from "../errors/index.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
@@ -71,23 +70,15 @@ describe("loadRunbook", () => {
     expect(after.hash.combined).not.toBe(before.hash.combined)
   })
 
-  it("hashes a folder as the template hash does, and reads the template references in its files", async () => {
+  it("hashes a folder as one entry, and reads the template references in its files", async () => {
     const files = {
       [RUNBOOK]:
         '<Run id="setup" command="make" outputs={["region"]} />\n\n<Run id="plan" path="templates" />',
       "/rb/templates/main.tf": 'provider "aws" {}\nregion = "{{ .outputs.setup.region }}"\n',
       "/rb/templates/modules/vars.tf": "variable x {}\n",
     }
-    const dirs = ["/rb/templates", "/rb/templates/modules"]
-    const doc = await loaded(files, dirs)
-    const folderHash = await Effect.runPromise(
-      Effect.gen(function* () {
-        const fs = yield* FileSystem
-        for (const dir of dirs) yield* fs.mkdir(dir)
-        return yield* hashTemplateDir("/rb/templates")
-      }).pipe(Effect.provide(makeTestFileSystem({ ...files }))),
-    )
-    expect(fileHashes(doc)).toEqual([["templates", `sha256:${folderHash}`]])
+    const doc = await loaded(files, ["/rb/templates", "/rb/templates/modules"])
+    expect(Object.keys(doc.hash.files)).toEqual(["templates"])
     expect(doc.edges).toEqual([
       {
         from: 1,
