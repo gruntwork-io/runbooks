@@ -312,6 +312,12 @@ export const DocumentBlock = Schema.Union([
   Schema.TaggedStruct("Configured", {
     ...placedBlock,
     /**
+     * Whether it is a progress step: a form, task or credential block, unless
+     * its block's `step(props)` says not. A display block never is, and
+     * neither is a misconfigured one.
+     */
+    step: Schema.Boolean,
+    /**
      * The block's own props, encoded with its own schema after alias locks:
      * what the author wrote. Sent for a display block, and for a task with no
      * form of its own. Any other block's props can hold a default the engine

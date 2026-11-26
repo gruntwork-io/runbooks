@@ -106,6 +106,23 @@ const registryWith = (scripts: Readonly<Record<string, Script>>) => ({
     ],
     plugins: [],
   }),
+  /** A task that is a progress step only when its props say it makes something, as TemplateInline is. */
+  Preview: defineTask({
+    name: "Preview",
+    since: "0.1.0",
+    class: "task",
+    props: Schema.Struct({ generates: Schema.optionalKey(Schema.Boolean) }),
+    children: { kind: "none" },
+    references: {},
+    runbookFiles: () => [],
+    provides: ["run"],
+    effects: [],
+    outputs: (): OutputDecls<string> => ({}),
+    run: () => Stream.empty,
+    instruction: () => [],
+    plugins: [],
+    step: (p) => p.generates === true,
+  }),
   /** A display block whose prop is a number written as text, as a client is sent it. */
   Gauge: defineDisplay({
     name: "Gauge",
@@ -660,6 +677,7 @@ describe("the session's document", () => {
           title: "Say hi",
           description: "Greets the world",
           autoCollapse: true,
+          step: true,
           props: { command: "echo hi", shell: "bash" },
         })
         // The parser's error, on the node.
@@ -695,6 +713,34 @@ describe("the session's document", () => {
         expect(
           yield* Effect.flip(person.GetDocument({ session: sessionId("gone") })),
         ).toMatchObject({ _tag: "UnknownSession", session: "gone" })
+      }),
+    )
+  })
+
+  it("says which blocks are progress steps: no display block, and a task or form unless its props say not", async () => {
+    const runbook = [
+      '<Note title="Heads up">\n\nRead this.\n\n</Note>',
+      FORM,
+      '<Bash id="greet" command="echo hi" />',
+      '<Preview id="peek" />',
+      '<Preview id="made" generates={true} />',
+      '<CloudLogin id="cloud" detect={false} />',
+      '<Run id="broken" args="not-a-list" />',
+    ].join("\n\n")
+    await withClients({ runbook }, ({ person }) =>
+      Effect.gen(function* () {
+        const { blocks } = yield* person.GetDocument({ session: (yield* opened(person)).session })
+        expect(
+          blocks.map((block) => [block.tag, block._tag === "Configured" ? block.step : block._tag]),
+        ).toEqual([
+          ["Note", false],
+          ["Form", true],
+          ["Bash", true],
+          ["Preview", false],
+          ["Preview", true],
+          ["CloudLogin", true],
+          ["Run", "Misconfigured"],
+        ])
       }),
     )
   })

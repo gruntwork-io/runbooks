@@ -483,10 +483,28 @@ const openError = (
     ...(suggestion === undefined ? {} : { suggestion }),
   })
 
+/** Whether a block with no configuration errors is a progress step. */
+function isStep(node: BlockNode, registry: Registry): boolean {
+  const block: AnyBlock | undefined = resolveTag(registry, node.tag)?.block
+  switch (block?.class) {
+    // The parser resolved this tag against the same registry, so it resolves here.
+    case undefined:
+      throw new Error(`<${node.tag}> does not resolve to a block`)
+    case "display":
+      return false
+    case "credential":
+      return true
+    case "form":
+    case "task":
+      return block.step?.(node.props) ?? true
+  }
+}
+
 /** The session's document as a window renders it, each block's props as `readBlocks` encoded them. */
 function documentViewOf(
   document: RunbookDocument,
   props: ReadonlyMap<number, Schema.Json>,
+  registry: Registry,
 ): DocumentView {
   const { frontMatter } = document
   return {
@@ -508,7 +526,12 @@ function documentViewOf(
       const [first, ...rest] = node.errors
       if (first !== undefined) return { _tag: "Misconfigured", ...placed, errors: [first, ...rest] }
       const sent = props.get(node.index)
-      return { _tag: "Configured", ...placed, ...(sent === undefined ? {} : { props: sent }) }
+      return {
+        _tag: "Configured",
+        ...placed,
+        step: isStep(node, registry),
+        ...(sent === undefined ? {} : { props: sent }),
+      }
     }),
     warnings: document.warnings,
   }
@@ -816,7 +839,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     specs,
     props: sentProps,
   } = yield* readBlocks(options.document, options.registry, options.texts)
-  const documentView = documentViewOf(document, sentProps)
+  const documentView = documentViewOf(document, sentProps, options.registry)
   const slots = slotsOf(document, options.registry)
   const credentialSlots = credentialSlotsOf(slots, options.registry)
   const credentialSlotAt = new Map(credentialSlots.map((slot) => [slot.index, slot]))
