@@ -1,0 +1,15 @@
+// The rebuilt app's window. It runs in a sandboxed renderer, so it gets the
+// DOM and no Node or Bun globals: `types` lists none.
+{
+  "extends": "../../tsconfig.packages.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "jsx": "react-jsx",
+    "declarationDir": "../../node_modules/.tmp/packages/app-renderer",
+    "tsBuildInfoFile": "../../node_modules/.tmp/packages/app-renderer.tsbuildinfo"
+  },
+  "references": [{ "path": "../core" }, { "path": "../../blocks" }],
+  "include": ["**/*"]
+}
