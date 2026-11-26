@@ -18,8 +18,12 @@
  *
  * A reference is refused where bash would not expand the variable, or would
  * evaluate what it holds: in a heredoc whose delimiter is quoted, in `$'...'`,
- * in backquotes, in `${...}` and in arithmetic (`$((...))`, `((...))`); and
- * right after a `\` or a `$`, which would change what bash makes of it.
+ * in backquotes, anywhere inside `${...}` and arithmetic (`$((...))`,
+ * `((...))`, `$[...]`), even in quotes or `$(...)` there; and right after a
+ * `\` or a `$`, which would change what bash makes of it. A reference in or
+ * after a `$(...)` that bash 3.2, the macOS default, ends at another `)` (one
+ * in a heredoc, or after a `case` pattern with no `(`) is refused too: 3.2
+ * would read it with other quotes.
  * Bash still evaluates a value a script passes on to `eval`, `bash -c` or an
  * arithmetic test such as `[[ $x -eq 1 ]]`; nothing here can see that.
  *
@@ -295,24 +299,86 @@ function valueOf(
 // Where each reference stands in the script
 // ---------------------------------------------------------------------------
 
+/** Commands: the script itself, or `$(...)`, `<(...)` or `>(...)`, each ending at the `)` that closes it. */
+interface Code {
+  readonly kind: "code"
+  /** Where its `$(`, `<(` or `>(` is; undefined for the script itself. */
+  readonly opensAt: number | undefined
+  /** Subshells, and extglob groups in a `case` pattern, open in it. */
+  depth: number
+  /** The words of the command being read, as written. */
+  words: string[]
+  /** Where the word being read starts, if one is being read. */
+  wordStart: number | undefined
+  /** Each `case` open in it, innermost last: reading patterns, or the commands after them. */
+  readonly cases: Array<"patterns" | "commands">
+}
+
+interface Heredoc {
+  readonly kind: "heredoc"
+  readonly delimiter: string
+  readonly quoted: boolean
+  readonly stripTabs: boolean
+  atLineStart: boolean
+}
+
 type Frame =
-  /** Commands: the script itself, or `$(...)`, which ends at the `)` that closes it. */
-  | { readonly kind: "code"; readonly inSubstitution: boolean; depth: number }
+  | Code
+  | Heredoc
   | { readonly kind: "single" | "double" | "ansi" | "backquote" | "comment" }
-  /** `${...}` and arithmetic, each ending when its brackets balance. */
-  | { readonly kind: "parameter" | "arithmetic"; depth: number }
-  | {
-      readonly kind: "heredoc"
-      readonly delimiter: string
-      readonly quoted: boolean
-      readonly stripTabs: boolean
-      atLineStart: boolean
-    }
+  /** `${...}`, ending when its braces balance. */
+  | { readonly kind: "parameter"; depth: number }
+  /** `$((...))` and `((...))`, ending at `))`, and `$[...]`, ending at `]`. */
+  | { readonly kind: "arithmetic"; readonly close: "))" | "]"; depth: number }
 
-type Heredoc = Extract<Frame, { kind: "heredoc" }>
+const commandsIn = (opensAt: number | undefined): Code => ({
+  kind: "code",
+  opensAt,
+  depth: 0,
+  words: [],
+  wordStart: undefined,
+  cases: [],
+})
 
-/** How `name` expands where `frame` is, or why it may not stand there. */
-function expandedIn(frame: Frame, name: string): string | { readonly refused: string } {
+/** Why a reference may not stand where it is, and what to write instead. */
+interface Refusal {
+  readonly where: string
+  readonly instead: (written: string) => string
+}
+
+const refusal = (where: string): Refusal => ({
+  where,
+  instead: (written) =>
+    `Set a variable to it first, \`NAME=${written}\`, and use \`"$NAME"\` there.`,
+})
+
+const IN_PARAMETER: Refusal = {
+  where: "inside `${...}`, where bash may evaluate it as a subscript or an offset",
+  instead: (written) =>
+    `Set a variable to it first, \`NAME=${written}\`, and use \`$NAME\` only as a default or replacement value, as in \`\${X:-$NAME}\`.`,
+}
+
+const IN_ARITHMETIC: Refusal = {
+  where: "inside arithmetic, where bash would evaluate the value as an expression",
+  instead: (written) =>
+    `Set a variable to it first, \`NAME=${written}\`, check it is a number, \`[[ $NAME =~ ^-?[0-9]+$ ]]\`, and use \`$NAME\` there.`,
+}
+
+const AFTER_BASH32_DIVERGES: Refusal = {
+  where:
+    "in or after a `$(...)` that bash 3.2, the macOS default, ends early: at a `)` in a heredoc, or at the `)` after a `case` pattern",
+  instead: () =>
+    "Start each `case` pattern in the `$(...)` with `(`, as in `(a)`, and move any heredoc out of it.",
+}
+
+/** How `name` expands where the innermost frame of `stack` is, or why it may not stand there. */
+function expandedIn(stack: ReadonlyArray<Frame>, name: string): string | Refusal {
+  for (let index = stack.length - 1; index >= 0; index--) {
+    const { kind } = stack[index]!
+    if (kind === "parameter") return IN_PARAMETER
+    if (kind === "arithmetic") return IN_ARITHMETIC
+  }
+  const frame = stack.at(-1)!
   switch (frame.kind) {
     case "code":
     case "comment":
@@ -323,18 +389,35 @@ function expandedIn(frame: Frame, name: string): string | { readonly refused: st
       return `'"\${${name}}"'`
     case "heredoc":
       return frame.quoted
-        ? { refused: "in a heredoc whose delimiter is quoted, where bash expands no variable" }
+        ? refusal("in a heredoc whose delimiter is quoted, where bash expands no variable")
         : `\${${name}}`
     case "ansi":
-      return { refused: "inside `$'...'`, where bash expands no variable" }
+      return refusal("inside `$'...'`, where bash expands no variable")
     case "backquote":
-      return { refused: "inside backquotes; use `$(...)` instead" }
+      return { where: "inside backquotes", instead: () => "Use `$(...)` instead." }
     case "parameter":
-      return { refused: "inside `${...}`" }
+      return IN_PARAMETER
     case "arithmetic":
-      return { refused: "inside arithmetic, where bash would evaluate the value as an expression" }
+      return IN_ARITHMETIC
   }
 }
+
+/** Reserved words after which a command starts. */
+const STARTS_COMMAND = new Set([
+  "if",
+  "then",
+  "else",
+  "elif",
+  "while",
+  "until",
+  "do",
+  "!",
+  "time",
+  "{",
+  "}",
+  "fi",
+  "done",
+])
 
 /** Each `MARK` in `text` replaced by its variable, quoted for where it stands. Adds a problem to `found` for each reference refused. */
 function quoteAll(
@@ -343,51 +426,178 @@ function quoteAll(
   variables: ReadonlyArray<string>,
   found: Found[],
 ): string {
-  const stack: Frame[] = [{ kind: "code", inSubstitution: false, depth: 0 }]
+  const stack: Frame[] = [commandsIn(undefined)]
   const pending: Heredoc[] = []
   const inserted: string[] = []
   const refused = new Set<number>()
+  /** Where the first `$(` is that bash 3.2 ends at another `)`, if one is. */
+  let bash32Diverges: number | undefined
 
   /** Refuses the reference at `MARK` number `index`, once. */
-  const refuseAt = (index: number, where: string) => {
+  const refuseAt = (index: number, { where, instead }: Refusal) => {
     if (refused.has(index)) return
     refused.add(index)
     const { at, written } = references[index]!
     found.push({
       at,
-      message: `\`${written}\` is ${where}, so Runbooks cannot insert its value. Set a variable to it first, \`NAME=${written}\`, and use \`$NAME\` there.`,
+      message: `\`${written}\` is ${where}, so Runbooks cannot insert its value. ${instead(written)}`,
     })
   }
-  /** Refuses the reference at the next `MARK`, and steps past the character before it. */
-  const refuse = (where: string): number => {
-    refuseAt(inserted.length, where)
+  /** At `\`: a reference right after it is refused; any other character goes with it. */
+  const escape = (at: number): number => {
+    if (text[at + 1] !== MARK) return 2
+    refuseAt(inserted.length, refusal("right after a `\\`"))
     return 1
   }
   /** At `$`: an expansion that opens a frame, and how many characters it takes. */
   const expansion = (at: number): number => {
-    if (text[at + 1] === MARK) return refuse("right after a `$`")
+    const next = text[at + 1]
+    if (next === MARK) {
+      refuseAt(inserted.length, refusal("right after a `$`"))
+      return 1
+    }
     if (text.startsWith("$((", at)) {
-      stack.push({ kind: "arithmetic", depth: 0 })
+      stack.push({ kind: "arithmetic", close: "))", depth: 0 })
       return 3
     }
-    if (text.startsWith("$(", at)) {
-      stack.push({ kind: "code", inSubstitution: true, depth: 0 })
-      return 2
-    }
-    if (text.startsWith("${", at)) {
-      stack.push({ kind: "parameter", depth: 1 })
-      return 2
-    }
-    return 1
+    if (next === "(") stack.push(commandsIn(at))
+    else if (next === "[") stack.push({ kind: "arithmetic", close: "]", depth: 0 })
+    else if (next === "{") stack.push({ kind: "parameter", depth: 1 })
+    else return 1
+    return 2
   }
-  /** At `\`: the escaped character goes with it. */
-  const escape = (at: number): number => (text[at + 1] === MARK ? refuse("right after a `\\`") : 2)
+
+  const startWord = (frame: Code, at: number) => {
+    frame.wordStart ??= at
+  }
+  /** Ends the word being read, if one is, at `at`. */
+  const endWord = (frame: Code, at: number) => {
+    if (frame.wordStart === undefined) return
+    const word = text.slice(frame.wordStart, at)
+    frame.wordStart = undefined
+    const reading = frame.cases.at(-1)
+    if (reading !== undefined && word === "esac" && frame.words.length === 0) {
+      frame.cases.pop()
+      return
+    }
+    if (reading === "patterns") return
+    frame.words.push(word)
+    if (frame.words.length === 1 && STARTS_COMMAND.has(word)) frame.words = []
+    else if (frame.words.length === 3 && frame.words[0] === "case" && word === "in") {
+      frame.cases.push("patterns")
+      frame.words = []
+    }
+  }
+  /** Ends the command being read. */
+  const endCommand = (frame: Code, at: number) => {
+    endWord(frame, at)
+    frame.words = []
+  }
+
+  /** One step in commands: how many characters it takes. */
+  const inCode = (frame: Code, at: number): number => {
+    const char = text[at]!
+    const next = text[at + 1]
+    const inPatterns = frame.cases.at(-1) === "patterns"
+    switch (char) {
+      case " ":
+      case "\t":
+        endWord(frame, at)
+        return 1
+      case "\n":
+        // `case WORD` may go on to its `in` on the next line.
+        if (frame.words[0] === "case" && frame.words.length < 3) endWord(frame, at)
+        else endCommand(frame, at)
+        if (pending.length > 0) stack.push(pending.shift()!)
+        return 1
+      case "\\":
+        if (next === "\n") return 2
+        startWord(frame, at)
+        return escape(at)
+      case "'":
+      case '"':
+      case "`":
+        startWord(frame, at)
+        stack.push({ kind: char === "'" ? "single" : char === '"' ? "double" : "backquote" })
+        return 1
+      case "$":
+        startWord(frame, at)
+        if (next === "'") {
+          stack.push({ kind: "ansi" })
+          return 2
+        }
+        return expansion(at)
+      case "#":
+        if (frame.wordStart === undefined) stack.push({ kind: "comment" })
+        return 1
+      case ";":
+        endCommand(frame, at)
+        if (next !== ";" && next !== "&") return 1
+        // `;;`, `;&` and `;;&` end the commands after a `case` pattern.
+        if (frame.cases.length > 0) frame.cases[frame.cases.length - 1] = "patterns"
+        return text.startsWith(";;&", at) ? 3 : 2
+      case "&":
+      case "|":
+        if (inPatterns) endWord(frame, at)
+        else endCommand(frame, at)
+        return 1
+      case "(":
+        if (inPatterns) {
+          // An extglob group inside a pattern; a `(` before a pattern opens nothing.
+          if (frame.wordStart !== undefined) frame.depth++
+          return 1
+        }
+        endCommand(frame, at)
+        if (next === "(") {
+          stack.push({ kind: "arithmetic", close: "))", depth: 0 })
+          return 2
+        }
+        frame.depth++
+        return 1
+      case ")":
+        // The word before it may be the `esac` that ends the patterns.
+        endWord(frame, at)
+        if (frame.cases.at(-1) === "patterns" && frame.depth === 0) {
+          frame.cases[frame.cases.length - 1] = "commands"
+          return 1
+        }
+        endCommand(frame, at)
+        if (frame.depth > 0) frame.depth--
+        else if (frame.opensAt !== undefined) {
+          if (bash32SubstitutionEnd(text, frame.opensAt + 2) !== at)
+            bash32Diverges = Math.min(bash32Diverges ?? frame.opensAt, frame.opensAt)
+          stack.pop()
+        }
+        return 1
+      case "<":
+      case ">": {
+        endWord(frame, at)
+        if (next === "(") {
+          stack.push(commandsIn(at))
+          return 2
+        }
+        if (text.startsWith("<<<", at)) return 3
+        if (!text.startsWith("<<", at)) return 1
+        const heredoc = heredocAt(text, at)
+        // The operator and its word are stepped over, so each reference in the word is refused here.
+        for (const operatorChar of text.slice(at, at + heredoc.length))
+          if (operatorChar === MARK) {
+            refuseAt(inserted.length, refusal("in a heredoc's delimiter"))
+            inserted.push("")
+          }
+        if (heredoc.delimiter !== "") pending.push(heredoc)
+        return heredoc.length
+      }
+      default:
+        startWord(frame, at)
+        return 1
+    }
+  }
 
   let at = 0
   while (at < text.length) {
     const frame = stack.at(-1)!
     const char = text[at]!
-    let step: number = 1
 
     if (frame.kind === "heredoc" && frame.atLineStart) {
       frame.atLineStart = false
@@ -403,43 +613,18 @@ function quoteAll(
     }
 
     if (char === MARK) {
-      const expanded = expandedIn(frame, variables[inserted.length]!)
-      if (typeof expanded !== "string") refuseAt(inserted.length, expanded.refused)
+      if (frame.kind === "code") startWord(frame, at)
+      const expanded = expandedIn(stack, variables[inserted.length]!)
+      if (typeof expanded !== "string") refuseAt(inserted.length, expanded)
       inserted.push(typeof expanded === "string" ? expanded : "")
       at++
       continue
     }
 
+    let step = 1
     switch (frame.kind) {
       case "code":
-        if (char === "\\") step = escape(at)
-        else if (char === "'") stack.push({ kind: "single" })
-        else if (char === '"') stack.push({ kind: "double" })
-        else if (char === "`") stack.push({ kind: "backquote" })
-        else if (char === "$" && text[at + 1] === "'") {
-          stack.push({ kind: "ansi" })
-          step = 2
-        } else if (char === "$") step = expansion(at)
-        else if (char === "(" && text[at + 1] === "(") {
-          stack.push({ kind: "arithmetic", depth: 0 })
-          step = 2
-        } else if (char === "(") frame.depth++
-        else if (char === ")") {
-          if (frame.depth > 0) frame.depth--
-          else if (frame.inSubstitution) stack.pop()
-        } else if (char === "#" && startsWord(text, at)) stack.push({ kind: "comment" })
-        else if (text.startsWith("<<<", at)) step = 3
-        else if (text.startsWith("<<", at)) {
-          const heredoc = heredocAt(text, at)
-          // The operator and its word are stepped over, so each reference in the word is refused here.
-          for (const operatorChar of text.slice(at, at + heredoc.length))
-            if (operatorChar === MARK) {
-              refuseAt(inserted.length, "in a heredoc's delimiter")
-              inserted.push("")
-            }
-          if (heredoc.delimiter !== "") pending.push(heredoc)
-          step = heredoc.length
-        } else if (char === "\n" && pending.length > 0) stack.push(pending.shift()!)
+        step = inCode(frame, at)
         break
       case "single":
         if (char === "'") stack.pop()
@@ -451,22 +636,22 @@ function quoteAll(
         else if (char === "$") step = expansion(at)
         break
       case "ansi":
-        if (char === "\\") step = 2
+        if (char === "\\") step = escape(at)
         else if (char === "'") stack.pop()
         break
       case "backquote":
-        if (char === "\\") step = 2
+        if (char === "\\") step = escape(at)
         else if (char === "`") stack.pop()
         break
       case "comment":
-        // The newline is the commands' again: a heredoc may start after it.
+        // The newline is the commands' again: it ends the command, and a heredoc may start after it.
         if (char === "\n") {
           stack.pop()
           step = 0
         }
         break
       case "parameter":
-        if (char === "\\") step = 2
+        if (char === "\\") step = escape(at)
         else if (char === '"') stack.push({ kind: "double" })
         else if (char === "'" && stack.at(-2)?.kind !== "double") stack.push({ kind: "single" })
         else if (char === "$") step = expansion(at)
@@ -474,9 +659,11 @@ function quoteAll(
         else if (char === "}" && --frame.depth === 0) stack.pop()
         break
       case "arithmetic":
-        if (char === "(") frame.depth++
-        else if (char === ")") {
+        if (char === "$") step = expansion(at)
+        else if (char === (frame.close === "]" ? "[" : "(")) frame.depth++
+        else if (char === (frame.close === "]" ? "]" : ")")) {
           if (frame.depth > 0) frame.depth--
+          else if (frame.close === "]") stack.pop()
           else if (text[at + 1] === ")") {
             stack.pop()
             step = 2
@@ -494,14 +681,58 @@ function quoteAll(
     at += step
   }
 
+  if (bash32Diverges !== undefined) {
+    let index = 0
+    for (let markAt = text.indexOf(MARK); markAt >= 0; markAt = text.indexOf(MARK, markAt + 1)) {
+      if (markAt > bash32Diverges) refuseAt(index, AFTER_BASH32_DIVERGES)
+      index++
+    }
+  }
+
   let next = 0
   return text.replaceAll(MARK, () => inserted[next++]!)
 }
 
+/**
+ * The `)` that bash 3.2, the macOS default, takes to end a `$(` whose
+ * commands start at `start`, or -1. It reads no heredoc and no `case`
+ * pattern, so a `)` in either ends the `$(` for it.
+ */
+function bash32SubstitutionEnd(text: string, start: number): number {
+  let depth = 0
+  for (let at = start; at < text.length; at++) {
+    const char = text[at]!
+    if (char === "\\") at++
+    else if (char === "'") {
+      at = text.indexOf("'", at + 1)
+      if (at < 0) return -1
+    } else if (char === '"' || char === "`") {
+      at = closingQuote(text, at)
+      if (at < 0) return -1
+    } else if (char === "#" && (at === start || WORD_BREAKS.has(text[at - 1]!))) {
+      at = text.indexOf("\n", at)
+      if (at < 0) return -1
+    } else if (char === "(") depth++
+    else if (char === ")") {
+      if (depth === 0) return at
+      depth--
+    }
+  }
+  return -1
+}
+
+/** The index of the quote that closes the one at `start`, past backslash escapes, or -1. */
+function closingQuote(text: string, start: number): number {
+  const quote = text[start]
+  for (let at = start + 1; at < text.length; at++) {
+    if (text[at] === "\\") at++
+    else if (text[at] === quote) return at
+  }
+  return -1
+}
+
 /** Characters before which a `#` starts a comment. */
 const WORD_BREAKS = new Set([" ", "\t", "\n", ";", "&", "|", "(", ")", "<", ">"])
-
-const startsWord = (text: string, at: number) => at === 0 || WORD_BREAKS.has(text[at - 1]!)
 
 /** The heredoc whose `<<` is at `at`: its delimiter, unquoted, and how many characters the operator and word take. */
 function heredocAt(text: string, at: number): Heredoc & { readonly length: number } {
@@ -511,7 +742,8 @@ function heredocAt(text: string, at: number): Heredoc & { readonly length: numbe
   while (text[end] === " " || text[end] === "\t") end++
   let delimiter = ""
   let quoted = false
-  while (end < text.length && !/[\s;&|<>()]/.test(text[end]!)) {
+  // Bash ends the word only at a metacharacter, so a `\r` before the newline is part of it.
+  while (end < text.length && !/[ \t\n;&|<>()]/.test(text[end]!)) {
     const char = text[end]!
     if (char === "'" || char === '"') {
       const close = text.indexOf(char, end + 1)

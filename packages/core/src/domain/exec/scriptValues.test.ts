@@ -13,6 +13,9 @@ const blockId = Schema.decodeSync(BlockId)
 /** A value that runs a command, splits, globs and closes every kind of quote, if bash reads it as code. */
 const HOSTILE = `it's "$(touch pwned)" \`touch pwned\` $HOME * ; touch pwned\nEOF\n'\\`
 
+/** A value that runs `touch m` if bash evaluates it as a subscript or arithmetic, and globs to the file `am`. */
+const PAYLOAD = "a[$(touch m)]"
+
 const outputs = (byBlock: Record<string, Record<string, string>>): BlockOutputs =>
   new Map(
     Object.entries(byBlock).map(([block, keys]) => [
@@ -70,6 +73,29 @@ const ranWithBash = (template: string, from: ValueSources): string => {
   return ran.stdout
 }
 
+/**
+ * `template` with `PAYLOAD` for `.inputs.v`: refused, or run by bash in a folder
+ * that holds the file `am`. Either way the payload never runs.
+ */
+const withPayload = (
+  template: string,
+): { readonly refused: ReadonlyArray<string> } | { readonly printed: string } => {
+  const result = insertValues(template, sources({ v: PAYLOAD }), "bash")
+  if (Result.isFailure(result)) return { refused: result.failure.map(({ message }) => message) }
+  const cwd = nodeFs.mkdtempSync(nodePath.join(folder, "payload-"))
+  nodeFs.writeFileSync(nodePath.join(cwd, "am"), "")
+  const variables = Object.fromEntries(
+    Object.entries(result.success.env).map(([name, value]) => [name, Redacted.value(value)]),
+  )
+  const ran = spawnSync("/bin/bash", ["-c", result.success.script], {
+    cwd,
+    env: { PATH: "/usr/bin:/bin", ...variables },
+    encoding: "utf8",
+  })
+  expect(nodeFs.readdirSync(cwd)).toEqual(["am"])
+  return { printed: ran.stdout }
+}
+
 describe("a value bash gets exactly as given, never as code", () => {
   const value = sources({ v: HOSTILE })
 
@@ -89,23 +115,31 @@ describe("a value bash gets exactly as given, never as code", () => {
     )
   })
 
-  it("in a heredoc whose delimiter is not quoted, as `<<` and `<<-` write it", () => {
-    expect(ranWithBash("cat <<EOF\nbefore {{ .inputs.v }} after\nEOF\n", value)).toBe(
-      `before ${HOSTILE} after\n`,
-    )
-    expect(ranWithBash("cat <<-EOF\n\tbefore {{ .inputs.v }} after\n\tEOF\n", value)).toBe(
-      `before ${HOSTILE} after\n`,
-    )
+  it("in a heredoc whose delimiter is not quoted, as `<<` and `<<-` write it, and after it ends", () => {
+    expect(
+      ranWithBash(
+        "cat <<EOF\nbefore {{ .inputs.v }} after\nEOF\nprintf '<%s>' {{ .inputs.v }}",
+        value,
+      ),
+    ).toBe(`before ${HOSTILE} after\n<${HOSTILE}>`)
+    expect(
+      ranWithBash(
+        "cat <<-EOF\n\tbefore {{ .inputs.v }} after\n\tEOF\nprintf '<%s>' {{ .inputs.v }}",
+        value,
+      ),
+    ).toBe(`before ${HOSTILE} after\n<${HOSTILE}>`)
   })
 
-  it("in a comment, which stays one", () => {
-    expect(ranWithBash("# {{ .inputs.v }}\nprintf done", value)).toBe("done")
-  })
-
-  it("in $(...) inside double quotes, as a word of the commands there", () => {
-    expect(ranWithBash("printf '%s' \"$(printf '<%s>' {{ .inputs.v }})\"", value)).toBe(
+  it("in a comment, which stays one, whatever quote it holds", () => {
+    expect(ranWithBash("# it's {{ .inputs.v }}\nprintf '<%s>' {{ .inputs.v }}", value)).toBe(
       `<${HOSTILE}>`,
     )
+  })
+
+  it("in $(...) inside double quotes, as a word of the commands there, and after it closes", () => {
+    expect(
+      ranWithBash("printf '%s' \"$(printf '<%s>' {{ .inputs.v }})\" {{ .inputs.v }}", value),
+    ).toBe(`<${HOSTILE}>${HOSTILE}`)
   })
 
   it("assigned to a variable, the way to use one where a reference is refused", () => {
@@ -121,6 +155,83 @@ describe("a value bash gets exactly as given, never as code", () => {
     const script = "cat <<'EOF'\nliteral $HOME\nEOF\nprintf '<%s>' {{ .inputs.v }}"
     expect(ranWithBash(script, value)).toBe(`literal $HOME\n<${HOSTILE}>`)
   })
+
+  it.each([
+    ["$((...))", "printf '<%s>' $(( 1 + 2 )) {{ .inputs.v }}", `<3><${HOSTILE}>`],
+    [
+      "$[...] holding <<, which is no heredoc",
+      "printf '<%s>' $[1<<2] {{ .inputs.v }}",
+      `<4><${HOSTILE}>`,
+    ],
+    ["${a:-${b}}", "printf '<%s>' \"${a:-${b:-x}}\" {{ .inputs.v }}", `<x><${HOSTILE}>`],
+    [
+      "a second heredoc on one line, which holds one",
+      "cat <<A; cat <<B\na\nA\n{{ .inputs.v }}\nB\nprintf '<%s>' {{ .inputs.v }}",
+      `a\n${HOSTILE}\n<${HOSTILE}>`,
+    ],
+    [
+      "a `case` in $(...) whose patterns start with `(`",
+      "printf '%s' \"$(case a in (a) printf '<%s>' {{ .inputs.v }};; esac)\" {{ .inputs.v }}",
+      `<${HOSTILE}>${HOSTILE}`,
+    ],
+  ])("after %s closes, quoted for where it stands", (_, template, printed) => {
+    expect(ranWithBash(template, value)).toBe(printed)
+  })
+
+  it("after a heredoc in a script with CRLF line ends, whose delimiter line ends with `\\r` too", () => {
+    expect(ranWithBash("cat <<EOF\r\nx\r\nEOF\r\nprintf '<%s>' {{ .inputs.v }}\r\n", value)).toBe(
+      `x\r\n<${HOSTILE}\r>`,
+    )
+    // As bash does, a line ending without `\r` does not end a heredoc whose delimiter has one.
+    expect(ranWithBash("cat <<EOF\r\nEOF\nprintf '<%s>' {{ .inputs.v }}\nEOF\r\n", value)).toBe(
+      `EOF\nprintf '<%s>' ${HOSTILE}\n`,
+    )
+  })
+})
+
+describe("a value bash never evaluates, run with one that runs a command if it does", () => {
+  it.each([
+    ["a subscript, in a double quote inside `${...}`", 'a=(x); echo "${a["{{ .inputs.v }}"]}"'],
+    ["a subscript, in `$(...)` inside `${...}`", 'a=(x); echo "${a[$(echo {{ .inputs.v }})]}"'],
+    ["arithmetic, in `$(...)` inside `$((...))`", "echo $(( $(echo {{ .inputs.v }}) ))"],
+    ["`$[...]` arithmetic", "echo $[ {{ .inputs.v }} ]"],
+  ])("refuses %s", (_, template) => {
+    expect(withPayload(template)).toEqual({ refused: [expect.stringContaining("{{ .inputs.v }}")] })
+  })
+
+  it.each([
+    [
+      "after `$[1<<2]`, which opens no heredoc",
+      "echo $[1<<2]\nprintf '<%s>' {{ .inputs.v }}",
+      `4\n<${PAYLOAD}>`,
+    ],
+    [
+      "in a `case` in $(...), whose `(a)` pattern does not end the $(...)",
+      "printf '%s' \"$(case a in (a) printf '<%s>' {{ .inputs.v }};; esac)\"",
+      `<${PAYLOAD}>`,
+    ],
+    [
+      "after a CRLF heredoc",
+      "cat <<EOF\r\nx\r\nEOF\r\nprintf '<%s>' {{ .inputs.v }}\r\n",
+      `x\r\n<${PAYLOAD}\r>`,
+    ],
+  ])("inserts it quoted %s", (_, template, printed) => {
+    expect(withPayload(template)).toEqual({ printed })
+  })
+
+  it.each([
+    [
+      "a `case` pattern without `(`",
+      "printf '%s' \"$(case a in a) printf '<%s>' {{ .inputs.v }};; esac)\"",
+    ],
+    ["a `)` in a heredoc", "x=$(cat <<X\na) {{ .inputs.v }}\nX\n); printf '%s' \"$x\""],
+  ])(
+    "refuses a reference after %s in $(...), where bash 3.2 ends the $(...) early",
+    (_, template) => {
+      const outcome = withPayload(template)
+      expect(outcome).toEqual({ refused: [expect.stringContaining("bash 3.2")] })
+    },
+  )
 })
 
 describe("the variables", () => {
@@ -170,21 +281,61 @@ describe("a template refused, at its line", () => {
   const value = sources({ v: "x" })
 
   it.each([
-    ["a heredoc whose delimiter is quoted", "cat <<'EOF'\n{{ .inputs.v }}\nEOF", "quoted"],
-    ["$'...'", "echo $'{{ .inputs.v }}'", "$'...'"],
-    ["backquotes", "echo `echo {{ .inputs.v }}`", "backquotes"],
-    ["${...}", 'echo "${X:-{{ .inputs.v }}}"', "${...}"],
-    ["$((...))", "echo $(( {{ .inputs.v }} + 1 ))", "arithmetic"],
-    ["((...))", "(( {{ .inputs.v }} > 1 ))", "arithmetic"],
-    ["right after a backslash", "echo \\{{ .inputs.v }}", "right after a `\\`"],
-    ["right after a $", 'echo "${{ .inputs.v }}"', "right after a `$`"],
-    ["a heredoc's delimiter", "cat <<{{ .inputs.v }}", "delimiter"],
-  ])("a reference in %s", (_, template, why) => {
+    [
+      "a heredoc whose delimiter is quoted",
+      "cat <<'EOF'\n{{ .inputs.v }}\nEOF",
+      "quoted",
+      "NAME={{ .inputs.v }}",
+    ],
+    ["$'...'", "echo $'{{ .inputs.v }}'", "$'...'", "NAME={{ .inputs.v }}"],
+    ["backquotes", "echo `echo {{ .inputs.v }}`", "backquotes", "Use `$(...)` instead."],
+    ["${...}", 'echo "${X:-{{ .inputs.v }}}"', "${...}", "NAME={{ .inputs.v }}"],
+    ["$((...))", "echo $(( {{ .inputs.v }} + 1 ))", "arithmetic", "NAME={{ .inputs.v }}"],
+    ["((...))", "(( {{ .inputs.v }} > 1 ))", "arithmetic", "NAME={{ .inputs.v }}"],
+    [
+      "right after a backslash",
+      "echo \\{{ .inputs.v }}",
+      "right after a `\\`",
+      "NAME={{ .inputs.v }}",
+    ],
+    [
+      "right after a backslash in double quotes",
+      'echo "\\{{ .inputs.v }}"',
+      "right after a `\\`",
+      "NAME={{ .inputs.v }}",
+    ],
+    [
+      "right after a backslash in a heredoc",
+      "cat <<EOF\n\\{{ .inputs.v }}\nEOF",
+      "right after a `\\`",
+      "NAME={{ .inputs.v }}",
+    ],
+    [
+      "right after a backslash in $'...'",
+      "echo $'\\{{ .inputs.v }}'",
+      "right after a `\\`",
+      "NAME={{ .inputs.v }}",
+    ],
+    [
+      "right after a backslash in backquotes",
+      "echo `echo \\{{ .inputs.v }}`",
+      "right after a `\\`",
+      "NAME={{ .inputs.v }}",
+    ],
+    [
+      "right after a backslash in ${...}",
+      'echo "${X:-\\{{ .inputs.v }}}"',
+      "right after a `\\`",
+      "NAME={{ .inputs.v }}",
+    ],
+    ["right after a $", 'echo "${{ .inputs.v }}"', "right after a `$`", "NAME={{ .inputs.v }}"],
+    ["a heredoc's delimiter", "cat <<{{ .inputs.v }}", "delimiter", "NAME={{ .inputs.v }}"],
+  ])("a reference in %s", (_, template, why, instead) => {
     const script = `echo first\n${template}`
     const problem = refused(script, value)
     expect(problem.line).toBe(script.slice(0, script.indexOf("{{ .")).split("\n").length)
     expect(problem.message).toContain(why)
-    expect(problem.message).toContain("NAME={{ .inputs.v }}")
+    expect(problem.message).toContain(instead)
   })
 
   it.each([
