@@ -665,6 +665,44 @@ describe("the session's document", () => {
     )
   })
 
+  it("carries no runbook text in a YAML error, to an agent or in a refusal", async () => {
+    const secret = "fake-secret-yaml-9d2e"
+    const fenced = [
+      '<Form id="config">',
+      "```yaml",
+      "- name: token",
+      "  sensitive: true",
+      `  default: ${secret}`,
+      "  default: again",
+      "```",
+      "</Form>",
+    ].join("\n")
+    await withClients({ runbook: fenced }, ({ person, agent }) =>
+      Effect.gen(function* () {
+        const { session } = yield* opened(person)
+        const document = yield* agent.GetDocument({ session })
+        expect(document.blocks[0]?._tag).toBe("Misconfigured")
+        for (const text of printed(document)) expect(text).not.toContain(secret)
+      }),
+    )
+    const front = [
+      "---",
+      "title: Deploy",
+      `api_key: ${secret}`,
+      "api_key: again",
+      "---",
+      "",
+      "# Deploy",
+    ]
+    await withClients({ runbook: front.join("\n") }, ({ agent }) =>
+      Effect.gen(function* () {
+        const result = yield* agent.OpenSession({ path: RUNBOOK })
+        expect(result._tag).toBe("Invalid")
+        for (const text of printed(result)) expect(text).not.toContain(secret)
+      }),
+    )
+  })
+
   it("crosses JSON as a transport carries it, and back", async () => {
     const document = await withClients({ runbook: DOCUMENT }, ({ person }) =>
       Effect.flatMap(opened(person), ({ session }) => person.GetDocument({ session })),

@@ -676,6 +676,40 @@ describe("parseRunbook", () => {
       ])
     })
 
+    it("quotes none of the runbook's text in a YAML error, a secret beside the mistake included", () => {
+      const secret = "fake-secret-yaml-41c7"
+      // Any piece of the secret: the yaml library's own messages quote parts of it.
+      const piece = secret.slice(0, 6)
+      const fence = (yaml: string) => `<Form id="config">\n\`\`\`yaml\n${yaml}\n\`\`\`\n</Form>`
+      const twice = fence(
+        `- name: token\n  sensitive: true\n  default: ${secret}\n  default: again`,
+      )
+      expect(brief(errors(twice))).toEqual([
+        ["badChildren", 6, "The YAML in <Form> isn't valid: a key appears twice in one map."],
+      ])
+      expect(errors(twice)[0]?.location.span.start).toEqual({ line: 6, column: 3 })
+      for (const yaml of [
+        // An escape YAML doesn't know: the library quotes it, and the characters after it.
+        `- name: token\n  default: "\\U${secret}"`,
+        // Text after a block scalar's \`|\`: the library quotes it.
+        `- name: token\n  default: |${secret}\n    x`,
+        // A quote that never closes.
+        `- name: token\n  default: "${secret}\n- name: b`,
+      ]) {
+        const found = errors(fence(yaml))
+        expect(found.length).toBeGreaterThan(0)
+        for (const error of found) {
+          expect(error.code).toBe("badChildren")
+          expect(error.message).not.toContain(piece)
+        }
+      }
+      const front = parse(`---\ntitle: x\napi_key: ${secret}\napi_key: again\n---\n\n# Hi`)
+      expect(front._tag).toBe("Invalid")
+      expect(brief(configErrors(front))).toEqual([
+        ["syntax", 4, "The front matter isn't valid YAML: a key appears twice in one map."],
+      ])
+    })
+
     it("refuses a reference prop that is neither an id nor a list of them", () => {
       const found = errors('<Run id="a" command="ls" inputsId={3} />')
       expect(found.map((e) => [e.code, e.location.prop])).toEqual([["badProp", "inputsId"]])
