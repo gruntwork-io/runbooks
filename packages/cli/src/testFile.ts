@@ -14,7 +14,8 @@
  *   allows. A runbook is needed for it, so an editor's schema cannot carry
  *   it.
  */
-import { Effect, Schema, SchemaIssue } from "effect"
+import { Effect, Result, Schema, SchemaIssue } from "effect"
+import { yamlData } from "@runbooks/core/document/yamlData"
 import { isMap, isScalar, isSeq, LineCounter, parseDocument, type Node } from "yaml"
 import { isIdWord, type MachineEffect } from "@runbooks/blocks-core/contract"
 import type { AnyBlock, Registry } from "@runbooks/blocks-core/registry"
@@ -539,7 +540,14 @@ export function parseTestFile(
           .join("\n"),
       }),
     )
-  return Schema.decodeUnknownEffect(schema)(doc.toJS(), {
+  const data = yamlData(doc)
+  if (Result.isFailure(data)) {
+    const { line, col } = lines.linePos(data.failure.offset)
+    return Effect.fail(
+      new TestFileError({ path: file, message: `${file}:${line}:${col}: ${data.failure.message}` }),
+    )
+  }
+  return Schema.decodeUnknownEffect(schema)(data.success, {
     onExcessProperty: "error",
     errors: "all",
   }).pipe(

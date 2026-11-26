@@ -270,6 +270,12 @@ describe("runbook_test.yml", () => {
     expect(message).not.toContain("there is no key fuzz")
   })
 
+  it("refuses an alias that names a node that holds it, at the alias, and throws nothing", () => {
+    expect(decode("version: 1\ntests:\n  - &t [*t]\n").message).toBe(
+      "runbook_test.yml:3:9: An alias names a node that holds it, so the data would hold itself.",
+    )
+  })
+
   it("needs at least one test case", () => {
     expect(decode("version: 1\ntests: []\n").message).toBe(
       "runbook_test.yml:2:1: tests: Expected a value with a length of at least 1",

@@ -8,6 +8,7 @@ import { createHash } from "node:crypto"
 import { posix } from "node:path"
 import { Option, Result, Schema, SchemaAST, SchemaIssue } from "effect"
 import YAML from "yaml"
+import { yamlData } from "./yamlData.ts"
 import {
   BlockId,
   type Capability,
@@ -143,6 +144,9 @@ function takes(block: AnyBlock, key: SharedKey): boolean {
 const blockIdOf = (written: unknown): Option.Option<BlockId> =>
   Schema.decodeUnknownOption(BlockId)(written)
 const toHash = Schema.decodeSync(ContentHash)
+
+/** The 1-based line of `offset` in `text`. */
+const lineIn = (text: string, offset: number): number => text.slice(0, offset).split("\n").length
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1()
 
 /** One prop as written: its value, where it is, and its attribute node. */
@@ -442,7 +446,17 @@ class Parse {
       this.error("syntax", `The front matter isn't valid YAML: ${problem.message}`, lineSpan(line))
       return {}
     }
-    const fields: unknown = doc.toJS()
+    const data = yamlData(doc)
+    if (Result.isFailure(data)) {
+      const line = 1 + lineIn(yaml, data.failure.offset)
+      this.error(
+        "syntax",
+        `The front matter isn't valid YAML: ${data.failure.message}`,
+        lineSpan(line),
+      )
+      return {}
+    }
+    const fields = data.success
     if (typeof fields !== "object" || fields === null) return {}
     const record = fields as Record<string, unknown>
 
@@ -727,7 +741,17 @@ class Parse {
       )
       return false
     }
-    input[prop] = doc.toJS()
+    const data = yamlData(doc)
+    if (Result.isFailure(data)) {
+      this.error(
+        "badChildren",
+        `The YAML in <${where.tag}> isn't valid: ${data.failure.message}`,
+        lineSpan(spanOf(fence).start.line + lineIn(fence.value, data.failure.offset)),
+        { block: where, prop, index },
+      )
+      return false
+    }
+    input[prop] = data.success
     return true
   }
 
