@@ -41,12 +41,13 @@ import { testSettingsStore } from "../test-utils/TestSettingsFile.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import { Engine } from "./engine.ts"
 import { EngineHandlers } from "./handlers.ts"
-import { type EngineClient, makeInProcessClient } from "./inProcess.ts"
+import { makeInProcessClient } from "./inProcess.ts"
 import {
   ApprovalId,
   Caller,
   CallerMiddleware,
   DocumentView,
+  type EngineClient,
   type EngineCommand,
   EngineProtocol,
   type EventEnvelope,

@@ -16,7 +16,7 @@
  *   client reads and watches them, and a person changes them, here.
  */
 import { Context, Schema, Struct } from "effect"
-import { Rpc, RpcGroup, RpcMiddleware } from "effect/rpc"
+import { Rpc, type RpcClient, type RpcClientError, RpcGroup, RpcMiddleware } from "effect/rpc"
 import { BlockClass, BlockId } from "@runbooks/blocks-core/contract"
 import { Field, FieldType, FieldValue, Validation } from "@runbooks/blocks-core/form"
 import { Blocker, BlockStatus } from "@runbooks/blocks-core/status"
@@ -824,6 +824,9 @@ export const EngineProtocol = RpcGroup.make(
   WatchSettings,
 ).middleware(CallerMiddleware)
 export type EngineCommand = RpcGroup.Rpcs<typeof EngineProtocol>
+
+/** A client of the engine, as every transport gives one. */
+export type EngineClient = RpcClient.RpcClient<EngineCommand, RpcClientError.RpcClientError>
 
 /**
  * Open decision 12: the MCP baseline is the in-app server's ten tools. Each
