@@ -53,11 +53,23 @@ export type PluginLevel = typeof PluginLevel.Type
 const sameIdAs = SchemaGetter.transform((written: string) => written.replaceAll("-", "_"))
 
 /**
+ * What a block's id may hold: letters, digits, `-` and `_`. It names the
+ * block's credential state folder, so a `/` or a `.` would let it reach
+ * outside its session's folder, or share another block's.
+ */
+export const ID_WORD = /^[A-Za-z0-9_-]+$/
+
+/** The `ID_WORD` check, with the message a person reads. */
+export const isIdWord = Schema.isPattern(ID_WORD, {
+  message: "an id is letters, digits, `-` and `_`, such as deploy-vpc",
+})
+
+/**
  * A block's id, normalized as it decodes, so two ids compare with `===`
  * wherever they came from: a prop, a template reference, a test file, an MCP
  * call. It encodes to the normalized form.
  */
-export const BlockId = Schema.NonEmptyString.pipe(
+export const BlockId = Schema.String.check(isIdWord).pipe(
   Schema.decode({ decode: sameIdAs, encode: sameIdAs }),
   Schema.brand("BlockId"),
 )

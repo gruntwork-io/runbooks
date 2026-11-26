@@ -237,6 +237,18 @@ describe("runbook_test.yml", () => {
     expect(decode(withSteps("- block: nowhere\n  expect: warn")).message).toBeUndefined()
   })
 
+  it("refuses a step or an assertion whose block is not an id, at its line", () => {
+    expect(decode(withSteps("- block: ../x\n  expect: warn")).message).toContain(
+      "runbook_test.yml:5:9: tests[0].steps[0].block: an id is letters, digits, `-` and `_`",
+    )
+    const assertion = withSteps(
+      "- block: build-it\n  assertions:\n    - type: output_exists\n      block: a b\n      output: x",
+    )
+    expect(decode(assertion).message).toContain(
+      "tests[0].steps[0].assertions[0].block: an id is letters, digits, `-` and `_`",
+    )
+  })
+
   it("knows a block by its id as written and as templates write it", () => {
     expect(decode(withSteps("- block: build_it\n  expect: warn")).message).toBeUndefined()
     expect(decode(withSteps("- block: build_it\n  env_prefix: X")).message).toContain(

@@ -142,6 +142,22 @@ describe("parseRunbook", () => {
       expect(bad?.received).toBe("x")
     })
 
+    // An id names its block's credential state folder, so it may not reach
+    // outside that folder or share another block's.
+    it("refuses an id, a reference or an *AuthId that is not letters, digits, `-` and `_`", () => {
+      for (const written of ["../x", "x/.", "a b", "a.b"]) {
+        const ids = errors(`<Run id=${JSON.stringify(written)} command="ls" />`)
+        expect(ids.map((e) => [e.code, e.location.prop])).toEqual([["badProp", "id"]])
+        expect(ids[0]?.message).toContain("must be letters, digits, `-` and `_`")
+
+        const refs = errors(`<Run id="a" command="ls" dependsOn={[${JSON.stringify(written)}]} />`)
+        expect(refs.map((e) => [e.code, e.location.prop])).toEqual([["badProp", "dependsOn"]])
+
+        const aliases = errors(`<Run id="a" command="ls" awsAuthId=${JSON.stringify(written)} />`)
+        expect(aliases.map((e) => [e.code, e.location.prop])).toEqual([["badProp", "awsAuthId"]])
+      }
+    })
+
     // The next two are today's src/domain/exec/blockEnv.test.ts guards, by
     // name: the parser checks the `env` prop's names, as parseBlockEnv did.
     it("refuses a name a shell can't export", () => {

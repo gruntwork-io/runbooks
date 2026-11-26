@@ -57,6 +57,13 @@ describe("BlockId", () => {
   it("refuses an empty id", () => {
     expect(() => decode("")).toThrow()
   })
+
+  it.each(["../x", "x/.", ".", "a b", "a.b", "a/b", "\\x", "é"])(
+    "refuses %p, which could name a folder outside its own or another's",
+    (written) => {
+      expect(() => decode(written)).toThrow("an id is letters, digits, `-` and `_`")
+    },
+  )
 })
 
 describe("block definitions", () => {
