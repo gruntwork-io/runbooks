@@ -8,14 +8,15 @@
  * - Its session is a partition kept in memory, so the window writes no
  *   storage, cookies or cache to disk. The session denies every permission.
  * - Its page gets a Content-Security-Policy response header from here, where
- *   the page can't loosen it: no 'unsafe-eval', and no inline script or style.
+ *   the page can't loosen it: no 'unsafe-eval', and no inline script or style
+ *   (`contentSecurityPolicy.ts`).
  * - It never navigates away from its page and opens no other window. A link
  *   to an http or https page opens in the browser instead, and a mailto link
  *   in the mail app: the links the window's walk makes clickable.
  *
  * Unpackaged, with ELECTRON_RENDERER_URL set (`electron-vite dev`), it loads
- * that dev server's page and sets no CSP: Vite's React refresh runs an inline
- * script.
+ * that dev server's page, under the same CSP plus the scripts and styles the
+ * dev server tags and its socket.
  *
  * It hosts the engine (`engine.ts`), which keeps its files in the user data
  * folder, and reads the process's environment once, here, for its runs. The
@@ -37,6 +38,7 @@ import { app, BrowserWindow, session, shell } from "electron"
 import { Cause, Effect, Fiber, Layer } from "effect"
 import { stopsEnded } from "@runbooks/platform-node/layers/ChildProcessSpawner"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
+import { contentSecurityPolicy } from "./contentSecurityPolicy.ts"
 import { appEngine } from "./engine.ts"
 import { makeIpcServerProtocol } from "./ipcServer.ts"
 import { type Launch, launchArgument, serveLaunch } from "./launch.ts"
@@ -54,21 +56,6 @@ const USER_DATA = "runbooks-rebuild"
 
 /** The window's session. A partition without the `persist:` prefix is kept in memory. */
 const PARTITION = "window"
-
-/**
- * The page may run the bundle's scripts, load the bundle's stylesheet, and
- * load nothing else: no inline or evaluated script, no inline style, no
- * image, font, frame, plugin or network request, no `<base>`, and no form
- * submission. On a file:// page Chromium counts every file:// URL as 'self',
- * so a script or stylesheet at any local path loads.
- *
- * Without 'unsafe-inline', a `<style>` element or a `style` attribute in
- * markup is refused, but a style set through the CSSOM (`element.style`),
- * as React sets its `style` props, applies. A `url()` in such a style loads
- * nothing: default-src 'none' covers images and fonts.
- */
-const CONTENT_SECURITY_POLICY =
-  "default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'"
 
 /** The renderer's page in a build: electron-vite writes main/, preload/ and renderer/ side by side. */
 const RENDERER_PAGE = path.join(import.meta.dirname, "../renderer/index.html")
@@ -148,8 +135,9 @@ if (firstInstance)
     .whenReady()
     .then(() => {
       const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
-      const page = devServerUrl === undefined ? pathToFileURL(RENDERER_PAGE) : new URL(devServerUrl)
-      const appWindow = openWindow(devServerUrl !== undefined)
+      const devServer = devServerUrl === undefined ? undefined : new URL(devServerUrl)
+      const page = devServer ?? pathToFileURL(RENDERER_PAGE)
+      const appWindow = openWindow(devServer)
       engine = Effect.runFork(
         Effect.gen(function* () {
           // Listening before the page loads, so its first message is heard.
@@ -204,21 +192,17 @@ function launched(argv: ReadonlyArray<string>): Launch | undefined {
   return { argument, startedIn }
 }
 
-/** Opens the window, which loads no page yet; on a dev server's, it sets no CSP. */
-function openWindow(devServer: boolean): BrowserWindow {
+/** Opens the window, which loads no page yet, for the build's page or the dev server's at `devServer`. */
+function openWindow(devServer: URL | undefined): BrowserWindow {
   const windowSession = session.fromPartition(PARTITION)
   windowSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   windowSession.setPermissionCheckHandler(() => false)
-  if (!devServer) {
-    windowSession.webRequest.onHeadersReceived((details, callback) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          "Content-Security-Policy": [CONTENT_SECURITY_POLICY],
-        },
-      })
+  const policy = contentSecurityPolicy(devServer)
+  windowSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [policy] },
     })
-  }
+  })
 
   const appWindow = new BrowserWindow({
     width: 1280,
