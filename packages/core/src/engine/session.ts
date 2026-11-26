@@ -89,6 +89,7 @@ import {
   type SetValuesResult,
   type TrustResult,
   UnknownBlock,
+  UnknownSequence,
   UnknownSession,
   WrongClass,
 } from "./protocol.ts"
@@ -590,7 +591,7 @@ export interface Session {
   /** Trusts the session if `hash` is its document's, and takes `runner` to run its blocks with. */
   readonly trust: (hash: ContentHash, runner: Runner) => Effect.Effect<TrustResult>
   /** Every event after `after`, then each new one. Ends with `SessionClosed`. */
-  readonly events: (after: number | undefined) => Stream.Stream<EventEnvelope>
+  readonly events: (after: number | undefined) => Stream.Stream<EventEnvelope, UnknownSequence>
   readonly getBlock: (
     block: BlockId,
     logOffset: number | undefined,
@@ -1567,15 +1568,20 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     events: (after) =>
       Stream.unwrap(
         Effect.map(PubSub.subscribe(changed), (wake) =>
-          Stream.paginate(after === undefined ? 0 : after + 1, (next: number) => {
-            const page = log.slice(next)
-            const last = page.at(-1)
-            if (last === undefined)
-              return Effect.as(PubSub.take(wake), [[], Option.some(next)] as const)
-            const more =
-              last.event._tag === "SessionClosed" ? Option.none() : Option.some(last.sequence + 1)
-            return Effect.succeed([page, more] as const)
-          }),
+          // A sequence not logged yet would be waited for past the session's end.
+          after !== undefined && after >= log.end()
+            ? Stream.fail(new UnknownSequence({ session: id, after, next: log.end() }))
+            : Stream.paginate(after === undefined ? 0 : after + 1, (next: number) => {
+                const page = log.slice(next)
+                const last = page.at(-1)
+                if (last === undefined)
+                  return Effect.as(PubSub.take(wake), [[], Option.some(next)] as const)
+                const more =
+                  last.event._tag === "SessionClosed"
+                    ? Option.none()
+                    : Option.some(last.sequence + 1)
+                return Effect.succeed([page, more] as const)
+              }),
         ),
       ),
 

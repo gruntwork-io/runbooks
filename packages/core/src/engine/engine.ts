@@ -38,6 +38,7 @@ import {
   type SetValues,
   type TrustSession,
   UnknownApproval,
+  UnknownSequence,
   UnknownSession,
   type WaitForBlock,
 } from "./protocol.ts"
@@ -67,7 +68,7 @@ export interface EngineShape {
   readonly trustSession: Command<typeof TrustSession, Caller>
   readonly events: (
     payload: Rpc.Payload<typeof Events>,
-  ) => Stream.Stream<EventEnvelope, UnknownSession>
+  ) => Stream.Stream<EventEnvelope, UnknownSession | UnknownSequence>
   readonly getBlock: Command<typeof GetBlock>
   /** Enters values as if typed. An agent's are reviewed; a value a person changes is not. */
   readonly setValues: Command<typeof SetValues, Caller>
