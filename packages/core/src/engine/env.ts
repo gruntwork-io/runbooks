@@ -22,6 +22,24 @@ import type { CredentialEnv } from "../credential/provider.ts"
 import { isReservedEnvName } from "../document/document.ts"
 import { renderValueTemplate, type ValueSources } from "../document/valueTemplate.ts"
 
+/** What a process can be started with, on every system Runbooks runs on. */
+export const RUN_ENV_LIMITS = {
+  /**
+   * Bytes in one variable, as `NAME=value` in UTF-8 and its NUL. Linux's
+   * execve refuses a longer string: MAX_ARG_STRLEN, 32 pages of 4 KiB.
+   */
+  variableBytes: 128 * 1024,
+} as const
+
+const encoder = new TextEncoder()
+
+/** The bytes `text` takes in UTF-8, as a process is given it. */
+export const utf8Bytes = (text: string): number => encoder.encode(text).length
+
+/** The bytes a variable takes in a process's environment: `NAME=value` in UTF-8, and its NUL. */
+export const variableBytes = (name: string, value: string): number =>
+  utf8Bytes(name) + 1 + utf8Bytes(value) + 1
+
 /** The app's process environment less every credential block's names and every reserved name. */
 export type BaseEnvironment = ReadonlyMap<string, Redacted.Redacted<string>>
 

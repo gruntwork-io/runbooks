@@ -30,6 +30,7 @@ import { Data, Effect, Redacted, type Scope, Stream } from "effect"
 import { TaskFailed } from "@runbooks/blocks-core/contract"
 import { envNameProblem } from "../document/document.ts"
 import { FileSystem, type WalkEntry } from "../services/FileSystem.ts"
+import { RUN_ENV_LIMITS, utf8Bytes, variableBytes } from "./env.ts"
 import { type FileChange, LIMITS } from "./protocol.ts"
 
 /** What the engine reads of a run file, at most. */
@@ -40,8 +41,11 @@ export const RUN_FILE_LIMITS = {
   lines: 10_000,
   /** Characters in a name. */
   nameLength: 256,
-  /** Characters in a value. */
-  valueLength: 128 * 1024,
+  /**
+   * Bytes in an output's value, in UTF-8. A variable's is bounded by what
+   * a process can take (`RUN_ENV_LIMITS.variableBytes`).
+   */
+  valueBytes: 128 * 1024,
   /** Problems a run's error names; it counts the rest. */
   problemsNamed: 10,
 } as const
@@ -58,6 +62,8 @@ type LineProblem =
   /** The rest name a valid name, which a message may show. */
   | { readonly _tag: "Reserved"; readonly name: string }
   | { readonly _tag: "ValueTooLong"; readonly name: string }
+  /** A variable no process can take: `bytes` as `NAME=value` and its NUL. */
+  | { readonly _tag: "VariableTooLong"; readonly name: string; readonly bytes: number }
   | { readonly _tag: "NulInValue"; readonly name: string }
 
 type FileProblem = { readonly _tag: "TooLarge" } | { readonly _tag: "TooManyLines" }
@@ -96,13 +102,16 @@ const nameProblem = (file: RunFile, name: string): LineProblem | undefined => {
   }
 }
 
-const valueProblem = (file: RunFile, name: string, value: string): LineProblem | undefined =>
-  value.length > RUN_FILE_LIMITS.valueLength
-    ? { _tag: "ValueTooLong", name }
-    : // A process's environment cannot hold a NUL; an output may.
-      file === "RUNBOOK_ENV" && value.includes("\0")
-      ? { _tag: "NulInValue", name }
+const valueProblem = (file: RunFile, name: string, value: string): LineProblem | undefined => {
+  if (file === "RUNBOOK_OUTPUT")
+    return utf8Bytes(value) > RUN_FILE_LIMITS.valueBytes
+      ? { _tag: "ValueTooLong", name }
       : undefined
+  // A process's environment cannot hold a NUL; an output may.
+  if (value.includes("\0")) return { _tag: "NulInValue", name }
+  const bytes = variableBytes(name, value)
+  return bytes > RUN_ENV_LIMITS.variableBytes ? { _tag: "VariableTooLong", name, bytes } : undefined
+}
 
 /** Reads `text`, the contents of `file`. Pure, so the test CLI can share it. */
 export function parseRunFile(file: RunFile, text: string): ParsedRunFile {
@@ -176,7 +185,9 @@ const describeProblem = (problem: LineProblem | FileProblem): string => {
     case "Reserved":
       return `${problem.name} is a variable Runbooks sets for every script`
     case "ValueTooLong":
-      return `the value of ${problem.name} is longer than ${RUN_FILE_LIMITS.valueLength} characters`
+      return `the value of ${problem.name} is longer than ${RUN_FILE_LIMITS.valueBytes} bytes`
+    case "VariableTooLong":
+      return `${problem.name} is ${problem.bytes} bytes as NAME=value with its NUL, over the ${RUN_ENV_LIMITS.variableBytes} bytes a process can take for one variable`
     case "NulInValue":
       return `the value of ${problem.name} holds a NUL character, which no environment variable can`
     case "TooLarge":

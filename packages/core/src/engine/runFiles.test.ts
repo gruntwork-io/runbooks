@@ -298,7 +298,7 @@ describe("the bounds", () => {
 
   it("refuses a name or a value past its length, and takes one at it", () => {
     const name = "N".repeat(RUN_FILE_LIMITS.nameLength)
-    const value = "v".repeat(RUN_FILE_LIMITS.valueLength)
+    const value = "v".repeat(RUN_FILE_LIMITS.valueBytes)
     expect(problemsIn(`${name}=${value}\n`)).toEqual([])
     expect(problemsIn(`${name}N=v\nA=${value}v\n`)).toEqual([
       [1, "NameTooLong"],
