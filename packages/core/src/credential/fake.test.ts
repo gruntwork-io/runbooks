@@ -5,6 +5,8 @@
  * what a script controls.
  */
 import { describe, expect, it } from "bun:test"
+import { readFileSync } from "node:fs"
+import path from "node:path"
 import {
   DateTime,
   Effect,
@@ -35,6 +37,7 @@ import {
   fakeCredentialPlugin,
   fakeCredentialProviders,
 } from "./fake.ts"
+import { EXPIRY_WARNING_MILLIS } from "./lifecycle.ts"
 import { CREDENTIAL_LIMITS } from "./plugin.ts"
 import {
   type Constraints,
@@ -330,6 +333,18 @@ describe("the fake credential plugin", () => {
         Option.map(refreshed!.later.success.expiresAt, DateTime.toEpochMillis),
     ).toEqual(Option.some(2 * hour))
     expect(Result.isFailure(expired!.later) && expired!.later.failure.kind).toBe("expired")
+  })
+
+  it("refreshes within the window the contract states, so the engine and every plugin keep one number", () => {
+    const schema = JSON.parse(
+      readFileSync(
+        path.resolve(import.meta.dirname, "../../../../plugin/credential.schema.json"),
+        "utf8",
+      ),
+    ) as { readonly $defs: { readonly envResult: { readonly description: string } } }
+    expect(schema.$defs.envResult.description).toContain(
+      `that expires within ${EXPIRY_WARNING_MILLIS / 60_000} minutes,`,
+    )
   })
 
   // The contract (envResult in plugin/credential.schema.json): a credential
