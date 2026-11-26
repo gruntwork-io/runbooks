@@ -106,10 +106,12 @@ const load = <R extends Registry>(file: string, options: TestOptions<R>) =>
       parsed._tag === "Parsed" ? targetsOf(parsed.document, options.registry) : new Map()
     // A test file that can't be loaded fails its runbook's `config` test; the other runbooks still run.
     const testFile = yield* Effect.result(
-      // Its message names the file, with the line and column.
-      readTestFile(testPath, parsed._tag === "Parsed" ? boundTestFile(targets) : undefined).pipe(
-        Effect.mapError(({ message }) => message),
-      ),
+      // Its message names the file as the report shows paths, with the line and column.
+      readTestFile(
+        testPath,
+        parsed._tag === "Parsed" ? boundTestFile(targets) : undefined,
+        shownPath(testPath, options.cwd),
+      ).pipe(Effect.mapError(({ message }) => message)),
     )
     return {
       file,

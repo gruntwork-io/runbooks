@@ -398,7 +398,7 @@ tests:
     expect(report.runbooks.map((r) => r.tests.map((test) => [test.name, test.outcome]))).toEqual([
       [["config", "failed"]],
     ])
-    expect(report.runbooks[0]?.tests[0]?.message).toEndWith(
+    expect(report.runbooks[0]?.tests[0]?.message).toBe(
       "rb/runbook_test.yml:6:9: tests[0].steps[0].expects: there is no key expects here. Did you mean expect?",
     )
     expect(seen.runs).toBe(0)

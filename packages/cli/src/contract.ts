@@ -30,9 +30,10 @@ export const EXIT = {
   /** Every test passed; every runbook is valid; the app opened. */
   success: 0,
   /**
-   * A test failed or a runbook is invalid, a `runbook_test.yml` could not be
-   * loaded, no runbook matched, `--test` named no test case, or a flag was
-   * wrong. `--output json` says which, in `failure`.
+   * A test failed or a runbook is invalid; a `runbook_test.yml` that could
+   * not be loaded is a failed test, `config`, whose message says why. Or no
+   * runbook matched, `--test` named no test case, or a flag was wrong:
+   * `--output json` says which, in `failure`.
    */
   failure: 1,
 } as const
