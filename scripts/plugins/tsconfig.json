@@ -1,0 +1,14 @@
+// scripts/plugins/ holds the plugin recipes' script. It is not a package: it
+// reaches the transport contract and the lock's reader by name, so the
+// recipes decode the lock exactly as the app does.
+{
+  "extends": "../../tsconfig.packages.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "tsBuildInfoFile": "../../node_modules/.tmp/scripts-plugins.tsbuildinfo"
+  },
+  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/platform-node" }],
+  "include": ["**/*"]
+}

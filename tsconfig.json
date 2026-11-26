@@ -5,6 +5,7 @@
     { "path": "./tsconfig.preload.json" },
     { "path": "./tsconfig.src.json" },
     { "path": "./baseline" },
+    { "path": "./scripts/plugins" },
     { "path": "./blocks/core" },
     { "path": "./blocks" },
     { "path": "./packages/core" },

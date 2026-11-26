@@ -67,6 +67,25 @@ just build
 just package
 ```
 
+### Plugin binaries
+
+`resources/plugins.lock` pins the [runbooks-plugins](https://github.com/gruntwork-io/runbooks-plugins) release the app bundles, with one SHA-256 per binary, OS and architecture. Three recipes work from it:
+
+```bash
+# Download the pinned binaries for this machine's platform, or another one, into resources/bin
+just fetch-plugins
+just fetch-plugins windows-amd64
+
+# Check that a folder holds exactly the pinned binaries for a platform
+just check-plugins
+just check-plugins darwin-arm64 out/mac-arm64/Runbooks.app/Contents/Resources/bin
+
+# Move to another release. This rewrites the lock, so the version and every hash change in one diff.
+just bump-plugins 0.3.0
+```
+
+`fetch-plugins` downloads into a temporary folder and moves the binaries into `resources/bin` only when every hash matches the lock. On a mismatch it prints the asset, the expected hash and the actual one, and exits non-zero. `bump-plugins` reads the release's `SHA256SUMS` file and writes nothing if any hash in it differs from the digest GitHub's API gives for that asset.
+
 ## Code quality
 
 ```bash
