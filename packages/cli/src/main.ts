@@ -6,6 +6,7 @@
  */
 import { Effect, Layer } from "effect"
 import * as registry from "@runbooks/blocks"
+import { ChildProcessSpawnerLive } from "@runbooks/platform-node/layers/ChildProcessSpawner"
 import { NodeCliEnvironmentLive } from "@runbooks/platform-node/layers/NodeCliEnvironment"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
 import { appVersion } from "./appVersion.ts" with { type: "macro" }
@@ -31,5 +32,9 @@ process.exitCode = await Effect.runPromise(
     cwd: process.cwd(),
     env,
     interrupted,
-  }).pipe(Effect.provide(Layer.merge(NodeCliEnvironmentLive, NodeFileSystemLive))),
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(NodeCliEnvironmentLive, NodeFileSystemLive, ChildProcessSpawnerLive),
+    ),
+  ),
 )
