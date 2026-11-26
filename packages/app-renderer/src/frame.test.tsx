@@ -1,10 +1,13 @@
 import { describe, expect, it } from "bun:test"
-import { Effect, Schema } from "effect"
+import { Effect, Queue, Schema } from "effect"
 import { renderToStaticMarkup } from "react-dom/server"
-import { BlockView, DocumentBlock, type DocumentView } from "@runbooks/core/protocol"
-import { scrollToBlock } from "./frame.tsx"
-import { type Following, FollowingContext } from "./following.ts"
-import { makeLiveStore } from "./live.ts"
+import type { View, ViewRequest } from "@runbooks/blocks/views"
+import { BlockView, DocumentBlock, type DocumentView, SessionId } from "@runbooks/core/protocol"
+import { makeEngineClient } from "./engine.ts"
+import { fails, fakeMain } from "./fakeMain.ts"
+import { buttonsFor, scrollToBlock, ViewsContext } from "./frame.tsx"
+import { type Following, FollowingContext, followingOf } from "./following.ts"
+import { follow, type Live, makeLiveStore } from "./live.ts"
 import { Markdown } from "./markdown.tsx"
 
 // The frame the walk draws each block in, over document blocks as the
@@ -277,5 +280,232 @@ describe("a block's frame, as the engine has the block", () => {
     expect(shown({}, done)).not.toContain('data-folded="true"')
     expect(shown({ autoCollapse: false }, done)).not.toContain('data-folded="true"')
     expect(shown({ autoCollapse: true, class: "form" }, done)).not.toContain('data-folded="true"')
+  })
+})
+
+describe("a task's default view", () => {
+  it("offers what the engine says the task takes now, and nothing while it is blocked", () => {
+    const shown = (status: Record<string, unknown>, actions: string[]) =>
+      page(followingViews(view("setup", status, { actions })), placed({ id: "setup" }))
+    expect(shown({ _tag: "Idle" }, ["run"])).toContain('<button type="button">Run</button>')
+    const running = shown({ _tag: "Running" }, ["cancel", "reset"])
+    expect(running).toContain('<button type="button">Cancel</button>')
+    expect(running).toContain('<button type="button">Reset</button>')
+    expect(running).not.toContain(">Run<")
+    expect(shown({ _tag: "Blocked", by: [{ _tag: "Untrusted" }] }, [])).not.toContain("<button")
+  })
+
+  it("asks the engine for each action as the view asks for it", () => {
+    expect(
+      buttonsFor(["run", "cancel", "reset", "setValues", "confirmValues", "credential"]),
+    ).toEqual([
+      { label: "Run", request: { _tag: "RunBlock" } },
+      { label: "Cancel", request: { _tag: "CancelBlock" } },
+      { label: "Reset", request: { _tag: "ResetBlock" } },
+    ])
+  })
+
+  it("shows its latest run's log, and says which lines when it shows part of it", () => {
+    const log = (offset: number, total: number, texts: string[]) =>
+      page(
+        followingViews(
+          view(
+            "setup",
+            { _tag: "Running" },
+            {
+              log: {
+                offset,
+                total,
+                lines: texts.map((line) => ({ stream: "stdout", text: line })),
+              },
+            },
+          ),
+        ),
+        placed({ id: "setup" }),
+      )
+    const whole = log(0, 2, ["one", "two"])
+    expect(whole).toContain(
+      '<pre class="block-log" aria-label="Log"><span class="log-stdout">one\n</span><span class="log-stdout">two\n</span></pre>',
+    )
+    expect(whole).not.toContain("Lines ")
+    expect(log(300, 500, ["three hundred and one"])).toContain(
+      '<p class="block-log-part">Lines 301 to 301 of 500.</p>',
+    )
+  })
+
+  it("draws a block's own view, with its props and status, in place of its class's", () => {
+    const Toy: View<Schema.Json> = ({ props, status, children }) => (
+      <div className="toy">
+        {JSON.stringify(props)} {status?._tag} {children}
+      </div>
+    )
+    const shown = renderToStaticMarkup(
+      <ViewsContext value={{ Example: Toy }}>
+        <FollowingContext
+          value={followingViews(view("setup", { _tag: "Idle" }, { actions: ["run"] }))}
+        >
+          <Markdown
+            document={{
+              tree: {
+                type: "root",
+                children: [{ type: "block", index: 0, children: [text("Its markdown.")] }],
+              },
+              blocks: [placed({ id: "setup", props: { command: "echo hi" } })],
+            }}
+            runbook={RUNBOOK}
+            session={SESSION}
+          />
+        </FollowingContext>
+      </ViewsContext>,
+    )
+    expect(shown).toContain(
+      '<div class="toy">{&quot;command&quot;:&quot;echo hi&quot;} Idle <p>Its markdown.</p></div>',
+    )
+    expect(shown).not.toContain(">Run<")
+    expect(shown).toContain('<p class="block-status">Ready</p>')
+  })
+})
+
+describe("the window asking the engine for a block", () => {
+  const asking = async (answer: unknown, request: ViewRequest) => {
+    const main = fakeMain((tag) =>
+      tag === "GetSession" || tag === "GetBlock" ? undefined : answer,
+    )
+    const said = await Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(makeEngineClient(main.bridge), (engine) =>
+          followingOf(engine, Schema.decodeSync(SessionId)(SESSION)).act(
+            Schema.decodeSync(BlockView.fields.block)("setup"),
+            request,
+          ),
+        ),
+      ).pipe(Effect.timeout("2 seconds")),
+    )
+    return { said, asked: main.asked }
+  }
+
+  it("sends the view's request for the frame's session and block", async () => {
+    const { said, asked } = await asking({ _tag: "Started", run: "r-1" }, { _tag: "RunBlock" })
+    expect(asked).toEqual([{ tag: "RunBlock", payload: { session: SESSION, block: "setup" } }])
+    expect(said).toBeUndefined()
+  })
+
+  it.each([
+    [
+      { _tag: "Refused", reason: { _tag: "AlreadyRunning" } },
+      { _tag: "RunBlock" },
+      "It is already running.",
+    ],
+    [
+      { _tag: "Refused", reason: { _tag: "NeedsInput", fields: ["region"] } },
+      { _tag: "RunBlock" },
+      "It didn't run: it needs region.",
+    ],
+    [
+      { _tag: "AwaitingApproval", approval: "a-1" },
+      { _tag: "RunBlock" },
+      "It runs once you approve it.",
+    ],
+    ["notRunning", { _tag: "CancelBlock" }, "It wasn't running, so nothing was cancelled."],
+  ] as const)("says what the engine answered %j", async (answer, request, line) => {
+    expect((await asking(answer, request)).said).toBe(line)
+  })
+
+  it("says what failed when the engine refuses the call", async () => {
+    const main = fakeMain(() => fails({ _tag: "UnknownBlock", session: SESSION, block: "setup" }))
+    const said = await Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(makeEngineClient(main.bridge), (engine) =>
+          followingOf(engine, Schema.decodeSync(SessionId)(SESSION)).act(
+            Schema.decodeSync(BlockView.fields.block)("setup"),
+            { _tag: "ResetBlock" },
+          ),
+        ),
+      ).pipe(Effect.timeout("2 seconds")),
+    )
+    expect(said).toBe("The engine has no block setup in this runbook's session.")
+  })
+})
+
+describe("a block's frame, following the engine", () => {
+  it("moves from Ready to Running to Done as the engine's events say, offering what each takes", async () => {
+    let greet: Record<string, unknown> = {
+      block: "greet",
+      tag: "Example",
+      class: "task",
+      status: { _tag: "Idle" },
+      actions: ["run"],
+      outputs: {},
+    }
+    const main = fakeMain((tag) =>
+      tag === "GetSession"
+        ? {
+            session: SESSION,
+            name: "deploy",
+            path: RUNBOOK,
+            sequence: 2,
+            trust: { trusted: true, hash: `sha256:${"0".repeat(64)}` },
+            blocks: [greet],
+            warnings: [],
+          }
+        : tag === "GetBlock"
+          ? greet
+          : undefined,
+    )
+    const shownAfter = (live: Live) => {
+      const store = makeLiveStore()
+      store.set(live)
+      return page({ live: store, act: () => Effect.never }, placed({ id: "greet" }))
+    }
+    const seen: string[] = []
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const engine = yield* makeEngineClient(main.bridge)
+          const shown = yield* Queue.unbounded<Live>()
+          yield* Effect.forkScoped(
+            follow(engine, Schema.decodeSync(SessionId)(SESSION), (live) =>
+              Queue.offerUnsafe(shown, live),
+            ),
+          )
+          seen.push(shownAfter(yield* Queue.take(shown)))
+          greet = { ...greet, status: { _tag: "Running" }, actions: ["cancel", "reset"] }
+          main.stream("Events", [
+            {
+              session: SESSION,
+              sequence: 3,
+              at: "2026-11-26T12:00:00.000Z",
+              event: { _tag: "BlockStatusChanged", block: "greet", status: { _tag: "Running" } },
+            },
+          ])
+          seen.push(shownAfter(yield* Queue.take(shown)))
+          greet = {
+            ...greet,
+            status: { _tag: "Done", outcome: "success" },
+            actions: ["run", "reset"],
+          }
+          main.stream("Events", [
+            {
+              session: SESSION,
+              sequence: 4,
+              at: "2026-11-26T12:00:01.000Z",
+              event: {
+                _tag: "BlockStatusChanged",
+                block: "greet",
+                status: { _tag: "Done", outcome: "success" },
+              },
+            },
+          ])
+          seen.push(shownAfter(yield* Queue.take(shown)))
+        }),
+      ).pipe(Effect.timeout("2 seconds")),
+    )
+    const [ready, running, done] = seen
+    expect(ready).toContain('<p class="block-status">Ready</p>')
+    expect(ready).toContain(">Run</button>")
+    expect(running).toContain('<p class="block-status">Running</p>')
+    expect(running).toContain(">Cancel</button>")
+    expect(done).toContain('<p class="block-status">Done</p>')
+    expect(done).toContain('aria-label="Step: done"')
   })
 })

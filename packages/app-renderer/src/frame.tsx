@@ -12,14 +12,23 @@
  * - folding: a task or credential block that asks to (`autoCollapse`)
  *   folds to its header each time it is done, and opens when the person
  *   opens it. A form never folds, nor a display block, which is never done;
- * - the body: the class's default view.
+ * - the body: the block's own view, when the view map has a line for it
+ *   (`@runbooks/blocks/views`), or its class's default. A task's default
+ *   offers the actions the engine says it takes now (`BlockView.actions`)
+ *   and shows its latest run's log; a form's and a credential block's
+ *   defaults are not written yet, and a display block always has a view.
+ *
+ * A view asks the engine through `act`, which the frame sends for its
+ * session and block, and it shows what the engine answered.
  *
  * Classes, statuses, blockers and errors are closed sets: each switch over
  * one names every member, so a new one fails the build here.
  */
-import { type ReactNode, useState } from "react"
-import type { BlockView, DocumentBlock } from "@runbooks/core/protocol"
-import { useBlockView } from "./following.ts"
+import { Effect, type Schema } from "effect"
+import { createContext, type ReactNode, useContext, useState } from "react"
+import { type View, type ViewRequest, views } from "@runbooks/blocks/views"
+import type { BlockAction, BlockView, DocumentBlock, LogPage } from "@runbooks/core/protocol"
+import { FollowingContext, useBlockView } from "./following.ts"
 import { place } from "./place.ts"
 
 type Configured = Extract<DocumentBlock, { readonly _tag: "Configured" }>
@@ -27,6 +36,13 @@ type BlockStatus = NonNullable<BlockView["status"]>
 type Blocker = Extract<BlockStatus, { readonly _tag: "Blocked" }>["by"][number]
 type Capability = Extract<Blocker, { readonly _tag: "WaitingFor" }>["capability"]
 type Failure = Extract<BlockStatus, { readonly _tag: "Failed" }>["error"]
+
+/**
+ * The view map, by registry block. A view draws from the props the
+ * document sends (`DocumentBlock.props`), as JSON. Tests give their own.
+ */
+export const ViewsContext =
+  createContext<Readonly<Partial<Record<string, View<Schema.Json>>>>>(views)
 
 /** The element id of a block's frame, which a link to the block scrolls to. */
 const frameId = (block: string): string => `runbook-block-${block}`
@@ -75,7 +91,16 @@ export function BlockFrame({
   /** The block's markdown children, rendered. */
   readonly children: ReactNode
 }) {
-  const status = useBlockView(block.id)?.status
+  const view = useBlockView(block.id)
+  const status = view?.status
+  const following = useContext(FollowingContext)
+  const [said, setSaid] = useState<string>()
+  const act = (request: ViewRequest) => {
+    if (block.id === undefined) return
+    Effect.runFork(
+      Effect.flatMap(following.act(block.id, request), (line) => Effect.sync(() => setSaid(line))),
+    )
+  }
   const done = status?._tag === "Done"
   const folds =
     block._tag === "Configured" && block.autoCollapse === true && foldsWhenDone(block.class)
@@ -124,7 +149,10 @@ export function BlockFrame({
           ) : (
             <>
               {status === undefined ? null : <Status status={status} onPage={onPage} />}
-              <Body block={block}>{children}</Body>
+              {said === undefined ? null : <p className="block-said">{said}</p>}
+              <Body block={block} view={view} act={act}>
+                {children}
+              </Body>
             </>
           )}
         </>
@@ -290,11 +318,37 @@ function BlockLink({
   )
 }
 
-/** The class's default view. Form and credential blocks get theirs with their first blocks. */
-function Body({ block, children }: { readonly block: Configured; readonly children: ReactNode }) {
+/** The block's own view, or its class's default. Form and credential blocks get theirs with their first blocks. */
+function Body({
+  block,
+  view,
+  act,
+  children,
+}: {
+  readonly block: Configured
+  readonly view: BlockView | undefined
+  readonly act: (request: ViewRequest) => void
+  readonly children: ReactNode
+}) {
+  const Own = useContext(ViewsContext)[block.block]
+  if (Own !== undefined && block.props !== undefined)
+    return (
+      <div className="block-body">
+        <Own props={block.props} status={view?.status} act={act}>
+          {children}
+        </Own>
+      </div>
+    )
   switch (block.class) {
-    case "display":
     case "task":
+      return (
+        <div className="block-body">
+          {children}
+          <TaskView view={view} act={act} />
+        </div>
+      )
+    // views.ts requires a view for every display block: this is one the document sent no props for.
+    case "display":
       return <div className="block-body">{children}</div>
     case "form":
       return <NoView line="The window can't show this form's fields yet.">{children}</NoView>
@@ -314,5 +368,79 @@ function NoView({ line, children }: { readonly line: string; readonly children: 
       {children}
       <p className="block-no-view">{line}</p>
     </div>
+  )
+}
+
+interface Button {
+  readonly label: string
+  readonly request: ViewRequest
+}
+
+/** The buttons a task's default view offers for `actions`, and what each asks the engine. */
+export function buttonsFor(actions: ReadonlyArray<BlockAction>): ReadonlyArray<Button> {
+  return actions.flatMap((action): ReadonlyArray<Button> => {
+    switch (action) {
+      case "run":
+        return [{ label: "Run", request: { _tag: "RunBlock" } }]
+      case "cancel":
+        return [{ label: "Cancel", request: { _tag: "CancelBlock" } }]
+      case "reset":
+        return [{ label: "Reset", request: { _tag: "ResetBlock" } }]
+      // A task's own form (row 3k), an agent's review, and a credential block's actions.
+      case "setValues":
+      case "confirmValues":
+      case "credential":
+        return []
+      default: {
+        const unhandled: never = action
+        throw new Error(`The task view has no button for ${String(unhandled)}.`)
+      }
+    }
+  })
+}
+
+/** A task's default view: the actions it takes now, and its latest run's log. */
+function TaskView({
+  view,
+  act,
+}: {
+  readonly view: BlockView | undefined
+  readonly act: (request: ViewRequest) => void
+}) {
+  const buttons = buttonsFor(view?.actions ?? [])
+  return (
+    <>
+      {buttons.length === 0 ? null : (
+        <div className="block-actions">
+          {buttons.map(({ label, request }) => (
+            <button key={label} type="button" onClick={() => act(request)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {view?.log === undefined ? null : <Log page={view.log} />}
+    </>
+  )
+}
+
+/** One page of a run's log, which says which lines it holds when they are not all of them. */
+function Log({ page }: { readonly page: LogPage }) {
+  const whole = page.offset === 0 && page.lines.length === page.total
+  return (
+    <>
+      {whole ? null : (
+        <p className="block-log-part">
+          {`Lines ${page.offset + 1} to ${page.offset + page.lines.length} of ${page.total}.`}
+        </p>
+      )}
+      <pre className="block-log" aria-label="Log">
+        {page.lines.map((line, index) => (
+          <span key={page.offset + index} className={`log-${line.stream}`}>
+            {`${line.text}\n`}
+          </span>
+        ))}
+      </pre>
+    </>
   )
 }

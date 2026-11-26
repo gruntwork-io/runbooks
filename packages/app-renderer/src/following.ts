@@ -7,7 +7,15 @@
 import { Effect } from "effect"
 import { createContext, useContext, useSyncExternalStore } from "react"
 import type { ViewRequest } from "@runbooks/blocks/views"
-import type { BlockView, EngineClient, SessionId } from "@runbooks/core/protocol"
+import type {
+  ActResult,
+  BlockView,
+  EngineClient,
+  Refusal,
+  RunResult,
+  SessionId,
+  SetValuesResult,
+} from "@runbooks/core/protocol"
 import { follow, type LiveStore, makeLiveStore } from "./live.ts"
 
 export interface Following {
@@ -49,10 +57,113 @@ export function followingOf(
   const live = makeLiveStore()
   return {
     live,
-    act: () => Effect.succeed(undefined),
+    act: (block, request) => ask(engine, session, block, request),
     start: () => {
       const fiber = Effect.runFork(follow(engine, session, live.set))
       return () => fiber.interruptUnsafe()
     },
+  }
+}
+
+type BlockId = BlockView["block"]
+
+/** Sends `request` for `block`, and gives what to tell the person about the answer. */
+const ask = (
+  engine: EngineClient,
+  session: SessionId,
+  block: BlockId,
+  request: ViewRequest,
+): Effect.Effect<string | undefined> => {
+  const asked = (() => {
+    switch (request._tag) {
+      case "RunBlock":
+        return Effect.map(engine.RunBlock({ session, block }), ran)
+      case "CancelBlock":
+        return Effect.map(engine.CancelBlock({ session, block }), (answer) =>
+          answer === "notRunning" ? "It wasn't running, so nothing was cancelled." : undefined,
+        )
+      case "ResetBlock":
+        return Effect.as(engine.ResetBlock({ session, block }), undefined)
+      case "SetValues":
+        return Effect.map(engine.SetValues({ session, block, values: request.values }), entered)
+      case "ActOnCredential":
+        return Effect.map(engine.ActOnCredential({ session, block, action: request.action }), acted)
+      default: {
+        const unhandled: never = request
+        throw new Error(`The window can't ask the engine for ${JSON.stringify(unhandled)}.`)
+      }
+    }
+  })()
+  return asked.pipe(
+    Effect.catchTags({
+      UnknownSession: () => Effect.succeed("This runbook's session closed."),
+      UnknownBlock: () =>
+        Effect.succeed(`The engine has no block ${block} in this runbook's session.`),
+      WrongClass: (error) =>
+        Effect.succeed(`The engine doesn't take that for a ${error.class} block.`),
+      RpcClientError: (error) => Effect.succeed(`The engine did not answer: ${error.message}`),
+    }),
+  )
+}
+
+/** What a run's answer says, when the run did not start. */
+function ran(result: RunResult): string | undefined {
+  switch (result._tag) {
+    case "Started":
+    case "Submitted":
+      return undefined
+    case "AwaitingApproval":
+      return "It runs once you approve it."
+    case "Refused":
+      return refused(result.reason)
+    default: {
+      const unhandled: never = result
+      throw new Error(`The window has no words for ${JSON.stringify(unhandled)}.`)
+    }
+  }
+}
+
+function refused(reason: Refusal): string {
+  switch (reason._tag) {
+    case "Blocked":
+      return "It didn't run: it is waiting, as it says above."
+    case "NeedsInput":
+      return `It didn't run: it needs ${reason.fields.join(", ")}.`
+    case "NeedsReview":
+      return `It didn't run: ${reason.unreviewed.join(", ")} in ${reason.form} are not reviewed.`
+    case "AlreadyRunning":
+      return "It is already running."
+    case "Misconfigured":
+      return "Its configuration has errors, so it doesn't run."
+    default: {
+      const unhandled: never = reason
+      throw new Error(`The window has no words for ${JSON.stringify(unhandled)}.`)
+    }
+  }
+}
+
+/** What entering values says: each value not entered, and each field's error. */
+function entered(result: SetValuesResult): string | undefined {
+  const problems = [...Object.entries(result.rejected), ...Object.entries(result.errors)]
+  return problems.length === 0
+    ? undefined
+    : problems.map(([field, problem]) => `${field}: ${problem}`).join(" ")
+}
+
+/** What a credential action's answer says, when it was not taken. */
+function acted(result: ActResult): string | undefined {
+  switch (result._tag) {
+    case "Accepted":
+      return undefined
+    case "AwaitingApproval":
+      return "It goes ahead once you approve it."
+    case "NotAllowed":
+      return `It can't do that while it is ${result.state}.`
+    case "NotOffered":
+      return `It doesn't offer ${result.value ?? "no choice"} for its ${result.field}. It offers: ${result.offered.join(", ")}.`
+    default: {
+      const unhandled: never = result
+      throw new Error(`The window has no words for ${JSON.stringify(unhandled)}.`)
+    }
   }
 }
