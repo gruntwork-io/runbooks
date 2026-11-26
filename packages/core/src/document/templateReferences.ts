@@ -108,7 +108,6 @@ const toBlockId = Schema.decodeSync(BlockId)
 
 const REFERENCE_PATTERN =
   /\.inputs\.([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*)|\.outputs\.([a-zA-Z0-9_-]+)\.(\w+)/g
-const ACTION_PATTERN = /\{\{-?([\s\S]*?)-?\}\}/g
 const KEYWORD_PATTERN = /^(if|else|end|with|range|block|define)\b\s*([\s\S]*)$/
 const ELSE_IF_PATTERN = /^if\b\s*([\s\S]*)$/
 const GUARDED_MAP_PATTERN = /^\$?\.outputs\.([a-zA-Z0-9_-]+)$/
@@ -121,9 +120,33 @@ function positionsIn(text: string): (index: number) => Position {
   const lineStarts = [0]
   for (const match of text.matchAll(/\n/g)) lineStarts.push(match.index + 1)
   return (index) => {
-    let line = lineStarts.length - 1
-    while (lineStarts[line]! > index) line--
+    let line = 0
+    let last = lineStarts.length - 1
+    while (line < last) {
+      const middle = Math.ceil((line + last) / 2)
+      if (lineStarts[middle]! <= index) line = middle
+      else last = middle - 1
+    }
     return { line: line + 1, column: index - lineStarts[line]! + 1 }
+  }
+}
+
+/**
+ * The code of each `{{ }}` action in `template`, its trim markers left out,
+ * as Go reads it: an action ends at the first `}}`. A `{{` with no `}}`
+ * after it ends the scan, since no later `{{` can find one either.
+ */
+function* actionsIn(template: string): Generator<Slice> {
+  let at = 0
+  while (true) {
+    const open = template.indexOf("{{", at)
+    if (open < 0) return
+    const start = open + (template[open + 2] === "-" ? 3 : 2)
+    const close = template.indexOf("}}", start)
+    if (close < 0) return
+    const end = close > start && template[close - 1] === "-" ? close - 1 : close
+    yield { text: template.slice(start, end), at: start }
+    at = close + 2
   }
 }
 
@@ -176,9 +199,8 @@ function scanGuarded(template: string): GuardedCode[] {
   const branches: Branch[] = []
   const inForce = () => branches.at(-1)?.current ?? NONE
 
-  for (const match of template.matchAll(ACTION_PATTERN)) {
-    const opener = match[0].startsWith("{{-") ? 3 : 2
-    const code = trimmed({ text: match[1] ?? "", at: match.index + opener })
+  for (const action of actionsIn(template)) {
+    const code = trimmed(action)
     if (code.text.startsWith("/*")) continue
 
     const [, keyword = "", restText = ""] = KEYWORD_PATTERN.exec(code.text) ?? []
@@ -305,30 +327,46 @@ function splitArgs(pipeline: Slice): Slice[] | undefined {
   return args
 }
 
-/** Strip parentheses that wrap the whole expression: `((x y))` gives `x y`. */
+/**
+ * Strip parentheses that wrap the whole expression: `((x y))` gives `x y`.
+ * The parentheses are paired once, so each layer costs no rescan.
+ */
 function unwrap(expr: Slice): Slice {
-  let inner = trimmed(expr)
-  while (inner.text.startsWith("(") && closingParen(inner.text) === inner.text.length - 1) {
-    inner = trimmed(sliceOf(inner, 1, inner.text.length - 1))
+  const inner = trimmed(expr)
+  const { text } = inner
+  const closes = closingParens(text)
+  let start = 0
+  let end = text.length
+  while (text[start] === "(" && closes.get(start) === end - 1) {
+    start++
+    end--
+    while (start < end && /\s/.test(text[start]!)) start++
+    while (end > start && /\s/.test(text[end - 1]!)) end--
   }
-  return inner
+  return sliceOf(inner, start, end)
 }
 
-/** The index of the `)` that closes the `(` at the start of `code`, or -1. */
-function closingParen(code: string): number {
-  let depth = 0
+/**
+ * The index of the `)` that closes each `(` in `code`, by the `(`'s index.
+ * Parentheses in a string literal don't count, and none after a literal
+ * that is never closed.
+ */
+function closingParens(code: string): ReadonlyMap<number, number> {
+  const closes = new Map<number, number>()
+  const open: number[] = []
   for (let i = 0; i < code.length; i++) {
     const char = code[i]
     if (char === '"' || char === "`" || char === "'") {
       i = closingQuote(code, i)
-      if (i < 0) return -1
+      if (i < 0) break
     } else if (char === "(") {
-      depth++
-    } else if (char === ")" && --depth === 0) {
-      return i
+      open.push(i)
+    } else if (char === ")") {
+      const opened = open.pop()
+      if (opened !== undefined) closes.set(opened, i)
     }
   }
-  return -1
+  return closes
 }
 
 /** The index of the quote that closes the string literal opening at `open`, or -1. */

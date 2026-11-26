@@ -187,6 +187,55 @@ describe("templateReferences", () => {
   })
 })
 
+/**
+ * How much longer one template made of 16n units takes than 16 templates of
+ * n units each: the same text, so about 1 when the scan is linear in it and
+ * about 16 when it is quadratic. Another process on the machine only ever
+ * adds time, so the two sides are timed in turn and each is its fastest of
+ * three: a slow moment slows one sample, not one side.
+ */
+function bigOverSmall(make: (n: number) => string, n: number, reps: number): number {
+  const small = make(n)
+  const big = make(16 * n)
+  const time = (template: string, times: number) => {
+    const start = performance.now()
+    for (let i = 0; i < times; i++) templateReferences(template)
+    return performance.now() - start
+  }
+  time(small, 16 * reps) // so neither side pays for the first compile
+  const smalls: number[] = []
+  const bigs: number[] = []
+  for (let i = 0; i < 3; i++) {
+    smalls.push(time(small, 16 * reps))
+    bigs.push(time(big, reps))
+  }
+  return Math.min(...bigs) / Math.min(...smalls)
+}
+
+// A runbook's templates are read when it opens, before it is trusted, so the
+// scan must stay linear in text an author controls.
+describe("templateReferences on a long template", () => {
+  it("is linear in `{{` never closed", () => {
+    expect(templateReferences("{{ ".repeat(20_000))).toEqual([])
+    // The actions first give each side milliseconds of work to time, and hold no reference.
+    const template = (n: number) => "{{ x }}\n".repeat(n) + "{{ ".repeat(n)
+    expect(bigOverSmall(template, 1250, 1)).toBeLessThan(4)
+  }, 60_000)
+
+  it("is linear in references, one a line", () => {
+    const template = (n: number) => "{{ .inputs.a }}\n".repeat(n)
+    expect(templateReferences(template(3)).map((ref) => ref.span.start.line)).toEqual([1, 2, 3])
+    expect(bigOverSmall(template, 1250, 1)).toBeLessThan(4)
+  }, 60_000)
+
+  it("is linear in parentheses around a condition", () => {
+    const template = (n: number) =>
+      `{{ if ${"(".repeat(n)}hasKey .outputs.a "k"${")".repeat(n)} }}{{ .outputs.a.k }}{{ end }}`
+    expect(templateReferences(template(3))).toMatchObject([{ key: "k", guarded: true }])
+    expect(bigOverSmall(template, 250, 10)).toBeLessThan(4)
+  }, 60_000)
+})
+
 describe("outputsRead", () => {
   const guarded =
     '{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}'
