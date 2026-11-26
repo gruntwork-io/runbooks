@@ -71,6 +71,30 @@ describe("the spawner, on real processes", () => {
     expect(JSON.parse(stdout.join("\n"))).toEqual(value)
   })
 
+  it("gives the exit code to a caller that never reads output, however much the child writes", async () => {
+    const code = await Effect.runPromise(
+      Effect.gen(function* () {
+        const spawner = yield* ProcessSpawner
+        const proc = yield* spawner.spawn("/bin/sh", ["-c", "yes 0123456789 | head -c 40000000"])
+        return yield* proc.exitCode
+      }).pipe(Effect.provide(ChildProcessSpawnerLive)),
+    )
+    expect(code).toBe(0)
+  }, 30_000)
+
+  it("gives the exit code to a reader that stops after the first line", async () => {
+    const [first, code] = await Effect.runPromise(
+      Effect.gen(function* () {
+        const spawner = yield* ProcessSpawner
+        const proc = yield* spawner.spawn("/bin/sh", ["-c", "yes 0123456789 | head -c 40000000"])
+        const taken = yield* Stream.runCollect(Stream.take(proc.output, 1))
+        return [[...taken][0]?.line, yield* proc.exitCode] as const
+      }).pipe(Effect.provide(ChildProcessSpawnerLive)),
+    )
+    expect(first).toBe("0123456789")
+    expect(code).toBe(0)
+  }, 30_000)
+
   it("gives a line longer than the limit in pieces", async () => {
     const lengths: number[] = []
     const length = 2 * MAX_LINE_LENGTH + 10

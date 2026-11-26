@@ -30,6 +30,8 @@ const LOG_CHANNEL_POLL_MS = 100
  * pipes pause, and its log files go unread, until the reader takes half. A
  * child that writes faster than it is read then waits on a full pipe, as it
  * would writing to a terminal, so memory stays bounded however much it says.
+ * Only while `output` is being read: a caller that waits on `exitCode`
+ * without reading, or stops reading, never leaves the child waiting.
  */
 const PENDING_LIMIT = 8 * 1024 * 1024
 
@@ -172,6 +174,8 @@ const impl: ProcessSpawnerShape = {
         const pipes = [proc.stdout, proc.stderr].filter((pipe) => pipe !== null)
         let pending = 0
         let paused = false
+        /** Whether a reader is taking `output`: it has started and not stopped. */
+        let reading = false
         const unpause = () => {
           if (!paused) return
           paused = false
@@ -181,7 +185,7 @@ const impl: ProcessSpawnerShape = {
           collectedLines.push(continues ? { line, source, continues } : { line, source })
           logFile?.write(continues ? line : line + "\n")
           pending += line.length
-          if (!paused && pending > PENDING_LIMIT) {
+          if (reading && !paused && pending > PENDING_LIMIT) {
             paused = true
             for (const pipe of pipes) pipe.pause()
           }
@@ -251,6 +255,7 @@ const impl: ProcessSpawnerShape = {
         // process has closed it drains any remaining lines and then ends.
         let cursor = 0
         const pullLine: Effect.Effect<OutputLine, Cause.Done> = Effect.gen(function* () {
+          reading = true
           while (true) {
             if (cursor < collectedLines.length) {
               // A line handed on is let go at once; its slot goes once the
@@ -270,7 +275,14 @@ const impl: ProcessSpawnerShape = {
             yield* Effect.sleep("50 millis")
           }
         })
-        const output: Stream.Stream<OutputLine> = Stream.fromEffectRepeat(pullLine)
+        const output: Stream.Stream<OutputLine> = Stream.fromEffectRepeat(pullLine).pipe(
+          Stream.ensuring(
+            Effect.sync(() => {
+              reading = false
+              unpause()
+            }),
+          ),
+        )
 
         const exitCode: Effect.Effect<number> = Effect.tryPromise({
           try: () => exitPromise,
