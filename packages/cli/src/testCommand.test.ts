@@ -47,6 +47,8 @@ const ScriptProps = Schema.Struct({
   outputs: Schema.optionalKey(Schema.Array(Schema.String)),
   /** A file left in `$GENERATED_FILES`, holding "hello", as a script leaves one. */
   write: Schema.optionalKey(Schema.String),
+  /** A file in the generated folder the run reports it removed. */
+  removes: Schema.optionalKey(Schema.String),
   exit: Schema.optionalKey(Schema.Int),
   hang: Schema.optionalKey(Schema.Boolean),
   signal: Schema.optionalKey(Schema.String),
@@ -94,6 +96,14 @@ const script = defineTask({
             .writeFile(file, "hello\n")
             .pipe(Effect.mapError(() => new TaskFailed({ message: `could not write ${file}` })))
         }
+        if (p.removes !== undefined)
+          steps.push(
+            Stream.make({
+              _tag: "File" as const,
+              path: path.join(input.roots.generated, p.removes),
+              change: "deleted" as const,
+            }),
+          )
         steps.push(
           Stream.fromIterable(
             outputPairs(p).map(([key, value]) => ({ _tag: "Output" as const, key, value })),
@@ -261,7 +271,7 @@ tests:
 
   it("counts for files_generated only the files the named block generated, as today's CLI does", async () => {
     runbook(
-      BUILD,
+      `${BUILD}\n\n<Script id="clean" write="new.txt" removes="old.txt" />`,
       `version: 1
 tests:
   - name: by block
@@ -284,6 +294,11 @@ tests:
       - block: build
     assertions:
       - { type: files_generated, block: nope }
+  - name: not what it removed
+    steps:
+      - block: clean
+    assertions:
+      - { type: files_generated, block: clean, min_count: 2 }
 `,
     )
     const { code, stdout } = await runTest(["rb", "--output", "json"])
@@ -310,6 +325,13 @@ tests:
           type: "files_generated",
           passed: false,
           message: 'The runbook has no block with the id "nope".',
+        },
+      ],
+      [
+        {
+          type: "files_generated",
+          passed: false,
+          message: "clean generated 1 file, fewer than 2.",
         },
       ],
     ])
