@@ -34,9 +34,11 @@ describe("the frozen baseline, against today's tree", () => {
     expect(sorted(found)).toEqual(sorted(FIXTURES))
   })
 
-  it("names 25 e2e specs and the two step 0 adds, and each exists", () => {
+  it("names 25 e2e specs and the two step 0 adds, every one there is, and each exists", () => {
+    const found = [...new Bun.Glob("{electron,web}/e2e/**/*.spec.ts").scanSync(ROOT)]
     expect(E2E_SPECS).toHaveLength(25)
     expect(missing([...E2E_SPECS, ...STEP_0_E2E_SPECS])).toEqual([])
+    expect(sorted(found)).toEqual(sorted([...E2E_SPECS, ...STEP_0_E2E_SPECS]))
   })
 
   it("freezes 22 tags, and the docs still list every frozen prop", () => {
