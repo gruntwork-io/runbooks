@@ -19,6 +19,7 @@
  * It hosts the engine (`engine.ts`), which keeps its files in the user data
  * folder, and reads the process's environment once, here, for its runs. The
  * engine serves the window's page over IPC (`ipcServer.ts`), and only it.
+ * A runbook given on the command line is opened first (`launch.ts`).
  *
  * Quitting stops the engine first: its sessions close, and a script still
  * running is sent SIGTERM. The app exits once each such script has ended
@@ -29,10 +30,12 @@
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { app, BrowserWindow, session, shell } from "electron"
-import { Cause, Effect, Fiber } from "effect"
+import { Cause, Effect, Fiber, Layer } from "effect"
 import { stopsEnded } from "@runbooks/platform-node/layers/ChildProcessSpawner"
+import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
 import { appEngine } from "./engine.ts"
-import { makeIpcServerProtocol, servePage } from "./ipcServer.ts"
+import { makeIpcServerProtocol } from "./ipcServer.ts"
+import { type Launch, launchArgument, serveLaunch } from "./launch.ts"
 
 /** The repository's version, set by the build (electron.vite.app.config.ts). */
 declare const __RUNBOOKS_VERSION__: string
@@ -66,6 +69,9 @@ const PRELOAD = path.join(import.meta.dirname, "../preload/index.cjs")
 if (!app.commandLine.hasSwitch("user-data-dir")) {
   app.setPath("userData", path.join(app.getPath("appData"), USER_DATA))
 }
+
+/** The runbook the command line names, if any. */
+const launch = launched(process.argv)
 
 const processEnvironment: Record<string, string> = {}
 for (const [name, value] of Object.entries(process.env))
@@ -129,13 +135,16 @@ app
         appWindow
           .loadURL(page.href)
           .catch((error: unknown) => console.error("The window could not load its page:", error))
-        return yield* servePage(protocol).pipe(
+        return yield* serveLaunch(protocol, launch, (line) => console.error(line)).pipe(
           Effect.provide(
-            appEngine({
-              userData: app.getPath("userData"),
-              appVersion: __RUNBOOKS_VERSION__,
-              processEnvironment,
-            }),
+            Layer.merge(
+              appEngine({
+                userData: app.getPath("userData"),
+                appVersion: __RUNBOOKS_VERSION__,
+                processEnvironment,
+              }),
+              NodeFileSystemLive,
+            ),
           ),
         )
       }).pipe(
@@ -152,6 +161,22 @@ app
     console.error("The app could not open its window:", error)
     app.exit(1)
   })
+
+/**
+ * The runbook `argv` names, with the folder the app was started in, which
+ * `process.cwd()` can't read once that folder is deleted.
+ */
+function launched(argv: ReadonlyArray<string>): Launch | undefined {
+  const argument = launchArgument(argv, process.defaultApp === true)
+  if (argument === undefined) return undefined
+  let startedIn: string | undefined
+  try {
+    startedIn = process.cwd()
+  } catch {
+    startedIn = undefined
+  }
+  return { argument, startedIn }
+}
 
 /** Opens the window, which loads no page yet; on a dev server's, it sets no CSP. */
 function openWindow(devServer: boolean): BrowserWindow {
