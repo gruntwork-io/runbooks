@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { PACKAGES, packageOf, type PackageName } from "./packages.ts"
 
@@ -60,6 +60,63 @@ describe("the packages", () => {
         .map((target) => `${key} -> ${target}`)
     })
     expect(misplaced).toEqual([])
+  })
+})
+
+/**
+ * The window reads the core's protocol only, and the blocks' view map only.
+ * Each line of a probe file imports one export; the probe compiles as part of
+ * app-renderer, with its options and references, from a folder under
+ * node_modules/.tmp, where `effect` and `react` resolve as they do for the
+ * package.
+ */
+describe("app-renderer's imports", () => {
+  const IMPORTS = [
+    { line: 'export type { EventEnvelope } from "@runbooks/core/protocol"', allowed: true },
+    { line: 'export type { ViewProps } from "@runbooks/blocks/views"', allowed: true },
+    { line: 'export type { Effect } from "effect"', allowed: true },
+    { line: 'export type { ReactNode } from "react"', allowed: true },
+    { line: 'export type { EngineClient } from "@runbooks/core/inProcess"', allowed: false },
+    { line: 'export type { Command } from "@runbooks/blocks"', allowed: false },
+    {
+      line: 'export type { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"',
+      allowed: false,
+    },
+  ]
+
+  it("compile for the protocol, the views, effect and React, and for no other package export", async () => {
+    const renderer = path.join(ROOT, PACKAGES["app-renderer"].dir)
+    const { references = [] } = await read(path.join(PACKAGES["app-renderer"].dir, "tsconfig.json"))
+    mkdirSync(path.join(ROOT, "node_modules", ".tmp"), { recursive: true })
+    const dir = mkdtempSync(path.join(ROOT, "node_modules", ".tmp", "app-renderer-imports-"))
+    try {
+      const probe = path.join(dir, "probe.ts")
+      writeFileSync(probe, IMPORTS.map(({ line }) => `${line}\n`).join(""))
+      const config = {
+        extends: path.join(renderer, "tsconfig.json"),
+        compilerOptions: { rootDir: "." },
+        references: references.map((ref) => ({ path: path.resolve(renderer, ref.path) })),
+        include: ["probe.ts"],
+      }
+      writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify(config))
+      const run = Bun.spawnSync([process.execPath, "check", "-p", dir, "--no-pretty"], {
+        cwd: ROOT,
+      })
+      const errors = run.stdout
+        .toString()
+        .split("\n")
+        .flatMap((output) => {
+          const found = /^(.+)\((\d+),\d+\): error (TS\d+):/.exec(output)
+          if (found === null) return []
+          const [, file = "", line, code] = found
+          return path.resolve(ROOT, file) === probe ? [`${line} ${code}`] : []
+        })
+      expect(errors).toEqual(
+        IMPORTS.flatMap(({ allowed }, index) => (allowed ? [] : [`${index + 1} TS2307`])),
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
