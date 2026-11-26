@@ -3,7 +3,6 @@ import { EventEmitter } from "node:events"
 import { mkdtempSync, realpathSync, rmSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import type { WebContents } from "electron"
 import { Deferred, Effect, type Scope, Stream } from "effect"
 import { RpcClient, type RpcMessage, RpcSerialization, type RpcServer } from "effect/rpc"
 import { type EngineClient, EngineProtocol } from "@runbooks/core/protocol"
@@ -91,7 +90,7 @@ const withServer = <A>(use: (seen: Seen) => Effect.Effect<A, unknown, Scope.Scop
     Effect.scoped(
       Effect.gen(function* () {
         const protocol = yield* makeIpcServerProtocol({
-          contents: contents as unknown as WebContents,
+          contents,
           page: PAGE,
           log: (line) => logged.push(line),
         })

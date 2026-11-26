@@ -28,7 +28,7 @@
  *
  * Only `import type` from electron, so the tests drive it with stand-ins.
  */
-import type { IpcMainEvent, WebContents } from "electron"
+import type { IpcMainEvent } from "electron"
 import { Deferred, Effect, FiberSet, Option, Queue, Schema, type Scope } from "effect"
 import { type Rpc, type RpcMessage, RpcSerialization, RpcServer } from "effect/rpc"
 import {
@@ -73,6 +73,23 @@ interface Contents {
   readonly mainFrame: Frame
   isDestroyed(): boolean
   getType(): string
+}
+
+/** The events of the window's contents the server ends a connection on. */
+type ConnectionEvent = "did-navigate" | "render-process-gone" | "destroyed"
+
+/** A listener of the page's messages on the contents' IPC. */
+type PageListener = (event: IpcMainEvent, message: unknown) => void
+
+/** The app window's web contents, as the server uses them: `WebContents` in main. */
+export interface WindowContents extends Contents {
+  readonly ipc: {
+    on(channel: string, listener: PageListener): unknown
+    off(channel: string, listener: PageListener): unknown
+  }
+  on(event: ConnectionEvent, listener: () => void): unknown
+  off(event: ConnectionEvent, listener: () => void): unknown
+  send(channel: string, message: string): void
 }
 
 /** An IPC event as the sender check reads it. */
@@ -139,8 +156,6 @@ function readPageMessage(message: unknown): RpcMessage.FromClientEncoded | undef
   return Option.getOrUndefined(decodePageMessage(parsed))
 }
 
-const serialization = RpcSerialization.json.makeUnsafe()
-
 /** A page load's connection: its client id, and the messages the server has yet to take. */
 interface Connection {
   readonly id: number
@@ -151,7 +166,7 @@ interface Connection {
 
 export interface IpcServerOptions {
   /** The app window's web contents. */
-  readonly contents: WebContents
+  readonly contents: WindowContents
   /** The app's page: its file URL in a build, the dev server's in dev. */
   readonly page: URL
   /** Where a dropped message is reported. */
@@ -244,7 +259,8 @@ export const makeIpcServerProtocol = Effect.fnUntraced(function* (
     send: (client, response) =>
       Effect.sync(() => {
         if (current?.id !== client || contents.isDestroyed()) return
-        contents.send(TO_PAGE, serialization.encode(response))
+        // As RpcSerialization.json encodes it: one JSON string, which the bridge passes on.
+        contents.send(TO_PAGE, JSON.stringify(response))
       }),
     end: () => Effect.void,
     clientIds: Effect.sync(() => new Set(current === undefined ? [] : [current.id])),
