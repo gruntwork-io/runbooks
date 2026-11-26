@@ -213,6 +213,7 @@ describe("a command", () => {
     expect(spawn.script).toMatch(/^\. '[^']*helpers\.sh'; echo hi$/)
     expect(spawn.cwd).toStartWith("/work/")
     expect(Object.keys(spawn.env).sort()).toEqual([
+      "GENERATED_FILES",
       "HOME",
       "PATH",
       "RUNBOOK_DEBUG_LOG",

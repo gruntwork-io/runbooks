@@ -93,15 +93,7 @@ describe("a run's environment, in a real shell", () => {
   })
 
   it("gives a shell the run's environment and nothing else", async () => {
-    const names = [
-      "PATH",
-      "KEPT",
-      "GITHUB_TOKEN",
-      "GITLAB_TOKEN",
-      "GENERATED_FILES",
-      "HOME",
-      "USER",
-    ]
+    const names = ["PATH", "KEPT", "GITHUB_TOKEN", "GITLAB_TOKEN", "HOME", "USER"]
     const app = {
       PATH: "/usr/bin:/bin",
       KEPT: "kept",
@@ -110,14 +102,16 @@ describe("a run's environment, in a real shell", () => {
       GENERATED_FILES: "/outer/files",
       RUNBOOK_OUTPUT: "/outer/output",
     }
-    await withShell(`${printing(names)}; echo "$RUNBOOK_OUTPUT"`, app, (printed) => {
-      expect(printed.slice(0, -1)).toEqual([
+    const script = `${printing(names)}; echo "$RUNBOOK_OUTPUT"; echo "$GENERATED_FILES"`
+    await withShell(script, app, (printed) => {
+      expect(printed.slice(0, -2)).toEqual([
         base64("/usr/bin:/bin"),
         base64("kept"),
-        ...Array.from({ length: 5 }, () => base64("<unset>")),
+        ...Array.from({ length: 4 }, () => base64("<unset>")),
       ])
-      // The app's RUNBOOK_OUTPUT is not the run's: the engine's file is.
-      expect(printed.at(-1)).toStartWith(nodePath.join(os.tmpdir(), "runbooks-run-"))
+      // The app's RUNBOOK_OUTPUT and GENERATED_FILES are not the run's: the engine's are.
+      for (const own of printed.slice(-2))
+        expect(own).toStartWith(nodePath.join(os.tmpdir(), "runbooks-run-"))
     })
   })
 })
@@ -193,5 +187,53 @@ describe("what a real script writes", () => {
           }
         }),
     )
+  })
+})
+
+describe("the generated files, on a real filesystem", () => {
+  it("copies what a real script left in $GENERATED_FILES, and logs each link it does not copy", async () => {
+    const script = [
+      'mkdir -p "$GENERATED_FILES/vpc"',
+      'echo main > "$GENERATED_FILES/main.tf"',
+      'echo vpc > "$GENERATED_FILES/vpc/vpc.tf"',
+      'ln -s /etc/hosts "$GENERATED_FILES/hosts"',
+    ].join(" && ")
+    const { generated, view } = await withShells([shell("s", script)], {}, (rb) =>
+      Effect.gen(function* () {
+        expect(yield* rb.run("s")).toEqual(done)
+        return { generated: rb.inputOf("s")?.roots.generated ?? "", view: yield* rb.view("s") }
+      }),
+    )
+    expect(nodeFs.readFileSync(nodePath.join(generated, "main.tf"), "utf8")).toBe("main\n")
+    expect(nodeFs.readFileSync(nodePath.join(generated, "vpc", "vpc.tf"), "utf8")).toBe("vpc\n")
+    expect(nodeFs.existsSync(nodePath.join(generated, "hosts"))).toBe(false)
+    expect([...(view.files ?? [])].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+      { path: nodePath.join(generated, "main.tf"), change: "created" },
+      { path: nodePath.join(generated, "vpc", "vpc.tf"), change: "created" },
+    ])
+    expect(view.log?.lines.map(({ text }) => text)).toContain(
+      "Runbooks did not copy hosts from $GENERATED_FILES: it is a symbolic link.",
+    )
+  })
+
+  it("fails a run whose file would land outside the generated folder through a link there", async () => {
+    const outside = nodePath.join(root, "outside")
+    nodeFs.mkdirSync(outside)
+    const { status } = await withShells(
+      [
+        shell("plant", `mkdir -p generated && ln -s "${outside}" generated/escape`),
+        shell("s", 'mkdir "$GENERATED_FILES/escape" && echo x > "$GENERATED_FILES/escape/x.txt"'),
+      ],
+      {},
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.run("plant")).toEqual(done)
+          return { status: yield* rb.run("s") }
+        }),
+    )
+    expect(status?._tag === "Failed" ? status.error.message : status).toBe(
+      "Runbooks did not copy escape from $GENERATED_FILES: its place in the generated folder leads outside it.",
+    )
+    expect(nodeFs.readdirSync(outside)).toEqual([])
   })
 })

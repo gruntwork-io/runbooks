@@ -42,7 +42,7 @@ import {
 } from "./protocol.ts"
 import { baseEnvironment, providerEnvironment } from "./env.ts"
 import { resolvePaths, sessionRoots } from "./roots.ts"
-import { makeRunFiles, readRunFiles } from "./runFiles.ts"
+import { copyGenerated, makeRunFiles, readRunFiles } from "./runFiles.ts"
 import { makeSession, type Runner, type Session } from "./session.ts"
 import { resumeOf, SessionStore } from "./sessionStore.ts"
 import { SettingsStore } from "./settings.ts"
@@ -195,6 +195,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             resolvePaths(at, named, repository).pipe(Effect.provideContext(fileSystem)),
           makeRunFiles: Effect.provideContext(makeRunFiles, fileSystem),
           readRunFiles: (written) => Effect.provideContext(readRunFiles(written), fileSystem),
+          copyGenerated: (from, to) => Effect.provideContext(copyGenerated(from, to), fileSystem),
           // The block's state folder is made owner-only before its provider starts.
           openProvider: (provider, config) =>
             Effect.andThen(
