@@ -8,6 +8,8 @@ assertNoNestedNodeModules(fileURLToPath(new URL("..", import.meta.url)))
 
 export default defineConfig({
   testDir: "./e2e",
+  // Only `*.spec.ts`: the frozen baseline lists the e2e specs by that name.
+  testMatch: "**/*.spec.ts",
   fullyParallel: true,
   workers: process.env.CI ? 2 : undefined,
   // MDX compiles client-side, so give each test enough time for

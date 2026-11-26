@@ -13,6 +13,12 @@ import {
 import { documentedProps } from "./props.ts"
 
 const ROOT = path.resolve(import.meta.dir, "..")
+/** Today's tree's Playwright configs. Loaded when the test runs, so its type check stays out of them. */
+const PLAYWRIGHT_CONFIGS = [
+  "playwright.config.ts",
+  "electron/e2e/playwright.config.ts",
+  "web/playwright.config.ts",
+]
 const read = (file: string) => readFileSync(path.join(ROOT, file), "utf8")
 const sorted = (items: Iterable<string>) => [...items].sort((a, b) => a.localeCompare(b))
 const missing = (files: ReadonlyArray<string>) =>
@@ -39,6 +45,18 @@ describe("the frozen baseline, against today's tree", () => {
     expect(E2E_SPECS).toHaveLength(25)
     expect(missing([...E2E_SPECS, ...STEP_0_E2E_SPECS])).toEqual([])
     expect(sorted(found)).toEqual(sorted([...E2E_SPECS, ...STEP_0_E2E_SPECS]))
+  })
+
+  it("runs, under each Playwright config, only the `*.spec.ts` files that list is made from", async () => {
+    for (const file of PLAYWRIGHT_CONFIGS) {
+      const config: { readonly default: { readonly testMatch?: unknown } } = await import(
+        path.join(ROOT, file)
+      )
+      expect({ file, testMatch: config.default.testMatch }).toEqual({
+        file,
+        testMatch: "**/*.spec.ts",
+      })
+    }
   })
 
   it("freezes 22 tags, and the docs still list every frozen prop", () => {

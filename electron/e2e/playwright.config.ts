@@ -2,6 +2,8 @@ import { defineConfig } from "@playwright/test"
 
 export default defineConfig({
   testDir: ".",
+  // Only `*.spec.ts`: the frozen baseline lists the e2e specs by that name.
+  testMatch: "**/*.spec.ts",
   timeout: 90_000,
   // Electron e2e tests launch the real app, which holds a single-instance
   // lock — parallel workers make later launches quit immediately.
