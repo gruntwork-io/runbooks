@@ -207,6 +207,8 @@ export const CliFailure = Schema.Union([
   Schema.TaggedStruct("TestCaseNotFound", { name: Schema.String, runbooks: Schema.Int }),
   Schema.TaggedStruct("BadTestFile", { path: Schema.String, message: Schema.String }),
   Schema.TaggedStruct("BadFlag", { flag: Schema.String, message: Schema.String }),
+  /** Ctrl-C stopped `runbooks test`: the block running then was cancelled, and nothing after it ran. */
+  Schema.TaggedStruct("Cancelled", {}),
 ])
 export type CliFailure = typeof CliFailure.Type
 

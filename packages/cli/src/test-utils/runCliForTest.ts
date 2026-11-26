@@ -50,6 +50,8 @@ export interface RunOptions {
   readonly env?: Readonly<Record<string, string>>
   /** The file system the command sees. The real Node one by default. */
   readonly fileSystem?: Layer.Layer<RunbooksFileSystem>
+  /** Completes when the test presses Ctrl-C. Never, by default. */
+  readonly interrupted?: Effect.Effect<void>
 }
 
 export async function runCliForTest(
@@ -73,6 +75,7 @@ export async function runCliForTest(
       appVersion: "0.31.0",
       cwd: options.cwd,
       env: options.env ?? {},
+      interrupted: options.interrupted ?? Effect.never,
     }).pipe(
       Effect.provide(Layer.merge(parserLayer, options.fileSystem ?? NodeFileSystemLive)),
       Effect.provideService(Console.Console, console),

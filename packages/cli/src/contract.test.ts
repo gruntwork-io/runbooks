@@ -194,6 +194,14 @@ describe("--output json", () => {
       failure: { _tag: "TestCaseNotFound", name: "happy-path", runbooks: 3 },
     })
     expect(report.failure?._tag).toBe("TestCaseNotFound")
+    const stopped = Schema.decodeUnknownSync(TestReport)({
+      version: 1,
+      outcome: "failed",
+      runbooks: [],
+      summary: { runbooks: 0, passed: 0, failed: 0, skipped: 0, warnings: 0 },
+      failure: { _tag: "Cancelled" },
+    })
+    expect(stopped.failure).toEqual({ _tag: "Cancelled" })
     const validate = Schema.decodeUnknownSync(ValidateReport)({
       version: 1,
       outcome: "invalid",

@@ -4,9 +4,10 @@
  * one layer: the in-process transport here, and IPC and MCP (phase 3). A
  * transport adds only `CallerMiddleware`, which says who is calling.
  */
-import { Effect, type Layer } from "effect"
+import { Effect, Layer } from "effect"
 import type { Rpc } from "effect/rpc"
-import { Engine } from "./engine.ts"
+import type { Registry } from "@runbooks/blocks-core/registry"
+import { Engine, type EngineOptions } from "./engine.ts"
 import { type EngineCommand, EngineProtocol } from "./protocol.ts"
 import { SettingsStore } from "./settings.ts"
 
@@ -41,3 +42,11 @@ export const EngineHandlers: Layer.Layer<
     })
   }),
 )
+
+/**
+ * `EngineHandlers` over an engine of their own, made from `options`: what an
+ * entry point serves. The `Engine` stays inside the layer, so a client
+ * drives it only through the protocol.
+ */
+export const serveEngine = <R extends Registry>(options: EngineOptions<R>) =>
+  EngineHandlers.pipe(Layer.provide(Engine.layer(options)))
