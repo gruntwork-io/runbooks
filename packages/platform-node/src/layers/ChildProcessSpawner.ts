@@ -30,6 +30,8 @@ const LOG_CHANNEL_POLL_MS = 100
  * pipes pause, and its log files go unread, until the reader takes half. A
  * child that writes faster than it is read then waits on a full pipe, as it
  * would writing to a terminal, so memory stays bounded however much it says.
+ * Only while `output` is being read: a caller that waits on `exitCode`
+ * without reading, or stops reading, never leaves the child waiting.
  */
 const PENDING_LIMIT = 8 * 1024 * 1024
 
@@ -172,21 +174,25 @@ const impl: ProcessSpawnerShape = {
         const pipes = [proc.stdout, proc.stderr].filter((pipe) => pipe !== null)
         let pending = 0
         let paused = false
-        const record = (line: string, source: OutputLine["source"]) => {
-          collectedLines.push({ line, source })
-          logFile?.write(line + "\n")
+        /** Whether a reader is taking `output`: it has started and not stopped. */
+        let reading = false
+        const unpause = () => {
+          if (!paused) return
+          paused = false
+          for (const pipe of pipes) pipe.resume()
+        }
+        const record = (line: string, source: OutputLine["source"], continues = false) => {
+          collectedLines.push(continues ? { line, source, continues } : { line, source })
+          logFile?.write(continues ? line : line + "\n")
           pending += line.length
-          if (!paused && pending > PENDING_LIMIT) {
+          if (reading && !paused && pending > PENDING_LIMIT) {
             paused = true
             for (const pipe of pipes) pipe.pause()
           }
         }
         const taken = (line: OutputLine) => {
           pending -= line.line.length
-          if (paused && pending <= PENDING_LIMIT / 2) {
-            paused = false
-            for (const pipe of pipes) pipe.resume()
-          }
+          if (pending <= PENDING_LIMIT / 2) unpause()
         }
 
         // Log channel files (e.g. RUNBOOK_LOG): followed on a timer, and also
@@ -208,14 +214,14 @@ const impl: ProcessSpawnerShape = {
 
         if (proc.stdout) {
           if (tails.length > 0) proc.stdout.on("data", readTails)
-          const stdoutLines = lineSplitter((line) => record(line, "stdout"))
+          const stdoutLines = lineSplitter((line, continues) => record(line, "stdout", continues))
           proc.stdout.on("data", stdoutLines.write)
           proc.stdout.on("end", stdoutLines.end)
         }
 
         if (proc.stderr) {
           if (tails.length > 0) proc.stderr.on("data", readTails)
-          const stderrLines = lineSplitter((line) => record(line, "stderr"))
+          const stderrLines = lineSplitter((line, continues) => record(line, "stderr", continues))
           proc.stderr.on("data", stderrLines.write)
           proc.stderr.on("end", stderrLines.end)
         }
@@ -249,6 +255,7 @@ const impl: ProcessSpawnerShape = {
         // process has closed it drains any remaining lines and then ends.
         let cursor = 0
         const pullLine: Effect.Effect<OutputLine, Cause.Done> = Effect.gen(function* () {
+          reading = true
           while (true) {
             if (cursor < collectedLines.length) {
               // A line handed on is let go at once; its slot goes once the
@@ -268,7 +275,14 @@ const impl: ProcessSpawnerShape = {
             yield* Effect.sleep("50 millis")
           }
         })
-        const output: Stream.Stream<OutputLine> = Stream.fromEffectRepeat(pullLine)
+        const output: Stream.Stream<OutputLine> = Stream.fromEffectRepeat(pullLine).pipe(
+          Stream.ensuring(
+            Effect.sync(() => {
+              reading = false
+              unpause()
+            }),
+          ),
+        )
 
         const exitCode: Effect.Effect<number> = Effect.tryPromise({
           try: () => exitPromise,

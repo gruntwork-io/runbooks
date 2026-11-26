@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { Cause, Effect, Fiber, Stream } from "effect"
-import { collectOutput } from "./ProcessSpawner.ts"
+import { collectOutput, wholeLines } from "./ProcessSpawner.ts"
 import type { OutputLine, SpawnedProcess } from "./ProcessSpawner.ts"
 
 /** A fake child whose output/exit are supplied by the test; counts kills. */
@@ -15,6 +15,27 @@ const fakeProcess = (output: Stream.Stream<OutputLine>, exitCode: Effect.Effect<
   }
   return { proc, kills: () => kills }
 }
+
+describe("wholeLines", () => {
+  it("joins each line's pieces, per source, without a line break between them", async () => {
+    const pieces: OutputLine[] = [
+      { line: "ab", source: "stdout", continues: true },
+      { line: "warn", source: "stderr", continues: true },
+      { line: "cd", source: "stdout", continues: true },
+      { line: "ing", source: "stderr" },
+      { line: "ef", source: "stdout" },
+      { line: "g", source: "stdout" },
+    ]
+    const lines = await Effect.runPromise(
+      Stream.runCollect(wholeLines(Stream.fromIterable(pieces))),
+    )
+    expect([...lines]).toEqual([
+      { line: "warning", source: "stderr" },
+      { line: "abcdef", source: "stdout" },
+      { line: "g", source: "stdout" },
+    ])
+  })
+})
 
 describe("collectOutput", () => {
   it("returns every line in arrival order with its source, plus the exit code", async () => {

@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "bun:test"
 import { Effect, Stream } from "effect"
-import { ProcessSpawner } from "@runbooks/core/services/ProcessSpawner"
+import { collectOutput, ProcessSpawner } from "@runbooks/core/services/ProcessSpawner"
 import { ChildProcessSpawnerLive } from "../../layers/ChildProcessSpawner.ts"
 import { MAX_LINE_LENGTH } from "../../layers/lineSplitter.ts"
 
@@ -46,6 +46,53 @@ describe("the spawner, on real processes", () => {
     expect(lengths).toHaveLength(40_000)
     expect(lengths.every((n) => n === 1000)).toBe(true)
     expect(firsts.join("")).toBe("0123456789")
+  }, 30_000)
+
+  it("gives a line longer than the limit whole to collectOutput, so JSON on one line parses", async () => {
+    // As system-ca.ts reads the CA store: one JSON line, longer than the limit.
+    // The child builds it: Linux caps one argument at 128K characters.
+    const build = (length: number) => ({
+      certificates: Array.from({ length }, (_, i) => `cert-${i}-${"x".repeat(50)}`),
+    })
+    const value = build(3000)
+    expect(JSON.stringify(value).length).toBeGreaterThan(2 * MAX_LINE_LENGTH)
+    const { exitCode, lines } = await Effect.runPromise(
+      Effect.gen(function* () {
+        const spawner = yield* ProcessSpawner
+        const proc = yield* spawner.spawn(process.execPath, [
+          "-e",
+          `process.stdout.write(JSON.stringify((${build.toString()})(3000)))`,
+        ])
+        return yield* collectOutput(proc, 30_000)
+      }).pipe(Effect.provide(ChildProcessSpawnerLive)),
+    )
+    expect(exitCode).toBe(0)
+    const stdout = lines.filter((l) => l.source === "stdout").map((l) => l.line)
+    expect(JSON.parse(stdout.join("\n"))).toEqual(value)
+  })
+
+  it("gives the exit code to a caller that never reads output, however much the child writes", async () => {
+    const code = await Effect.runPromise(
+      Effect.gen(function* () {
+        const spawner = yield* ProcessSpawner
+        const proc = yield* spawner.spawn("/bin/sh", ["-c", "yes 0123456789 | head -c 40000000"])
+        return yield* proc.exitCode
+      }).pipe(Effect.provide(ChildProcessSpawnerLive)),
+    )
+    expect(code).toBe(0)
+  }, 30_000)
+
+  it("gives the exit code to a reader that stops after the first line", async () => {
+    const [first, code] = await Effect.runPromise(
+      Effect.gen(function* () {
+        const spawner = yield* ProcessSpawner
+        const proc = yield* spawner.spawn("/bin/sh", ["-c", "yes 0123456789 | head -c 40000000"])
+        const taken = yield* Stream.runCollect(Stream.take(proc.output, 1))
+        return [[...taken][0]?.line, yield* proc.exitCode] as const
+      }).pipe(Effect.provide(ChildProcessSpawnerLive)),
+    )
+    expect(first).toBe("0123456789")
+    expect(code).toBe(0)
   }, 30_000)
 
   it("gives a line longer than the limit in pieces", async () => {
