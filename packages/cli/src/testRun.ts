@@ -27,7 +27,7 @@ import {
   Stream,
 } from "effect"
 import { BlockId } from "@runbooks/blocks-core/contract"
-import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
+import { type Registry, resolveTag, type ServicesOf } from "@runbooks/blocks-core/registry"
 import type { BlockNode, RunbookDocument } from "@runbooks/core/document/document"
 import { serveEngine } from "@runbooks/core/handlers"
 import { type EngineClient, makeInProcessClient } from "@runbooks/core/inProcess"
@@ -194,6 +194,7 @@ function endedAs(view: BlockView, node: BlockNode | undefined): Ended {
 interface Session {
   readonly client: EngineClient
   readonly session: SessionId
+  readonly registry: Registry
   readonly document: RunbookDocument
   readonly generated: string
   readonly timeout: number
@@ -230,6 +231,22 @@ const settle = (s: Session, block: BlockId, millis: number) =>
     return { view, why: outcome }
   })
 
+/**
+ * For a form step's `set_outputs`: the field each output carries, as the
+ * block declares it. A name it does not declare stays as written, so
+ * SetValues refuses it.
+ */
+function fieldOfOutput(
+  registry: Registry,
+  node: BlockNode | undefined,
+): (output: string) => string {
+  const block = node === undefined ? undefined : resolveTag(registry, node.tag)?.block
+  const declared =
+    block?.class === "form" && node?.props !== undefined ? block.outputs(node.props) : {}
+  const fields = new Map(Object.entries(declared).map(([output, { field }]) => [output, field]))
+  return (output) => fields.get(output) ?? output
+}
+
 /** Runs the step's block, or skips it, and says how it ended. */
 const runBlock = (
   s: Session,
@@ -248,12 +265,18 @@ const runBlock = (
       return endedAs(view, node)
     }
     if (step.set_outputs !== undefined) {
+      const fieldOf = fieldOfOutput(s.registry, node)
+      const given = Object.entries(step.set_outputs)
       const { rejected } = yield* s.client.SetValues({
         session: s.session,
         block,
-        values: step.set_outputs,
+        values: Object.fromEntries(given.map(([output, value]) => [fieldOf(output), value])),
       })
-      const refused = Object.entries(rejected)
+      // Each refusal under the output the test file names, not the field it carries.
+      const refused = given.flatMap(([output]) => {
+        const field = fieldOf(output)
+        return Object.hasOwn(rejected, field) ? [[output, rejected[field]] as const] : []
+      })
       if (refused.length > 0)
         return {
           actual: "fail",
@@ -632,6 +655,7 @@ const runCase = <R extends Registry>(options: RunOptions<R>, loaded: Loaded, tes
       const s: Session = {
         client,
         session,
+        registry: options.registry,
         document: loaded.document,
         generated: path.join(folder, "working", session, "generated"),
         timeout: timeoutMillis(loaded.testFile.settings?.timeout),

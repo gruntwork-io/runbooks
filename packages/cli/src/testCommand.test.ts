@@ -415,6 +415,18 @@ tests:
     expect(code).toBe(0)
   })
 
+  it("names a refused set_outputs value by the output the test file gives", async () => {
+    runbook(
+      '<Publisher id="pick" outputs={{ PATH: "path" }}>\n```yaml\n- name: path\n  type: string\n  default: dev\n  locked: true\n```\n</Publisher>',
+      "version: 1\ntests:\n  - name: picks\n    steps:\n      - block: pick\n        set_outputs: { PATH: prod }\n",
+    )
+    const { code, stdout } = await runTest(["rb", "--output", "json"])
+    const step = decodeReport(JSON.parse(stdout)).runbooks[0]!.tests[0]!.steps[0]!
+    expect([step.actual, step.passed]).toEqual(["fail", false])
+    expect(step.message).toContain('set_outputs.PATH: "path" is read-only.')
+    expect(code).toBe(1)
+  })
+
   it("streams every log line to stderr with --verbose", async () => {
     runbook(DEPLOY, DEPLOY_TEST)
     const { code, stderr, stdout } = await runTest(["rb", "--verbose"])
