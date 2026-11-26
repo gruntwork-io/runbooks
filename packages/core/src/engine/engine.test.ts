@@ -1771,6 +1771,51 @@ describe("Engine values", () => {
         }),
       )
     })
+
+    it("that name a field the form does not have make it misconfigured when the session opens, one error each", async () => {
+      const runbook = [
+        publisher("lost", '{ PATH: "pth", HOME: "home", KEPT: "path" }', [
+          "- name: path",
+          "  type: string",
+          "  default: dev",
+        ]),
+        '<Run id="read" command="ok" inputsId={["lost"]} />',
+      ].join("\n\n")
+      await withEngine(
+        runbook,
+        { ok },
+        Effect.gen(function* () {
+          const view = yield* open
+          const rb = yield* commandsFor(view)
+          yield* rb.trust
+          const document = yield* (yield* Engine).getDocument({ session: view.session })
+          const lost = document.blocks[0]
+          const errors = lost?._tag === "Misconfigured" ? lost.errors : []
+          expect(errors.map((e) => [e.code, e.location.block?.id, e.suggestion])).toEqual([
+            ["badProp", "lost", "path"],
+            ["badProp", "lost", undefined],
+          ])
+          expect(errors[0]?.message).toContain('"PATH"')
+          expect(errors[0]?.message).toContain('"pth"')
+
+          const block = yield* rb.block("lost")
+          expect([block.status, block.actions, block.outputs]).toEqual([
+            { _tag: "Misconfigured" },
+            [],
+            {},
+          ])
+          expect(block).not.toHaveProperty("fields")
+          expect(yield* rb.run("lost")).toEqual({
+            _tag: "Refused",
+            reason: { _tag: "Misconfigured" },
+          })
+          expect(yield* rb.status("read")).toEqual({
+            _tag: "Blocked",
+            by: [waitingForValues("lost")],
+          })
+        }),
+      )
+    })
   })
 })
 
