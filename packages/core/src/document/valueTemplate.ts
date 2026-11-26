@@ -7,8 +7,8 @@
  * space beside them. Any other action (`if`, a pipe, a function) is refused.
  */
 import { Redacted, Result, Schema } from "effect"
-import { BlockId, type BlockOutputs } from "@runbooks/blocks-core/contract"
-import { type FieldValue, type FormValues, templateText } from "@runbooks/blocks-core/form"
+import { BlockId, type BlockOutputs, type TaskValues } from "@runbooks/blocks-core/contract"
+import { type FieldValue, templateText } from "@runbooks/blocks-core/form"
 
 /** What an action holds. */
 export type ActionHolds =
@@ -136,9 +136,12 @@ export function parseValueTemplate(
   return Result.succeed(parts)
 }
 
-/** What a template's references read: the block's values and the outputs its templates name. */
+/**
+ * What a template's references read: the block's values and the outputs its
+ * templates name, each redacted, as the task reads them.
+ */
 export interface ValueSources {
-  readonly values: FormValues
+  readonly values: TaskValues
   readonly outputs: BlockOutputs
 }
 
@@ -158,9 +161,8 @@ function valueOf(
       : Result.succeed(value)
   }
   const [name, ...keys] = source.path
-  let value: FieldValue | undefined = Object.hasOwn(sources.values, name!)
-    ? sources.values[name!]
-    : undefined
+  const field = sources.values.get(name!)
+  let value: FieldValue | undefined = field === undefined ? undefined : Redacted.value(field)
   for (const key of keys) {
     value =
       value !== undefined && typeof value === "object" && !Array.isArray(value)

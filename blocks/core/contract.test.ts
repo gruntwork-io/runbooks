@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "bun:test"
-import { Context, Effect, Option, Result, Schema, Stream } from "effect"
+import { Context, Effect, Option, type Redacted, Result, Schema, Stream } from "effect"
 import {
   BEFORE_TRUST,
   BlockClass,
@@ -20,8 +20,9 @@ import {
   TaskFailed,
   type TaskInput,
   type TaskReads,
+  type TaskValues,
 } from "./contract.ts"
-import { FormSpec } from "./form.ts"
+import { type FieldValue, FormSpec } from "./form.ts"
 import { BlockStatus } from "./status.ts"
 
 const NoProps = Schema.Struct({})
@@ -190,6 +191,17 @@ describe("what the compiler rejects", () => {
     expectTypeOf<keyof Reads>().toEqualTypeOf<"values" | "outputs" | "files">()
     expectTypeOf<Reads>().toEqualTypeOf<TaskReads>()
     expectTypeOf<TaskInput<"target">>().toExtend<TaskReads>()
+  })
+
+  it("a form value a task gets in clear, in its run, its instruction or its paths", () => {
+    type Task = TaskBlock<object, never, never, "target">
+    type Entry<M> = M extends ReadonlyMap<string, infer V> ? V : never
+    expectTypeOf<Entry<TaskReads["values"]>>().toEqualTypeOf<Redacted.Redacted<FieldValue>>()
+    expectTypeOf<ReadonlyMap<string, FieldValue>>().not.toExtend<TaskReads["values"]>()
+    expectTypeOf<{ readonly [name: string]: FieldValue }>().not.toExtend<TaskReads["values"]>()
+    expectTypeOf<Parameters<Task["run"]>[1]["values"]>().toEqualTypeOf<TaskValues>()
+    expectTypeOf<Parameters<Task["instruction"]>[1]["values"]>().toEqualTypeOf<TaskValues>()
+    expectTypeOf<Parameters<NonNullable<Task["paths"]>>[1]>().toEqualTypeOf<TaskValues>()
   })
 
   it("a task that does not provide run, and a display block that provides anything", () => {

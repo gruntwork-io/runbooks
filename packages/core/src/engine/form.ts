@@ -5,15 +5,9 @@
  * is entered: an invalid one stays in the form, with its error, until someone
  * changes it, as it would in the window.
  */
-import { Schema } from "effect"
-import type { OutputDecls } from "@runbooks/blocks-core/contract"
-import {
-  type Field,
-  FieldValue,
-  type FormSpec,
-  type FormValues,
-  templateText,
-} from "@runbooks/blocks-core/form"
+import { Redacted, Schema } from "effect"
+import type { OutputDecls, TaskValues } from "@runbooks/blocks-core/contract"
+import { type Field, FieldValue, type FormSpec, templateText } from "@runbooks/blocks-core/form"
 import { nearest } from "../document/nearest.ts"
 import { hiddenVariables } from "../domain/boilerplate/showWhen.ts"
 import { validateVariableValue } from "../domain/boilerplate/validators.ts"
@@ -263,15 +257,17 @@ export const fieldViews = (form: Form): ReadonlyArray<FieldView> =>
     }))
 
 /**
- * The values a block that reads the form gets, sensitive ones in clear. A
- * field its `showWhen` hides gives its default, not what was entered before
- * it was hidden.
+ * The values a block that reads the form gets, each redacted, a sensitive
+ * one or not. A field its `showWhen` hides gives its default, not what was
+ * entered before it was hidden.
  */
-export const valuesOf = (form: Form): FormValues =>
-  Object.fromEntries(
+export const valuesOf = (form: Form): TaskValues =>
+  new Map(
     check(form).map((checked) => [
       checked.field.name,
-      (checked.asked ? revealed(checked) : startOf(checked.field)) ?? emptyOf(checked.field),
+      Redacted.make(
+        (checked.asked ? revealed(checked) : startOf(checked.field)) ?? emptyOf(checked.field),
+      ),
     ]),
   )
 
@@ -287,9 +283,11 @@ export function outputsOf(
   return new Map(
     form.flatMap(({ field }): Array<[string, Held<string>]> => {
       const decl = Object.hasOwn(declared, field.name) ? declared[field.name] : undefined
-      const value = values[field.name]
+      const value = values.get(field.name)
       if (decl === undefined || value === undefined) return []
-      return [[field.name, hold(decl.sensitive || field.sensitive, templateText(value))]]
+      return [
+        [field.name, hold(decl.sensitive || field.sensitive, templateText(Redacted.value(value)))],
+      ]
     }),
   )
 }

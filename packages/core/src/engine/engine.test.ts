@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { Deferred, Effect, Fiber, Schema, Stream } from "effect"
+import { Deferred, Effect, Fiber, Redacted, Schema, Stream } from "effect"
 import {
   BlockId,
   defineForm,
@@ -11,7 +11,7 @@ import {
   TaskFailed,
   type TaskInput,
 } from "@runbooks/blocks-core/contract"
-import type { FieldValue, FormValues } from "@runbooks/blocks-core/form"
+import type { FieldValue } from "@runbooks/blocks-core/form"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { ContentHash } from "../document/document.ts"
 import { testCredentialProviders } from "../test-utils/TestCredentialProviders.ts"
@@ -213,13 +213,16 @@ const CONFIG = withFields('<Form id="config">', [
   "  default: 3",
 ])
 
-/** A script that notes the values each run gets, and outputs the region it got. */
+/** A script that notes the values each run gets, unwrapped, and outputs the region it got. */
 const recorder = () => {
-  const seen: FormValues[] = []
+  const seen: Array<Record<string, FieldValue>> = []
   const script: Script = (input) =>
     Stream.suspend(() => {
-      seen.push(input.values)
-      const region = input.values.region
+      const values = Object.fromEntries(
+        Array.from(input.values, ([name, value]) => [name, Redacted.value(value)]),
+      )
+      seen.push(values)
+      const region = values["region"]
       return Stream.make({
         _tag: "Output",
         key: "region",

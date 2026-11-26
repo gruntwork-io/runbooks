@@ -7,7 +7,7 @@
  * engine did.
  */
 import { describe, expect, it } from "bun:test"
-import { Effect, Fiber, Layer, Option, Schema, Stream } from "effect"
+import { Effect, Fiber, Layer, Option, Redacted, Schema, Stream } from "effect"
 import YAML from "yaml"
 import {
   BlockId,
@@ -69,7 +69,7 @@ const fileForm = defineForm({
 const failed = (what: string) => (cause: { readonly message: string }) =>
   new TaskFailed({ message: `${what}: ${cause.message}` })
 
-/** A task that runs the script its `path` names, writing a log in the working folder first. */
+/** A task that runs the script its `path` names, writing its values to a log in the working folder first. */
 const script = defineTask({
   name: "Script",
   since: "0.1.0",
@@ -90,8 +90,9 @@ const script = defineTask({
       Effect.gen(function* () {
         const fs = yield* FileSystem
         const spawner = yield* ProcessSpawner
+        const values = Array.from(input.values, ([name, value]) => [name, Redacted.value(value)])
         yield* fs
-          .writeFile(input.paths.log, JSON.stringify(input.values))
+          .writeFile(input.paths.log, JSON.stringify(Object.fromEntries(values)))
           .pipe(Effect.mapError(failed("The log could not be written")))
         const process = yield* spawner
           .spawn("bash", [input.paths.script], { cwd: input.cwd })

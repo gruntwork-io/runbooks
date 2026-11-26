@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test"
-import { Deferred, Effect, Layer, Schema, Stream } from "effect"
+import { Deferred, Effect, Layer, Redacted, Schema, Stream } from "effect"
 import { BlockId, RunbookPath } from "@runbooks/blocks-core/contract"
+import type { FieldValue } from "@runbooks/blocks-core/form"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { configErrors } from "@runbooks/core/document/document"
 import { loadRunbook } from "@runbooks/core/document/load"
@@ -560,10 +561,10 @@ describe("a command that cannot run", () => {
 })
 
 describe("in instruction mode", () => {
-  it("shows the script as the runbook was trusted with it", () => {
+  it("shows the script as the runbook was trusted with it, and no value it reads", () => {
     const path = Schema.decodeSync(RunbookPath)("a.sh")
     const reads = {
-      values: {},
+      values: new Map([["token", Redacted.make<FieldValue>("fake-secret-7f3a")]]),
       outputs: new Map(),
       files: new Map([["a.sh", "#!/usr/bin/env python3\nprint(1)"]]),
     }
