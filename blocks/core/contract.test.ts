@@ -13,6 +13,8 @@ import {
   type FormBlock,
   type PropError,
   type References,
+  type RunbookPath,
+  type ScriptSource,
   type TaskBlock,
   type TaskEvent,
   TaskFailed,
@@ -227,6 +229,15 @@ describe("what the compiler rejects", () => {
   it("a reference declared on a prop that cannot name a block", () => {
     type Refs = References<typeof UrlProps.Type>
     expectTypeOf<keyof Refs>().toEqualTypeOf<"dependsOn" | "repository" | "envFrom">()
+  })
+
+  it("a script in a prop that does not hold text", () => {
+    type Source = ScriptSource<typeof UrlProps.Type>
+    expectTypeOf<{ readonly _tag: "Prop"; readonly prop: "url" }>().toExtend<Source>()
+    expectTypeOf<{ readonly _tag: "Prop"; readonly prop: "envFrom" }>().not.toExtend<Source>()
+    expectTypeOf<{ readonly _tag: "Prop"; readonly prop: "nope" }>().not.toExtend<Source>()
+    expectTypeOf<{ readonly _tag: "File"; readonly path: string }>().not.toExtend<Source>()
+    expectTypeOf<{ readonly _tag: "File"; readonly path: RunbookPath }>().toExtend<Source>()
   })
 })
 
