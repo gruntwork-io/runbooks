@@ -10,6 +10,7 @@ import type { Rpc } from "effect/rpc"
 import type { TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { CredentialProviders } from "../credential/provider.ts"
+import { prepareStateDir } from "../credential/stateDir.ts"
 import { loadRunbook } from "../document/load.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import {
@@ -39,7 +40,7 @@ import {
   UnknownSession,
   type WaitForBlock,
 } from "./protocol.ts"
-import { baseEnvironment } from "./env.ts"
+import { baseEnvironment, providerEnvironment } from "./env.ts"
 import { resolvePaths, sessionRoots } from "./roots.ts"
 import { makeRunFiles, readRunFiles } from "./runFiles.ts"
 import { makeSession, type Runner, type Session } from "./session.ts"
@@ -194,7 +195,12 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             resolvePaths(at, named, repository).pipe(Effect.provideContext(fileSystem)),
           makeRunFiles: Effect.provideContext(makeRunFiles, fileSystem),
           readRunFiles: (written) => Effect.provideContext(readRunFiles(written), fileSystem),
-          openProvider: providers.open,
+          // The block's state folder is made owner-only before its provider starts.
+          openProvider: (provider, config) =>
+            Effect.andThen(
+              Effect.provideContext(prepareStateDir(config.stateDir), fileSystem),
+              providers.open(provider, config),
+            ),
         }
         const sessions = new Map<SessionId, Session>()
 
@@ -256,6 +262,8 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
               baseEnvironment: base,
               registry,
               stateFolder: path.join(stateFolders, id),
+              providerEnvironment: (envNames) =>
+                providerEnvironment(base, options.processEnvironment, envNames),
               network,
               resume: Option.map(saved, (found) => resumeOf(document, registry, found)),
               saver,

@@ -248,6 +248,12 @@ export interface ProviderConfig {
    * restarts, so a file `env` named before is still there.
    */
   readonly stateDir: string
+  /**
+   * The environment the provider runs with: its process's, or what an
+   * in-process provider reads for an `env` detection source. The engine
+   * builds it (`providerEnvironment` in `../engine/env.ts`).
+   */
+  readonly environment: ReadonlyMap<string, Redacted.Redacted<string>>
   readonly caBundleFile: Option.Option<string>
   readonly proxy: Option.Option<string>
   /** The block's own, from its request: a default region, a default zone. */

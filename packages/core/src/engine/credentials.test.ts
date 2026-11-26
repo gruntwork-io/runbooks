@@ -203,6 +203,7 @@ const withCloud = <A>(
     readonly testClock?: boolean
     readonly wallClockAhead?: () => number
     readonly settings?: Layer.Layer<SettingsStore>
+    readonly processEnvironment?: Readonly<Record<string, string>>
   } = {},
 ): Promise<A> => {
   calls = []
@@ -262,6 +263,27 @@ describe("detecting a credential", () => {
     expect(path.basename(stateDir)).toBe("cloud")
     expect(path.dirname(path.dirname(stateDir))).toBe("/state")
     expect(callsOf("cloud")).toEqual(["open", "describe", "detect"])
+  })
+
+  it("opens the block's provider with the base environment and the block's own names, and no other block's", async () => {
+    const processEnvironment = {
+      PATH: "/usr/bin:/bin",
+      HOME: "/home/someone",
+      CLOUD_TOKEN: "tok-AMBIENT",
+      GITHUB_TOKEN: "ghp_AMBIENT",
+      RUNBOOK_OUTPUT: "/outer/output",
+    }
+    await withCloud(
+      '<CloudLogin id="cloud" />',
+      { cloud: cloud() },
+      (rb) => rb.until("cloud", "SignedOut"),
+      { processEnvironment },
+    )
+    const [, config] = argsOf("cloud", "open")[0] ?? []
+    const { environment } = config as ProviderConfig
+    expect(
+      Object.fromEntries(Array.from(environment, ([name, value]) => [name, Redacted.value(value)])),
+    ).toEqual({ PATH: "/usr/bin:/bin", HOME: "/home/someone", CLOUD_TOKEN: "tok-AMBIENT" })
   })
 
   it("opens the block's provider with the CA bundle and proxy the settings hold", async () => {
@@ -1892,6 +1914,7 @@ describe("the credential store", () => {
           outputsOf: () => undefined,
           scope,
           stateFolder: "/state/s1",
+          environment: () => new Map(),
           store,
           network: Effect.succeed({ caBundleFile: Option.none(), proxy: Option.none() }),
           resuming: new Map(),

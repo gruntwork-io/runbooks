@@ -5,10 +5,11 @@ import { constants as fsConstants } from "node:fs"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
-import { Cause, Effect, Layer, Queue, Stream } from "effect"
+import { Cause, Effect, Layer, Option, Queue, Stream } from "effect"
 import { watch as chokidarWatch } from "chokidar"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
 import type {
+  CreateOptions,
   FileSystemShape,
   WalkEntry,
   FileChangeEvent,
@@ -96,6 +97,8 @@ const impl: FileSystemShape = {
           isFile: s.isFile(),
           isDirectory: s.isDirectory(),
           mtime: s.mtime,
+          // Node makes up permission bits on Windows from the read-only flag.
+          mode: process.platform === "win32" ? Option.none() : Option.some(s.mode & 0o777),
         }
       },
       catch: () => new FileNotFoundError({ path: filePath }),
@@ -111,9 +114,10 @@ const impl: FileSystemShape = {
       catch: () => false as never,
     }),
 
-  writeFile: (filePath: string, content: string | Buffer) =>
+  writeFile: (filePath: string, content: string | Buffer, options?: CreateOptions) =>
     Effect.tryPromise({
-      try: () => fs.writeFile(filePath, content),
+      try: () =>
+        fs.writeFile(filePath, content, options?.mode === undefined ? {} : { mode: options.mode }),
       catch: (err) => new FileWriteError({ path: filePath, cause: err }),
     }),
 
@@ -123,7 +127,7 @@ const impl: FileSystemShape = {
       catch: (err) => new FileWriteError({ path: filePath, cause: err }),
     }),
 
-  mkdir: (dirPath: string, options?: { recursive?: boolean }) =>
+  mkdir: (dirPath: string, options?: { readonly recursive?: boolean } & CreateOptions) =>
     Effect.tryPromise({
       try: () => fs.mkdir(dirPath, options).then(() => undefined),
       catch: (err) => new FileWriteError({ path: dirPath, cause: err }),

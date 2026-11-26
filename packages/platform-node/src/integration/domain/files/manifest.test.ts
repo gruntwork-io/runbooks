@@ -12,7 +12,7 @@ import {
 } from "@runbooks/core/domain/files/manifest"
 import { NodeFileSystemLive } from "../../../layers/NodeFileSystem.ts"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
-import { Layer, Stream } from "effect"
+import { Layer, Option, Stream } from "effect"
 import type { ManifestDiffResult, TemplateManifest } from "@runbooks/core/types"
 
 describe("hashFileContent", () => {
@@ -427,6 +427,7 @@ describe("applyDiffFromContent idempotency", () => {
           isFile: true,
           isDirectory: false,
           mtime: new Date(),
+          mode: Option.none(),
         }),
       exists: () => Effect.succeed(true),
       writeFile: () => {

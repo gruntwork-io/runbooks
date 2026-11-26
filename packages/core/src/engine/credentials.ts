@@ -129,6 +129,8 @@ export interface CredentialHost {
   readonly scope: Scope.Scope
   /** The session's folder of provider state: each block's provider keeps its files in `<it>/<block>`. */
   readonly stateFolder: string
+  /** What a provider runs with, for a block that declares `envNames` (`providerEnvironment`). */
+  readonly environment: (envNames: ReadonlyArray<string>) => ProviderConfig["environment"]
   readonly store: CredentialStore
   /** The CA bundle and proxy the settings hold now. */
   readonly network: Effect.Effect<ProviderNetwork>
@@ -551,6 +553,7 @@ export function makeCredentials(
           const network = yield* host.network
           const config: ProviderConfig = {
             stateDir: path.join(host.stateFolder, id),
+            environment: host.environment(block.envNames),
             ...network,
             settings: request.settings,
           }

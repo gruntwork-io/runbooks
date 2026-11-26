@@ -138,6 +138,16 @@ const READING_THE_RUNBOOK: ServiceCall[] = [
   ]),
 ]
 
+/** Trusted, each credential block's state folder is made owner-only before its provider opens. */
+const STATE_FOLDERS = (session: string): ServiceCall[] =>
+  ["git", "cloud"].flatMap((block) => {
+    const folder = `/state/${session}/${block}`
+    return [
+      FileSystemCall("mkdir", folder, { recursive: true, mode: 0o700 }),
+      FileSystemCall("stat", folder),
+    ]
+  })
+
 /** A provider with one sign-in method that finds no login. */
 const INFO: ProviderInfo = {
   methods: [{ name: "token", label: "Token", fields: [] }],
@@ -246,10 +256,10 @@ describe("an untrusted session", () => {
         expect(refused).toEqual([untrusted, untrusted, untrusted])
 
         yield* engine.trustSession({ session, hash: trust.hash })
-        expect(calls).toEqual(READING_THE_RUNBOOK)
         // Trusted, each credential block opens its provider, and one that detects looks.
         for (const block of ["git", "cloud"])
           yield* engine.waitForBlock({ ...target(block), timeoutMillis: 5000 })
+        expect(calls).toEqual([...READING_THE_RUNBOOK, ...STATE_FOLDERS(session)])
         const byBlock = (block: string) =>
           providerCalls.filter((call) => call.block === block).map((call) => call.method)
         expect(byBlock("git")).toEqual(["open", "describe"])
@@ -271,6 +281,7 @@ describe("an untrusted session", () => {
           expect.stringMatching(new RegExp(`^runbooks-run-\\w+/${name}$`))
         expect(calls).toEqual([
           ...READING_THE_RUNBOOK,
+          ...STATE_FOLDERS(session),
           FileSystemCall("mkdir", working, { recursive: true }),
           FileSystemCall("isContainedInReal", "/rb/deploy.sh", "/rb"),
           FileSystemCall("isContainedInReal", `${working}/run.log`, working),
@@ -321,7 +332,7 @@ describe("an untrusted session", () => {
         const after = yield* engine.waitForBlock({ ...cloud, timeoutMillis: 5000 })
         expect(after.block.credential?._tag).toBe("SignedOut")
         expect(after.block.actions).toEqual(["credential"])
-        expect(calls).toEqual(READING_THE_RUNBOOK)
+        expect(calls).toEqual([...READING_THE_RUNBOOK, ...STATE_FOLDERS(session)])
         yield* engine.closeSession({ session })
       }),
     )

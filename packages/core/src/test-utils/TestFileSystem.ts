@@ -1,4 +1,4 @@
-import { Effect, Layer, Stream } from "effect"
+import { Effect, Layer, Option, Stream } from "effect"
 import { FileSystem } from "../services/FileSystem.ts"
 import type { FileSystemShape, WalkEntry } from "../services/FileSystem.ts"
 import { FileNotFoundError, FileWriteError } from "../errors/index.ts"
@@ -13,6 +13,9 @@ export const testFileSystem = (
   folders: ReadonlyArray<string> = [],
 ): FileSystemShape => {
   const dirs = new Set<string>(folders)
+  /** The mode each file or folder was created with, when it named one. */
+  const modes = new Map<string, number>()
+  const modeOf = (path: string, fallback: number) => Option.some(modes.get(path) ?? fallback)
 
   return {
     readFile: (path) => {
@@ -41,8 +44,9 @@ export const testFileSystem = (
 
     exists: (path) => Effect.succeed(path in files || dirs.has(path)),
 
-    writeFile: (path, content) =>
+    writeFile: (path, content, options) =>
       Effect.sync(() => {
+        if (!(path in files) && options?.mode !== undefined) modes.set(path, options.mode)
         files[path] = String(content)
       }),
 
@@ -70,6 +74,7 @@ export const testFileSystem = (
             isFile: true,
             isDirectory: false,
             mtime: new Date(),
+            mode: modeOf(path, 0o644),
           })
         : dirs.has(path)
           ? Effect.succeed({
@@ -77,12 +82,14 @@ export const testFileSystem = (
               isFile: false,
               isDirectory: true,
               mtime: new Date(),
+              mode: modeOf(path, 0o755),
             })
           : Effect.fail(new FileNotFoundError({ path }))
     },
 
-    mkdir: (path, _options?) =>
+    mkdir: (path, options) =>
       Effect.sync(() => {
+        if (!dirs.has(path) && options?.mode !== undefined) modes.set(path, options.mode)
         dirs.add(path)
       }),
 
@@ -90,6 +97,7 @@ export const testFileSystem = (
       Effect.sync(() => {
         delete files[path]
         dirs.delete(path)
+        modes.delete(path)
         // Also remove any descendant paths.
         for (const key of Object.keys(files)) {
           if (key.startsWith(path + "/")) {

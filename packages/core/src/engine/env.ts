@@ -46,6 +46,28 @@ export function baseEnvironment(
   )
 }
 
+/**
+ * What a credential block's provider runs with: the base environment, and
+ * the names the block itself declares (`envNames`) taken back from the
+ * app's process environment, so an `env` detection source finds a login
+ * there. Another credential block's names stay out, as do the reserved
+ * ones. A tool the provider runs (`az`) reads its own config files through
+ * the host variables the base environment keeps: HOME, PATH and the like.
+ */
+export function providerEnvironment(
+  base: BaseEnvironment,
+  processEnvironment: Readonly<Record<string, string>>,
+  envNames: ReadonlyArray<string>,
+): BaseEnvironment {
+  const own = envNames.flatMap((name) => {
+    const value = Object.hasOwn(processEnvironment, name) ? processEnvironment[name] : undefined
+    return value === undefined || isReservedEnvName(name)
+      ? []
+      : [[name, Redacted.make(value)] as const]
+  })
+  return new Map([...base, ...own])
+}
+
 /** What one source gives a run: variables to set, and variables it declares but did not return, to unset. */
 export interface Contribution {
   readonly set: ReadonlyMap<string, Redacted.Redacted<string>>

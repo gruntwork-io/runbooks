@@ -1,4 +1,4 @@
-import { Context, Effect, Stream } from "effect"
+import { Context, Effect, type Option, Stream } from "effect"
 import type {
   FileNotFoundError,
   FileReadError,
@@ -11,6 +11,14 @@ export interface FileStat {
   readonly isFile: boolean
   readonly isDirectory: boolean
   readonly mtime: Date
+  /** The permission bits (`0o777` at most), where the OS keeps them: none on Windows. */
+  readonly mode: Option.Option<number>
+}
+
+/** A file or folder to create readable by its owner only, or as the process's umask allows. */
+export interface CreateOptions {
+  /** Applied when the call creates it, never to one that is there already. */
+  readonly mode?: number
 }
 
 export interface WalkEntry {
@@ -64,12 +72,14 @@ export interface FileSystemShape {
   readonly writeFile: (
     path: string,
     content: string | Buffer,
+    options?: CreateOptions,
   ) => Effect.Effect<void, FileWriteError>
   /** Appends to the file, creating it if missing. */
   readonly appendFile: (path: string, content: string) => Effect.Effect<void, FileWriteError>
+  /** With `recursive`, `mode` applies to each parent it creates too. */
   readonly mkdir: (
     path: string,
-    options?: { recursive?: boolean },
+    options?: { readonly recursive?: boolean } & CreateOptions,
   ) => Effect.Effect<void, FileWriteError>
   readonly rm: (
     path: string,
