@@ -412,16 +412,28 @@ describe("Engine", () => {
     // Deciding each block's status apart decides the ones it waits for again,
     // and the long ladder takes 5 to 8 times as long. The 16 short opens add
     // up to tens of milliseconds, so a millisecond of jitter barely moves it.
+    // Another process on the machine only ever adds time, so the two sides
+    // are timed in turn and each is its fastest of three: a slow moment then
+    // slows one sample, not one side.
     await openAndAsk(50, 5)
     const sixteen = async () => {
       let ms = 0
-      for (let i = 0; i < 16; i++) ms += (await openAndAsk(50, 5)).ms
+      for (let i = 0; i < 16; i++) {
+        const short = await openAndAsk(50, 5)
+        expect(short.status?._tag).toBe("Blocked")
+        ms += short.ms
+      }
       return ms
     }
-    const runs = [await sixteen(), await sixteen(), await sixteen()]
-    const short = runs.sort((x, y) => x - y)[1]!
-    const long = await median(800, 5)
-    expect(long / short).toBeLessThan(3)
+    const shorts: number[] = []
+    const longs: number[] = []
+    for (let i = 0; i < 3; i++) {
+      shorts.push(await sixteen())
+      const { status, ms } = await openAndAsk(800, 5)
+      expect(status?._tag).toBe("Blocked")
+      longs.push(ms)
+    }
+    expect(Math.min(...longs) / Math.min(...shorts)).toBeLessThan(3)
   }, 60_000)
 
   it("unblocks a task's dependents when it is done and blocks them again when it is reset", async () => {

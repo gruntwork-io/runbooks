@@ -6,7 +6,7 @@
  * ending.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { Deferred, Effect, Redacted, Schema, Stream } from "effect"
@@ -144,23 +144,34 @@ const REGISTRY: Registry = { ...TOY_REGISTRY, Script: script }
 
 let folder: ReturnType<typeof tempFolder>
 
-/** `runbooks-test-*` folders in the system's temporary folder: each test case's. */
-const caseFolders = () =>
-  readdirSync(os.tmpdir()).filter((name) => name.startsWith("runbooks-test-"))
-let caseFoldersBefore: ReadonlyArray<string>
+/**
+ * The temporary folder this test's runs make their case folders in. Another
+ * suite on the machine makes `runbooks-test-*` folders too, so each test
+ * gives its runs a folder of their own (`os.tmpdir()` reads `TMPDIR`).
+ */
+let runsTemp = ""
+const TMPDIR = process.env["TMPDIR"]
+
+/** `runbooks-test-*` folders the runs made: each test case's. */
+const caseFolders = () => readdirSync(runsTemp).filter((name) => name.startsWith("runbooks-test-"))
 
 beforeEach(() => {
   folder = tempFolder()
+  runsTemp = mkdtempSync(path.join(os.tmpdir(), "runbooks-cli-runs-"))
+  process.env["TMPDIR"] = runsTemp
   seen.runs = 0
   seen.interrupted = 0
   seen.hanging = Deferred.makeUnsafe<void>()
   seen.signals.clear()
-  caseFoldersBefore = caseFolders()
 })
 
 afterEach(() => {
+  if (TMPDIR === undefined) delete process.env["TMPDIR"]
+  else process.env["TMPDIR"] = TMPDIR
   // No test case leaves its temporary folder behind.
-  expect(caseFolders().filter((name) => !caseFoldersBefore.includes(name))).toEqual([])
+  const left = caseFolders()
+  rmSync(runsTemp, { recursive: true, force: true })
+  expect(left).toEqual([])
   folder.remove()
 })
 
