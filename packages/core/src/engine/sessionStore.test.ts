@@ -24,6 +24,7 @@ import {
   MAX_SESSION_AGE_MILLIS,
   resumeOf,
   SAVED_SESSION_VERSION,
+  SEQUENCE_RESERVE,
   type Saved,
   type SavedEvent,
   savedLogOf,
@@ -61,9 +62,9 @@ const withStore = async <A>(
   return { result, warnings }
 }
 
-const keep = (createdAt = 0) =>
+const keep = (createdAt = 0, firstSequence = 0) =>
   Effect.flatMap(SessionStore, (store) =>
-    store.keep({ id: ID, runbook: RUNBOOK, runbookHash: hashOf("a"), createdAt }),
+    store.keep({ id: ID, runbook: RUNBOOK, runbookHash: hashOf("a"), createdAt, firstSequence }),
   )
 
 const values = (named: Record<string, string | null>): Saved => ({
@@ -176,29 +177,47 @@ describe("saving a session", () => {
     )
   })
 
-  it("saves the session's row untrusted and used now, then its trust and when it closed", async () => {
+  it("saves the session's row untrusted, used now and reserving its sequences, then its trust, and when and where it closed", async () => {
     const database = memorySessionDatabase()
     const { result } = await withStore(
       Effect.gen(function* () {
         yield* TestClock.setTime(1_000)
-        const saver = yield* keep(5)
+        const saver = yield* keep(5, 7)
         const kept = database.sessions()
         yield* saver.trust(hashOf("d"))
         yield* TestClock.setTime(2_000)
-        yield* saver.close
+        yield* saver.close(12)
         return { kept, latest: yield* (yield* SessionStore).latest(RUNBOOK) }
       }),
       { database },
     )
     expect(result.kept).toEqual([
-      { id: ID, runbook: RUNBOOK, createdAt: 5, usedAt: 1_000, trusted: Option.none() },
+      {
+        id: ID,
+        runbook: RUNBOOK,
+        createdAt: 5,
+        usedAt: 1_000,
+        trusted: Option.none(),
+        nextSequence: 7 + SEQUENCE_RESERVE,
+      },
     ])
     expect(database.sessions()).toEqual([
-      { id: ID, runbook: RUNBOOK, createdAt: 5, usedAt: 2_000, trusted: Option.some(hashOf("d")) },
+      {
+        id: ID,
+        runbook: RUNBOOK,
+        createdAt: 5,
+        usedAt: 2_000,
+        trusted: Option.some(hashOf("d")),
+        nextSequence: 12,
+      },
     ])
-    expect(Option.map(result.latest, ({ usedAt, trusted }) => ({ usedAt, trusted }))).toEqual(
-      Option.some({ usedAt: 2_000, trusted: Option.some(hashOf("d")) }),
-    )
+    expect(
+      Option.map(result.latest, ({ usedAt, trusted, nextSequence }) => ({
+        usedAt,
+        trusted,
+        nextSequence,
+      })),
+    ).toEqual(Option.some({ usedAt: 2_000, trusted: Option.some(hashOf("d")), nextSequence: 12 }))
   })
 
   it("saves no state where the system cannot encrypt, drops what it saved before, and keeps the row", async () => {
@@ -250,7 +269,7 @@ describe("saving a session", () => {
         yield* saver.put(blockId("form"), values({ a: "1" }), {})
         yield* saver.drop(blockId("form"), "values")
         yield* saver.trust(hashOf("d"))
-        yield* saver.close
+        yield* saver.close(1)
         return yield* (yield* SessionStore).latest(RUNBOOK)
       }),
       { database },
@@ -330,6 +349,7 @@ describe("reading a saved session", () => {
           runbook: RUNBOOK,
           runbookHash: hashOf("a"),
           createdAt: 0,
+          firstSequence: 0,
         })
         return yield* store.latest(RUNBOOK)
       }),
@@ -356,6 +376,7 @@ describe("retention", () => {
             runbook: RUNBOOK,
             runbookHash: hashOf("a"),
             createdAt: 0,
+            firstSequence: 0,
           })
         }
         yield* TestClock.setTime(NOW)
@@ -436,7 +457,7 @@ const readEvent = (
 const savedSession = (
   events: ReadonlyArray<SavedEvent>,
   trusted: Option.Option<ContentHash> = Option.none(),
-): SavedSession => ({ id: ID, createdAt: 0, usedAt: 86_400_000, trusted, events })
+): SavedSession => ({ id: ID, createdAt: 0, usedAt: 86_400_000, trusted, nextSequence: 0, events })
 
 const SUBMITTED: Saved = { kind: "run", payload: { _tag: "Submitted" } }
 

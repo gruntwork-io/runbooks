@@ -47,6 +47,7 @@ import {
   MAX_SAVED_LOG_LINES,
   MAX_SESSION_AGE_MILLIS,
   SAVED_SESSION_VERSION,
+  SEQUENCE_RESERVE,
 } from "./sessionStore.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
@@ -581,6 +582,53 @@ describe("resuming a session", () => {
     expect(reopened.resumed).toBeDefined()
   })
 
+  it("goes on with its event sequence when resumed, so an `after` from before replays what came since", async () => {
+    const on = machine(FORM_AND_DEPLOY)
+    const last = (
+      await start(
+        on,
+        Effect.andThen(open, (rb) => rb.close),
+      )
+    ).at(-1)!
+    expect(last.event._tag).toBe("SessionClosed")
+    const resumed = await start(
+      on,
+      Effect.gen(function* () {
+        const engine = yield* Engine
+        const rb = yield* open
+        const since = yield* Effect.forkChild(
+          Stream.runCollect(engine.events({ session: rb.view.session, after: last.sequence })),
+        )
+        const all = yield* rb.close
+        return { all, since: yield* Fiber.join(since) }
+      }),
+    )
+    expect(resumed.all[0]?.sequence).toBe(last.sequence + 1)
+    expect(resumed.since.map((e) => e.sequence)).toEqual(resumed.all.map((e) => e.sequence))
+  })
+
+  it("starts a resumed session past every sequence the earlier one reserved when its close was not saved", async () => {
+    const on = machine(FORM_AND_DEPLOY)
+    const last = (
+      await start(
+        on,
+        Effect.gen(function* () {
+          const rb = yield* open
+          // As if the app stopped before it saved the close.
+          on.database.failing.add("putSession")
+          return yield* rb.close
+        }),
+      )
+    ).at(-1)!
+    on.database.failing.delete("putSession")
+    const first = await start(
+      on,
+      Effect.andThen(open, (rb) => Effect.map(rb.close, (events) => events[0]?.sequence)),
+    )
+    expect(first).toBe(SEQUENCE_RESERVE)
+    expect(first).toBeGreaterThan(last.sequence)
+  })
+
   it("goes on when the database refuses every save", async () => {
     const on = machine(FORM_AND_DEPLOY)
     for (const call of ["putSession", "putEvent", "deleteEvent", "latest", "events"] as const)
@@ -848,6 +896,7 @@ describe("retention", () => {
       createdAt: 0,
       usedAt: STALE,
       trusted: Option.none(),
+      nextSequence: 0,
     })
     await start(on, Effect.void)
     expect(on.files[RUNBOOK]).toBe(FORM_AND_DEPLOY)

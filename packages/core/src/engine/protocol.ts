@@ -542,6 +542,11 @@ export type EngineEvent = typeof EngineEvent.Type
 
 export const EventEnvelope = Schema.Struct({
   session: SessionId,
+  /**
+   * Rises by one with each event. A resumed session goes on past every
+   * sequence the session it resumes logged, so an `after` from before still
+   * holds.
+   */
   sequence: Sequence,
   at: Schema.DateTimeUtc,
   event: EngineEvent,

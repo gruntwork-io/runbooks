@@ -40,6 +40,13 @@ export const MAX_SAVED_PAYLOAD_CHARS = 1_048_576
 export const MAX_SAVED_LOG_LINES = 500
 /** ...and at most this many characters, as today's app saves it. */
 export const MAX_SAVED_LOG_CHARS = 65_536
+/**
+ * The event sequences a session reserves when it opens. A later session of
+ * its id starts where it ended, once its close is saved, and past the
+ * reserve if it never is: an app that stops without closing. One session
+ * logs fewer events than this (4 billion; at 1,000 a second, 50 days).
+ */
+export const SEQUENCE_RESERVE = 2 ** 32
 /** A session not used for this long goes, with its folders, at the next start. */
 export const MAX_SESSION_AGE_MILLIS = 90 * 24 * 60 * 60 * 1000
 /** The most sessions kept: beyond them, the least recently used go at the next start. */
@@ -199,6 +206,8 @@ export interface SavedSession {
   readonly usedAt: number
   /** The content hash the person trusted it for, if they did. */
   readonly trusted: Option.Option<ContentHash>
+  /** The event sequence it resumes from (`SEQUENCE_RESERVE`). */
+  readonly nextSequence: number
   readonly events: ReadonlyArray<SavedEvent>
 }
 
@@ -348,16 +357,17 @@ export interface SessionSaver {
   readonly drop: (block: BlockId, kind: SavedKind) => Effect.Effect<void>
   /** Saves that the person trusted the session for `hash`. */
   readonly trust: (hash: ContentHash) => Effect.Effect<void>
-  /** Marks the session used now, as it closes. */
-  readonly close: Effect.Effect<void>
+  /** Marks the session used now, as it closes, and saves the sequence a later session of it starts from. */
+  readonly close: (nextSequence: number) => Effect.Effect<void>
 }
 
 export interface SessionStoreShape {
   /** The runbook's most recently used saved session, read. None when it has none, or it cannot be read. */
   readonly latest: (runbook: string) => Effect.Effect<Option.Option<SavedSession>>
   /**
-   * Saves the session's row, used now and trusted for nothing until the
-   * session saves that it is, and gives what saves its blocks.
+   * Saves the session's row, used now, trusted for nothing until the session
+   * saves that it is, and reserving `SEQUENCE_RESERVE` sequences from
+   * `firstSequence`; and gives what saves its blocks.
    */
   readonly keep: (session: {
     readonly id: SessionId
@@ -365,6 +375,8 @@ export interface SessionStoreShape {
     /** The runbook's content hash, which each state saved records. */
     readonly runbookHash: ContentHash
     readonly createdAt: number
+    /** The session's first event sequence. */
+    readonly firstSequence: number
   }) => Effect.Effect<SessionSaver>
   /**
    * The sessions retention drops now: each unused for `MAX_SESSION_AGE_MILLIS`,
@@ -435,11 +447,18 @@ const make = Effect.gen(function* () {
         createdAt: row.value.createdAt,
         usedAt: row.value.usedAt,
         trusted: Option.flatMap(row.value.trusted, decodeContentHash),
+        nextSequence: row.value.nextSequence,
         events,
       })
     }).pipe(Effect.catch((error) => Effect.as(warn(error), Option.none<SavedSession>())))
 
-  const keep: SessionStoreShape["keep"] = ({ id, runbook, runbookHash, createdAt }) =>
+  const keep: SessionStoreShape["keep"] = ({
+    id,
+    runbook,
+    runbookHash,
+    createdAt,
+    firstSequence,
+  }) =>
     Effect.gen(function* () {
       let row: SessionRow = {
         id,
@@ -447,6 +466,7 @@ const make = Effect.gen(function* () {
         createdAt,
         usedAt: yield* Clock.currentTimeMillis,
         trusted: Option.none(),
+        nextSequence: firstSequence + SEQUENCE_RESERVE,
       }
       const saveRow = (next: SessionRow) =>
         Effect.suspend(() => {
@@ -496,7 +516,10 @@ const make = Effect.gen(function* () {
         put,
         drop,
         trust: (hash) => saveRow({ ...row, trusted: Option.some(hash) }),
-        close: Effect.flatMap(Clock.currentTimeMillis, (usedAt) => saveRow({ ...row, usedAt })),
+        close: (nextSequence) =>
+          Effect.flatMap(Clock.currentTimeMillis, (usedAt) =>
+            saveRow({ ...row, usedAt, nextSequence }),
+          ),
       } satisfies SessionSaver
     })
 

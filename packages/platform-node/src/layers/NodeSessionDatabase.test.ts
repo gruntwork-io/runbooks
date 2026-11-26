@@ -49,6 +49,7 @@ const session: SessionRow = {
   createdAt: 1,
   usedAt: 2,
   trusted: Option.none(),
+  nextSequence: 0,
 }
 
 describe("the sessions database file", () => {

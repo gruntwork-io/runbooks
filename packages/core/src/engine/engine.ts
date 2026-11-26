@@ -224,6 +224,10 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
           id: SessionId,
         ) {
           const { document } = loaded
+          const firstSequence = Option.match(saved, {
+            onNone: () => 0,
+            onSome: (found) => found.nextSequence,
+          })
           const saver = yield* store.keep({
             id,
             runbook: file,
@@ -232,6 +236,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
               onNone: () => Clock.currentTimeMillis,
               onSome: (found) => Effect.succeed(found.createdAt),
             }),
+            firstSequence,
           })
           // A resumed session keeps its id, and with it its working and state folders.
           const session = yield* makeSession({
@@ -247,6 +252,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             network,
             resume: Option.map(saved, (found) => resumeOf(document, registry, found)),
             saver,
+            firstSequence,
           })
           sessions.set(session.id, session)
           // Trust comes back only for the content it was given for: `trust` refuses another hash.
