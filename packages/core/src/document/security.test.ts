@@ -154,6 +154,32 @@ describe("remarkLiteralOnly", () => {
     })
   })
 
+  describe("rejects elements that hand the app another document to load", () => {
+    it.each([
+      [
+        "a meta refresh to a javascript: URL",
+        '<meta http-equiv="refresh" content="0;url=javascript:alert(1)" />',
+        "meta",
+      ],
+      [
+        "a meta refresh to another page",
+        '<meta http-equiv="refresh" content="0; url=https://example.com/" />',
+        "meta",
+      ],
+      ["a base element", '<base href="https://example.com/" />', "base"],
+      ["a stylesheet link", '<link rel="stylesheet" href="https://example.com/x.css" />', "link"],
+      [
+        "a prefetch link",
+        'Inline <link rel="prefetch" href="https://example.com/next" /> text',
+        "link",
+      ],
+    ])("%s", (_name, source, element) => {
+      expect(firstRefusal(source).message).toBe(
+        `<${element}> elements are not allowed in runbooks.`,
+      )
+    })
+  })
+
   it("names the line, prop and block in the error", () => {
     const prop = firstRefusal('# Title\n\n<Run id="a" command={run()} />')
     expect(prop.location).toMatchObject({ block: { tag: "Run" }, prop: "command" })

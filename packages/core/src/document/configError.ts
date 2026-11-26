@@ -38,8 +38,8 @@ export const RunbookErrorCode = Schema.Literals([
   "syntax",
   /**
    * MDX that would run code or load a document when the runbook opens: an
-   * import or export, an expression that is not a literal, a script or frame
-   * element, a prop that injects HTML, a `javascript:` URL.
+   * import or export, an expression that is not a literal, a script, frame,
+   * meta, base or link element, a prop that injects HTML, a `javascript:` URL.
    */
   "notAllowed",
   /** A tag no block or alias in the registry has. */

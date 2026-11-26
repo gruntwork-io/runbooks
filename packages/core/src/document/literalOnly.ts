@@ -10,7 +10,10 @@
  * - `{...}` in text or between blocks, unless it is empty, a comment, or a
  *   literal value;
  * - `prop={...}` values that are not literal values;
- * - elements that load scripts or embed documents (BLOCKED_ELEMENTS);
+ * - elements that load scripts, embed documents, or hand the app another
+ *   document to load (BLOCKED_ELEMENTS): a `<meta>` refresh navigates the
+ *   window, `<base>` moves where every relative link and image loads from,
+ *   and `<link>` loads a stylesheet or prefetches a page;
  * - custom elements (`<x-widget>`), whose props React passes through as DOM
  *   attributes, so `ONANIMATIONSTART="..."` becomes an inline handler;
  * - dotted element names, which reach properties of a block;
@@ -81,7 +84,8 @@ export function refusals(tree: MdxNode): ReadonlyArray<Refusal> {
   return found
 }
 
-// Elements that load and run scripts or embed other documents. Compared lowercased.
+// Elements that load and run scripts, embed other documents, or hand the app
+// another document to load. Compared lowercased.
 const BLOCKED_ELEMENTS = new Set([
   "script",
   "iframe",
@@ -90,6 +94,9 @@ const BLOCKED_ELEMENTS = new Set([
   "object",
   "embed",
   "webview",
+  "meta",
+  "base",
+  "link",
 ])
 
 // Prop names (compared lowercased) that are never literal content:
