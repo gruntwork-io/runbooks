@@ -23,7 +23,9 @@
  *   (BLOCKED_PROPS);
  * - `javascript:` URLs in any prop, because React only neutralizes them in
  *   props spelled exactly `href`, `src`, `action`, `formAction` or
- *   `xlinkHref`.
+ *   `xlinkHref`;
+ * - `javascript:` URLs in markdown links, images and link definitions, so no
+ *   renderer has to neutralize them.
  *
  * A literal value is a string, number, boolean, null or regex literal; a
  * template string without `${...}`; a number with a leading `-` or `+`; or an
@@ -42,7 +44,7 @@ import type { MdxNode } from "./mdx.ts"
 
 /** One construct the check refuses. */
 export interface Refusal {
-  /** The node to point at: the element, the attribute, the expression. */
+  /** The node to point at: the element, the attribute, the expression, the link. */
   readonly node: MdxNode
   readonly message: string
   /** The element's name, when the refusal is about an element or its prop. */
@@ -76,6 +78,18 @@ export function refusals(tree: MdxNode): ReadonlyArray<Refusal> {
       case "mdxJsxFlowElement":
       case "mdxJsxTextElement":
         found.push(...elementRefusals(node))
+        break
+      // A reference link has no URL: its definition, where the author fixes it, has.
+      case "link":
+      case "image":
+      case "definition":
+        if (node.url !== undefined && isJavascriptUrl(node.url)) {
+          const kind = node.type === "definition" ? "link definition" : node.type
+          found.push({
+            node,
+            message: `\`javascript:\` URLs like this ${kind}'s are not allowed in runbooks.`,
+          })
+        }
         break
     }
     node.children?.forEach(visit)

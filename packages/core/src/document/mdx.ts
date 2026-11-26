@@ -24,6 +24,8 @@ export interface MdxNode {
   readonly position?: { readonly start: Point; readonly end: Point }
   /** A code fence's language. */
   readonly lang?: string | null
+  /** A markdown link's, image's or link definition's URL. */
+  readonly url?: string
 }
 
 interface Point {
