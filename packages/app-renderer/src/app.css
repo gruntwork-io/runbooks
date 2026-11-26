@@ -1,0 +1,185 @@
+/*
+ * The window's styles: Tailwind 4, as the old app (web/src/css/App.css), with
+ * the walk's classes styled here. Vite builds this into a stylesheet the page
+ * links, which the CSP's style-src 'self' allows; it allows no inline style.
+ */
+@import "tailwindcss" source("./");
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    color: var(--color-zinc-900);
+    background: var(--color-white);
+    font-family: var(--font-sans);
+  }
+}
+
+@layer components {
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .app-header {
+    flex: none;
+    padding: calc(var(--spacing) * 3) calc(var(--spacing) * 6);
+    border-bottom: 1px solid var(--color-zinc-200);
+    font-weight: var(--font-weight-semibold);
+  }
+  .app-main {
+    flex: 1;
+    overflow: auto;
+    padding: calc(var(--spacing) * 8) calc(var(--spacing) * 6);
+  }
+  .runbook,
+  .welcome,
+  .asking,
+  .failed {
+    max-width: var(--container-3xl);
+    margin-inline: auto;
+  }
+  .runbook > h1,
+  .welcome > h1 {
+    margin-bottom: calc(var(--spacing) * 6);
+    font-size: var(--text-3xl);
+    font-weight: var(--font-weight-bold);
+  }
+  .welcome > p {
+    margin-bottom: calc(var(--spacing) * 4);
+  }
+  .warnings,
+  .unknown-parts,
+  .failed {
+    margin-bottom: calc(var(--spacing) * 6);
+    padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+    border: 1px solid var(--color-amber-300);
+    border-radius: var(--radius-md);
+    background: var(--color-amber-50);
+  }
+  .failed {
+    border-color: var(--color-red-300);
+    background: var(--color-red-50);
+  }
+
+  /* The walked markdown. */
+  .runbook-body {
+    position: relative;
+    line-height: var(--leading-relaxed);
+  }
+  .runbook-body :where(h1, h2, h3, h4, h5, h6) {
+    margin: 1.5em 0 0.5em;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--leading-tight);
+  }
+  .runbook-body :where(h1) {
+    font-size: var(--text-2xl);
+  }
+  .runbook-body :where(h2) {
+    font-size: var(--text-xl);
+  }
+  .runbook-body :where(h3) {
+    font-size: var(--text-lg);
+  }
+  .runbook-body :where(p, ul, ol, pre, blockquote, table, figure, details, dl) {
+    margin-bottom: 1em;
+  }
+  .runbook-body :where(ul, ol) {
+    padding-left: 1.5em;
+  }
+  .runbook-body :where(ul) {
+    list-style: disc;
+  }
+  .runbook-body :where(ol) {
+    list-style: decimal;
+  }
+  .runbook-body :where(li.task) {
+    list-style: none;
+  }
+  .runbook-body :where(li.task input) {
+    margin-right: 0.5em;
+  }
+  .runbook-body :where(a) {
+    color: var(--color-blue-700);
+    text-decoration: underline;
+  }
+  .runbook-body :where(code) {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+  }
+  .runbook-body :where(:not(pre) > code) {
+    padding: 0.1em 0.3em;
+    border-radius: var(--radius-sm);
+    background: var(--color-zinc-100);
+  }
+  .runbook-body :where(pre) {
+    overflow-x: auto;
+    padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+    border-radius: var(--radius-md);
+    background: var(--color-zinc-100);
+  }
+  .runbook-body :where(blockquote) {
+    padding-left: 1em;
+    border-left: 3px solid var(--color-zinc-300);
+    color: var(--color-zinc-600);
+  }
+  .runbook-body :where(hr) {
+    margin: 2em 0;
+    border-color: var(--color-zinc-200);
+  }
+  .runbook-body :where(table) {
+    border-collapse: collapse;
+  }
+  .runbook-body :where(th, td) {
+    padding: 0.25em 0.75em;
+    border: 1px solid var(--color-zinc-200);
+  }
+  .runbook-body :where(th) {
+    font-weight: var(--font-weight-semibold);
+  }
+  .unlinked-url,
+  .media {
+    color: var(--color-zinc-500);
+  }
+  .media {
+    font-style: italic;
+  }
+
+  /* A block's placeholder, until BlockFrame (row 3h). */
+  .block {
+    margin-bottom: 1em;
+    padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+    border: 1px solid var(--color-zinc-200);
+    border-radius: var(--radius-lg);
+  }
+  .block-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing) * 3);
+    align-items: baseline;
+  }
+  .block-tag,
+  .block-id {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--color-zinc-500);
+  }
+  .block-title {
+    font-weight: var(--font-weight-semibold);
+  }
+  .block-description {
+    color: var(--color-zinc-600);
+  }
+  .block-body {
+    margin-top: calc(var(--spacing) * 2);
+  }
+  .block-errors {
+    margin-top: calc(var(--spacing) * 2);
+    padding-left: 1.5em;
+    list-style: disc;
+    color: var(--color-red-700);
+  }
+}

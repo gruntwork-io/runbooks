@@ -92,6 +92,25 @@ test.describe("the rebuilt app's window", () => {
     expect(refused).toEqual({ eval: "EvalError", Function: "EvalError", inlineScript: "refused" })
   })
 
+  test("styles its page from its own stylesheet, and refuses an inline one", async ({ launch }) => {
+    const { app, page } = await launch()
+    // Tailwind's preflight, in the app's stylesheet, takes the body's margin away.
+    await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).margin)).toBe("0px")
+    const inline = await runAsPage(
+      app,
+      `(() => {
+        const style = document.createElement("style")
+        style.textContent = "body { margin: 77px }"
+        document.head.append(style)
+        const attribute = document.createElement("p")
+        attribute.setAttribute("style", "margin: 77px")
+        document.body.append(attribute)
+        return [getComputedStyle(document.body).margin, getComputedStyle(attribute).margin]
+      })()`,
+    )
+    expect(inline).toEqual(["0px", "0px"])
+  })
+
   test("has no require or process", async ({ launch }) => {
     const { page } = await launch()
     expect(await page.evaluate(() => [typeof require, typeof process])).toEqual([
@@ -118,22 +137,36 @@ test.describe("the rebuilt app's window", () => {
     // Locators would wait for the refused navigation to finish, and it never does.
     const shown = await page.evaluate(() => [
       location.href,
-      document.querySelector("h1")?.textContent,
+      document.querySelector("header")?.textContent,
     ])
     expect(shown).toEqual([PAGE, "Runbooks"])
   })
 
-  test("opens no other window, and opens only an http or https URL in the browser", async ({
+  test("opens no other window, and opens only an http, https or mailto URL outside the app", async ({
     launch,
   }) => {
     const { app, page } = await launch()
     const opened = await recordBrowserOpens(app)
     const windows = await page.evaluate(() =>
-      ["file:///etc/hosts", "https://example.invalid/new"].map((url) => window.open(url)),
+      ["file:///etc/hosts", "https://example.invalid/new", "mailto:ops@example.invalid"].map(
+        (url) => window.open(url),
+      ),
     )
-    expect(windows).toEqual([null, null])
-    await expect.poll(opened).toEqual(["https://example.invalid/new"])
+    expect(windows).toEqual([null, null, null])
+    await expect.poll(opened).toEqual(["https://example.invalid/new", "mailto:ops@example.invalid"])
     expect(app.windows()).toHaveLength(1)
+  })
+
+  test("opens a mailto link it follows in the mail app, and stays on its page", async ({
+    launch,
+  }) => {
+    const { app, page } = await launch()
+    const opened = await recordBrowserOpens(app)
+    await page.evaluate(() => {
+      location.href = "mailto:ops@example.invalid?subject=Runbook"
+    })
+    await expect.poll(opened).toEqual(["mailto:ops@example.invalid?subject=Runbook"])
+    expect(await page.evaluate(() => location.href)).toBe(PAGE)
   })
 
   test("denies the page every permission it asks for", async ({ launch }) => {

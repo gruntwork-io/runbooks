@@ -6,7 +6,10 @@
  */
 import { readFileSync } from "node:fs"
 import path from "node:path"
+import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "electron-vite"
+import type { Plugin } from "vite"
+import { DEV_SERVER_NONCE } from "./packages/app-main/src/contentSecurityPolicy.ts"
 import { reactWithCompiler } from "./scripts/vite-react.ts"
 
 const ROOT = import.meta.dirname
@@ -21,6 +24,17 @@ function appVersion(): string {
       : undefined
   if (typeof version !== "string") throw new Error("package.json has no version.")
   return version
+}
+
+/**
+ * On the dev server only, Vite tags the scripts and styles it puts in the
+ * page with the nonce main's dev CSP allows (contentSecurityPolicy.ts). A
+ * build's page needs none: its scripts and stylesheet are files.
+ */
+const devServerNonce: Plugin = {
+  name: "runbooks:dev-server-nonce",
+  apply: "serve",
+  config: () => ({ html: { cspNonce: DEV_SERVER_NONCE } }),
 }
 
 export default defineConfig({
@@ -53,7 +67,10 @@ export default defineConfig({
   renderer: {
     root: path.join(ROOT, "packages/app-renderer"),
     base: "./",
-    plugins: [reactWithCompiler()],
+    // The renderer imports @runbooks/* by its tsconfig's paths. Rolldown
+    // resolves those in a build by itself; Vite's dev server only with this.
+    resolve: { tsconfigPaths: true },
+    plugins: [reactWithCompiler(), tailwindcss(), devServerNonce],
     build: {
       outDir: path.join(OUT, "renderer"),
       rolldownOptions: {

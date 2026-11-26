@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { EventEmitter } from "node:events"
-import { mkdtempSync, realpathSync, rmSync } from "node:fs"
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { Deferred, Effect, Queue, type Scope, Stream } from "effect"
-import { RpcClient, type RpcMessage, RpcSerialization, type RpcServer } from "effect/rpc"
+import { Deferred, Effect, Fiber, Layer, Queue, type Scope, Stream } from "effect"
+import { type Rpc, RpcClient, type RpcMessage, RpcSerialization, type RpcServer } from "effect/rpc"
 import { type EngineClient, EngineProtocol } from "@runbooks/core/protocol"
+import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
 import { FROM_PAGE, MAX_PAGE_MESSAGE, TO_PAGE } from "./bridge.ts"
 import { appEngine } from "./engine.ts"
 import { DROPPED, isAppPage, makeIpcServerProtocol, MAX_QUEUED, servePage } from "./ipcServer.ts"
+import { serveLaunch } from "./launch.ts"
 
 // The server end over stand-ins for the window's web contents and its
 // frames, serving the app's real engine over a temporary user data folder.
@@ -523,6 +525,82 @@ describe("the engine over IPC", () => {
     await withServer(() => Effect.sync(() => contents.navigate()))
     expect(contents.ipc.listenerCount(FROM_PAGE)).toBe(0)
     expect(contents.listenerCount("did-navigate")).toBe(0)
+  })
+})
+
+describe("a runbook the launch names", () => {
+  /**
+   * Has the page send `ListSessions` before main serves anything, then serves
+   * the launch of `argument` and returns what the page heard.
+   */
+  const listFirst = (argument: string, openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>) => {
+    const engine = Layer.merge(
+      appEngine({
+        userData: path.join(folder, "user data"),
+        appVersion: "0.31.0",
+        processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
+      }),
+      NodeFileSystemLive,
+    )
+    return Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const protocol = yield* makeIpcServerProtocol({
+            contents,
+            page: PAGE,
+            log: (line) => logged.push(line),
+          })
+          contents.navigate()
+          const client = yield* pageClient()
+          const listed = yield* Effect.forkScoped(client.ListSessions())
+          yield* settle
+          yield* serveLaunch(protocol, { argument, startedIn: folder }, (line) =>
+            logged.push(line),
+          ).pipe(
+            // A handler given last takes the place of the engine's own.
+            Effect.provide(openSession === undefined ? engine : Layer.merge(engine, openSession)),
+            Effect.forkScoped,
+          )
+          return yield* Fiber.join(listed)
+        }),
+      ),
+    )
+  }
+
+  it("is open when a page that asked before the open was done hears back", async () => {
+    const sessions = await listFirst(FIXTURE)
+    expect(sessions.map(({ path: file }) => file)).toEqual([path.join(FIXTURE, "runbook.mdx")])
+    expect(logged).toEqual([])
+  })
+
+  it("is not open when the engine refuses it, and main logs each error with its line", async () => {
+    const runbook = path.join(folder, "refused.mdx")
+    writeFileSync(runbook, "# Refused\n\n[click](javascript:alert(1))\n")
+    const sessions = await listFirst(runbook)
+    expect(sessions).toEqual([])
+    expect(logged[0]).toBe(`Runbooks could not open ${runbook}:`)
+    expect(logged[1]).toStartWith(`  ${runbook}:3:1: `)
+    expect(logged[1]).toContain("`javascript:` URLs")
+  })
+
+  it("is not open when the engine fails opening it, and main says so and serves the page", async () => {
+    // As a runbook nested deep enough to overflow the engine's stack does.
+    const dies = EngineProtocol.toLayerHandler("OpenSession", () =>
+      Effect.die(new RangeError("Maximum call stack size exceeded")),
+    )
+    const sessions = await listFirst(FIXTURE, dies)
+    expect(sessions).toEqual([])
+    expect(logged).toEqual([
+      `Runbooks could not open ${FIXTURE}: the engine failed: RangeError: Maximum call stack size exceeded`,
+    ])
+  })
+
+  it("is not open when nothing is at its path, and main says so", async () => {
+    const sessions = await listFirst("missing")
+    expect(sessions).toEqual([])
+    expect(logged).toEqual([
+      `Runbooks could not open ${path.join(folder, "missing")}: there is no file or folder there.`,
+    ])
   })
 })
 

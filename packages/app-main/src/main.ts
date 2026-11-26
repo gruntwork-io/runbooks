@@ -8,17 +8,23 @@
  * - Its session is a partition kept in memory, so the window writes no
  *   storage, cookies or cache to disk. The session denies every permission.
  * - Its page gets a Content-Security-Policy response header from here, where
- *   the page can't loosen it: no 'unsafe-eval' and no inline script.
+ *   the page can't loosen it: no 'unsafe-eval', and no inline script or style
+ *   (`contentSecurityPolicy.ts`).
  * - It never navigates away from its page and opens no other window. A link
- *   to an http or https page opens in the browser instead.
+ *   to an http or https page opens in the browser instead, and a mailto link
+ *   in the mail app: the links the window's walk makes clickable.
  *
  * Unpackaged, with ELECTRON_RENDERER_URL set (`electron-vite dev`), it loads
- * that dev server's page and sets no CSP: Vite's React refresh runs an inline
- * script.
+ * that dev server's page, under the same CSP plus the scripts and styles the
+ * dev server tags and its socket.
  *
  * It hosts the engine (`engine.ts`), which keeps its files in the user data
  * folder, and reads the process's environment once, here, for its runs. The
  * engine serves the window's page over IPC (`ipcServer.ts`), and only it.
+ * A runbook given on the command line is opened first (`launch.ts`).
+ *
+ * A second launch on the same user data folder quits at once, and the first
+ * focuses its window.
  *
  * Quitting stops the engine first: its sessions close, and a script still
  * running is sent SIGTERM. The app exits once each such script has ended
@@ -29,10 +35,13 @@
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { app, BrowserWindow, session, shell } from "electron"
-import { Cause, Effect, Fiber } from "effect"
+import { Cause, Effect, Fiber, Layer } from "effect"
 import { stopsEnded } from "@runbooks/platform-node/layers/ChildProcessSpawner"
+import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
+import { contentSecurityPolicy } from "./contentSecurityPolicy.ts"
 import { appEngine } from "./engine.ts"
-import { makeIpcServerProtocol, servePage } from "./ipcServer.ts"
+import { makeIpcServerProtocol } from "./ipcServer.ts"
+import { type Launch, launchArgument, serveLaunch } from "./launch.ts"
 
 /** The repository's version, set by the build (electron.vite.app.config.ts). */
 declare const __RUNBOOKS_VERSION__: string
@@ -48,15 +57,6 @@ const USER_DATA = "runbooks-rebuild"
 /** The window's session. A partition without the `persist:` prefix is kept in memory. */
 const PARTITION = "window"
 
-/**
- * The page may run the bundle's scripts and load nothing else: no inline or
- * evaluated script, no stylesheet, image, font, frame, plugin or network
- * request, no `<base>`, and no form submission. On a file:// page Chromium
- * counts every file:// URL as 'self', so a script at any local path loads.
- */
-const CONTENT_SECURITY_POLICY =
-  "default-src 'none'; script-src 'self'; base-uri 'none'; form-action 'none'"
-
 /** The renderer's page in a build: electron-vite writes main/, preload/ and renderer/ side by side. */
 const RENDERER_PAGE = path.join(import.meta.dirname, "../renderer/index.html")
 
@@ -66,6 +66,24 @@ const PRELOAD = path.join(import.meta.dirname, "../preload/index.cjs")
 if (!app.commandLine.hasSwitch("user-data-dir")) {
   app.setPath("userData", path.join(app.getPath("appData"), USER_DATA))
 }
+
+/**
+ * One app per user data folder, whose lock Chromium keeps in it. A second
+ * launch on the folder hands its arguments to the first and quits. The
+ * first focuses its window and opens nothing.
+ */
+const firstInstance = app.requestSingleInstanceLock()
+if (!firstInstance) app.quit()
+
+app.on("second-instance", () => {
+  const [appWindow] = BrowserWindow.getAllWindows()
+  if (appWindow === undefined) return
+  if (appWindow.isMinimized()) appWindow.restore()
+  appWindow.focus()
+})
+
+/** The runbook the command line names, if any. */
+const launch = launched(process.argv)
 
 const processEnvironment: Record<string, string> = {}
 for (const [name, value] of Object.entries(process.env))
@@ -112,62 +130,79 @@ app.on("will-quit", (event) => {
   )
 })
 
-app
-  .whenReady()
-  .then(() => {
-    const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
-    const page = devServerUrl === undefined ? pathToFileURL(RENDERER_PAGE) : new URL(devServerUrl)
-    const appWindow = openWindow(devServerUrl !== undefined)
-    engine = Effect.runFork(
-      Effect.gen(function* () {
-        // Listening before the page loads, so its first message is heard.
-        const protocol = yield* makeIpcServerProtocol({
-          contents: appWindow.webContents,
-          page,
-          log: (line) => console.warn(line),
-        })
-        appWindow
-          .loadURL(page.href)
-          .catch((error: unknown) => console.error("The window could not load its page:", error))
-        return yield* servePage(protocol).pipe(
-          Effect.provide(
-            appEngine({
-              userData: app.getPath("userData"),
-              appVersion: __RUNBOOKS_VERSION__,
-              processEnvironment,
-            }),
+if (firstInstance)
+  app
+    .whenReady()
+    .then(() => {
+      const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
+      const devServer = devServerUrl === undefined ? undefined : new URL(devServerUrl)
+      const page = devServer ?? pathToFileURL(RENDERER_PAGE)
+      const appWindow = openWindow(devServer)
+      engine = Effect.runFork(
+        Effect.gen(function* () {
+          // Listening before the page loads, so its first message is heard.
+          const protocol = yield* makeIpcServerProtocol({
+            contents: appWindow.webContents,
+            page,
+            log: (line) => console.warn(line),
+          })
+          appWindow
+            .loadURL(page.href)
+            .catch((error: unknown) => console.error("The window could not load its page:", error))
+          return yield* serveLaunch(protocol, launch, (line) => console.error(line)).pipe(
+            Effect.provide(
+              Layer.merge(
+                appEngine({
+                  userData: app.getPath("userData"),
+                  appVersion: __RUNBOOKS_VERSION__,
+                  processEnvironment,
+                }),
+                NodeFileSystemLive,
+              ),
+            ),
+          )
+        }).pipe(
+          Effect.scoped,
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.void
+              : Effect.sync(() => console.error("The engine stopped:", Cause.pretty(cause))),
           ),
-        )
-      }).pipe(
-        Effect.scoped,
-        Effect.catchCause((cause) =>
-          Cause.hasInterruptsOnly(cause)
-            ? Effect.void
-            : Effect.sync(() => console.error("The engine stopped:", Cause.pretty(cause))),
         ),
-      ),
-    )
-  })
-  .catch((error: unknown) => {
-    console.error("The app could not open its window:", error)
-    app.exit(1)
-  })
+      )
+    })
+    .catch((error: unknown) => {
+      console.error("The app could not open its window:", error)
+      app.exit(1)
+    })
 
-/** Opens the window, which loads no page yet; on a dev server's, it sets no CSP. */
-function openWindow(devServer: boolean): BrowserWindow {
+/**
+ * The runbook `argv` names, with the folder the app was started in, which
+ * `process.cwd()` can't read once that folder is deleted.
+ */
+function launched(argv: ReadonlyArray<string>): Launch | undefined {
+  const argument = launchArgument(argv, process.defaultApp === true)
+  if (argument === undefined) return undefined
+  let startedIn: string | undefined
+  try {
+    startedIn = process.cwd()
+  } catch {
+    startedIn = undefined
+  }
+  return { argument, startedIn }
+}
+
+/** Opens the window, which loads no page yet, for the build's page or the dev server's at `devServer`. */
+function openWindow(devServer: URL | undefined): BrowserWindow {
   const windowSession = session.fromPartition(PARTITION)
   windowSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   windowSession.setPermissionCheckHandler(() => false)
-  if (!devServer) {
-    windowSession.webRequest.onHeadersReceived((details, callback) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          "Content-Security-Policy": [CONTENT_SECURITY_POLICY],
-        },
-      })
+  const policy = contentSecurityPolicy(devServer)
+  windowSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [policy] },
     })
-  }
+  })
 
   const appWindow = new BrowserWindow({
     width: 1280,
@@ -193,11 +228,14 @@ function openWindow(devServer: boolean): BrowserWindow {
   return appWindow
 }
 
-/** Opens an http or https URL in the browser, and does nothing with any other. */
+/** The schemes the OS may open for the window: the browser's, and the mail app's. */
+const EXTERNAL_SCHEMES: ReadonlySet<string> = new Set(["http:", "https:", "mailto:"])
+
+/** Opens an http, https or mailto URL in the app the OS has for it, and does nothing with any other. */
 function openInBrowser(url: string): void {
   const parsed = URL.parse(url)
-  if (parsed?.protocol !== "http:" && parsed?.protocol !== "https:") return
+  if (parsed === null || !EXTERNAL_SCHEMES.has(parsed.protocol)) return
   shell
     .openExternal(parsed.href)
-    .catch((error: unknown) => console.error("A link could not open in the browser:", error))
+    .catch((error: unknown) => console.error("A link could not open outside the app:", error))
 }
