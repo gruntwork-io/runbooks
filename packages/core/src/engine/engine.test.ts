@@ -34,6 +34,7 @@ import {
   type OutputView,
   SessionId,
   type SessionView,
+  UnknownSequence,
 } from "./protocol.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
@@ -787,6 +788,41 @@ describe("Engine", () => {
         )
         expect(logged.flatMap((e) => e.lines)).toEqual([...lines])
         expect(logged[0]?.offset).toBe(0)
+      }),
+    )
+  })
+
+  it("refuses events after a sequence the session has not logged, rather than waiting for it", async () => {
+    await withEngine(
+      '<Run id="a" command="ok" />',
+      { ok },
+      Effect.gen(function* () {
+        const engine = yield* Engine
+        const session = yield* open
+        const { session: id } = session
+        const rb = yield* commandsFor(session)
+        const refusal = (after: number) =>
+          Stream.runCollect(engine.events({ session: id, after })).pipe(
+            Effect.flip,
+            Effect.timeoutOrElse({
+              duration: "1 second",
+              orElse: () => Effect.die(new Error(`events after ${after} waited`)),
+            }),
+          )
+        const far = yield* refusal(1_000)
+        expect(far).toBeInstanceOf(UnknownSequence)
+        expect(far).toMatchObject({ session: id, after: 1_000 })
+        const { next } = far as UnknownSequence
+        // The sequence the session logs next is not one it has logged.
+        expect(yield* refusal(next)).toMatchObject({ after: next, next })
+        // The last one it logged is.
+        const tail = yield* Effect.forkChild(
+          Stream.runCollect(engine.events({ session: id, after: next - 1 })),
+        )
+        yield* rb.close
+        const events = yield* Fiber.join(tail)
+        expect(events[0]?.sequence).toBe(next)
+        expect(events.at(-1)?.event._tag).toBe("SessionClosed")
       }),
     )
   })

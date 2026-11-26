@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { Context, DateTime, Effect, Layer, Schema, Stream } from "effect"
+import { Cause, Context, DateTime, Effect, Exit, Layer, Option, Schema, Stream } from "effect"
 import { Rpc, type RpcClient, RpcTest } from "effect/rpc"
 import { BlockId } from "@runbooks/blocks-core/contract"
 import { ContentHash } from "../document/document.ts"
@@ -13,6 +13,7 @@ import {
   type EngineCommand,
   EngineProtocol,
   EventEnvelope,
+  Events,
   FieldView,
   type FileChange,
   Forbidden,
@@ -25,6 +26,7 @@ import {
   SessionView,
   Settings,
   SettingsView,
+  UnknownSequence,
   UnknownSession,
   WaitForBlock,
 } from "./protocol.ts"
@@ -186,6 +188,15 @@ describe("engine protocol", () => {
     expect(wire.at).toBe("2026-11-24T12:00:00.000Z")
     expect(wire.event.outputs.token).toEqual({ _tag: "Hidden" })
     expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
+  })
+
+  it("carries Events' refusal of a sequence not logged through JSON, as the typed error", () => {
+    // A stream's error crosses in the exit that ends it.
+    const json = Schema.toCodecJson(Rpc.exitSchema(Events))
+    const refused = new UnknownSequence({ session, after: 5, next: 2 })
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(Exit.fail(refused))))
+    const back = Schema.decodeUnknownSync(json)(wire)
+    expect(Exit.isFailure(back) && Cause.findErrorOption(back.cause)).toEqual(Option.some(refused))
   })
 
   it("lists the files a block's run touched by absolute path, up to a limit it says it reached", () => {

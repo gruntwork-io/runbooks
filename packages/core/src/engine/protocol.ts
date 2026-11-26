@@ -470,6 +470,14 @@ export class UnknownBlock extends Schema.TaggedError<UnknownBlock>()("UnknownBlo
   block: Schema.String,
 }) {}
 
+/** `Events` was asked for the events after a sequence the session has not logged yet. */
+export class UnknownSequence extends Schema.TaggedError<UnknownSequence>()("UnknownSequence", {
+  session: SessionId,
+  after: Sequence,
+  /** The sequence the session logs next. */
+  next: Sequence,
+}) {}
+
 /** The command does not apply to the block's class: running a display block, signing in to a task. */
 export class WrongClass extends Schema.TaggedError<WrongClass>()("WrongClass", {
   block: BlockId,
@@ -576,11 +584,15 @@ export class TrustSession extends Rpc.make("TrustSession", {
   error: Schema.Union([UnknownSession, Forbidden]),
 }) {}
 
-/** Every event after `after`, then each new one as it happens. Ends when the session closes. */
+/**
+ * Every event after `after`, then each new one as it happens. Ends when the
+ * session closes. `after` is a sequence the session has logged: a later one
+ * is `UnknownSequence`.
+ */
 export class Events extends Rpc.make("Events", {
   payload: { ...session, after: Schema.optionalKey(Sequence) },
   success: EventEnvelope,
-  error: SessionError,
+  error: Schema.Union([UnknownSession, UnknownSequence]),
   stream: true,
 }) {}
 
