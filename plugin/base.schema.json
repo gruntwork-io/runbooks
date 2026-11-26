@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "base.schema.json",
   "title": "Runbooks plugin transport",
-  "description": "JSON-RPC 2.0, one JSON object per line. Requests on standard input; responses and notifications on standard output; logs on standard error. Every request has an id; no batches. Only the plugin sends notifications, and each names its request in params.request. `configure` is the first call. Closing standard input stops the plugin. Unknown fields are ignored, except a field that narrows what a call may do, which needs a new protocol version.",
+  "description": "JSON-RPC 2.0, one JSON object per line. Requests on standard input; responses and notifications on standard output; logs on standard error. Every request has an id; no batches. Only the plugin sends notifications, and each names its request in params.request. `configure` is the first call. Closing standard input stops the plugin. A call still in flight when standard input closes may get no answer; the app reads none after it closes standard input. Unknown fields are ignored, except a field that narrows what a call may do, which needs a new protocol version.",
   "$defs": {
     "id": {
       "description": "A request id. The caller chooses it; the plugin echoes it.",
