@@ -1,7 +1,8 @@
 /**
  * A runbook given on the command line, as the window shows it: its markdown
  * walked, its blocks as placeholders, a misconfigured block's errors, the
- * author's markup as data, and its body in a box its styles can't escape.
+ * author's markup as data, its body in a box its styles can't escape, and
+ * one nested as deep as a runbook may be, or deeper.
  *
  * Runs against the build in app-out/: `just app-test-e2e` builds it first.
  * Each test launches it through the shared fixture (fixtures.ts), with a
@@ -12,6 +13,16 @@ import path from "node:path"
 import { expect, test } from "./fixtures.ts"
 
 const runbook = (name: string) => path.join(import.meta.dirname, "runbooks", name)
+
+/**
+ * The parser's MAX_NESTING (packages/core/src/document/mdx.ts), which a spec
+ * can't import. The test of a runbook nested deeper reads it in main's
+ * message, so it fails when the two differ.
+ */
+const MAX_NESTING = 100
+
+/** `text` inside `quotes` blockquotes. */
+const quoted = (quotes: number, text: string) => `${"> ".repeat(quotes)}${text}\n`
 
 test.describe("a runbook given on the command line", () => {
   test("shows its title, headings, a list, a code block, a link and a block placeholder", async ({
@@ -118,5 +129,55 @@ test.describe("a runbook given on the command line", () => {
       return header.contains(hit) ? "header" : (hit?.textContent ?? "nothing")
     })
     expect(headerHit).toBe("header")
+  })
+
+  test("shows a runbook nested as deep as a runbook may be, each part to its bottom", async ({
+    launch,
+  }, testInfo) => {
+    // Each to MAX_NESTING levels, the most the parser takes (parse.test.ts):
+    // under Electron's Node, nested elements ran the engine out of stack at
+    // 500, and lists the window's walk at 400 (800 levels).
+    const levels = MAX_NESTING - 2
+    const lists = Array.from(
+      { length: MAX_NESTING / 2 - 1 },
+      (_, i) => `${"  ".repeat(i)}- item ${i}`,
+    )
+    const file = testInfo.outputPath("deepest.mdx")
+    fs.writeFileSync(
+      file,
+      [
+        "# As deep as may be",
+        "",
+        `${"<div>".repeat(levels)}The bottom of the elements.${"</div>".repeat(levels)}`,
+        "",
+        quoted(levels, "The bottom of the quotes."),
+        `${lists.join("\n")} is the bottom of the lists.`,
+        "",
+      ].join("\n"),
+    )
+    const { page, output } = await launch({ args: [file] })
+    await expect(page.getByRole("heading", { name: "As deep as may be" })).toBeVisible()
+    const body = page.locator(".runbook-body")
+    await expect(body).toContainText("The bottom of the elements.")
+    await expect(body).toContainText("The bottom of the quotes.")
+    await expect(body).toContainText(`item ${MAX_NESTING / 2 - 2} is the bottom of the lists.`)
+    // Main says nothing of it. (Its output also holds Chromium's own lines,
+    // such as GPU warnings on Linux CI.)
+    expect(output()).not.toContain("Runbooks could not open")
+  })
+
+  test("refuses a runbook nested deeper, saying where, and serves the window", async ({
+    launch,
+  }, testInfo) => {
+    // runbooks-reviewer's runbook: Electron main ran out of stack opening it.
+    const file = testInfo.outputPath("too-deep.mdx")
+    fs.writeFileSync(file, `# Too deep\n\n${quoted(2000, "The bottom.")}`)
+    const { page, output } = await launch({ args: [file] })
+    await expect(page.getByRole("heading", { name: "Open a runbook" })).toBeVisible()
+    await expect
+      .poll(output)
+      .toContain(
+        `Runbooks could not open ${file}:\n  ${file}:3:${2 * MAX_NESTING + 1}: Nested more than ${MAX_NESTING} levels deep.`,
+      )
   })
 })
