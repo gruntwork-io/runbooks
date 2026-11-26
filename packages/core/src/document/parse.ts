@@ -46,7 +46,9 @@ import { refusals } from "./literalOnly.ts"
 import {
   attributeValue,
   expressionValue,
+  MAX_NESTING,
   type MdxNode,
+  nestedTooDeep,
   parseMdx,
   type PropValue,
   splitFrontMatter,
@@ -224,6 +226,21 @@ class Parse {
     if ("problem" in parsed) {
       const { reason, at } = parsed.problem
       this.stopped = this.invalid(this.error("syntax", reason, { start: at, end: at }))
+      return []
+    }
+
+    // Before any walk that recurses: the refusals, the tree's conversion, and
+    // later the engine's encoding and the window's walk.
+    const tooDeep = nestedTooDeep(parsed.tree)
+    if (tooDeep !== undefined) {
+      this.stopped = this.invalid(
+        this.error(
+          "tooDeep",
+          `Nested more than ${MAX_NESTING} levels deep. A runbook may nest its blocks, elements, quotes and lists, and the parts inside them, at most ${MAX_NESTING} levels deep.`,
+          spanOf(tooDeep),
+          { expected: `at most ${MAX_NESTING} levels of nesting` },
+        ),
+      )
       return []
     }
 
