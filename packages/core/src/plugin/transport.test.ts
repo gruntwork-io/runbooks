@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { Schema } from "effect"
+import { Option, Schema } from "effect"
 import {
   ConfigureParams,
   ConfigureResult,
@@ -110,6 +110,33 @@ describe("transport errors", () => {
       actual: "b",
     })
     expect(error._tag).toBe("PluginHashMismatch")
-    expect(() => decode(PluginTransportError)({ _tag: "PluginGone", plugin: "x" })).toThrow()
+    // Not `toThrow`: Bun's passes when the function returns an Error, and a decoded one is.
+    const gone = Schema.decodeUnknownOption(PluginTransportError)({
+      _tag: "PluginGone",
+      plugin: "x",
+    })
+    expect(Option.isNone(gone)).toBe(true)
+  })
+
+  it("name no offered version for a plugin that refused this app's", () => {
+    const refused = decode(PluginTransportError)({
+      _tag: "PluginUnsupportedProtocolVersion",
+      plugin: "aws",
+      supported: "1",
+    })
+    expect(refused).toMatchObject({ _tag: "PluginUnsupportedProtocolVersion", supported: "1" })
+    expect("offered" in refused).toBe(false)
+  })
+
+  it("are too large for a line or a stream's items, and never for standard error", () => {
+    const tooLarge = { _tag: "PluginTooLarge", plugin: "aws", max: 1 }
+    for (const limit of ["line", "streamItems"]) {
+      expect(decode(PluginTransportError)({ ...tooLarge, limit })).toMatchObject({ limit })
+    }
+    const stderr = Schema.decodeUnknownOption(PluginTransportError)({
+      ...tooLarge,
+      limit: "stderr",
+    })
+    expect(Option.isNone(stderr)).toBe(true)
   })
 })

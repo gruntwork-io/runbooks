@@ -38,6 +38,10 @@ export type Sha256 = typeof Sha256.Type
  * existing kind is one entry. A runbook cannot name a binary of its own.
  */
 export const PluginEntry = Schema.Struct({
+  /**
+   * Unique within its kind: `aws`. The binary is `runbooks-<kind>-<name>`,
+   * with `.exe` on Windows, as the plugins' release names it.
+   */
   name: Schema.NonEmptyString,
   kind: PluginKind,
   version: Schema.NonEmptyString,
@@ -50,9 +54,9 @@ export type PluginEntry = typeof PluginEntry.Type
 export const LIMITS = {
   /** A call that has no answer by then fails with `PluginTimedOut`. Sign-in sets its own. */
   callTimeoutMillis: 30_000,
-  /** One line on standard output. */
+  /** One line either way: the plugin's on standard output, or a request the owner would write. */
   maxLineBytes: 1024 * 1024,
-  /** Standard error is kept for the `PluginExited` message, up to this much. */
+  /** Standard error's last this many bytes are kept for `PluginExited`. More never fails. */
   maxStderrBytes: 64 * 1024,
   /** Notifications one streaming call may produce. */
   maxStreamItems: 10_000,
@@ -81,19 +85,27 @@ export class PluginSpawnFailed extends Schema.TaggedError<PluginSpawnFailed>()(
   { plugin: Schema.String, message: Schema.String },
 ) {}
 
-/** `configure` answered with a protocol version this app does not speak. */
+/**
+ * `configure` answered with a protocol version this app does not speak, or
+ * refused this app's with error kind `unsupportedProtocolVersion`. A refusal
+ * names no version of the plugin's own, so `offered` is absent.
+ */
 export class PluginUnsupportedProtocolVersion extends Schema.TaggedError<PluginUnsupportedProtocolVersion>()(
   "PluginUnsupportedProtocolVersion",
-  { plugin: Schema.String, offered: Schema.String, supported: Schema.String },
+  { plugin: Schema.String, offered: Schema.optionalKey(Schema.String), supported: Schema.String },
 ) {}
 
-/** A line that is not JSON, a message that fails its schema, a response to no open request, or a notification with no request. */
+/**
+ * A line that is not JSON, a message that fails its schema, a response to no
+ * open request, or a notification with no request. `message` says which,
+ * and never quotes the line: it may hold a secret.
+ */
 export class PluginProtocolViolation extends Schema.TaggedError<PluginProtocolViolation>()(
   "PluginProtocolViolation",
   { plugin: Schema.String, message: Schema.String },
 ) {}
 
-/** The plugin exited while a call was open. `stderr` is its tail, up to `maxStderrBytes`. */
+/** The plugin exited, so its session is over. `stderr` is its last `maxStderrBytes` bytes. */
 export class PluginExited extends Schema.TaggedError<PluginExited>()("PluginExited", {
   plugin: Schema.String,
   code: Schema.optionalKey(Schema.Int),
@@ -107,10 +119,10 @@ export class PluginTimedOut extends Schema.TaggedError<PluginTimedOut>()("Plugin
   afterMillis: Schema.Int,
 }) {}
 
-/** A line, the standard error buffer, or a stream's items passed its limit. */
+/** A line or a stream's items passed its limit. */
 export class PluginTooLarge extends Schema.TaggedError<PluginTooLarge>()("PluginTooLarge", {
   plugin: Schema.String,
-  limit: Schema.Literals(["line", "stderr", "streamItems"]),
+  limit: Schema.Literals(["line", "streamItems"]),
   max: Schema.Int,
 }) {}
 
@@ -152,6 +164,8 @@ export interface Method<P, R> {
   readonly name: string
   readonly params: Schema.Codec<P, unknown>
   readonly result: Schema.Codec<R, unknown>
+  /** How long the call may take, `LIMITS.callTimeoutMillis` when absent. A sign-in sets its own. */
+  readonly timeoutMillis?: number
 }
 
 /** A method that sends notifications before its result, such as `signIn`. */
@@ -163,13 +177,42 @@ export type StreamItem<N, R> =
   | { readonly _tag: "Notification"; readonly params: N }
   | { readonly _tag: "Result"; readonly result: R }
 
-/** One running plugin. Closing the scope that opened it closes standard input, waits, then kills. */
-export interface PluginSession<K extends string> {
+/** What the owner puts in every `configure`. */
+export interface ConfigureFields {
+  /** `PROTOCOL_VERSION`. */
+  readonly protocolVersion: string
+  /** The calling app and its version: runbooks/0.31.0. */
+  readonly caller: string
+}
+
+/**
+ * What the owner needs of a kind (the credential protocol, later the
+ * driver's): the kind's own error kinds and its `configure`, whose params
+ * hold `ConfigureFields` and whose result holds `protocolVersion`.
+ */
+export interface PluginProtocol<K extends string, P, C> {
+  readonly kind: PluginKind
+  readonly errorKinds: ReadonlyArray<K>
+  readonly configure: Method<P, C>
+}
+
+/**
+ * One running plugin, configured. A timeout, a protocol violation, a line or
+ * a stream's items past its limit, or an exit ends the session: standard
+ * input closes, and every open call fails with the error that ended it, as
+ * does every later call. A call or stream given up before its answer ends it
+ * too, since closing standard input is the protocol's only cancel: the calls
+ * left fail with `PluginExited` once the plugin stops. A remote error ends
+ * only its call.
+ */
+export interface PluginSession<K extends string, C> {
+  /** What the plugin answered to `configure`. */
+  readonly configured: C
   readonly call: <P, R>(
     method: Method<P, R>,
     params: P,
   ) => Effect.Effect<R, PluginTransportError | PluginRemoteError<K>>
-  /** Ends with exactly one `Result`. Closing the stream early cancels the call by closing standard input. */
+  /** Ends with exactly one `Result`. Closing it early cancels the call by closing standard input. */
   readonly stream: <P, N, R>(
     method: StreamMethod<P, N, R>,
     params: P,
@@ -181,13 +224,21 @@ export class PluginProcess extends Context.Service<
   PluginProcess,
   {
     /**
-     * Starts a plugin by registry name, never by path, after checking its
-     * hash. The child gets exactly `env`, not the app's own environment.
+     * Starts a plugin of `protocol`'s kind by registry name, never by path,
+     * after checking its hash, then calls `configure` with `configure`'s
+     * params before anything else. The child gets exactly `env`, not the
+     * app's own environment. Closing the scope closes standard input, waits
+     * `LIMITS.exitGraceMillis`, then kills the plugin and what it started.
      */
-    readonly open: <K extends string>(
+    readonly open: <K extends string, P, C>(
+      protocol: PluginProtocol<K, P, C>,
       plugin: string,
       env: { readonly [name: string]: Redacted.Redacted<string> },
-      errorKinds: ReadonlyArray<K>,
-    ) => Effect.Effect<PluginSession<K>, PluginTransportError, Scope.Scope>
+      configure: (fields: ConfigureFields) => P,
+    ) => Effect.Effect<
+      PluginSession<K, C>,
+      PluginTransportError | PluginRemoteError<K>,
+      Scope.Scope
+    >
   }
 >()("@runbooks/core/plugin/PluginProcess") {}
