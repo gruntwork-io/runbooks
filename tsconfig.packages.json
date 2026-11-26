@@ -36,6 +36,9 @@
       "@runbooks/core/test-utils/*": ["./packages/core/src/test-utils/*.ts"],
       "@runbooks/core/types": ["./packages/core/src/types.ts"],
 
+      // cli: packages/cli
+      "@runbooks/cli/testFile": ["./packages/cli/src/testFile.ts"],
+
       // platform-node: packages/platform-node
       "@runbooks/platform-node/layers/*": ["./packages/platform-node/src/layers/*.ts"]
     }
