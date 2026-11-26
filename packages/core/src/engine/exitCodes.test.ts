@@ -37,8 +37,8 @@ const withSession = <A>(
   )
 
 /** A script block that writes an output and a variable, then ends as `ends` says, run by run. */
-const writer = (ends: string) =>
-  `<Script id="w" label="w" writesOutput={["region=us-east-1"]} writesEnv={["X=1"]} declares={["region"]} ends={${ends}} />`
+const writer = (ends: string, more = "") =>
+  `<Script id="w" label="w" writesOutput={["region=us-east-1"]} writesEnv={["X=1"]} declares={["region"]} ends={${ends}}${more} />`
 
 /** Blocks after the writer: one that depends on it, one that takes its environment. */
 const AFTER = [
@@ -46,7 +46,7 @@ const AFTER = [
   '<Run id="reader" command="reader" envFrom={["w"]} />',
 ].join("\n\n")
 
-const runbookOf = (ends: string) => `${writer(ends)}\n\n${AFTER}`
+const runbookOf = (ends: string, more = "") => `${writer(ends, more)}\n\n${AFTER}`
 
 const waitingFor = (capability: "run" | "env"): BlockStatus => ({
   _tag: "Blocked",
@@ -117,14 +117,14 @@ describe("the exit-code table, in a session", () => {
 })
 
 describe("a run that does not end", () => {
-  it("withdraws its outputs and env when it times out", async () => {
-    await withSession(runbookOf('[0, "timeout"]'), (rb) =>
+  it("is stopped at its block's time limit, and withdraws its outputs and env", async () => {
+    await withSession(runbookOf('[0, "never"]', " timeLimitMillis={50}"), (rb) =>
       Effect.gen(function* () {
         yield* rb.run("w")
         expect(yield* rb.outputs).toEqual(PUBLISHED)
         expect(yield* rb.run("w")).toMatchObject({
           _tag: "Failed",
-          error: { _tag: "TaskTimedOut" },
+          error: { _tag: "TaskTimedOut", afterMillis: 50 },
         })
         yield* expectWithdrawn(rb)
       }),

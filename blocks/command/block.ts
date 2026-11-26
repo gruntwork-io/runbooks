@@ -28,7 +28,6 @@ import {
   type RunEnv,
   type TaskEvent,
   TaskFailed,
-  TaskTimedOut,
 } from "@runbooks/blocks-core/contract"
 import { shellQuote } from "@runbooks/core/domain/exec/blockEnv"
 import { LOG_CHANNELS, logChannelFiles, tagLogLine } from "@runbooks/core/domain/exec/logChannels"
@@ -123,6 +122,7 @@ export const command = defineTask({
       : p.path !== undefined
         ? [{ _tag: "File", path: p.path }]
         : [],
+  timeLimit: (p) => p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   provides: ["run", "env"],
   effects: ["process"],
   outputs: (p) => Object.fromEntries((p.outputs ?? []).map((name) => [name, { sensitive: false }])),
@@ -173,17 +173,9 @@ export const command = defineTask({
           (spawned) => spawned.kill,
         ).pipe(Effect.mapError(couldNot(`start ${runner.interpreter}`)))
 
-        const timeoutMs = p.timeoutMs ?? DEFAULT_TIMEOUT_MS
         return Stream.concat(
           Stream.map(running.output, toEvent),
           Stream.unwrap(Effect.map(running.exitCode, endWithExitCode)),
-        ).pipe(
-          Stream.interruptWhen(
-            Effect.andThen(
-              Effect.sleep(timeoutMs),
-              Effect.fail(new TaskTimedOut({ afterMillis: timeoutMs })),
-            ),
-          ),
         )
       }),
     ),
