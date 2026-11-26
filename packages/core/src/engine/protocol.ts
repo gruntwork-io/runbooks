@@ -188,10 +188,12 @@ export const BlockView = Schema.Struct({
   /**
    * The files the block's latest run wrote, changed or removed: one entry
    * per path, with its latest change, in the order the run first touched
-   * each. The first `LIMITS.maxRunFiles` paths only. Absent when it touched
-   * none.
+   * each. The first `LIMITS.maxRunFiles` paths only: `filesTruncated` says
+   * the run touched more. Absent when it touched none.
    */
   files: Schema.optionalKey(Schema.Array(FileChange).check(Schema.isMaxLength(LIMITS.maxRunFiles))),
+  /** Present when the run touched more paths than `files` lists. */
+  filesTruncated: Schema.optionalKey(Schema.Literal(true)),
 })
 export type BlockView = typeof BlockView.Type
 

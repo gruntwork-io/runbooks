@@ -188,7 +188,7 @@ describe("engine protocol", () => {
     expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
   })
 
-  it("lists the files a block's run touched by absolute path, up to a limit", () => {
+  it("lists the files a block's run touched by absolute path, up to a limit it says it reached", () => {
     const view = Schema.decodeUnknownSync(BlockView)
     const base = { block: greet, tag: "Run", class: "task", actions: [], outputs: {} }
     const files: ReadonlyArray<FileChange> = [
@@ -196,6 +196,8 @@ describe("engine protocol", () => {
       { path: "C:\\work\\generated\\old.tf", change: "deleted" },
     ]
     expect(view({ ...base, files }).files).toEqual(files)
+    expect(view({ ...base, files, filesTruncated: true }).filesTruncated).toBe(true)
+    expect(() => view({ ...base, files, filesTruncated: false })).toThrow(/at \["filesTruncated"\]/)
     expect(() =>
       view({ ...base, files: [{ path: "generated/main.tf", change: "created" }] }),
     ).toThrow(/Expected an absolute path/)
