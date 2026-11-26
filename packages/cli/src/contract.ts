@@ -216,7 +216,6 @@ export const CliFailure = Schema.Union([
   /** A folder given with `/...` holds more files and folders than the CLI looks through. */
   Schema.TaggedStruct("TooManyFiles", { path: Schema.String, limit: Schema.Int }),
   Schema.TaggedStruct("TestCaseNotFound", { name: Schema.String, runbooks: Schema.Int }),
-  Schema.TaggedStruct("BadTestFile", { path: Schema.String, message: Schema.String }),
   Schema.TaggedStruct("BadFlag", { flag: Schema.String, message: Schema.String }),
   /** Ctrl-C stopped `runbooks test`: the block running then was cancelled, and nothing after it ran. */
   Schema.TaggedStruct("Cancelled", {}),
@@ -277,6 +276,11 @@ export const RunbookTestReport = Schema.Struct({
   /** A runbook with configuration errors fails every test before any block runs. */
   errors: Schema.Array(ConfigError),
   warnings: Schema.Array(ConfigWarning),
+  /**
+   * Its test cases, as `runbook_test.yml` names them. A test file that can't
+   * be loaded gives one failed test, `config`, whose message names the file,
+   * line and column; the other runbooks are still tested.
+   */
   tests: Schema.Array(TestCaseReport),
 })
 export type RunbookTestReport = typeof RunbookTestReport.Type

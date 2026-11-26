@@ -385,20 +385,38 @@ tests:
     expect(stdout).toContain("✓ setup: success (expected success")
   })
 
-  it("refuses a test file with an unknown key, with its line, and runs nothing", async () => {
+  it("fails a test file with an unknown key as its runbook's config test, with its line, and runs nothing", async () => {
     runbook(
       DEPLOY,
       `version: 1\ntests:\n  - name: one\n    steps:\n      - block: setup\n        expects: success\n`,
     )
-    const { code, stdout, stderr } = await runTest(["rb", "--output", "json"])
+    const { code, stdout } = await runTest(["rb", "--output", "json"])
     expect(code).toBe(1)
-    expect(stderr).toContain(
-      "runbook_test.yml:6:9: tests[0].steps[0].expects: there is no key expects here. Did you mean expect?",
-    )
     const report = decodeReport(JSON.parse(stdout))
-    expect(report.failure).toMatchObject({ _tag: "BadTestFile", path: "rb/runbook_test.yml" })
-    expect(report.runbooks).toEqual([])
+    expect(report.failure).toBeUndefined()
+    expect(report.outcome).toBe("failed")
+    expect(report.runbooks.map((r) => r.tests.map((test) => [test.name, test.outcome]))).toEqual([
+      [["config", "failed"]],
+    ])
+    expect(report.runbooks[0]?.tests[0]?.message).toEndWith(
+      "rb/runbook_test.yml:6:9: tests[0].steps[0].expects: there is no key expects here. Did you mean expect?",
+    )
     expect(seen.runs).toBe(0)
+  })
+
+  it("goes on to the other runbooks after one whose test file can't be loaded, and says so in JUnit", async () => {
+    runbook(DEPLOY, "version: 1\ntests: nope\n", "a-broken")
+    runbook(BUILD, BUILD_TEST, "b-good")
+    const json = decodeReport(JSON.parse((await runTest(["./...", "--output", "json"])).stdout))
+    expect(json.failure).toBeUndefined()
+    expect(json.runbooks.map((r) => [r.path, r.tests.map((test) => test.outcome)])).toEqual([
+      [path.join(folder.path, "a-broken", "runbook.mdx"), ["failed"]],
+      [path.join(folder.path, "b-good", "runbook.mdx"), ["passed"]],
+    ])
+    const junit = await runTest(["./...", "--output", "junit"])
+    expect(junit.code).toBe(1)
+    expect(junit.stdout).toContain('<testcase name="config"')
+    expect(junit.stdout).toMatch(/<testsuites[^>]* tests="2" failures="1"/)
   })
 
   it("maps a Misconfigured block to config_error, and checks error_contains", async () => {

@@ -13,8 +13,6 @@ export function describeFailure(failure: CliFailure): string {
       return `${failure.path} holds more than ${failure.limit} files and folders. Name a smaller folder.`
     case "TestCaseNotFound":
       return `No test case is named ${failure.name} in the ${failure.runbooks} runbooks tested.`
-    case "BadTestFile":
-      return `${failure.path}: ${failure.message}`
     case "BadFlag":
       return `${failure.flag}: ${failure.message}`
     case "Cancelled":
