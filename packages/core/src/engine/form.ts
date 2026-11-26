@@ -276,7 +276,8 @@ export const valuesOf = (form: Form): TaskValues =>
 /**
  * A submitted form's outputs: each declared output is the value of the field
  * it names, as text, as `valuesOf` gives it to a task, and sensitive when the
- * field is. An output naming a field the form does not have gives nothing.
+ * field is. The session refuses a form whose output names a field it does not
+ * have when it opens, so each declared output is here.
  */
 export function outputsOf(
   form: Form,

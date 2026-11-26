@@ -56,7 +56,11 @@ export type RunbookErrorCode = typeof RunbookErrorCode.Type
  * blocks run.
  */
 export const BlockErrorCode = Schema.Literals([
-  /** A prop's value does not decode with the block's schema. */
+  /**
+   * A prop's value does not decode with the block's schema. Also what the
+   * engine finds in a block when a session opens: a form it cannot read, a
+   * form output naming a field the form does not have, props it cannot send.
+   */
   "badProp",
   /** An alias locks the prop, so the author may not set it. */
   "lockedProp",

@@ -141,7 +141,8 @@ export type OutputDecls<K extends string> = { readonly [Key in K]: OutputDecl }
 export interface FormOutputDecl {
   /**
    * The field the output carries. A form whose `fields` lack it is a
-   * configuration error in the block, found when the session opens.
+   * configuration error in the block (`badProp`), found when the session
+   * opens: the block is misconfigured and never done.
    */
   readonly field: string
 }
