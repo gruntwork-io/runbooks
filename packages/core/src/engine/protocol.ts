@@ -314,11 +314,27 @@ export const RunResult = Schema.Union([
 ])
 export type RunResult = typeof RunResult.Type
 
+/**
+ * Where a credential block is when it does not take an action. A closed set:
+ * each `CredentialState` tag, then two for a block with no state.
+ *
+ * - A credential state's tag: the block is in that state, and that state
+ *   does not take the action.
+ * - `Blocked`: its lifecycle has not started, because the session is not
+ *   trusted or a block it waits for is not done.
+ * - `Misconfigured`: its configuration has errors (its document node's
+ *   `errors`), so it has no lifecycle and takes no action.
+ */
+const NotAllowedState = Schema.Literals([
+  ...CredentialState.members.map((state) => state.fields._tag.schema.literal),
+  "Blocked",
+  "Misconfigured",
+])
+
 export const ActResult = Schema.Union([
   Schema.TaggedStruct("Accepted", {}),
   Schema.TaggedStruct("AwaitingApproval", { approval: ApprovalId }),
-  /** The block's credential state does not take that action. */
-  Schema.TaggedStruct("NotAllowed", { state: Schema.String }),
+  Schema.TaggedStruct("NotAllowed", { state: NotAllowedState }),
   /**
    * The action names a sign-in method, a level or a target the block does
    * not offer now, in its field `field`. Nothing changed. A null `id` is no
