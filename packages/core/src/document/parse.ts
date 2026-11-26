@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
 import { Option, Result, Schema, SchemaAST, SchemaIssue } from "effect"
-import YAML from "yaml"
+import YAML, { type Document, isMap, isScalar } from "yaml"
 import { yamlData } from "./yamlData.ts"
 import {
   BlockId,
@@ -470,8 +470,8 @@ class Parse {
       const requirement = record[REQUIREMENT_KEY]
       const unmet = versionProblem(requirement, this.options.appVersion)
       if (unmet !== undefined) {
-        const index = yaml.split("\n").findIndex((l) => l.startsWith(`${REQUIREMENT_KEY}:`))
-        this.error("versionRequired", unmet, lineSpan(index + 2), {
+        const line = 1 + lineIn(yaml, keyOffset(doc, REQUIREMENT_KEY))
+        this.error("versionRequired", unmet, lineSpan(line), {
           expected: `a version range such as ${REQUIREMENT_KEY}: ">= 0.28"`,
         })
       } else if (typeof requirement === "string") {
@@ -1062,6 +1062,13 @@ function strings(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(strings)
   if (typeof value === "object" && value !== null) return Object.values(value).flatMap(strings)
   return []
+}
+
+/** Where the top-level key `name` starts in `doc`'s YAML, quoted, flow or plain; else its start. */
+function keyOffset(doc: Document, name: string): number {
+  if (!isMap(doc.contents)) return 0
+  const pair = doc.contents.items.find(({ key }) => isScalar(key) && key.value === name)
+  return isScalar(pair?.key) ? (pair.key.range?.[0] ?? 0) : 0
 }
 
 const LINE_ONE: Span = { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } }

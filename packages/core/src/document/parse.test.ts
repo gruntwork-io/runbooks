@@ -456,6 +456,20 @@ describe("parseRunbook", () => {
       ])
     })
 
+    it("puts a requirement's error at its key's line, however the key is written", () => {
+      for (const yaml of [
+        'title: x\nrunbooks: ">= 0.40"',
+        'title: x\n"runbooks": ">= 0.40"',
+        "title: x\n'runbooks': \">= 0.40\"",
+        '{ title: x,\n  "runbooks": ">= 0.40" }',
+      ]) {
+        const found = errors(`---\n${yaml}\n---\n\n# Deploy\n`)
+        expect(found.map((e) => [e.code, e.location.span.start.line])).toEqual([
+          ["versionRequired", 3],
+        ])
+      }
+    })
+
     it("reports a requirement it can't read, and front matter that isn't YAML", () => {
       expect(brief(errors("---\nruns: 1\nrunbooks: 0.30\n---\n"))).toEqual([
         [
