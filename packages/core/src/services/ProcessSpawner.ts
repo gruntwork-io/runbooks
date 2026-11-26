@@ -37,6 +37,13 @@ export interface OutputLine {
   readonly line: string
   /** "file" lines come from one of SpawnOptions.logChannels. */
   readonly source: "stdout" | "stderr" | "file"
+  /**
+   * The line goes on in the next piece from the same source. A stdout or
+   * stderr line longer than the spawner holds whole comes in pieces, each but
+   * the last marked so. `wholeLines` and `collectOutput` join them; a reader
+   * that shows lines may show each piece as one.
+   */
+  readonly continues?: true
 }
 
 export interface SpawnedProcess {
@@ -57,6 +64,36 @@ export class ProcessSpawner extends Context.Service<ProcessSpawner, ProcessSpawn
   "ProcessSpawner",
 ) {}
 
+/**
+ * `output` with each line that came in pieces joined, for a reader that
+ * parses what the process wrote. A whole line comes when its last piece
+ * does, so it may follow lines from the other source that came between its
+ * pieces.
+ */
+export const wholeLines = <E, R>(
+  output: Stream.Stream<OutputLine, E, R>,
+): Stream.Stream<OutputLine, E, R> =>
+  output.pipe(
+    Stream.mapAccum(
+      (): ReadonlyMap<OutputLine["source"], string> => new Map(),
+      (started, piece) => {
+        const before = started.get(piece.source) ?? ""
+        const next = new Map(started)
+        if (piece.continues) {
+          next.set(piece.source, before + piece.line)
+          return [next, []] as const
+        }
+        next.delete(piece.source)
+        return [next, [{ line: before + piece.line, source: piece.source }]] as const
+      },
+      {
+        // A process that ends mid-line: its last piece is not marked, so
+        // nothing is left here unless output was cut short.
+        onHalt: (started) => [...started].map(([source, line]) => ({ line, source })),
+      },
+    ),
+  )
+
 /** Everything a short-lived process wrote, in arrival order, plus its exit code. */
 export interface CollectedOutput {
   readonly exitCode: number
@@ -76,7 +113,7 @@ export const collectOutput = (
 ): Effect.Effect<CollectedOutput, Cause.TimeoutError> =>
   Effect.gen(function* () {
     const lines: OutputLine[] = []
-    yield* proc.output.pipe(
+    yield* wholeLines(proc.output).pipe(
       Stream.runForEach((line) => Effect.sync(() => lines.push(line))),
       Effect.timeout(timeoutMs),
     )

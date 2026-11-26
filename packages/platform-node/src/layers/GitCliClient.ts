@@ -17,7 +17,11 @@ import type {
   GitInfo,
   CommitOptions,
 } from "@runbooks/core/services/GitClient"
-import { ProcessSpawner, type ProcessSpawnerShape } from "@runbooks/core/services/ProcessSpawner"
+import {
+  ProcessSpawner,
+  type ProcessSpawnerShape,
+  wholeLines,
+} from "@runbooks/core/services/ProcessSpawner"
 import { GitError } from "@runbooks/core/errors"
 import { sameHttpOrigin, stripUrlCredentials, withGitHttpAuth } from "@runbooks/core/domain/git/url"
 import { gitSpawnEnv, resolveSshCommand } from "@runbooks/core/domain/git/env"
@@ -39,7 +43,7 @@ function runGit(
 ) {
   return Effect.gen(function* () {
     const proc = yield* spawner.spawn("git", args, { cwd, stdin, env: env ?? gitSpawnEnv() })
-    const lines = yield* Stream.runCollect(proc.output)
+    const lines = yield* Stream.runCollect(wholeLines(proc.output))
     const code = yield* proc.exitCode
 
     if (code !== 0) {
@@ -486,7 +490,7 @@ function makeGitClient(spawner: ProcessSpawnerShape): GitClientShape {
           env: gitSpawnEnv(),
         })
         // Ignore exit code — 1 just means "no ignored files found"
-        const lines = (yield* Stream.runCollect(proc.output))
+        const lines = (yield* Stream.runCollect(wholeLines(proc.output)))
           .filter((l) => l.source === "stdout")
           .map((l) => l.line)
         return new Set(nulFields(lines))

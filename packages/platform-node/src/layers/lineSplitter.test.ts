@@ -36,6 +36,19 @@ describe("lineSplitter", () => {
     expect(split(["abcdefg", "hij\nk"], 4)).toEqual(["abcd", "efgh", "ij", "k"])
   })
 
+  it("says each piece of a long line but its last continues", () => {
+    const pieces: Array<[string, boolean]> = []
+    const splitter = lineSplitter((line, continues) => pieces.push([line, continues]), 4)
+    splitter.write(Buffer.from("abcdefghij\nk\n"))
+    splitter.end()
+    expect(pieces).toEqual([
+      ["abcd", true],
+      ["efgh", true],
+      ["ij", false],
+      ["k", false],
+    ])
+  })
+
   it("never ends a piece between the halves of a surrogate pair", () => {
     expect(split(["ab😀cd\n"], 3)).toEqual(["ab", "😀c", "d"])
   })

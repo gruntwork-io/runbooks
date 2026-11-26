@@ -13,7 +13,7 @@ import { Effect, Stream } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
 import type { GitInfo } from "../../services/GitClient.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
-import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
+import { ProcessSpawner, collectOutput, wholeLines } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
 import { compareVersions, extractVersion, parseVersion } from "../prerequisites/version.ts"
 import {
@@ -276,7 +276,7 @@ const readGitLines = (repoPath: string, args: string[]) =>
     const proc = yield* spawner.spawn("git", args, { cwd: repoPath, env: gitSpawnEnv() })
 
     return yield* Effect.gen(function* () {
-      const lines = (yield* Stream.runCollect(proc.output))
+      const lines = (yield* Stream.runCollect(wholeLines(proc.output)))
         .filter((l) => l.source === "stdout")
         .map((l) => l.line.trim())
         .filter(Boolean)

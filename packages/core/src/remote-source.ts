@@ -34,7 +34,7 @@
  * Either way the path may name a runbook directory or a runbook file.
  */
 import { Effect, Stream } from "effect"
-import { ProcessSpawner } from "./services/ProcessSpawner.ts"
+import { ProcessSpawner, wholeLines } from "./services/ProcessSpawner.ts"
 import type { SpawnError } from "./errors/index.ts"
 import { GitError, RemoteSourceError } from "./errors/index.ts"
 import { gitSpawnEnv, resolveSshCommand } from "./domain/git/env.ts"
@@ -490,7 +490,7 @@ export const resolveRef = (
     })
     const lines: string[] = []
     const stderr: string[] = []
-    yield* Stream.runForEach(proc.output, (line) => {
+    yield* Stream.runForEach(wholeLines(proc.output), (line) => {
       if (line.source === "stderr") {
         stderr.push(line.line)
       } else if (line.line.trim()) {

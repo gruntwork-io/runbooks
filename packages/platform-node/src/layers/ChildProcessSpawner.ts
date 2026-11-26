@@ -172,9 +172,14 @@ const impl: ProcessSpawnerShape = {
         const pipes = [proc.stdout, proc.stderr].filter((pipe) => pipe !== null)
         let pending = 0
         let paused = false
-        const record = (line: string, source: OutputLine["source"]) => {
-          collectedLines.push({ line, source })
-          logFile?.write(line + "\n")
+        const unpause = () => {
+          if (!paused) return
+          paused = false
+          for (const pipe of pipes) pipe.resume()
+        }
+        const record = (line: string, source: OutputLine["source"], continues = false) => {
+          collectedLines.push(continues ? { line, source, continues } : { line, source })
+          logFile?.write(continues ? line : line + "\n")
           pending += line.length
           if (!paused && pending > PENDING_LIMIT) {
             paused = true
@@ -183,10 +188,7 @@ const impl: ProcessSpawnerShape = {
         }
         const taken = (line: OutputLine) => {
           pending -= line.line.length
-          if (paused && pending <= PENDING_LIMIT / 2) {
-            paused = false
-            for (const pipe of pipes) pipe.resume()
-          }
+          if (pending <= PENDING_LIMIT / 2) unpause()
         }
 
         // Log channel files (e.g. RUNBOOK_LOG): followed on a timer, and also
@@ -208,14 +210,14 @@ const impl: ProcessSpawnerShape = {
 
         if (proc.stdout) {
           if (tails.length > 0) proc.stdout.on("data", readTails)
-          const stdoutLines = lineSplitter((line) => record(line, "stdout"))
+          const stdoutLines = lineSplitter((line, continues) => record(line, "stdout", continues))
           proc.stdout.on("data", stdoutLines.write)
           proc.stdout.on("end", stdoutLines.end)
         }
 
         if (proc.stderr) {
           if (tails.length > 0) proc.stderr.on("data", readTails)
-          const stderrLines = lineSplitter((line) => record(line, "stderr"))
+          const stderrLines = lineSplitter((line, continues) => record(line, "stderr", continues))
           proc.stderr.on("data", stderrLines.write)
           proc.stderr.on("end", stderrLines.end)
         }

@@ -1,9 +1,10 @@
 /**
  * Splits a byte stream into lines as readline does, at "\n", "\r\n" or a
  * lone "\r", for a child's pipes and the log files it writes. A line longer
- * than `MAX_LINE_LENGTH` characters comes out in pieces of that length, and
- * no more than that of a line that has not ended is held, so one huge line
- * costs no more memory than many short ones.
+ * than `MAX_LINE_LENGTH` characters comes out in pieces of that length, each
+ * but the last said to continue, and no more than that of a line that has
+ * not ended is held, so one huge line costs no more memory than many short
+ * ones.
  */
 import { StringDecoder } from "node:string_decoder"
 
@@ -18,7 +19,7 @@ export interface LineSplitter {
 }
 
 export function lineSplitter(
-  onLine: (line: string) => void,
+  onLine: (line: string, continues: boolean) => void,
   maxLength: number = MAX_LINE_LENGTH,
 ): LineSplitter {
   const decoder = new StringDecoder("utf8")
@@ -29,7 +30,7 @@ export function lineSplitter(
       // A piece never ends between the two halves of a surrogate pair.
       const high = text.charCodeAt(maxLength - 1)
       const cut = high >= 0xd800 && high <= 0xdbff ? maxLength - 1 : maxLength
-      onLine(text.slice(0, cut))
+      onLine(text.slice(0, cut), true)
       text = text.slice(cut)
     }
     return text
@@ -40,12 +41,12 @@ export function lineSplitter(
     for (const found of rest.matchAll(/\r\n|\r|\n/g)) {
       // A "\r" last in what has arrived may be the first half of "\r\n".
       if (!ended && found[0] === "\r" && found.index === rest.length - 1) break
-      onLine(pieces(rest.slice(start, found.index)))
+      onLine(pieces(rest.slice(start, found.index)), false)
       start = found.index + found[0].length
     }
     rest = pieces(rest.slice(start))
     if (ended && rest !== "") {
-      onLine(rest)
+      onLine(rest, false)
       rest = ""
     }
   }

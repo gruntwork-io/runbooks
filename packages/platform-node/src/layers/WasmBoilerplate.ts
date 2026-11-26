@@ -33,7 +33,7 @@ import { Effect, Layer, Stream } from "effect"
 import { BoilerplateRenderer } from "@runbooks/core/services/BoilerplateRenderer"
 import type { BoilerplateRendererShape } from "@runbooks/core/services/BoilerplateRenderer"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
-import { ProcessSpawner } from "@runbooks/core/services/ProcessSpawner"
+import { ProcessSpawner, wholeLines } from "@runbooks/core/services/ProcessSpawner"
 import type { SpawnedProcess } from "@runbooks/core/services/ProcessSpawner"
 import { WasmRuntime } from "@runbooks/core/services/WasmRuntime"
 import { RenderError } from "@runbooks/core/errors"
@@ -134,7 +134,7 @@ export function runBoilerplateCli(
         const tExec = Date.now()
         // Drain output (the spawner collects lines and emits them once the
         // process exits; stderr lines carry user-facing error detail).
-        const lines = yield* Stream.runCollect(proc.output)
+        const lines = yield* Stream.runCollect(wholeLines(proc.output))
         const stdout: string[] = []
         const stderr: string[] = []
         for (const l of lines) {
