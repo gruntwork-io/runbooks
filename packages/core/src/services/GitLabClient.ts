@@ -64,6 +64,37 @@ export interface MergeRequestResult {
   readonly branch: string
 }
 
+/** A group the user belongs to, or the user's personal namespace. */
+export interface GitLabNamespace {
+  readonly id: number
+  readonly kind: "group" | "user"
+  /** Full path, such as `group/subgroup`, or the username for a personal namespace. */
+  readonly fullPath: string
+}
+
+export interface GitLabProject {
+  readonly id: number
+  readonly name: string
+  /** Full path, such as `group/subgroup/project`. */
+  readonly pathWithNamespace: string
+  /** HTTPS clone URL as the instance reports it, port included. */
+  readonly httpUrlToRepo: string
+  /** Absent when GitLab reports none. */
+  readonly defaultBranch?: string | undefined
+  readonly visibility: string
+}
+
+export interface GitLabProjectList {
+  readonly projects: GitLabProject[]
+  /** True when the namespace has more projects than were listed. */
+  readonly truncated: boolean
+}
+
+export interface GitLabRef {
+  readonly ref: string
+  readonly type: "branch" | "tag"
+}
+
 export interface GitLabClientShape {
   /**
    * Validate a token against a GitLab instance. `baseUrl` is the instance
@@ -87,6 +118,30 @@ export interface GitLabClientShape {
     repo: string,
     baseUrl?: string,
   ) => Effect.Effect<string[], GitLabApiError>
+  /**
+   * The token user's personal namespace, then every group they belong to
+   * (nested subgroups included), sorted by path.
+   */
+  readonly listNamespaces: (
+    token: string,
+    baseUrl?: string,
+  ) => Effect.Effect<GitLabNamespace[], GitLabApiError>
+  /**
+   * Projects in a namespace, including those in a group's subgroups.
+   * `search` narrows the list on the server, for namespaces too large to list.
+   */
+  readonly listProjects: (
+    token: string,
+    namespace: Pick<GitLabNamespace, "id" | "kind">,
+    search?: string,
+    baseUrl?: string,
+  ) => Effect.Effect<GitLabProjectList, GitLabApiError>
+  /** Branches, then tags, of the project at `projectPath` (`group/subgroup/project`). */
+  readonly listRefs: (
+    token: string,
+    projectPath: string,
+    baseUrl?: string,
+  ) => Effect.Effect<GitLabRef[], GitLabApiError>
 }
 
 export class GitLabClient extends Context.Service<GitLabClient, GitLabClientShape>()(

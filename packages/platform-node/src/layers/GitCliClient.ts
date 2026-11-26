@@ -461,6 +461,11 @@ function makeGitClient(spawner: ProcessSpawnerShape): GitClientShape {
         Effect.map((lines) => Number(lines[0]) > 0),
       ),
 
+    countCommitsNotIn: (repoPath: string, ref: string) =>
+      runGit(spawner, ["rev-list", "--count", `${ref}..HEAD`, "--"], repoPath).pipe(
+        Effect.map((lines) => Number(lines[0])),
+      ),
+
     hasCommitsNotOnRemote: (repoPath: string, remote: string) =>
       runGit(
         spawner,
