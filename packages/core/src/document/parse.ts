@@ -35,7 +35,12 @@ import {
   SharedProps,
   type TreeNode,
 } from "./document.ts"
-import type { FileFact, FileText } from "./files.ts"
+import {
+  type FileFact,
+  type FileText,
+  RUNBOOK_FILE_LIMITS,
+  type RunbookFileLimit,
+} from "./files.ts"
 import { blockName, referenceGraph, type WrittenReference } from "./graph.ts"
 import { refusals } from "./literalOnly.ts"
 import {
@@ -325,17 +330,12 @@ class Parse {
     }
   }
 
-  /** A file the loader did not find inside the runbook's folder, or did not read. */
-  private badFile(named: NamedFile, fact: FileFact | undefined): void {
+  /** A path the loader did not find, read, or keep whole inside the runbook's folder. */
+  private badFile(named: NamedFile, fact: BadFileFact | undefined): void {
     const { where, prop } = named
     const block = where.id === undefined ? `<${where.tag}>` : `<${where.tag} id="${where.id}">`
     const subject = `${prop === undefined ? block : `\`${prop}\` on ${block}`} names ${named.path}`
-    const message =
-      fact === undefined
-        ? `${subject}, which was not read. Load the runbook with loadRunbook, which reads the files its blocks name.`
-        : fact._tag === "Outside"
-          ? `${subject}, which is outside the runbook's folder. A block can only name files in its runbook's folder.`
-          : `${subject}, which doesn't exist. The path is relative to the runbook's folder.`
+    const message = `${subject}${fileProblem(named.path, fact)}`
     this.error("badFile", message, named.span, {
       index: named.index,
       block: where,
@@ -996,6 +996,50 @@ function propKeys(schema: Schema.Top): ReadonlySet<string> | undefined {
 function excerpt(value: PropValue): string {
   const text = typeof value === "string" ? value : JSON.stringify(value)
   return text.length > 60 ? `${text.slice(0, 57)}...` : text
+}
+
+/** What a path a block names is, when the loader didn't find it whole inside the runbook's folder. */
+type BadFileFact = Exclude<FileFact, { readonly _tag: "Found" }>
+
+const MIB = 1024 * 1024
+
+/**
+ * The rest of a `badFile` message, after "names <path>": what is wrong, and
+ * what a block may name. `fact` is undefined when the path was not read.
+ */
+function fileProblem(named: RunbookPath, fact: BadFileFact | undefined): string {
+  if (fact === undefined)
+    return ", which was not read. Load the runbook with loadRunbook, which reads the files its blocks name."
+  const at = (path: string) => (path === named ? ", which" : `, and ${path} in it`)
+  switch (fact._tag) {
+    case "Missing":
+      return ", which doesn't exist. The path is relative to the runbook's folder."
+    case "Outside":
+      return ", which is outside the runbook's folder. A block can only name files in its runbook's folder."
+    case "NotAFile":
+      return fact.path === named
+        ? ", which is neither a file nor a folder. A block can only name a file or a folder."
+        : `, and ${fact.path} in it is neither a file nor a folder: a symbolic link, say. A folder a block names may hold only files and folders.`
+    case "Unreadable":
+      return `${at(fact.path)} can't be read. Check its permissions.`
+    case "OverLimit":
+      return `${at(fact.path)} ${overLimit(fact.limit)}`
+  }
+}
+
+/** Which limit a path is over, and the most it may be. */
+function overLimit(limit: RunbookFileLimit): string {
+  const most = RUNBOOK_FILE_LIMITS[limit]
+  switch (limit) {
+    case "fileBytes":
+      return `is over ${most / MIB} MiB. A file a block names may hold at most ${most / MIB} MiB.`
+    case "folderBytes":
+      return `holds over ${most / MIB} MiB of files. A folder a block names may hold at most ${most / MIB} MiB.`
+    case "entries":
+      return `holds over ${most} files and folders. A folder a block names may hold at most ${most}.`
+    case "depth":
+      return `is over ${most} folders deep. A folder a block names may nest folders at most ${most} deep.`
+  }
 }
 
 /** The runbook's hash, each file's, and one over both, the files in path order. */

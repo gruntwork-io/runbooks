@@ -17,18 +17,55 @@ export interface FileText {
   readonly text: string
 }
 
-/** What is at one path a block names. */
+/**
+ * What is at one path a block names. Each `path` in it is relative to the
+ * runbook's folder, as `FileText.path` is.
+ */
 export type FileFact =
   | {
       readonly _tag: "Found"
-      /** A file's bytes, or a folder's sorted tree as `hashTemplateDir` hashes it. */
+      /**
+       * A file's bytes. A folder's: each file's path in it, executable bit and
+       * bytes, in path order, so a change to any of them changes the hash.
+       */
       readonly hash: ContentHash
-      /** The file, or each file in the folder, up to `MAX_FOLDER_FILES`. */
+      /** The file, or each file in the folder: the text of the bytes hashed. */
       readonly texts: ReadonlyArray<FileText>
     }
   | { readonly _tag: "Missing" }
   /** Outside the runbook's folder, written so or through a symbolic link. */
   | { readonly _tag: "Outside" }
+  /**
+   * Neither a file nor a folder: a symbolic link in the folder, a named
+   * pipe, a socket, a device. It is not read.
+   */
+  | { readonly _tag: "NotAFile"; readonly path: string }
+  /** A file or folder that can't be read. */
+  | { readonly _tag: "Unreadable"; readonly path: string }
+  /**
+   * Over one of `RUNBOOK_FILE_LIMITS`, at `path`: the file or the folder too
+   * deep, or the folder named, for its file count or total bytes. Nothing
+   * of it is kept.
+   */
+  | { readonly _tag: "OverLimit"; readonly limit: RunbookFileLimit; readonly path: string }
+
+/**
+ * The most a path a block names may hold. A runbook is its author's, so a
+ * path over a limit is refused, never cut short: the hash covers all a run
+ * gets.
+ */
+export const RUNBOOK_FILE_LIMITS = {
+  /** Bytes in one file. */
+  fileBytes: 1024 * 1024,
+  /** Bytes in all of one folder's files. */
+  folderBytes: 8 * 1024 * 1024,
+  /** Files and folders in one folder, at any depth. */
+  entries: 2000,
+  /** Folders inside the one named, one in another. */
+  depth: 16,
+} as const
+
+export type RunbookFileLimit = keyof typeof RUNBOOK_FILE_LIMITS
 
 /** The most files of a folder read for template references, as `hashTemplateDir` hashes. */
 const MAX_FOLDER_FILES = 2000

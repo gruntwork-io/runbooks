@@ -1,12 +1,14 @@
 import { describe, expect, it } from "bun:test"
 import { createHash } from "node:crypto"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
+import { RunbookPath } from "@runbooks/blocks-core/contract"
 import { hashTemplateDir } from "../domain/boilerplate/templateHash.ts"
 import { FileNotFoundError } from "../errors/index.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import { configErrors, type ParseResult, type RunbookDocument } from "./document.ts"
+import type { FileFact } from "./files.ts"
 import { loadRunbook } from "./load.ts"
 import { parseRunbook } from "./parse.ts"
 
@@ -211,6 +213,81 @@ describe("loadRunbook", () => {
       ),
     )
     expect(failure).toBeInstanceOf(FileNotFoundError)
+  })
+})
+
+describe("parseRunbook, given a path the loader could not use", () => {
+  const toPath = Schema.decodeSync(RunbookPath)
+  const deep = `templates/${Array.from({ length: 17 }, (_, i) => `d${i + 1}`).join("/")}`
+
+  it.each<[string, string, FileFact, ReadonlyArray<string>]>([
+    [
+      "a symbolic link in the folder",
+      "templates",
+      { _tag: "NotAFile", path: "templates/link.tf" },
+      ["names templates, and templates/link.tf in it is neither a file nor a folder"],
+    ],
+    [
+      "a named pipe",
+      "scripts/pipe",
+      { _tag: "NotAFile", path: "scripts/pipe" },
+      ["names scripts/pipe, which is neither a file nor a folder"],
+    ],
+    [
+      "a file it can't read",
+      "scripts/a.sh",
+      { _tag: "Unreadable", path: "scripts/a.sh" },
+      ["names scripts/a.sh, which can't be read"],
+    ],
+    [
+      "a file in the folder it can't read",
+      "templates",
+      { _tag: "Unreadable", path: "templates/secret.tf" },
+      ["templates/secret.tf in it can't be read"],
+    ],
+    [
+      "a file over the byte limit",
+      "scripts/big.sh",
+      { _tag: "OverLimit", limit: "fileBytes", path: "scripts/big.sh" },
+      ["names scripts/big.sh, which is over 1 MiB", "at most 1 MiB"],
+    ],
+    [
+      "a file in the folder over the byte limit",
+      "templates",
+      { _tag: "OverLimit", limit: "fileBytes", path: "templates/big.bin" },
+      ["templates/big.bin in it is over 1 MiB"],
+    ],
+    [
+      "a folder over the byte limit",
+      "templates",
+      { _tag: "OverLimit", limit: "folderBytes", path: "templates" },
+      ["names templates, which holds over 8 MiB of files", "at most 8 MiB"],
+    ],
+    [
+      "a folder over the file limit",
+      "templates",
+      { _tag: "OverLimit", limit: "entries", path: "templates" },
+      ["names templates, which holds over 2000 files and folders", "at most 2000"],
+    ],
+    [
+      "a folder nested too deep",
+      "templates",
+      { _tag: "OverLimit", limit: "depth", path: deep },
+      [`${deep} in it is over 16 folders deep`, "at most 16 deep"],
+    ],
+  ])("stops the block at the prop that names %s, hashing none of it", (_, path, fact, parts) => {
+    const result = parseRunbook(
+      `<Run id="a" path="${path}" />`,
+      TOY_REGISTRY,
+      { file: "runbook.mdx", appVersion: "0.31.0" },
+      new Map([[toPath(path), fact]]),
+    )
+    if (result._tag === "Invalid") throw new Error("refused")
+    const errors = result.document.blocks[0]?.errors ?? []
+    expect(errors.map((e) => [e.code, e.location.prop])).toEqual([["badFile", "path"]])
+    for (const part of parts) expect(errors[0]?.message).toContain(part)
+    expect(fileHashes(result.document)).toEqual([])
+    expect(result.texts).toEqual(new Map())
   })
 })
 
