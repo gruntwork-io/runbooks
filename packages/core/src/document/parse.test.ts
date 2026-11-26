@@ -352,6 +352,26 @@ describe("parseRunbook", () => {
       expect(doc.edges.filter((edge) => edge.from === 0).map((edge) => edge.to)).toEqual([2, 1, 1])
     })
 
+    it("stops at YAML whose alias names a node that holds it, at the alias's line, and throws nothing", () => {
+      const front = parse("---\ntitle: x\nloop: &l [*l]\n---\n\n# Hi")
+      expect(front._tag).toBe("Invalid")
+      expect(brief(configErrors(front))).toEqual([
+        [
+          "syntax",
+          3,
+          "The front matter isn't valid YAML: An alias names a node that holds it, so the data would hold itself.",
+        ],
+      ])
+      const fenced = errors('<Form id="config">\n```yaml\n- name: a\n- &x [*x]\n```\n</Form>')
+      expect(brief(fenced)).toEqual([
+        [
+          "badChildren",
+          4,
+          "The YAML in <Form> isn't valid: An alias names a node that holds it, so the data would hold itself.",
+        ],
+      ])
+    })
+
     it("refuses a reference prop that is neither an id nor a list of them", () => {
       const found = errors('<Run id="a" command="ls" inputsId={3} />')
       expect(found.map((e) => [e.code, e.location.prop])).toEqual([["badProp", "inputsId"]])
