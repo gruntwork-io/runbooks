@@ -688,6 +688,9 @@ describe("parseRunbook", () => {
         ["badChildren", 6, "The YAML in <Form> isn't valid: a key appears twice in one map."],
       ])
       expect(errors(twice)[0]?.location.span.start).toEqual({ line: 6, column: 3 })
+      // A fence indented in its block: the column is the file's, not the YAML's.
+      const indented = `<Form id="config">\n  \`\`\`yaml\n  - name: a\n    b: 1\n    b: 2\n  \`\`\`\n</Form>`
+      expect(errors(indented)[0]?.location.span.start).toEqual({ line: 5, column: 5 })
       for (const yaml of [
         // An escape YAML doesn't know: the library quotes it, and the characters after it.
         `- name: token\n  default: "\\U${secret}"`,
@@ -708,6 +711,8 @@ describe("parseRunbook", () => {
       expect(brief(configErrors(front))).toEqual([
         ["syntax", 4, "The front matter isn't valid YAML: a key appears twice in one map."],
       ])
+      const nested = parse("---\ntitle: x\nmeta:\n  a: 1\n  a: 2\n---\n\n# Hi")
+      expect(configErrors(nested)[0]?.location.span.start).toEqual({ line: 5, column: 3 })
     })
 
     it("refuses a reference prop that is neither an id nor a list of them", () => {

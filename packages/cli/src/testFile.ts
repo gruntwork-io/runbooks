@@ -15,8 +15,8 @@
  *   it.
  */
 import { Effect, Result, Schema, SchemaIssue } from "effect"
-import { yamlData } from "@runbooks/core/document/yamlData"
-import { isMap, isScalar, isSeq, LineCounter, parseDocument, type Node } from "yaml"
+import { parseYaml, yamlData } from "@runbooks/core/document/yamlData"
+import { isMap, isScalar, isSeq, type LineCounter, type Node } from "yaml"
 import { isIdWord, type MachineEffect } from "@runbooks/blocks-core/contract"
 import type { AnyBlock, Registry } from "@runbooks/blocks-core/registry"
 import { resolveTag } from "@runbooks/blocks-core/registry"
@@ -526,17 +526,13 @@ export function parseTestFile(
   text: string,
   schema: Schema.Codec<TestFile, unknown> = TestFile,
 ): Effect.Effect<TestFile, TestFileError> {
-  const lines = new LineCounter()
-  const doc = parseDocument(text, { lineCounter: lines, prettyErrors: false, uniqueKeys: true })
-  if (doc.errors.length > 0)
+  const { doc, lines, problems } = parseYaml(text)
+  if (problems.length > 0)
     return Effect.fail(
       new TestFileError({
         path: file,
-        message: doc.errors
-          .map((error) => {
-            const { line, col } = lines.linePos(error.pos[0])
-            return `${file}:${line}:${col}: ${error.message.split("\n")[0]}`
-          })
+        message: problems
+          .map(({ line, column, reason }) => `${file}:${line}:${column}: ${reason}.`)
           .join("\n"),
       }),
     )
