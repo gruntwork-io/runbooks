@@ -137,7 +137,7 @@ fi
 
 A script runs with the interpreter its first line names, such as `#!/usr/bin/env python3`, and with bash if it names none. A script for bash or sh runs under bash. This applies to inline scripts too.
 
-Scripts start in the session's directory, not in the runbook's folder, or in the repository the block names with `repository`. See [Execution context](#execution-context).
+Scripts start in the session's directory, not in the runbook's folder. A block that names a repository with `repository` starts in that repository instead. See [Execution context](#execution-context).
 
 Runbooks reads the script file once, when the runbook opens, and runs that text. If you edit the file while the runbook is open, the block keeps running the version it read.
 
