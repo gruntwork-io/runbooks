@@ -1,6 +1,6 @@
 /**
- * A credential block's state directory, `<session state folder>/<block id>`:
- * where its provider keeps the files it writes. The plan's third secret
+ * A credential block's state directory, in its session's state folder
+ * (`stateDirOf`): where its provider keeps the files it writes. The plan's third secret
  * rule puts a credential that can live in a file there, readable by its
  * owner only. The engine makes the directory before it opens the provider,
  * so a plugin that writes there, and one that only checks it is there,
@@ -11,9 +11,26 @@
  * owner-only, and the plugins set no ACLs either. Were Windows supported,
  * the check would read the ACL instead.
  */
+import { createHash } from "node:crypto"
+import path from "node:path"
 import { Effect, Option } from "effect"
-import { CredentialError } from "@runbooks/blocks-core/contract"
+import { type BlockId, CredentialError } from "@runbooks/blocks-core/contract"
 import { FileSystem } from "../services/FileSystem.ts"
+
+/**
+ * The state folder of block `id` in its session's `sessionFolder`: the id
+ * lowercased, then the first 12 hex digits of the id's SHA-256. Ids that
+ * differ only in case are two blocks, and a file system that ignores case
+ * (macOS's default) would give them one folder if the id alone named it, so
+ * one block's sign-out would delete the other's files. A block id is an
+ * `ID_WORD`, so the name holds no separator and the folder is always the
+ * session folder's own.
+ */
+export const stateDirOf = (sessionFolder: string, id: BlockId): string =>
+  path.join(
+    sessionFolder,
+    `${id.toLowerCase()}-${createHash("sha256").update(id).digest("hex").slice(0, 12)}`,
+  )
 
 /** Owner only: read, write and enter. Recursive creation gives the session's folder the same. */
 const STATE_DIR_MODE = 0o700

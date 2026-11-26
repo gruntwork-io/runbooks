@@ -36,7 +36,6 @@
  * if no action has come since it started; an action stops the block's
  * running call first.
  */
-import path from "node:path"
 import type { Duration } from "effect"
 import {
   Cause,
@@ -80,6 +79,7 @@ import type {
   Target,
 } from "../credential/provider.ts"
 import { CREDENTIAL_CALL_BOUNDS } from "../credential/plugin.ts"
+import { stateDirOf } from "../credential/stateDir.ts"
 import type { CredentialStore } from "./credentialStore.ts"
 import type { SavedCredential } from "./sessionStore.ts"
 import type { CredentialHandle } from "./env.ts"
@@ -580,7 +580,7 @@ export function makeCredentials(
           const { block, request, id } = credential.slot
           const network = yield* host.network
           const config: ProviderConfig = {
-            stateDir: path.join(host.stateFolder, id),
+            stateDir: stateDirOf(host.stateFolder, id),
             environment: host.environment(block.envNames),
             ...network,
             settings: request.settings,

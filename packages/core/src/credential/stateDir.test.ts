@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test"
-import { Effect, Layer, Option, Result } from "effect"
+import path from "node:path"
+import { Effect, Layer, Option, Result, Schema } from "effect"
+import { BlockId } from "@runbooks/blocks-core/contract"
 import { FileSystem } from "../services/FileSystem.ts"
 import { testFileSystem } from "../test-utils/TestFileSystem.ts"
-import { isOwnerOnly, prepareStateDir } from "./stateDir.ts"
+import { isOwnerOnly, prepareStateDir, stateDirOf } from "./stateDir.ts"
 
 const DIR = "/state/s1/cloud"
 
@@ -21,6 +23,22 @@ const prepare = (files: Record<string, string> = {}, folders: ReadonlyArray<stri
 }
 
 describe("a credential block's state folder", () => {
+  const blockId = Schema.decodeSync(BlockId)
+
+  it("is the same folder each time for one block, so a resumed session finds it", () => {
+    expect(stateDirOf("/state/s1", blockId("cloud"))).toBe(
+      stateDirOf("/state/s1", blockId("cloud")),
+    )
+  })
+
+  it("is the session folder's own, named by the id lowercased and a hash of it as written", () => {
+    for (const id of ["cloud", "Cloud", "aws-prod", "AWS_PROD", "9"]) {
+      const dir = stateDirOf("/state/s1", blockId(id))
+      expect(path.dirname(dir)).toBe("/state/s1")
+      expect(path.basename(dir)).toMatch(/^[a-z0-9_]+-[0-9a-f]{12}$/)
+    }
+  })
+
   it("is made readable by its owner only", async () => {
     const { result, mode } = await prepare()
     expect(Result.isSuccess(result)).toBe(true)

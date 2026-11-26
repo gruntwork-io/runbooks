@@ -78,6 +78,10 @@ function recording(
   }
 }
 
+/** The block whose state folder is `stateDir` (`stateDirOf`), lowercased as the folder names it. */
+export const blockOfStateDir = (stateDir: string): string =>
+  path.basename(stateDir).replace(/-[0-9a-f]{12}$/, "")
+
 /**
  * Opens a provider by name from `scripts`, each block's from its own call
  * to the script, noting every call in `calls`. A name with no script fails
@@ -90,7 +94,7 @@ export const testCredentialProviders = (
   Layer.succeed(CredentialProviders, {
     open: (name, config) =>
       Effect.suspend(() => {
-        const block = path.basename(config.stateDir)
+        const block = blockOfStateDir(config.stateDir)
         calls.push({ block, method: "open", args: [name, config] })
         const script = Object.hasOwn(scripts, name) ? scripts[name] : undefined
         return script === undefined

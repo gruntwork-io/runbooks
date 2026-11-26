@@ -25,6 +25,7 @@ import {
   recordProcessSpawner,
   type ServiceCall,
 } from "../test-utils/ServiceCalls.ts"
+import { stateDirOf } from "../credential/stateDir.ts"
 import {
   type ProviderCall,
   testCredentialProviders,
@@ -141,7 +142,7 @@ const READING_THE_RUNBOOK: ServiceCall[] = [
 /** Trusted, each credential block's state folder is made owner-only before its provider opens. */
 const STATE_FOLDERS = (session: string): ServiceCall[] =>
   ["git", "cloud"].flatMap((block) => {
-    const folder = `/state/${session}/${block}`
+    const folder = stateDirOf(`/state/${session}`, blockId(block))
     return [
       FileSystemCall("mkdir", folder, { recursive: true, mode: 0o700 }),
       FileSystemCall("stat", folder),
