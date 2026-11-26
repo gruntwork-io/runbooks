@@ -59,7 +59,11 @@ export const BlockErrorCode = Schema.Literals([
   "badProp",
   /** An alias locks the prop, so the author may not set it. */
   "lockedProp",
-  /** Fenced YAML children that do not parse or do not decode. */
+  /**
+   * Children the block cannot read: fenced YAML that does not parse or does
+   * not decode, or a block inside a block that shows no markdown, which
+   * would never appear.
+   */
   "badChildren",
   /** A block that needs an id has none. */
   "missingId",

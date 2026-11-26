@@ -502,7 +502,7 @@ class Parse {
         const name = node.name
         if (!name) return this.children(node)
         if (/^[a-z]/.test(name) && !/[.:-]/.test(name)) return [this.element(node, name)]
-        if (/^[A-Z]/.test(name) && !/[.:-]/.test(name)) return this.block(node, name)
+        if (isBlockTag(name)) return this.block(node, name)
         return []
       }
       default: {
@@ -604,6 +604,7 @@ class Parse {
 
     let children: TreeNode[] = []
     if (block.children.kind === "markdown") children = this.children(node)
+    else this.unshownBlocks(node, block.children.kind, where, index)
     const yamlRead =
       childrenProp === undefined || this.yamlChildren(node, childrenProp, input, where, index)
 
@@ -669,6 +670,29 @@ class Parse {
       errors: [],
     }
     return [{ type: "block", index, children }]
+  }
+
+  /**
+   * An error for each block written inside a block that shows no markdown,
+   * at the inner block: it would never appear or run.
+   */
+  private unshownBlocks(node: MdxNode, kind: "none" | "yaml", where: Where, index: number): void {
+    const reads =
+      kind === "yaml" ? "reads only the YAML inside it" : "shows nothing written inside it"
+    for (const inner of blocksIn(node)) {
+      const id = inner.attributes?.find((a) => a.type === "mdxJsxAttribute" && a.name === "id")
+      const idValue = id === undefined ? undefined : attributeValue(id.value)
+      const name =
+        typeof idValue === "string" && Option.isSome(blockIdOf(idValue))
+          ? `<${inner.name} id="${idValue}">`
+          : `<${inner.name}>`
+      this.error(
+        "badChildren",
+        `<${where.tag}> ${reads}, so ${name} in it never appears or runs. Move it out of <${where.tag}>.`,
+        spanOf(inner),
+        { block: where, index },
+      )
+    }
   }
 
   /** The props as written, in order. A later duplicate wins, as in JSX. */
@@ -1012,6 +1036,20 @@ class Parse {
       )
     }
   }
+}
+
+/** Whether an element named `name` is a block: capitalized, and no member or namespace name. */
+const isBlockTag = (name: string): boolean => /^[A-Z]/.test(name) && !/[.:-]/.test(name)
+
+/** The blocks written among `node`'s descendants, not looking inside them. */
+function blocksIn(node: MdxNode): MdxNode[] {
+  return (node.children ?? []).flatMap((child) =>
+    (child.type === "mdxJsxFlowElement" || child.type === "mdxJsxTextElement") &&
+    child.name &&
+    isBlockTag(child.name)
+      ? [child]
+      : blocksIn(child),
+  )
 }
 
 const isReferenceValue = (value: unknown): value is ReferenceValue =>

@@ -376,6 +376,50 @@ describe("parseRunbook", () => {
       expect(found[0]?.location.prop).toBe("variables")
     })
 
+    describe("a block inside a block that shows no markdown", () => {
+      it("is an error on the outer block, at the inner block's line, and the runbook opens", () => {
+        const doc = parsed(
+          '<Clone id="c" url="https://x/y.git">\n\n<Run id="inner" command="ls" />\n\n</Clone>',
+        )
+        expect(doc.blocks.map((b) => b.tag)).toEqual(["Clone"])
+        const [error, ...rest] = doc.blocks[0]?.errors ?? []
+        expect(rest).toEqual([])
+        expect(error?.code).toBe("badChildren")
+        expect(error?.location.span.start).toEqual({ line: 3, column: 1 })
+        expect(error?.location.block).toEqual({ tag: "Clone", id: "c" })
+        expect(error?.message).toContain('<Run id="inner">')
+        expect(error?.message).toContain("out of <Clone")
+      })
+
+      it("is found at any depth in YAML children, and only the outermost one", () => {
+        const found = errors(
+          [
+            '<Form id="f">',
+            "```yaml",
+            "- name: region",
+            "  type: string",
+            "```",
+            "",
+            '> <Run id="deep" command="ls" />',
+            "",
+            "<Note>",
+            "",
+            '<Run id="in-note" command="ls" />',
+            "",
+            "</Note>",
+            "</Form>",
+          ].join("\n"),
+        )
+        expect(
+          found.map((e) => [e.code, e.location.span.start.line, e.location.block?.tag]),
+        ).toEqual([
+          ["badChildren", 7, "Form"],
+          ["badChildren", 9, "Form"],
+        ])
+        expect(found[1]?.message).toContain("<Note>")
+      })
+    })
+
     it("refuses a value no block takes", () => {
       expect(brief(errors('<Run id="a" command={/ls/} />'))).toEqual([
         [
