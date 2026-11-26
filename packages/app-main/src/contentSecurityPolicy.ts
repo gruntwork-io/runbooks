@@ -5,8 +5,8 @@
  * A build's page may run the bundle's scripts, load the bundle's
  * stylesheet, and load nothing else: no inline or evaluated script, no
  * inline style, no image, font, frame, plugin or network request, no
- * `<base>`, and no form submission. On a file:// page Chromium counts every
- * file:// URL as 'self', so a script or stylesheet at any local path loads.
+ * `<base>`, and no form submission. 'self' is the page's own origin,
+ * `runbooks-app://window` (pageScheme.ts), so no file:// URL is 'self'.
  *
  * Without 'unsafe-inline', a `<style>` element or a `style` attribute in
  * markup is refused, but a style set through the CSSOM (`element.style`),

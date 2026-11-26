@@ -7,6 +7,9 @@
  *   nothing else (`preload.ts`).
  * - Its session is a partition kept in memory, so the window writes no
  *   storage, cookies or cache to disk. The session denies every permission.
+ * - Its page comes from `runbooks-app://window/`, a scheme of its own that
+ *   only the window's session serves, from the renderer's build and nothing
+ *   outside it (`pageScheme.ts`), so the page's origin is its own.
  * - Its page gets a Content-Security-Policy response header from here, where
  *   the page can't loosen it: no 'unsafe-eval', and no inline script or style
  *   (`contentSecurityPolicy.ts`).
@@ -34,7 +37,7 @@
  */
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { app, BrowserWindow, session, shell } from "electron"
+import { app, BrowserWindow, net, protocol, session, shell } from "electron"
 import { Cause, Effect, Fiber, Layer } from "effect"
 import { stopsEnded } from "@runbooks/platform-node/layers/ChildProcessSpawner"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
@@ -42,6 +45,7 @@ import { contentSecurityPolicy } from "./contentSecurityPolicy.ts"
 import { appEngine } from "./engine.ts"
 import { makeIpcServerProtocol } from "./ipcServer.ts"
 import { type Launch, launchArgument, serveLaunch } from "./launch.ts"
+import { APP_PAGE, PAGE_SCHEME, pageFile } from "./pageScheme.ts"
 
 /** The repository's version, set by the build (electron.vite.app.config.ts). */
 declare const __RUNBOOKS_VERSION__: string
@@ -57,8 +61,8 @@ const USER_DATA = "runbooks-rebuild"
 /** The window's session. A partition without the `persist:` prefix is kept in memory. */
 const PARTITION = "window"
 
-/** The renderer's page in a build: electron-vite writes main/, preload/ and renderer/ side by side. */
-const RENDERER_PAGE = path.join(import.meta.dirname, "../renderer/index.html")
+/** The renderer's build: electron-vite writes main/, preload/ and renderer/ side by side. */
+const RENDERER = path.join(import.meta.dirname, "../renderer")
 
 /** The window's preload, built as CommonJS for the sandbox. */
 const PRELOAD = path.join(import.meta.dirname, "../preload/index.cjs")
@@ -66,6 +70,11 @@ const PRELOAD = path.join(import.meta.dirname, "../preload/index.cjs")
 if (!app.commandLine.hasSwitch("user-data-dir")) {
   app.setPath("userData", path.join(app.getPath("appData"), USER_DATA))
 }
+
+// Before the app is ready, and in one call: Electron allows only one.
+protocol.registerSchemesAsPrivileged([
+  { scheme: PAGE_SCHEME, privileges: { standard: true, secure: true } },
+])
 
 /**
  * One app per user data folder, whose lock Chromium keeps in it. A second
@@ -136,12 +145,12 @@ if (firstInstance)
     .then(() => {
       const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
       const devServer = devServerUrl === undefined ? undefined : new URL(devServerUrl)
-      const page = devServer ?? pathToFileURL(RENDERER_PAGE)
+      const page = devServer ?? APP_PAGE
       const appWindow = openWindow(devServer)
       engine = Effect.runFork(
         Effect.gen(function* () {
           // Listening before the page loads, so its first message is heard.
-          const protocol = yield* makeIpcServerProtocol({
+          const ipcProtocol = yield* makeIpcServerProtocol({
             contents: appWindow.webContents,
             page,
             log: (line) => console.warn(line),
@@ -149,7 +158,7 @@ if (firstInstance)
           appWindow
             .loadURL(page.href)
             .catch((error: unknown) => console.error("The window could not load its page:", error))
-          return yield* serveLaunch(protocol, launch, (line) => console.error(line)).pipe(
+          return yield* serveLaunch(ipcProtocol, launch, (line) => console.error(line)).pipe(
             Effect.provide(
               Layer.merge(
                 appEngine({
@@ -203,6 +212,7 @@ function openWindow(devServer: URL | undefined): BrowserWindow {
       responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [policy] },
     })
   })
+  windowSession.protocol.handle(PAGE_SCHEME, servePage)
 
   const appWindow = new BrowserWindow({
     width: 1280,
@@ -226,6 +236,24 @@ function openWindow(devServer: URL | undefined): BrowserWindow {
     openInBrowser(url)
   })
   return appWindow
+}
+
+/** An answer that serves nothing: for a file the guard refuses as for one that is not there. */
+const notFound = () => new Response(null, { status: 404 })
+
+/** Answers a request for the page's scheme from the renderer's build, through the path guard. */
+function servePage(request: Request): Promise<Response> {
+  return Effect.runPromise(
+    pageFile(request.url, RENDERER).pipe(
+      Effect.flatMap((file) =>
+        file === undefined
+          ? Effect.succeed(notFound())
+          : Effect.tryPromise(() => net.fetch(pathToFileURL(file).href)),
+      ),
+      Effect.orElseSucceed(notFound),
+      Effect.provide(NodeFileSystemLive),
+    ),
+  )
 }
 
 /** The schemes the OS may open for the window: the browser's, and the mail app's. */

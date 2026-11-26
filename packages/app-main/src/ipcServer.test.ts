@@ -16,9 +16,8 @@ import { serveLaunch } from "./launch.ts"
 // frames, serving the app's real engine over a temporary user data folder.
 // A page is a listener on what main sends, and an emitter of what it sends.
 
-const PAGE = new URL(
-  "file:///Applications/Runbooks.app/Contents/Resources/app.asar/app-out/renderer/index.html",
-)
+/** The page main loads in a build (pageScheme.ts). */
+const PAGE = new URL("runbooks-app://window/index.html")
 
 /** A frame, as `WebFrameMain` describes one. */
 interface FakeFrame {
