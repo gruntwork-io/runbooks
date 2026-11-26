@@ -147,7 +147,7 @@ describe("the settings store over the file", () => {
     })
   })
 
-  it("keeps today's settings on the first start, and leaves today's files as they were", async () => {
+  it("keeps today's settings on the first start, leaves today's files as they were, and marks them imported once", async () => {
     const legacy = nodePath.join(root, "legacy")
     nodeFs.mkdirSync(legacy)
     const today = {
@@ -161,14 +161,16 @@ describe("the settings store over the file", () => {
       return [name, stat.mtimeMs, stat.mode]
     })
 
-    const { settings } = await Effect.runPromise(
-      Effect.gen(function* () {
-        return yield* (yield* SettingsStore).get
-      }).pipe(
-        Effect.provide(SettingsStore.importing(legacy)),
-        Effect.provide(Layer.merge(nodeSettingsFile(data), NodeFileSystemLive)),
-      ),
-    )
+    const start = () =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          return yield* (yield* SettingsStore).get
+        }).pipe(
+          Effect.provide(SettingsStore.importing(legacy)),
+          Effect.provide(Layer.merge(nodeSettingsFile(data), NodeFileSystemLive)),
+        ),
+      )
+    const { settings } = await start()
     expect(settings).toEqual({
       ...DEFAULT_SETTINGS,
       theme: "dark",
@@ -187,5 +189,11 @@ describe("the settings store over the file", () => {
     ).toEqual(before)
     for (const [name, text] of Object.entries(today))
       expect(nodeFs.readFileSync(nodePath.join(legacy, name), "utf8")).toBe(text)
+    expect(modeOf(nodePath.join(data, "settings.imported"))).toBe(0o600)
+
+    // A person deletes the settings file: the next start has the defaults, not today's settings.
+    nodeFs.rmSync(file)
+    expect((await start()).settings).toEqual(DEFAULT_SETTINGS)
+    expect(nodeFs.existsSync(file)).toBe(false)
   })
 })

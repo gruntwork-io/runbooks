@@ -172,6 +172,28 @@ describe("the first start", () => {
     expect(settings).toEqual({ ...DEFAULT_SETTINGS, caBundleFile: "/Users/me/corp-ca.pem" })
   })
 
+  it("does not import today's settings again once the settings file is gone: a person who deletes it gets the defaults", async () => {
+    const file = memorySettingsFile()
+    expect((await start(file, TODAY)).settings).toEqual({ ...DEFAULT_SETTINGS, ...KEPT })
+    file.remove()
+    const calls: ServiceCall[] = []
+    expect((await start(file, TODAY, calls)).settings).toEqual(DEFAULT_SETTINGS)
+    expect(calls).toEqual([])
+    expect(file.replaced).toHaveLength(1)
+  })
+
+  it("imports nothing when it cannot tell whether it imported before, and keeps an import it cannot mark", async () => {
+    const calls: ServiceCall[] = []
+    const unknown = memorySettingsFile(undefined, { imported: true })
+    expect((await start(unknown, TODAY, calls)).settings).toEqual(DEFAULT_SETTINGS)
+    expect(calls).toEqual([])
+    expect(unknown.replaced).toEqual([])
+
+    const unmarked = memorySettingsFile(undefined, { markImported: true })
+    expect((await start(unmarked, TODAY)).settings).toEqual({ ...DEFAULT_SETTINGS, ...KEPT })
+    expect(savedIn(unmarked)).toEqual({ version: 1, settings: KEPT })
+  })
+
   it("does not read today's files over a settings file, even one it cannot read", async () => {
     for (const text of ["{not json", JSON.stringify({ version: 2, settings: {} })]) {
       const calls: ServiceCall[] = []
