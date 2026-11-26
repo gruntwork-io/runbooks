@@ -6,6 +6,7 @@
  *   bun scripts/plugins/lock.ts check [--platform <os>-<arch>] [--bin-dir <dir>]
  *   bun scripts/plugins/lock.ts bump <version>
  *   bun scripts/plugins/lock.ts schemas
+ *   bun scripts/plugins/lock.ts pins
  *
  * - fetch: downloads each binary the lock pins for the platform (the host's
  *   by default) from its release into a temporary folder beside
@@ -23,13 +24,16 @@
  * - schemas: the protocol schemas in `plugin/` are byte for byte the ones
  *   each pinned release lists in its `SHA256SUMS`: every `*.schema.json` it
  *   lists is in `plugin/` with that hash, and `plugin/` holds no other.
+ * - pins: every pin in the lock is the line its release's `SHA256SUMS`
+ *   lists for that binary, and the lock pins every binary the release lists
+ *   for a platform the app knows, as bump writes it.
  *
- * fetch, check and schemas print `<sha256>  <file>` per file on standard output,
+ * fetch, check, schemas and pins print `<sha256>  <file>` per file on standard output,
  * the format `shasum -a 256 -c` reads. Problems go to standard error, all of
  * them in one pass.
  *
- * Exit codes: 0 done. 1 a binary, the release, the bin folder or a schema
- * does not match the lock, or a download failed; fetch and bump then change
+ * Exit codes: 0 done. 1 a binary, a pin, the release, the bin folder or a
+ * schema does not match the lock, or a download failed; fetch and bump then change
  * nothing.
  * 2 a usage error, or the lock is not valid.
  */
@@ -86,6 +90,7 @@ const USAGE = `usage:
   bun scripts/plugins/lock.ts check [--platform <os>-<arch>] [--bin-dir <dir>]
   bun scripts/plugins/lock.ts bump <version>
   bun scripts/plugins/lock.ts schemas
+  bun scripts/plugins/lock.ts pins
 --bin-dir is relative to the repo root; resources/bin when absent.
 platforms: ${Platform.literals.join(", ")}`
 
@@ -149,6 +154,11 @@ async function run(argv: ReadonlyArray<string>, context: Context): Promise<numbe
       if (values.platform !== undefined) refuse("--platform")
       if (values["bin-dir"] !== undefined) refuse("--bin-dir")
       return checkSchemas(context, await pinnedPlugins(context))
+    case "pins":
+      if (rest.length > 0) refuse("arguments")
+      if (values.platform !== undefined) refuse("--platform")
+      if (values["bin-dir"] !== undefined) refuse("--bin-dir")
+      return checkPins(context, await pinnedPlugins(context))
     case undefined:
       throw new UsageError("no command given")
     default:
@@ -495,6 +505,28 @@ async function schemasIn(dir: string): Promise<ReadonlyArray<string>> {
   }
 }
 
+/** A pinned release's `SHA256SUMS`, with a problem per line it can't read, or why it couldn't be fetched. */
+type ReleasedSums =
+  | {
+      readonly kind: "read"
+      readonly release: string
+      readonly sums: ReadonlyMap<string, string>
+      readonly problems: ReadonlyArray<string>
+    }
+  | { readonly kind: "failed"; readonly problem: string }
+
+async function releasedSums(context: Context, version: string): Promise<ReleasedSums> {
+  const release = `${REPO} v${version}`
+  const listed = await getText(
+    `${context.releases.download}/${REPO}/releases/download/v${version}/SHA256SUMS`,
+    context.limits.sumsBytes,
+    context.limits,
+  )
+  if (listed.kind === "failed")
+    return { kind: "failed", problem: `${release} SHA256SUMS: ${listed.reason}` }
+  return { kind: "read", release, ...parseSums(listed.text) }
+}
+
 async function checkSchemas(
   context: Context,
   plugins: ReadonlyArray<PluginEntry>,
@@ -504,18 +536,13 @@ async function checkSchemas(
   const problems: Array<string> = []
   const matched = new Map<string, string>()
   for (const version of new Set(plugins.map((plugin) => plugin.version))) {
-    const release = `${REPO} v${version}`
-    const listed = await getText(
-      `${context.releases.download}/${REPO}/releases/download/v${version}/SHA256SUMS`,
-      context.limits.sumsBytes,
-      context.limits,
-    )
+    const listed = await releasedSums(context, version)
     if (listed.kind === "failed") {
-      problems.push(`${release} SHA256SUMS: ${listed.reason}`)
+      problems.push(listed.problem)
       continue
     }
-    const { sums, problems: unreadable } = parseSums(listed.text)
-    problems.push(...unreadable)
+    const { release, sums } = listed
+    problems.push(...listed.problems)
     const released = [...sums].filter(([file]) => SCHEMA_FILE.test(file))
     if (released.length === 0) problems.push(`${release}: its SHA256SUMS lists no schema`)
     for (const [file, sha256] of released) {
@@ -552,6 +579,54 @@ async function checkSchemas(
     return EXIT.mismatch
   }
   for (const [at, sha256] of matched) context.out(`${sha256}  ${at}`)
+  return EXIT.ok
+}
+
+// ---------------------------------------------------------------------------
+// pins
+// ---------------------------------------------------------------------------
+
+async function checkPins(context: Context, plugins: ReadonlyArray<PluginEntry>): Promise<number> {
+  const problems: Array<string> = []
+  const matched: Array<string> = []
+  for (const version of new Set(plugins.map((plugin) => plugin.version))) {
+    const listed = await releasedSums(context, version)
+    if (listed.kind === "failed") {
+      problems.push(listed.problem)
+      continue
+    }
+    const { release, sums } = listed
+    problems.push(...listed.problems)
+    const pinned = new Set<string>()
+    for (const plugin of plugins.filter((entry) => entry.version === version)) {
+      for (const platform of Platform.literals) {
+        const sha256 = plugin.sha256[platform]
+        if (sha256 === undefined) continue
+        const file = assetName(plugin, platform)
+        pinned.add(file)
+        const released = sums.get(file)
+        if (released === undefined)
+          problems.push(`${LOCK_FILE} pins ${file}, which ${release}'s SHA256SUMS doesn't list`)
+        else if (released !== sha256)
+          problems.push(
+            mismatch(`${LOCK_FILE}'s pin for ${file}, against ${release}`, released, sha256),
+          )
+        else matched.push(`${sha256}  ${file}`)
+      }
+    }
+    for (const file of sums.keys()) {
+      const asset = parseAsset(file)
+      if (asset === undefined || asset.version !== version || pinned.has(file)) continue
+      if (Option.isNone(Schema.decodeUnknownOption(Platform)(`${asset.os}-${asset.arch}`))) continue
+      problems.push(`${file}: in ${release}, and ${LOCK_FILE} doesn't pin it`)
+    }
+  }
+  if (problems.length > 0) {
+    for (const problem of problems) context.err(problem)
+    context.err(`${LOCK_FILE} is not what the releases it pins list.`)
+    return EXIT.mismatch
+  }
+  for (const line of matched) context.out(line)
   return EXIT.ok
 }
 

@@ -36,6 +36,9 @@ jobs:
       - name: Plugin schemas are the pinned release's
         run: just check-plugin-schemas
 
+      - name: Plugin pins are the pinned release's
+        run: just check-plugin-pins
+
   test-unit:
     name: Unit Tests
     runs-on: ubuntu-latest
