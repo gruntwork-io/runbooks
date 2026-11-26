@@ -136,8 +136,6 @@ import {
 
 /** Lines of a run's log the session keeps. Older lines are dropped; a log page says where it starts. */
 const MAX_RUN_LOG_LINES = 10_000
-/** Events the session keeps for `Events` to replay. Older ones are dropped; sequences show the gap. */
-const MAX_SESSION_EVENTS = 10_000
 /** How often a run's new log lines go out, as one `LogLines` event. */
 const LOG_FLUSH_INTERVAL: Duration.Input = "250 millis"
 
@@ -686,7 +684,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   /** Each done form's and credential block's outputs, as last published. */
   const published = new Map<number, ReadonlyMap<string, Held<string>>>()
   const statuses = new Map<number, BlockStatus>()
-  const log = makeWindow<EventEnvelope>(MAX_SESSION_EVENTS, options.firstSequence)
+  const log = makeWindow<EventEnvelope>(LIMITS.keptEvents, options.firstSequence)
 
   for (const slot of slots) {
     const values = resume?.values.get(slot.id)
