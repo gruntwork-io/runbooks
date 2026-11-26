@@ -112,6 +112,12 @@ const impl: FileSystemShape = {
       catch: () => new FileNotFoundError({ path: filePath }),
     }),
 
+  isSymbolicLink: (filePath: string) =>
+    Effect.tryPromise({
+      try: async () => (await fs.lstat(filePath)).isSymbolicLink(),
+      catch: () => new FileNotFoundError({ path: filePath }),
+    }),
+
   exists: (filePath: string) =>
     Effect.tryPromise({
       try: () =>

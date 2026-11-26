@@ -120,6 +120,13 @@ export const testFileSystem = (
           : Effect.fail(new FileNotFoundError({ path }))
     },
 
+    isSymbolicLink: (path) =>
+      path in links
+        ? Effect.succeed(true)
+        : path in files || dirs.has(path)
+          ? Effect.succeed(false)
+          : Effect.fail(new FileNotFoundError({ path })),
+
     mkdir: (path, options) =>
       Effect.sync(() => {
         if (!dirs.has(path) && options?.mode !== undefined) modes.set(path, options.mode)

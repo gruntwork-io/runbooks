@@ -80,6 +80,21 @@ describe("modes", () => {
   })
 })
 
+describe("isSymbolicLink", () => {
+  it("says whether a path is a link itself, without following it, and fails where nothing is", async () => {
+    nodeFs.mkdirSync(nodePath.join(root, "folder"))
+    nodeFs.symlinkSync("folder", nodePath.join(root, "to-folder"))
+    nodeFs.symlinkSync("none", nodePath.join(root, "dangling"))
+    const link = (name: string) =>
+      withFs((fs) => Effect.result(fs.isSymbolicLink(nodePath.join(root, name))))
+    expect(await link("to-folder")).toEqual(Result.succeed(true))
+    expect(await link("dangling")).toEqual(Result.succeed(true))
+    expect(await link("folder")).toEqual(Result.succeed(false))
+    const missing = await link("none")
+    expect(Result.isFailure(missing) && missing.failure._tag).toBe("FileNotFoundError")
+  })
+})
+
 describe("walk", () => {
   it("reads every entry under a folder, with its size, and a link as neither file nor folder", async () => {
     nodeFs.mkdirSync(nodePath.join(root, "a", "b"), { recursive: true })

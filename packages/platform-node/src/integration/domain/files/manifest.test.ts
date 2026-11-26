@@ -429,6 +429,7 @@ describe("applyDiffFromContent idempotency", () => {
           mtime: new Date(),
           mode: Option.none(),
         }),
+      isSymbolicLink: () => Effect.succeed(false),
       exists: () => Effect.succeed(true),
       writeFile: () => {
         writeCount += 1

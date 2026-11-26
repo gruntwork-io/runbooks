@@ -10,6 +10,9 @@
  * - Its page comes from `runbooks-app://window/`, a scheme of its own that
  *   only the window's session serves, from the renderer's build and nothing
  *   outside it (`pageScheme.ts`), so the page's origin is its own.
+ * - An open runbook's images and media come from
+ *   `runbook-asset://<session id>/`, which the window's session serves from
+ *   that runbook's assets/ folder through the path guard (`runbookAssets.ts`).
  * - Its page gets a Content-Security-Policy response header from here, where
  *   the page can't loosen it: no 'unsafe-eval', and no inline script or style
  *   (`contentSecurityPolicy.ts`).
@@ -37,8 +40,12 @@
  */
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { app, BrowserWindow, net, protocol, session, shell } from "electron"
-import { Cause, Effect, Fiber, Layer } from "effect"
+import { app, BrowserWindow, net, protocol, type Session, session, shell } from "electron"
+import { Cause, Effect, Fiber, FiberSet, Layer, type Scope, Semaphore } from "effect"
+import type { Rpc } from "effect/rpc"
+import { makeInProcessClient } from "@runbooks/core/inProcess"
+import type { EngineCommand } from "@runbooks/core/protocol"
+import type { FileSystem } from "@runbooks/core/services/FileSystem"
 import { stopsEnded } from "@runbooks/platform-node/layers/ChildProcessSpawner"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
 import { contentSecurityPolicy } from "./contentSecurityPolicy.ts"
@@ -46,6 +53,7 @@ import { appEngine } from "./engine.ts"
 import { makeIpcServerProtocol } from "./ipcServer.ts"
 import { type Launch, launchArgument, serveLaunch } from "./launch.ts"
 import { APP_PAGE, PAGE_SCHEME, pageFile } from "./pageScheme.ts"
+import { ASSET_SCHEME, runbookAsset, sessionRunbook } from "./runbookAssets.ts"
 
 /** The repository's version, set by the build (electron.vite.app.config.ts). */
 declare const __RUNBOOKS_VERSION__: string
@@ -72,8 +80,16 @@ if (!app.commandLine.hasSwitch("user-data-dir")) {
 }
 
 // Before the app is ready, and in one call: Electron allows only one.
+//
+// A runbook's assets are standard, so a <video> or <audio> can seek: a seek
+// past what the first response delivered makes Chromium's media loader send
+// a second range request, which fails for a non-standard scheme with
+// PIPELINE_ERROR_READ. `stream` tells media elements to expect a streamed
+// body; without it the old app's media failed with "Format error" before it
+// answered range requests. Both secure, so neither is mixed content.
 protocol.registerSchemesAsPrivileged([
   { scheme: PAGE_SCHEME, privileges: { standard: true, secure: true } },
+  { scheme: ASSET_SCHEME, privileges: { standard: true, secure: true, stream: true } },
 ])
 
 /**
@@ -158,7 +174,13 @@ if (firstInstance)
           appWindow
             .loadURL(page.href)
             .catch((error: unknown) => console.error("The window could not load its page:", error))
-          return yield* serveLaunch(ipcProtocol, launch, (line) => console.error(line)).pipe(
+          // The page asks for an asset only once the engine has answered it,
+          // and serveLaunch answers it only after the handler is in place.
+          return yield* Effect.andThen(
+            serveRunbookAssets(appWindow.webContents.session),
+            serveLaunch(ipcProtocol, launch, (line) => console.error(line)),
+          ).pipe(
+            Effect.scoped,
             Effect.provide(
               Layer.merge(
                 appEngine({
@@ -255,6 +277,40 @@ function servePage(request: Request): Promise<Response> {
     ),
   )
 }
+
+/** How many asset requests main resolves at once; the rest wait their turn. */
+const MAX_ASSET_LOOKUPS = 16
+
+/**
+ * Serves the assets of the runbooks the engine has open on `windowSession`,
+ * through the path guard (runbookAssets.ts), until the scope closes. It asks
+ * the engine in context which runbook a host's session has open.
+ */
+const serveRunbookAssets = (
+  windowSession: Session,
+): Effect.Effect<void, never, Scope.Scope | FileSystem | Rpc.ToHandler<EngineCommand>> =>
+  Effect.gen(function* () {
+    const runbookOf = sessionRunbook(yield* makeInProcessClient("person"))
+    const lookups = yield* Semaphore.make(MAX_ASSET_LOOKUPS)
+    const run = yield* FiberSet.makeRuntimePromise<FileSystem>()
+    windowSession.protocol.handle(ASSET_SCHEME, (request) =>
+      run(
+        lookups
+          .withPermits(1)(runbookAsset(request.url, runbookOf))
+          .pipe(
+            Effect.flatMap((file) =>
+              file === undefined
+                ? Effect.succeed(notFound())
+                : Effect.tryPromise(() => net.fetch(pathToFileURL(file).href)),
+            ),
+            Effect.orElseSucceed(notFound),
+          ),
+      ),
+    )
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => windowSession.protocol.unhandle(ASSET_SCHEME)),
+    )
+  })
 
 /** The schemes the OS may open for the window: the browser's, and the mail app's. */
 const EXTERNAL_SCHEMES: ReadonlySet<string> = new Set(["http:", "https:", "mailto:"])

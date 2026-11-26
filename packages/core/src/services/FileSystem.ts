@@ -68,6 +68,8 @@ export interface FileSystemShape {
     path: string,
   ) => Effect.Effect<Array<{ name: string; isFile: boolean; isDirectory: boolean }>, FileReadError>
   readonly stat: (path: string) => Effect.Effect<FileStat, FileNotFoundError>
+  /** Whether `path` is a symbolic link itself, which it does not follow. Fails when nothing is there. */
+  readonly isSymbolicLink: (path: string) => Effect.Effect<boolean, FileNotFoundError>
   readonly exists: (path: string) => Effect.Effect<boolean>
   readonly writeFile: (
     path: string,
