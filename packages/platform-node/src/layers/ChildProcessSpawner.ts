@@ -10,6 +10,7 @@ import {
   readSync,
   type WriteStream,
 } from "node:fs"
+import { constants } from "node:os"
 import * as readline from "node:readline"
 import { StringDecoder } from "node:string_decoder"
 import { Cause, Effect, Layer, Stream } from "effect"
@@ -24,6 +25,13 @@ import { SpawnError } from "@runbooks/core/errors"
 
 /** How often the spawner checks a run's log channel files for new lines. */
 const LOG_CHANNEL_POLL_MS = 100
+
+/**
+ * A child killed by a signal exits as a shell reports it: 128 plus the
+ * signal's number, so SIGKILL is 137. An unknown signal reads as 128.
+ */
+const exitCodeOfSignal = (signal: NodeJS.Signals | null): number =>
+  signal === null ? 1 : 128 + (constants.signals[signal] ?? 0)
 
 export interface FileTail {
   /** Emit every complete line appended since the last call. */
@@ -213,9 +221,9 @@ const impl: ProcessSpawnerShape = {
             logFile?.end()
             resolve(code)
           }
-          proc.on("close", (code) => {
+          proc.on("close", (code, signal) => {
             exited = true
-            finish(code ?? 1)
+            finish(code ?? exitCodeOfSignal(signal))
           })
           proc.on("error", () => finish(1))
         })
