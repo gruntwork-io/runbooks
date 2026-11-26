@@ -1,0 +1,602 @@
+---
+title: <Command>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<Command>` block runs a shell command or script, which can read user input and the outputs of other blocks. Use it for deployments, resource creation, and anything else that changes state.
+
+## Basic usage
+
+```mdx
+<Command 
+    id="trigger-deploy" 
+    command="curl -X POST https://api.example.com/deploy"
+    title="Trigger Deployment"
+    successMessage="Deployment triggered!"
+    failMessage="Failed to trigger deployment"
+/>
+```
+
+## vs. Check
+
+Command and [Check](/authoring/blocks/check/) blocks share most of their features. A Check reads the state of the world and validates it. A Command changes it.
+
+## Props
+
+### Required props
+
+- `id` (string): unique identifier for this command block.
+- `command` or `path`: set exactly one.
+  - `command` (string): the script itself.
+  - `path` (string): path to a script file, relative to the runbook's folder, such as `scripts/deploy.sh`. The file must be inside that folder, so a path that leaves it, such as `../deploy.sh`, is a configuration error.
+
+  Setting both, or neither, is a configuration error, and the block can't run.
+
+### Optional props
+
+- `title` (string): display title shown in the UI. Supports inline markdown (bold, italic, links, code).
+- `description` (string): longer description of what the command does. Supports inline markdown.
+- `autoCollapse` (boolean): whether the block folds down to its title once it's done. Defaults to `false`. Click it to show the block in full again. See [Folding done blocks](/authoring/blocks/#folding-done-blocks).
+- `outputs` (string[]): the names of the outputs the script writes to `$RUNBOOK_OUTPUT`, such as `outputs={["account_id"]}`. Runbooks keeps only these, and other blocks can read only these. A name has letters, digits and underscores, and doesn't start with a digit. See [Block outputs](#block-outputs).
+- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to read values from. Can be a single ID or an array of IDs. When multiple IDs are provided, values are merged in order, and later IDs override earlier ones. See [With variables](#with-variables).
+- `envFrom` (string | string[]): ID of a block, or an array of IDs, whose variables the script runs with: another Command's, from what its script wrote to `$RUNBOOK_ENV`, or an auth block's credentials. Later IDs override earlier ones. The block can't run until each one is done. See [Variables from other blocks](#variables-from-other-blocks).
+- `env` (object): environment variables the script runs with, by name, such as `env={{ DEBUG: "true" }}`. Each value is a string. See [Setting variables with env](#setting-variables-with-env).
+- `dependsOn` (string | string[]): ID of a block, or an array of IDs, that must be done before this block can run, such as another Command or a Check. A block that ended with a warning counts, including a Command that exited 2. See [Run order](#run-order).
+- `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is stopped, with every process it started, and the block fails. A whole number greater than 0. Defaults to `3600000` (60 minutes). Raise it for scripts that run longer, for example `timeoutMs={7200000}` for a 2-hour deployment, or lower it so a hung script fails sooner. [Runbook tests](/authoring/testing/) apply it too, as well as the test's `timeout` setting: the run stops at whichever limit comes first.
+- `successMessage` (string): message shown when the command succeeds. Default "Success". Supports inline markdown.
+- `failMessage` (string): message shown when the command fails. Default "Failed". Supports inline markdown.
+- `runningMessage` (string): message shown while running. Default "Running...". Supports inline markdown.
+
+#### Deprecated props
+
+`awsAuthId`, `gitAuthId`, `githubAuthId`, `googleAuthId` and `azureAuthId` (string) each name an auth block, such as an [AwsAuth](/authoring/blocks/awsauth/) or [GitAuth](/authoring/blocks/gitauth/) block. They still work: each is read as one more `envFrom` source, after the ones `envFrom` names, and Runbooks shows a warning that names the `envFrom` to write instead. `awsAuthId="aws"` and `envFrom={["aws"]}` pass the same variables.
+
+### Inline content
+
+You can nest an `<Inputs>` component directly inside the Command:
+
+````mdx
+<Command 
+    id="echo-message" 
+    command='echo "Hello, {{ .inputs.Name }}!"'
+    title="Print Greeting"
+>
+    <Inputs id="inline-greeting">
+    ```yaml
+    variables:
+      - name: Name
+        type: string
+        description: Your name
+        validations:
+          - required
+    ```
+    </Inputs>
+</Command>
+````
+
+The embedded `<Inputs>` renders inside the Command block, so users fill in variables before running the command. The Command reads it after the blocks its `inputsId` names, so its values win. Other blocks can reference it by `inputsId` like any standalone Inputs block.
+
+## Writing scripts
+
+Scripts can be defined inline with the `command` prop or stored in external files referenced by the `path` prop.
+
+### Defining scripts
+
+#### Inline scripts
+
+For simple commands, define the script directly in the `command` prop:
+
+```mdx
+<Command 
+    id="deploy-trigger" 
+    command="curl -X POST https://api.example.com/deploy"
+    title="Trigger Deployment"
+    successMessage="Deployment triggered!"
+    failMessage="Failed to trigger deployment"
+/>
+```
+
+Inline scripts suit one-liners. For anything longer, use an external script file.
+
+A command that contains both kinds of quotes, or spans several lines, can go in a template literal: ``command={`echo "It's done"`}``. Two things work differently there:
+
+- `${...}` is a JavaScript substitution, which Runbooks rejects when the runbook opens. Write `$VAR` or `\${VAR}`, not `${VAR}`.
+- JavaScript reads backslash escapes, as in any JavaScript string: `\n` is a line break, `` \` `` a backtick, and so on. Write `\\` for each backslash the shell should see, such as `grep '\\.tf$'`.
+
+#### External scripts
+
+```mdx
+<Command 
+    id="deploy-app" 
+    path="scripts/deploy.sh"
+    title="Deploy Application"
+    description="This will deploy your application to production"
+    successMessage="Deployment successful!"
+    failMessage="Deployment failed. Check the logs for details."
+/>
+```
+
+The referenced `scripts/deploy.sh` might look like:
+
+```bash
+#!/bin/bash
+
+log_info "Starting deployment..."
+kubectl rollout restart deployment/myapp
+
+if kubectl rollout status deployment/myapp; then
+    log_info "Deployment complete!"
+    exit 0
+else
+    log_error "Deployment failed"
+    exit 1
+fi
+```
+
+A script runs with the interpreter its first line names, such as `#!/usr/bin/env python3`, and with bash if it names none. A script for bash or sh runs under bash. This applies to inline scripts too.
+
+Scripts start in the session's directory, not in the runbook's folder. See [Execution context](#execution-context).
+
+Runbooks reads the script file once, when the runbook opens, and runs that text. If you edit the file while the runbook is open, the block keeps running the version it read.
+
+### Exit codes
+
+| Exit code | Result | Outputs and `$RUNBOOK_ENV` | Blocks that name it in `dependsOn` or `envFrom` |
+|-----------|--------|----------------------------|--------------------------------------------------|
+| 0 | Success | Kept | Can run |
+| 2 | Warning | Kept | Can run |
+| Any other | Failure | Withdrawn | Keep waiting |
+
+A script that runs past `timeoutMs` fails too.
+
+### Logging
+
+Runbooks sources a set of logging functions, the same as its [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh), into every script that runs with bash or sh. Using them lets the Runbooks UI parse log levels for filtering and export.
+
+#### Log levels
+
+| Function | Output | Description |
+|----------|--------|-------------|
+| `log_info "msg"` | `[timestamp] [INFO]  msg` | General informational messages |
+| `log_warn "msg"` | `[timestamp] [WARN]  msg` | Warning conditions |
+| `log_error "msg"` | `[timestamp] [ERROR] msg` | Error messages |
+| `log_debug "msg"` | `[timestamp] [DEBUG] msg` | Debug output (only when `DEBUG=true`) |
+
+The logging functions append to a [log file](#log-files) that Runbooks creates for each run, and Runbooks shows those lines in the block's logs as your script writes them, in the order it wrote them. They never write to stdout, so you can call them inside a function whose output you capture with `$(...)`. The captured value holds only what the function prints.
+
+```bash
+get_account_id() {
+  log_info "Looking up the AWS account ID..."
+  aws sts get-caller-identity --query Account --output text
+}
+
+ACCOUNT_ID=$(get_account_id)
+```
+
+#### Usage example
+
+```bash
+#!/bin/bash
+log_info "Starting deployment..."
+log_debug "Target environment: $ENVIRONMENT"
+
+if [ -z "$API_KEY" ]; then
+  log_warn "API_KEY not set, some features may be unavailable"
+fi
+
+if ! deploy_application; then
+  log_error "Deployment failed"
+  exit 1
+fi
+
+log_info "Deployment complete"
+```
+
+To turn on `log_debug` for one block, set `env={{ DEBUG: "true" }}`.
+
+#### Log files
+
+Each run gets a set of log files. Runbooks puts their paths in environment variables, the way `$RUNBOOK_OUTPUT` holds the path of the [outputs](#block-outputs) file:
+
+| Variable | Written by | Level in the logs |
+|----------|------------|-------------------|
+| `RUNBOOK_LOG` | `log_info`, `log_warn`, `log_error`, `log_debug` | The level each line names |
+| `RUNBOOK_INFO_LOG` | Your commands | `INFO` |
+| `RUNBOOK_WARN_LOG` | Your commands | `WARN` |
+| `RUNBOOK_ERROR_LOG` | Your commands | `ERROR` |
+| `RUNBOOK_DEBUG_LOG` | Your commands | `DEBUG` |
+
+All four logging functions append to `$RUNBOOK_LOG`, so their lines keep the order your script wrote them in, whatever their level. Runbooks shows the lines in `$RUNBOOK_LOG` as they are written, so a line you add there yourself should name its level the same way, for example `[WARN] Quota is almost used up`.
+
+The per-level files are for output that doesn't name a level, such as a tool's stderr. Any command can append to them directly. Runbooks adds a timestamp and the file's level to each line that doesn't already start with them, so the line shows up at that level:
+
+```bash
+# tofu's errors appear as [ERROR] lines; its JSON output stays in the variable
+PLAN_JSON=$(tofu show -json plan.tfplan 2>>"$RUNBOOK_ERROR_LOG")
+```
+
+Append with `>>`. Overwriting a log file with `>` can drop or repeat lines.
+
+Scripts in other languages get the same variables. For example, in Python:
+
+```python
+import os
+
+with open(os.environ["RUNBOOK_WARN_LOG"], "a") as log:
+    print("Quota is almost used up", file=log)
+```
+
+Runbooks reads the log files while your script runs, so their lines appear next to its stdout and stderr, normally in the order the script wrote them. Lines written to different log files close together can appear grouped by file, with the lines from `$RUNBOOK_LOG` first. `log_debug` only writes when `DEBUG=true`, but every line in `$RUNBOOK_DEBUG_LOG` is shown, whoever wrote it.
+
+The files are deleted when the run ends, so lines that a [background job](#background-processes) writes after the script exits don't appear. From then on, the logging functions write to stderr instead, so the job's later log lines go wherever you redirected its output. Don't redirect a background job's output to the log files: once they are deleted, a command whose output is redirected to one of them fails without running.
+
+#### Local development
+
+Outside the Runbooks UI, the logging functions aren't injected. To simulate the Runbooks environment, run this one-liner in your terminal session (bash or zsh):
+
+```bash
+mkdir -p ~/.config/runbooks && curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/runbooks/logging.sh && export BASH_ENV=~/.config/runbooks/logging.sh
+```
+
+This sets [`BASH_ENV`](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html), which tells bash to source the logging functions before running any script. It works from bash and zsh parent shells and lasts until the terminal is closed. The same script then works in both environments.
+
+Outside Runbooks `RUNBOOK_LOG` isn't set, so the logging functions write to stderr instead. The one-liner overwrites `~/.config/runbooks/logging.sh`, so re-run it to pick up changes to the logging functions. Copies downloaded before the log files existed write to stdout, where the log lines end up in `$(...)` captures.
+
+:::note[Fish shell]
+The one-liner above uses `export` and `&&`, which are not fish syntax. Fish also does not read `BASH_ENV` itself, but child `bash` processes will if the variable is exported. Use the fish equivalent:
+
+```fish
+mkdir -p ~/.config/runbooks; and curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/runbooks/logging.sh; and set -gx BASH_ENV ~/.config/runbooks/logging.sh
+```
+
+To make this persistent across sessions, add the following to a fish startup file such as `~/.config/fish/conf.d/runbooks.fish`:
+
+```fish
+if test -f ~/.config/runbooks/logging.sh
+    set -gx BASH_ENV ~/.config/runbooks/logging.sh
+end
+```
+:::
+
+### With variables
+
+A script reads inputs and other blocks' outputs as `{{ .inputs.<name> }}` and `{{ .outputs.<block-id>.<name> }}`. Runbooks inserts each one as a quoted variable expansion, so the shell never reads the value as code. See [Values in the script](#values-in-the-script). The examples below take inputs from different places.
+
+#### Using inputsId
+
+The command or script pulls its values from a separate Inputs block.
+
+````mdx
+<Inputs id="repo-config">
+```yaml
+variables:
+  - name: OrgName
+    type: string
+    description: GitHub organization name
+  - name: RepoName
+    type: string
+    description: Repository name
+```
+</Inputs>
+
+<Command 
+    id="create-repo" 
+    inputsId="repo-config"
+    command='gh repo create "{{ .inputs.OrgName }}/{{ .inputs.RepoName }}" --private'
+    title="Create GitHub Repository"
+    successMessage="Repository {{ .inputs.RepoName }} created!"
+    failMessage="Failed to create repository"
+/>
+````
+
+The message props can reference inputs and outputs directly, since Runbooks only shows them.
+
+#### Using inline inputs
+
+The Command collects input values directly. Other blocks can read them like any standalone Inputs block.
+
+````mdx
+<Command 
+    id="echo-message" 
+    command='echo "Hello, {{ .inputs.Name }}!"'
+    title="Print Greeting"
+>
+    <Inputs id="inline-greeting">
+    ```yaml
+    variables:
+      - name: Name
+        type: string
+        description: Your name
+        validations:
+          - required
+    ```
+    </Inputs>
+</Command>
+````
+
+#### Using multiple inputsIds
+
+Pass an array of IDs to reference several Inputs blocks. Values are merged in order, and later IDs override earlier ones:
+
+````mdx
+<Inputs id="lambda-config" templatePath="templates/lambda" />
+
+<Inputs id="repo-config">
+```yaml
+variables:
+  - name: GithubOrgName
+    type: string
+    description: GitHub organization name
+  - name: GithubRepoName
+    type: string
+    description: Repository name
+```
+</Inputs>
+
+<Command 
+    id="deploy-lambda" 
+    path="scripts/deploy.sh"
+    inputsId={["lambda-config", "repo-config"]}
+    title="Deploy Lambda Function"
+    description="Deploy the Lambda function using variables from both inputs"
+/>
+````
+
+If both blocks define a variable with the same name, the value from `repo-config` wins. An Inputs block nested in the Command is read after both, so its values win over theirs.
+
+#### Values in the script
+
+A script names a value as `{{ .inputs.Name }}` or `{{ .outputs.build.tag }}`. Runbooks doesn't paste the value into the script. It puts the value in a variable and inserts an expansion of that variable, quoted for where the reference stands:
+
+| Where the reference is | What Runbooks inserts |
+|------------------------|-----------------------|
+| Outside quotes, or in a comment | `"${RUNBOOK_VALUE_1}"` |
+| In double quotes, or in a heredoc whose delimiter isn't quoted | `${RUNBOOK_VALUE_1}` |
+| In single quotes | `'"${RUNBOOK_VALUE_1}"'`: the quotes close, then open again |
+
+So the shell expands each value once and never runs it: quotes, `$(...)`, backticks, spaces and `*` in a value stay as they are, and a reference outside quotes is still one word. You don't need to quote a reference yourself. The script's first line runs `export -n` on these variables, so the commands it runs don't get them.
+
+Only a script that runs with bash or sh can name a value. A reference in a script for another interpreter, such as Python, fails the run.
+
+A `{{ }}` can hold a reference, a template comment such as `{{/* note */}}`, or a string constant, whose text goes into the script as written. `{{-` and `-}}` trim the white space next to them. Nothing else is allowed: no `if`, `range`, pipe or function. To pass `{{ }}` through to a tool such as `docker ps --format`, write it as a string constant: ``--format '{{`{{.Names}}`}}'``.
+
+Runbooks also refuses a reference where the shell would evaluate the value, or wouldn't expand the variable. Among them:
+
+- inside arithmetic: `$(( ))`, `(( ))`, `$[ ]`, `let`, and the operands of `-eq`, `-lt` and the like in `[[ ]]`;
+- inside `${...}` or an array subscript;
+- where bash reads a variable name: `read`, `unset`, `declare`, `printf -v`;
+- where bash runs code: `eval`, `trap`, `alias`;
+- in backticks, in `$'...'`, right after `\` or `$`, and in a heredoc whose delimiter is quoted.
+
+When any reference is refused, the block fails before the script starts. The error names each refused reference by its line and column, as in `scripts/deploy.sh, line 4, column 12` or, for an inline script, `The command, line 1, column 6`, and says what to write instead. For arithmetic, it says to set a variable first, check it is a number, and use the variable:
+
+```bash
+COUNT={{ .inputs.Count }}
+[[ $COUNT =~ ^-?[0-9]+$ ]] || exit 1
+echo $(( COUNT + 1 ))
+```
+
+The block also fails, at the reference's line and column, when a reference names a field that none of the Inputs blocks it reads has, or an output its block hasn't written. An optional field left empty inserts one empty word.
+
+A value can't hold a NUL character or be over 64 KiB, and the values in one script can't pass 256 KiB together.
+
+:::caution
+Quoting protects the shell, not a program inside the script. A value in single quotes goes into the text of the program those quotes hold, such as `awk '{ print "{{ .inputs.Name }}" }'`, `jq`, `sed`, `sh -c` or `python -c`, and that program reads it as its own code. So does a heredoc fed to `bash` or `python`. Pass the value in the environment instead, and have the program read it from there: `NAME={{ .inputs.Name }} awk 'BEGIN { print ENVIRON["NAME"] }'`. The same goes for a value you pass on through a variable to `eval`, `bash -c` or `$(( ))`, and for a value used as a command's name.
+:::
+
+#### Setting variables with env
+
+The `env` prop sets environment variables for the script, by name:
+
+```mdx
+<Command
+    id="plan"
+    env={{ TF_IN_AUTOMATION: "1", DEBUG: "true" }}
+    command="tofu plan"
+/>
+```
+
+{/* A `{{ }}` in an `env` value is used as written for now, not rendered. The examples of `env` values that read inputs and outputs, such as `REPO: "{{ .inputs.RepoName }}"`, return when `env` values are rendered. */}
+
+- **They override other variables.** A variable in `env` replaces one of the same name from Runbooks' own environment or from an [`envFrom`](#variables-from-other-blocks) source, so `env={{ AWS_REGION: "us-west-2" }}` picks the region for a block that names an AwsAuth block in `envFrom`.
+- **They are this block's.** Later blocks don't get them, not even through `envFrom`. To pass a variable on, write it to [`$RUNBOOK_ENV`](#variables-from-other-blocks).
+
+A name has letters, digits and underscores, and doesn't start with a digit. A value is a string. Runbooks keeps `GENERATED_FILES`, `REPO_FILES` and every name that starts with `RUNBOOK_` for itself, so `env` can't use them. A block whose `env` breaks these rules shows the error and can't run.
+
+### Execution context
+
+Each run starts fresh. A script runs with these variables, a later layer winning:
+
+1. The environment Runbooks started with, less the variables any auth block sets, such as `AWS_ACCESS_KEY_ID`, and less the names Runbooks keeps for itself.
+2. The variables of each [`envFrom`](#variables-from-other-blocks) source, in order.
+3. The [`env`](#setting-variables-with-env) prop.
+4. The variables Runbooks sets for the run: `$RUNBOOK_OUTPUT`, `$RUNBOOK_ENV` and the [log files](#log-files).
+
+Nothing else carries from one block to the next. An `export`, `unset` or `cd` in one script doesn't reach later blocks. To pass a variable on, write it to `$RUNBOOK_ENV` and name the block in the later block's `envFrom`. To pass a value, write a [block output](#block-outputs).
+
+Scripts run in a non-interactive shell, so shell aliases such as `ll` and shell functions such as `nvm` or `rvm` are not available.
+
+Scripts start in the [session's directory](/commands/sessions/), not in the runbook's folder, and every script in the session starts there. No environment variable names the runbook's folder, so a script can't call another script or read a file that ships with the runbook. Give each script file its own block with `path`. To work with a cloned repository's files, use the `<GitClone>` block's `clone_path` output.
+
+Scripts run without a terminal, and their standard input is empty. A command that asks for input, such as `read`, a confirmation prompt, or a `sudo` password prompt, gets none and usually fails. Use non-interactive flags, such as `tofu apply -auto-approve` or `apt-get install -y`. Tools that check for a terminal may also turn off colors and progress bars.
+
+#### Variables from other blocks
+
+A script gives variables to later blocks by writing `NAME=value` lines to the `$RUNBOOK_ENV` file. A block that names it in `envFrom` runs with them:
+
+```mdx
+<Command id="login" command='echo "API_TOKEN=$(vault read -field=token secret/api)" >> "$RUNBOOK_ENV"' />
+
+<Command id="deploy" envFrom="login" path="scripts/deploy.sh" />
+```
+
+- **Only the blocks that name it get them.** A block that names `login` only in `dependsOn` doesn't get `API_TOKEN`. A block passes on only what its own script wrote, not what it got from its own `envFrom` sources.
+- **The format is that of `$RUNBOOK_OUTPUT`.** See [Block outputs](#block-outputs). Runbooks treats every value in `$RUNBOOK_ENV` as sensitive. A line that sets a name Runbooks keeps for itself, or a value that holds a NUL character, fails the run.
+- **Runbooks reads it when the script exits 0 or 2.** A block that names a failed block in `envFrom` waits, as for `dependsOn`.
+- **An auth block gives its credentials.** `envFrom="aws"` gives the script the variables of the AwsAuth block `aws`, read when the run starts. See [AwsAuth](/authoring/blocks/awsauth/), [GoogleAuth](/authoring/blocks/googleauth/), [AzureAuth](/authoring/blocks/azureauth/) and [GitAuth](/authoring/blocks/gitauth/).
+
+When two `envFrom` sources set the same variable, the later one's value wins, and Runbooks shows a warning that names both.
+
+#### Run order
+
+Command and Check blocks can run at the same time. A block's Run button is disabled while the block has to wait for another one:
+
+- **It uses another block's outputs.** A block that references `{{ .outputs.build.tag }}` can't run until `build` is done, and can't run while `build` is running again.
+- **It names another block in `dependsOn` or `envFrom`.** The block can't run until every block it names is done: for a Command, its script exited 0 or 2. If one of them later fails or is stopped, the block waits again. Use `dependsOn` when a script needs something an earlier script did that isn't an output or a variable, such as a resource it created.
+- **It reads an Inputs block.** The block can't run until the values it reads are filled in and valid.
+
+```mdx
+<Command id="login" command='echo "API_TOKEN=$(vault read -field=token secret/api)" >> "$RUNBOOK_ENV"' />
+
+<Command id="deploy" envFrom="login" path="scripts/deploy.sh" />
+
+<Command id="migrate" envFrom="login" dependsOn="deploy" path="scripts/migrate.sh" />
+```
+
+A block that is waiting names the blocks it is waiting for. Click a name to scroll to that block. For a block that is running, there is also a button to stop it.
+
+Each ID in `dependsOn`, `envFrom` and `inputsId` must name a block in the runbook that can satisfy it. An ID that no block has, a block of the wrong kind, or the block itself is a configuration error, and the error gives the line.
+
+#### Background processes
+
+A block finishes once its script has exited and no process it started still has the script's output open. To leave a process running for later blocks, such as a port-forward or a local dev server, start it in the background with its output redirected:
+
+```bash
+nohup kubectl port-forward svc/web 8080:80 > /tmp/port-forward.log 2>&1 &
+```
+
+Without the redirect, the block keeps waiting on the background process until `timeoutMs` stops it. Stopping a running block, or letting it hit `timeoutMs`, terminates the script together with every process it started. Quitting Runbooks while a block is running sends them the same termination signal.
+
+### Examples
+
+#### Simple deployment script
+
+```bash
+#!/bin/bash
+# scripts/deploy.sh
+
+set -e  # Exit on error
+
+log_info "Starting deployment..."
+kubectl rollout restart deployment/myapp
+kubectl rollout status deployment/myapp
+
+log_info "Deployment complete!"
+```
+
+#### Parameterized script
+
+```mdx
+<Command
+    id="create-vpc"
+    path="scripts/create-vpc.sh"
+    inputsId="vpc-config"
+/>
+```
+
+```bash
+#!/bin/bash
+# scripts/create-vpc.sh
+
+REGION={{ .inputs.AwsRegion }}
+VPC_NAME={{ .inputs.VpcName }}
+CIDR_BLOCK={{ .inputs.CidrBlock }}
+
+log_info "Creating VPC $VPC_NAME in $REGION..."
+log_debug "CIDR block: $CIDR_BLOCK"
+
+aws ec2 create-vpc \
+    --cidr-block "$CIDR_BLOCK" \
+    --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=$VPC_NAME}]" \
+    --region "$REGION"
+
+log_info "VPC created successfully!"
+```
+
+#### Script with error handling
+
+```bash
+#!/bin/bash
+# scripts/safe-deploy.sh
+
+set -e
+
+function cleanup {
+    log_info "Cleaning up..."
+    # Cleanup code here
+}
+
+trap cleanup EXIT
+
+log_info "Running pre-deployment checks..."
+kubectl cluster-info > /dev/null || { log_error "Pre-checks failed"; exit 1; }
+
+log_info "Deploying..."
+kubectl rollout restart deployment/myapp
+
+log_info "Running post-deployment validation..."
+kubectl rollout status deployment/myapp --timeout=5m || { log_error "Validation failed"; exit 1; }
+
+log_info "Deployment successful!"
+```
+
+## Capturing output files
+
+A script starts in the session's directory. Files it writes to the `generated` folder there are [generated files](/intro/files_workspace/#generated-files):
+
+```bash
+#!/bin/bash
+mkdir -p generated/opentofu
+tofu output -json > generated/opentofu/outputs.json
+```
+
+See the [Files workspace](/intro/files_workspace/) page for more.
+
+<Aside type="note">
+Files land as the script writes them, whatever its exit code. If two blocks write a file with the same path, the last write wins. Use unique filenames or subdirectories to avoid conflicts.
+</Aside>
+
+{/* The `$GENERATED_FILES` and `$REPO_FILES` sections return when Command sets those variables. Runbooks keeps both names for itself, so `env` and `$RUNBOOK_ENV` can't set them. */}
+
+## Viewing logs
+
+While a command runs, its output streams into the collapsible **View Logs** panel under the block. The panel's toolbar offers:
+
+- **Copy prompt for LLM.** Copies a ready-to-paste prompt for an AI assistant. It names the block's ID and the runbook file, and ends with an instruction that matches the block's status. When the block has failed, for example, it asks the assistant to analyze the failure and suggest a fix.
+- **Search** the logs. Click the search button, or click into the logs and press **Cmd+F** on macOS, or **Ctrl+F** on Windows and Linux. The search covers the whole log, including lines that arrive while it's open, but not the timestamps. Its toggles match case (**Alt+C**), read the search as a regular expression (**Alt+R**), and show only the matching lines (**Alt+L**). Press **Enter** / **Shift+Enter** (or **Cmd/Ctrl+G** / **Shift+Cmd/Ctrl+G**) to move between matches, and **Esc** to close the search.
+- **Wrap** long lines, **copy** the logs as plain text, or **download** them as raw (`.log`) or structured (`.json`) logs.
+- **Maximize** the logs to fill the screen.
+
+Once you scroll down a long log, a **Jump to top** button appears in its corner, and a **Jump to bottom** button appears whenever you're above the end. After you click into the logs, **Home** and **End** do the same. While a command runs, the logs follow its output until you scroll up. The bottom button then counts the lines that have arrived since, and clicking it goes back to following.
+
+## Block outputs
+
+Commands can produce outputs that later blocks consume. Declare each one in the `outputs` prop. The script writes `name=value` lines to the `$RUNBOOK_OUTPUT` file, and later blocks reference them via `{{ .outputs.<block-id>.<name> }}`:
+
+```mdx
+<Command id="create_account" path="scripts/create-account.sh" outputs={["account_id"]} />
+
+<Command
+    id="tag_account"
+    command="aws organizations tag-resource --resource-id {{ .outputs.create_account.account_id }} --tags Key=team,Value=infra"
+/>
+```
+
+```bash
+#!/bin/bash
+# scripts/create-account.sh
+ACCOUNT_ID=$(aws organizations create-account ...)
+echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
+```
+
+- **Only declared outputs are kept.** A line whose name `outputs` doesn't list is dropped.
+- **A block can read only declared outputs.** A reference to an output that the block doesn't declare is a configuration error.
+- **A declared output must be written.** If the script never writes it, the block that reads it fails when it runs.
+- **Runbooks reads the file when the script exits 0 or 2.** When the script exits with any other code, the block's outputs are withdrawn.
+
+Write one output per line. A name starts with a letter or underscore and contains only letters, digits and underscores. For a value with line breaks, write `name<<EOF`, then the value's lines, then `EOF` on a line of its own. Runbooks fails the run when it can't read a line, and the error names the line. It reads at most 1 MiB and 10,000 lines of the file. See [Producing outputs](/authoring/inputs-and-outputs/#producing-outputs) for the full format.
+
+After a block runs, click **View Outputs** below the log viewer to inspect its outputs. To keep a credential off screen there, write `sensitive:` before its name, as in `echo "sensitive:API_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"`. See [Sensitive outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
+
+For producing outputs, consuming them in templates, dependency behavior, and complex data types, see [Block outputs](/authoring/inputs-and-outputs/#block-outputs) in Inputs and outputs.
