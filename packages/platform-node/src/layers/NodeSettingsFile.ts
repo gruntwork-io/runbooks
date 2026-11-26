@@ -5,10 +5,11 @@
  *
  * `replace` and `keepAside` each write a temporary file beside their
  * target and rename it into place, so a reader finds the old file or the
- * new one. A temporary file a crash left behind is removed by the next
- * write. Every file is created readable and writable by its owner only,
- * and a missing data folder is created for its owner only.
+ * new one. Each write's temporary file has a name of its own, and goes if
+ * the write fails. Every file is created readable and writable by its owner
+ * only, and a missing data folder is created for its owner only.
  */
+import { randomUUID } from "node:crypto"
 import { constants } from "node:fs"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
@@ -52,13 +53,22 @@ async function readHead(file: string): Promise<Option.Option<FileHead>> {
   }
 }
 
-/** Puts a new owner-only file at `target` in one step: `fill` writes the temporary file it is renamed from. */
+/**
+ * Puts a new owner-only file at `target` in one step: `fill` writes the
+ * temporary file it is renamed from. The temporary file's name is this
+ * write's own, so a second writer at the same moment, such as a second
+ * Runbooks, never opens or removes it; the last rename wins, whole.
+ */
 async function replaceWith(target: string, fill: (temporary: string) => Promise<void>) {
   await fs.mkdir(path.dirname(target), { recursive: true, mode: OWNER_ONLY_FOLDER })
-  const temporary = `${target}.tmp`
-  await fs.rm(temporary, { force: true })
-  await fill(temporary)
-  await fs.rename(temporary, target)
+  const temporary = `${target}.${randomUUID()}.tmp`
+  try {
+    await fill(temporary)
+    await fs.rename(temporary, target)
+  } catch (error) {
+    await fs.rm(temporary, { force: true })
+    throw error
+  }
 }
 
 /** The settings file in `dataFolder`. */
