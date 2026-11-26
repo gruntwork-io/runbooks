@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
-import { Result, Schema, SchemaAST, SchemaIssue } from "effect"
+import { Option, Result, Schema, SchemaAST, SchemaIssue } from "effect"
 import YAML from "yaml"
 import {
   BlockId,
@@ -139,7 +139,9 @@ function takes(block: AnyBlock, key: SharedKey): boolean {
   }
 }
 
-const toBlockId = Schema.decodeSync(BlockId)
+/** The id `written` names, if it is one: letters, digits, `-` and `_`. */
+const blockIdOf = (written: unknown): Option.Option<BlockId> =>
+  Schema.decodeUnknownOption(BlockId)(written)
 const toHash = Schema.decodeSync(ContentHash)
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1()
 
@@ -664,12 +666,13 @@ class Parse {
   ): { readonly id: BlockId; readonly asWritten: string } | undefined {
     const prop = written.get("id")
     if (prop !== undefined) {
-      if (typeof prop.value === "string" && prop.value !== "") {
-        return { id: toBlockId(prop.value), asWritten: prop.value }
+      const id = blockIdOf(prop.value)
+      if (Option.isSome(id) && typeof prop.value === "string") {
+        return { id: id.value, asWritten: prop.value }
       }
       this.error(
         "badProp",
-        `the \`id\` of <${tag}> must be text, such as id="deploy".`,
+        `the \`id\` of <${tag}> must be letters, digits, \`-\` and \`_\`, such as id="deploy".`,
         prop.span,
         {
           block: { tag },
@@ -832,7 +835,9 @@ class Parse {
     }
     const envFrom = [...(decoded.success.envFrom ?? [])]
     for (const [key, prop] of aliases) {
-      if (typeof prop.value !== "string" || prop.value === "") {
+      const named = prop.value
+      const id = typeof named === "string" ? blockIdOf(named) : Option.none<BlockId>()
+      if (typeof named !== "string" || Option.isNone(id)) {
         this.error("badProp", `\`${key}\` must be a block id, such as ${key}="aws".`, prop.span, {
           block: where,
           prop: key,
@@ -842,16 +847,15 @@ class Parse {
         })
         continue
       }
-      const id = toBlockId(prop.value)
-      envFrom.push(id)
-      this.refer(index, key, "env", prop, id, span)
+      envFrom.push(id.value)
+      this.refer(index, key, "env", prop, id.value, span)
       this.warn(
         "deprecatedProp",
-        `\`${key}\` still works, and \`envFrom\` replaces it: envFrom={["${prop.value}"]} passes the same variables.`,
+        `\`${key}\` still works, and \`envFrom\` replaces it: envFrom={["${named}"]} passes the same variables.`,
         prop.span,
         where,
         key,
-        `envFrom={["${prop.value}"]}`,
+        `envFrom={["${named}"]}`,
       )
     }
     return envFrom.length > 0 ? { ...decoded.success, envFrom } : decoded.success

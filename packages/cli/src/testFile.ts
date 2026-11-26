@@ -16,7 +16,7 @@
  */
 import { Effect, Schema, SchemaIssue } from "effect"
 import { isMap, isScalar, isSeq, LineCounter, parseDocument, type Node } from "yaml"
-import type { MachineEffect } from "@runbooks/blocks-core/contract"
+import { isIdWord, type MachineEffect } from "@runbooks/blocks-core/contract"
 import type { AnyBlock, Registry } from "@runbooks/blocks-core/registry"
 import { resolveTag } from "@runbooks/blocks-core/registry"
 import type { RunbookDocument } from "@runbooks/core/document/document"
@@ -97,6 +97,8 @@ export const DEFAULT_EXPECT: ExpectedStatus = "success"
 // ---------------------------------------------------------------------------
 
 const Text = Schema.NonEmptyString
+/** A block's id as the runbook writes it. */
+const BlockName = Schema.String.check(isIdWord)
 const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 
 /** A duration as `timeout` takes it: `500ms`, `30s`, `5m`, `1h`. */
@@ -188,20 +190,20 @@ export const Assertion = Schema.Union([
   Schema.Struct({ type: Schema.Literal("file_equals"), path: Text, value: Schema.String }),
   Schema.Struct({
     type: Schema.Literal("output_equals"),
-    block: Text,
+    block: BlockName,
     output: Text,
     value: Schema.String,
   }),
   Schema.Struct({
     type: Schema.Literal("output_matches"),
-    block: Text,
+    block: BlockName,
     output: Text,
     pattern: Text,
   }),
-  Schema.Struct({ type: Schema.Literal("output_exists"), block: Text, output: Text }),
+  Schema.Struct({ type: Schema.Literal("output_exists"), block: BlockName, output: Text }),
   Schema.Struct({
     type: Schema.Literal("files_generated"),
-    block: Text,
+    block: BlockName,
     min_count: Schema.optionalKey(Count),
   }),
   Schema.Struct({ type: Schema.Literal("script"), command: Text }),
@@ -230,7 +232,7 @@ const optionalFields = Object.fromEntries(
 
 export const Step = Schema.Struct({
   /** The block's id. */
-  block: Text,
+  block: BlockName,
   expect: Schema.optionalKey(Schema.Literals(allowedExpects)),
   ...optionalFields,
 })
