@@ -408,6 +408,8 @@ Each run starts fresh. A script runs with these variables, a later layer winning
 3. The [`env`](#setting-variables-with-env) prop.
 4. The variables Runbooks sets for the run: `$RUNBOOK_OUTPUT`, `$RUNBOOK_ENV`, [`$GENERATED_FILES`](#writing-to-generated-files), the [log files](#log-files), and [`$REPO_FILES`](#writing-to-repository-files) for a block that names a repository.
 
+The first three layers together can be at most 960 KiB (983,040 bytes), so that every system Runbooks runs on can start the script with them. Each variable counts as `NAME=value` in UTF-8 and 9 bytes more: the NUL that ends it and its pointer. One variable, `NAME=value` and its NUL, can be at most 128 KiB (131,072 bytes). A run past either limit fails before its script starts, and the error names the variable, or the blocks that gave the most.
+
 Nothing else carries from one block to the next. An `export`, `unset` or `cd` in one script doesn't reach later blocks. To pass a variable on, write it to `$RUNBOOK_ENV` and name the block in the later block's `envFrom`. To pass a value, write a [block output](#block-outputs).
 
 Scripts run in a non-interactive shell, so shell aliases such as `ll` and shell functions such as `nvm` or `rvm` are not available.

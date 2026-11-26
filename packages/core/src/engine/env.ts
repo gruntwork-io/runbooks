@@ -29,7 +29,20 @@ export const RUN_ENV_LIMITS = {
    * execve refuses a longer string: MAX_ARG_STRLEN, 32 pages of 4 KiB.
    */
   variableBytes: 128 * 1024,
+  /**
+   * Bytes in the whole environment, each variable counted as its
+   * `variableBytes` and its pointer. macOS's execve takes 1 MiB
+   * (kern.argmax) for the arguments, the environment and their pointers
+   * together; Linux a quarter of the stack limit, 2 MiB at the usual
+   * 8 MiB. 64 KiB of macOS's is left for what the run adds after: the
+   * interpreter and script path it runs, and the variables Runbooks sets
+   * (its run files and log files), under 50 KiB with paths of 4096 bytes.
+   */
+  totalBytes: 1024 * 1024 - 64 * 1024,
 } as const
+
+/** What a variable's pointer in the environment takes on a 64-bit system. */
+const POINTER_BYTES = 8
 
 const encoder = new TextEncoder()
 
@@ -219,5 +232,58 @@ export const buildRunEnv = Effect.fnUntraced(function* ({ base, sources, own }: 
   // The parser refused a reserved name in `env`; a source's names come from a run or a provider.
   for (const [name, value] of Object.entries(own)) env.set(name, value)
   const built: RunEnv = Object.fromEntries(env)
+  const tooLarge = sizeProblem(built, (name) =>
+    Object.hasOwn(own, name) ? OWN : (setBy.get(name) ?? BASE),
+  )
+  if (tooLarge !== undefined) return yield* Effect.fail(tooLarge)
   return { env: built, conflicts }
 })
+
+const BASE = { layer: "the base environment" } as const
+const OWN = { layer: "the block's env" } as const
+
+/** Where a variable of a run's environment came from: the block that gave it, or another layer. */
+type Origin = BlockId | typeof BASE | typeof OWN
+
+/**
+ * Why no process can be started with `env`, or undefined: a variable past
+ * `RUN_ENV_LIMITS.variableBytes`, or the whole past `totalBytes`. The
+ * message names each variable and where it came from, and for the whole,
+ * the layers that gave the most; never a value.
+ */
+function sizeProblem(env: RunEnv, originOf: (name: string) => Origin): TaskFailed | undefined {
+  const bytesBy = new Map<Origin, number>()
+  const reasons: string[] = []
+  let total = 0
+  for (const [name, value] of Object.entries(env)) {
+    const origin = originOf(name)
+    const bytes = variableBytes(name, Redacted.value(value))
+    if (bytes > RUN_ENV_LIMITS.variableBytes)
+      reasons.push(
+        `${name} ${where(origin)} is ${bytes} bytes as NAME=value with its NUL, over the ${RUN_ENV_LIMITS.variableBytes} bytes a process can take for one variable.`,
+      )
+    total += bytes + POINTER_BYTES
+    bytesBy.set(origin, (bytesBy.get(origin) ?? 0) + bytes + POINTER_BYTES)
+  }
+  if (total > RUN_ENV_LIMITS.totalBytes) {
+    const most = [...bytesBy]
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 3)
+      .map(([origin, bytes]) => `${label(origin)} (${bytes} bytes)`)
+    reasons.push(
+      `The run's environment is ${total} bytes, over the ${RUN_ENV_LIMITS.totalBytes} bytes a process can be started with. Most of it came from ${most.length > 1 ? `${most.slice(0, -1).join(", ")} and ${most.at(-1)}` : most[0]}.`,
+    )
+  }
+  return reasons.length === 0
+    ? undefined
+    : new TaskFailed({ message: [...reasons, "So the run did not start."].join(" ") })
+}
+
+const label = (origin: Origin): string => (typeof origin === "string" ? origin : origin.layer)
+
+const where = (origin: Origin): string =>
+  typeof origin === "string"
+    ? `from ${origin}`
+    : origin === BASE
+      ? "in the base environment"
+      : "in env"
