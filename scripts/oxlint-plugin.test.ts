@@ -21,6 +21,7 @@ const RULES = [
   "plugin-binary-outside-owner",
   "no-computed-import",
   "blocks-core-imports-only-effect",
+  "no-throw-in-blocks",
 ]
 
 interface Finding {
@@ -422,6 +423,40 @@ describe("no-computed-import", () => {
     expect(found[1]?.message).toBe(
       'blocks/core does no I/O, so it loads no module chosen at run time: name the module with a plain string, import("./x.ts"), which the import rules read.',
     )
+  })
+})
+
+describe("no-throw-in-blocks", () => {
+  it("reports a throw, a throwing decoder or runner, and getOrThrow in block code, and not in its tests, its view or the core", () => {
+    const code = [
+      'import { Effect, Option, Schema } from "effect"',
+      'import { getOrThrow as orThrow } from "effect/Option"',
+      "export const a = (x: unknown) => Schema.decodeUnknownSync(Schema.String)(x)",
+      "export const b = (o: Option.Option<string>) => Option.getOrThrow(o)",
+      'export const c = () => { throw new Error("no") }',
+      "export const d = () => Effect.runSync(Effect.succeed(1))",
+      "export const g = (x: unknown) => Schema.asserts(Schema.String, x)",
+      "export const { decodeUnknownSync, is } = Schema",
+      "export const e = Schema.is(Schema.String)",
+      "export const f = (o: Option.Option<string>) => Option.getOrElse(o, () => '')",
+    ].join("\n")
+    const found = lint({
+      "blocks/command/block.ts": code,
+      "blocks/command/helper.ts": code,
+      "blocks/core/contract.ts": code,
+      "blocks/command/block.test.ts": code,
+      "blocks/command/View.tsx": code,
+      "packages/core/src/x.ts": code,
+    }).filter((f) => f.rule === "no-throw-in-blocks")
+    expect(brief(found)).toEqual(
+      ["blocks/command/block.ts", "blocks/command/helper.ts", "blocks/core/contract.ts"].flatMap(
+        (file) => [2, 3, 4, 5, 6, 7, 8].map((line) => `no-throw-in-blocks ${file}:${line}`),
+      ),
+    )
+    expect(found[0]?.message).toStartWith("getOrThrow throws on a bad value.")
+    expect(found[1]?.message).toStartWith("decodeUnknownSync throws on a bad value.")
+    expect(found[1]?.message).toContain("decode in the block's props schema")
+    expect(found[3]?.message).toContain("fail an Effect, or return a Result")
   })
 })
 

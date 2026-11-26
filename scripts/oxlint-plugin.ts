@@ -89,6 +89,9 @@ interface Node {
   readonly specifiers?: ReadonlyArray<Node>
   readonly declaration?: Node | null
   readonly body?: ReadonlyArray<Node>
+  readonly property?: Node
+  readonly imported?: Node
+  readonly properties?: ReadonlyArray<Node>
 }
 
 interface Context {
@@ -482,6 +485,55 @@ const blocksCoreImportsOnlyEffect = {
   },
 }
 
+/** An identifier's name, or a string literal's value: how an import or a key names a member. */
+const nameOf = (node: Node | undefined): string | undefined =>
+  node?.type === "Identifier"
+    ? node.name
+    : node?.type === "Literal" && typeof node.value === "string"
+      ? node.value
+      : undefined
+
+/**
+ * Members whose call throws on a bad value or a failure: Schema's `*Sync`
+ * decoders and encoders, `Effect.runSync`, `Option.getOrThrow` and kin.
+ */
+const THROWS = /Sync$|^getOrThrow(With)?$|^asserts$/
+
+const noThrowInBlocks = {
+  meta: {
+    type: "problem",
+    docs: { description: "Block code throws nothing: the parser and the engine call it" },
+    messages: {
+      throw:
+        "Block code throws nothing, because the parser and the engine call it and a throw would end them: fail an Effect, or return a Result.",
+      call: "{{name}} throws on a bad value. Block code throws nothing, because the parser and the engine call it and a throw would end them: decode in the block's props schema, or use the Effect or Result form.",
+    },
+    schema: ROOT_OPTION,
+  },
+  create(context: Context) {
+    const { file } = fileOf(context)
+    const pkg = packageOf(file)
+    if ((pkg !== "blocks" && pkg !== "blocks-core") || !file.endsWith(".ts")) return {}
+    if (file.endsWith(".test.ts")) return {}
+    // A throwing member reaches block code as `Schema.x`, as an imported
+    // name (`import { x } from "effect/Schema"`) or as a destructured key.
+    const report = (node: Node | undefined, name: string | undefined) => {
+      if (node !== undefined && name !== undefined && THROWS.test(name))
+        context.report({ node, messageId: "call", data: { name } })
+    }
+    return {
+      ThrowStatement: (node: Node) => context.report({ node, messageId: "throw" }),
+      MemberExpression: (node: Node) =>
+        report(node.property, node.computed === true ? undefined : node.property?.name),
+      ImportSpecifier: (node: Node) => report(node.imported, nameOf(node.imported)),
+      ObjectPattern: (node: Node) => {
+        for (const property of node.properties ?? [])
+          if (property.computed !== true) report(property.key, nameOf(property.key))
+      },
+    }
+  },
+}
+
 /** Reports each statement in the registry that is not one registry line. `export {}` keeps an empty registry a module. */
 function registryLines(program: Node, context: Context): void {
   for (const node of program.body ?? []) {
@@ -504,5 +556,6 @@ export default {
     "plugin-binary-outside-owner": pluginBinaryOutsideOwner,
     "no-computed-import": noComputedImport,
     "blocks-core-imports-only-effect": blocksCoreImportsOnlyEffect,
+    "no-throw-in-blocks": noThrowInBlocks,
   },
 }
