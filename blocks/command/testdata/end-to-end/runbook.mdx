@@ -1,0 +1,23 @@
+# Command, end to end
+
+`runbooks test` runs this runbook as phase 2's exit test (`packages/cli/src/main.test.ts`). Each block checks something Command promises, so a Command that breaks one fails the test.
+
+`setup` logs with the helpers, gives an output and a variable, and writes a file to `generated/` through a path relative to the folder it starts in, the run's folder.
+
+<Command
+  id="setup"
+  outputs={["region"]}
+  command={`log_info "setting up" || exit 9
+echo "region=us-east-1" >> "$RUNBOOK_OUTPUT"
+echo "FROM_SETUP=eu-west-2" >> "$RUNBOOK_ENV"
+mkdir -p generated
+echo made > generated/made-by-setup.txt`}
+/>
+
+`consume` runs a script file. It gets `FROM_SETUP` through `envFrom`, and setup's region as a `{{ }}` value.
+
+<Command id="consume" path="scripts/consume.sh" envFrom={["setup"]} outputs={["seen"]} />
+
+`fails` exits 3, so its run fails.
+
+<Command id="fails" command="exit 3" />
