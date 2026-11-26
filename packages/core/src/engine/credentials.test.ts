@@ -1537,6 +1537,48 @@ describe("a run that names the block in envFrom", () => {
       ])
     })
 
+    it("keeps the targets the person chose, not the ones the fresh process finds", async () => {
+      let lose = false
+      await withCloud(
+        runbookOf('<CloudLogin id="cloud" />', DEPLOY),
+        {
+          cloud: cloud({
+            detect: () => found(who("111")),
+            targets: (level) =>
+              Effect.succeed(
+                level === "account"
+                  ? [who("111").targets.account!, who("222").targets.account!]
+                  : [{ id: "Admin", name: "Admin" }],
+              ),
+            select: (targets) => Effect.succeed(who(targets.account ?? "", targets.role)),
+            env: Effect.suspend(() => {
+              if (!lose) return Effect.succeed(cloudEnv("tok-SECRET"))
+              lose = false
+              return Effect.fail(credentialError("notSignedIn", "Sign in first."))
+            }),
+          }),
+        },
+        (rb) =>
+          Effect.gen(function* () {
+            yield* rb.until("cloud", "Found")
+            yield* rb.act("cloud", { _tag: "Confirm" })
+            yield* rb.until("cloud", "Ready")
+            yield* rb.act("cloud", { _tag: "ChooseTarget", level: "account", id: "222" })
+            yield* rb.until("cloud", "ChoosingTarget")
+            yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: "Admin" })
+            expect(yield* rb.until("cloud", "Ready")).toMatchObject({ identity: who("222") })
+            lose = true
+            expect(yield* rb.run("deploy")).toEqual(done)
+            expect(yield* rb.until("cloud", "Ready")).toMatchObject({ identity: who("222") })
+          }),
+      )
+      // The fresh process finds the login at 111; the engine selects 222 again.
+      expect(argsOf("cloud", "select")).toEqual([
+        [{ account: "222", role: "Admin" }],
+        [{ account: "222", role: "Admin" }],
+      ])
+    })
+
     it("signs the block out when it cannot, so the blocks that need it wait", async () => {
       await withCloud(
         runbookOf(pinned, DEPLOY, AFTER),
