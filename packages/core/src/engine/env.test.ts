@@ -844,3 +844,83 @@ describe("the layers", () => {
     })
   })
 })
+
+describe("the environment's size", () => {
+  // Counted as a process is started with it: each variable is NAME=value
+  // in UTF-8, its NUL, and an 8-byte pointer. macOS's execve takes 1 MiB
+  // (kern.argmax) of that and the arguments together; 64 KiB of it is left
+  // for the arguments and the variables Runbooks sets after.
+  const LIMIT = 1024 * 1024 - 64 * 1024
+
+  /** `count` variables of `bytes` each, named by the block, from task `block`. */
+  const writes = (block: string, count: number, bytes: number): EnvSource =>
+    taskSource(
+      blockId(block),
+      new Map(
+        Array.from({ length: count }, (_, i) => [
+          `${block.toUpperCase()}_${i}`,
+          Redacted.make("v".repeat(bytes)),
+        ]),
+      ),
+    )
+
+  it("fails a run past what a process can be started with, naming its size, the limit and the sources that gave most", async () => {
+    const result = await build({
+      base: new Map([["PATH", Redacted.make("/usr/bin")]]),
+      sources: [
+        writes("small", 1, 10),
+        writes("m1", 7, 100_000),
+        writes("m2", 7, 120_000),
+        writes("m3", 7, 110_000),
+      ],
+      own: {},
+    })
+    // PATH 22 bytes, SMALL_0 27, and m1, m2 and m3 7 variables each of
+    // 4 + 1 + value + 1 + 8: 2,310,343 in all.
+    const failure = Result.isFailure(result) ? result.failure : undefined
+    expect(failure?._tag).toBe("TaskFailed")
+    const message = failure?.message ?? ""
+    expect(message).toContain("2310343 bytes")
+    expect(message).toContain(`${LIMIT} bytes`)
+    expect(message).toMatch(/m2 \(840098 bytes\).*m3 \(770098 bytes\).*m1 \(700098 bytes\)/)
+    expect(message).not.toContain("small")
+  })
+
+  it("takes an environment at the limit, and refuses one a byte past it", async () => {
+    // Seven variables of 2 + 1 + 131,068 + 1 + 8 bytes, and one of the rest.
+    const rest = LIMIT - 7 * 131_080 - (2 + 1 + 1 + 8)
+    const at = (last: number) =>
+      build({
+        base: new Map(),
+        sources: [
+          taskSource(
+            blockId("a"),
+            new Map(
+              Array.from({ length: 8 }, (_, i) => [
+                `V${i}`,
+                Redacted.make("v".repeat(i < 7 ? 131_068 : last)),
+              ]),
+            ),
+          ),
+        ],
+        own: {},
+      })
+    expect(Result.isSuccess(await at(rest))).toBe(true)
+    expect(Result.isFailure(await at(rest + 1))).toBe(true)
+  })
+
+  it("fails a run with a variable no process can take, naming the variable and where it came from", async () => {
+    // Linux's execve refuses a string past 131,072 bytes: NAME=value and its NUL.
+    const result = await build({
+      base: new Map(),
+      sources: [],
+      own: { HUGE: Redacted.make("€".repeat(50_000)) },
+    })
+    const failure = Result.isFailure(result) ? result.failure : undefined
+    expect(failure?._tag).toBe("TaskFailed")
+    const message = failure?.message ?? ""
+    expect(message).toContain("HUGE in env is 150006 bytes")
+    expect(message).toContain("131072 bytes")
+    expect(message).not.toContain("€")
+  })
+})

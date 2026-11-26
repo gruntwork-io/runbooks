@@ -6,8 +6,9 @@ import * as nodePath from "node:path"
 
 // Command with a real bash, the real file system and the real engine, through
 // the `runbooks test` entry point, as an author runs it: no window. The
-// command runs with only PATH from this process's environment, a home
-// folder of its own, and no bun cache, so the test sees whether it wrote there.
+// command runs with only PATH from this process's environment, a home and a
+// temporary folder of its own, and no bun cache, so the test sees whether it
+// wrote there.
 
 const MAIN = nodePath.resolve(import.meta.dirname, "../../packages/cli/src/main.ts")
 const folder = nodeFs.realpathSync(
@@ -23,15 +24,17 @@ const runbooksTest = (name: string, files: Record<string, string>) => {
     nodeFs.writeFileSync(nodePath.join(runbook, file), text)
   }
   const home = nodeFs.mkdtempSync(nodePath.join(folder, "home-"))
+  const tmp = nodeFs.mkdtempSync(nodePath.join(folder, "tmp-"))
   const ran = spawnSync(
     "/bin/bash",
     [
       "-c",
-      'exec env -i PATH="$PATH" HOME="$1" BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun "$2" test "$3"',
+      'exec env -i PATH="$PATH" HOME="$1" TMPDIR="$4" BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun "$2" test "$3"',
       "-",
       home,
       MAIN,
       runbook,
+      tmp,
     ],
     { encoding: "utf8", timeout: 60_000 },
   )
@@ -97,6 +100,37 @@ describe("runbooks test, on a runbook of commands", () => {
         "version: 1\ntests:\n  - name: one\n    steps:\n      - block: c\n        expect: success\n",
     })
     expect(out).toContain("✗ c: fail (expected success")
+    expect(code).toBe(1)
+  })
+
+  it("fails a block whose environment no process can be started with, before it starts, naming its largest sources", () => {
+    // Each writer gives 7 variables of 120,000 bytes, so the three give
+    // 2.5 MB: past macOS's 1 MiB and Linux's 2 MiB at its default stack.
+    const writer = (prefix: string) =>
+      [
+        "#!/bin/bash",
+        "v=$(head -c 120000 /dev/zero | tr '\\0' v)",
+        `for i in 1 2 3 4 5 6 7; do echo "${prefix}_$i=$v" >> "$RUNBOOK_ENV"; done`,
+      ].join("\n")
+    const { code, out } = runbooksTest("large-env", {
+      "runbook.mdx": [
+        ...["m1", "m2", "m3"].map((id) => `<Command id="${id}" path="scripts/${id}.sh" />`),
+        '<Command id="use" command="echo ok" envFrom={["m1", "m2", "m3"]} />',
+      ].join("\n\n"),
+      "scripts/m1.sh": writer("M1"),
+      "scripts/m2.sh": writer("M2"),
+      "scripts/m3.sh": writer("M3"),
+      "runbook_test.yml":
+        "version: 1\ntests:\n  - name: large\n    steps:\n" +
+        ["m1", "m2", "m3", "use"]
+          .map((block) => `      - block: ${block}\n        expect: success\n`)
+          .join(""),
+    })
+    expect(out).toContain("✗ use: fail (expected success")
+    expect(out).not.toContain("E2BIG")
+    expect(out).toMatch(/environment is \d+ bytes/)
+    expect(out).toContain("983040 bytes")
+    expect(out).toMatch(/m\d \(840098 bytes\)/)
     expect(code).toBe(1)
   })
 })
