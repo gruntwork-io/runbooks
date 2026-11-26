@@ -100,7 +100,7 @@ export const test = base.extend<{
       app.process().stdout?.on("data", keep)
       app.process().stderr?.on("data", keep)
       const page = await app.firstWindow()
-      await expect(page.getByRole("heading", { name: "Runbooks" })).toBeVisible()
+      await expect(page.getByRole("banner")).toHaveText("Runbooks")
       return { app, page, output: () => output }
     })
     for (const app of open) await app.close()

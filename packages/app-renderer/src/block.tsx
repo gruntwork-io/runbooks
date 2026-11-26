@@ -6,16 +6,7 @@
  */
 import type { ReactNode } from "react"
 import type { DocumentBlock } from "@runbooks/core/protocol"
-
-type Location = Extract<DocumentBlock, { _tag: "Misconfigured" }>["errors"][number]["location"]
-
-/** Where an error is: its line, and its file when that is not the runbook, from the runbook's folder. */
-function place({ file, span }: Location, runbook: string): string {
-  const line = span.start.line
-  if (file === runbook) return `Line ${line}`
-  const folder = runbook.slice(0, Math.max(runbook.lastIndexOf("/"), runbook.lastIndexOf("\\")) + 1)
-  return `${file.startsWith(folder) ? file.slice(folder.length) : file}, line ${line}`
-}
+import { place } from "./place.ts"
 
 export function BlockPlaceholder({
   block,

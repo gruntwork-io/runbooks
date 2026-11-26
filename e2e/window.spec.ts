@@ -118,7 +118,7 @@ test.describe("the rebuilt app's window", () => {
     // Locators would wait for the refused navigation to finish, and it never does.
     const shown = await page.evaluate(() => [
       location.href,
-      document.querySelector("h1")?.textContent,
+      document.querySelector("header")?.textContent,
     ])
     expect(shown).toEqual([PAGE, "Runbooks"])
   })

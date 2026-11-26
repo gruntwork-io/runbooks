@@ -41,7 +41,13 @@ function exchange(
   page: Page,
   messages: ReadonlyArray<object>,
   options: { readonly waitMillis: number; readonly until?: ReadonlyArray<string> },
-): Promise<ReadonlyArray<{ readonly _tag: string; readonly requestId: string }>> {
+): Promise<
+  ReadonlyArray<{
+    readonly _tag: string
+    readonly requestId: string
+    readonly exit?: { readonly _tag: string; readonly value?: unknown }
+  }>
+> {
   return page.evaluate(
     ({ outgoing, waitMillis, until }) =>
       new Promise((resolve) => {
@@ -96,21 +102,55 @@ test.describe("the engine over IPC", () => {
     userDataDir,
   }) => {
     const { page } = await launch()
-    await expect(
-      page.getByText(`Settings file: ${path.join(userDataDir, "settings.json")}`),
-    ).toBeVisible()
+    const [answer] = await exchange(page, [request("settings", "GetSettings")], {
+      waitMillis: 10_000,
+      until: ["settings"],
+    })
+    expect(answer?.exit).toMatchObject({
+      _tag: "Success",
+      value: { file: path.join(userDataDir, "settings.json") },
+    })
+  })
+
+  test("answers the page's own client: the welcome screen shows once the engine has no runbook open", async ({
+    launch,
+  }) => {
+    const { page } = await launch()
+    await expect(page.getByRole("heading", { name: "Open a runbook" })).toBeVisible()
   })
 
   test("streams a change of settings to the page", async ({ launch }) => {
     const { page } = await launch()
-    await expect(page.getByText("Theme: system")).toBeVisible()
-    const heard = await exchange(
-      page,
-      [request("change", "ChangeSettings", { changes: { theme: "dark" } })],
-      { waitMillis: 10_000, until: ["change"] },
+    const themes = await page.evaluate(
+      () =>
+        new Promise<string[]>((resolve) => {
+          const bridge = Reflect.get(window, "engine") as Bridge
+          const seen: string[] = []
+          const send = (message: object) => bridge.send(JSON.stringify(message))
+          const stop = bridge.onMessage((text) => {
+            const message = JSON.parse(text)
+            if (message._tag !== "Chunk" || message.requestId !== "watch") return
+            seen.push(
+              ...message.values.map((view: { settings: { theme: string } }) => view.settings.theme),
+            )
+            send({ _tag: "Ack", requestId: "watch" })
+            if (seen.length === 1)
+              send({
+                _tag: "Request",
+                id: "change",
+                tag: "ChangeSettings",
+                payload: { changes: { theme: "dark" } },
+                headers: [],
+              })
+            if (seen.includes("dark")) {
+              stop()
+              resolve(seen)
+            }
+          })
+          send({ _tag: "Request", id: "watch", tag: "WatchSettings", payload: null, headers: [] })
+        }),
     )
-    expect(heard.map((message) => message._tag)).toEqual(["Exit"])
-    await expect(page.getByText("Theme: dark")).toBeVisible()
+    expect(themes).toEqual(["system", "dark"])
   })
 
   test("hears nothing from another page in the app's window, and the server sees nothing", async ({
@@ -141,7 +181,7 @@ test.describe("the engine over IPC", () => {
       },
       PAGE,
     )
-    await expect(page.getByText("Theme: system")).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Open a runbook" })).toBeVisible()
     const answered = await exchange(page, [request("back", "GetSettings")], {
       waitMillis: 10_000,
       until: ["back"],
@@ -173,7 +213,7 @@ test.describe("the engine over IPC", () => {
       { url: PAGE, preload: PRELOAD },
     )
     const other = await opened
-    await expect(other.getByRole("heading", { name: "Runbooks" })).toBeVisible()
+    await expect(other.getByRole("banner")).toHaveText("Runbooks")
     const heard = await exchange(other, [request("other", "GetSettings")], { waitMillis: 1500 })
     expect(heard).toEqual([])
     await expect(other.getByText("Asking the engine.")).toBeVisible()
@@ -190,7 +230,7 @@ test.describe("the engine over IPC", () => {
     launch,
   }) => {
     const { app, page } = await launch()
-    await expect(page.getByText("Theme: system")).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Open a runbook" })).toBeVisible()
     const sentToPage = await recordSentToPage(app)
     const watched = await exchange(page, [request("old-watch", "WatchSettings")], {
       waitMillis: 1500,
@@ -199,12 +239,13 @@ test.describe("the engine over IPC", () => {
 
     await page.reload()
     const afterReload = (await sentToPage()).length
-    await expect(page.getByText("Theme: system")).toBeVisible()
-    await exchange(page, [request("change", "ChangeSettings", { changes: { theme: "dark" } })], {
-      waitMillis: 10_000,
-      until: ["change"],
-    })
-    await expect(page.getByText("Theme: dark")).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Open a runbook" })).toBeVisible()
+    const changed = await exchange(
+      page,
+      [request("change", "ChangeSettings", { changes: { theme: "dark" } })],
+      { waitMillis: 10_000, until: ["change"] },
+    )
+    expect(changed.map((message) => message._tag)).toEqual(["Exit"])
     const toOldWatch = (await sentToPage())
       .slice(afterReload)
       .filter((text) => text.includes('"old-watch"'))
