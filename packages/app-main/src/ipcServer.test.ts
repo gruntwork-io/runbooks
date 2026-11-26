@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events"
 import { mkdtempSync, realpathSync, rmSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { Deferred, Effect, type Scope, Stream } from "effect"
+import { Deferred, Effect, Queue, type Scope, Stream } from "effect"
 import { RpcClient, type RpcMessage, RpcSerialization, type RpcServer } from "effect/rpc"
 import { type EngineClient, EngineProtocol } from "@runbooks/core/protocol"
 import { FROM_PAGE, MAX_PAGE_MESSAGE, TO_PAGE } from "./bridge.ts"
@@ -418,6 +418,28 @@ describe("the engine over IPC", () => {
     )
     expect(heard).toEqual([exitOf("0", "the new page's settings")])
   })
+
+  for (const [when, gone] of [
+    ["its renderer process goes", () => contents.emit("render-process-gone")],
+    [
+      "the window's contents are destroyed",
+      () => {
+        contents.destroyed = true
+        contents.emit("destroyed")
+      },
+    ],
+  ] as const)
+    it(`tells the server the page's client has ended when ${when}`, async () => {
+      const result = await withProtocol((protocol) =>
+        Effect.gen(function* () {
+          contents.navigate()
+          gone()
+          const ended = yield* Queue.take(protocol.disconnects).pipe(Effect.timeout("1 second"))
+          return { ended, clients: [...(yield* protocol.clientIds)] }
+        }),
+      )
+      expect(result).toEqual({ ended: 0, clients: [] })
+    })
 
   it("sends a stream's next chunk only after the page acks the last", async () => {
     const result = await withServer(() =>
