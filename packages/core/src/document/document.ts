@@ -133,7 +133,7 @@ export type SharedProps = typeof SharedProps.Type
 export const EdgeSource = Schema.Union([
   Schema.TaggedStruct("Prop", { prop: Schema.String, capability: Capability }),
   /**
-   * `{{ .outputs.<id>.<key> }}` in a prop, a script or a template file: the
+   * `{{ .outputs.<id>.<key> }}` in a prop or a template file: the
    * extractor's `OutputReference`.
    * `guarded`: behind a `hasKey` guard for the key, so the target must have
    * run but the key may be absent. A key is required if any edge to it is not.

@@ -152,6 +152,7 @@ const toHash = Schema.decodeSync(ContentHash)
 
 /** The 1-based line of `offset` in `text`. */
 const lineIn = (text: string, offset: number): number => text.slice(0, offset).split("\n").length
+
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1()
 
 /** One prop as written: its value, where it is, and its attribute node. */
@@ -192,6 +193,8 @@ class Parse {
   private readonly refused = new Set<MdxNode>()
   /** Every path a block names, in file order. */
   private readonly named: NamedFile[] = []
+  /** The files each task names that are its scripts, by its index: they make no edges. */
+  private readonly scriptFiles = new Map<number, ReadonlySet<string>>()
   private frontMatterRead: FrontMatter = {}
   private tree: TreeNode = { type: "root", children: [] }
   /** The result when the parse stopped early, at the front matter's version or a syntax error. */
@@ -252,7 +255,8 @@ class Parse {
         const own = texts.get(named.index) ?? new Map<string, string>()
         for (const file of fact.texts) own.set(file.path, file.text)
         texts.set(named.index, own)
-        this.fileReads(named, fact.texts)
+        // A script runs as written, so a `{{ }}` in it is no reference.
+        if (!this.scriptFiles.get(named.index)?.has(named.path)) this.fileReads(named, fact.texts)
       } else {
         this.badFile(named, fact)
       }
@@ -635,7 +639,18 @@ class Parse {
         this.refer(index, as, capability, alias ?? written.get(prop), value, span)
       }
     }
+    // A script runs as written and reads values only from its environment, so a `{{ }}` in it is no reference.
+    const scripts =
+      block.class === "task" && Result.isSuccess(props)
+        ? (block.scripts?.(props.success) ?? [])
+        : []
+    const scriptProps = new Set(scripts.flatMap((s) => (s._tag === "Prop" ? [s.prop] : [])))
+    this.scriptFiles.set(
+      index,
+      new Set(scripts.flatMap((s) => (s._tag === "File" ? [s.path] : []))),
+    )
     for (const [prop, value] of [...Object.entries(input), ...Object.entries(shared)]) {
+      if (scriptProps.has(prop)) continue
       this.templateReads(index, prop, value, written.get(prop)?.span ?? span)
     }
 

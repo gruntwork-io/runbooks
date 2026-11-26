@@ -1,5 +1,5 @@
 diff --git a/electron/e2e/sessions.spec.ts b/electron/e2e/sessions.spec.ts
-index f34009cf..10bec556 100644
+index f34009cf..824ea941 100644
 --- a/electron/e2e/sessions.spec.ts
 +++ b/electron/e2e/sessions.spec.ts
 @@ -47,15 +47,16 @@ echo waiting
@@ -22,6 +22,30 @@ index f34009cf..10bec556 100644
  echo "pwd=$PWD"
  `
  
+@@ -73,18 +74,18 @@ variables:
+ \`\`\`
+ </Inputs>
+ 
+-<Command id="greet" path="greet.sh" inputsId="config" />
++<Command id="greet" path="greet.sh" inputsId="config" env={{ GREETING: "{{ .inputs.Greeting }}" }} />
+ 
+-<Command id="reply" path="reply.sh" />
++<Command id="reply" path="reply.sh" env={{ GREETING: "{{ .outputs.greet.greeting }}" }} />
+ `
+ 
+ const GREET_SCRIPT = `#!/bin/bash
+-echo "{{ .inputs.Greeting }} from greet"
+-echo "greeting={{ .inputs.Greeting }}" >> "$RUNBOOK_OUTPUT"
++echo "$GREETING from greet"
++echo "greeting=$GREETING" >> "$RUNBOOK_OUTPUT"
+ `
+ 
+ const REPLY_SCRIPT = `#!/bin/bash
+-echo "reply to {{ .outputs.greet.greeting }}"
++echo "reply to $GREETING"
+ `
+ 
+ test.describe("Saved sessions", () => {
 @@ -225,8 +226,9 @@ test.describe("Saved sessions", () => {
        expect(await sessionName(second.page)).toBe(name)
        await expect(second.page.getByText(`Resumed session ${name}`)).toBeVisible()
@@ -34,6 +58,15 @@ index f34009cf..10bec556 100644
      } finally {
        await second.app.close()
      }
+@@ -431,7 +433,7 @@ test.describe("Saved sessions", () => {
+ 
+ <GitClone id="repo" source="local" hideSourceSelect prefilledRepoDir="${repo}" />
+ 
+-<Command id="where" command="echo repo={{ .outputs.repo.clone_path }}" />
++<Command id="where" env={{ CLONE_PATH: "{{ .outputs.repo.clone_path }}" }} command='echo "repo=$CLONE_PATH"' />
+ `,
+     )
+     const expectCloneRunbook = async (page: Page) => {
 @@ -556,12 +558,12 @@ test.describe("Saved sessions", () => {
        const secondName = await sessionName(page)
        const secondDir = await showSession(page, "unset")

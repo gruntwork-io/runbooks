@@ -1,6 +1,6 @@
 /**
  * The frozen baseline: what the rebuilt app must still do. Open decision 3,
- * built as recommended: today's behaviour, with the nine ruled changes
+ * built as recommended: today's behaviour, with the ten ruled changes
  * applied to the fixtures and specs that rely on the old behaviour
  * (`behaviour-changes.ts`). Under the alternative, today's behaviour
  * exactly, that file and its patches go.

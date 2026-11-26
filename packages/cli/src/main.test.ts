@@ -10,7 +10,7 @@ import { tempFolder } from "./test-utils/runCliForTest.ts"
 // home folder of its own, and no bun cache, so the test sees what it writes.
 //
 // The fixture is Command's end-to-end runbook. Each of its steps checks
-// something Command promises (outputs, envFrom, {{ }} values, the run's
+// something Command promises (outputs, envFrom, env values, the run's
 // folder, the log helpers, a failing exit code), so a Command that breaks
 // one fails this test.
 

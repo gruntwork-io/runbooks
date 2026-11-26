@@ -142,7 +142,7 @@ export interface ValueSources {
 }
 
 /** The value a reference names, as text, redacted. */
-export function valueOf(
+function valueOf(
   reference: ValueReference,
   sources: ValueSources,
 ): Result.Result<Redacted.Redacted<string>, TemplateProblem> {

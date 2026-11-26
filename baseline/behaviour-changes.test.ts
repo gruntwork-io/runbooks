@@ -39,9 +39,9 @@ describe("the behaviour changes, against today's tree", () => {
     expect(patchFiles()).toEqual(sorted(Object.keys(PATCHES)))
   })
 
-  it("pins each of the nine changes with a patch, or says why nothing relies on it", () => {
+  it("pins each of the ten changes with a patch, or says why nothing relies on it", () => {
     const pinned = new Set(Object.values(PATCHES).flat())
-    expect(Object.keys(CHANGES)).toHaveLength(9)
+    expect(Object.keys(CHANGES)).toHaveLength(10)
     const neither = Object.entries(CHANGES)
       .filter(
         ([id, change]) =>

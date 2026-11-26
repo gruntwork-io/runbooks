@@ -60,7 +60,8 @@ You can nest an `<Inputs>` component directly inside the Command:
 ````mdx
 <Command 
     id="echo-message" 
-    command='echo "Hello, {{ .inputs.Name }}!"'
+    env={{ NAME: "{{ .inputs.Name }}" }}
+    command='echo "Hello, $NAME!"'
     title="Print Greeting"
 >
     <Inputs id="inline-greeting">
@@ -262,7 +263,7 @@ end
 
 ### With variables
 
-A script reads inputs and other blocks' outputs as `{{ .inputs.<name> }}` and `{{ .outputs.<block-id>.<name> }}`. Runbooks inserts each one as a quoted variable expansion, so the shell never reads the value as code. See [Values in the script](#values-in-the-script). The examples below take inputs from different places.
+A script reads inputs and other blocks' outputs through the block's [`env`](#setting-variables-with-env): a value there names one as `{{ .inputs.<name> }}` or `{{ .outputs.<block-id>.<name> }}`, and the script reads the variable. The script runs as written. See [Values in the script](#values-in-the-script). The examples below take inputs from different places.
 
 #### Using inputsId
 
@@ -284,7 +285,8 @@ variables:
 <Command 
     id="create-repo" 
     inputsId="repo-config"
-    command='gh repo create "{{ .inputs.OrgName }}/{{ .inputs.RepoName }}" --private'
+    env={{ ORG: "{{ .inputs.OrgName }}", REPO: "{{ .inputs.RepoName }}" }}
+    command='gh repo create "$ORG/$REPO" --private'
     title="Create GitHub Repository"
     successMessage="Repository {{ .inputs.RepoName }} created!"
     failMessage="Failed to create repository"
@@ -300,7 +302,8 @@ The Command collects input values directly. Other blocks can read them like any 
 ````mdx
 <Command 
     id="echo-message" 
-    command='echo "Hello, {{ .inputs.Name }}!"'
+    env={{ NAME: "{{ .inputs.Name }}" }}
+    command='echo "Hello, $NAME!"'
     title="Print Greeting"
 >
     <Inputs id="inline-greeting">
@@ -348,42 +351,23 @@ If both blocks define a variable with the same name, the value from `repo-config
 
 #### Values in the script
 
-A script names a value as `{{ .inputs.Name }}` or `{{ .outputs.build.tag }}`. Runbooks doesn't paste the value into the script. It puts the value in a variable and inserts an expansion of that variable, quoted for where the reference stands:
+A script runs as written: Runbooks doesn't fill in a `{{ }}` in it. Give the block an `env` entry for each value, and have the script read the variable:
 
-| Where the reference is | What Runbooks inserts |
-|------------------------|-----------------------|
-| Outside quotes, or in a comment | `"${RUNBOOK_VALUE_1}"` |
-| In double quotes, or in a heredoc whose delimiter isn't quoted | `${RUNBOOK_VALUE_1}` |
-| In single quotes | `'"${RUNBOOK_VALUE_1}"'`: the quotes close, then open again |
-
-So the shell expands each value once and never runs it: quotes, `$(...)`, backticks, spaces and `*` in a value stay as they are, and a reference outside quotes is still one word. You don't need to quote a reference yourself. The script's first line runs `export -n` on these variables, so the commands it runs don't get them.
-
-Only a script that runs with bash or sh can name a value. A reference in a script for another interpreter, such as Python, fails the run.
-
-A `{{ }}` can hold a reference, a template comment such as `{{/* note */}}`, or a string constant, whose text goes into the script as written. `{{-` and `-}}` trim the white space next to them. Nothing else is allowed: no `if`, `range`, pipe or function. To pass `{{ }}` through to a tool such as `docker ps --format`, write it as a string constant: ``--format '{{`{{.Names}}`}}'``.
-
-Runbooks also refuses a reference where the shell would evaluate the value, or wouldn't expand the variable. Among them:
-
-- inside arithmetic: `$(( ))`, `(( ))`, `$[ ]`, `let`, and the operands of `-eq`, `-lt` and the like in `[[ ]]`;
-- inside `${...}` or an array subscript;
-- where bash reads a variable name: `read`, `unset`, `declare`, `printf -v`;
-- where bash runs code: `eval`, `trap`, `alias`;
-- in backticks, in `$'...'`, right after `\` or `$`, and in a heredoc whose delimiter is quoted.
-
-When any reference is refused, the block fails before the script starts. The error names each refused reference by its line and column, as in `scripts/deploy.sh, line 4, column 12` or, for an inline script, `The command, line 1, column 6`, and says what to write instead. For arithmetic, it says to set a variable first, check it is a number, and use the variable:
-
-```bash
-COUNT={{ .inputs.Count }}
-[[ $COUNT =~ ^-?[0-9]+$ ]] || exit 1
-echo $(( COUNT + 1 ))
+```mdx
+<Command
+    id="greet"
+    inputsId="config"
+    env={{ NAME: "{{ .inputs.Name }}" }}
+    command='echo "Hello, $NAME"'
+/>
 ```
 
-The block also fails, at the reference's line and column, when a reference names a field that none of the Inputs blocks it reads has, or an output its block hasn't written. An optional field left empty inserts one empty word.
+A script for any interpreter reads them the same way. A Python script reads `os.environ["NAME"]`.
 
-A value can't hold a NUL character or be over 64 KiB, and the values in one script can't pass 256 KiB together.
+Every `{{ }}` in a script stays as written, whatever it holds: `{{ .inputs.Name }}` is that text, not the input, and the block doesn't wait for an output a script names. So a `docker`, `kubectl` or GitHub Actions expression such as `docker ps --format '{{.Names}}'` needs nothing special.
 
 :::caution
-Quoting protects the shell, not a program inside the script. A value in single quotes goes into the text of the program those quotes hold, such as `awk '{ print "{{ .inputs.Name }}" }'`, `jq`, `sed`, `sh -c` or `python -c`, and that program reads it as its own code. So does a heredoc fed to `bash` or `python`. Pass the value in the environment instead, and have the program read it from there: `NAME={{ .inputs.Name }} awk 'BEGIN { print ENVIRON["NAME"] }'`. The same goes for a value you pass on through a variable to `eval`, `bash -c` or `$(( ))`, and for a value used as a command's name.
+Passing a value in the environment protects the shell, not a program inside the script. A value expanded into another program's code is that program's input: in `awk "BEGIN { print \"$NAME\" }"`, `jq`, `sed`, `sh -c` or `python -c`, the program reads it as its own code. Have the program read the variable instead, as in `awk 'BEGIN { print ENVIRON["NAME"] }'` or `jq --arg name "$NAME" '$name'`. The same goes for a value passed to `eval`, `bash -c` or `$(( ))`, and for a value used as a command's name. Before arithmetic, check that the value is a number: `[[ $COUNT =~ ^-?[0-9]+$ ]] || exit 1`.
 :::
 
 #### Setting variables with env
@@ -503,16 +487,17 @@ log_info "Deployment complete!"
     id="create-vpc"
     path="scripts/create-vpc.sh"
     inputsId="vpc-config"
+    env={{
+        REGION: "{{ .inputs.AwsRegion }}",
+        VPC_NAME: "{{ .inputs.VpcName }}",
+        CIDR_BLOCK: "{{ .inputs.CidrBlock }}",
+    }}
 />
 ```
 
 ```bash
 #!/bin/bash
 # scripts/create-vpc.sh
-
-REGION={{ .inputs.AwsRegion }}
-VPC_NAME={{ .inputs.VpcName }}
-CIDR_BLOCK={{ .inputs.CidrBlock }}
 
 log_info "Creating VPC $VPC_NAME in $REGION..."
 log_debug "CIDR block: $CIDR_BLOCK"
@@ -600,14 +585,15 @@ Once you scroll down a long log, a **Jump to top** button appears in its corner,
 
 ## Block outputs
 
-Commands can produce outputs that later blocks consume. Declare each one in the `outputs` prop. The script writes `name=value` lines to the `$RUNBOOK_OUTPUT` file, and later blocks reference them via `{{ .outputs.<block-id>.<name> }}`:
+Commands can produce outputs that later blocks consume. Declare each one in the `outputs` prop. The script writes `name=value` lines to the `$RUNBOOK_OUTPUT` file, and later blocks read them as `{{ .outputs.<block-id>.<name> }}`, in `env` for a script:
 
 ```mdx
 <Command id="create_account" path="scripts/create-account.sh" outputs={["account_id"]} />
 
 <Command
     id="tag_account"
-    command="aws organizations tag-resource --resource-id {{ .outputs.create_account.account_id }} --tags Key=team,Value=infra"
+    env={{ ACCOUNT_ID: "{{ .outputs.create_account.account_id }}" }}
+    command='aws organizations tag-resource --resource-id "$ACCOUNT_ID" --tags Key=team,Value=infra'
 />
 ```
 

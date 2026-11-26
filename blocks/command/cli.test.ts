@@ -59,7 +59,7 @@ tests:
 `
 
 describe("runbooks test, on a runbook of commands", () => {
-  it("runs each with bash: outputs, envFrom, env, {{ }} values and exit codes", () => {
+  it("runs each with bash, as written: outputs, envFrom, env and exit codes", () => {
     const { code, out, home } = runbooksTest("commands", {
       "runbook.mdx": [
         '<Command id="make" path="scripts/make.sh" outputs={["value"]} />',
@@ -74,8 +74,8 @@ describe("runbooks test, on a runbook of commands", () => {
       ].join("\n"),
       "scripts/use.sh": [
         "#!/bin/bash",
-        `[ {{ .outputs.make.value }} = ${shellQuoted(HOSTILE)} ] || exit 1`,
-        `[ "{{ .outputs.make.value }}" = ${shellQuoted(HOSTILE)} ] || exit 1`,
+        // Another tool's `{{ }}` reaches bash as written.
+        `format='{{.Names}}'; [ "\${#format}" = 10 ] || exit 1`,
         `[ "$VALUE" = ${shellQuoted(HOSTILE)} ] || exit 1`,
         `[ "$COUNT" = 2 ] || exit 1`,
         `[ "$FROM_MAKE" = made ] || exit 1`,

@@ -14,9 +14,15 @@ mkdir -p generated
 echo made > generated/made-by-setup.txt`}
 />
 
-`consume` runs a script file. It gets `FROM_SETUP` through `envFrom`, and setup's region as a `{{ }}` value.
+`consume` runs a script file. It gets `FROM_SETUP` through `envFrom`, and setup's region through `env`.
 
-<Command id="consume" path="scripts/consume.sh" envFrom={["setup"]} outputs={["seen"]} />
+<Command
+  id="consume"
+  path="scripts/consume.sh"
+  envFrom={["setup"]}
+  env={{ REGION: "{{ .outputs.setup.region }}" }}
+  outputs={["seen"]}
+/>
 
 `fails` exits 3, so its run fails.
 

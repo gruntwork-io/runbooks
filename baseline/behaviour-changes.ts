@@ -1,6 +1,7 @@
 /**
- * The nine behaviour changes the 2026-11-23 rulings make, applied to the
- * baseline fixtures and e2e specs that rely on the old behaviour. Each
+ * The ten behaviour changes the rulings make (nine on 2026-11-23, and open
+ * decision 9's), applied to the baseline fixtures and e2e specs that rely on
+ * the old behaviour. Each
  * patch in `behaviour-changes/` rewrites one fixture or spec. Today's app
  * still runs the originals, so the patches stay out of the tree until the
  * new tree runs them: `git apply baseline/behaviour-changes/*.patch`.
@@ -23,6 +24,7 @@ export type BehaviourChange =
   | "generateFileFalse"
   | "badReference"
   | "repository"
+  | "scriptTemplates"
 
 interface Change {
   readonly before: string
@@ -84,6 +86,10 @@ export const CHANGES: Record<BehaviourChange, Change> = {
      * "active" repository for any block.
      */
   },
+  scriptTemplates: {
+    before: "A script's {{ .inputs.X }} and {{ .outputs.B.K }} are filled in before it runs",
+    after: "The script runs as written; a value reaches it only through the block's env",
+  },
 }
 
 /** Each patch, by file name in `behaviour-changes/`, and the changes it applies. */
@@ -99,7 +105,8 @@ export const PATCHES: Record<string, ReadonlyArray<BehaviourChange>> = {
   "next-app.patch": ["repository"],
   "e2e-execution-flow.patch": ["runbookEnv", "cd"],
   "e2e-kitchen-sink.patch": ["generateButton"],
-  "e2e-sessions.patch": ["runbookEnv", "cd"],
+  "e2e-sessions.patch": ["runbookEnv", "cd", "scriptTemplates"],
+  "e2e-concurrent-runs.patch": ["scriptTemplates"],
   "e2e-files-panel.patch": ["generateButton", "repository"],
 }
 

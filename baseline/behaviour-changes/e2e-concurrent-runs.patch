@@ -1,0 +1,13 @@
+diff --git a/electron/e2e/concurrent-runs.spec.ts b/electron/e2e/concurrent-runs.spec.ts
+index c7628fd0..10e0f4f5 100644
+--- a/electron/e2e/concurrent-runs.spec.ts
++++ b/electron/e2e/concurrent-runs.spec.ts
+@@ -55,7 +55,7 @@ function runbookMdx(): string {
+ 
+ <Command id="producer" title="Producer" command='echo "value=1" >> "$RUNBOOK_OUTPUT"; ${waitFor("produced")}' />
+ 
+-<Command id="consumer" title="Consumer" command="echo {{ .outputs.producer.value }}" />
++<Command id="consumer" title="Consumer" env={{ VALUE: "{{ .outputs.producer.value }}" }} command='echo "$VALUE"' />
+ 
+ <Command id="first" title="First" command="true" />
+ 
