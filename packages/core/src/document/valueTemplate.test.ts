@@ -76,6 +76,12 @@ describe("a value template refused, where its problem starts", () => {
     expect(problem.message).toContain("is not a value Runbooks can insert")
   })
 
+  it("shows the action it refuses without its string constants, which may be secrets", () => {
+    const { message } = refused("x {{ printf \"%s\" `fake-secret-7f3a` 'k' }}")
+    expect(message).toStartWith("`{{ printf \"…\" `…` '…' }}` is not a value")
+    expect(message).not.toContain("fake-secret-7f3a")
+  })
+
   it("another tool's `{{ }}`, saying how to write `{{` as text", () => {
     expect(refused("x {{.Names}}").message).toContain('To write `{{` as text, write `{{ "{{" }}`.')
   })

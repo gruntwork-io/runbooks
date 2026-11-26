@@ -48,7 +48,8 @@ describe("runbooks validate", () => {
     const run = await validate(["bad/runbook.mdx"])
     expect(run.code).toBe(EXIT.failure)
     expect(run.stdout).toMatch(/^bad\/runbook\.mdx:3:\d+: error badProp: .*`args`/m)
-    expect(run.stdout).toMatch(/^ {4}received: --force$/m)
+    expect(run.stdout).toMatch(/^ {4}received: text$/m)
+    expect(run.stdout).not.toContain("--force")
   })
 
   it("prints what was expected and what it likely meant", async () => {

@@ -740,7 +740,7 @@ class Parse {
           prop: "id",
           index,
           expected: "a block id",
-          received: excerpt(prop.value),
+          received: kindOf(prop.value),
         },
       )
       return undefined
@@ -810,7 +810,7 @@ class Parse {
     where: Where,
     index: number,
   ): void {
-    if (typeof alias.value !== "string" || alias.value === "") {
+    if (typeof alias.value !== "string" || Option.isNone(blockIdOf(alias.value))) {
       this.error(
         "badProp",
         `\`${GIT_CREDENTIAL_ALIAS}\` must be a block id, such as ${prop}="git-auth".`,
@@ -820,7 +820,7 @@ class Parse {
           prop: GIT_CREDENTIAL_ALIAS,
           index,
           expected: "a block id",
-          received: excerpt(alias.value),
+          received: kindOf(alias.value),
         },
       )
       return
@@ -956,7 +956,7 @@ class Parse {
           prop: key,
           index,
           expected: "a block id",
-          received: excerpt(prop.value),
+          received: kindOf(prop.value),
         })
         continue
       }
@@ -1005,7 +1005,7 @@ class Parse {
         block: where,
         index,
         ...(prop !== "" ? { prop } : {}),
-        ...(value !== undefined ? { received: excerpt(value.value) } : {}),
+        ...(value !== undefined ? { received: kindOf(value.value) } : {}),
       })
     }
   }
@@ -1103,9 +1103,12 @@ function propKeys(schema: Schema.Top): ReadonlySet<string> | undefined {
   return collect(SchemaAST.toEncoded(schema.ast)) ? keys : undefined
 }
 
-function excerpt(value: PropValue): string {
-  const text = typeof value === "string" ? value : JSON.stringify(value)
-  return text.length > 60 ? `${text.slice(0, 57)}...` : text
+/** What kind of value a prop holds, as `received` says it: never the text, which may be a secret. */
+function kindOf(value: PropValue): string {
+  if (typeof value === "string") return "text"
+  if (typeof value === "number") return "a number"
+  if (typeof value === "boolean" || value === null) return String(value)
+  return Array.isArray(value) ? "a list" : "an object"
 }
 
 /** What a path a block names is, when the loader didn't find it whole inside the runbook's folder. */

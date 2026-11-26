@@ -219,7 +219,7 @@ describe("parseRunbook", () => {
 
       const [bad] = errors('<Run id="c" args="x" />')
       expect(bad?.location).toMatchObject({ block: { tag: "Run", id: "c" }, prop: "args" })
-      expect(bad?.received).toBe("x")
+      expect(bad?.received).toBe("text")
     })
 
     // An id names its block's credential state folder, so it may not reach
@@ -418,6 +418,30 @@ describe("parseRunbook", () => {
         ])
         expect(found[1]?.message).toContain("<Note>")
       })
+    })
+
+    it("never quotes what a prop holds, which may be a secret, and says what kind of value it is", () => {
+      const SECRET = "fake-secret-7f3a"
+      const cases = [
+        `<Run id="r" command="ls" env={{ "1BAD": "${SECRET}" }} />`,
+        `<Run id="r" command="ls" env={{ A: null, B: "${SECRET}" }} />`,
+        `<Run id="r" command="ls" env={{ A: "{{ printf \\"%s\\" \\"${SECRET}\\" }}" }} />`,
+        `<Run id="r" command="ls" env="${SECRET}" />`,
+        `<Run id="r" command={["${SECRET}"]} />`,
+        `<Run id="r" command="ls" awsAuthId={["${SECRET}"]} />`,
+        `<Run id="${SECRET} x" command="ls" />`,
+        `<Run id="r" command="ls" dependsOn={["${SECRET} x"]} />`,
+        `<Clone id="c" url="u" githubAuthId="${SECRET} x" />`,
+      ]
+      for (const source of cases) {
+        const result = parse(source)
+        const found = configErrors(result)
+        const warned = result._tag === "Parsed" ? result.document.warnings : result.warnings
+        expect(found.length).toBeGreaterThan(0)
+        expect(JSON.stringify([...found, ...warned])).not.toContain(SECRET)
+      }
+      expect(errors(`<Run id="r" command="ls" env="${SECRET}" />`)[0]?.received).toBe("text")
+      expect(errors(`<Run id="r" command={["${SECRET}"]} />`)[0]?.received).toBe("a list")
     })
 
     it("refuses an empty path as a bad prop of its block, and throws nothing", () => {

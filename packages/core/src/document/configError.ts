@@ -111,7 +111,10 @@ export class ConfigError extends Schema.TaggedError<ConfigError>()("ConfigError"
   location: Location,
   /** What was expected, in the author's terms: "a block id", "one of: aws, gcp". */
   expected: Schema.optionalKey(Schema.String),
-  /** The value received. Never a value that could be a secret. */
+  /**
+   * What kind of value was received: text, a number, a list, an object,
+   * true, false or null. Never the value itself: a prop may hold a secret.
+   */
   received: Schema.optionalKey(Schema.String),
   /** The likely fix: the nearest block id or prop name. */
   suggestion: Schema.optionalKey(Schema.String),
