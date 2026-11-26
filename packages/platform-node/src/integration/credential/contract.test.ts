@@ -12,7 +12,11 @@
  * The plugin's name is the binary's file name after the kind's prefix, up
  * to a `_` (a release asset's version and platform);
  * `RUNBOOKS_CONTRACT_PLUGIN` names it otherwise. The offline scenarios for
- * `aws` are built in. For another plugin, or to add the `[account]` cases,
+ * `aws`, `google` and `azure` are built in. Azure's waiting sign-in runs
+ * `az`, so for it `RUNBOOKS_CONTRACT_PATH` must name the folder holding
+ * `az`: it adds folders to each case's PATH, which otherwise holds only
+ * Bun's folder, /usr/bin and /bin. For another plugin, or to add the
+ * `[account]` cases,
  * `RUNBOOKS_CONTRACT_SCENARIOS` names a JSON file holding
  * `ContractScenarios`, with `environment` (more variables for the plugin)
  * and `settings` (the block's) when it needs them. Only the account cases
@@ -25,7 +29,7 @@
  * sign-in that would reach the network waits there until the suite gives
  * it up. An account case has no proxy.
  */
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
 import { createServer, type Socket } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -42,6 +46,16 @@ import {
 } from "@runbooks/core/test-utils/credentialProviderContract"
 import { binaryName } from "../../layers/NodePluginProcess.ts"
 import { installBinary, installFake, PLATFORM, pluginProviders } from "./pluginBin.ts"
+
+/** The PATH each case's plugin gets. */
+const CASE_PATH = [
+  path.dirname(process.execPath),
+  "/usr/bin",
+  "/bin",
+  ...(process.env["RUNBOOKS_CONTRACT_PATH"] ?? "")
+    .split(path.delimiter)
+    .filter((dir) => dir !== ""),
+]
 
 /** A port that accepts connections and never answers: a network that does not. */
 const blackhole = async () => {
@@ -88,7 +102,7 @@ const subject =
     mkdirSync(path.join(root, "home"))
     const proxy = reach === "offline" ? await blackhole() : undefined
     const environment = {
-      PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`,
+      PATH: CASE_PATH.join(path.delimiter),
       HOME: path.join(root, "home"),
       ...more.environment,
     }
@@ -142,6 +156,69 @@ const AWS_OFFLINE: ContractScenarios = {
   giveUpAfterMillis: 2_000,
 }
 
+/**
+ * Google's: refused before it reaches the network (a service account with
+ * no key or one that isn't a key, an OAuth client with no id, a gcloud
+ * configuration name that is a path), or an OAuth sign-in waiting on the
+ * proxy. Written by runbooks-plugins.
+ */
+const GOOGLE_OFFLINE: ContractScenarios = {
+  invalidSignIns: [
+    { method: "service_account", fields: {} },
+    { method: "service_account", fields: { key: "not a service account key" } },
+    { method: "oauth", fields: { clientSecret: "contract-test-secret" } },
+    { method: "gcloud", fields: { configuration: "../outside" } },
+  ],
+  waitingSignIn: {
+    method: "oauth",
+    fields: {
+      clientId: "contract-test.apps.googleusercontent.com",
+      clientSecret: "contract-test-secret",
+    },
+  },
+  giveUpAfterMillis: 2_000,
+}
+
+/**
+ * Azure's: refused before it reaches the network (a service principal with
+ * no fields, with both a secret and a certificate, or with neither, a CLI
+ * sign-in to a tenant that isn't one), or a device-code sign-in, which runs
+ * `az`, waiting on the proxy. Written by runbooks-plugins.
+ */
+const AZURE_OFFLINE: ContractScenarios = {
+  invalidSignIns: [
+    { method: "service_principal", fields: {} },
+    {
+      method: "service_principal",
+      fields: {
+        clientId: "00000000-0000-0000-0000-000000000001",
+        tenantId: "00000000-0000-0000-0000-000000000002",
+        clientSecret: "contract-test-secret",
+        clientCertificatePath: "/abs/path/cert.pem",
+      },
+    },
+    {
+      method: "service_principal",
+      fields: {
+        clientId: "00000000-0000-0000-0000-000000000001",
+        tenantId: "00000000-0000-0000-0000-000000000002",
+      },
+    },
+    { method: "cli", fields: { tenantId: "not a tenant" } },
+  ],
+  waitingSignIn: {
+    method: "device_code",
+    fields: { tenantId: "00000000-0000-0000-0000-000000000002" },
+  },
+  giveUpAfterMillis: 2_000,
+}
+
+const OFFLINE: { readonly [plugin: string]: ContractScenarios } = {
+  aws: AWS_OFFLINE,
+  google: GOOGLE_OFFLINE,
+  azure: AZURE_OFFLINE,
+}
+
 const ScenariosFile = Schema.Struct({
   ...ContractScenarios.fields,
   environment: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
@@ -162,12 +239,18 @@ if (binary !== undefined) {
   const file = process.env["RUNBOOKS_CONTRACT_SCENARIOS"]
   const scenarios =
     file === undefined
-      ? plugin === "aws"
-        ? AWS_OFFLINE
-        : undefined
+      ? OFFLINE[plugin]
       : Schema.decodeUnknownSync(ScenariosFile)(JSON.parse(readFileSync(file, "utf8")))
   if (scenarios === undefined)
     throw new Error(`RUNBOOKS_CONTRACT_SCENARIOS must name the scenarios for ${plugin}.`)
+  if (
+    file === undefined &&
+    plugin === "azure" &&
+    !CASE_PATH.some((dir) => existsSync(path.join(dir, "az")))
+  )
+    throw new Error(
+      `azure's waiting sign-in runs az: RUNBOOKS_CONTRACT_PATH must name the folder holding it. The case's PATH is ${CASE_PATH.join(path.delimiter)}.`,
+    )
   const { environment, settings } = scenarios as typeof ScenariosFile.Type
   credentialProviderContract(`${plugin}, ${fileName}`, {
     scenarios,
