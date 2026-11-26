@@ -11,8 +11,6 @@ import {
   type WriteStream,
 } from "node:fs"
 import { constants } from "node:os"
-import * as readline from "node:readline"
-import { StringDecoder } from "node:string_decoder"
 import { Cause, Effect, Layer, Stream } from "effect"
 import { ProcessSpawner } from "@runbooks/core/services/ProcessSpawner"
 import type {
@@ -22,9 +20,18 @@ import type {
   SpawnOptions,
 } from "@runbooks/core/services/ProcessSpawner"
 import { SpawnError } from "@runbooks/core/errors"
+import { lineSplitter } from "./lineSplitter.ts"
 
 /** How often the spawner checks a run's log channel files for new lines. */
 const LOG_CHANNEL_POLL_MS = 100
+
+/**
+ * Past this many characters of lines the reader has yet to take, the child's
+ * pipes pause, and its log files go unread, until the reader takes half. A
+ * child that writes faster than it is read then waits on a full pipe, as it
+ * would writing to a terminal, so memory stays bounded however much it says.
+ */
+const PENDING_LIMIT = 8 * 1024 * 1024
 
 /**
  * A child killed by a signal exits as a shell reports it: 128 plus the
@@ -42,7 +49,7 @@ export interface FileTail {
 
 /**
  * Follow a file that another process appends to, calling `onLine` with each
- * line (without its "\n" or "\r\n"). Nothing happens until `read` is called:
+ * line as `lineSplitter` splits it. Nothing happens until `read` is called:
  * the spawner calls it on a timer and whenever the child writes to a pipe.
  *
  * Polling, not fs.watch: the file is on a local disk and read with plain
@@ -60,16 +67,9 @@ export interface FileTail {
 export function openFileTail(path: string, onLine: (line: string) => void): FileTail {
   let fd: number | null = null
   let offset = 0
-  let partial = ""
-  let decoder = new StringDecoder("utf8")
+  let lines = lineSplitter(onLine)
   let finished = false
   const buffer = Buffer.alloc(64 * 1024)
-
-  const emit = (text: string) => {
-    const lines = (partial + text).split("\n")
-    partial = lines.pop() ?? ""
-    for (const line of lines) onLine(line.endsWith("\r") ? line.slice(0, -1) : line)
-  }
 
   const read = () => {
     if (finished) return
@@ -78,14 +78,13 @@ export function openFileTail(path: string, onLine: (line: string) => void): File
       const size = fstatSync(fd).size
       if (size < offset) {
         offset = 0
-        partial = ""
-        decoder = new StringDecoder("utf8")
+        lines = lineSplitter(onLine)
       }
       while (offset < size) {
         const n = readSync(fd, buffer, 0, buffer.length, offset)
         if (n === 0) break
         offset += n
-        emit(decoder.write(buffer.subarray(0, n)))
+        lines.write(buffer.subarray(0, n))
       }
     } catch {
       // Not created yet, or unreadable: try again on the next read.
@@ -96,9 +95,7 @@ export function openFileTail(path: string, onLine: (line: string) => void): File
     if (finished) return
     read()
     finished = true
-    const last = partial + decoder.end()
-    partial = ""
-    if (last !== "") onLine(last.endsWith("\r") ? last.slice(0, -1) : last)
+    lines.end()
     if (fd !== null) {
       try {
         closeSync(fd)
@@ -161,23 +158,39 @@ const impl: ProcessSpawnerShape = {
         }
 
         // Lines are collected into an array and the `output` stream tails that
-        // array live (see below). We deliberately avoid Stream.callback:
-        // under Effect 3, ending the stream from a Node.js event callback did not
-        // reliably terminate it after multiple sequential invocations. Polling a
-        // plain array with a controlled "closed" flag sidesteps that entirely.
-        const collectedLines: OutputLine[] = []
+        // array live (see below), dropping the lines it has handed on. We
+        // deliberately avoid Stream.callback: under Effect 3, ending the stream
+        // from a Node.js event callback did not reliably terminate it after
+        // multiple sequential invocations. Polling a plain array with a
+        // controlled "closed" flag sidesteps that entirely.
+        const collectedLines: Array<OutputLine | undefined> = []
         let streamClosed = false
         // Set when the direct child has closed (exited and its stdio ended).
         // Gates `kill` below; deliberately not set on "error".
         let exited = false
 
+        const pipes = [proc.stdout, proc.stderr].filter((pipe) => pipe !== null)
+        let pending = 0
+        let paused = false
         const record = (line: string, source: OutputLine["source"]) => {
           collectedLines.push({ line, source })
           logFile?.write(line + "\n")
+          pending += line.length
+          if (!paused && pending > PENDING_LIMIT) {
+            paused = true
+            for (const pipe of pipes) pipe.pause()
+          }
+        }
+        const taken = (line: OutputLine) => {
+          pending -= line.line.length
+          if (paused && pending <= PENDING_LIMIT / 2) {
+            paused = false
+            for (const pipe of pipes) pipe.resume()
+          }
         }
 
         // Log channel files (e.g. RUNBOOK_LOG): followed on a timer, and also
-        // read whenever a pipe delivers data, before readline splits it, so a
+        // read whenever a pipe delivers data, before it is split, so a
         // log line written before an `echo` is recorded before it. Each read
         // goes through the files in the order given, so lines that reach two
         // files between reads come out grouped by file.
@@ -187,6 +200,7 @@ const impl: ProcessSpawnerShape = {
           ),
         )
         const readTails = () => {
+          if (paused) return
           for (const tail of tails) tail.read()
         }
         const tailTimer = tails.length > 0 ? setInterval(readTails, LOG_CHANNEL_POLL_MS) : null
@@ -194,20 +208,22 @@ const impl: ProcessSpawnerShape = {
 
         if (proc.stdout) {
           if (tails.length > 0) proc.stdout.on("data", readTails)
-          const stdoutRl = readline.createInterface({ input: proc.stdout })
-          stdoutRl.on("line", (line) => record(line, "stdout"))
+          const stdoutLines = lineSplitter((line) => record(line, "stdout"))
+          proc.stdout.on("data", stdoutLines.write)
+          proc.stdout.on("end", stdoutLines.end)
         }
 
         if (proc.stderr) {
           if (tails.length > 0) proc.stderr.on("data", readTails)
-          const stderrRl = readline.createInterface({ input: proc.stderr })
-          stderrRl.on("line", (line) => record(line, "stderr"))
+          const stderrLines = lineSplitter((line) => record(line, "stderr"))
+          proc.stderr.on("data", stderrLines.write)
+          proc.stderr.on("end", stderrLines.end)
         }
 
         // Single exit promise — eagerly registered to never miss the event.
         // The process "close" event fires after all stdio streams have ended, so
-        // by the time it runs every readline "line" event has already been
-        // delivered into collectedLines. The log channel files are then read to
+        // by the time it runs every line has already been delivered into
+        // collectedLines. The log channel files are then read to
         // the end before the stream is marked closed, so `output` carries every
         // line the script wrote to them. A background job that writes to them
         // after this point isn't followed. The "error" branch only matters for a
@@ -235,7 +251,16 @@ const impl: ProcessSpawnerShape = {
         const pullLine: Effect.Effect<OutputLine, Cause.Done> = Effect.gen(function* () {
           while (true) {
             if (cursor < collectedLines.length) {
-              return collectedLines[cursor++]!
+              // A line handed on is let go at once; its slot goes once the
+              // slots handed on are half the array.
+              const next = collectedLines[cursor]!
+              collectedLines[cursor++] = undefined
+              taken(next)
+              if (cursor >= 1024 && cursor * 2 >= collectedLines.length) {
+                collectedLines.splice(0, cursor)
+                cursor = 0
+              }
+              return next
             }
             if (streamClosed) {
               return yield* Cause.done()
