@@ -53,8 +53,12 @@ const REGISTRY_FILES: ReadonlySet<string> = new Set([REGISTRY, "blocks/views.ts"
 /** The blocks the frozen baseline holds, by tag. */
 const BASELINE_BLOCKS = "baseline/props.json"
 
-/** One registry line, `export { command as Command } from "./command/block.ts"`. */
-const REGISTRY_LINE = /^export \{ (\w+) as (\w+) \} from "\.\/([\w-]+)\/[\w./-]+"$/
+/**
+ * One registry line, `export { command as Command } from "./command/block.ts"`.
+ * It names the block's block.ts, the file the engine and the CLI load through
+ * the registry: a line naming the view would load React into them.
+ */
+const REGISTRY_LINE = /^export \{ (\w+) as (\w+) \} from "\.\/([\w-]+)\/block\.ts"$/
 
 interface Position {
   readonly line: number
@@ -285,7 +289,7 @@ const blockNameOutsideItsFolder = {
       unregistered:
         "{{tag}} is a block the rebuild carries ({{baseline}}). Only its folder and its registry lines may name it: elsewhere, ask the registry, or key on a class or capability.",
       notALine:
-        'blocks/index.ts holds one line per block or alias, `export { command as Command } from "./command/block.ts"`, and nothing else.',
+        'blocks/index.ts holds one line per block or alias, naming the block\'s block.ts, `export { command as Command } from "./command/block.ts"`, and nothing else.',
     },
     schema: ROOT_OPTION,
   },

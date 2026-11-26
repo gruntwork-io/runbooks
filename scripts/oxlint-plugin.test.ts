@@ -295,9 +295,24 @@ describe("block-name-outside-its-folder", () => {
       "block-name-outside-its-folder blocks/index.ts:4",
     ])
     expect(found[0]?.message).toBe(
-      'blocks/index.ts holds one line per block or alias, `export { command as Command } from "./command/block.ts"`, and nothing else.',
+      'blocks/index.ts holds one line per block or alias, naming the block\'s block.ts, `export { command as Command } from "./command/block.ts"`, and nothing else.',
     )
     expect(lint({ "blocks/index.ts": "/** No blocks yet. */\nexport {}\n" })).toEqual([])
+  })
+
+  it("holds each registry line to a block's block.ts, so the registry loads no view", () => {
+    const found = lint({
+      "blocks/index.ts": [
+        'export { command as Command } from "./command/View.tsx"',
+        'export { check as Check } from "./check/check.ts"',
+        'export { gitHubAuth as GitHubAuth } from "./git-auth/block.ts"',
+      ].join("\n"),
+    })
+    expect(brief(found)).toEqual([
+      "block-name-outside-its-folder blocks/index.ts:1",
+      "block-name-outside-its-folder blocks/index.ts:2",
+    ])
+    expect(found[0]?.message).toContain('"./command/block.ts"')
   })
 })
 
