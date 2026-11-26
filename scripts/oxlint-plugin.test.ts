@@ -15,6 +15,7 @@ const RULES = [
   "no-relative-import-across-packages",
   "no-import-between-blocks",
   "no-react-in-block-ts",
+  "no-node-in-block-ts",
   "block-name-outside-its-folder",
   "plugin-binary-outside-owner",
 ]
@@ -139,6 +140,34 @@ describe("no-react-in-block-ts", () => {
     ])
     expect(found[2]?.message).toBe(
       "block.ts imports ./View.tsx. The engine and the CLI load block.ts, so it imports no React: the view goes in View.tsx and a line in blocks/views.ts.",
+    )
+  })
+})
+
+describe("no-node-in-block-ts", () => {
+  it("reports a Node built-in in block.ts, with or without node:, and not in its tests", () => {
+    const node = [
+      'export * from "node:path"',
+      'export * from "path"',
+      'export * from "crypto"',
+      'export * from "fs/promises"',
+    ]
+    const found = lint({
+      "blocks/command/block.ts": [
+        ...node,
+        'export * from "effect"',
+        'export * from "./pathy.ts"',
+      ].join("\n"),
+      "blocks/command/block.test.ts": node.join("\n"),
+    })
+    expect(brief(found)).toEqual([
+      "no-node-in-block-ts blocks/command/block.ts:1",
+      "no-node-in-block-ts blocks/command/block.ts:2",
+      "no-node-in-block-ts blocks/command/block.ts:3",
+      "no-node-in-block-ts blocks/command/block.ts:4",
+    ])
+    expect(found[0]?.message).toBe(
+      "block.ts imports node:path. Every client loads block.ts, the renderer included, so it imports no Node built-in: it reaches the OS through the services its run gets, and pure helpers go in packages/core.",
     )
   })
 })

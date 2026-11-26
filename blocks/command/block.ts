@@ -19,7 +19,6 @@
  * - It is stopped, with every process it started, when it is cancelled or
  *   runs past `timeoutMs`.
  */
-import path from "node:path"
 import { Effect, Redacted, Result, Schema, Stream } from "effect"
 import {
   defineTask,
@@ -91,11 +90,19 @@ const toEvent = ({ line, source }: OutputLine): TaskEvent<string> => ({
   line,
 })
 
-/** A failure in Runbooks' own work before the script starts, said as what could not be done. */
+/**
+ * A failure in Runbooks' own work before the script starts, said as what
+ * could not be done and the error's code (ENOENT, E2BIG), never its message:
+ * a spawn error's message can quote the environment, which holds the
+ * script's values.
+ */
 const couldNot = (what: string) => (error: { readonly _tag: string; readonly cause?: unknown }) =>
-  new TaskFailed({
-    message: `Runbooks could not ${what}: ${error.cause instanceof Error ? error.cause.message : error._tag}.`,
-  })
+  new TaskFailed({ message: `Runbooks could not ${what}: ${codeOf(error.cause) ?? error._tag}.` })
+
+const codeOf = (cause: unknown): string | undefined =>
+  typeof cause === "object" && cause !== null && "code" in cause && typeof cause.code === "string"
+    ? cause.code
+    : undefined
 
 export const command = defineTask({
   name: "Command",
@@ -128,9 +135,9 @@ export const command = defineTask({
         const folder = yield* Effect.acquireRelease(fs.mkdtemp("runbooks-command-"), (made) =>
           Effect.ignore(fs.rm(made, { recursive: true, force: true })),
         ).pipe(Effect.mapError(couldNot("make a folder for the script")))
-        const scriptFile = path.join(folder, "script")
+        const scriptFile = `${folder}/script`
         const logs = logChannelFiles(folder, LOG_CHANNELS)
-        const helpers = path.join(folder, "helpers.sh")
+        const helpers = `${folder}/helpers.sh`
         // Sourced on the script's first line, so its line numbers stay its own.
         const text = runner.wrap
           ? `. ${shellQuote(helpers)}; ${withValues.success.script}`

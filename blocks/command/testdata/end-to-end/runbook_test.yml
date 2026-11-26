@@ -1,0 +1,25 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  - name: end-to-end
+    steps:
+      - block: setup
+        expect: success
+        assertions:
+          - type: output_equals
+            block: setup
+            output: region
+            value: us-east-1
+          - type: file_exists
+            path: made-by-setup.txt
+      - block: consume
+        expect: success
+        assertions:
+          - type: output_equals
+            block: consume
+            output: seen
+            value: eu-west-2/us-east-1
+      - block: fails
+        expect: fail

@@ -128,7 +128,7 @@ const STAND_IN: Registry = {
   Inputs: form("Inputs"),
   DirPicker: form("DirPicker"),
   Iframe: form("Iframe"),
-  Command: registry.Command,
+  Command: task("Command", ["process"]),
   Check: task("Check", ["process"]),
   Finish: task("Finish", ["process"]),
   Prerequisites: task("Prerequisites", ["process"]),
@@ -145,6 +145,9 @@ const STAND_IN: Registry = {
   GitHubPullRequest: alias("GitHubPullRequest", "GitPullRequest", { provider: "github" }),
   GitLabMergeRequest: alias("GitLabMergeRequest", "GitPullRequest", { provider: "gitlab" }),
 }
+
+/** The real registry's entries, and stand-ins for the tags it does not have yet. */
+const BLOCKS: Registry = { ...STAND_IN, ...registry }
 
 /**
  * The fixtures that do not decode, each with its problem. All three are the
@@ -167,7 +170,7 @@ const DOES_NOT_DECODE: Record<string, string> = {
 function problems(fixture: string): string | undefined {
   const folder = path.join(ROOT, path.dirname(fixture))
   const runbook = path.join(folder, "runbook.mdx")
-  const parsed = parseRunbook(readFileSync(runbook, "utf8"), STAND_IN, {
+  const parsed = parseRunbook(readFileSync(runbook, "utf8"), BLOCKS, {
     file: runbook,
     appVersion: RUNBOOKS_VERSION,
   })
@@ -175,7 +178,7 @@ function problems(fixture: string): string | undefined {
     return configErrors(parsed)
       .map((e) => `${e.code}: ${e.message}`)
       .join("\n")
-  const schema = boundTestFile(targetsOf(parsed.document, STAND_IN))
+  const schema = boundTestFile(targetsOf(parsed.document, BLOCKS))
   const result = Effect.runSync(
     Effect.result(parseTestFile(fixture, readFileSync(path.join(ROOT, fixture), "utf8"), schema)),
   )
@@ -187,6 +190,11 @@ describe("the runbook_test.yml schema, against the fixtures", () => {
     expect(Object.keys(STAND_IN).sort()).toEqual(Object.keys(PROPS).sort())
     const blocks = Object.values(STAND_IN).filter((e): e is AnyBlock => "class" in e)
     expect(blocks).toHaveLength(18)
+  })
+
+  it("uses the real registry's entry for each tag it has", () => {
+    expect(Object.keys(registry)).not.toHaveLength(0)
+    for (const [tag, entry] of Object.entries(registry)) expect(BLOCKS[tag]).toBe(entry)
   })
 
   it("decodes every fixture but those it names, each for the reason it gives", () => {
