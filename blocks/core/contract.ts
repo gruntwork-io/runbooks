@@ -103,6 +103,22 @@ export type ReferenceProp<P> = {
  */
 export type References<P> = { readonly [K in ReferenceProp<P>]?: Capability }
 
+/** The props of `P` whose decoded value is text. */
+export type TextProp<P> = {
+  readonly [K in keyof P]-?: NonNullable<P[K]> extends string ? K : never
+}[keyof P] &
+  string
+
+/**
+ * Where a task's script is: a prop that holds its text, or a file it names
+ * in `runbookFiles`. A script runs as written and reads values only from its
+ * environment, so the parser reads no `{{ }}` in it as a reference: it makes
+ * no edge, and the text is another tool's, such as docker's `{{.Names}}`.
+ */
+export type ScriptSource<P> =
+  | { readonly _tag: "Prop"; readonly prop: TextProp<P> }
+  | { readonly _tag: "File"; readonly path: RunbookPath }
+
 // ---------------------------------------------------------------------------
 // What a block declares
 // ---------------------------------------------------------------------------
@@ -375,6 +391,8 @@ export interface TaskBlock<P, K extends string, R, N extends string = never> ext
    * not the working folder itself, since the task may delete what is there.
    */
   readonly repository?: N
+  /** Its scripts, which run as written (`ScriptSource`). Each `File` source is one of its `runbookFiles`. */
+  readonly scripts?: (p: P) => ReadonlyArray<ScriptSource<P>>
   /** The one function that gets services. The engine calls it only in a trusted session. */
   readonly run: (p: P, input: TaskInput<N>) => Stream.Stream<TaskEvent<K>, TaskError, R>
   readonly instruction: (p: P, reads: TaskReads) => Instruction
@@ -545,6 +563,7 @@ export const BEFORE_TRUST = {
   outputs: true,
   fields: true,
   paths: true,
+  scripts: true,
   step: true,
   instruction: true,
   request: true,
