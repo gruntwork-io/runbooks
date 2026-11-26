@@ -92,6 +92,25 @@ test.describe("the rebuilt app's window", () => {
     expect(refused).toEqual({ eval: "EvalError", Function: "EvalError", inlineScript: "refused" })
   })
 
+  test("styles its page from its own stylesheet, and refuses an inline one", async ({ launch }) => {
+    const { app, page } = await launch()
+    // Tailwind's preflight, in the app's stylesheet, takes the body's margin away.
+    await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).margin)).toBe("0px")
+    const inline = await runAsPage(
+      app,
+      `(() => {
+        const style = document.createElement("style")
+        style.textContent = "body { margin: 77px }"
+        document.head.append(style)
+        const attribute = document.createElement("p")
+        attribute.setAttribute("style", "margin: 77px")
+        document.body.append(attribute)
+        return [getComputedStyle(document.body).margin, getComputedStyle(attribute).margin]
+      })()`,
+    )
+    expect(inline).toEqual(["0px", "0px"])
+  })
+
   test("has no require or process", async ({ launch }) => {
     const { page } = await launch()
     expect(await page.evaluate(() => [typeof require, typeof process])).toEqual([

@@ -1,0 +1,13 @@
+# Untrusted markup
+
+<img src="https://example.invalid/pixel.gif" alt="A tracking pixel" onError="window.ranFromRunbook = true" />
+
+<div title="Kept title" onClick="window.ranFromRunbook = true">A div with a handler.</div>
+
+<button popovertarget="cover">Open the cover</button>
+
+<div popover="manual" id="cover">A popover.</div>
+
+![A diagram](./assets/diagram.png)
+
+[The passwords file](file:///etc/passwd) and [another runbook](../walk/runbook.mdx).

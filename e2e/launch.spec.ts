@@ -20,6 +20,10 @@ const RUNBOOK_FOLDER = path.resolve(
   "end-to-end",
 )
 
+/** The e2e runbooks' folder, and the one whose title the tests read. */
+const RUNBOOKS = path.join(import.meta.dirname, "runbooks")
+const WALK = path.join(RUNBOOKS, "walk")
+
 /** The preload's bridge, as the page holds it. */
 interface Bridge {
   readonly send: (message: string) => void
@@ -52,6 +56,42 @@ function openRunbooks(page: Page): Promise<unknown> {
 }
 
 test.describe("launching the rebuilt app", () => {
+  test("with no runbook, shows a welcome screen that says how to open one, and no buttons", async ({
+    launch,
+  }) => {
+    const { page } = await launch()
+    const welcome = page.getByRole("region", { name: "Open a runbook" })
+    await expect(welcome).toContainText("on the command line")
+    await expect(welcome).toContainText("runbook.mdx")
+    await expect(page.getByRole("button")).toHaveCount(0)
+    expect(await openRunbooks(page)).toEqual([])
+  })
+
+  test("with a runbook file's path, opens that runbook", async ({ launch }) => {
+    const runbook = path.join(WALK, "runbook.mdx")
+    const { page } = await launch({ args: [runbook] })
+    await expect(page.getByRole("heading", { level: 1, name: "Walk the document" })).toBeVisible()
+    expect(await openRunbooks(page)).toEqual([runbook])
+  })
+
+  test("with a relative path, opens the runbook in the folder it names from where it started", async ({
+    launch,
+  }) => {
+    const { page } = await launch({ args: ["walk"], cwd: RUNBOOKS })
+    await expect(page.getByRole("heading", { level: 1, name: "Walk the document" })).toBeVisible()
+    expect(await openRunbooks(page)).toEqual([path.join(WALK, "runbook.mdx")])
+  })
+
+  test("with a path to nothing, says so and shows the welcome screen", async ({ launch }) => {
+    const missing = path.join(RUNBOOKS, "missing")
+    const { page, output } = await launch({ args: [missing] })
+    await expect(page.getByRole("heading", { name: "Open a runbook" })).toBeVisible()
+    await expect
+      .poll(output)
+      .toContain(`Runbooks could not open ${missing}: there is no file or folder there.`)
+    expect(await openRunbooks(page)).toEqual([])
+  })
+
   test("again on its user data folder focuses the first window and opens nothing", async ({
     launch,
     launchAgain,

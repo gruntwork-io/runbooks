@@ -38,11 +38,14 @@ export interface Launched {
  * How a test launches the app. By default it passes `--user-data-dir`
  * naming the test's folder. `defaultUserData` launches without it, with the
  * environment added, to see where the app keeps its user data by itself.
- * `env` adds to the app's environment.
+ * `env` adds to the app's environment, `args` to its command line, as a
+ * runbook to open, and `cwd` is the folder it starts in.
  */
 export interface LaunchOptions {
   readonly defaultUserData?: { readonly env: Readonly<Record<string, string>> }
   readonly env?: Readonly<Record<string, string>>
+  readonly args?: ReadonlyArray<string>
+  readonly cwd?: string
 }
 
 /** How a launch that opens no window ended. */
@@ -83,12 +86,13 @@ export const test = base.extend<{
   launch: async ({ userDataDir }, use) => {
     const open = new Set<ElectronApplication>()
     await use(async (options = {}) => {
-      const { defaultUserData, env } = options
+      const { defaultUserData, env, args = [], cwd } = options
       const added = { ...defaultUserData?.env, ...env }
       // On Linux, Playwright adds --no-sandbox unless it's told to keep Chromium's sandbox.
       const app = await electron.launch({
-        args: defaultUserData ? [MAIN] : [MAIN, `--user-data-dir=${userDataDir}`],
+        args: defaultUserData ? [MAIN, ...args] : [MAIN, `--user-data-dir=${userDataDir}`, ...args],
         ...(Object.keys(added).length > 0 && { env: { ...definedEnvironment(), ...added } }),
+        ...(cwd !== undefined && { cwd }),
         chromiumSandbox: true,
       })
       open.add(app)
