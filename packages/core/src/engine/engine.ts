@@ -11,6 +11,7 @@ import type { TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { CredentialProviders } from "../credential/provider.ts"
 import { prepareStateDir } from "../credential/stateDir.ts"
+import type { ParseResult } from "../document/document.ts"
 import { loadRunbook } from "../document/load.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import {
@@ -44,7 +45,7 @@ import { baseEnvironment, providerEnvironment } from "./env.ts"
 import { resolvePaths, sessionRoots } from "./roots.ts"
 import { copyGenerated, makeRunFiles, readRunFiles } from "./runFiles.ts"
 import { makeSession, type Runner, type Session } from "./session.ts"
-import { resumeOf, SessionStore } from "./sessionStore.ts"
+import { resumeOf, type SavedSession, SessionStore } from "./sessionStore.ts"
 import { SettingsStore } from "./settings.ts"
 
 /** Serves one protocol command, with the command's own payload, success and error types. */
@@ -204,6 +205,8 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             ),
         }
         const sessions = new Map<SessionId, Session>()
+        /** Saved sessions an open is resuming now, so a second open at once starts a new one. */
+        const resuming = new Set<SessionId>()
 
         const lookup = (session: SessionId): Effect.Effect<Session, UnknownSession> => {
           const found = sessions.get(session)
@@ -211,6 +214,45 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             ? Effect.fail(new UnknownSession({ session }))
             : Effect.succeed(found)
         }
+
+        /** Opens a session of the loaded runbook as `id`, resuming `saved` when there is one. */
+        const opened = Effect.fnUntraced(function* (
+          file: string,
+          loaded: Extract<ParseResult, { readonly _tag: "Parsed" }>,
+          saved: Option.Option<SavedSession>,
+          id: SessionId,
+        ) {
+          const { document } = loaded
+          const saver = yield* store.keep({
+            id,
+            runbook: file,
+            runbookHash: document.hash.runbook,
+            createdAt: yield* Option.match(saved, {
+              onNone: () => Clock.currentTimeMillis,
+              onSome: (found) => Effect.succeed(found.createdAt),
+            }),
+          })
+          // A resumed session keeps its id, and with it its working and state folders.
+          const session = yield* makeSession({
+            id,
+            document,
+            texts: loaded.texts,
+            roots: sessionRoots(file, workingFolders, id),
+            baseEnvironment: base,
+            registry,
+            stateFolder: path.join(stateFolders, id),
+            providerEnvironment: (envNames) =>
+              providerEnvironment(base, options.processEnvironment, envNames),
+            network,
+            resume: Option.map(saved, (found) => resumeOf(document, registry, found)),
+            saver,
+          })
+          sessions.set(session.id, session)
+          // Trust comes back only for the content it was given for: `trust` refuses another hash.
+          const trusted = Option.flatMap(saved, (found) => found.trusted)
+          if (Option.isSome(trusted)) yield* session.trust(trusted.value, runner)
+          return { _tag: "Opened", session: session.view() } as const
+        })
 
         yield* Effect.addFinalizer(() =>
           Effect.forEach(Array.from(sessions.values()), (session) => session.close, {
@@ -236,44 +278,21 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             )
             if (result._tag === "Invalid")
               return { _tag: "Invalid", errors: result.errors, warnings: result.warnings } as const
-            const { document } = result
+            // Taken in the step that checks it: two opens of one runbook at once
+            // would otherwise both resume it, as two sessions with one id.
             const saved = Option.filter(
               yield* store.latest(file),
-              (found) => !sessions.has(found.id),
+              (found) => !sessions.has(found.id) && !resuming.has(found.id),
             )
+            if (Option.isSome(saved)) resuming.add(saved.value.id)
             const id = Option.match(saved, {
               onNone: () => decodeSessionId(crypto.randomUUID()),
               onSome: (found) => found.id,
             })
-            const saver = yield* store.keep({
-              id,
-              runbook: file,
-              runbookHash: document.hash.runbook,
-              createdAt: yield* Option.match(saved, {
-                onNone: () => Clock.currentTimeMillis,
-                onSome: (found) => Effect.succeed(found.createdAt),
-              }),
-            })
-            // A resumed session keeps its id, and with it its working and state folders.
-            const session = yield* makeSession({
-              id,
-              document,
-              texts: result.texts,
-              roots: sessionRoots(file, workingFolders, id),
-              baseEnvironment: base,
-              registry,
-              stateFolder: path.join(stateFolders, id),
-              providerEnvironment: (envNames) =>
-                providerEnvironment(base, options.processEnvironment, envNames),
-              network,
-              resume: Option.map(saved, (found) => resumeOf(document, registry, found)),
-              saver,
-            })
-            sessions.set(session.id, session)
-            // Trust comes back only for the content it was given for: `trust` refuses another hash.
-            const trusted = Option.flatMap(saved, (found) => found.trusted)
-            if (Option.isSome(trusted)) yield* session.trust(trusted.value, runner)
-            return { _tag: "Opened", session: session.view() } as const
+            return yield* Effect.ensuring(
+              opened(file, result, saved, id),
+              Effect.sync(() => resuming.delete(id)),
+            )
           }),
 
           closeSession: Effect.fn("Engine.closeSession")(function* ({ session }) {
