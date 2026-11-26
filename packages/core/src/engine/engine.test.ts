@@ -736,6 +736,25 @@ describe("Engine", () => {
     )
   })
 
+  it("lists its sessions in the order it opened them, a runbook opened again last", async () => {
+    await withEngine(
+      '<Run id="a" command="emit" />',
+      {},
+      Effect.gen(function* () {
+        const engine = yield* Engine
+        const listed = Effect.map(engine.listSessions, (all) => all.map((s) => s.session))
+        const first = (yield* open).session
+        const second = (yield* open).session
+        const third = (yield* open).session
+        expect(yield* listed).toEqual([first, second, third])
+
+        yield* engine.closeSession({ session: second })
+        const fourth = (yield* open).session
+        expect(yield* listed).toEqual([first, third, fourth])
+      }),
+    )
+  })
+
   it("never runs a misconfigured block, and still runs the others", async () => {
     const ran: string[] = []
     const record: Script = (input) => Stream.fromEffectDrain(Effect.sync(() => ran.push(input.cwd)))
