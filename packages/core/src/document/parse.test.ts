@@ -461,6 +461,16 @@ describe("parseRunbook", () => {
       expect(edgesFrom(result)).toEqual([2])
     })
 
+    it("reads none of a script block's own props when they are refused, only its shared ones", () => {
+      const result = withScripts(
+        `<Sh id="gen" outputs={5} env={{ X: "{{ .outputs.gone.k }}" }} command='echo {{ .outputs.gone.k }}' />`,
+      )
+      expect(configErrors(result).map((error) => [error.code, error.location.prop])).toEqual([
+        ["badProp", "outputs"],
+        ["missingReference", "env"],
+      ])
+    })
+
     it("reads no `{{ }}` in a script file as a reference, though the same file read by another block is", () => {
       const result = withScripts(
         [

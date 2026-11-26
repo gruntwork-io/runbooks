@@ -66,7 +66,8 @@ async function replaceWith(target: string, fill: (temporary: string) => Promise<
     await fill(temporary)
     await fs.rename(temporary, target)
   } catch (error) {
-    await fs.rm(temporary, { force: true })
+    // The write's own error is the one to give, not one removing its file.
+    await fs.rm(temporary, { force: true }).catch(() => undefined)
     throw error
   }
 }
