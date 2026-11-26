@@ -23,6 +23,14 @@ import {
 } from "@runbooks/core/errors"
 import { isContainedInReal } from "../path-validation.ts"
 
+/**
+ * How many entries a walk holds for its reader before it waits for the
+ * reader to take some. A reader that copies each entry, as the copy from
+ * $GENERATED_FILES does, is slower than the walk, so without a bound a
+ * folder a script fills would sit in memory whole.
+ */
+export const WALK_BUFFER = 256
+
 function mapReadError(err: unknown, filePath: string): FileNotFoundError | FileReadError {
   if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
     return new FileNotFoundError({ path: filePath })
@@ -165,38 +173,38 @@ const impl: FileSystemShape = {
     Effect.promise(() => isContainedInReal(filePath, container)),
 
   walk: (dir: string) =>
-    // The walk runs detached from the register effect, which only starts it,
-    // so entries are pulled while the walk is still going. The queue is
-    // unbounded (the default), so an offer never waits on a slow consumer.
-    Stream.callback<WalkEntry, FileReadError>((queue) =>
-      Effect.sync(() => {
-        const walkDir = async (currentDir: string): Promise<void> => {
-          const entries = await fs.readdir(currentDir, { withFileTypes: true })
-          for (const entry of entries) {
-            const fullPath = path.join(currentDir, entry.name)
-            const relativePath = path.relative(dir, fullPath)
-            // lstat, not stat: entries are classified by their Dirent (so
-            // symlinks are neither files nor directories here), and following a
-            // dangling or looping link would fail the whole walk.
-            const stat = await fs.lstat(fullPath)
-            Queue.offerUnsafe(queue, {
-              path: fullPath,
-              relativePath,
-              isFile: entry.isFile(),
-              isDirectory: entry.isDirectory(),
-              size: stat.size,
-            })
-            if (entry.isDirectory()) {
-              await walkDir(fullPath)
+    // The walk runs in a fiber of the stream's own, so entries are pulled
+    // while it is still going. It holds up to WALK_BUFFER entries for the
+    // reader, and each offer past that waits for the reader to take some.
+    Stream.callback<WalkEntry, FileReadError>(
+      (queue) => {
+        const read = <A>(evaluate: () => Promise<A>) =>
+          Effect.tryPromise({
+            try: evaluate,
+            catch: (cause) => new FileReadError({ path: dir, cause }),
+          })
+        const walkDir = (currentDir: string): Effect.Effect<void, FileReadError> =>
+          Effect.gen(function* () {
+            const entries = yield* read(() => fs.readdir(currentDir, { withFileTypes: true }))
+            for (const entry of entries) {
+              const fullPath = path.join(currentDir, entry.name)
+              // lstat, not stat: entries are classified by their Dirent (so
+              // symlinks are neither files nor directories here), and following a
+              // dangling or looping link would fail the whole walk.
+              const stat = yield* read(() => fs.lstat(fullPath))
+              yield* Queue.offer(queue, {
+                path: fullPath,
+                relativePath: path.relative(dir, fullPath),
+                isFile: entry.isFile(),
+                isDirectory: entry.isDirectory(),
+                size: stat.size,
+              })
+              if (entry.isDirectory()) yield* walkDir(fullPath)
             }
-          }
-        }
-        walkDir(dir).then(
-          () => Queue.endUnsafe(queue),
-          (err) =>
-            Queue.failCauseUnsafe(queue, Cause.fail(new FileReadError({ path: dir, cause: err }))),
-        )
-      }),
+          })
+        return Effect.andThen(walkDir(dir), Queue.end(queue))
+      },
+      { bufferSize: WALK_BUFFER, strategy: "suspend" },
     ),
 
   watch: (paths: string[], options?: WatchOptions) =>
