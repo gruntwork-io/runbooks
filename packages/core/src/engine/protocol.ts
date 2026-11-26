@@ -806,6 +806,7 @@ export const EngineProtocol = RpcGroup.make(
   CloseSession,
   ListSessions,
   GetSession,
+  GetDocument,
   TrustSession,
   Events,
   GetBlock,

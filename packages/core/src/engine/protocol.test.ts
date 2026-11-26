@@ -48,6 +48,7 @@ const Handlers = EngineProtocol.toLayer({
   CloseSession: unused,
   ListSessions: unused,
   GetSession: unused,
+  GetDocument: unused,
   TrustSession: () =>
     Effect.gen(function* () {
       const { origin } = yield* Caller
