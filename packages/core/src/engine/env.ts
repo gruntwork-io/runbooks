@@ -246,8 +246,9 @@ const OWN = { layer: "the block's env" } as const
 type Origin = BlockId | typeof BASE | typeof OWN
 
 /**
- * Why no process can be started with `env`, or undefined: a variable past
- * `RUN_ENV_LIMITS.variableBytes`, or the whole past `totalBytes`. The
+ * Why no process can be started with `env`, or undefined: a variable a
+ * block gave past `RUN_ENV_LIMITS.variableBytes`, or the whole past
+ * `totalBytes`. The
  * message names each variable and where it came from, and for the whole,
  * the layers that gave the most; never a value.
  */
@@ -258,7 +259,10 @@ function sizeProblem(env: RunEnv, originOf: (name: string) => Origin): TaskFaile
   for (const [name, value] of Object.entries(env)) {
     const origin = originOf(name)
     const bytes = variableBytes(name, Redacted.value(value))
-    if (bytes > RUN_ENV_LIMITS.variableBytes)
+    // The base environment is the one this process was started with, so this
+    // system takes its variables, however large; Linux would have refused one
+    // past the bound before Runbooks started. It still counts in the whole.
+    if (origin !== BASE && bytes > RUN_ENV_LIMITS.variableBytes)
       reasons.push(
         `${name} ${where(origin)} is ${bytes} bytes as NAME=value with its NUL, over the ${RUN_ENV_LIMITS.variableBytes} bytes a process can take for one variable.`,
       )

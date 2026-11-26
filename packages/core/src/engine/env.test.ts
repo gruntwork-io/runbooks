@@ -909,6 +909,24 @@ describe("the environment's size", () => {
     expect(Result.isFailure(await at(rest + 1))).toBe(true)
   })
 
+  it("takes a base variable past the per-variable bound, which the machine itself started with, and counts it in the whole", async () => {
+    // macOS has no per-variable bound, so a person's own environment can hold one.
+    const big = Redacted.make("x".repeat(200_000))
+    expect(
+      Result.isSuccess(await build({ base: new Map([["BIG", big]]), sources: [], own: {} })),
+    ).toBe(true)
+    const result = await build({
+      base: new Map([["BIG", big]]),
+      sources: [writes("m1", 7, 120_000)],
+      own: {},
+    })
+    // BIG is 3 + 1 + 200,000 + 1 + 8 bytes, and m1 7 variables of 4 + 1 + 120,000 + 1 + 8.
+    const message = Result.isFailure(result) ? result.failure.message : ""
+    expect(message).toContain("1040111 bytes")
+    expect(message).toContain("the base environment (200013 bytes)")
+    expect(message).not.toContain("BIG")
+  })
+
   it("fails a run with a variable no process can take, naming the variable and where it came from", async () => {
     // Linux's execve refuses a string past 131,072 bytes: NAME=value and its NUL.
     const result = await build({
