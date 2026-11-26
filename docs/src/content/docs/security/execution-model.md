@@ -18,6 +18,7 @@ A `runbook.mdx` file is compiled and rendered inside the Runbooks app, so Runboo
 - Spread props, such as `<Command {...props} />`
 - `<script>` elements, and elements that embed another document: `<iframe>`, `<frame>`, `<frameset>`, `<object>`, `<embed>` and `<webview>`
 - Elements that make the app load another document: `<meta>` (a refresh navigates the window), `<base>` (it moves where every relative link and image loads from) and `<link>` (it loads a stylesheet or prefetches a page)
+- `<style>` elements, because their CSS applies to the whole app window and could hide the trust warning. The `style` prop on an element is still allowed.
 - Props that inject raw HTML: `dangerouslySetInnerHTML` and `srcDoc`
 - Custom elements (element names with a `-`, such as `<my-widget>`), dotted element names (such as `<Admonition.Title>`) and namespaced element names (such as `<svg:script>`)
 - `__proto__` as a prop name or object key

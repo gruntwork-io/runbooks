@@ -1,7 +1,8 @@
 /**
  * What keeps runbook MDX declarative: every construct that would run
- * JavaScript, or hand the app raw HTML or another document to load, is
- * refused at parse time, before any client shows the runbook.
+ * JavaScript, hand the app raw HTML or another document to load, or restyle
+ * the app's window, is refused at parse time, before any client shows the
+ * runbook.
  *
  * The renderer no longer evaluates MDX, but it still renders HTML elements
  * and their props, so the element and prop checks still matter:
@@ -14,6 +15,9 @@
  *   document to load (BLOCKED_ELEMENTS): a `<meta>` refresh navigates the
  *   window, `<base>` moves where every relative link and image loads from,
  *   and `<link>` loads a stylesheet or prefetches a page;
+ * - `<style>` elements (BLOCKED_ELEMENTS), whose CSS applies to the whole
+ *   window: one can hide the trust banner or restyle the app around the
+ *   runbook;
  * - custom elements (`<x-widget>`), whose props React passes through as DOM
  *   attributes, so `ONANIMATIONSTART="..."` becomes an inline handler;
  * - dotted element names, which reach properties of a block;
@@ -98,8 +102,8 @@ export function refusals(tree: MdxNode): ReadonlyArray<Refusal> {
   return found
 }
 
-// Elements that load and run scripts, embed other documents, or hand the app
-// another document to load. Compared lowercased.
+// Elements that load and run scripts, embed other documents, hand the app
+// another document to load, or restyle the whole window. Compared lowercased.
 const BLOCKED_ELEMENTS = new Set([
   "script",
   "iframe",
@@ -111,6 +115,7 @@ const BLOCKED_ELEMENTS = new Set([
   "meta",
   "base",
   "link",
+  "style",
 ])
 
 // Prop names (compared lowercased) that are never literal content:

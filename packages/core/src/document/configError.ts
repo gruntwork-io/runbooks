@@ -37,9 +37,10 @@ export const RunbookErrorCode = Schema.Literals([
   /** The MDX, or the front matter's YAML, does not parse. */
   "syntax",
   /**
-   * MDX that would run code or load a document when the runbook opens: an
-   * import or export, an expression that is not a literal, a script, frame,
-   * meta, base or link element, a prop that injects HTML, a `javascript:` URL.
+   * MDX that would run code, load a document or restyle the app when the
+   * runbook opens: an import or export, an expression that is not a literal, a
+   * script, frame, meta, base, link or style element, a prop that injects
+   * HTML, a `javascript:` URL.
    */
   "notAllowed",
   /** A tag no block or alias in the registry has. */

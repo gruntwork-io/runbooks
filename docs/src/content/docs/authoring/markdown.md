@@ -190,7 +190,7 @@ MDX reads HTML as JSX, so it follows JSX's rules rather than HTML's:
 - Give `style` an object, as above. A string such as `style="color: red;"` fails when the runbook renders.
 - Write comments as `{/* comment */}`. An HTML comment, `<!-- comment -->`, fails to compile.
 
-Because Runbooks never runs JavaScript from your `runbook.mdx`, elements and props that load scripts, load or embed other documents or inject raw HTML are rejected with an error. These include `<script>`, `<iframe>`, `<object>`, `<embed>`, `<meta>`, `<base>`, `<link>`, custom elements such as `<my-widget>`, namespaced elements such as `<svg:script>`, `dangerouslySetInnerHTML`, `srcDoc` and `javascript:` URLs in props, links and images. See the [execution security model](/security/execution-model/) for the full list.
+Because Runbooks never runs JavaScript from your `runbook.mdx`, elements and props that load scripts, load or embed other documents or inject raw HTML are rejected with an error. These include `<script>`, `<iframe>`, `<object>`, `<embed>`, `<meta>`, `<base>`, `<link>`, custom elements such as `<my-widget>`, namespaced elements such as `<svg:script>`, `dangerouslySetInnerHTML`, `srcDoc` and `javascript:` URLs in props, links and images. A `<style>` element is rejected too, because its CSS would restyle the whole app window; use the `style` prop instead. See the [execution security model](/security/execution-model/) for the full list.
 
 ### Escaping special characters
 

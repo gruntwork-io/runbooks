@@ -198,6 +198,18 @@ describe("remarkLiteralOnly", () => {
     })
   })
 
+  // Its CSS applies to the whole window, so it could hide the trust banner.
+  describe("rejects a style element", () => {
+    it.each([
+      ["a style element", "<style>{'.mb-4 { display: none }'}</style>"],
+      ["a style element in text", "Inline <style>{`.mb-4 { display: none }`}</style> text"],
+      ["a style element in an svg", "<svg><style>{'.mb-4 { display: none }'}</style></svg>"],
+      ["a style element in a block", "<Note>\n<style>{'.mb-4 { display: none }'}</style>\n</Note>"],
+    ])("%s", (_name, source) => {
+      expect(firstRefusal(source).message).toBe("<style> elements are not allowed in runbooks.")
+    })
+  })
+
   it("names the line, prop and block in the error", () => {
     const prop = firstRefusal('# Title\n\n<Run id="a" command={run()} />')
     expect(prop.location).toMatchObject({ block: { tag: "Run" }, prop: "command" })
