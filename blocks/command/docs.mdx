@@ -43,6 +43,7 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 - `envFrom` (string | string[]): ID of a block, or an array of IDs, whose variables the script runs with: another Command's, from what its script wrote to `$RUNBOOK_ENV`, or an auth block's credentials. Later IDs override earlier ones. The block can't run until each one is done. See [Variables from other blocks](#variables-from-other-blocks).
 - `env` (object): environment variables the script runs with, by name, such as `env={{ DEBUG: "true" }}`. Each value is a string. See [Setting variables with env](#setting-variables-with-env).
 - `dependsOn` (string | string[]): ID of a block, or an array of IDs, that must be done before this block can run, such as another Command or a Check. A block that ended with a warning counts, including a Command that exited 2. See [Run order](#run-order).
+- `repository` (string): ID of a block that gives a repository, such as a [GitClone](/authoring/blocks/gitclone/) block. The script starts in that repository, and `$REPO_FILES` holds its path. The block can't run until that block is done. See [Writing to repository files](#writing-to-repository-files).
 - `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is stopped, with every process it started, and the block fails. A whole number greater than 0. Defaults to `3600000` (60 minutes). Raise it for scripts that run longer, for example `timeoutMs={7200000}` for a 2-hour deployment, or lower it so a hung script fails sooner. [Runbook tests](/authoring/testing/) apply it too, as well as the test's `timeout` setting: the run stops at whichever limit comes first.
 - `successMessage` (string): message shown when the command succeeds. Default "Success". Supports inline markdown.
 - `failMessage` (string): message shown when the command fails. Default "Failed". Supports inline markdown.
@@ -136,7 +137,7 @@ fi
 
 A script runs with the interpreter its first line names, such as `#!/usr/bin/env python3`, and with bash if it names none. A script for bash or sh runs under bash. This applies to inline scripts too.
 
-Scripts start in the session's directory, not in the runbook's folder. See [Execution context](#execution-context).
+Scripts start in the session's directory, not in the runbook's folder, or in the repository the block names with `repository`. See [Execution context](#execution-context).
 
 Runbooks reads the script file once, when the runbook opens, and runs that text. If you edit the file while the runbook is open, the block keeps running the version it read.
 
@@ -411,13 +412,13 @@ Each run starts fresh. A script runs with these variables, a later layer winning
 1. The environment Runbooks started with, less the variables any auth block sets, such as `AWS_ACCESS_KEY_ID`, and less the names Runbooks keeps for itself.
 2. The variables of each [`envFrom`](#variables-from-other-blocks) source, in order.
 3. The [`env`](#setting-variables-with-env) prop.
-4. The variables Runbooks sets for the run: `$RUNBOOK_OUTPUT`, `$RUNBOOK_ENV` and the [log files](#log-files).
+4. The variables Runbooks sets for the run: `$RUNBOOK_OUTPUT`, `$RUNBOOK_ENV`, [`$GENERATED_FILES`](#writing-to-generated-files), the [log files](#log-files), and [`$REPO_FILES`](#writing-to-repository-files) for a block that names a repository.
 
 Nothing else carries from one block to the next. An `export`, `unset` or `cd` in one script doesn't reach later blocks. To pass a variable on, write it to `$RUNBOOK_ENV` and name the block in the later block's `envFrom`. To pass a value, write a [block output](#block-outputs).
 
 Scripts run in a non-interactive shell, so shell aliases such as `ll` and shell functions such as `nvm` or `rvm` are not available.
 
-Scripts start in the [session's directory](/commands/sessions/), not in the runbook's folder, and every script in the session starts there. No environment variable names the runbook's folder, so a script can't call another script or read a file that ships with the runbook. Give each script file its own block with `path`. To work with a cloned repository's files, use the `<GitClone>` block's `clone_path` output.
+Scripts start in the [session's directory](/commands/sessions/), not in the runbook's folder. A block that names a repository with `repository` starts in that repository instead. No environment variable names the runbook's folder, so a script can't call another script or read a file that ships with the runbook. Give each script file its own block with `path`.
 
 Scripts run without a terminal, and their standard input is empty. A command that asks for input, such as `read`, a confirmation prompt, or a `sudo` password prompt, gets none and usually fails. Use non-interactive flags, such as `tofu apply -auto-approve` or `apt-get install -y`. Tools that check for a terminal may also turn off colors and progress bars.
 
@@ -543,21 +544,38 @@ log_info "Deployment successful!"
 
 ## Capturing output files
 
-A script starts in the session's directory. Files it writes to the `generated` folder there are [generated files](/intro/files_workspace/#generated-files):
+Scripts can write files to two destinations:
 
-```bash
-#!/bin/bash
-mkdir -p generated/opentofu
-tofu output -json > generated/opentofu/outputs.json
-```
+- [Generated files](/intro/files_workspace/#generated-files), through `$GENERATED_FILES`
+- [Repository files](/intro/files_workspace/#repository-files), through `$REPO_FILES`
 
 See the [Files workspace](/intro/files_workspace/) page for more.
 
-<Aside type="note">
-Files land as the script writes them, whatever its exit code. If two blocks write a file with the same path, the last write wins. Use unique filenames or subdirectories to avoid conflicts.
-</Aside>
+### Writing to generated files
 
-{/* The `$GENERATED_FILES` and `$REPO_FILES` sections return when Command sets those variables. Runbooks keeps both names for itself, so `env` and `$RUNBOOK_ENV` can't set them. */}
+Each run gets `$GENERATED_FILES`, an empty folder of its own. When the script exits 0 or 2, Runbooks copies what it left there into the session's `generated` folder, and the block lists each file it copied. On any other exit code, those files are discarded.
+
+```bash
+#!/bin/bash
+mkdir -p "$GENERATED_FILES/opentofu"
+tofu output -json > "$GENERATED_FILES/opentofu/outputs.json"
+```
+
+- **Files and folders are copied, symbolic links aren't.** The block's logs name each link it skipped.
+- **A file can replace one already in `generated`.** If two blocks write a file with the same path, the last one to finish wins. Use unique filenames or subdirectories to avoid conflicts.
+- **A copy that fails fails the run.** So does a file whose place in `generated` leads outside it through a link there. The files copied before that stay, and the block lists them.
+
+[Runbook tests](/authoring/testing/) count a block's copied files for `files_generated`.
+
+### Writing to repository files
+
+A block that names a repository with `repository` starts in it, and `$REPO_FILES` holds its path, so the script can change the repository's files directly. In a block that names no repository, `$REPO_FILES` is unset.
+
+```bash
+#!/bin/bash
+# Keep a copy of the repository's config with the generated files
+cp "$REPO_FILES/config.yaml" "$GENERATED_FILES/"
+```
 
 ## Viewing logs
 
