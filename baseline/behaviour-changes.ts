@@ -1,7 +1,7 @@
 /**
- * The ten behaviour changes the rulings make (nine on 2026-11-23, and open
- * decision 9's), applied to the baseline fixtures and e2e specs that rely on
- * the old behaviour. Each
+ * The eleven behaviour changes the rulings make (nine on 2026-11-23, open
+ * decision 9's, and the refused `<style>` of 2026-11-26), applied to the
+ * baseline fixtures and e2e specs that rely on the old behaviour. Each
  * patch in `behaviour-changes/` rewrites one fixture or spec. Today's app
  * still runs the originals, so the patches stay out of the tree until the
  * new tree runs them: `git apply baseline/behaviour-changes/*.patch`.
@@ -25,6 +25,7 @@ export type BehaviourChange =
   | "badReference"
   | "repository"
   | "scriptTemplates"
+  | "metadataElements"
 
 interface Change {
   readonly before: string
@@ -33,7 +34,7 @@ interface Change {
   readonly unpinned?: string
 }
 
-/** The plan's "What an author will notice" table, one entry per row. */
+/** The plan's "What an author will notice" table, one entry per row, and the rulings since. */
 export const CHANGES: Record<BehaviourChange, Change> = {
   envFrom: {
     before: "Five *AuthId props name credentials",
@@ -89,6 +90,17 @@ export const CHANGES: Record<BehaviourChange, Change> = {
   scriptTemplates: {
     before: "A script's {{ .inputs.X }} and {{ .outputs.B.K }} are filled in before it runs",
     after: "The script runs as written; a value reaches it only through the block's env",
+  },
+  /**
+   * A runbook's `<style>` applies to the whole window, and today's CSP allows
+   * inline styles, so one can hide the trust banner. `<meta>`, `<base>` and
+   * `<link>` hand the window another document to load.
+   */
+  metadataElements: {
+    before: "A runbook's <style>, <link>, <meta> and <base> reach the window",
+    after: "A configuration error; restyle an element with its style prop",
+    unpinned:
+      "No fixture or spec's runbook has one. The only hits are pages a frame loads (testdata/feature-demos/iframe/assets, and iframe.spec.ts's LOCAL_PAGE), not runbooks. packages/core/src/document/security.test.ts tests each refusal.",
   },
 }
 
