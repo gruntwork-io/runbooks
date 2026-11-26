@@ -99,3 +99,10 @@ export type FormSpec = typeof FormSpec.Type
 
 /** Validated form values, by field name. */
 export type FormValues = { readonly [name: string]: FieldValue }
+
+/** A value as a template prints it: a list or map as JSON. */
+export function templateText(value: FieldValue): string {
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  return JSON.stringify(value)
+}
