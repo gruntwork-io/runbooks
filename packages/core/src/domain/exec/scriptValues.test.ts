@@ -351,11 +351,32 @@ describe("the variables", () => {
       sources({ v: "x" }, outputs({ s: { k: "y" } })),
     )
     expect(script).toBe(
-      `a="\${RUNBOOK_VALUE_1}"; b="\${RUNBOOK_VALUE_1}"; c=''"\${RUNBOOK_VALUE_2}"''`,
+      `export -n RUNBOOK_VALUE_1 RUNBOOK_VALUE_2; a="\${RUNBOOK_VALUE_1}"; b="\${RUNBOOK_VALUE_1}"; c=''"\${RUNBOOK_VALUE_2}"''`,
     )
     expect(Object.keys(env)).toEqual(["RUNBOOK_VALUE_1", "RUNBOOK_VALUE_2"])
     expect(Redacted.isRedacted(env["RUNBOOK_VALUE_1"])).toBe(true)
     expect(Redacted.value(env["RUNBOOK_VALUE_2"]!)).toBe("y")
+  })
+
+  it("are in no environment but the script's own, and leave its line numbers as written", () => {
+    const { script, env } = inserted(
+      [
+        `bash -c 'printf "[%s]" "\${RUNBOOK_VALUE_1-unset}"'; env | grep -c RUNBOOK_VALUE_`,
+        `printf '[%s][%s][%s]' {{ .inputs.v }} "$LINENO" "$(printf %s {{ .inputs.v }})"`,
+        `printf '[%s]' "$LINENO"`,
+      ].join("\n"),
+      sources({ v: "x" }),
+    )
+    // Run as a file, as a block runs its script, so `$LINENO` counts its lines.
+    const cwd = nodeFs.mkdtempSync(nodePath.join(folder, "run-"))
+    nodeFs.writeFileSync(nodePath.join(cwd, "script.sh"), script)
+    const ran = spawnSync("/bin/bash", ["script.sh"], {
+      cwd,
+      env: { PATH: "/usr/bin:/bin", RUNBOOK_VALUE_1: Redacted.value(env["RUNBOOK_VALUE_1"]!) },
+      encoding: "utf8",
+    })
+    expect(ran.stderr).toBe("")
+    expect(ran.stdout).toBe("[unset]0\n[x][2][x][3]")
   })
 
   it("hold a number or boolean as its text, a list or map as JSON, and a map's key by its path", () => {
@@ -383,7 +404,9 @@ describe("the rest of a template", () => {
       "docker ps --format '{{`{{.Names}}`}}' {{ \"{{\" }}\n{{/* gone */}}a  {{- .inputs.v -}}  b",
       sources({ v: "x" }),
     )
-    expect(script).toBe(`docker ps --format '{{.Names}}' {{\na"\${RUNBOOK_VALUE_1}"b`)
+    expect(script).toBe(
+      `export -n RUNBOOK_VALUE_1; docker ps --format '{{.Names}}' {{\na"\${RUNBOOK_VALUE_1}"b`,
+    )
   })
 })
 

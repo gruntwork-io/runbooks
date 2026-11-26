@@ -14,7 +14,9 @@
  *
  * So the value's text never enters the script, and bash never reads it as
  * code: it expands the variable once, and in quotes does not split or glob
- * what it holds. The run sets the variables with the rest of its environment.
+ * what it holds. The run sets the variables with the rest of its environment,
+ * and the script's first line starts with `export -n RUNBOOK_VALUE_1 ...; `,
+ * so no process the script starts gets them, and its line numbers stay.
  *
  * Refused, each with what to write instead, where bash would not expand the
  * variable, or would evaluate what it holds:
@@ -138,7 +140,10 @@ export function insertValues(
       variables.push(name)
     }
   }
-  const script = interpreter === "bash" ? quoteAll(text, references, variables, found) : text
+  const script =
+    interpreter === "bash"
+      ? unexported(quoteAll(text, references, variables, found), [...names.values()])
+      : text
 
   const [first, ...rest] = found
     .sort((a, b) => a.at - b.at)
@@ -189,6 +194,15 @@ function checkHeld(reference: Reference, value: string, held: number, found: Fou
     })
   return held + bytes
 }
+
+/**
+ * `script` starting with `export -n` for each of `variables` on its first
+ * line: the run sets them in the environment, and no process the script
+ * starts gets them. A line of its own would change the line numbers bash
+ * reports.
+ */
+const unexported = (script: string, variables: ReadonlyArray<string>): string =>
+  variables.length === 0 ? script : `export -n ${variables.join(" ")}; ${script}`
 
 /** A problem, at its index in the template. */
 interface Found {
