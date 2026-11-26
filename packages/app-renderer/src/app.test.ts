@@ -84,7 +84,7 @@ describe("what the window shows", () => {
     })
   })
 
-  it("is the runbook the engine opened last, when it has several open", async () => {
+  it("is the runbook the engine opened last, when it has several open, with the settings", async () => {
     // As a second launch of the app leaves it: main opens its runbook, then reloads the page.
     const later = {
       ...SESSION,
@@ -109,6 +109,31 @@ describe("what the window shows", () => {
               value: { tree: { type: "root", children: [] }, blocks: [], warnings: [] },
             },
           }),
+          GetSettings: (requestId) => ({
+            _tag: "Exit",
+            requestId,
+            exit: {
+              _tag: "Success",
+              value: {
+                settings: {
+                  theme: "system",
+                  instructionMode: true,
+                  runbookWidth: null,
+                  askAboutGeneratedFiles: true,
+                  caBundleFile: null,
+                  proxy: null,
+                  agentAccess: false,
+                  confirmAgentRuns: true,
+                  recentGitHubHosts: [],
+                  lastSelectedGitHubHost: null,
+                  recentGitLabHosts: [],
+                  lastSelectedGitLabHost: null,
+                },
+                file: "/data/settings.json",
+                problems: [],
+              },
+            },
+          }),
         },
         asked,
       ),
@@ -116,6 +141,7 @@ describe("what the window shows", () => {
     expect(shown).toMatchObject({
       _tag: "Runbook",
       session: { session: later.session, path: later.path },
+      settings: { instructionMode: true },
     })
     expect(asked).toEqual([{ session: later.session }])
   })

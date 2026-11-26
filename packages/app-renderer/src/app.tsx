@@ -7,7 +7,7 @@
  */
 import { Cause, Effect } from "effect"
 import { useEffect, useState } from "react"
-import type { DocumentView, EngineClient, SessionSummary } from "@runbooks/core/protocol"
+import type { DocumentView, EngineClient, SessionSummary, Settings } from "@runbooks/core/protocol"
 import { FollowingContext, followingOf } from "./following.ts"
 import { clientErrorText, defectText } from "./defect.ts"
 import { Runbook } from "./runbook.tsx"
@@ -16,7 +16,12 @@ import { Welcome } from "./welcome.tsx"
 type Shown =
   | { readonly _tag: "Asking" }
   | { readonly _tag: "Welcome" }
-  | { readonly _tag: "Runbook"; readonly session: SessionSummary; readonly document: DocumentView }
+  | {
+      readonly _tag: "Runbook"
+      readonly session: SessionSummary
+      readonly document: DocumentView
+      readonly settings: Settings
+    }
   | { readonly _tag: "Failed"; readonly message: string }
 
 /** What a defect the engine sent says, as its message when it has one. */
@@ -31,7 +36,8 @@ export const ask = (engine: EngineClient): Effect.Effect<Shown> =>
     const session = (yield* engine.ListSessions()).at(-1)
     if (session === undefined) return { _tag: "Welcome" } as const
     const document = yield* engine.GetDocument({ session: session.session })
-    return { _tag: "Runbook", session, document } as const
+    const { settings } = yield* engine.GetSettings()
+    return { _tag: "Runbook", session, document, settings } as const
   }).pipe(
     Effect.catchTags({
       RpcClientError: (error) =>
@@ -86,6 +92,7 @@ function Content({ engine, shown }: { readonly engine: EngineClient; readonly sh
           engine={engine}
           session={shown.session}
           document={shown.document}
+          settings={shown.settings}
         />
       )
     case "Failed":
@@ -102,12 +109,15 @@ function Followed({
   engine,
   session,
   document,
+  settings,
 }: {
   readonly engine: EngineClient
   readonly session: SessionSummary
   readonly document: DocumentView
+  /** As the window read them when it opened the runbook. */
+  readonly settings: Settings
 }) {
-  const [following] = useState(() => followingOf(engine, session.session))
+  const [following] = useState(() => followingOf(engine, session.session, settings))
   useEffect(() => following.start(), [following])
   return (
     <FollowingContext value={following}>

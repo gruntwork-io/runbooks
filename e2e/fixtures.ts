@@ -38,14 +38,20 @@ export interface Launched {
  * naming the test's folder. `defaultUserData` launches without it, with the
  * environment added, to see where the app keeps its user data by itself.
  * `env` adds to the app's environment, `args` to its command line, as a
- * runbook to open, and `cwd` is the folder it starts in.
+ * runbook to open, and `cwd` is the folder it starts in. `settings` are
+ * written to the settings file in `userDataDir` before the launch, as the
+ * app saves them: the settings a person changed, the rest their defaults.
  */
 export interface LaunchOptions {
   readonly defaultUserData?: { readonly env: Readonly<Record<string, string>> }
   readonly env?: Readonly<Record<string, string>>
   readonly args?: ReadonlyArray<string>
   readonly cwd?: string
+  readonly settings?: Readonly<Record<string, unknown>>
 }
+
+/** The settings file's version (SETTINGS_VERSION in packages/core/src/engine/settings.ts). */
+const SETTINGS_VERSION = 1
 
 /** How a launch that opens no window ended. */
 export interface Ended {
@@ -86,7 +92,15 @@ export const test = base.extend<{
   launch: async ({ userDataDir }, use) => {
     const open = new Set<ElectronApplication>()
     await use(async (options = {}) => {
-      const { defaultUserData, env, args = [], cwd } = options
+      const { defaultUserData, env, args = [], cwd, settings } = options
+      if (settings !== undefined) {
+        if (defaultUserData)
+          throw new Error("`settings` are written to the test's own user data folder.")
+        fs.writeFileSync(
+          path.join(userDataDir, "settings.json"),
+          `${JSON.stringify({ version: SETTINGS_VERSION, settings })}\n`,
+        )
+      }
       const added = { ...defaultUserData?.env, ...env }
       // On Linux, Playwright adds --no-sandbox unless it's told to keep Chromium's sandbox.
       const app = await electron.launch({
