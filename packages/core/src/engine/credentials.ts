@@ -79,16 +79,23 @@ import type {
   ResolvedSource,
   Target,
 } from "../credential/provider.ts"
+import { CREDENTIAL_CALL_BOUNDS } from "../credential/plugin.ts"
 import type { CredentialStore } from "./credentialStore.ts"
 import type { SavedCredential } from "./sessionStore.ts"
 import type { CredentialHandle } from "./env.ts"
 import { type Held, hold, reveal } from "./held.ts"
 import type { ActResult, EngineEvent } from "./protocol.ts"
 
-/** How long the engine waits on one provider call that is not a sign-in. */
-const PROVIDER_CALL_TIMEOUT: Duration.Input = "60 seconds"
-/** How long a sign-in may wait on the person: a device code lives about 10 minutes. */
-const SIGN_IN_TIMEOUT: Duration.Input = "15 minutes"
+/** Starting a plugin's binary and checking its hash, on top of what the credential client may take. */
+const START_MARGIN_MILLIS = 10_000
+/**
+ * How long the engine waits on one provider call that is not a sign-in:
+ * longer than a plugin may take through the credential client, starting
+ * again included, so the plugin's own `timedOut` reaches the person first.
+ */
+export const PROVIDER_CALL_TIMEOUT_MILLIS = CREDENTIAL_CALL_BOUNDS.call + START_MARGIN_MILLIS
+/** How long a sign-in may wait on the person, on the same terms. */
+export const SIGN_IN_TIMEOUT_MILLIS = CREDENTIAL_CALL_BOUNDS.signIn + START_MARGIN_MILLIS
 /**
  * The longest an expiry watch sleeps before it reads the clock again.
  * Timers stop while the machine sleeps, so a watch that slept until the
@@ -349,7 +356,7 @@ function errorOf(cause: Cause.Cause<CredentialError>): CredentialError {
 
 const bounded = <A, R>(
   call: Effect.Effect<A, CredentialError, R>,
-  within: Duration.Input = PROVIDER_CALL_TIMEOUT,
+  within: Duration.Input = PROVIDER_CALL_TIMEOUT_MILLIS,
 ) =>
   call.pipe(
     Effect.timeoutOrElse({
@@ -825,7 +832,7 @@ export function makeCredentials(
               }
             },
           ),
-          SIGN_IN_TIMEOUT,
+          SIGN_IN_TIMEOUT_MILLIS,
         )
         if (identity === undefined)
           return yield* new CredentialError({

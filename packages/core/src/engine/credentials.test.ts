@@ -13,6 +13,7 @@ import { BlockId, CredentialError } from "@runbooks/blocks-core/contract"
 import type { AnyBlock } from "@runbooks/blocks-core/registry"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { type CredentialStateTag, TRANSITIONS } from "../credential/lifecycle.ts"
+import { CREDENTIAL_LIMITS } from "../credential/plugin.ts"
 import {
   type CredentialEnv,
   CredentialProviders,
@@ -32,7 +33,11 @@ import { testSettingsStore } from "../test-utils/TestSettingsFile.ts"
 import { makeRecordingSpawner, type RecordedSpawn } from "../test-utils/TestSpawner.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import { makeCredentialStore } from "./credentialStore.ts"
-import { makeCredentials } from "./credentials.ts"
+import {
+  makeCredentials,
+  PROVIDER_CALL_TIMEOUT_MILLIS,
+  SIGN_IN_TIMEOUT_MILLIS,
+} from "./credentials.ts"
 import { Engine } from "./engine.ts"
 import { EventEnvelope, type EventEnvelope as Envelope } from "./protocol.ts"
 import { SettingsStore } from "./settings.ts"
@@ -1672,14 +1677,23 @@ describe("a credential that expires", () => {
 })
 
 describe("a provider that does not answer", () => {
-  it("is given up on after a minute", async () => {
+  it("is waited on longer than a plugin may take through the credential client", () => {
+    const { configure, signIn, ...others } = CREDENTIAL_LIMITS
+    for (const limit of Object.values(others))
+      expect(configure + limit).toBeLessThan(PROVIDER_CALL_TIMEOUT_MILLIS)
+    expect(configure + signIn).toBeLessThan(SIGN_IN_TIMEOUT_MILLIS)
+  })
+
+  it("is given up on once a plugin would have answered", async () => {
     await withCloud(
       '<CloudLogin id="cloud" />',
       { cloud: cloud({ detect: () => Effect.never }) },
       (rb) =>
         Effect.gen(function* () {
           yield* rb.until("cloud", "Detecting")
-          yield* TestClock.adjust(MINUTE)
+          yield* TestClock.adjust(PROVIDER_CALL_TIMEOUT_MILLIS - 1)
+          expect(yield* rb.status("cloud")).toEqual({ _tag: "Running" })
+          yield* TestClock.adjust(1)
           expect(yield* rb.until("cloud", "SignedOut")).toMatchObject({
             lastError: { kind: "timedOut", message: "The credential provider did not answer." },
           })
@@ -1688,7 +1702,7 @@ describe("a provider that does not answer", () => {
     )
   })
 
-  it("gives a sign-in fifteen minutes", async () => {
+  it("gives a sign-in fifteen minutes, and the plugin's start", async () => {
     await withCloud(
       '<CloudLogin id="cloud" detect={false} />',
       { cloud: cloud({ signIn: () => Stream.concat(Stream.make(WAITING), Stream.never) }) },
@@ -1698,7 +1712,7 @@ describe("a provider that does not answer", () => {
           yield* rb.act("cloud", { _tag: "SignIn", method: "sso", fields: {} })
           yield* rb.until("cloud", "SigningIn")
           yield* rb.until("cloud", "SigningIn")
-          yield* TestClock.adjust(15 * MINUTE - 1)
+          yield* TestClock.adjust(SIGN_IN_TIMEOUT_MILLIS - 1)
           expect(yield* rb.status("cloud")).toEqual({ _tag: "Running" })
           yield* TestClock.adjust(1)
           expect(yield* rb.until("cloud", "SignedOut")).toMatchObject({
