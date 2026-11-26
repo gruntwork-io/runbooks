@@ -27,6 +27,14 @@ export interface SettingsFileShape {
    * alone. A copy kept before is replaced.
    */
   readonly keepAside: Effect.Effect<string, FileReadError | FileWriteError>
+  /**
+   * Whether today's app's settings were imported here once. The mark stays
+   * when the settings file goes, so deleting the file does not import them
+   * again.
+   */
+  readonly imported: Effect.Effect<boolean, FileReadError>
+  /** Marks that they were. */
+  readonly markImported: Effect.Effect<void, FileWriteError>
 }
 
 export class SettingsFile extends Context.Service<SettingsFile, SettingsFileShape>()(

@@ -11,6 +11,7 @@ import { MAX_SETTINGS_BYTES, SettingsFile } from "../services/SettingsFile.ts"
 
 export const SETTINGS_PATH = "/data/settings.json"
 const ASIDE_PATH = "/data/settings.unreadable.json"
+const IMPORTED_PATH = "/data/settings.imported"
 
 export interface MemorySettingsFile {
   readonly layer: Layer.Layer<SettingsFile>
@@ -20,18 +21,23 @@ export interface MemorySettingsFile {
   readonly aside: () => string | undefined
   /** Each text `replace` was given, in order, including one that failed. */
   readonly replaced: ReadonlyArray<string>
+  /** Deletes the file, as a person can. The mark that today's settings were imported stays. */
+  readonly remove: () => void
 }
 
 export interface Failures {
   readonly read?: boolean
   readonly replace?: boolean
   readonly keepAside?: boolean
+  readonly imported?: boolean
+  readonly markImported?: boolean
 }
 
 /** A settings file holding `initial`, or none. Each call named in `fail` fails, as a disk error would. */
 export function memorySettingsFile(initial?: string, fail: Failures = {}): MemorySettingsFile {
   let text = initial
   let aside: string | undefined
+  let imported = false
   const replaced: string[] = []
   const diskError = new Error("disk error")
   return {
@@ -65,11 +71,25 @@ export function memorySettingsFile(initial?: string, fail: Failures = {}): Memor
           aside = text
           return Effect.succeed(ASIDE_PATH)
         }),
+        imported: Effect.suspend(() =>
+          fail.imported === true
+            ? Effect.fail(new FileReadError({ path: IMPORTED_PATH, cause: diskError }))
+            : Effect.succeed(imported),
+        ),
+        markImported: Effect.suspend(() => {
+          if (fail.markImported === true)
+            return Effect.fail(new FileWriteError({ path: IMPORTED_PATH, cause: diskError }))
+          imported = true
+          return Effect.void
+        }),
       }),
     ),
     text: () => text,
     aside: () => aside,
     replaced,
+    remove: () => {
+      text = undefined
+    },
   }
 }
 

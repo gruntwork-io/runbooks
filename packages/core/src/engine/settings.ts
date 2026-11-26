@@ -10,8 +10,10 @@
  * engine and never loses what the file holds:
  *
  * - No file: the defaults. On the first start, with `importing`, what
- *   today's app kept in its own files (`legacySettings.ts`), saved so it is
- *   read once; today's files are never written.
+ *   today's app kept in its own files (`legacySettings.ts`), saved and then
+ *   marked imported, so it is read once: a person who deletes the file later
+ *   gets the defaults, not today's settings back. Today's files are never
+ *   written.
  * - A setting whose value this version does not take, or that it does not
  *   know: the default applies, a problem names it, and the file keeps it.
  * - A newer version: the settings this version knows apply, and every
@@ -206,12 +208,16 @@ const make = <R>(
         return { ...EMPTY, problems: [problem], readOnly: Option.some(problem) }
       }
       const firstStartHeld = Effect.gen(function* () {
+        // A mark it cannot read counts as one: the defaults are safe, and an
+        // import could turn agent access back on.
+        if (yield* Effect.orElseSucceed(file.imported, () => true)) return EMPTY
         const chosen = importable(yield* firstStart)
         if (Object.keys(chosen).length === 0) return EMPTY
         const stored = Schema.encodeSync(SettingsChange)(chosen)
         // Saved, so it is not read again. If it cannot be, it applies now and
         // is read again at the next start, to the same settings.
-        yield* Effect.ignore(file.replace(textOf(stored)))
+        const saved = yield* Effect.isSuccess(file.replace(textOf(stored)))
+        if (saved) yield* Effect.ignore(file.markImported)
         return { ...EMPTY, stored, chosen }
       })
       const load: Effect.Effect<Held, never, R> = file.read.pipe(

@@ -1,6 +1,7 @@
 /**
  * The settings file on disk: `settings.json` in the app's data folder,
- * which the entry point passes in.
+ * which the entry point passes in. `settings.imported` beside it, an empty
+ * file, marks that today's settings were imported.
  *
  * `replace` and `keepAside` each write a temporary file beside their
  * target and rename it into place, so a reader finds the old file or the
@@ -19,8 +20,10 @@ import { MAX_SETTINGS_BYTES, SettingsFile } from "@runbooks/core/services/Settin
 const OWNER_ONLY_FILE = 0o600
 const OWNER_ONLY_FOLDER = 0o700
 
-const isMissing = (error: unknown): boolean =>
-  error instanceof Error && "code" in error && error.code === "ENOENT"
+const codeIs = (error: unknown, code: string): boolean =>
+  error instanceof Error && "code" in error && error.code === code
+
+const isMissing = (error: unknown): boolean => codeIs(error, "ENOENT")
 
 /** At most `MAX_SETTINGS_BYTES` of a regular file, or none if there is no file. It fails rather than wait on a named pipe. */
 async function readHead(file: string): Promise<Option.Option<FileHead>> {
@@ -62,6 +65,7 @@ async function replaceWith(target: string, fill: (temporary: string) => Promise<
 export const nodeSettingsFile = (dataFolder: string): Layer.Layer<SettingsFile> => {
   const file = path.join(dataFolder, "settings.json")
   const aside = path.join(dataFolder, "settings.unreadable.json")
+  const importedMark = path.join(dataFolder, "settings.imported")
   return Layer.succeed(
     SettingsFile,
     SettingsFile.of({
@@ -94,6 +98,28 @@ export const nodeSettingsFile = (dataFolder: string): Layer.Layer<SettingsFile> 
           return aside
         },
         catch: (cause) => new FileWriteError({ path: aside, cause }),
+      }),
+      imported: Effect.tryPromise({
+        try: () =>
+          fs.lstat(importedMark).then(
+            () => true,
+            (error: unknown) => {
+              if (isMissing(error)) return false
+              throw error
+            },
+          ),
+        catch: (cause) => new FileReadError({ path: importedMark, cause }),
+      }),
+      markImported: Effect.tryPromise({
+        try: async () => {
+          await fs.mkdir(dataFolder, { recursive: true, mode: OWNER_ONLY_FOLDER })
+          try {
+            await (await fs.open(importedMark, "wx", OWNER_ONLY_FILE)).close()
+          } catch (error) {
+            if (!codeIs(error, "EEXIST")) throw error
+          }
+        },
+        catch: (cause) => new FileWriteError({ path: importedMark, cause }),
       }),
     }),
   )

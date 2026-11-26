@@ -42,6 +42,8 @@ export const DefaultSettings = SettingsStore.layer.pipe(
       read: Effect.succeed(Option.none()),
       replace: () => Effect.void,
       keepAside: Effect.succeed("(none)"),
+      imported: Effect.succeed(true),
+      markImported: Effect.void,
     }),
   ),
 )
