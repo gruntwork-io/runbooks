@@ -68,6 +68,36 @@ The block opens on the Service Account Key tab. `defaultTab` picks a different s
   detectCredentials={false}
 />
 
+### 1b. Choosing Which Methods to Offer
+
+`methods` lists the sign-in methods the block offers. Use it when you know a method will not work for your runbook. The tabs appear in the order you list them, and the block opens on the first.
+
+```mdx
+<GoogleAuth id="google-auth-two-methods" methods={['gcloud', 'oauth']} />
+```
+
+<GoogleAuth
+  id="google-auth-two-methods"
+  title="gcloud Config and Google Sign-In Only"
+  description="Offers two methods. There is no Service Account Key tab."
+  methods={['gcloud', 'oauth']}
+  detectCredentials={false}
+/>
+
+If you list one method, the block shows it with no tab bar.
+
+```mdx
+<GoogleAuth id="google-auth-sign-in-only" methods={['oauth']} />
+```
+
+<GoogleAuth
+  id="google-auth-sign-in-only"
+  title="Google Sign-In Only"
+  description="Offers Google Sign-In and no other method."
+  methods={['oauth']}
+  detectCredentials={false}
+/>
+
 ---
 
 ## 2. Credential Detection Options

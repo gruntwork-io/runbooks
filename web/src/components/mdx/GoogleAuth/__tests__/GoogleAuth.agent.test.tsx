@@ -31,6 +31,17 @@ describe("GoogleAuth agent adapter", () => {
     expect(availableActions(detail)).not.toContain("select_project")
   })
 
+  it("offers only the sign-in actions of the listed methods", async () => {
+    const api = renderWithAgent(
+      <GoogleAuth id="gcp" detectCredentials={false} methods={["service_account"]} />,
+      { "google:oauth-available": (() => ({ available: true })) as never },
+    )
+    const offered = availableActions(await askAgent(api, { op: "get_block", blockId: "gcp" }))
+    expect(offered).not.toContain("sign_in_with_gcloud")
+    expect(offered).not.toContain("start_browser_sign_in")
+    expect(offered).toContain("retry_detection")
+  })
+
   it("picks the project from the block's picker", async () => {
     const api = renderWithAgent(<GoogleAuth id="gcp" />, {
       "google:oauth-available": (() => ({ available: true })) as never,

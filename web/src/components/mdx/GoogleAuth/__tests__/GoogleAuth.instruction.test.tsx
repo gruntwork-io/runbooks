@@ -88,6 +88,28 @@ describe("GoogleAuth — instruction mode", () => {
     ).toHaveLength(1)
   })
 
+  it("leaves out the gcloud command and configuration when only a key signs in", () => {
+    render(
+      <TestWrapper>
+        <GoogleAuth id="gcp" methods={["service_account"]} gcloudConfiguration="prod" />
+      </TestWrapper>,
+    )
+
+    expect(screen.getAllByText("Log into Google Cloud")).toHaveLength(1)
+    expect(screen.queryAllByText(/gcloud auth application-default login/)).toHaveLength(0)
+    expect(screen.queryAllByText("prod")).toHaveLength(0)
+  })
+
+  it("keeps the command when Google Sign-In is the only method", () => {
+    render(
+      <TestWrapper>
+        <GoogleAuth id="gcp" methods={["oauth"]} />
+      </TestWrapper>,
+    )
+
+    expect(screen.getAllByText("gcloud auth application-default login")).toHaveLength(1)
+  })
+
   it("quotes a client file path the shell would otherwise split or expand", () => {
     render(
       <TestWrapper>

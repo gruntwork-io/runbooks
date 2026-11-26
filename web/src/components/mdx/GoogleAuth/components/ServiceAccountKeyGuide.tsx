@@ -2,7 +2,7 @@ import { GuideLink, GuideSteps, SetupGuide } from "./MethodGuide"
 
 const SERVICE_ACCOUNTS_PAGE = "https://console.cloud.google.com/iam-admin/serviceaccounts"
 
-export function ServiceAccountKeyGuide() {
+export function ServiceAccountKeyGuide({ hasOtherMethods }: { hasOtherMethods: boolean }) {
   return (
     <SetupGuide question="How do I get a key?">
       <GuideSteps>
@@ -10,8 +10,8 @@ export function ServiceAccountKeyGuide() {
         <CreateKeySteps />
       </GuideSteps>
       <p>
-        Organizations created on or after 3 May 2024 block new keys by default. If you are unable to
-        create a key, use another sign-in method.
+        Organizations created on or after 3 May 2024 block new keys by default.
+        {hasOtherMethods && " If you are unable to create a key, use another sign-in method."}
       </p>
     </SetupGuide>
   )

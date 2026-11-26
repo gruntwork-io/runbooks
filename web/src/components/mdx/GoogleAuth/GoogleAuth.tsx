@@ -25,6 +25,7 @@ import { useGoogleAuth } from "./hooks/useGoogleAuth"
 import { getStatusClasses, StatusIcon, getStatusIconClasses } from "./utils"
 import { GoogleCloudLogo } from "./components/GoogleCloudLogo"
 import { AuthTabs } from "./components/AuthTabs"
+import { planSignIn } from "./signInPlan"
 import { AuthSuccess } from "./components/AuthSuccess"
 import { ServiceAccountKeyForm } from "./components/ServiceAccountKeyForm"
 import { OAuthFlow } from "./components/OAuthFlow"
@@ -45,8 +46,9 @@ function GoogleAuthInteractive({
   defaultRegion,
   defaultZone,
   gcloudConfiguration,
-  detectCredentials = ["env", "adc"], // Default: env vars, then the well-known ADC file
+  detectCredentials,
   defaultTab,
+  methods,
   inputsId,
   autoCollapse,
 }: GoogleAuthProps) {
@@ -99,6 +101,11 @@ function GoogleAuthInteractive({
     blockRef,
   )
 
+  const plan = planSignIn({ methods, defaultTab, detectCredentials })
+  const hasOtherMethods = plan.methods.length > 1
+  const offersGcloud = plan.methods.includes("gcloud")
+  const offersOAuth = plan.methods.includes("oauth")
+
   // Validate detectCredentials configuration: only one { block: string } source allowed.
   // The confirm path finds its source with a `find`, which is only unambiguous
   // because of this constraint.
@@ -122,8 +129,8 @@ function GoogleAuthInteractive({
     ...(defaultRegion ? { defaultRegion } : {}),
     ...(defaultZone ? { defaultZone } : {}),
     ...(resolvedConfiguration ? { gcloudConfiguration: resolvedConfiguration } : {}),
-    detectCredentials,
-    defaultTab,
+    detectCredentials: plan.detectCredentials,
+    defaultTab: plan.openingMethod,
   })
 
   const expiresAt = auth.authStatus === "authenticated" ? auth.accountInfo?.expiresAt : undefined
@@ -161,6 +168,13 @@ function GoogleAuthInteractive({
         severity: "error",
         message: "Supply either oauthClientId/oauthClientSecret or oauthClientFile, not both.",
       })
+    } else if (plan.configurationError) {
+      reportError({
+        componentId: id,
+        componentType: "GoogleAuth",
+        severity: "error",
+        message: plan.configurationError,
+      })
     } else {
       clearError(id)
     }
@@ -169,6 +183,7 @@ function GoogleAuthInteractive({
     isDuplicate,
     hasMultipleBlockSources,
     hasOauthClientFileConflict,
+    plan.configurationError,
     reportError,
     clearError,
   ])
@@ -180,6 +195,7 @@ function GoogleAuthInteractive({
   const defer = useAgentDeferred()
   const signedIn = auth.authStatus === "authenticated"
   const signingIn = auth.authStatus === "authenticating"
+  const busyReason = signedIn || signingIn ? "Already signed in or signing in." : undefined
   const detectedPending = auth.detectionStatus === "detected" && auth.detectedCredentials !== null
   useAgentBlock(id, {
     type: "GoogleAuth",
@@ -195,7 +211,7 @@ function GoogleAuthInteractive({
     blockedBy: () => [
       ...(validationError ? [validationError.message] : []),
       ...(isDuplicate ? [`Duplicate block id "${id}"`] : []),
-      ...(hasMultipleBlockSources || hasOauthClientFileConflict
+      ...(hasMultipleBlockSources || hasOauthClientFileConflict || plan.configurationError
         ? ["The block's configuration is invalid"]
         : []),
       ...(auth.waitingForBlockId
@@ -260,18 +276,17 @@ function GoogleAuthInteractive({
           },
         },
         changes: true,
-        ...(signedIn || signingIn ? { unavailable: "Already signed in or signing in." } : {}),
+        ...unavailableWhen(busyReason ?? (offersGcloud ? undefined : METHOD_NOT_OFFERED)),
       },
       {
         name: "start_browser_sign_in",
         description:
           "Start the block's Google sign-in in the browser. The person at the window has to finish it (see needsHuman).",
         changes: true,
-        ...(signedIn || signingIn
-          ? { unavailable: "Already signed in or signing in." }
-          : auth.oauthUnavailable
-            ? { unavailable: "Browser sign-in isn't available for this block." }
-            : {}),
+        ...unavailableWhen(
+          busyReason ??
+            (auth.oauthUnavailable || !offersOAuth ? BROWSER_SIGN_IN_UNAVAILABLE : undefined),
+        ),
       },
       {
         name: "cancel_sign_in",
@@ -315,6 +330,7 @@ function GoogleAuthInteractive({
           auth.handleRetryDetection()
           return { ok: true }
         case "sign_in_with_gcloud": {
+          if (!offersGcloud) return { ok: false, reason: METHOD_NOT_OFFERED }
           const name = stringParam(params, "config")
           if (!name) return { ok: false, reason: "config is required" }
           auth.setAuthMethod("gcloud")
@@ -331,6 +347,7 @@ function GoogleAuthInteractive({
           }
         }
         case "start_browser_sign_in":
+          if (!offersOAuth) return { ok: false, reason: METHOD_NOT_OFFERED }
           auth.setAuthMethod("oauth")
           void auth.handleOAuthLogin()
           return { ok: true, note: "Waiting for the person at the window; see needsHuman." }
@@ -414,6 +431,10 @@ function GoogleAuthInteractive({
     )
   }
 
+  if (plan.configurationError) {
+    return <InvalidConfiguration id={id} message={plan.configurationError} />
+  }
+
   // An access token that has expired, or is about to, shows as a failed sign-in.
   const shownStatus = expiry === "expiring" || expiry === "expired" ? "failed" : auth.authStatus
   const statusClasses = getStatusClasses(shownStatus)
@@ -494,7 +515,7 @@ function GoogleAuthInteractive({
                 <InsufficientScopesPrompt
                   credentials={auth.detectedCredentials}
                   requiredScopes={scopes}
-                  oauthUnavailable={auth.oauthUnavailable}
+                  oauthUnavailable={auth.oauthUnavailable || !offersOAuth}
                   recovering={auth.authStatus === "authenticating"}
                   onSignIn={() => {
                     void auth.handleSignInWithRequiredScopes()
@@ -564,6 +585,7 @@ function GoogleAuthInteractive({
                 {/* Method tabs (hide during project selection) */}
                 {showTabs && (
                   <AuthTabs
+                    methods={plan.methods}
                     authMethod={auth.authMethod}
                     setAuthMethod={auth.setAuthMethod}
                     oauthUnavailable={auth.oauthUnavailable}
@@ -585,6 +607,7 @@ function GoogleAuthInteractive({
                     setProjectIdInput={auth.setProjectIdInput}
                     selectedRegion={auth.selectedRegion}
                     setSelectedRegion={auth.setSelectedRegion}
+                    hasOtherMethods={hasOtherMethods}
                     onSubmit={auth.handleServiceAccountSubmit}
                   />
                 )}
@@ -623,6 +646,7 @@ function GoogleAuthInteractive({
                     adcInfo={auth.adcInfo}
                     adcPrincipal={auth.adcPrincipal}
                     requiredScopes={scopes ?? []}
+                    hasOtherMethods={hasOtherMethods}
                     pinnedProject={resolvedProject}
                     defaultRegion={defaultRegion}
                     defaultZone={defaultZone}
@@ -652,6 +676,31 @@ function GoogleAuthInteractive({
         </div>
       </div>
     </AutoCollapse>
+  )
+}
+
+const METHOD_NOT_OFFERED = "This block does not offer that sign-in method."
+const BROWSER_SIGN_IN_UNAVAILABLE = "Browser sign-in isn't available for this block."
+
+function unavailableWhen(reason: string | undefined): { unavailable?: string } {
+  return reason ? { unavailable: reason } : {}
+}
+
+function InvalidConfiguration({ id, message }: { id: string; message: string }) {
+  return (
+    <div
+      {...issueAnchor(id)}
+      className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4"
+    >
+      <div className="flex items-center text-destructive">
+        <XCircle className="size-6 mr-4 flex-shrink-0" />
+        <div className="text-md">
+          <strong>Invalid Configuration:</strong>
+          <br />
+          {message}
+        </div>
+      </div>
+    </div>
   )
 }
 
