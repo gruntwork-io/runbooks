@@ -16,6 +16,8 @@ import {
   type TaskBlock,
   type TaskEvent,
   TaskFailed,
+  type TaskInput,
+  type TaskReads,
 } from "./contract.ts"
 import { FormSpec } from "./form.ts"
 import { BlockStatus } from "./status.ts"
@@ -163,15 +165,22 @@ describe("what the compiler rejects", () => {
       paths: () => ({ target: { root: "working", path: "repo" } }),
       repository: "target",
       run: () => Stream.empty,
-      instruction: (p, input) => [
-        { kind: "code", language: "bash", code: `git clone ${p.url} ${input.paths.target}` },
-      ],
+      instruction: (p) => [{ kind: "code", language: "bash", code: `git clone ${p.url} repo` }],
       plugins: [],
     })
     type Input = Parameters<typeof clone.run>[1]
     expectTypeOf<Input["paths"]>().toEqualTypeOf<{ readonly target: string }>()
     expectTypeOf<"elsewhere">().not.toExtend<keyof Input["paths"]>()
     expectTypeOf<"elsewhere">().not.toExtend<NonNullable<typeof clone.repository>>()
+  })
+
+  it("an instruction that reads what only a run's I/O makes", () => {
+    // Instruction mode builds its input before trust, with no I/O: no
+    // environment, no resolved paths, no repository, no credential.
+    type Reads = Parameters<TaskBlock<object, never, never, "target">["instruction"]>[1]
+    expectTypeOf<keyof Reads>().toEqualTypeOf<"values" | "outputs" | "files">()
+    expectTypeOf<Reads>().toEqualTypeOf<TaskReads>()
+    expectTypeOf<TaskInput<"target">>().toExtend<TaskReads>()
   })
 
   it("a task that does not provide run, and a display block that provides anything", () => {

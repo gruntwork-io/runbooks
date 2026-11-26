@@ -229,10 +229,28 @@ export interface RootedPath {
 /** The session's roots, as absolute paths. The repository's is `TaskInput.repository`. */
 export type Roots = { readonly [R in Exclude<Root, "repository">]: string }
 
-/** What the engine resolves before a task runs. `N` names the task's `paths`. */
-export interface TaskInput<N extends string = never> {
+/**
+ * The outputs a task's templates read (`{{ .outputs.<id>.<key> }}`), by
+ * block, then key, as the blocks last published them. Only the blocks the
+ * task names are here. Every value is redacted, a sensitive one or not.
+ */
+export type BlockOutputs = ReadonlyMap<BlockId, ReadonlyMap<string, Redacted.Redacted<string>>>
+
+/**
+ * What a task reads that the engine already holds, so it is built with no
+ * I/O: instruction mode builds it before trust, and a run gets it as part
+ * of its input.
+ */
+export interface TaskReads {
   /** The values the task reads: from its `inputsId` targets, then its own form. */
   readonly values: FormValues
+  readonly outputs: BlockOutputs
+  /** The files it names in `runbookFiles`, as the engine read and hashed them when the runbook opened. */
+  readonly files: RunbookTexts
+}
+
+/** What the engine resolves before a task runs. `N` names the task's `paths`. */
+export interface TaskInput<N extends string = never> extends TaskReads {
   readonly env: RunEnv
   /** Where the run starts: the repository the task names, or else the working folder. */
   readonly cwd: string
@@ -343,7 +361,7 @@ export interface TaskBlock<P, K extends string, R, N extends string = never> ext
   readonly repository?: N
   /** The one function that gets services. The engine calls it only in a trusted session. */
   readonly run: (p: P, input: TaskInput<N>) => Stream.Stream<TaskEvent<K>, TaskError, R>
-  readonly instruction: (p: P, input: TaskInput<N>) => Instruction
+  readonly instruction: (p: P, reads: TaskReads) => Instruction
   readonly plugins: ReadonlyArray<PluginUse>
   readonly step?: (p: P) => boolean
 }
