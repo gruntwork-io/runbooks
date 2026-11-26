@@ -178,6 +178,47 @@ describe("a value bash gets exactly as given, never as code", () => {
     expect(ranWithBash(template, value)).toBe(printed)
   })
 
+  it.each([
+    [
+      "`read -p`'s prompt",
+      'read -p "Region [{{ .inputs.v }}]: " r <<< x; printf \'<%s>\' "$r"',
+      "<x>",
+    ],
+    [
+      "what `printf -v` writes",
+      "printf -v out '%s' \"{{ .inputs.v }}\"; printf '<%s>' \"$out\"",
+      `<${HOSTILE}>`,
+    ],
+    [
+      "a command after `local -i`",
+      "f() {\n  local -i n\n  printf '<%s>' {{ .inputs.v }}\n}\nf",
+      `<${HOSTILE}>`,
+    ],
+    [
+      "a `declare` value without `-i`",
+      "declare n={{ .inputs.v }}; printf '<%s>' \"$n\"",
+      `<${HOSTILE}>`,
+    ],
+    ["an `export` value", "export X={{ .inputs.v }}; printf '<%s>' \"$X\"", `<${HOSTILE}>`],
+    ["an array element", "a=({{ .inputs.v }}); printf '<%s>' \"${a[0]}\"", `<${HOSTILE}>`],
+    [
+      "a redirection's target",
+      "printf '<%s>' {{ .inputs.v }} 2>&1 >&2 2>/dev/null",
+      `<${HOSTILE}>`,
+    ],
+    [
+      "`[[ == ]]` and `case`, which match it literally",
+      "[[ x == {{ .inputs.v }} ]] || printf a; case x in {{ .inputs.v }}) ;; *) printf b;; esac",
+      "ab",
+    ],
+  ])("as %s", (_, template, printed) => {
+    expect(ranWithBash(template, value)).toBe(printed)
+  })
+
+  it("as `printf`'s first operand after `--`, where a value that starts with `-` is no option", () => {
+    expect(ranWithBash("printf -- {{ .inputs.v }}", sources({ v: "-v x" }))).toBe("-v x")
+  })
+
   it("after a heredoc in a script with CRLF line ends, whose delimiter line ends with `\\r` too", () => {
     expect(ranWithBash("cat <<EOF\r\nx\r\nEOF\r\nprintf '<%s>' {{ .inputs.v }}\r\n", value)).toBe(
       `x\r\n<${HOSTILE}\r>`,
@@ -190,6 +231,75 @@ describe("a value bash gets exactly as given, never as code", () => {
 })
 
 describe("a value bash never evaluates, run with one that runs a command if it does", () => {
+  it.each([
+    ["`read`'s variable name", "a=(1); read {{ .inputs.v }} <<< x", "variable name"],
+    [
+      "`read`'s, after `command`",
+      "a=(1); command read -r -- {{ .inputs.v }} <<< x",
+      "variable name",
+    ],
+    ["`read -a`'s variable name", "a=(1); read -a {{ .inputs.v }} <<< x", "variable name"],
+    ["`printf -v`'s variable name", "a=(1); printf -v {{ .inputs.v }} '%s' x", "variable name"],
+    [
+      "`printf`'s first operand, which a value can make `-v`",
+      "a=(1); printf {{ .inputs.v }} x",
+      "option",
+    ],
+    ["an operand of `let`", "let n={{ .inputs.v }}", "arithmetic"],
+    ["a value from `$(...)` in an operand of `let`", "let n=$(echo {{ .inputs.v }})", "arithmetic"],
+    ["the value of `declare -i`", "declare -i n={{ .inputs.v }}", "arithmetic"],
+    [
+      "the value of `local -i`, after another",
+      "f() { local -i m=1 n={{ .inputs.v }}; }; f",
+      "arithmetic",
+    ],
+    [
+      "a variable a `declare -i` on an earlier line made an integer",
+      "declare -i n\nn={{ .inputs.v }}",
+      "arithmetic",
+    ],
+    [
+      "one a `declare -i` on a later line makes an integer",
+      "f() { n+={{ .inputs.v }}; }\ndeclare -i n\nf",
+      "arithmetic",
+    ],
+    [
+      "a variable a `declare -n` made a reference",
+      'a=(1); declare -n r\nr={{ .inputs.v }}; echo "$r"',
+      "variable name",
+    ],
+    [
+      "the value of `declare -n`",
+      'a=(1); declare -n r={{ .inputs.v }}; echo "$r"',
+      "variable name",
+    ],
+    ["the name `declare` declares", "declare {{ .inputs.v }}=1", "variable name"],
+    ["the name `local` declares", "f() { local {{ .inputs.v }}=1; }; f", "variable name"],
+    ["an operand of `unset`", "a=(1); unset {{ .inputs.v }}", "variable name"],
+    ["an array subscript", "a[{{ .inputs.v }}]=1", "arithmetic"],
+    ["an array subscript in `(...)`", "a=([{{ .inputs.v }}]=1)", "arithmetic"],
+    ["an element of an integer array", "declare -ai a\na=({{ .inputs.v }})", "arithmetic"],
+    ["`[[ -v ]]`", "a=(1); [[ -v {{ .inputs.v }} ]]", "variable name"],
+    ["`test -v`", "a=(1); test -v {{ .inputs.v }}", "variable name"],
+    ["`[ -v ]`", "a=(1); [ -v {{ .inputs.v }} ]", "variable name"],
+    ["the left of `-eq` in `[[ ]]`", "[[ {{ .inputs.v }} -eq 1 ]]", "arithmetic"],
+    ["the right of `-lt` in `[[ ]]`, in `(...)`", "[[ ( 1 -lt {{ .inputs.v }} ) ]]", "arithmetic"],
+    ["a `$(...)` beside `-ge` in `[[ ]]`", "[[ $(echo {{ .inputs.v }}) -ge 1 ]]", "arithmetic"],
+    ["the action of `trap`", "trap 'echo {{ .inputs.v }}' EXIT", "code"],
+    ["an operand of `eval`", 'eval "echo {{ .inputs.v }}"', "code"],
+    ["the callback of `mapfile -C`", "mapfile -C {{ .inputs.v }} -c 1 a <<< x", "code"],
+    ["the word list of `compgen -W`", 'compgen -W "{{ .inputs.v }}" x', "code"],
+    ["an alias", "shopt -s expand_aliases; alias x={{ .inputs.v }}\nx", "code"],
+    ["`PS4`, which bash expands as it traces", "PS4={{ .inputs.v }}; set -x; true", "code"],
+    [
+      "`BASH_ENV`, which a bash it starts expands",
+      "export BASH_ENV={{ .inputs.v }}\nbash -c true",
+      "code",
+    ],
+  ])("refuses %s", (_, template, evaluatesAs) => {
+    expect(withPayload(template)).toEqual({ refused: [expect.stringContaining(evaluatesAs)] })
+  })
+
   it.each([
     ["a subscript, in a double quote inside `${...}`", 'a=(x); echo "${a["{{ .inputs.v }}"]}"'],
     ["a subscript, in `$(...)` inside `${...}`", 'a=(x); echo "${a[$(echo {{ .inputs.v }})]}"'],
