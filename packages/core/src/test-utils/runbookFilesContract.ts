@@ -222,11 +222,11 @@ export function runbookFilesContract(name: string, subject: RunbookFilesSubject)
         expect(new Set(hashes).size).toBe(hashes.length)
       })
 
-      it("hashes a file apart from a folder whose framing is that file's bytes", async () => {
+      it("hashes a file apart from a folder whose whole hash input is that file's bytes", async () => {
         const folder = found(await load({ "templates/a": "bc" }))
-        // The folder's hash input after its tag: the path's length and the
-        // path, the executable bit, the bytes' length and the bytes.
-        const file = found(await load({ "scripts/framing": "1:a-2:bc" }, "scripts/framing"))
+        // The folder's whole hash input: its tag, then the path's length and
+        // the path, the executable bit, the bytes' length and the bytes.
+        const file = found(await load({ "scripts/framing": "folder\n1:a-2:bc" }, "scripts/framing"))
 
         expect(file.hash).not.toBe(folder.hash)
       })
