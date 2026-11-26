@@ -1645,6 +1645,133 @@ describe("Engine values", () => {
       }),
     )
   })
+
+  describe("a form's outputs", () => {
+    /** A `<Publisher>` with its fields as YAML children and `outputs` as written. */
+    const publisher = (id: string, outputs: string, fields: ReadonlyArray<string>) =>
+      withFields(`<Publisher id="${id}" outputs={${outputs}}>`, fields, "</Publisher>")
+
+    it("are the fields they name, so DirPicker's PATH is its path, and none while the path is empty", async () => {
+      const given: Array<string | undefined> = []
+      const ship = "ship {{ .outputs.pick.PATH }}"
+      const record: Script = (input) =>
+        Stream.fromEffectDrain(
+          Effect.sync(() => {
+            const path = input.outputs.get(blockId("pick"))?.get("PATH")
+            given.push(path === undefined ? undefined : Redacted.value(path))
+          }),
+        )
+      const runbook = [
+        publisher("pick", '{ PATH: "path" }', [
+          "- name: path",
+          "  type: string",
+          "  required: true",
+        ]),
+        `<Run id="ship" command="${ship}" />`,
+      ].join("\n\n")
+      await withEngine(
+        runbook,
+        { [ship]: record },
+        Effect.gen(function* () {
+          const rb = yield* commandsFor(yield* open)
+          yield* rb.trust
+          yield* rb.set("pick", { path: "dev/region-1" })
+          expect(yield* rb.run("pick")).toEqual({ _tag: "Submitted" })
+          expect(yield* rb.outputs).toEqual({ pick: { PATH: shown("dev/region-1") } })
+          yield* rb.run("ship")
+          yield* rb.wait("ship")
+          expect(given).toEqual(["dev/region-1"])
+
+          // A cleared path fails the required check: the form is not done, so it gives no output.
+          yield* rb.set("pick", { path: "" })
+          expect(yield* rb.status("pick")).toEqual({ _tag: "NeedsInput", fields: ["path"] })
+          expect(yield* rb.outputs).not.toHaveProperty("pick")
+        }),
+      )
+    })
+
+    it("are sensitive when their field is, so GetOutputs and every event hide them", async () => {
+      const secret = "fake-secret-form-output-7c1d"
+      await withEngine(
+        publisher("vault", '{ TOKEN: "token" }', [
+          "- name: token",
+          "  type: string",
+          "  sensitive: true",
+        ]),
+        {},
+        Effect.gen(function* () {
+          const rb = yield* commandsFor(yield* open)
+          const recording = yield* rb.record
+          yield* rb.trust
+          yield* rb.set("vault", { token: secret })
+          expect(yield* rb.run("vault")).toEqual({ _tag: "Submitted" })
+          expect(yield* rb.outputs).toEqual({ vault: { TOKEN: { _tag: "Hidden" } } })
+          yield* rb.close
+          const events = yield* Fiber.join(recording)
+          const published = events.flatMap(({ event }) =>
+            event._tag === "OutputsPublished" ? [event.outputs] : [],
+          )
+          expect(published).toEqual([{ TOKEN: { _tag: "Hidden" } }])
+          expect(JSON.stringify(events)).not.toContain(secret)
+        }),
+      )
+    })
+
+    it("of an empty optional field are the text a task's template reads for it", async () => {
+      await withEngine(
+        publisher("opt", '{ NOTE: "note", COUNT: "count", TAGS: "tags" }', [
+          "- name: note",
+          "  type: string",
+          "- name: count",
+          "  type: int",
+          "- name: tags",
+          "  type: list",
+        ]),
+        {},
+        Effect.gen(function* () {
+          const rb = yield* commandsFor(yield* open)
+          yield* rb.trust
+          expect(yield* rb.run("opt")).toEqual({ _tag: "Submitted" })
+          expect(yield* rb.outputs).toEqual({
+            opt: { NOTE: shown(""), COUNT: shown(""), TAGS: shown("[]") },
+          })
+        }),
+      )
+    })
+
+    it("of an Iframe-shaped form appear only once the page has set every one", async () => {
+      await withEngine(
+        '<Embed id="page" outputs={["region", "zone"]} />',
+        {},
+        Effect.gen(function* () {
+          const rb = yield* commandsFor(yield* open)
+          yield* rb.trust
+          // One required field per output, empty until the window sets it from what the page posts.
+          expect((yield* rb.fields("page"))?.map((f) => [f.name, f.required, f.value])).toEqual([
+            ["region", true, undefined],
+            ["zone", true, undefined],
+          ])
+          yield* rb.set("page", { region: "eu-west-1" })
+          expect(yield* rb.run("page")).toEqual({
+            _tag: "Refused",
+            reason: { _tag: "NeedsInput", fields: ["zone"] },
+          })
+          expect(yield* rb.outputs).toEqual({})
+
+          yield* rb.set("page", { zone: "eu-west-1a" })
+          expect(yield* rb.run("page")).toEqual({ _tag: "Submitted" })
+          expect(yield* rb.outputs).toEqual({
+            page: { region: shown("eu-west-1"), zone: shown("eu-west-1a") },
+          })
+
+          // A later post replaces what the page set before, and the block stays done.
+          yield* rb.set("page", { region: "us-east-1" })
+          expect(yield* rb.status("page")).toEqual({ _tag: "Done", outcome: "success" })
+          expect((yield* rb.outputs).page?.region).toEqual(shown("us-east-1"))
+        }),
+      )
+    })
+  })
 })
 
 describe("a run's resources", () => {
