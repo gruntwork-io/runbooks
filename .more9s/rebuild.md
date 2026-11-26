@@ -242,7 +242,7 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 
 | WP | Item | PR | State |
 |---|---|---|---|
-| 0.1 | Rulings on the 18 open decisions | none | not done: the human's to make. Each PR built on a recommendation names it under Decisions. |
+| 0.1 | Rulings on the 18 open decisions | none | 17 ruled (2026-11-26: 9 as written in its row, the rest as recommended); 15 open (Windows supported, or instruction mode only) |
 | 0.2 | `blocks/core/contract.ts` | #496 | merged |
 | 0.3 | Engine protocol | #502 | merged |
 | 0.4 | Document type | #497 | merged |
@@ -290,12 +290,16 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 | A.5 | `resources/plugins.lock`, the fetch recipe and the bump recipe | #656, #657; #662 (every pin checked against the release) | #656, #657 ready; #662 draft |
 | A.6 | The hash check before a binary starts | #572; #658 for the packaged bytes | #572 merged; #658 ready |
 
-## Open decisions built on
+## The 18 decisions
+
+On 2026-11-26 the human ruled every one but 15 as the plan recommends ("let's roll with these recommendations"), after reviewing this table. 9 was ruled earlier, as written below. 15's recommendation is itself to decide whether Windows is supported or instruction mode only, so 15 is still open: the stack leaves Windows as it is until then. 4 (the API audit's renames left out of the rebuild) and 14 (fix today's four behaviour bugs on `main` as four small PRs) need no row of their own above; 14's PRs are queued after row 3h.
 
 Each row names the PR whose description carries the Decisions entry.
 
-| # | Built on (the plan's recommendation) | First PR |
+| # | Ruled (the plan's recommendation, unless the row says otherwise) | First PR |
 |---|---|---|
+| 4 | The API audit's renames (one set of `detectCredentials` rules, one output casing, one name for scopes) are left out of the rebuild release | none |
+| 14 | Today's four behaviour bugs are fixed on `main` now, as four small PRs: pull request events shared across blocks (I5), OAuth expiry detected by substring (B2), the test CLI dropping all but one auth reference (A1), opposite `gitAuthId` precedence in two blocks (A2) | queued after row 3h |
 | 1 | A headless engine in the core | #496 |
 | 2 | Four classes plus five capabilities | #496 |
 | 8 | Command and Check outputs declared through an `outputs` prop | #496 |
@@ -309,9 +313,9 @@ Each row names the PR whose description carries the Decisions entry.
 | 5 | `*AuthId` aliases kept with a warning, no removal date; fixtures keep them | #510 |
 | 17 | Finish needs a clean success; gh and az still read their own config | #510 |
 | 9 | Ruled by the human (2026-11-26): env only, and then no `{{ }}` checks in scripts ("we only have a few runbooks in public and we manage them. We can retire the old logic entirely and rely on env vars"). A script runs as written: Runbooks neither fills in nor checks a `{{ }}` in it, and a script makes no edges. A value reaches a script only through `env`, whose values are templates | #588 built the old recommendation; #598 closed; #621 to #623 build the ruling |
-| 15 | Windows left as it is: environment names compare case-sensitively | #539 |
+| 15 | **Open.** The plan recommends deciding whether Windows is supported or instruction mode only. Until then it is left as it is: environment names compare case-sensitively | #539 |
 | 6 | Saved sessions keep form values and credentials, drop run history from older versions | #544 |
-| 16 | One repo, one version for all binaries, hashes checked against the release's `SHA256SUMS` | row 98 (unopened) |
+| 16 | One repo, one version for all binaries, hashes checked against the release's `SHA256SUMS` | #656 |
 
 Choices of my own that need a ruling (not among the 18):
 
