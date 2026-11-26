@@ -41,7 +41,7 @@ import {
   RUNBOOK_FILE_LIMITS,
   type RunbookFileLimit,
 } from "./files.ts"
-import { blockName, referenceGraph, type WrittenReference } from "./graph.ts"
+import { blockName, provides, referenceGraph, type WrittenReference } from "./graph.ts"
 import { refusals } from "./literalOnly.ts"
 import {
   attributeValue,
@@ -603,7 +603,12 @@ class Parse {
     const yamlRead =
       childrenProp === undefined || this.yamlChildren(node, childrenProp, input, where, index)
 
-    const decodedShared = this.decodeShared(index, shared, aliases, written, span, where)
+    const decodedShared = this.withNestedForm(
+      index,
+      block,
+      children,
+      this.decodeShared(index, shared, aliases, written, span, where),
+    )
     const props = Schema.decodeUnknownResult(block.props)(input)
     if (Result.isFailure(props)) {
       // YAML that did not parse is already reported; its prop's absence is not news.
@@ -838,6 +843,48 @@ class Parse {
         })
       }
     }
+  }
+
+  /**
+   * A task reads the first form in its own markdown children, as today's
+   * Command and Check do, after the forms its `inputsId` names: its values
+   * win. A form inside another block nested in the task is that block's.
+   */
+  private withNestedForm(
+    index: number,
+    block: AnyBlock,
+    children: ReadonlyArray<TreeNode>,
+    shared: SharedProps,
+  ): SharedProps {
+    if (block.class !== "task") return shared
+    const form = this.firstForm(children)
+    if (form?.id === undefined) return shared
+    const named = shared.inputsId ?? []
+    if (!named.includes(form.id))
+      this.references.push({
+        from: index,
+        prop: "inputsId",
+        target: form.id,
+        targetAsWritten: form.idAsWritten ?? form.id,
+        source: { _tag: "Prop", prop: "inputsId", capability: "values" },
+        span: form.span,
+      })
+    return { ...shared, inputsId: [...named.filter((id) => id !== form.id), form.id] }
+  }
+
+  /** The first block in `nodes` that gives values, not looking inside other blocks. */
+  private firstForm(nodes: ReadonlyArray<TreeNode>): BlockNode | undefined {
+    for (const node of nodes) {
+      if (node.type !== "block") {
+        const found = this.firstForm(node.children ?? [])
+        if (found !== undefined) return found
+        continue
+      }
+      const nested = typeof node["index"] === "number" ? this.blocks[node["index"]] : undefined
+      const resolved = nested === undefined ? undefined : resolveTag(this.registry, nested.tag)
+      if (resolved !== undefined && provides(resolved.block, "values")) return nested
+    }
+    return undefined
   }
 
   private decodeShared(

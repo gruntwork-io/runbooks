@@ -48,14 +48,15 @@ const RunProps = Schema.Struct({
 /**
  * Task with the process effect: takes `dependsOn`, `envFrom` and `env`, and
  * gives environment to blocks that name it in `envFrom`. Outputs what
- * `outputs` lists.
+ * `outputs` lists. Takes markdown children, as Command does, so a form can
+ * nest in it.
  */
 const run = defineTask({
   name: "Run",
   since: "0.1.0",
   class: "task",
   props: RunProps,
-  children: { kind: "none" },
+  children: { kind: "markdown" },
   references: {},
   runbookFiles: (p) => (p.path === undefined ? [] : [toPath(p.path)]),
   provides: ["run", "env"],

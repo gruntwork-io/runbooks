@@ -188,7 +188,8 @@ function fits(
   return false
 }
 
-function provides(block: AnyBlock, capability: Capability): boolean {
+/** Whether `block` gives `capability` to blocks that name it. */
+export function provides(block: AnyBlock, capability: Capability): boolean {
   return block.provides.some((provided: Capability) => provided === capability)
 }
 
