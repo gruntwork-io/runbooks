@@ -9,6 +9,7 @@ The running index of the rebuild stack. Update it whenever the stack changes.
 - A PR is marked ready for review once it is green, or red only for a known cause with its fix in progress (the human, 2026-11-25). Only the human merges.
 - On 2026-11-25 the human merged #496 to #560 into `rebuild/main`, one commit per PR. The trunk's tree equals the old stack top's (3cd837b5), so open PRs rebase onto it with `git rebase --onto origin/rebuild/main <old base tip>`.
 - Later on 2026-11-25 the human merged #565 to #581 the same way: `rebuild/main` 17064004, whose tree equals #581's head (70ff25fe) outside this file. GitHub rebased #582 onto it (7896e7ba). An index commit on `rebuild/main` leaves #582 one commit behind; its diff is unaffected, and its branch was last pushed by GitHub, so it is not force-pushed from here.
+- On 2026-11-26 (UTC) the human merged #582 and #585 to #594 the same way: `rebuild/main` d845152e. GitHub rebased #595 onto it (f8229880), so it is not force-pushed from here; this index commit leaves it one commit behind. A rework of a merged PR comes as a new PR on top of the stack (#596 for #594, #597 for #589), never as a push to the merged branch.
 - **Keep it stacked.** The PRs are GitHub stack #519, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/519`). `.more9s/stack.sh` keeps it that way:
   - `add <branch> <title> <body-file>` opens each new PR as a draft on the top of the stack, links it into #519, and waits until GitHub lists it on top (two adds in a row once based the second on the PR below the first). Mark it ready with `gh pr ready` once green. Don't open a rebuild PR with `gh pr create` alone.
   - `restack` (`--dry-run` first, in a linked worktree) is needed after any commit to `rebuild/main`, such as an index update, or to a lower branch. It rebases each branch onto the one below and force-pushes it with a lease. CI then reruns on every PR above the change, so batch index updates.
@@ -121,17 +122,32 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 70 | #579 | 2 | `rebuild/p2-credential-fake` | p2-credential-client | merged | 2.13 (the fake) |
 | 71 | #580 | 2 | `rebuild/p2-credential-suite` | p2-credential-fake | merged | 2.13 (the contract suite) |
 | 72 | #581 | 2 | `rebuild/p2-credential-names` | p2-credential-suite | merged | 2.13 follow-up (`envConflict`; provider names within the block's) |
-| 73 | #582 | 2 | `rebuild/p2-plugin-eof` | `rebuild/main` | green | contract change: `base.schema.json`, a call in flight at end of input gets no answer |
-| 74 | none | 2 | Command's definition and driver | p2-plugin-eof | planned (in progress) | Command in the registry; phase 2's Done when |
-| 75 | none | A | `rebuild/pA-plugins-lock` | Command | planned (built) | A.5 (`resources/plugins.lock`, its loader) |
-| 76 | none | A | `rebuild/pA-plugins-recipes` | pA-plugins-lock | planned (built) | A.5 (fetch, check and bump recipes) |
-| 77 | none | A | `rebuild/pA-plugins-packaging` | pA-plugins-recipes | planned (built) | A.6 (CI and release check the bundled binaries; `mac.signIgnore`) |
+| 73 | #582 | 2 | `rebuild/p2-plugin-eof` | `rebuild/main` | merged | contract change: `base.schema.json`, a call in flight at end of input may get no answer |
+| 74 | #585 | 2 | `rebuild/p2-main-sync` | p2-plugin-eof | merged | merge `main` at d7136710; baseline refresh (38 fixtures, 22 tags) |
+| 75 | #586 | 2 | `rebuild/p2-main-port` | p2-main-sync | merged | port main's git and GitLab service changes into `packages/` |
+| 76 | #587 | 2 | `rebuild/p2-task-reads` | p2-main-port | merged | contract change: `TaskReads`, a task reads its files and the outputs its templates name |
+| 77 | #588 | 2 | `rebuild/p2-script-values` | p2-task-reads | merged; review asked for changes (row 87) | decision 9: `{{ }}` values inserted as quoted variable expansions |
+| 78 | #589 | 2 | `rebuild/p2-command` | p2-script-values | merged; review asked for changes (#597) | Command in the registry; phase 2's Done when |
+| 79 | #590 | 2 | `rebuild/p2-fix-id-words` | p2-command | merged | contract change: a block id is letters, digits, `-` and `_` |
+| 80 | #591 | 2 | `rebuild/p2-fix-state-dir` | p2-fix-id-words | merged | two ids that differ only in case get two state folders |
+| 81 | #592 | 2 | `rebuild/p2-fix-shared-refs` | p2-fix-state-dir | merged | contract change: `inputsId`, `dependsOn`, `envFrom` take one id or a list |
+| 82 | #593 | 2 | `rebuild/p2-fix-yaml-aliases` | p2-fix-shared-refs | merged | YAML whose alias holds itself is an error at the alias |
+| 83 | #594 | 2 | `rebuild/p2-fix-spawner-bounds` | p2-fix-yaml-aliases | merged; review asked for changes (#596) | the spawner's memory is bounded; a signal exits 128+n |
+| 84 | #595 | 2 | `rebuild/p2-fix-trust-hash` | `rebuild/main` | green | a folder's trust hash covers each byte and executable bit; size and count limits on named files |
+| 85 | #596 | 2 | `rebuild/p2-fix-whole-lines` | p2-fix-trust-hash | open | #594's rework: a long line's pieces are marked and joined for parsers; the spawner pauses only while read |
+| 86 | #597 | 2 | `rebuild/p2-command-rework` | p2-fix-whole-lines | open | #589's rework: an exit test that can fail, recorded calls, no Node in `block.ts` |
+| 87 | none | 2 | #588's rework | p2-command-rework | planned (in progress) | `{{ }}` lexer bypasses, evaluating positions, NUL and size limits, every problem reported |
+| 88 | none | 2 | Command: nested `<Inputs>`, `docs.mdx` | row 87 | planned | #589 findings 3 and 5 |
+| 89 | none | 2 | the rest of the `rebuild/main` review's fixes | row 88 | planned | see Follow-ups owed |
+| 90 | none | A | `rebuild/pA-plugins-lock` | row 89 | planned (built) | A.5 (`resources/plugins.lock`, its loader) |
+| 91 | none | A | `rebuild/pA-plugins-recipes` | pA-plugins-lock | planned (built) | A.5 (fetch, check and bump recipes) |
+| 92 | none | A | `rebuild/pA-plugins-packaging` | pA-plugins-recipes | planned (built) | A.6 (CI and release check the bundled binaries; `mac.signIgnore`) |
 
 On 2026-11-24 the human found the PRs were not properly stacked:
 - #496 lacked four index commits on `rebuild/main`. Every branch was rebased; trees were unchanged apart from this file.
 - The PRs were not linked as a GitHub stack. They now are, with `gh stack link --base rebuild/main 496 … 518` (gh-stack v0.2.0), which created stack #519.
 
-Phase 1 ended with #526 on 2026-11-24. Phase 2's work products ended with #581 (merged 2026-11-25); #582 is a contract addendum. Command's definition is its own PR, the last of phase 2, and carries phase 2's Done when: the registry is empty until it lands, and the Done when needs a Command fixture in the test CLI. Track A's two lock PRs and its packaging PR follow it, before phase 3, because phase 3's entry points read the lock to start real binaries.
+Phase 1 ended with #526 on 2026-11-24. Phase 2's work products ended with #581 (merged 2026-11-25); #582 is a contract addendum. Command landing in phase 2 is my choice: the Done when needs a Command fixture in the test CLI, and the registry is empty until it lands. #589 carries phase 2's Done when, and #597 replaces its exit test with one that can fail. runbooks-reviewer's review of `rebuild/main` at 17064004 asked for changes, so the phase 2 fix PRs (from #590) come before track A. Track A's two lock PRs and its packaging PR then open before phase 3, because phase 3's entry points read the lock to start real binaries; they also wait for a plugins release that speaks protocol "2".
 
 ## Track A: gruntwork-io/runbooks-plugins
 
@@ -142,6 +158,7 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 - v0.1.0 was published on 2026-11-25 (tag v0.1.0, a423b78): 12 binaries for darwin arm64 and amd64, linux amd64 and windows amd64, plus `SHA256SUMS`; assets are `<bin>_<ver>_<os>_<arch>[.exe]`. No linux arm64 (the human's call; the lock leaves it out, so the owner answers `notInstalled`). A.5 and A.6 are built on `rebuild/pA-plugins-*` (rows 75 to 77).
 - Contract changes since the handover, sent to that session with their hashes: #574 (`callTimeoutsMillis`), #575 (`envValue.file`), #582 (no answer at end of input). v0.1.0 ignores `callTimeoutsMillis` but fails `env` without `file`, so the lock moves to the next release before any block uses a real binary.
 - A.6 (the hash check): the owner checks the pinned hash before every start (#572). electron-builder would re-sign bundled Mach-O binaries and change their bytes, so `mac.signIgnore` leaves the plugin binaries as their release signed them; proven on a local ad hoc package (byte-equal, Developer ID kept), unproven with real signing and notarization until a release run.
+- Since 2026-11-26 that session copies the schemas from `rebuild/main` (at d845152e: `base.schema.json` ce6348b7, `credential.schema.json` 846beb2a). Its open PRs: #36 (Azure `error_line` past a wrapper's first line, for #520) and #37 to #39 (resume from saved values, Google TLS errors).
 - Crates approved by the human: serde, serde_json, thiserror, tokio, reqwest (rustls), time, typify, jsonschema and tempfile (dev), aws-config, aws-sdk-sts/sso/ssooidc/iam/account, aws-runtime, aws-types, aws-smithy-http-client, rustls, base64, subtle, libc, windows-sys. Any other direct crate is ask-first; transitive ones are vetted in the PR body.
 
 ## Work products
@@ -185,8 +202,8 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 | A.2 | The AWS binary | runbooks-plugins | released v0.1.0 |
 | A.3 | The Google binary | runbooks-plugins | released v0.1.0 |
 | A.4 | The Azure binary, wrapping `az` | runbooks-plugins | released v0.1.0 |
-| A.5 | `resources/plugins.lock`, the fetch recipe and the bump recipe | rows 75, 76 | built, opens after Command |
-| A.6 | The hash check before a binary starts | #572; row 77 for the packaged bytes | merged; row 77 built |
+| A.5 | `resources/plugins.lock`, the fetch recipe and the bump recipe | rows 90, 91 | built, opens after the phase 2 fixes |
+| A.6 | The hash check before a binary starts | #572; row 92 for the packaged bytes | merged; row 92 built |
 
 ## Open decisions built on
 
@@ -206,10 +223,10 @@ Each row names the PR whose description carries the Decisions entry.
 | 3 | Baseline is today's behaviour with the nine ruled changes applied | #509 |
 | 5 | `*AuthId` aliases kept with a warning, no removal date; fixtures keep them | #510 |
 | 17 | Finish needs a clean success; gh and az still read their own config | #510 |
-| 9 | `{{ }}` kept in scripts; `env` prop values are used as written, not rendered | #539 |
+| 9 | `{{ }}` kept in scripts, inserted as quoted variable expansions | #588 |
 | 15 | Windows left as it is: environment names compare case-sensitively | #539 |
 | 6 | Saved sessions keep form values and credentials, drop run history from older versions | #544 |
-| 16 | One repo, one version for all binaries, hashes checked against the release's `SHA256SUMS` | row 75 (unopened) |
+| 16 | One repo, one version for all binaries, hashes checked against the release's `SHA256SUMS` | row 90 (unopened) |
 
 Choices of my own that need a ruling (not among the 18):
 
@@ -250,8 +267,8 @@ Choices of my own that need a ruling (not among the 18):
 | A plugin started again must describe the same levels, names and requirements | #578 |
 | A provider name outside its block's `envNames` and outputs makes the block unavailable; `envConflict` warns once per pair of blocks | #581 |
 | A call in flight when standard input closes gets no answer (with runbooks-plugins) | #582 |
-| Track A's lock PRs open before phase 3, which reads the lock | row 75 |
-| The lock is `{ plugins: PluginEntry[] }`; fetch is all or nothing and removes unpinned plugin binaries; bump takes the plugins from `SHA256SUMS`, cross-checked both ways with the API's digests | rows 75, 76 |
+| Track A's lock PRs open before phase 3, which reads the lock | row 90 |
+| The lock is `{ plugins: PluginEntry[] }`; fetch is all or nothing and removes unpinned plugin binaries; bump takes the plugins from `SHA256SUMS`, cross-checked both ways with the API's digests | rows 90, 91 |
 | Plugin settings: AWS `defaultRegion`; Google `defaultRegion`, `defaultZone`; Azure none. No settings declaration in the contract (with runbooks-plugins: a refusal names the valid ones) | phase 3 |
 | After a restart an AWS SSO or role login comes back as plain keys that cannot refresh: carrying the SSO token needs a secret at rest in `stateDir` (not built) | runbooks-plugins resume follow-up |
 | runbooks-plugins keeps rust-base's `unsafe_code = "forbid"`: Azure's process tree uses std plus `/bin/kill` and `taskkill.exe`, not the approved libc/windows-sys FFI; Windows ACLs on `stateDir` wait on the same ruling | runbooks-plugins #24 |
@@ -263,13 +280,23 @@ Choices of my own that need a ruling (not among the 18):
 | Parsing takes two steps so the loader reads only the files blocks name; a missing or outside file is `badFile` at its prop; a folder hashes as `hashTemplateDir` | #523 |
 | The block-name lint counts the baseline's 21 blocks before they land, counts code (a string equal to a tag or holding `<Tag`, a key, element or export) and not comments or imported names, and covers the packages only | #526 |
 | A `views.ts` entry is one line naming its folder | #526 |
+| Command lands in phase 2, so its PR carries phase 2's Done when | #589 |
+| The baseline keeps `ShowWhen` as a display stand-in | #585 |
+| A child killed by a signal exits 128 plus the signal's number; past 8M unread characters the child's pipes pause | #594, #596 |
+| A line over 64K characters comes in marked pieces; parsers read whole lines through `wholeLines`; a caller that never reads keeps every line | #596 |
+| A file a block names is capped at 1 MiB, a folder at 8 MiB, 2000 entries and 16 levels; file and folder hashes are tagged apart | #595 |
+| `block.ts` may import no Node built-in, pure ones included | #597 |
+| Command keeps no per-run log file; a declared output never written fails its consumer; an inline command's template error says "The command, line N" | #597 |
+| The Azure plugin fails `detect` when `az account list --refresh` fails (today warns and goes on) | runbooks-plugins, for #520 |
 
 ## Waiting on the human
 
 | What | Options | Where it shows |
 |---|---|---|
 | GitClone declares `push` for an empty remote, and a block that declares `push` may only `expect: skip`, but file-workspace, git-clone and inputs-and-outputs expect GitClone to succeed | GitClone declares its push apart from its clone (recommended), or the three steps skip (a tenth behaviour change) | `baseline/testFiles.test.ts` pins the three (#569) |
-| `main` gained 8 PRs since ac543199 (#520, #553, #554, #561 to #564, #567) | merge `main` into `rebuild/main` and refresh the baseline before phase 4 (recommended) | the baseline list |
+| `ShowWhen` is kept in the baseline as a display stand-in (#585) | keep it, or drop it from the baseline | the baseline list |
+| The Azure plugin fails `detect` when its refresh fails (#520); today warns and goes on | keep failing (built), or warn and go on | runbooks-plugins |
+| The master plan's line 218 shows `instruction(TaskInput)`; #587 made it `TaskReads` | update the plan | the master plan |
 | A linux arm64 plugin binary | build it (runbooks-plugins has a branch) or leave Linux on ARM `notInstalled` | `resources/plugins.lock` |
 | A no-proxy list | a setting plus a contract change, or none | the credential contract |
 
@@ -289,11 +316,10 @@ Choices of my own that need a ruling (not among the 18):
 | GitGuardian incidents 27121678, 33923057, 33923058 re-raised by the copy | the human, in the GitGuardian dashboard |
 | Decision 8 (declared outputs): 21 template reads in 9 testdata runbooks use a Command output no `outputs` prop declares, so they fail to load. They need `outputs` patches. | phase 3, with Command (Check in phase 4) |
 | The MDXContainer security tests' rendering half (the page shows literal props) | phase 3, with the tree walker |
-| `rebuild/main` is cut from main at ac543199; main has moved since | the human: merge main in only if the old tree's fixes must reach the rebuild |
+| `rebuild/main` holds `main` to d7136710 (#585, #586); a later sync repeats the merge and the port command in #586's Evidence | before phase 6 |
 | A block's errors show in place of its view (#522) | phase 3, the renderer |
 | `showWhenBlock`'s target check becomes a `run`-capability reference on Command, Check and Finish (#525 removed the old type list) | phases 3 and 4 |
 | `<Iframe>` passes the literal-only check: a test in the Iframe block's folder (#525 moved the core's case to `<Script>`) | phase 4, Iframe |
-| No size limit on a file a block names; it is read whole to hash it (#523) | before phase 6 |
 | The block-name lint reads `baseline/props.json`; when the baseline retires, the registry alone names the blocks (#526) | phase 6 |
 | `TaskInput.values` hands sensitive form values in clear: make them `Redacted` entries or a secrets map | phase 3, before the phase 4 fan-out |
 | `BlockView` and `SessionView` carry node errors (parse and engine-found); `FieldView` needs `section` and `optionLabels` | phase 3 |
@@ -320,3 +346,8 @@ Choices of my own that need a ruling (not among the 18):
 | Bump `resources/plugins.lock` to the plugins release that sends `envValue.file` | track A, when released |
 | Real Developer ID signing and notarization with `mac.signIgnore` | the first release run |
 | A large org's target list can pass the 1 MiB line cap (the plugins answer `internal`): page `targets` | a later contract change |
+| The `rebuild/main` review at 17064004, groups still to fix: status memo, credential restart re-detect, secret scan, test CLI false greens and CLI contract, parse smalls and `literalOnly`, interrupts and concurrency, lint gaps, settings and sessions database, owner TOCTOU and stdout close, protocol "2" and a schema CI check, `env` prop `{{ }}` rendering | row 89, one subagent at a time |
+| Inferred from that review, not reproduced: a second Ctrl-C or SIGTERM and process groups; run files 0644 in tmpdir; `valueLength` 128K over `MAX_ARG_STRLEN`; `agentAccess`/`confirmAgentRuns` not read (gate before MCP) | reproduce first |
+| The e2e spec list must equal the specs on disk (runbooks-reviewer, #585) | phase 2 fix PR |
+| `boilerplate.yml` readers (`config.ts:388`, `warmEligibility.ts:95`) move to `yamlData` | phase 4, Template |
+| `openFileTail.finish()` reads what is left of a log file in one go when the child ends (#594) | before phase 6 |
