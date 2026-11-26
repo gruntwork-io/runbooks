@@ -7,6 +7,7 @@ import { parseRunbook } from "@runbooks/core/document/parse"
 import { serveEngine } from "@runbooks/core/handlers"
 import { type EngineClient, makeInProcessClient } from "@runbooks/core/inProcess"
 import type { SessionId } from "@runbooks/core/protocol"
+import { SpawnError } from "@runbooks/core/errors"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
 import {
   type OutputLine,
@@ -56,6 +57,8 @@ interface Does {
   readonly prints?: ReadonlyArray<OutputLine>
   /** Unset, it exits 0; "never", it runs until it is stopped. */
   readonly exit?: number | "never"
+  /** Set, the spawn fails with it, as Node's does. */
+  readonly spawnFails?: Error
 }
 
 const fakeBash = (files: ReturnType<typeof testFileSystem>, does: (spawn: Spawn) => Does) => {
@@ -77,6 +80,8 @@ const fakeBash = (files: ReturnType<typeof testFileSystem>, does: (spawn: Spawn)
         }
         spawns.push(spawn)
         const plan = does(spawn)
+        if (plan.spawnFails !== undefined)
+          return yield* new SpawnError({ command: program, cause: plan.spawnFails })
         const write = (name: string, lines: ReadonlyArray<string> | undefined) =>
           lines === undefined
             ? Effect.void
@@ -488,6 +493,27 @@ describe("a command that cannot run", () => {
     )
     expect(refusals).toEqual(Array(4).fill({ _tag: "Refused", reason: { _tag: "Misconfigured" } }))
     expect(spawns).toBe(0)
+  })
+
+  it("fails a run whose script could not start by the error's code, never quoting the environment", async () => {
+    const status = await withSession('<Command id="c" command="echo hi" />', (s) => s.run("c"), {
+      does: () => ({
+        spawnFails: Object.assign(
+          new Error(
+            "The argument 'options.env['RUNBOOK_VALUE_0']' must be a string without null bytes. Received 'hunter2\\x00'",
+          ),
+          { code: "ERR_INVALID_ARG_VALUE" },
+        ),
+      }),
+    })
+    expect(status).toMatchObject({
+      _tag: "Failed",
+      error: {
+        _tag: "TaskFailed",
+        message: "Runbooks could not start bash: ERR_INVALID_ARG_VALUE.",
+      },
+    })
+    expect(JSON.stringify(status)).not.toContain("hunter2")
   })
 
   it("is refused before the session is trusted, having read nothing but the runbook", async () => {

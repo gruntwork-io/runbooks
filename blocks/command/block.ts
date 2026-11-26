@@ -90,11 +90,19 @@ const toEvent = ({ line, source }: OutputLine): TaskEvent<string> => ({
   line,
 })
 
-/** A failure in Runbooks' own work before the script starts, said as what could not be done. */
+/**
+ * A failure in Runbooks' own work before the script starts, said as what
+ * could not be done and the error's code (ENOENT, E2BIG), never its message:
+ * a spawn error's message can quote the environment, which holds the
+ * script's values.
+ */
 const couldNot = (what: string) => (error: { readonly _tag: string; readonly cause?: unknown }) =>
-  new TaskFailed({
-    message: `Runbooks could not ${what}: ${error.cause instanceof Error ? error.cause.message : error._tag}.`,
-  })
+  new TaskFailed({ message: `Runbooks could not ${what}: ${codeOf(error.cause) ?? error._tag}.` })
+
+const codeOf = (cause: unknown): string | undefined =>
+  typeof cause === "object" && cause !== null && "code" in cause && typeof cause.code === "string"
+    ? cause.code
+    : undefined
 
 export const command = defineTask({
   name: "Command",
