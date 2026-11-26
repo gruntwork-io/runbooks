@@ -30,6 +30,7 @@
  * in a script that does not run with bash.
  */
 import { Redacted, Result, Schema } from "effect"
+import type { NonEmptyReadonlyArray } from "effect/Array"
 import { BlockId, type BlockOutputs, type RunEnv } from "@runbooks/blocks-core/contract"
 import { type FieldValue, type FormValues, templateText } from "@runbooks/blocks-core/form"
 
@@ -40,9 +41,11 @@ export interface ScriptWithValues {
   readonly env: RunEnv
 }
 
-/** Why a script's `{{ }}` cannot be inserted, at its line in the script. */
+/** Why a script's `{{ }}` cannot be inserted, where it stands in the script. */
 export interface ScriptTemplateProblem {
   readonly line: number
+  /** From 1, in UTF-16 code units, as a JavaScript string counts them. */
+  readonly column: number
   readonly message: string
 }
 
@@ -54,46 +57,60 @@ export interface ValueSources {
 
 /**
  * `template` with each reference to a value replaced, for a script run with
- * `interpreter`. Every problem is refused: none is left in the script.
+ * `interpreter`, or every problem in it, in order. Each problem is refused:
+ * none is left in the script.
  */
 export function insertValues(
   template: string,
   sources: ValueSources,
   interpreter: string,
-): Result.Result<ScriptWithValues, ScriptTemplateProblem> {
-  if (template.includes(MARK))
-    return Result.fail({
-      line: lineOf(template, template.indexOf(MARK)),
-      message: "The script holds a NUL character, which bash cannot run.",
-    })
-  const split = splitTemplate(template)
-  if (Result.isFailure(split)) return Result.fail(split.failure)
-  const { text, references } = split.success
-  if (references.length === 0) return Result.succeed({ script: text, env: {} })
-  if (interpreter !== "bash")
-    return Result.fail({
-      line: references[0]!.line,
-      message: `\`${references[0]!.written}\` names a value, and Runbooks inserts values only into a script that runs with bash or sh. This one runs with ${interpreter}.`,
-    })
+): Result.Result<ScriptWithValues, NonEmptyReadonlyArray<ScriptTemplateProblem>> {
+  const found: Found[] = []
+  for (let at = template.indexOf(MARK); at >= 0; at = template.indexOf(MARK, at + 1))
+    found.push({ at, message: "The script holds a NUL character, which bash cannot run." })
+  // A NUL marks a reference in the text, so one written in the template is read as a space.
+  const { text, references } = splitTemplate(template.replaceAll(MARK, " "), found)
 
   const names = new Map<string, string>()
   const env: Record<string, Redacted.Redacted<string>> = {}
   const variables: string[] = []
-  for (const reference of references) {
-    const value = valueOf(reference, sources)
-    if (Result.isFailure(value)) return Result.fail(value.failure)
-    const known = names.get(reference.key)
-    const name = known ?? `RUNBOOK_VALUE_${names.size + 1}`
-    if (known === undefined) {
-      names.set(reference.key, name)
-      env[name] = value.success
+  if (interpreter !== "bash")
+    for (const { at, written } of references)
+      found.push({
+        at,
+        message: `\`${written}\` names a value, and Runbooks inserts values only into a script that runs with bash or sh. This one runs with ${interpreter}.`,
+      })
+  else {
+    for (const reference of references) {
+      const value = valueOf(reference, sources)
+      if (Result.isFailure(value)) found.push(value.failure)
+      const known = names.get(reference.key)
+      const name = known ?? `RUNBOOK_VALUE_${names.size + 1}`
+      if (known === undefined) {
+        names.set(reference.key, name)
+        if (Result.isSuccess(value)) env[name] = value.success
+      }
+      variables.push(name)
     }
-    variables.push(name)
   }
+  const script = interpreter === "bash" ? quoteAll(text, references, variables, found) : text
 
-  const quoted = quoteAll(text, references, variables)
-  if (Result.isFailure(quoted)) return Result.fail(quoted.failure)
-  return Result.succeed({ script: quoted.success, env })
+  const [first, ...rest] = found
+    .sort((a, b) => a.at - b.at)
+    .map(({ at, message }): ScriptTemplateProblem => ({ ...positionOf(template, at), message }))
+  return first === undefined ? Result.succeed({ script, env }) : Result.fail([first, ...rest])
+}
+
+/** A problem, at its index in the template. */
+interface Found {
+  readonly at: number
+  readonly message: string
+}
+
+/** The line and column of `index` in `text`, each from 1. */
+function positionOf(text: string, index: number): { line: number; column: number } {
+  const before = text.slice(0, index)
+  return { line: before.split("\n").length, column: index - before.lastIndexOf("\n") }
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +123,8 @@ const MARK = "\u0000"
 interface Reference {
   /** The action as written, for a message. */
   readonly written: string
-  readonly line: number
+  /** Where its `{{` is in the template. */
+  readonly at: number
   /** One per value, so a value read twice is one variable. */
   readonly key: string
   readonly source:
@@ -123,13 +141,11 @@ const TRAILING_SPACE = /[ \t\r\n]+$/
 const isSpace = (char: string | undefined) =>
   char === " " || char === "\t" || char === "\r" || char === "\n"
 
-/** The template's text with each reference a `MARK`, and the references in order. */
+/** The template's text with each reference a `MARK`, and the references in order. Adds each problem to `found`. */
 function splitTemplate(
   template: string,
-): Result.Result<
-  { readonly text: string; readonly references: ReadonlyArray<Reference> },
-  ScriptTemplateProblem
-> {
+  found: Found[],
+): { readonly text: string; readonly references: ReadonlyArray<Reference> } {
   let text = ""
   const references: Reference[] = []
   let at = 0
@@ -144,23 +160,25 @@ function splitTemplate(
     text += trimBefore ? before.replace(TRAILING_SPACE, "") : before
     const start = open + (trimBefore ? 3 : 2)
     const close = actionEnd(template, start)
-    const line = lineOf(template, open)
-    if (close < 0) return Result.fail({ line, message: "A `{{` is not closed with `}}`." })
+    if (close < 0) {
+      found.push({ at: open, message: "A `{{` is not closed with `}}`." })
+      break
+    }
     const trimAfter = template[close - 1] === "-" && isSpace(template[close - 2])
     const body = template.slice(start, trimAfter ? close - 1 : close).trim()
     const written = template.slice(open, close + 2)
     at = close + 2
     if (trimAfter) at += (LEADING_SPACE.exec(template.slice(at))?.[0] ?? "").length
 
-    const action = actionOf(body, written, line)
-    if (Result.isFailure(action)) return Result.fail(action.failure)
-    if (typeof action.success === "string") text += action.success
+    const action = actionOf(body, written, open)
+    if (Result.isFailure(action)) found.push(action.failure)
+    else if (typeof action.success === "string") text += action.success
     else {
       references.push(action.success)
       text += MARK
     }
   }
-  return Result.succeed({ text, references })
+  return { text, references }
 }
 
 /** The index of the `}}` that closes the action whose code starts at `start`, or -1. */
@@ -200,8 +218,8 @@ function constantEnd(template: string, start: number): number {
 function actionOf(
   body: string,
   written: string,
-  line: number,
-): Result.Result<string | Reference, ScriptTemplateProblem> {
+  at: number,
+): Result.Result<string | Reference, Found> {
   if (body.startsWith("/*")) return Result.succeed("")
   if (/^`[^`]*`$/.test(body)) return Result.succeed(body.slice(1, -1))
   if (body.startsWith('"') && body.endsWith('"')) {
@@ -217,7 +235,7 @@ function actionOf(
     const path = input[1]!.slice(1).split(".")
     return Result.succeed({
       written,
-      line,
+      at,
       key: `inputs.${path.join(".")}`,
       source: { _tag: "Input", path },
     })
@@ -227,13 +245,13 @@ function actionOf(
     const block = toBlockId(output[1]!)
     return Result.succeed({
       written,
-      line,
+      at,
       key: `outputs.${block}.${output[2]!}`,
       source: { _tag: "Output", block, key: output[2]! },
     })
   }
   return Result.fail({
-    line,
+    at,
     message: `\`${written}\` is not a value Runbooks can insert. A script's \`{{ }}\` may name a value, \`{{ .inputs.<name> }}\` or \`{{ .outputs.<block>.<key> }}\`, and nothing else: no condition, pipe or function.`,
   })
 }
@@ -242,13 +260,13 @@ function actionOf(
 function valueOf(
   reference: Reference,
   sources: ValueSources,
-): Result.Result<Redacted.Redacted<string>, ScriptTemplateProblem> {
-  const { source, written, line } = reference
+): Result.Result<Redacted.Redacted<string>, Found> {
+  const { source, written, at } = reference
   if (source._tag === "Output") {
     const value = sources.outputs.get(source.block)?.get(source.key)
     return value === undefined
       ? Result.fail({
-          line,
+          at,
           message: `\`${written}\` names an output block ${source.block} has not given.`,
         })
       : Result.succeed(value)
@@ -267,14 +285,11 @@ function valueOf(
   }
   return value === undefined
     ? Result.fail({
-        line,
+        at,
         message: `\`${written}\` names no field of the forms this block reads (its \`inputsId\` forms and its own).`,
       })
     : Result.succeed(Redacted.make(templateText(value)))
 }
-
-/** The 1-based line of `index` in `text`. */
-const lineOf = (text: string, index: number) => text.slice(0, index).split("\n").length
 
 // ---------------------------------------------------------------------------
 // Where each reference stands in the script
@@ -321,49 +336,58 @@ function expandedIn(frame: Frame, name: string): string | { readonly refused: st
   }
 }
 
-/** Each `MARK` in `text` replaced by its variable, quoted for where it stands. */
+/** Each `MARK` in `text` replaced by its variable, quoted for where it stands. Adds a problem to `found` for each reference refused. */
 function quoteAll(
   text: string,
   references: ReadonlyArray<Reference>,
   variables: ReadonlyArray<string>,
-): Result.Result<string, ScriptTemplateProblem> {
+  found: Found[],
+): string {
   const stack: Frame[] = [{ kind: "code", inSubstitution: false, depth: 0 }]
   const pending: Heredoc[] = []
   const inserted: string[] = []
+  const refused = new Set<number>()
 
-  const refuse = (where: string) => {
-    const reference = references[inserted.length]!
-    return Result.fail({
-      line: reference.line,
-      message: `\`${reference.written}\` is ${where}, so Runbooks cannot insert its value. Set a variable to it first, \`NAME=${reference.written}\`, and use \`$NAME\` there.`,
+  /** Refuses the reference at `MARK` number `index`, once. */
+  const refuseAt = (index: number, where: string) => {
+    if (refused.has(index)) return
+    refused.add(index)
+    const { at, written } = references[index]!
+    found.push({
+      at,
+      message: `\`${written}\` is ${where}, so Runbooks cannot insert its value. Set a variable to it first, \`NAME=${written}\`, and use \`$NAME\` there.`,
     })
   }
+  /** Refuses the reference at the next `MARK`, and steps past the character before it. */
+  const refuse = (where: string): number => {
+    refuseAt(inserted.length, where)
+    return 1
+  }
   /** At `$`: an expansion that opens a frame, and how many characters it takes. */
-  const expansion = (at: number): Result.Result<number, ScriptTemplateProblem> => {
+  const expansion = (at: number): number => {
     if (text[at + 1] === MARK) return refuse("right after a `$`")
     if (text.startsWith("$((", at)) {
       stack.push({ kind: "arithmetic", depth: 0 })
-      return Result.succeed(3)
+      return 3
     }
     if (text.startsWith("$(", at)) {
       stack.push({ kind: "code", inSubstitution: true, depth: 0 })
-      return Result.succeed(2)
+      return 2
     }
     if (text.startsWith("${", at)) {
       stack.push({ kind: "parameter", depth: 1 })
-      return Result.succeed(2)
+      return 2
     }
-    return Result.succeed(1)
+    return 1
   }
   /** At `\`: the escaped character goes with it. */
-  const escape = (at: number): Result.Result<number, ScriptTemplateProblem> =>
-    text[at + 1] === MARK ? refuse("right after a `\\`") : Result.succeed(2)
+  const escape = (at: number): number => (text[at + 1] === MARK ? refuse("right after a `\\`") : 2)
 
   let at = 0
   while (at < text.length) {
     const frame = stack.at(-1)!
     const char = text[at]!
-    let step: Result.Result<number, ScriptTemplateProblem> = Result.succeed(1)
+    let step: number = 1
 
     if (frame.kind === "heredoc" && frame.atLineStart) {
       frame.atLineStart = false
@@ -380,8 +404,8 @@ function quoteAll(
 
     if (char === MARK) {
       const expanded = expandedIn(frame, variables[inserted.length]!)
-      if (typeof expanded !== "string") return refuse(expanded.refused)
-      inserted.push(expanded)
+      if (typeof expanded !== "string") refuseAt(inserted.length, expanded.refused)
+      inserted.push(typeof expanded === "string" ? expanded : "")
       at++
       continue
     }
@@ -394,22 +418,27 @@ function quoteAll(
         else if (char === "`") stack.push({ kind: "backquote" })
         else if (char === "$" && text[at + 1] === "'") {
           stack.push({ kind: "ansi" })
-          step = Result.succeed(2)
+          step = 2
         } else if (char === "$") step = expansion(at)
         else if (char === "(" && text[at + 1] === "(") {
           stack.push({ kind: "arithmetic", depth: 0 })
-          step = Result.succeed(2)
+          step = 2
         } else if (char === "(") frame.depth++
         else if (char === ")") {
           if (frame.depth > 0) frame.depth--
           else if (frame.inSubstitution) stack.pop()
         } else if (char === "#" && startsWord(text, at)) stack.push({ kind: "comment" })
-        else if (text.startsWith("<<<", at)) step = Result.succeed(3)
+        else if (text.startsWith("<<<", at)) step = 3
         else if (text.startsWith("<<", at)) {
           const heredoc = heredocAt(text, at)
-          if (heredoc.delimiter.includes(MARK)) return refuse("in a heredoc's delimiter")
+          // The operator and its word are stepped over, so each reference in the word is refused here.
+          for (const operatorChar of text.slice(at, at + heredoc.length))
+            if (operatorChar === MARK) {
+              refuseAt(inserted.length, "in a heredoc's delimiter")
+              inserted.push("")
+            }
           if (heredoc.delimiter !== "") pending.push(heredoc)
-          step = Result.succeed(heredoc.length)
+          step = heredoc.length
         } else if (char === "\n" && pending.length > 0) stack.push(pending.shift()!)
         break
       case "single":
@@ -422,22 +451,22 @@ function quoteAll(
         else if (char === "$") step = expansion(at)
         break
       case "ansi":
-        if (char === "\\") step = Result.succeed(2)
+        if (char === "\\") step = 2
         else if (char === "'") stack.pop()
         break
       case "backquote":
-        if (char === "\\") step = Result.succeed(2)
+        if (char === "\\") step = 2
         else if (char === "`") stack.pop()
         break
       case "comment":
         // The newline is the commands' again: a heredoc may start after it.
         if (char === "\n") {
           stack.pop()
-          step = Result.succeed(0)
+          step = 0
         }
         break
       case "parameter":
-        if (char === "\\") step = Result.succeed(2)
+        if (char === "\\") step = 2
         else if (char === '"') stack.push({ kind: "double" })
         else if (char === "'" && stack.at(-2)?.kind !== "double") stack.push({ kind: "single" })
         else if (char === "$") step = expansion(at)
@@ -450,7 +479,7 @@ function quoteAll(
           if (frame.depth > 0) frame.depth--
           else if (text[at + 1] === ")") {
             stack.pop()
-            step = Result.succeed(2)
+            step = 2
           }
         }
         break
@@ -462,12 +491,11 @@ function quoteAll(
         else if (char === "$") step = expansion(at)
         break
     }
-    if (Result.isFailure(step)) return Result.fail(step.failure)
-    at += step.success
+    at += step
   }
 
   let next = 0
-  return Result.succeed(text.replaceAll(MARK, () => inserted[next++]!))
+  return text.replaceAll(MARK, () => inserted[next++]!)
 }
 
 /** Characters before which a `#` starts a comment. */

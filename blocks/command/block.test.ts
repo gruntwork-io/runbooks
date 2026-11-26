@@ -400,7 +400,7 @@ describe("its {{ }} values", () => {
     expect(spawn.env["RUNBOOK_VALUE_1"]).toBe("")
   })
 
-  it("fail the run at the line Runbooks cannot insert, before anything starts", async () => {
+  it("fail the run at each place Runbooks cannot insert, before anything starts", async () => {
     const [status, spawns] = await withSession(
       '<Command id="c" path="a.sh" />',
       (s) => Effect.all([s.run("c"), Effect.sync(() => s.spawns.length)]),
@@ -408,7 +408,10 @@ describe("its {{ }} values", () => {
     )
     expect(status).toMatchObject({ _tag: "Failed", error: { _tag: "TaskFailed" } })
     const message = status?._tag === "Failed" ? (status.error as { message: string }).message : ""
-    expect(message).toStartWith("a.sh, line 2: `{{ if .inputs.region }}` is not a value")
+    const [first, second, ...rest] = message.split("\n")
+    expect(first).toStartWith("a.sh, line 2, column 1: `{{ if .inputs.region }}` is not a value")
+    expect(second).toStartWith("a.sh, line 2, column 25: `{{ end }}` is not a value")
+    expect(rest).toEqual([])
     expect(spawns).toBe(0)
   })
 })

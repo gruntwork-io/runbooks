@@ -128,7 +128,12 @@ export const command = defineTask({
         const withValues = insertValues(script, input, runner.interpreter)
         if (Result.isFailure(withValues))
           return yield* new TaskFailed({
-            message: `${source}, line ${withValues.failure.line}: ${withValues.failure.message}`,
+            message: withValues.failure
+              .map(
+                ({ line, column, message }) =>
+                  `${source}, line ${line}, column ${column}: ${message}`,
+              )
+              .join("\n"),
           })
 
         const fs = yield* FileSystem

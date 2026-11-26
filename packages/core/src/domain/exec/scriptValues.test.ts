@@ -29,14 +29,25 @@ const sources = (values: FormValues = {}, given: BlockOutputs = new Map()): Valu
 const inserted = (template: string, from: ValueSources, interpreter = "bash"): ScriptWithValues => {
   const result = insertValues(template, from, interpreter)
   if (Result.isFailure(result))
-    throw new Error(`line ${result.failure.line}: ${result.failure.message}`)
+    throw new Error(
+      result.failure
+        .map((problem) => `${problem.line}:${problem.column}: ${problem.message}`)
+        .join("\n"),
+    )
   return result.success
 }
 
-const refused = (template: string, from: ValueSources = sources(), interpreter = "bash") => {
+const refusedAll = (template: string, from: ValueSources = sources(), interpreter = "bash") => {
   const result = insertValues(template, from, interpreter)
   if (Result.isSuccess(result)) throw new Error(`inserted: ${result.success.script}`)
   return result.failure
+}
+
+/** The one problem in a template that has one. */
+const refused = (template: string, from: ValueSources = sources(), interpreter = "bash") => {
+  const problems = refusedAll(template, from, interpreter)
+  expect(problems).toHaveLength(1)
+  return problems[0]
 }
 
 const folder = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-script-values-"))
@@ -177,14 +188,17 @@ describe("a template refused, at its line", () => {
   })
 
   it.each([
-    ["a condition", "{{ if .inputs.v }}x{{ end }}"],
-    ["a pipe", "{{ .inputs.v | upper }}"],
-    ["a function", '{{ eq .inputs.v "x" }}'],
-    ["text for another tool", "docker ps --format '{{.Names}}'"],
-  ])("%s", (_, template) => {
-    const problem = refused(`echo first\n${template}`, value)
-    expect(problem.line).toBe(2)
-    expect(problem.message).toContain("is not a value Runbooks can insert")
+    ["a condition", "{{ if .inputs.v }}x{{ end }}", [1, 20]],
+    ["a pipe", "{{ .inputs.v | upper }}", [1]],
+    ["a function", '{{ eq .inputs.v "x" }}', [1]],
+    ["text for another tool", "docker ps --format '{{.Names}}'", [21]],
+  ])("%s, each action", (_, template, columns) => {
+    const problems = refusedAll(`echo first\n${template}`, value)
+    expect(problems.map(({ line, column }) => [line, column])).toEqual(
+      columns.map((column) => [2, column]),
+    )
+    for (const { message } of problems)
+      expect(message).toContain("is not a value Runbooks can insert")
   })
 
   it("a reference in a script that does not run with bash", () => {
@@ -204,5 +218,40 @@ describe("a template refused, at its line", () => {
   it("a `{{` never closed, and a NUL character", () => {
     expect(refused("echo\necho {{ .inputs.v").line).toBe(2)
     expect(refused("echo \u0000").message).toContain("NUL")
+  })
+})
+
+describe("every problem in a template", () => {
+  it("is reported, in order, each at its line and column", () => {
+    const problems = refusedAll(
+      "echo $'{{ .inputs.v }}'\n  echo {{ .inputs.missing }} {{ if x }}\necho \u0000 {{ .inputs.v",
+      sources({ v: "x" }),
+    )
+    expect(problems.map(({ line, column }) => [line, column])).toEqual([
+      [1, 8],
+      [2, 8],
+      [2, 30],
+      [3, 6],
+      [3, 8],
+    ])
+    expect(problems.map(({ message }) => message)).toEqual([
+      expect.stringContaining("`$'...'`"),
+      expect.stringContaining("names no field"),
+      expect.stringContaining("is not a value Runbooks can insert"),
+      expect.stringContaining("NUL"),
+      expect.stringContaining("not closed"),
+    ])
+  })
+
+  it("names each reference in a script that does not run with bash", () => {
+    const problems = refusedAll(
+      "print('{{ .inputs.v }}')\nprint('{{ .inputs.w }}')",
+      sources(),
+      "python3",
+    )
+    expect(problems.map(({ line, message }) => [line, message.slice(0, 18)])).toEqual([
+      [1, "`{{ .inputs.v }}` "],
+      [2, "`{{ .inputs.w }}` "],
+    ])
   })
 })
