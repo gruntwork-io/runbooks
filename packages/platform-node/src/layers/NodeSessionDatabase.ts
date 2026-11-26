@@ -45,7 +45,8 @@ const MIGRATIONS = [
      runbook TEXT NOT NULL,
      created_at INTEGER NOT NULL,
      used_at INTEGER NOT NULL,
-     trusted TEXT
+     trusted TEXT,
+     next_sequence INTEGER NOT NULL
    ) STRICT;
    CREATE INDEX sessions_by_runbook ON sessions (runbook, used_at);
    CREATE TABLE events (
@@ -67,6 +68,7 @@ const SessionRecord = Schema.Struct({
   created_at: Schema.Number,
   used_at: Schema.Number,
   trusted: Schema.NullOr(Schema.String),
+  next_sequence: Schema.Number,
 })
 
 const EventRecord = Schema.Struct({
@@ -98,6 +100,7 @@ const toSessionRow = (row: unknown): SessionRow => {
     createdAt: record.created_at,
     usedAt: record.used_at,
     trusted: Option.fromNullOr(record.trusted),
+    nextSequence: record.next_sequence,
   }
 }
 
@@ -231,14 +234,17 @@ export const nodeSessionDatabase = (dataFolder: string): Layer.Layer<SessionData
         putSession: (row) =>
           attempt("save a session", () =>
             run(
-              `INSERT INTO sessions (id, runbook, created_at, used_at, trusted) VALUES (?, ?, ?, ?, ?)
+              `INSERT INTO sessions (id, runbook, created_at, used_at, trusted, next_sequence)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT (id) DO UPDATE SET runbook = excluded.runbook, created_at = excluded.created_at,
-                 used_at = excluded.used_at, trusted = excluded.trusted`,
+                 used_at = excluded.used_at, trusted = excluded.trusted,
+                 next_sequence = excluded.next_sequence`,
               row.id,
               row.runbook,
               row.createdAt,
               row.usedAt,
               Option.getOrNull(row.trusted),
+              row.nextSequence,
             ),
           ),
 

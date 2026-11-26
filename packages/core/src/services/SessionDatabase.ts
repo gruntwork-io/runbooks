@@ -23,6 +23,8 @@ export interface SessionRow {
   readonly usedAt: number
   /** The content hash the person trusted the session for, if they did. */
   readonly trusted: Option.Option<string>
+  /** The event sequence a later session of this id starts from. */
+  readonly nextSequence: number
 }
 
 /** A block's latest event of one kind. Saving another of the same block and kind replaces it. */

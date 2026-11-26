@@ -28,7 +28,7 @@ export const NoSavedSessions = Layer.succeed(SessionStore, {
       put: () => Effect.void,
       drop: () => Effect.void,
       trust: () => Effect.void,
-      close: Effect.void,
+      close: () => Effect.void,
     }),
   expired: Effect.succeed([]),
   forget: () => Effect.void,

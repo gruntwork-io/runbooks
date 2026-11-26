@@ -659,6 +659,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   readonly resume: Option.Option<Resume>
   /** Where the session saves what it holds. */
   readonly saver: SessionSaver
+  /** The sequence of the session's first event: where a resumed session's earlier one ended. */
+  readonly firstSequence: number
 }) {
   const { id, roots, baseEnvironment, saver } = options
   const resume = Option.getOrUndefined(options.resume)
@@ -684,7 +686,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   /** Each done form's and credential block's outputs, as last published. */
   const published = new Map<number, ReadonlyMap<string, Held<string>>>()
   const statuses = new Map<number, BlockStatus>()
-  const log = makeWindow<EventEnvelope>(MAX_SESSION_EVENTS)
+  const log = makeWindow<EventEnvelope>(MAX_SESSION_EVENTS, options.firstSequence)
 
   for (const slot of slots) {
     const values = resume?.values.get(slot.id)
@@ -1766,7 +1768,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           yield* Scope.close(scope, Exit.void)
           yield* update((emit) => emit({ _tag: "SessionClosed" }))
           closed = true
-          yield* saver.close
+          yield* saver.close(log.end())
         }),
       ),
     ),

@@ -28,6 +28,7 @@ const session = (id: string, over: Partial<SessionRow> = {}): SessionRow => ({
   createdAt: 1,
   usedAt: 1,
   trusted: Option.none(),
+  nextSequence: 0,
   ...over,
 })
 
@@ -87,7 +88,12 @@ export function sessionDatabaseContract(name: string, open: () => Promise<Opened
     })
 
     it("replaces a session's row, and keeps its events", async () => {
-      const trusted = session("s1", { usedAt: 50, trusted: Option.some(HASH) })
+      // A sequence past 32 bits, as a session that did not save its close leaves.
+      const trusted = session("s1", {
+        usedAt: 50,
+        trusted: Option.some(HASH),
+        nextSequence: 2 ** 40,
+      })
       const found = await withDatabase(
         Effect.gen(function* () {
           const db = yield* SessionDatabase
