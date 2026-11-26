@@ -11,6 +11,7 @@ interface Sent {
   readonly _tag: string
   readonly id?: string
   readonly tag?: string
+  readonly payload?: unknown
 }
 
 const SESSION = {
@@ -20,12 +21,19 @@ const SESSION = {
   blocks: 0,
 }
 
-/** A bridge to a main that answers each command by its tag, on a later turn. */
-const answering = (answers: Readonly<Record<string, (id: string) => unknown>>): EngineBridge => {
+/**
+ * A bridge to a main that answers each command by its tag, on a later turn.
+ * `asked` gets the payload of each `GetDocument` the client sends.
+ */
+const answering = (
+  answers: Readonly<Record<string, (id: string) => unknown>>,
+  asked: unknown[] = [],
+): EngineBridge => {
   const listeners = new Set<(message: string) => void>()
   return {
     send: (text) => {
       const sent: Sent = JSON.parse(text)
+      if (sent.tag === "GetDocument") asked.push(sent.payload)
       const answer = sent.tag === undefined ? undefined : answers[sent.tag]
       if (answer === undefined || sent.id === undefined) return
       const reply = JSON.stringify(answer(sent.id))
@@ -74,6 +82,42 @@ describe("what the window shows", () => {
       _tag: "Failed",
       message: "The engine failed showing the runbook: Maximum call stack size exceeded",
     })
+  })
+
+  it("is the runbook the engine opened last, when it has several open", async () => {
+    // As a second launch of the app leaves it: main opens its runbook, then reloads the page.
+    const later = {
+      ...SESSION,
+      session: "9b2c1d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e",
+      name: "later",
+      path: "/runbooks/later/runbook.mdx",
+    }
+    const asked: unknown[] = []
+    const shown = await shownWith(
+      answering(
+        {
+          ListSessions: (requestId) => ({
+            _tag: "Exit",
+            requestId,
+            exit: { _tag: "Success", value: [SESSION, later] },
+          }),
+          GetDocument: (requestId) => ({
+            _tag: "Exit",
+            requestId,
+            exit: {
+              _tag: "Success",
+              value: { tree: { type: "root", children: [] }, blocks: [], warnings: [] },
+            },
+          }),
+        },
+        asked,
+      ),
+    )
+    expect(shown).toMatchObject({
+      _tag: "Runbook",
+      session: { session: later.session, path: later.path },
+    })
+    expect(asked).toEqual([{ session: later.session }])
   })
 
   it("is the welcome screen when the engine has no runbook open", async () => {
