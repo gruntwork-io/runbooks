@@ -8,7 +8,7 @@
  */
 import type { Effect, Option, Redacted } from "effect"
 import { Schema, SchemaGetter, Stream } from "effect"
-import type { FormSpec, FormValues } from "./form.ts"
+import type { FieldValue, FormSpec } from "./form.ts"
 
 // ---------------------------------------------------------------------------
 // Closed sets
@@ -268,13 +268,21 @@ export type Roots = { readonly [R in Exclude<Root, "repository">]: string }
 export type BlockOutputs = ReadonlyMap<BlockId, ReadonlyMap<string, Redacted.Redacted<string>>>
 
 /**
+ * The form values a task reads (`{{ .inputs.<name> }}`), by field name: its
+ * `inputsId` forms' in order, then its own form's, a later one winning.
+ * Every value is redacted, a sensitive one or not, so a block that prints
+ * what it got shows none of them, and no block needs to know which fields
+ * are sensitive. A block unwraps the one it needs with `Redacted.value`.
+ */
+export type TaskValues = ReadonlyMap<string, Redacted.Redacted<FieldValue>>
+
+/**
  * What a task reads that the engine already holds, so it is built with no
  * I/O: instruction mode builds it before trust, and a run gets it as part
  * of its input.
  */
 export interface TaskReads {
-  /** The values the task reads: from its `inputsId` targets, then its own form. */
-  readonly values: FormValues
+  readonly values: TaskValues
   readonly outputs: BlockOutputs
   /** The files it names in `runbookFiles`, as the engine read and hashed them when the runbook opened. */
   readonly files: RunbookTexts
@@ -388,7 +396,7 @@ export interface TaskBlock<P, K extends string, R, N extends string = never> ext
    * the engine resolves each one and fails the run with `PathOutsideRoot` if
    * it leaves its root; `run` gets them as `TaskInput.paths`.
    */
-  readonly paths?: (p: P, values: FormValues) => { readonly [Name in N]: RootedPath }
+  readonly paths?: (p: P, values: TaskValues) => { readonly [Name in N]: RootedPath }
   /**
    * For a task that provides `repository`, the one of its `paths` it makes
    * the repository in. That path must be a folder inside the working folder,
@@ -405,6 +413,12 @@ export interface TaskBlock<P, K extends string, R, N extends string = never> ext
   readonly timeLimit?: (p: P) => number | undefined
   /** The one function that gets services. The engine calls it only in a trusted session. */
   readonly run: (p: P, input: TaskInput<N>) => Stream.Stream<TaskEvent<K>, TaskError, R>
+  /**
+   * What instruction mode shows the person in place of a run, built before
+   * trust. Its values and outputs are redacted, as a run's are, and it
+   * unwraps none: it cannot tell a sensitive one, and the person sees what
+   * it returns.
+   */
   readonly instruction: (p: P, reads: TaskReads) => Instruction
   readonly plugins: ReadonlyArray<PluginUse>
   readonly step?: (p: P) => boolean

@@ -56,9 +56,10 @@ import type {
   TaskEvent,
   TaskInput,
   TaskReads,
+  TaskValues,
 } from "@runbooks/blocks-core/contract"
 import { TaskCancelled, TaskFailed } from "@runbooks/blocks-core/contract"
-import type { FieldValue, FormSpec, FormValues } from "@runbooks/blocks-core/form"
+import type { FieldValue, FormSpec } from "@runbooks/blocks-core/form"
 import { type AnyBlock, type Registry, resolveTag } from "@runbooks/blocks-core/registry"
 import { type Blocker, BlockStatus, type Outcome } from "@runbooks/blocks-core/status"
 import { type CredentialAction, statusOf as credentialStatus } from "../credential/lifecycle.ts"
@@ -943,11 +944,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   }
 
   /** The values a task runs with: each form it reads, in order, then its own, a later one winning. */
-  const valuesFor = (slot: Slot): FormValues =>
-    Object.fromEntries(
+  const valuesFor = (slot: Slot): TaskValues =>
+    new Map(
       [...slot.reads, slot].flatMap(({ index }) => {
         const form = forms.get(index)
-        return form === undefined ? [] : Object.entries(valuesOf(form))
+        return form === undefined ? [] : Array.from(valuesOf(form))
       }),
     )
 

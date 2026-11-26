@@ -6,7 +6,7 @@
  * its latest run's input, by its `label` prop.
  */
 import path from "node:path"
-import { Effect, type Layer, Schema, Stream } from "effect"
+import { Effect, type Layer, Redacted, Schema, Stream } from "effect"
 import { BlockId, defineTask, Root, type TaskInput } from "@runbooks/blocks-core/contract"
 import type { FieldValue } from "@runbooks/blocks-core/form"
 import { Engine } from "../engine/engine.ts"
@@ -64,7 +64,8 @@ const rootsRegistry = (seen: Seen) => {
           toyFormSpec([{ name: "localPath", type: "string", default: p.localPath ?? "repo" }]),
         ),
       paths: (_p, values) => {
-        const localPath = values["localPath"]
+        const field = values.get("localPath")
+        const localPath = field === undefined ? undefined : Redacted.value(field)
         return { target: { root: "working", path: typeof localPath === "string" ? localPath : "" } }
       },
       repository: "target",

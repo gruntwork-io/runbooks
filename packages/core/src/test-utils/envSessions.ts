@@ -32,7 +32,7 @@ import {
   type TaskEvent,
   type TaskInput,
   TaskFailed,
-  type TaskReads,
+  type TaskValues,
 } from "@runbooks/blocks-core/contract"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import type {
@@ -129,7 +129,7 @@ const declared = (names: ReadonlyArray<string> | undefined) =>
 interface Noted {
   readonly inputs: Map<string, TaskInput<string>>
   /** The values each `Run`'s latest `paths` call was given. */
-  readonly pathsValues: Map<string, TaskReads["values"]>
+  readonly pathsValues: Map<string, TaskValues>
   readonly printed: Map<string, ReadonlyArray<string>>
   /** How many times each `Script` has written its files. */
   readonly wrote: Map<string, number>
@@ -294,7 +294,7 @@ export interface EnvSession {
   readonly runFilesOf: (label: string) => Record<string, string>
   readonly inputOf: (label: string) => TaskInput<string> | undefined
   /** The values a `Run` block's latest `paths` call was given. */
-  readonly pathsValuesOf: (label: string) => TaskReads["values"] | undefined
+  readonly pathsValuesOf: (label: string) => TaskValues | undefined
   /** How many times a `Script` block has written its files. */
   readonly wrote: (label: string) => number
   /** What a `Shell` block's latest run printed. */

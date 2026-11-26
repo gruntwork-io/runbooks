@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { Redacted, Result, Schema } from "effect"
 import { BlockId, type BlockOutputs } from "@runbooks/blocks-core/contract"
-import type { FormValues } from "@runbooks/blocks-core/form"
+import type { FieldValue } from "@runbooks/blocks-core/form"
 import { renderValueTemplate, type ValueSources } from "./valueTemplate.ts"
 
 const blockId = Schema.decodeSync(BlockId)
@@ -14,8 +14,12 @@ const outputs = (byBlock: Record<string, Record<string, string>>): BlockOutputs 
     ]),
   )
 
-const sources = (values: FormValues = {}, given: BlockOutputs = new Map()): ValueSources => ({
-  values,
+/** The sources a task reads, each value redacted as the engine hands it over. */
+const sources = (
+  values: Readonly<Record<string, FieldValue>> = {},
+  given: BlockOutputs = new Map(),
+): ValueSources => ({
+  values: new Map(Object.entries(values).map(([name, value]) => [name, Redacted.make(value)])),
   outputs: given,
 })
 

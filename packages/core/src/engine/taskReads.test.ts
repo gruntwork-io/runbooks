@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { inspect } from "node:util"
 import { Effect, Layer, Redacted } from "effect"
-import type { BlockOutputs } from "@runbooks/blocks-core/contract"
+import type { BlockOutputs, TaskValues } from "@runbooks/blocks-core/contract"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { type UseEnvSession, withEnvSession } from "../test-utils/envSessions.ts"
 import { FileSystem } from "../services/FileSystem.ts"
@@ -64,24 +64,41 @@ const READS_A_FORM = {
   ].join("\n\n"),
 }
 
+/** What `r`'s run and its `paths` were given, once it ran. */
+const givenToR = () =>
+  withSession(READS_A_FORM, (rb) =>
+    Effect.gen(function* () {
+      expect(yield* rb.run("r")).toEqual(done)
+      return { input: rb.inputOf("r"), paths: rb.pathsValuesOf("r") }
+    }),
+  )
+
 /** What a block that prints what it was given shows: as JSON, and as `console.log` does. */
 const printed = (given: unknown): ReadonlyArray<string> => [
   JSON.stringify(given),
   inspect(given, { depth: null }),
 ]
 
+/** Each value, unwrapped as a block that needs it does. */
+const unwrapped = (values: TaskValues | undefined) =>
+  Object.fromEntries(Array.from(values ?? [], ([name, value]) => [name, Redacted.value(value)]))
+
 describe("a task's values", () => {
   it("print no sensitive value, in what its run or its paths are given", async () => {
-    const given = await withSession(READS_A_FORM, (rb) =>
-      Effect.gen(function* () {
-        expect(yield* rb.run("r")).toEqual(done)
-        return { input: rb.inputOf("r"), paths: rb.pathsValuesOf("r") }
-      }),
-    )
+    const given = await givenToR()
     expect(given.input).toBeDefined()
     expect(given.paths).toBeDefined()
     for (const text of [...printed(given.input), ...printed(given.paths)])
       expect(text).not.toContain(SECRET)
+  })
+
+  it("are each redacted, and unwrap to the field's value, a sensitive one or not", async () => {
+    const given = await givenToR()
+    for (const values of [given.input?.values, given.paths]) {
+      expect(values?.size).toBe(3)
+      for (const [, value] of values ?? []) expect(Redacted.isRedacted(value)).toBe(true)
+      expect(unwrapped(values)).toEqual({ token: SECRET, region: "eu-west-1", zones: ["a", "b"] })
+    }
   })
 })
 
