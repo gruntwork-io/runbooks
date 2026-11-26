@@ -14,6 +14,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -328,6 +329,98 @@ describe("starting a plugin", () => {
     expect(error).toMatchObject({ _tag: "PluginSpawnFailed", plugin: "stub" })
     expect(error.message).toContain("EACCES")
   })
+})
+
+describe("the binary that runs", () => {
+  /** A shell plugin, cheaper to start than the stub: it answers configure, then waits for standard input to close. */
+  const PINNED_SCRIPT = [
+    "#!/bin/sh",
+    "read -r request",
+    `printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1","driverVersion":"0.0.0","received":{},"pid":0}}'`,
+    "while read -r request; do :; done",
+    "",
+  ].join("\n")
+  /** The program swapped in: a line in `RACE_MARKER` each time it runs. */
+  const OTHER_SCRIPT = '#!/bin/sh\necho ran >> "$RACE_MARKER"\n'
+  /**
+   * Renames each script in turn over the binary, each an atomic replace,
+   * until it is killed. It writes a line once it has swapped in the other
+   * script, written at once: the loop never lets an asynchronous write out.
+   */
+  const SWAPPER = `
+    const { linkSync, renameSync, writeSync } = require("node:fs")
+    const { PINNED, OTHER, SPARE, TARGET } = process.env
+    const swap = (from) => { linkSync(from, SPARE); renameSync(SPARE, TARGET) }
+    swap(OTHER)
+    writeSync(1, "swapping\\n")
+    for (;;) for (const from of [PINNED, OTHER]) swap(from)
+  `
+  const OPENS = 20
+  /**
+   * Bun's timeout for the race. On macOS an open takes about 100 ms, not
+   * 5: Gatekeeper checks each program whose file has changed before it runs.
+   */
+  const RACE_TIMEOUT = 15_000
+
+  it(
+    "is the one whose hash was checked, while another process swaps binDir's file",
+    async () => {
+      const script = (name: string, text: string) => {
+        const file = path.join(bin, name)
+        writeFileSync(file, text, { mode: 0o755 })
+        return file
+      }
+      const target = path.join(bin, BINARY)
+      const pinnedScript = script("pinned.sh", PINNED_SCRIPT)
+      const otherScript = script("other.sh", OTHER_SCRIPT)
+      copyFileSync(pinnedScript, target)
+      const marker = path.join(bin, "ran-other")
+      const plugins = [
+        pinned({
+          [PLATFORM]: Schema.decodeUnknownSync(Sha256)(
+            new Bun.CryptoHasher("sha256").update(PINNED_SCRIPT).digest("hex"),
+          ),
+        }),
+      ]
+      const swapper = Bun.spawn([process.execPath, "--no-env-file", "-e", SWAPPER], {
+        cwd: bin,
+        env: {
+          HOME: bin,
+          PINNED: pinnedScript,
+          OTHER: otherScript,
+          SPARE: path.join(bin, "spare"),
+          TARGET: target,
+        },
+        stdio: ["ignore", "pipe", "inherit"],
+      })
+      const outcomes: Record<string, number> = {}
+      try {
+        // The opens start once the swaps have: on Linux 20 opens can take less time than Bun takes to start.
+        await swapper.stdout.getReader().read()
+        for (let i = 0; i < OPENS; i++) {
+          const outcome = await run(
+            Effect.match(open({ RACE_MARKER: marker }), {
+              onSuccess: () => "opened",
+              onFailure: (error) => error._tag,
+            }),
+            plugins,
+          )
+          outcomes[outcome] = (outcomes[outcome] ?? 0) + 1
+        }
+      } finally {
+        swapper.kill("SIGKILL")
+        await swapper.exited
+      }
+      const ranOther = existsSync(marker)
+        ? readFileSync(marker, "utf8").split("\n").filter(Boolean).length
+        : 0
+      expect({ ranOther, outcomes }).toEqual({ ranOther: 0, outcomes: expect.any(Object) })
+      expect(outcomes.opened ?? 0).toBeGreaterThan(0)
+      // The swaps reached the opens: some hash checks read the other script.
+      expect(outcomes.PluginHashMismatch ?? 0).toBeGreaterThan(0)
+    },
+    RACE_TIMEOUT,
+  )
 })
 
 describe("the protocol version", () => {
