@@ -107,6 +107,25 @@ const registryWith = (scripts: Readonly<Record<string, Script>>) => ({
     instruction: () => [],
     plugins: [],
   }),
+  /** A display block whose schema encodes its prop as a `Date`, which JSON cannot carry: a bug in a block. */
+  Dated: defineDisplay({
+    name: "Dated",
+    since: "0.1.0",
+    class: "display",
+    props: Schema.Struct({
+      at: Schema.Unknown.pipe(
+        Schema.decodeTo(Schema.String, {
+          decode: SchemaGetter.transform(String),
+          encode: SchemaGetter.transform(() => new Date(0)),
+        }),
+      ),
+    }),
+    children: { kind: "none" },
+    references: {},
+    runbookFiles: () => [],
+    provides: [],
+    effects: [],
+  }),
   /** A form whose fields cannot be read, as a template whose `boilerplate.yml` is missing. */
   BadForm: defineForm({
     name: "BadForm",
@@ -556,6 +575,7 @@ const DOCUMENT = [
   '<Gauge id="gauge" count="3" />',
   '<OneWay id="oneway" value="x" />',
   '<Run id="after" command="ok" dependsOn="greet" />',
+  '<Dated at="noon" />',
 ].join("\n\n")
 
 /** What a person or agent could read of `value`: as JSON, and as `console.log` prints it. */
@@ -580,11 +600,11 @@ describe("the session's document", () => {
         expect(top[0]).toMatchObject({ type: "heading", depth: 1 })
         expect(top[1]).toMatchObject({ type: "paragraph" })
         expect(top.filter((node) => node.type === "block").map((node) => node.index)).toEqual([
-          0, 1, 2, 3, 4, 5, 6,
+          0, 1, 2, 3, 4, 5, 6, 7,
         ])
         expect(top[2]).toMatchObject({ type: "block", index: 0, children: [{ type: "paragraph" }] })
 
-        const [note, bash, broken, gone, gauge, oneway, after] = document.blocks
+        const [note, bash, broken, gone, gauge, oneway, after, dated] = document.blocks
         expect(note).toMatchObject({
           _tag: "Configured",
           index: 0,
@@ -632,6 +652,10 @@ describe("the session's document", () => {
           reason: { _tag: "Misconfigured" },
         })
         expect(after).toMatchObject({ _tag: "Configured", props: { command: "ok" } })
+        // Props that encode to more than JSON: that block's error, and the rest of the document is sent.
+        expect(
+          dated?._tag === "Misconfigured" && dated.errors.map((e) => e.message.includes("JSON")),
+        ).toEqual([true])
         expect(document).not.toHaveProperty("edges")
 
         expect(
