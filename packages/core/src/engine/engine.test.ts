@@ -16,6 +16,12 @@ import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { ContentHash } from "../document/document.ts"
 import { testCredentialProviders } from "../test-utils/TestCredentialProviders.ts"
 import { testSettingsStore } from "../test-utils/TestSettingsFile.ts"
+import {
+  type Hold,
+  makeHold,
+  type MemorySessionDatabase,
+  memorySessionDatabase,
+} from "../test-utils/TestSessionDatabase.ts"
 import { testSessionStore } from "../test-utils/TestSessionStore.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY, ToyField, toyFormSpec } from "../test-utils/toyRegistry.ts"
@@ -93,6 +99,7 @@ const withEngine = <A, E>(
   scripts: Readonly<Record<string, Script>>,
   program: Effect.Effect<A, E, Engine | Caller>,
   origin: Origin = "person",
+  database: MemorySessionDatabase = memorySessionDatabase(),
 ): Promise<A> =>
   Effect.runPromise(
     program.pipe(
@@ -107,7 +114,7 @@ const withEngine = <A, E>(
       ),
       Effect.provide(testCredentialProviders({}, [])),
       Effect.provide(testSettingsStore()),
-      Effect.provide(testSessionStore()),
+      Effect.provide(testSessionStore({ database })),
       Effect.provide(makeTestFileSystem({ [RUNBOOK]: runbook })),
       Effect.provideService(Caller, { origin }),
     ),
@@ -234,6 +241,21 @@ const hanging = () => {
     )
   return { script, started: Deferred.await(started), state }
 }
+
+/** A run that stops only once `stopping` is released, after saying it was asked to. */
+const slowToStop =
+  (stopping: Hold): Script =>
+  () =>
+    Stream.fromEffectDrain(
+      Effect.never.pipe(
+        Effect.onInterrupt(() =>
+          Effect.andThen(
+            Deferred.succeed(stopping.reached, undefined),
+            Deferred.await(stopping.release),
+          ),
+        ),
+      ),
+    )
 
 /** A ladder of `length` tasks, each waiting for the two before it, and its last block's id. */
 const ladder = (length: number) => {
@@ -583,6 +605,90 @@ describe("Engine", () => {
         expect(yield* engine.listSessions).toEqual([])
       }),
     )
+  })
+
+  it("finishes a close cancelled halfway: its event stream ends, and it is forgotten", async () => {
+    const stopping = makeHold()
+    await withEngine(
+      '<Run id="a" command="slow" />',
+      // The close waits for the run to stop.
+      { slow: slowToStop(stopping) },
+      Effect.gen(function* () {
+        const engine = yield* Engine
+        const rb = yield* commandsFor(yield* open)
+        const recording = yield* rb.record
+        yield* rb.trust
+        yield* rb.run("a")
+        const closing = yield* Effect.forkChild(rb.close)
+        yield* Deferred.await(stopping.reached)
+        const cancelling = yield* Effect.forkChild(Fiber.interrupt(closing), {
+          startImmediately: true,
+        })
+        yield* Deferred.succeed(stopping.release, undefined)
+        yield* Fiber.join(cancelling)
+
+        const events = yield* Fiber.join(recording).pipe(Effect.timeout("1 second"))
+        expect(events.at(-1)?.event).toEqual({ _tag: "SessionClosed" })
+        expect((yield* Effect.flip(rb.close))._tag).toBe("UnknownSession")
+        expect(yield* engine.listSessions).toEqual([])
+      }),
+    )
+  })
+
+  it("keeps a session whose close was cancelled before it began, so it can be closed again", async () => {
+    const database = memorySessionDatabase()
+    const saving = makeHold()
+    await withEngine(
+      '<Run id="a" command="ok" />',
+      { ok },
+      Effect.gen(function* () {
+        const engine = yield* Engine
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        // A RunBlock saving to a slow disk holds the session's lock, so the close waits for it.
+        database.holding.set("putEvent", saving)
+        const starting = yield* Effect.forkChild(rb.run("a"))
+        yield* Deferred.await(saving.reached)
+        const closing = yield* Effect.forkChild(rb.close, { startImmediately: true })
+        yield* Fiber.interrupt(closing)
+        database.holding.delete("putEvent")
+        yield* Deferred.succeed(saving.release, undefined)
+        yield* Fiber.join(starting)
+
+        expect((yield* engine.listSessions).length).toBe(1)
+        yield* rb.close
+        expect(yield* engine.listSessions).toEqual([])
+      }),
+      "person",
+      database,
+    )
+  })
+
+  it("starts a run whose RunBlock was cancelled once it began, or not at all: never a block Running with nothing to run it", async () => {
+    const database = memorySessionDatabase()
+    const saving = makeHold()
+    const status = await withEngine(
+      '<Run id="a" command="ok" />',
+      { ok },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        // The run's start is saved on a slow disk, and the RunBlock is cancelled meanwhile.
+        database.holding.set("putEvent", saving)
+        const starting = yield* Effect.forkChild(rb.run("a"))
+        yield* Deferred.await(saving.reached)
+        const cancelling = yield* Effect.forkChild(Fiber.interrupt(starting), {
+          startImmediately: true,
+        })
+        database.holding.delete("putEvent")
+        yield* Deferred.succeed(saving.release, undefined)
+        yield* Fiber.join(cancelling)
+        return (yield* rb.wait("a", 1000)).block.status
+      }),
+      "person",
+      database,
+    )
+    expect(status).toEqual({ _tag: "Done", outcome: "success" })
   })
 
   it("keeps two sessions of one runbook apart", async () => {

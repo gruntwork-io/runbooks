@@ -2,9 +2,9 @@
  * An in-memory `SessionDatabase` for tests. `sessionDatabaseContract.ts`
  * holds it to the same contract as the SQLite one. A test reads back every
  * row as saved, writes rows as another version would, and can make any
- * call fail as the disk would.
+ * call fail, or wait, as the disk would.
  */
-import { Effect, Layer, Option } from "effect"
+import { Deferred, Effect, Layer, Option } from "effect"
 import { SessionDatabaseError } from "../errors/index.ts"
 import {
   type EventRow,
@@ -24,7 +24,20 @@ export interface MemorySessionDatabase {
   readonly put: (row: EventRow) => boolean
   /** The calls that fail from now on, as a disk error would. */
   readonly failing: Set<keyof SessionDatabaseShape>
+  /** The calls that wait from now on, as a slow disk would, until the test lets them go. */
+  readonly holding: Map<keyof SessionDatabaseShape, Hold>
 }
+
+/** A held call: `reached` once one is waiting, and each waits until `release`. */
+export interface Hold {
+  readonly reached: Deferred.Deferred<void>
+  readonly release: Deferred.Deferred<void>
+}
+
+export const makeHold = (): Hold => ({
+  reached: Deferred.makeUnsafe(),
+  release: Deferred.makeUnsafe(),
+})
 
 const eventKey = (session: string, block: string, kind: string) =>
   JSON.stringify([session, block, kind])
@@ -34,13 +47,26 @@ export function memorySessionDatabase(): MemorySessionDatabase {
   const sessions = new Map<string, SessionRow>()
   const events = new Map<string, EventRow>()
   const failing = new Set<keyof SessionDatabaseShape>()
+  const holding = new Map<keyof SessionDatabaseShape, Hold>()
 
   const call = <A>(name: keyof SessionDatabaseShape, run: () => A) =>
-    Effect.suspend(() =>
-      failing.has(name)
-        ? Effect.fail(new SessionDatabaseError({ action: name, cause: new Error("disk error") }))
-        : Effect.sync(run),
-    )
+    Effect.suspend(() => {
+      const hold = holding.get(name)
+      const wait =
+        hold === undefined
+          ? Effect.void
+          : Effect.andThen(Deferred.succeed(hold.reached, undefined), Deferred.await(hold.release))
+      return Effect.andThen(
+        wait,
+        Effect.suspend(() =>
+          failing.has(name)
+            ? Effect.fail(
+                new SessionDatabaseError({ action: name, cause: new Error("disk error") }),
+              )
+            : Effect.sync(run),
+        ),
+      )
+    })
 
   /** Most recently used first; a later session first among those used at once. */
   const byUse = () =>
@@ -103,5 +129,6 @@ export function memorySessionDatabase(): MemorySessionDatabase {
     events: () => Array.from(events.values()),
     put,
     failing,
+    holding,
   }
 }
