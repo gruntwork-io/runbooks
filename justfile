@@ -167,6 +167,15 @@ check-plugins $platform="" $bin_dir="":
 bump-plugins $version:
     mise x bun -- bun scripts/plugins/lock.ts bump "$version"
 
+# Check that plugin/*.schema.json are byte for byte the schemas the release
+# resources/plugins.lock pins lists in its SHA256SUMS, and that plugin/ holds
+# no other, so the app's protocol types are the plugins'. Exits 1, naming
+# each file and both hashes, when they are not. CI runs it.
+#
+# Check plugin/*.schema.json against the pinned plugins release's schemas
+check-plugin-schemas:
+    mise x bun -- bun scripts/plugins/lock.ts schemas
+
 # Package the Electron app for distribution
 package: build compile-test-cli fetch-boilerplate
     mise x node -- npx electron-builder

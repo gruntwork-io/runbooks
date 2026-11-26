@@ -5,6 +5,7 @@
  *   bun scripts/plugins/lock.ts fetch [--platform <os>-<arch>]
  *   bun scripts/plugins/lock.ts check [--platform <os>-<arch>] [--bin-dir <dir>]
  *   bun scripts/plugins/lock.ts bump <version>
+ *   bun scripts/plugins/lock.ts schemas
  *
  * - fetch: downloads each binary the lock pins for the platform (the host's
  *   by default) from its release into a temporary folder beside
@@ -19,13 +20,17 @@
  * - bump: reads a release's `SHA256SUMS`, checks each line against the
  *   digest GitHub's API gives for that asset, and rewrites the lock with
  *   every plugin binary in it, at that version.
+ * - schemas: the protocol schemas in `plugin/` are byte for byte the ones
+ *   each pinned release lists in its `SHA256SUMS`: every `*.schema.json` it
+ *   lists is in `plugin/` with that hash, and `plugin/` holds no other.
  *
- * fetch and check print `<sha256>  <file>` per binary on standard output,
+ * fetch, check and schemas print `<sha256>  <file>` per file on standard output,
  * the format `shasum -a 256 -c` reads. Problems go to standard error, all of
  * them in one pass.
  *
- * Exit codes: 0 done. 1 a binary, the release or the bin folder does not
- * match the lock, or a download failed; fetch and bump then change nothing.
+ * Exit codes: 0 done. 1 a binary, the release, the bin folder or a schema
+ * does not match the lock, or a download failed; fetch and bump then change
+ * nothing.
  * 2 a usage error, or the lock is not valid.
  */
 import { createHash } from "node:crypto"
@@ -42,6 +47,9 @@ import { PluginsLock, readPluginsLock } from "@runbooks/platform-node/layers/Plu
 const REPO = "gruntwork-io/runbooks-plugins"
 const LOCK_FILE = "resources/plugins.lock"
 const BIN_DIR = "resources/bin"
+/** The protocol schemas the app is built against, which each pinned release must list byte for byte. */
+const SCHEMA_DIR = "plugin"
+const SCHEMA_FILE = /^[a-z0-9-]+\.schema\.json$/
 /** Where fetch stages its downloads: beside `resources/bin`, on its filesystem, and outside what is bundled. */
 const STAGING_PREFIX = ".plugins-download-"
 
@@ -50,8 +58,10 @@ export const EXIT = { ok: 0, mismatch: 1, usage: 2 } as const
 export const LIMITS = {
   /** One binary. The largest in v0.1.0 is 20.8 MB. */
   binaryBytes: 64 * 1024 * 1024,
-  /** A release's `SHA256SUMS`: one line per binary. */
+  /** A release's `SHA256SUMS`: one line per binary and schema. */
   sumsBytes: 64 * 1024,
+  /** One protocol schema in `plugin/`. */
+  schemaBytes: 1024 * 1024,
   /** The API's answer for one release. */
   releaseBytes: 1024 * 1024,
   /** One request, from sending it to the last byte of the answer. */
@@ -75,6 +85,7 @@ const USAGE = `usage:
   bun scripts/plugins/lock.ts fetch [--platform <os>-<arch>]
   bun scripts/plugins/lock.ts check [--platform <os>-<arch>] [--bin-dir <dir>]
   bun scripts/plugins/lock.ts bump <version>
+  bun scripts/plugins/lock.ts schemas
 --bin-dir is relative to the repo root; resources/bin when absent.
 platforms: ${Platform.literals.join(", ")}`
 
@@ -133,6 +144,11 @@ async function run(argv: ReadonlyArray<string>, context: Context): Promise<numbe
       if (version === undefined || more.length > 0) throw new UsageError("bump takes one version")
       return bump(context, versionOf(version))
     }
+    case "schemas":
+      if (rest.length > 0) refuse("arguments")
+      if (values.platform !== undefined) refuse("--platform")
+      if (values["bin-dir"] !== undefined) refuse("--bin-dir")
+      return checkSchemas(context, await pinnedPlugins(context))
     case undefined:
       throw new UsageError("no command given")
     default:
@@ -463,6 +479,79 @@ async function checkPlugins(
     return EXIT.mismatch
   }
   for (const binary of wanted) context.out(`${binary.sha256}  ${binary.file}`)
+  return EXIT.ok
+}
+
+// ---------------------------------------------------------------------------
+// schemas
+// ---------------------------------------------------------------------------
+
+async function schemasIn(dir: string): Promise<ReadonlyArray<string>> {
+  try {
+    return (await fs.readdir(dir)).filter((file) => SCHEMA_FILE.test(file)).sort()
+  } catch (error) {
+    if (Predicate.hasProperty(error, "code") && error.code === "ENOENT") return []
+    throw error
+  }
+}
+
+async function checkSchemas(
+  context: Context,
+  plugins: ReadonlyArray<PluginEntry>,
+): Promise<number> {
+  const dir = path.join(context.root, SCHEMA_DIR)
+  const inRepo = await schemasIn(dir)
+  const problems: Array<string> = []
+  const matched = new Map<string, string>()
+  for (const version of new Set(plugins.map((plugin) => plugin.version))) {
+    const release = `${REPO} v${version}`
+    const listed = await getText(
+      `${context.releases.download}/${REPO}/releases/download/v${version}/SHA256SUMS`,
+      context.limits.sumsBytes,
+      context.limits,
+    )
+    if (listed.kind === "failed") {
+      problems.push(`${release} SHA256SUMS: ${listed.reason}`)
+      continue
+    }
+    const { sums, problems: unreadable } = parseSums(listed.text)
+    problems.push(...unreadable)
+    const released = [...sums].filter(([file]) => SCHEMA_FILE.test(file))
+    if (released.length === 0) problems.push(`${release}: its SHA256SUMS lists no schema`)
+    for (const [file, sha256] of released) {
+      const at = `${SCHEMA_DIR}/${file}`
+      const present = await inspect(path.join(dir, file), context.limits.schemaBytes)
+      switch (present.kind) {
+        case "missing":
+          problems.push(`${at}: missing; ${release} lists it`)
+          break
+        case "notAFile":
+          problems.push(`${at}: not a regular file`)
+          break
+        case "tooLarge":
+          problems.push(`${at}: larger than ${context.limits.schemaBytes} bytes`)
+          break
+        case "file":
+          if (present.sha256 !== sha256)
+            problems.push(mismatch(`${at}, against ${release}`, sha256, present.sha256))
+          else matched.set(at, sha256)
+          break
+        default: {
+          const unhandled: never = present
+          throw new Error(`unhandled ${JSON.stringify(unhandled)}`)
+        }
+      }
+    }
+    for (const file of inRepo) {
+      if (!sums.has(file)) problems.push(`${SCHEMA_DIR}/${file}: not in ${release}'s SHA256SUMS`)
+    }
+  }
+  if (problems.length > 0) {
+    for (const problem of problems) context.err(problem)
+    context.err(`${SCHEMA_DIR}/ does not hold the schemas ${LOCK_FILE} pins.`)
+    return EXIT.mismatch
+  }
+  for (const [at, sha256] of matched) context.out(`${sha256}  ${at}`)
   return EXIT.ok
 }
 

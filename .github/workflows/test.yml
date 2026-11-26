@@ -33,6 +33,9 @@ jobs:
       - name: Typecheck
         run: bun check
 
+      - name: Plugin schemas are the pinned release's
+        run: just check-plugin-schemas
+
   test-unit:
     name: Unit Tests
     runs-on: ubuntu-latest

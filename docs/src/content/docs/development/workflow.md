@@ -69,7 +69,7 @@ just package
 
 ### Plugin binaries
 
-`resources/plugins.lock` pins the [runbooks-plugins](https://github.com/gruntwork-io/runbooks-plugins) release the app bundles, with one SHA-256 per binary, OS and architecture. Three recipes work from it:
+`resources/plugins.lock` pins the [runbooks-plugins](https://github.com/gruntwork-io/runbooks-plugins) release the app bundles, with one SHA-256 per binary, OS and architecture. Four recipes work from it:
 
 ```bash
 # Download the pinned binaries for this machine's platform, or another one, into resources/bin
@@ -82,9 +82,14 @@ just check-plugins darwin-arm64 out/mac-arm64/Runbooks.app/Contents/Resources/bi
 
 # Move to another release. This rewrites the lock, so the version and every hash change in one diff.
 just bump-plugins 0.3.0
+
+# Check that plugin/*.schema.json are the pinned release's schemas, byte for byte
+just check-plugin-schemas
 ```
 
 `fetch-plugins` downloads into a temporary folder and moves the binaries into `resources/bin` only when every hash matches the lock. On a mismatch it prints the asset, the expected hash and the actual one, and exits non-zero. `bump-plugins` reads the release's `SHA256SUMS` file and writes nothing if any hash in it differs from the digest GitHub's API gives for that asset.
+
+The protocol schemas in `plugin/` are the ones the pinned release lists in its `SHA256SUMS`, byte for byte. CI runs `check-plugin-schemas`, so a bump to a release whose schemas changed fails until `plugin/` holds that release's copies, which go in the same diff.
 
 ## Code quality
 

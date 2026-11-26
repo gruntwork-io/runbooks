@@ -533,6 +533,104 @@ describe("bump", () => {
   })
 })
 
+describe("schemas", () => {
+  const SCHEMAS = {
+    "base.schema.json": '{"title":"base"}\n',
+    "credential.schema.json": '{"title":"credential"}\n',
+  }
+
+  /** Writes `plugin/<file>` in the repo root for each schema given. */
+  const writeSchemas = (schemas: Readonly<Record<string, string>>) => {
+    mkdirSync(path.join(root, "plugin"), { recursive: true })
+    for (const [file, text] of Object.entries(schemas))
+      writeFileSync(path.join(root, "plugin", file), text)
+  }
+
+  /** Serves a release's SHA256SUMS: its binaries' lines, then one per schema, as plugins releases list them. */
+  const serveSums = (schemas: Readonly<Record<string, string>>, version = "0.1.0") => {
+    const lines = [
+      ...PLUGINS.flatMap((plugin) =>
+        PLATFORMS.map(
+          (platform) =>
+            `${sha256(binary(plugin, platform, version))}  ${asset(plugin, platform, version)}`,
+        ),
+      ),
+      ...Object.entries(schemas).map(([file, text]) => `${sha256(text)}  ${file}`),
+    ]
+    serve(`${RELEASES}/download/v${version}/SHA256SUMS`, `${lines.join("\n")}\n`)
+  }
+
+  it("passes when plugin/ holds exactly the pinned release's schemas, byte for byte, and prints their hashes", async () => {
+    writeSchemas(SCHEMAS)
+    serveSums(SCHEMAS)
+    expect(await run(["schemas"])).toBe(EXIT.ok)
+    expect(out).toEqual(
+      Object.entries(SCHEMAS).map(([file, text]) => `${sha256(text)}  plugin/${file}`),
+    )
+    expect(requests).toEqual([`${RELEASES}/download/v0.1.0/SHA256SUMS`])
+  })
+
+  it("names a schema whose bytes differ from the release's, with both hashes", async () => {
+    const changed = { ...SCHEMAS, "credential.schema.json": '{"title":"credential, changed"}\n' }
+    writeSchemas(changed)
+    serveSums(SCHEMAS)
+    expect(await run(["schemas"])).toBe(EXIT.mismatch)
+    expect(stderr()).toContain(
+      `plugin/credential.schema.json, against gruntwork-io/runbooks-plugins v0.1.0: SHA-256 mismatch\n  expected ${sha256(SCHEMAS["credential.schema.json"])}\n  actual   ${sha256(changed["credential.schema.json"])}`,
+    )
+    expect(stderr()).not.toContain("base.schema.json")
+    expect(out).toEqual([])
+  })
+
+  it("names a schema the release lists that plugin/ lacks, and one plugin/ holds that the release does not list", async () => {
+    writeSchemas({ "base.schema.json": SCHEMAS["base.schema.json"], "driver.schema.json": "{}\n" })
+    serveSums(SCHEMAS)
+    expect(await run(["schemas"])).toBe(EXIT.mismatch)
+    expect(stderr()).toContain(
+      "plugin/credential.schema.json: missing; gruntwork-io/runbooks-plugins v0.1.0 lists it",
+    )
+    expect(stderr()).toContain(
+      "plugin/driver.schema.json: not in gruntwork-io/runbooks-plugins v0.1.0's SHA256SUMS",
+    )
+  })
+
+  it("fails when the release's SHA256SUMS can't be read, or lists no schema", async () => {
+    writeSchemas(SCHEMAS)
+    expect(await run(["schemas"])).toBe(EXIT.mismatch)
+    expect(stderr()).toContain("gruntwork-io/runbooks-plugins v0.1.0 SHA256SUMS: ")
+    err = []
+    serveSums({})
+    expect(await run(["schemas"])).toBe(EXIT.mismatch)
+    expect(stderr()).toContain(
+      "gruntwork-io/runbooks-plugins v0.1.0: its SHA256SUMS lists no schema",
+    )
+  })
+
+  it("checks against every release the lock pins", async () => {
+    writeFileSync(
+      lockFile,
+      JSON.stringify({
+        plugins: [
+          { name: "aws", kind: "credential", version: "0.1.0", sha256: {} },
+          { name: "google", kind: "credential", version: "0.2.0", sha256: {} },
+        ],
+      }),
+    )
+    writeSchemas(SCHEMAS)
+    serveSums(SCHEMAS, "0.1.0")
+    serveSums({ ...SCHEMAS, "base.schema.json": '{"title":"base 0.2.0"}\n' }, "0.2.0")
+    expect(await run(["schemas"])).toBe(EXIT.mismatch)
+    expect(requests.sort()).toEqual([
+      `${RELEASES}/download/v0.1.0/SHA256SUMS`,
+      `${RELEASES}/download/v0.2.0/SHA256SUMS`,
+    ])
+    expect(stderr()).toContain(
+      "plugin/base.schema.json, against gruntwork-io/runbooks-plugins v0.2.0: SHA-256 mismatch",
+    )
+    expect(stderr()).not.toContain("against gruntwork-io/runbooks-plugins v0.1.0")
+  })
+})
+
 describe("usage", () => {
   it.each([
     [[]],
@@ -541,6 +639,8 @@ describe("usage", () => {
     [["fetch", "--bin-dir", "x"]],
     [["bump"]],
     [["check", "--color"]],
+    [["schemas", "extra"]],
+    [["schemas", "--platform", "linux-amd64"]],
   ])("refuses %j with the usage", async (args) => {
     expect(await run(args)).toBe(EXIT.usage)
     expect(stderr()).toContain("usage:")
