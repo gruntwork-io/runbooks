@@ -4,7 +4,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { Deferred, Effect, Fiber, Layer, Queue, type Scope, Stream } from "effect"
-import { RpcClient, type RpcMessage, RpcSerialization, type RpcServer } from "effect/rpc"
+import { type Rpc, RpcClient, type RpcMessage, RpcSerialization, type RpcServer } from "effect/rpc"
 import { type EngineClient, EngineProtocol } from "@runbooks/core/protocol"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
 import { FROM_PAGE, MAX_PAGE_MESSAGE, TO_PAGE } from "./bridge.ts"
@@ -533,8 +533,16 @@ describe("a runbook the launch names", () => {
    * Has the page send `ListSessions` before main serves anything, then serves
    * the launch of `argument` and returns what the page heard.
    */
-  const listFirst = (argument: string) =>
-    Effect.runPromise(
+  const listFirst = (argument: string, openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>) => {
+    const engine = Layer.merge(
+      appEngine({
+        userData: path.join(folder, "user data"),
+        appVersion: "0.31.0",
+        processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
+      }),
+      NodeFileSystemLive,
+    )
+    return Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const protocol = yield* makeIpcServerProtocol({
@@ -549,22 +557,15 @@ describe("a runbook the launch names", () => {
           yield* serveLaunch(protocol, { argument, startedIn: folder }, (line) =>
             logged.push(line),
           ).pipe(
-            Effect.provide(
-              Layer.merge(
-                appEngine({
-                  userData: path.join(folder, "user data"),
-                  appVersion: "0.31.0",
-                  processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
-                }),
-                NodeFileSystemLive,
-              ),
-            ),
+            // A handler given last takes the place of the engine's own.
+            Effect.provide(openSession === undefined ? engine : Layer.merge(engine, openSession)),
             Effect.forkScoped,
           )
           return yield* Fiber.join(listed)
         }),
       ),
     )
+  }
 
   it("is open when a page that asked before the open was done hears back", async () => {
     const sessions = await listFirst(FIXTURE)
@@ -580,6 +581,18 @@ describe("a runbook the launch names", () => {
     expect(logged[0]).toBe(`Runbooks could not open ${runbook}:`)
     expect(logged[1]).toStartWith(`  ${runbook}:3:1: `)
     expect(logged[1]).toContain("`javascript:` URLs")
+  })
+
+  it("is not open when the engine fails opening it, and main says so and serves the page", async () => {
+    // As a runbook nested deep enough to overflow the engine's stack does.
+    const dies = EngineProtocol.toLayerHandler("OpenSession", () =>
+      Effect.die(new RangeError("Maximum call stack size exceeded")),
+    )
+    const sessions = await listFirst(FIXTURE, dies)
+    expect(sessions).toEqual([])
+    expect(logged).toEqual([
+      `Runbooks could not open ${FIXTURE}: the engine failed: RangeError: Maximum call stack size exceeded`,
+    ])
   })
 
   it("is not open when nothing is at its path, and main says so", async () => {

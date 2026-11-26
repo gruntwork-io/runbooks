@@ -18,7 +18,7 @@
  *   finds no session, and shows the welcome screen.
  */
 import path from "node:path"
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import type { Rpc, RpcClientError, RpcServer } from "effect/rpc"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
 import type { EngineCommand, RunbookUnreadable } from "@runbooks/core/protocol"
@@ -101,10 +101,20 @@ const failureLine = (failure: LaunchFailure): string => {
   }
 }
 
+/** The line that says the engine failed opening `argument`: a defect, not an answer. */
+const defectLine = (argument: string, cause: Cause.Cause<unknown>): string => {
+  const defect = Cause.squash(cause)
+  const reason = defect instanceof Error ? `${defect.name}: ${defect.message}` : String(defect)
+  return `Runbooks could not open ${argument}: the engine failed: ${reason}`
+}
+
 /**
  * Opens the runbook `launch` names, as the person who launched the app, on
  * the engine in context. What kept it from opening goes to `log`: a line
- * for the runbook, then one for each error the engine found in it.
+ * for the runbook, then one for each error the engine found in it. When
+ * the engine fails instead of answering, as a runbook nested deep enough to
+ * overflow its stack makes it, that is one line too, and main still serves
+ * the page.
  */
 const openLaunch = (
   launch: Launch,
@@ -123,6 +133,11 @@ const openLaunch = (
   }).pipe(
     Effect.scoped,
     Effect.catch((failure) => Effect.sync(() => log(failureLine(failure)))),
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.failCause(cause)
+        : Effect.sync(() => log(defectLine(launch.argument, cause))),
+    ),
   )
 
 /**
