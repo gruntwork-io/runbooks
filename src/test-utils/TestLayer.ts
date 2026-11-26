@@ -214,6 +214,14 @@ const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientSh
         exitCode: 1,
       }),
     ),
+  countCommitsNotIn: (_repoPath, _ref) =>
+    Effect.fail(
+      new GitError({
+        command: "rev-list",
+        stderr: notConfigured("GitClient", "countCommitsNotIn"),
+        exitCode: 1,
+      }),
+    ),
   hasCommitsNotOnRemote: (_repoPath, _remote) =>
     Effect.fail(
       new GitError({

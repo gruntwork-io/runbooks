@@ -1021,6 +1021,11 @@ export interface IpcChannelMap {
     result: { url: string; number: number } | { error: string }
   }
   "git:delete-branch": { params: { worktreePath: string; branch: string }; result: { ok: true } }
+  /** Commits HEAD has that origin's copy of `baseBranch` (else the local one) doesn't. */
+  "git:commits-ahead": {
+    params: { worktreePath: string; baseBranch: string }
+    result: { count: number }
+  }
 
   // Workspace
   /** The tree of `worktreePath`, a repo or one of its folders, as getWorkspaceTree builds it. */

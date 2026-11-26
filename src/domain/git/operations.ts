@@ -233,6 +233,20 @@ const hasCommitsNotOnBase = (repoPath: string, baseBranch: string) =>
   })
 
 /**
+ * How many commits HEAD has that the base branch doesn't, measured the way
+ * hasCommitsNotOnBase measures it, so the PR/MR block's form agrees with what
+ * runGitSteps will do. 0 when neither base ref resolves.
+ */
+export const commitsAheadOfBase = (repoPath: string, baseBranch: string) =>
+  Effect.gen(function* () {
+    const gitClient = yield* GitClient
+    return yield* gitClient.countCommitsNotIn(repoPath, `refs/remotes/origin/${baseBranch}`).pipe(
+      Effect.catch(() => gitClient.countCommitsNotIn(repoPath, `refs/heads/${baseBranch}`)),
+      Effect.orElseSucceed(() => 0),
+    )
+  })
+
+/**
  * The provider's "already exists" rejection of a PR/MR (GitHub's 422, GitLab's
  * 409), restated for where runGitSteps has left things: the push to the head
  * branch landed first, so the commits are on the open PR/MR now. The

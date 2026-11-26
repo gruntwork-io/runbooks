@@ -1212,6 +1212,44 @@ describe("git:delete-branch", () => {
   })
 })
 
+describe("git:commits-ahead", () => {
+  let repo = ""
+
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repo,
+      stdio: "pipe",
+    }).toString()
+
+  beforeEach(async () => {
+    repo = fs.realpathSync(
+      fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-git-commits-ahead-")),
+    )
+    git("init", "-q", "-b", "main")
+    git("commit", "-q", "--allow-empty", "-m", "initial")
+    git("checkout", "-q", "-b", "feature")
+    git("commit", "-q", "--allow-empty", "-m", "one")
+    git("commit", "-q", "--allow-empty", "-m", "two")
+    await Effect.runPromise(
+      sessionManager.createSession(repo).pipe(Effect.provide(makeTestEnvironment({}))),
+    )
+  })
+
+  afterEach(() => {
+    sessionManager.deleteSession()
+    fs.rmSync(repo, { recursive: true, force: true })
+  })
+
+  it("returns { count } of HEAD's commits over the base branch", async () => {
+    const result = await handlers.get("git:commits-ahead")!(event, {
+      worktreePath: repo,
+      baseBranch: "main",
+    })
+
+    expect(result).toEqual({ count: 2 })
+  })
+})
+
 // A Data.TaggedError without a `message` field (SessionNotFoundError,
 // SpawnError, FileReadError, ...) has an empty Error.message. Every git
 // handler must still give the renderer text that names the failure: an empty
