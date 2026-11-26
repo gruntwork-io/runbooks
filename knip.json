@@ -25,7 +25,7 @@
     "packages/platform-node/src/fixtures/*.ts"
   ],
   "project": [
-    "{src,electron,web,cli,scripts,test}/**/*.{ts,tsx}",
+    "{src,electron,web,cli,scripts,test,e2e}/**/*.{ts,tsx}",
     ".github/scripts/**/*.mjs",
     "{packages,blocks,baseline}/**/*.{ts,tsx}"
   ],
@@ -44,7 +44,8 @@
     "config": [
       "playwright.config.ts",
       "web/playwright.config.ts",
-      "electron/e2e/playwright.config.ts"
+      "electron/e2e/playwright.config.ts",
+      "e2e/playwright.config.ts"
     ]
   }
 }

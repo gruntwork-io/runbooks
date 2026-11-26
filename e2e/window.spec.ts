@@ -1,0 +1,210 @@
+/**
+ * The rebuilt app's window, as its page and its user can find it: it shows
+ * the renderer, runs no string as code, has no Node, runs in the OS sandbox,
+ * stays on its page, opens no other window, denies every permission, and
+ * keeps nothing in storage across a restart.
+ *
+ * Runs against the build in app-out/: `just app-test-e2e` builds it first.
+ */
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
+import { pathToFileURL } from "node:url"
+import {
+  _electron as electron,
+  expect,
+  test as base,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test"
+import { readFromMain, runInMain } from "../electron/e2e/main-process.ts"
+
+const OUT = path.join(import.meta.dirname, "..", "app-out")
+const MAIN = path.join(OUT, "main", "index.js")
+const PAGE = pathToFileURL(path.join(OUT, "renderer", "index.html")).href
+
+interface Launched {
+  readonly app: ElectronApplication
+  readonly page: Page
+}
+
+const test = base.extend<{
+  /** A user data folder of the test's own, removed after it. */
+  userDataDir: string
+  /** Launches the app on `userDataDir` and waits for its page. Each app still open is closed after the test. */
+  launch: () => Promise<Launched>
+}>({
+  userDataDir: async ({}, use) => {
+    // Electron reports the folder with symlinks resolved, and macOS's /var is /private/var.
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-app-e2e-")))
+    await use(dir)
+    fs.rmSync(dir, { recursive: true, force: true })
+  },
+  launch: async ({ userDataDir }, use) => {
+    const open = new Set<ElectronApplication>()
+    await use(async () => {
+      const app = await electron.launch({ args: [MAIN, `--user-data-dir=${userDataDir}`] })
+      open.add(app)
+      app.on("close", () => open.delete(app))
+      const page = await app.firstWindow()
+      await expect(page.getByRole("heading", { name: "Runbooks" })).toBeVisible()
+      return { app, page }
+    })
+    for (const app of open) await app.close()
+  },
+})
+
+/**
+ * What `script` gives when it runs as the page's own script. Code that
+ * page.evaluate runs is DevTools code, which Chromium lets evaluate strings
+ * whatever the page's CSP says, so this runs it through the window's
+ * executeJavaScript.
+ */
+function runAsPage(app: ElectronApplication, script: string): Promise<unknown> {
+  return readFromMain(
+    app,
+    ({ BrowserWindow }, code) => {
+      const [appWindow] = BrowserWindow.getAllWindows()
+      if (!appWindow) throw new Error("the app has no window")
+      return appWindow.webContents.executeJavaScript(code)
+    },
+    script,
+  )
+}
+
+/** Has the app record each URL it would open in the browser, and returns a reader of that list. */
+async function recordBrowserOpens(app: ElectronApplication): Promise<() => Promise<unknown>> {
+  await runInMain(
+    app,
+    ({ shell }) => {
+      const opened: string[] = []
+      Object.assign(globalThis, { opened })
+      shell.openExternal = async (url) => void opened.push(url)
+    },
+    undefined,
+  )
+  return () => readFromMain(app, () => Reflect.get(globalThis, "opened"), undefined)
+}
+
+/**
+ * Whether the OS sandboxes the window's renderer process. macOS and Windows
+ * report it. On Linux, which doesn't, a sandboxed renderer runs under a
+ * seccomp-bpf filter (`Seccomp: 2`) and an unsandboxed one under none.
+ */
+async function rendererSandboxed(app: ElectronApplication): Promise<boolean> {
+  const { pid, sandboxed } = await readFromMain(
+    app,
+    ({ app: electronApp, BrowserWindow }) => {
+      const [appWindow] = BrowserWindow.getAllWindows()
+      if (!appWindow) throw new Error("the app has no window")
+      const rendererPid = appWindow.webContents.getOSProcessId()
+      const metric = electronApp.getAppMetrics().find((m) => m.pid === rendererPid)
+      return { pid: rendererPid, sandboxed: metric?.sandboxed }
+    },
+    undefined,
+  )
+  if (sandboxed !== undefined) return sandboxed
+  return /^Seccomp:\s+2$/m.test(fs.readFileSync(`/proc/${pid}/status`, "utf8"))
+}
+
+test.describe("the rebuilt app's window", () => {
+  test("shows the renderer's page", async ({ launch }) => {
+    const { page } = await launch()
+    expect(page.url()).toBe(PAGE)
+    await expect(page).toHaveTitle("Runbooks")
+  })
+
+  test("refuses to run a string as code: eval, Function and an inline script", async ({
+    launch,
+  }) => {
+    const { app } = await launch()
+    const refused = await runAsPage(
+      app,
+      `(() => {
+        const run = (code) => { try { code(); return "ran" } catch (error) { return error.constructor.name } }
+        const inline = document.createElement("script")
+        inline.textContent = "window.inlineRan = true"
+        document.head.append(inline)
+        return {
+          eval: run(() => eval("1")),
+          Function: run(() => new Function("return 1")),
+          inlineScript: window.inlineRan === true ? "ran" : "refused",
+        }
+      })()`,
+    )
+    expect(refused).toEqual({ eval: "EvalError", Function: "EvalError", inlineScript: "refused" })
+  })
+
+  test("has no require or process", async ({ launch }) => {
+    const { page } = await launch()
+    expect(await page.evaluate(() => [typeof require, typeof process])).toEqual([
+      "undefined",
+      "undefined",
+    ])
+  })
+
+  test("runs its renderer in the OS sandbox", async ({ launch }) => {
+    const { app } = await launch()
+    expect(await rendererSandboxed(app)).toBe(true)
+  })
+
+  test("stays on its page, and opens an https link in the browser instead", async ({ launch }) => {
+    const { app, page } = await launch()
+    const opened = await recordBrowserOpens(app)
+    await page.evaluate(() => {
+      location.href = "https://example.invalid/away"
+    })
+    await expect.poll(opened).toEqual(["https://example.invalid/away"])
+    // Locators would wait for the refused navigation to finish, and it never does.
+    const shown = await page.evaluate(() => [
+      location.href,
+      document.querySelector("h1")?.textContent,
+    ])
+    expect(shown).toEqual([PAGE, "Runbooks"])
+  })
+
+  test("opens no other window, and opens only an http or https URL in the browser", async ({
+    launch,
+  }) => {
+    const { app, page } = await launch()
+    const opened = await recordBrowserOpens(app)
+    const windows = await page.evaluate(() =>
+      ["file:///etc/hosts", "https://example.invalid/new"].map((url) => window.open(url)),
+    )
+    expect(windows).toEqual([null, null])
+    await expect.poll(opened).toEqual(["https://example.invalid/new"])
+    expect(app.windows()).toHaveLength(1)
+  })
+
+  test("denies the page every permission it asks for", async ({ launch }) => {
+    const { page } = await launch()
+    const answers = await page.evaluate(async () => ({
+      request: await Notification.requestPermission(),
+      check: (await navigator.permissions.query({ name: "geolocation" })).state,
+    }))
+    expect(answers).toEqual({ request: "denied", check: "denied" })
+  })
+
+  test("keeps nothing in localStorage across a restart", async ({ launch }) => {
+    const first = await launch()
+    await first.page.evaluate(() => localStorage.setItem("probe", "kept"))
+    expect(await first.page.evaluate(() => localStorage.getItem("probe"))).toBe("kept")
+    await first.app.close()
+
+    const second = await launch()
+    expect(await second.page.evaluate(() => localStorage.getItem("probe"))).toBeNull()
+  })
+
+  test("keeps its user data in the folder --user-data-dir names", async ({
+    launch,
+    userDataDir,
+  }) => {
+    const { app } = await launch()
+    const folder = await readFromMain(
+      app,
+      ({ app: electronApp }) => electronApp.getPath("userData"),
+      undefined,
+    )
+    expect(folder).toBe(userDataDir)
+  })
+})

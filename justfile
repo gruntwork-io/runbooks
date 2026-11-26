@@ -331,3 +331,7 @@ app-build:
 # Start the rebuilt app in dev mode, its page from Vite's dev server (HMR, no CSP)
 app-dev: _electron-binary
     mise x node -- npx electron-vite dev -c electron.vite.app.config.ts --entry app-out/main/index.js
+
+# Build the rebuilt app and run its Playwright specs (e2e/)
+app-test-e2e: app-build
+    mise x bun -- bunx playwright test --config e2e/playwright.config.ts
