@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { Deferred, Effect, Schema, Stream } from "effect"
+import { Deferred, Effect, Redacted, Schema, Stream } from "effect"
 import { endWithExitCode, TaskFailed } from "@runbooks/blocks-core/contract"
 import { defineTask, type TaskEvent } from "@runbooks/blocks-core/contract"
 import type { Registry } from "@runbooks/blocks-core/registry"
@@ -45,8 +45,10 @@ const ScriptProps = Schema.Struct({
   say: Schema.optionalKey(Schema.Array(Schema.String)),
   /** `key=value` each. */
   outputs: Schema.optionalKey(Schema.Array(Schema.String)),
-  /** A file written in the generated folder, holding "hello". */
+  /** A file left in `$GENERATED_FILES`, holding "hello", as a script leaves one. */
   write: Schema.optionalKey(Schema.String),
+  /** A file in the generated folder the run reports it removed. */
+  removes: Schema.optionalKey(Schema.String),
   exit: Schema.optionalKey(Schema.Int),
   hang: Schema.optionalKey(Schema.Boolean),
   signal: Schema.optionalKey(Schema.String),
@@ -86,12 +88,22 @@ const script = defineTask({
           ),
         ]
         if (p.write !== undefined) {
-          const file = path.join(input.roots.generated, p.write)
-          yield* fs.mkdir(input.roots.generated, { recursive: true }).pipe(
-            Effect.andThen(fs.writeFile(file, "hello\n")),
-            Effect.mapError(() => new TaskFailed({ message: `could not write ${file}` })),
-          )
+          const folder = input.env["GENERATED_FILES"]
+          if (folder === undefined)
+            return yield* new TaskFailed({ message: "The run has no GENERATED_FILES." })
+          const file = path.join(Redacted.value(folder), p.write)
+          yield* fs
+            .writeFile(file, "hello\n")
+            .pipe(Effect.mapError(() => new TaskFailed({ message: `could not write ${file}` })))
         }
+        if (p.removes !== undefined)
+          steps.push(
+            Stream.make({
+              _tag: "File" as const,
+              path: path.join(input.roots.generated, p.removes),
+              change: "deleted" as const,
+            }),
+          )
         steps.push(
           Stream.fromIterable(
             outputPairs(p).map(([key, value]) => ({ _tag: "Output" as const, key, value })),
@@ -254,6 +266,74 @@ tests:
     expect(test!.steps[0]!.assertions).toEqual([
       { type: "output_matches", passed: true },
       { type: "file_matches", passed: false, message: "out.txt does not match ^hello\\-?$." },
+    ])
+  })
+
+  it("counts for files_generated only the files the named block generated, as today's CLI does", async () => {
+    runbook(
+      `${BUILD}\n\n<Script id="clean" write="new.txt" removes="old.txt" />`,
+      `version: 1
+tests:
+  - name: by block
+    inputs:
+      config.region: us-west-2
+    steps:
+      - block: build
+      - block: lint
+        expect: warn
+    assertions:
+      - { type: files_generated, block: build }
+      - { type: files_generated, block: lint }
+  - name: by count
+    steps:
+      - block: build
+    assertions:
+      - { type: files_generated, block: build, min_count: 2 }
+  - name: no such block
+    steps:
+      - block: build
+    assertions:
+      - { type: files_generated, block: nope }
+  - name: not what it removed
+    steps:
+      - block: clean
+    assertions:
+      - { type: files_generated, block: clean, min_count: 2 }
+`,
+    )
+    const { code, stdout } = await runTest(["rb", "--output", "json"])
+    expect(code).toBe(1)
+    const tests = decodeReport(JSON.parse(stdout)).runbooks[0]!.tests
+    expect(tests.map((test) => test.assertions)).toEqual([
+      [
+        { type: "files_generated", passed: true },
+        {
+          type: "files_generated",
+          passed: false,
+          message: "lint generated 0 files, fewer than 1.",
+        },
+      ],
+      [
+        {
+          type: "files_generated",
+          passed: false,
+          message: "build generated 1 file, fewer than 2.",
+        },
+      ],
+      [
+        {
+          type: "files_generated",
+          passed: false,
+          message: 'The runbook has no block with the id "nope".',
+        },
+      ],
+      [
+        {
+          type: "files_generated",
+          passed: false,
+          message: "clean generated 1 file, fewer than 2.",
+        },
+      ],
     ])
   })
 

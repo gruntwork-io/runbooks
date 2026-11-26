@@ -83,8 +83,6 @@ const CREDENTIAL_WAIT_MILLIS = 30_000
 const REPORTED_LOG_LINES = 200
 /** The largest file a file assertion reads. */
 const MAX_ASSERTED_FILE_BYTES = 1024 * 1024
-/** The most files `files_generated` counts before it stops looking. */
-const MAX_COUNTED_FILES = 10_000
 
 const UNITS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 } as const
 
@@ -492,16 +490,21 @@ const check = (s: Session, a: Assertion) =>
         )
       }
       case "files_generated": {
-        const count = yield* fs.walk(s.generated).pipe(
-          Stream.filter((entry) => entry.isFile),
-          Stream.take(MAX_COUNTED_FILES),
-          Stream.runCount,
-          Effect.orElseSucceed(() => 0),
-        )
+        const files = yield* s.client
+          .GetBlock({ session: s.session, block: toBlockId(a.block), logLimit: 0 })
+          .pipe(
+            Effect.map((view) => Option.some(view.files ?? [])),
+            Effect.catchTag("UnknownBlock", () => Effect.succeedNone),
+          )
+        if (Option.isNone(files))
+          return assertion(a.type, `The runbook has no block with the id "${a.block}".`)
+        const count = files.value.filter(({ change }) => change !== "deleted").length
         const wanted = a.min_count ?? 1
         return assertion(
           a.type,
-          count >= wanted ? undefined : `${count} files were generated, fewer than ${wanted}.`,
+          count >= wanted
+            ? undefined
+            : `${a.block} generated ${count} ${count === 1 ? "file" : "files"}, fewer than ${wanted}.`,
         )
       }
       case "script":
