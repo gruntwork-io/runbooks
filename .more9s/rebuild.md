@@ -12,7 +12,8 @@ The running index of the rebuild stack. Update it whenever the stack changes.
 - On 2026-11-26 (UTC) the human merged #582 and #585 to #594 the same way: `rebuild/main` d845152e. GitHub rebased #595 onto it (f8229880), so it is not force-pushed from here; this index commit leaves it one commit behind. A rework of a merged PR comes as a new PR on top of the stack (#596 for #594, #597 for #589), never as a push to the merged branch.
 - On 2026-11-26 no PR was merged. #598 to #607 went on top of #597, and runbooks-reviewer's finding 6 (test CLI false greens) closed with #601 to #604. #598 is held for decision 9 (Waiting on the human), and #599 and up are stacked on it: if decision 9 goes another way, they rebase onto #597 with `git rebase --onto`.
 - Later on 2026-11-26 the human merged #595 to #597 (`rebuild/main` e3e6b8b0), ruled decision 9 (env only) and had #598 closed. Stack #519 had reached GitHub's cap of 100 PRs, merged ones included, so it was unstacked, and #599 to #612 were rebased off #598 onto e3e6b8b0 and linked as stack #614. The human then merged #599 to #611 the same way: `rebuild/main` 242b4e8c. GitHub rebased #612 onto it (50c89a80), so it is not force-pushed from here; this index commit leaves it one commit behind.
-- **Keep it stacked.** The open PRs are GitHub stack #614, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/614`); #519 holds #496 to #598. `.more9s/stack.sh` keeps it that way:
+- Later on 2026-11-26 the human merged #612 and #615 to #625 the same way (`rebuild/main` c0df6d11). #626's base, #625, was merged while #626 sat in stack #614, and GitHub refuses a base change inside a stack, so #614 was unstacked, #626 rebased onto `rebuild/main`, and #626 and #627 linked as stack **#628**. #629 to #634 followed on top. This index commit leaves #626 one commit behind; its diff is unaffected, and it is not restacked, so the reviewed heads stay as reviewed.
+- **Keep it stacked.** The open PRs are GitHub stack #628, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/628`); #519 holds #496 to #598, and #614 holds #599 to #625. `.more9s/stack.sh` keeps it that way:
   - `add <branch> <title> <body-file>` opens each new PR as a draft on the top of the stack, links it into #614, and waits until GitHub lists it on top (two adds in a row once based the second on the PR below the first). Once it is green, send it to runbooks-reviewer, and mark it ready with `gh pr ready` only when the review passes. Don't open a rebuild PR with `gh pr create` alone.
   - `restack` (`--dry-run` first, in a linked worktree) is needed after any commit to `rebuild/main`, such as an index update, or to a lower branch. It rebases each branch onto the one below and force-pushes it with a lease. CI then reruns on every PR above the change, so batch index updates.
   - `check` exits 1 if a PR's base is not the head below it, or if a head lacks commits its base has.
@@ -160,11 +161,19 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 96j | #619 | 2 | `rebuild/p2-settings-import-once` | p2-events-docs | merged | review group 11: today's settings are imported once (`settings.imported`) |
 | 96k | #620 | 2 | `rebuild/p2-sessions-db-open` | p2-settings-import-once | merged | review group 11: the sessions database waits for another's lock, and migrates in one transaction |
 | 96l | #621 | 2 | `rebuild/p2-env-templates` | p2-sessions-db-open | merged | decision 9: `env` values fill in `{{ }}`, and take numbers and booleans again |
-| 96m | #622 | 2 | `rebuild/p2-script-contract` | `rebuild/main` | ready (reviewer passed) | contract change: `TaskBlock.scripts` (`ScriptSource`) |
-| 96n | #623 | 2 | `rebuild/p2-script-template-error` | p2-script-contract | ready (reviewer passed) | decision 9 and the no-checks ruling: a script runs as written and makes no edges; migrations to `env`; Command docs |
-| 96o | #624 | 2 | `rebuild/p2-sessions-db-damaged` | p2-script-template-error | ready (reviewer passed) | review group 11: a damaged sessions database (`quick_check`) is left as it is |
-| 96p | #625 | 2 | `rebuild/p2-settings-temp-name` | p2-sessions-db-damaged | ready (reviewer passed) | review group 11: each settings write has its own temporary file |
-| 97 | none | 2 | the rest of the `rebuild/main` review's fixes | p2-settings-temp-name | planned | see Follow-ups owed |
+| 96m | #622 | 2 | `rebuild/p2-script-contract` | `rebuild/main` | merged | contract change: `TaskBlock.scripts` (`ScriptSource`) |
+| 96n | #623 | 2 | `rebuild/p2-script-template-error` | p2-script-contract | merged | decision 9 and the no-checks ruling: a script runs as written and makes no edges; migrations to `env`; Command docs |
+| 96o | #624 | 2 | `rebuild/p2-sessions-db-damaged` | p2-script-template-error | merged | review group 11: a damaged sessions database (`quick_check`) is left as it is |
+| 96p | #625 | 2 | `rebuild/p2-settings-temp-name` | p2-sessions-db-damaged | merged | review group 11: each settings write has its own temporary file |
+| 96q | #626 | 2 | `rebuild/p2-review-smalls` | `rebuild/main` | ready (reviewer passed) | runbooks-reviewer's notes on #621, #623 and #625: the `{{ "{{" }}` hint, `Object.hasOwn`, a refused task's props not read, `replaceWith`'s own error |
+| 96r | #627 | 2 | `rebuild/p2-cli-contract` | p2-review-smalls | ready (reviewer passed) | review group 12: `validate` reads `RUNBOOKS_OUTPUT=junit` as text; a test file that can't be loaded fails its runbook's `config` test |
+| 96s | #629 | 2 | `rebuild/p2-task-time-limit` | p2-cli-contract | ready (reviewer passed) | contract change: `TaskBlock.timeLimit`, kept by the engine |
+| 96t | #630 | 2 | `rebuild/p2-test-ignores-timeouts` | p2-task-time-limit | ready (reviewer passed) | review group 12: `runbooks test` ignores a block's own time limit, as today (`blockTimeLimits`) |
+| 96u | #631 | 2 | `rebuild/p2-load-flakes` | p2-test-ignores-timeouts | draft | three tests that failed with other suites running (#620's second writer, #608's one-pass ratio, the CLI tests' case-folder check), and #608's Blocked note |
+| 96v | #632 | 2 | `rebuild/p2-core-environment` | p2-load-flakes | draft | review group 9: the core reads the app's environment only through `Environment` |
+| 96w | #633 | 2 | `rebuild/p2-lint-gaps` | p2-core-environment | draft | review group 9: the lint gaps, and a test of each `block.ts`'s import graph |
+| 96x | #634 | 2 | `rebuild/p2-walk-bound` | p2-lint-gaps | draft | review group 9: a walk holds at most 256 entries for its reader |
+| 97 | none | 2 | the rest of the `rebuild/main` review's fixes | p2-walk-bound | planned | see Follow-ups owed |
 | 98 | none | A | `rebuild/pA-plugins-lock` | row 97 | planned (built) | A.5 (`resources/plugins.lock`, its loader) |
 | 99 | none | A | `rebuild/pA-plugins-recipes` | pA-plugins-lock | planned (built) | A.5 (fetch, check and bump recipes) |
 | 100 | none | A | `rebuild/pA-plugins-packaging` | pA-plugins-recipes | planned (built) | A.6 (CI and release check the bundled binaries; `mac.signIgnore`) |
@@ -329,6 +338,7 @@ Choices of my own that need a ruling (not among the 18):
 | A link inside a folder a block names is refused (#595 Decision 1); `docs/intro/files_workspace.mdx:125-131` documents following links that stay in the folder | refuse (built), or follow a link whose real path is inside the runbook's folder | #595 |
 | The 2000-entry cap on a named folder now counts folders as well as files (#595 Decision 2) | keep, or count files only | #595 |
 | A block id is ASCII letters, digits, `-` and `_` (#590); authors see it as a parse error | keep, or widen the pattern | #590 |
+| The credential contract's six `[account]` cases need real AWS, GCP and Azure accounts, and the Azure waiting case needs `az` installed where it runs | provide test accounts (and `az`) for a run, or leave those cases unrun | the track-A lock PR's Gaps (row 98) |
 
 ## Failed attempts
 
@@ -372,25 +382,22 @@ Choices of my own that need a ruling (not among the 18):
 | The owner hashes a binary, then spawns it by path; a stream whose reader stalls stalls the session until a timeout; one group kill after exit leaves a pid-reuse window | before phase 6 |
 | The plugin-binary lint misses a name built without `runbooks-` in one string | if it matters |
 | An unknown error kind's raw name, and `values` detection-source values, are not scanned for secrets | phase 3 |
-| The contract suite has offline scenarios for AWS only; Google and Azure need a scenarios file | runbooks-plugins session |
+| The contract suite has offline scenarios built in for AWS only. runbooks-plugins wrote Google's and Azure's (2026-11-26; scratchpad `contract-scenarios/`); they go into the tree with the lock PR. Against the v0.2.0 darwin_arm64 binaries: aws `5 pass`, google `5 pass`, azure `2 pass 3 fail` (`select` before sign-in answers invalidParams; an unknown sign-in field isn't refused; no `az` here). Plugins #50 and #51 fix the first two for a 0.2.1 | row 98, against the first release that passes |
+| A bad `RUNBOOKS_OUTPUT` gives `Invalid value for flag --output: "config". Expected: SchemaError(...)`: it names neither the value given nor the variable, and says "flag" though none was given (runbooks-reviewer on #627) | phase 3, with the CLI's help and errors |
+| From group 9 (#632 to #634): in block views, `window.` and `self.` get around `no-restricted-globals`; the import ban names `bun`, `bun:sqlite`, `bun:ffi`, not `bun:*`; the graph test covers `block.ts` only, treats npm packages as leaves and takes each alias's first target; `fs.readdir` still lists a folder whole; a walk that stops when its reader stops is untested; `unbornBranchName` has no caller | if they matter |
 | Dev mode is not wired to `fakeCredentialProviders`; `just dev` does not fetch plugins; nothing reads the shipped `plugins.lock` | phase 3 |
 | Bump `resources/plugins.lock` to the plugins release that sends `envValue.file` | track A, when released |
 | Real Developer ID signing and notarization with `mac.signIgnore` | the first release run |
 | A large org's target list can pass the 1 MiB line cap (the plugins answer `internal`): page `targets` | a later contract change |
-| The `rebuild/main` review at 17064004, groups still to fix: lint gaps, the import-graph test and the walk bound (group 9); the schema byte check, with row 98 (group 10; the protocol stays "1"); the CLI contract (a bad test file in JUnit; `RUNBOOK_OUTPUT=junit` and `validate`) (group 12); parse smalls, `literalOnly`, owner TOCTOU and stdout close (group 13); hash-then-spawn (group 14, before phase 3). Groups 8 and 11 are done (#612 to #620, #624, #625) | row 97, one subagent at a time |
+| The `rebuild/main` review at 17064004, groups still to fix: the schema byte check, with row 98 (group 10; the protocol stays "1"); parse smalls, `literalOnly`, owner TOCTOU and stdout close (group 13); hash-then-spawn (group 14, before phase 3). Groups 8 and 11 are done (#612 to #620, #624, #625), group 12 is #627 to #630, and group 9 is #632 to #634 | row 97, one subagent at a time |
 | Inferred from that review, not reproduced: a second Ctrl-C or SIGTERM and process groups; run files 0644 in tmpdir; `valueLength` 128K over `MAX_ARG_STRLEN`; `agentAccess`/`confirmAgentRuns` not read (gate before MCP) | reproduce first |
 | `boilerplate.yml` readers (`config.ts:388`, `warmEligibility.ts:95`) move to `yamlData` | phase 4, Template |
 | `openFileTail.finish()` reads what is left of a log file in one go when the child ends (#594) | before phase 6 |
-| A test that walks each `blocks/*/block.ts` import graph, through the aliases, and fails on a `node:` or built-in module (#597 checks direct imports only; runbooks-reviewer has a walker) | row 97, with the lint gaps |
-| `NodeFileSystem.walk`'s queue is unbounded and doesn't wait for a slow reader; the generated-files copy (#603) feeds it a folder a script fills | row 97, with the bounds |
-| `runbooks test` applies a Command's `timeoutMs`; today's CLI ignores it (`testing.mdx:102`, `:439`), and a block it stops reports `timeout`, which no `expect` matches. Not a ruled change: restore today's behaviour | row 97 |
 | Command has no `exclusive` prop (`validate` warns it is ignored) | phase 3, with run order |
 | No saved session keeps `BlockView.files` (#602) | phase 5, the files panel |
 | Template and TemplateInline report their files as `File` events, so `files_generated` counts them | phase 4, Template |
 | Old-tree CI flakes: `GitAuth.switch` Reload (a stale-effect race), and `SessionName.test.tsx`'s refused-name focus check (#603's first run) | before phase 6, or with the old tree's deletion |
-| #608's timing test doesn't assert that each of the 16 short opens is Blocked (runbooks-reviewer) | the next PR that touches `engine.test.ts`'s timing tests |
 | Opening a 3200-block runbook takes 42 to 57 times a 200-block one (16 times the blocks), even with #608: something in open or parse grows faster than linear past about 800 blocks. Not investigated | with the bounds (row 97) |
-| From runbooks-reviewer on #621 and #623: the load error for a `{{ }}` `env` can't fill in should say how to write `{{` as text (`{{ "{{" }}`); a test that pins `Object.hasOwn` in the map-key walk; and a block whose props fail to decode is not asked for its `scripts`, so its script prop is read for references again (a false `missingReference` beside the real `badProp`); in `replaceWith`'s catch, an `fs.rm` that throws hides the write's own error (`.catch(() => {})` keeps it, #625) | one small PR after group 11 |
 | `if hasKey` stays refused in `env` (runbooks-reviewer). GitClone's optional output: the block always gives it, empty when it doesn't apply, and a script tests `[ -n "$X" ]` | phase 4, GitClone |
 | Check must declare `scripts`, so its script makes no edges | phase 4, Check |
 | A sessions database that can't be used (damaged, foreign, newer) is only an `Effect.logWarning`; the person must see it, as settings' `problems` | phase 3, when the database is wired |

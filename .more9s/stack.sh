@@ -15,7 +15,7 @@
 #       Open a draft PR from <branch> on the top of the stack, and link it.
 set -euo pipefail
 REPO=gruntwork-io/runbooks
-STACK=614
+STACK=628
 
 # Sets trunk, and numbers/heads/bases of the stack's open PRs, bottom up.
 read_stack() {
