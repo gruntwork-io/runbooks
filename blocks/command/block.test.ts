@@ -8,8 +8,20 @@ import { serveEngine } from "@runbooks/core/handlers"
 import { type EngineClient, makeInProcessClient } from "@runbooks/core/inProcess"
 import type { SessionId } from "@runbooks/core/protocol"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
-import { type OutputLine, ProcessSpawner } from "@runbooks/core/services/ProcessSpawner"
-import { testCredentialProviders } from "@runbooks/core/test-utils/TestCredentialProviders"
+import {
+  type OutputLine,
+  ProcessSpawner,
+  type ProcessSpawnerShape,
+} from "@runbooks/core/services/ProcessSpawner"
+import {
+  recordFileSystem,
+  recordProcessSpawner,
+  type ServiceCall,
+} from "@runbooks/core/test-utils/ServiceCalls"
+import {
+  type ProviderCall,
+  testCredentialProviders,
+} from "@runbooks/core/test-utils/TestCredentialProviders"
 import { testFileSystem } from "@runbooks/core/test-utils/TestFileSystem"
 import { testSessionStore } from "@runbooks/core/test-utils/TestSessionStore"
 import { testSettingsStore } from "@runbooks/core/test-utils/TestSettingsFile"
@@ -48,7 +60,7 @@ interface Does {
 
 const fakeBash = (files: ReturnType<typeof testFileSystem>, does: (spawn: Spawn) => Does) => {
   const spawns: Spawn[] = []
-  const layer = Layer.succeed(ProcessSpawner, {
+  const spawner: ProcessSpawnerShape = {
     spawn: (program, args, options) =>
       Effect.gen(function* () {
         const script = yield* Effect.orDie(files.readFile(args.at(-1)!))
@@ -84,8 +96,8 @@ const fakeBash = (files: ReturnType<typeof testFileSystem>, does: (spawn: Spawn)
           }),
         }
       }),
-  })
-  return { layer, spawns }
+  }
+  return { spawner, spawns }
 }
 
 interface Session {
@@ -93,6 +105,10 @@ interface Session {
   readonly session: SessionId
   readonly files: Record<string, string>
   readonly spawns: ReadonlyArray<Spawn>
+  /** Each call the engine and the block made to the file system and the spawner. */
+  readonly calls: ReadonlyArray<ServiceCall>
+  /** Each call to a credential provider. */
+  readonly providerCalls: ReadonlyArray<ProviderCall>
   readonly run: (block: string) => Effect.Effect<BlockStatus | undefined, unknown>
   readonly start: (block: string) => Effect.Effect<unknown, unknown>
   readonly status: (block: string) => Effect.Effect<BlockStatus | undefined, unknown>
@@ -111,6 +127,8 @@ const withSession = <A>(
   const files: Record<string, string> = { [RUNBOOK]: runbook, ...options.files }
   const fs = testFileSystem(files, ["/rb"])
   const bash = fakeBash(fs, options.does ?? (() => ({})))
+  const calls: ServiceCall[] = []
+  const providerCalls: ProviderCall[] = []
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -135,7 +153,17 @@ const withSession = <A>(
               (ended) => ended.block.status,
             ),
           )
-        return yield* use({ client, session, files, spawns: bash.spawns, run, start, status })
+        return yield* use({
+          client,
+          session,
+          files,
+          spawns: bash.spawns,
+          calls,
+          providerCalls,
+          run,
+          start,
+          status,
+        })
       }).pipe(
         Effect.provide(
           serveEngine({
@@ -146,10 +174,15 @@ const withSession = <A>(
             processEnvironment: { PATH: "/usr/bin:/bin", HOME: "/home/someone" },
           }),
         ),
-        Effect.provide(testCredentialProviders({}, [])),
+        Effect.provide(testCredentialProviders({}, providerCalls)),
         Effect.provide(testSettingsStore()),
         Effect.provide(testSessionStore()),
-        Effect.provide(Layer.merge(Layer.succeed(FileSystem, fs), bash.layer)),
+        Effect.provide(
+          Layer.merge(
+            Layer.succeed(FileSystem, recordFileSystem(fs, calls)),
+            Layer.succeed(ProcessSpawner, recordProcessSpawner(bash.spawner, calls)),
+          ),
+        ),
       ),
     ),
   )
@@ -457,20 +490,20 @@ describe("a command that cannot run", () => {
     expect(spawns).toBe(0)
   })
 
-  it("is refused before the session is trusted, and makes no file", async () => {
-    const [refusal, spawns, files] = await withSession(
+  it("is refused before the session is trusted, having read nothing but the runbook", async () => {
+    const [refusal, calls, providerCalls] = await withSession(
       '<Command id="c" command="echo hi" />',
       (s) =>
         Effect.all([
           Effect.flip(s.start("c")),
-          Effect.sync(() => s.spawns.length),
-          Effect.sync(() => Object.keys(s.files)),
+          Effect.sync(() => [...s.calls]),
+          Effect.sync(() => [...s.providerCalls]),
         ]),
       { trusted: false },
     )
     expect(refusal).toMatchObject({ _tag: "Refused" })
-    expect(spawns).toBe(0)
-    expect(files).toEqual([RUNBOOK])
+    expect(calls).toEqual([{ service: "FileSystem", method: "readFile", args: [RUNBOOK] }])
+    expect(providerCalls).toEqual([])
   })
 })
 
