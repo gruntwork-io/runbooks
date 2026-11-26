@@ -72,6 +72,25 @@ jobs:
       - name: Build Electron app
         run: just build
 
+  test-plugins:
+    name: Plugin Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The host's platform, as a developer's `just fetch-plugins` would pick it.
+      - name: Fetch the plugin binaries the lock pins
+        run: just fetch-plugins
+
+      - name: Check them against the lock
+        run: just check-plugins linux-amd64
+
   test-e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
@@ -235,6 +254,7 @@ jobs:
         lint-typecheck,
         test-unit,
         test-build,
+        test-plugins,
         test-e2e,
         test-runbooks,
         test-runbooks-app-token,
@@ -248,12 +268,13 @@ jobs:
           LINT_RESULT: ${{ needs.lint-typecheck.result }}
           UNIT_RESULT: ${{ needs.test-unit.result }}
           BUILD_RESULT: ${{ needs.test-build.result }}
+          PLUGINS_RESULT: ${{ needs.test-plugins.result }}
           E2E_RESULT: ${{ needs.test-e2e.result }}
           RUNBOOKS_RESULT: ${{ needs.test-runbooks.result }}
           RUNBOOKS_APP_RESULT: ${{ needs.test-runbooks-app-token.result }}
           DOCS_RESULT: ${{ needs.test-docs.result }}
         run: |
-          for result in "$LINT_RESULT" "$UNIT_RESULT" "$BUILD_RESULT" "$E2E_RESULT" "$RUNBOOKS_RESULT" "$RUNBOOKS_APP_RESULT" "$DOCS_RESULT"; do
+          for result in "$LINT_RESULT" "$UNIT_RESULT" "$BUILD_RESULT" "$PLUGINS_RESULT" "$E2E_RESULT" "$RUNBOOKS_RESULT" "$RUNBOOKS_APP_RESULT" "$DOCS_RESULT"; do
             if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
               echo "CI failed!"
               exit 1

@@ -177,7 +177,7 @@ check-plugin-schemas:
     mise x bun -- bun scripts/plugins/lock.ts schemas
 
 # Package the Electron app for distribution
-package: build compile-test-cli fetch-boilerplate
+package: build compile-test-cli fetch-boilerplate fetch-plugins
     mise x node -- npx electron-builder
 
 # Package for local testing. electron-builder on this host has no Developer ID
@@ -186,7 +186,7 @@ package: build compile-test-cli fetch-boilerplate
 # crashing at launch on macOS 14+/Sequoia. Workaround: build the unpacked .app
 # only, manually ad-hoc sign it leaf-first, then repackage the DMG ourselves
 # so the installer actually contains the signed bundle.
-package-local: build compile-test-cli fetch-boilerplate
+package-local: build compile-test-cli fetch-boilerplate fetch-plugins
     #!/usr/bin/env bash
     set -euo pipefail
 
