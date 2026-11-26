@@ -28,11 +28,20 @@ interface Launched {
   readonly page: Page
 }
 
+/**
+ * How a test launches the app. By default it passes `--user-data-dir`
+ * naming the test's folder. `defaultUserData` launches without it, with the
+ * environment added, to see where the app keeps its user data by itself.
+ */
+interface LaunchOptions {
+  readonly defaultUserData?: { readonly env: Readonly<Record<string, string>> }
+}
+
 const test = base.extend<{
   /** A user data folder of the test's own, removed after it. */
   userDataDir: string
-  /** Launches the app on `userDataDir` and waits for its page. Each app still open is closed after the test. */
-  launch: () => Promise<Launched>
+  /** Launches the app, on `userDataDir` unless told otherwise, and waits for its page. Each app still open is closed after the test. */
+  launch: (options?: LaunchOptions) => Promise<Launched>
 }>({
   userDataDir: async ({}, use) => {
     // Electron reports the folder with symlinks resolved, and macOS's /var is /private/var.
@@ -42,10 +51,12 @@ const test = base.extend<{
   },
   launch: async ({ userDataDir }, use) => {
     const open = new Set<ElectronApplication>()
-    await use(async () => {
+    await use(async (options = {}) => {
+      const { defaultUserData } = options
       // On Linux, Playwright adds --no-sandbox unless it's told to keep Chromium's sandbox.
       const app = await electron.launch({
-        args: [MAIN, `--user-data-dir=${userDataDir}`],
+        args: defaultUserData ? [MAIN] : [MAIN, `--user-data-dir=${userDataDir}`],
+        ...(defaultUserData && { env: { ...definedEnvironment(), ...defaultUserData.env } }),
         chromiumSandbox: true,
       })
       open.add(app)
@@ -57,6 +68,15 @@ const test = base.extend<{
     for (const app of open) await app.close()
   },
 })
+
+/** This process's environment, less the names it holds no value for. */
+function definedEnvironment(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  )
+}
 
 /**
  * What `script` gives when it runs as the page's own script. Code that
@@ -216,6 +236,29 @@ test.describe("the rebuilt app's window", () => {
 
     const second = await launch()
     expect(await second.page.evaluate(() => localStorage.getItem("probe"))).toBeNull()
+  })
+
+  test("keeps its user data in runbooks-rebuild, in the app data folder, when no folder is named", async ({
+    launch,
+    userDataDir,
+  }) => {
+    // Electron's app data folder is $XDG_CONFIG_HOME on Linux. On macOS and
+    // Windows nothing in the environment moves it, so the app would write in
+    // the real one: the test runs where CI runs it, on Linux.
+    test.skip(process.platform !== "linux", "only Linux's environment can move the app data folder")
+    const { app } = await launch({ defaultUserData: { env: { XDG_CONFIG_HOME: userDataDir } } })
+    const folders = await readFromMain(
+      app,
+      ({ app: electronApp }) => ({
+        appData: electronApp.getPath("appData"),
+        userData: electronApp.getPath("userData"),
+      }),
+      undefined,
+    )
+    expect(folders).toEqual({
+      appData: userDataDir,
+      userData: path.join(userDataDir, "runbooks-rebuild"),
+    })
   })
 
   test("keeps its user data in the folder --user-data-dir names", async ({
