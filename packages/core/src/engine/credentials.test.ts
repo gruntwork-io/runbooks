@@ -20,6 +20,7 @@ import {
   type Identity,
   type ProviderConfig,
   type ProviderInfo,
+  type ResolvedSource,
   type SignInEvent,
 } from "../credential/provider.ts"
 import { type UseEnvSession, withEnvSession } from "../test-utils/envSessions.ts"
@@ -1479,6 +1480,224 @@ describe("a run that names the block in envFrom", () => {
           expect(rb.inputOf("deploy")).toBeUndefined()
         }),
     )
+  })
+
+  describe("a login the provider lost, as a plugin that started again has", () => {
+    /** Whether `sources` is the block's own login: the values its `env` gave, from the block itself. */
+    const ownLogin = (sources: ReadonlyArray<ResolvedSource>) =>
+      sources.some(
+        (source) =>
+          source.kind === "values" &&
+          source.from === blockId("cloud") &&
+          Object.hasOwn(source.values, "CLOUD_TOKEN") &&
+          Redacted.value(source.values["CLOUD_TOKEN"]!) === "tok-SECRET",
+      )
+    /** A provider Ready with `tok-SECRET`, whose next `env` fails with `lost`, then gives `tok-AGAIN`. */
+    const losing = (lost: CredentialError, findsAgain: boolean) => {
+      let envCalls = 0
+      return cloud({
+        detect: (sources) =>
+          ownLogin(sources)
+            ? findsAgain
+              ? found(who("111"), "sso")
+              : Effect.succeed(Option.none())
+            : found(who("111")),
+        env: Effect.suspend(() => {
+          envCalls += 1
+          if (envCalls === 1) return Effect.succeed(cloudEnv("tok-SECRET"))
+          if (envCalls === 2) return Effect.fail(lost)
+          return Effect.succeed(cloudEnv("tok-AGAIN"))
+        }),
+      })
+    }
+    const AFTER = '<Run id="after" command="after" envFrom={["cloud"]} />'
+
+    it("finds the login again in the values its env gave, and runs with it", async () => {
+      await withCloud(
+        runbookOf(pinned, DEPLOY),
+        { cloud: losing(credentialError("notSignedIn", "Sign in first."), true) },
+        (rb) =>
+          Effect.gen(function* () {
+            yield* rb.until("cloud", "Ready")
+            expect(yield* rb.run("deploy")).toEqual(done)
+            expect(rb.envOf("deploy")).toMatchObject({ CLOUD_TOKEN: "tok-AGAIN" })
+            expect(yield* rb.until("cloud", "Ready")).toMatchObject({
+              _tag: "Ready",
+              source: "env",
+            })
+            expect((yield* rb.outputs).cloud).toEqual({
+              account: { _tag: "Shown", value: "111" },
+              token: { _tag: "Hidden" },
+            })
+          }),
+      )
+      expect(argsOf("cloud", "detect").map(([sources]) => ownLogin(sources as never))).toEqual([
+        false,
+        true,
+      ])
+    })
+
+    it("keeps the targets the person chose, not the ones the fresh process finds", async () => {
+      let lose = false
+      await withCloud(
+        runbookOf('<CloudLogin id="cloud" />', DEPLOY),
+        {
+          cloud: cloud({
+            detect: () => found(who("111")),
+            targets: (level) =>
+              Effect.succeed(
+                level === "account"
+                  ? [who("111").targets.account!, who("222").targets.account!]
+                  : [{ id: "Admin", name: "Admin" }],
+              ),
+            select: (targets) => Effect.succeed(who(targets.account ?? "", targets.role)),
+            env: Effect.suspend(() => {
+              if (!lose) return Effect.succeed(cloudEnv("tok-SECRET"))
+              lose = false
+              return Effect.fail(credentialError("notSignedIn", "Sign in first."))
+            }),
+          }),
+        },
+        (rb) =>
+          Effect.gen(function* () {
+            yield* rb.until("cloud", "Found")
+            yield* rb.act("cloud", { _tag: "Confirm" })
+            yield* rb.until("cloud", "Ready")
+            yield* rb.act("cloud", { _tag: "ChooseTarget", level: "account", id: "222" })
+            yield* rb.until("cloud", "ChoosingTarget")
+            yield* rb.act("cloud", { _tag: "ChooseTarget", level: "role", id: "Admin" })
+            expect(yield* rb.until("cloud", "Ready")).toMatchObject({ identity: who("222") })
+            lose = true
+            expect(yield* rb.run("deploy")).toEqual(done)
+            expect(yield* rb.until("cloud", "Ready")).toMatchObject({ identity: who("222") })
+          }),
+      )
+      // The fresh process finds the login at 111; the engine selects 222 again.
+      expect(argsOf("cloud", "select")).toEqual([
+        [{ account: "222", role: "Admin" }],
+        [{ account: "222", role: "Admin" }],
+      ])
+    })
+
+    it("signs the block out when it cannot, so the blocks that need it wait", async () => {
+      await withCloud(
+        runbookOf(pinned, DEPLOY, AFTER),
+        { cloud: losing(credentialError("notSignedIn", "Sign in first."), false) },
+        (rb) =>
+          Effect.gen(function* () {
+            yield* rb.until("cloud", "Ready")
+            yield* rb.start("deploy")
+            expect(yield* rb.wait("deploy")).toMatchObject({
+              _tag: "Failed",
+              error: { message: "cloud could not give the run its credentials: Sign in first." },
+            })
+            expect(yield* rb.until("cloud", "SignedOut")).toMatchObject({
+              lastError: { kind: "notSignedIn", message: "Sign in first." },
+            })
+            expect((yield* rb.outputs).cloud).toBeUndefined()
+            expect(yield* rb.status("after")).toEqual(WAITING_FOR_CLOUD)
+          }),
+      )
+      expect(spawns).toEqual([])
+    })
+
+    it("keeps a login another run found again while this run looked", async () => {
+      let open = () => {}
+      const gate = new Promise<void>((resolve) => {
+        open = resolve
+      })
+      let bothLost = () => {}
+      const lost = new Promise<void>((resolve) => {
+        bothLost = resolve
+      })
+      let envCalls = 0
+      let looks = 0
+      await withCloud(
+        runbookOf(pinned, DEPLOY, AFTER),
+        {
+          cloud: cloud({
+            detect: (sources) => {
+              if (!ownLogin(sources)) return found(who("111"))
+              looks += 1
+              // Both runs lose it first. Then the first to look finds it, and the
+              // second finds nothing once the first has.
+              return looks === 1
+                ? Effect.andThen(
+                    Effect.promise(() => lost),
+                    found(who("111")),
+                  )
+                : Effect.as(
+                    Effect.promise(() => gate),
+                    Option.none(),
+                  )
+            },
+            env: Effect.suspend(() => {
+              envCalls += 1
+              if (envCalls === 1) return Effect.succeed(cloudEnv("tok-SECRET"))
+              if (envCalls === 3) bothLost()
+              if (envCalls <= 3)
+                return Effect.fail(credentialError("notSignedIn", "Sign in first."))
+              return Effect.succeed(cloudEnv("tok-AGAIN"))
+            }),
+          }),
+        },
+        (rb) =>
+          Effect.gen(function* () {
+            yield* rb.until("cloud", "Ready")
+            yield* rb.start("deploy")
+            yield* rb.start("after")
+            yield* rb.until("cloud", "Ready")
+            open()
+            expect([yield* rb.wait("deploy"), yield* rb.wait("after")]).toEqual([done, done])
+            expect([rb.envOf("deploy"), rb.envOf("after")]).toMatchObject([
+              { CLOUD_TOKEN: "tok-AGAIN" },
+              { CLOUD_TOKEN: "tok-AGAIN" },
+            ])
+          }),
+      )
+      expect(movesOf("cloud")).toEqual(["Detecting", "Ready", "Ready"])
+    })
+
+    it("leaves the block Ready when its env fails for another reason, such as the network", async () => {
+      await withCloud(
+        runbookOf(pinned, DEPLOY),
+        { cloud: losing(credentialError("network", "The network is down."), true) },
+        (rb) =>
+          Effect.gen(function* () {
+            yield* rb.until("cloud", "Ready")
+            yield* rb.start("deploy")
+            expect(yield* rb.wait("deploy")).toMatchObject({
+              _tag: "Failed",
+              error: {
+                message: "cloud could not give the run its credentials: The network is down.",
+              },
+            })
+            expect((yield* rb.outputs).cloud).toBeDefined()
+          }),
+      )
+      expect(movesOf("cloud")).toEqual(["Detecting", "Ready"])
+      expect(callsOf("cloud").filter((method) => method === "detect")).toHaveLength(1)
+    })
+
+    it("moves the block to Expired when its login expired and is not found again", async () => {
+      await withCloud(
+        runbookOf(pinned, DEPLOY, AFTER),
+        { cloud: losing(credentialError("expired", "The session expired."), false) },
+        (rb) =>
+          Effect.gen(function* () {
+            yield* rb.until("cloud", "Ready")
+            yield* rb.start("deploy")
+            expect(yield* rb.wait("deploy")).toMatchObject({
+              _tag: "Failed",
+              error: {
+                message: "cloud could not give the run its credentials: The session expired.",
+              },
+            })
+            yield* rb.until("cloud", "Expired")
+            expect(yield* rb.status("after")).toEqual(WAITING_FOR_CLOUD)
+          }),
+      )
+    })
   })
 })
 
