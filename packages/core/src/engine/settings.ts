@@ -24,7 +24,18 @@
  * A change writes back every value the file held, even one this version
  * cannot read, apart from the settings the change names.
  */
-import { Context, Effect, Layer, Option, PubSub, Result, Schema, Semaphore, Stream } from "effect"
+import {
+  Context,
+  Deferred,
+  Effect,
+  Layer,
+  Option,
+  PubSub,
+  Result,
+  Schema,
+  Semaphore,
+  Stream,
+} from "effect"
 import { errorMessage } from "../errors/message.ts"
 import type { FileHead, FileSystem } from "../services/FileSystem.ts"
 import { MAX_SETTINGS_BYTES, SettingsFile } from "../services/SettingsFile.ts"
@@ -74,7 +85,11 @@ export interface SettingsStoreShape {
   readonly change: (
     changes: SettingsChange,
   ) => Effect.Effect<ChangeSettingsResult, Forbidden | SettingsNotSaved, Caller>
-  /** `WatchSettings`: the settings now, then again after each change, the latest only for a reader that falls behind. */
+  /**
+   * `WatchSettings`: the settings now, then again after each change, the
+   * latest only for a reader that falls behind. It ends when the store
+   * closes, with the engine.
+   */
   readonly watch: Stream.Stream<SettingsView>
 }
 
@@ -232,6 +247,9 @@ const make = <R>(
       const lock = yield* Semaphore.make(1)
       /** Wakes each `watch` reader. Each keeps one pending wake at most. */
       const changed = yield* PubSub.sliding<void>(1)
+      /** Done when the store closes, which ends every `watch`. */
+      const closed = yield* Deferred.make<void>()
+      yield* Effect.addFinalizer(() => Deferred.succeed(closed, undefined))
 
       const view = (): SettingsView => ({
         settings: { ...DEFAULT_SETTINGS, ...held.chosen },
@@ -298,7 +316,7 @@ const make = <R>(
               ),
             ),
           ),
-        ),
+        ).pipe(Stream.interruptWhen(Deferred.await(closed))),
       })
     }),
   )

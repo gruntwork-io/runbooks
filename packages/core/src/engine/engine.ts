@@ -29,11 +29,13 @@ import {
   type ListSessions,
   type OpenSession,
   type ResetBlock,
+  type ResolveApproval,
   type RunBlock,
   RunbookUnreadable,
   SessionId,
   type SetValues,
   type TrustSession,
+  UnknownApproval,
   UnknownSession,
   type WaitForBlock,
 } from "./protocol.ts"
@@ -77,6 +79,8 @@ export interface EngineShape {
   readonly getOutputs: Command<typeof GetOutputs>
   /** Confirm a detected login, sign in, choose a target, sign out. Refused in a state that does not take it. */
   readonly actOnCredential: Command<typeof ActOnCredential>
+  /** Person only. */
+  readonly resolveApproval: Command<typeof ResolveApproval, Caller>
 }
 
 export interface EngineOptions<R extends Registry> {
@@ -337,6 +341,16 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             action,
           }) {
             return yield* (yield* lookup(session)).actOnCredential(block, action)
+          }),
+
+          resolveApproval: Effect.fn("Engine.resolveApproval")(function* ({ session, approval }) {
+            const { origin } = yield* Caller
+            if (origin !== "person")
+              return yield* new Forbidden({ command: "ResolveApproval", origin })
+            yield* lookup(session)
+            // No session asks for an approval until the agent's run
+            // confirmation (step 3, item 7), so none is pending to resolve.
+            return yield* new UnknownApproval({ approval })
           }),
         })
       }),
