@@ -19,6 +19,7 @@ import { constants } from "node:fs"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { DatabaseSync, type SQLInputValue } from "node:sqlite"
+import { setTimeout as sleep } from "node:timers/promises"
 import { Effect, Layer, Option, Schema } from "effect"
 import { SessionDatabaseError } from "@runbooks/core/errors"
 import {
@@ -39,7 +40,7 @@ const OWNER_ONLY_FILE = 0o600
 const OWNER_ONLY_FOLDER = 0o700
 
 /** Each step brings the schema up one version. `PRAGMA user_version` counts the steps taken. */
-const MIGRATIONS = [
+export const MIGRATIONS = [
   `CREATE TABLE sessions (
      id TEXT PRIMARY KEY,
      runbook TEXT NOT NULL,
@@ -119,11 +120,20 @@ const toEventRow = (row: unknown): EventRow => {
 }
 
 /**
- * Brings `db`'s schema up to this version's, each step in a transaction.
- * It reads the version and the mark before it writes anything, so a newer
- * version's database, or another program's, is left as it is.
+ * How long a statement waits for another connection's lock: a second
+ * Runbooks saving at the same moment. `node:sqlite` waits on this thread,
+ * so it is short; a write holds the lock for a row or two.
  */
-function migrate(db: DatabaseSync): void {
+const BUSY_TIMEOUT_MILLIS = 1_000
+
+/** SQLite's result code for a lock another connection holds. */
+const SQLITE_BUSY = 5
+
+/**
+ * The schema version `db` is at, once its version and mark show this
+ * layer made it, at a version this one reads. It throws otherwise.
+ */
+function versionOf(db: DatabaseSync): number {
   const { user_version: version } = decodeUserVersion(db.prepare("PRAGMA user_version").get())
   const { application_id: mark } = decodeApplicationId(db.prepare("PRAGMA application_id").get())
   if (version > 0 && mark !== SESSIONS_APPLICATION_ID)
@@ -134,16 +144,48 @@ function migrate(db: DatabaseSync): void {
     throw new Error(
       `A newer Runbooks wrote it, with schema version ${version}; this one reads up to ${MIGRATIONS.length}.`,
     )
+  return version
+}
+
+/**
+ * Brings `db`'s schema up to this version's, in one transaction. It reads
+ * the version and the mark before it writes anything, so a newer version's
+ * database, or another program's, is left as it is; and again once it
+ * holds the write lock, as another Runbooks may have brought it up since.
+ */
+function migrate(db: DatabaseSync): void {
+  db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MILLIS}`)
   db.exec("PRAGMA foreign_keys = ON")
-  db.exec("PRAGMA journal_mode = WAL")
   db.exec("PRAGMA synchronous = NORMAL")
-  for (const [step, migration] of MIGRATIONS.entries()) {
-    if (step < version) continue
-    transaction(db, () => {
+  if (versionOf(db) === MIGRATIONS.length) return
+  transaction(db, () => {
+    for (let step = versionOf(db); step < MIGRATIONS.length; step += 1) {
       if (step === 0) db.exec(`PRAGMA application_id = ${SESSIONS_APPLICATION_ID}`)
-      db.exec(migration)
+      db.exec(MIGRATIONS[step]!)
       db.exec(`PRAGMA user_version = ${step + 1}`)
-    })
+    }
+  })
+}
+
+const isBusy = (error: unknown): boolean =>
+  error instanceof Error && "errcode" in error && error.errcode === SQLITE_BUSY
+
+/**
+ * Puts `db` in WAL mode, so a reader does not wait for a writer. SQLite
+ * does not wait for another connection's lock to change the journal mode,
+ * as it does for a statement, so this tries again until
+ * `BUSY_TIMEOUT_MILLIS` has passed. Once in WAL mode, it changes nothing.
+ */
+async function switchToWal(db: DatabaseSync): Promise<void> {
+  const until = Date.now() + BUSY_TIMEOUT_MILLIS
+  for (;;) {
+    try {
+      db.exec("PRAGMA journal_mode = WAL")
+      return
+    } catch (error) {
+      if (!isBusy(error) || Date.now() >= until) throw error
+      await sleep(25)
+    }
   }
 }
 
@@ -182,6 +224,7 @@ async function openDatabase(
     await createOwnerOnly(file)
     db = new DatabaseSync(file)
     migrate(db)
+    await switchToWal(db)
     return { db, unusable: Option.none() }
   } catch (error) {
     db?.close()

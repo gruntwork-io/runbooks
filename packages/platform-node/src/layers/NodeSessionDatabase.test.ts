@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite"
 import { Effect, Option } from "effect"
 import { SessionDatabase, type SessionRow } from "@runbooks/core/services/SessionDatabase"
 import { sessionDatabaseContract } from "@runbooks/core/test-utils/sessionDatabaseContract"
-import { nodeSessionDatabase, SESSIONS_APPLICATION_ID } from "./NodeSessionDatabase.ts"
+import { MIGRATIONS, nodeSessionDatabase, SESSIONS_APPLICATION_ID } from "./NodeSessionDatabase.ts"
 
 const tempRoot = () =>
   nodeFs.realpathSync(nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-sessions-")))
@@ -132,5 +132,84 @@ describe("the sessions database file", () => {
       await run((db) => Effect.andThen(db.putSession(session), db.latest("/rb/a.mdx"))),
     ).toEqual(Option.some(session))
     expect(nodeFs.readFileSync(file)).toEqual(before)
+  })
+})
+
+/**
+ * Another process holding `file`'s write lock for `millis`, as a second
+ * Runbooks saving would: it runs `inside` in the transaction, then waits.
+ * `node:sqlite` blocks its thread while it waits for a lock, so the holder
+ * cannot be this process. Resolves once the lock is held.
+ */
+async function anotherWriter(at: string, millis: number, inside: string) {
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      `const { DatabaseSync } = require("node:sqlite")
+       const db = new DatabaseSync(process.env.DB_FILE)
+       db.exec("BEGIN IMMEDIATE")
+       db.exec(process.env.INSIDE)
+       console.log("held")
+       setTimeout(() => { db.exec("COMMIT"); db.close() }, ${millis})`,
+    ],
+    { env: { ...process.env, DB_FILE: at, INSIDE: inside }, stdout: "pipe" },
+  )
+  const reader = child.stdout.getReader()
+  let said = ""
+  while (!said.includes("held")) {
+    const { value, done } = await reader.read()
+    if (done) throw new Error(`the other writer ended first: ${said}`)
+    said += new TextDecoder().decode(value)
+  }
+  reader.releaseLock()
+  return child
+}
+
+/** The sessions a plain connection finds in the file. */
+const inFile = (at: string) => {
+  const reader = new DatabaseSync(at, { readOnly: true })
+  try {
+    return reader.prepare("SELECT id FROM sessions").all()
+  } finally {
+    reader.close()
+  }
+}
+
+describe("the sessions database with a second Runbooks", () => {
+  it("waits for the other one's write, rather than drop the save", async () => {
+    await run((db) => db.putSession(session))
+    const other = await anotherWriter(file, 300, "SELECT 1")
+    await run((db) => db.putSession({ ...session, usedAt: 3 }))
+    await other.exited
+    expect(await run((db) => db.latest("/rb/a.mdx"))).toEqual(
+      Option.some({ ...session, usedAt: 3 }),
+    )
+  })
+
+  it("opens a new database the other one is making at that moment, and saves into it", async () => {
+    nodeFs.mkdirSync(data)
+    const other = await anotherWriter(
+      file,
+      300,
+      `PRAGMA application_id = ${SESSIONS_APPLICATION_ID}; ${MIGRATIONS[0]} PRAGMA user_version = 1;`,
+    )
+    await run((db) => db.putSession(session))
+    await other.exited
+    expect(inFile(file)).toEqual([{ id: "s1" }])
+  })
+
+  it("switches a database the other one made to WAL once the other's write ends", async () => {
+    nodeFs.mkdirSync(data)
+    // Made, and not yet in WAL mode: the other one is between its migration and its switch.
+    const made = new DatabaseSync(file)
+    made.exec(
+      `PRAGMA application_id = ${SESSIONS_APPLICATION_ID}; ${MIGRATIONS[0]} PRAGMA user_version = 1;`,
+    )
+    made.close()
+    const other = await anotherWriter(file, 300, "SELECT 1")
+    await run((db) => db.putSession(session))
+    await other.exited
+    expect(inFile(file)).toEqual([{ id: "s1" }])
   })
 })
