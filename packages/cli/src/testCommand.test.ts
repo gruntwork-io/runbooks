@@ -391,6 +391,42 @@ tests:
     expect(step).toMatchObject({ expected: "success", actual: "fail", passed: false, exitCode: 1 })
   })
 
+  it("puts a form step's set_outputs in the field each output carries", async () => {
+    const mdx = [
+      "# Pick",
+      '<Publisher id="pick" outputs={{ PATH: "path" }}>\n```yaml\n- name: path\n  type: string\n  required: true\n```\n</Publisher>',
+    ].join("\n\n")
+    runbook(
+      mdx,
+      `version: 1
+tests:
+  - name: picks
+    steps:
+      - block: pick
+        set_outputs: { PATH: dev/region-1 }
+        assertions:
+          - { type: output_equals, block: pick, output: PATH, value: dev/region-1 }
+`,
+    )
+    const { code, stdout } = await runTest(["rb", "--output", "json"])
+    const step = decodeReport(JSON.parse(stdout)).runbooks[0]!.tests[0]!.steps[0]!
+    expect([step.actual, step.passed, step.message]).toEqual(["success", true, undefined])
+    expect(step.outputs).toEqual({ PATH: { _tag: "Shown", value: "dev/region-1" } })
+    expect(code).toBe(0)
+  })
+
+  it("names a refused set_outputs value by the output the test file gives", async () => {
+    runbook(
+      '<Publisher id="pick" outputs={{ PATH: "path" }}>\n```yaml\n- name: path\n  type: string\n  default: dev\n  locked: true\n```\n</Publisher>',
+      "version: 1\ntests:\n  - name: picks\n    steps:\n      - block: pick\n        set_outputs: { PATH: prod }\n",
+    )
+    const { code, stdout } = await runTest(["rb", "--output", "json"])
+    const step = decodeReport(JSON.parse(stdout)).runbooks[0]!.tests[0]!.steps[0]!
+    expect([step.actual, step.passed]).toEqual(["fail", false])
+    expect(step.message).toContain('set_outputs.PATH: "path" is read-only.')
+    expect(code).toBe(1)
+  })
+
   it("streams every log line to stderr with --verbose", async () => {
     runbook(DEPLOY, DEPLOY_TEST)
     const { code, stderr, stdout } = await runTest(["rb", "--verbose"])

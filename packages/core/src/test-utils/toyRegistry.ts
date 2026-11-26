@@ -1,6 +1,6 @@
 /**
- * A registry of toy blocks, one per kind of thing the parser and the graph
- * must handle. No real block has their tags: only a block's folder may name
+ * A registry of toy blocks, one per kind of thing the parser, the graph and
+ * the engine must handle. No real block has their tags: only a block's folder may name
  * it (`runbooks/block-name-outside-its-folder`), and the core's tests test
  * the core, not a block.
  */
@@ -94,7 +94,7 @@ export const toyFormSpec = (fields: ReadonlyArray<typeof ToyField.Type>): FormSp
   sections: [],
 })
 
-/** Form whose fields come from fenced YAML children. */
+/** Form whose fields come from fenced YAML children. Each field is also an output of its name. */
 const form = defineForm({
   name: "Form",
   since: "0.1.0",
@@ -105,8 +105,54 @@ const form = defineForm({
   runbookFiles: () => [],
   provides: ["values"],
   effects: [],
-  outputs: (p) => Object.fromEntries(p.variables.map((v) => [v.name, { sensitive: false }])),
+  outputs: (p) => Object.fromEntries(p.variables.map((v) => [v.name, { field: v.name }])),
   fields: (p) => Effect.succeed(toyFormSpec(p.variables)),
+  plugins: [],
+})
+
+/**
+ * Form like DirPicker: fields from fenced YAML children, and outputs from its
+ * `outputs` prop, each naming the field it carries. `outputs={{ PATH: "path" }}`
+ * publishes the field `path` as `PATH`.
+ */
+const publisher = defineForm({
+  name: "Publisher",
+  since: "0.1.0",
+  class: "form",
+  props: Schema.Struct({
+    variables: Schema.Array(ToyField),
+    outputs: Schema.Record(Schema.String, Schema.String),
+  }),
+  children: { kind: "yaml", prop: "variables" },
+  references: {},
+  runbookFiles: () => [],
+  provides: ["values"],
+  effects: [],
+  outputs: (p) =>
+    Object.fromEntries(Object.entries(p.outputs).map(([output, field]) => [output, { field }])),
+  fields: (p) => Effect.succeed(toyFormSpec(p.variables)),
+  plugins: [],
+})
+
+/**
+ * Form like an Iframe with `outputs`: one required text field per output,
+ * named by it, which a client sets on the page's behalf.
+ */
+const embed = defineForm({
+  name: "Embed",
+  since: "0.1.0",
+  class: "form",
+  props: Schema.Struct({ outputs: Schema.Array(Schema.String) }),
+  children: { kind: "none" },
+  references: {},
+  runbookFiles: () => [],
+  provides: ["values"],
+  effects: [],
+  outputs: (p) => Object.fromEntries(p.outputs.map((name) => [name, { field: name }])),
+  fields: (p) =>
+    Effect.succeed(
+      toyFormSpec(p.outputs.map((name) => ({ name, type: "string", required: true }))),
+    ),
   plugins: [],
 })
 
@@ -241,6 +287,8 @@ export const TOY_REGISTRY = {
   Note: note,
   Run: run,
   Form: form,
+  Publisher: publisher,
+  Embed: embed,
   Clone: clone,
   GitLogin: gitLogin,
   GitHubLogin: gitHubLogin,

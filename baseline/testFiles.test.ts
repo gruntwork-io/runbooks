@@ -45,12 +45,12 @@ const base = (name: string) => ({
   runbookFiles: () => [],
 })
 
-/** An `outputs={["a", "b"]}` prop's names. */
+/** An `outputs={["a", "b"]}` prop's names, each carrying the field of its name, as Iframe's do. */
 const outputsProp = (p: AnyProps) =>
   Object.fromEntries(
     (Array.isArray(p.outputs) ? p.outputs : [])
       .filter((key): key is string => typeof key === "string")
-      .map((key) => [key, { sensitive: false }]),
+      .map((key) => [key, { field: key }]),
   )
 
 const noForm = { fields: [], sections: [] }

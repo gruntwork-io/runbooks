@@ -45,6 +45,7 @@ import type {
   BlockId,
   BlockOutputs,
   CredentialBlock,
+  FormOutputDecls,
   OutputDecls,
   PathOutsideRoot,
   PropError,
@@ -68,6 +69,7 @@ import type { CredentialState } from "../credential/lifecycle.ts"
 import type { CredentialEnv } from "../credential/provider.ts"
 import { ConfigError, ConfigWarning } from "../document/configError.ts"
 import type { BlockNode, ContentHash, RunbookDocument } from "../document/document.ts"
+import { nearest } from "../document/nearest.ts"
 import {
   type ActResult,
   type BlockAction,
@@ -249,7 +251,7 @@ interface Slot {
   readonly readsOutputs: ReadonlyArray<OutputsRead>
   readonly runnable: Option.Option<Runnable>
   /** A form's declared outputs, published while it is done. None for another block. */
-  readonly formOutputs: OutputDecls<string>
+  readonly formOutputs: FormOutputDecls
 }
 
 type RunState =
@@ -342,9 +344,10 @@ interface BlockRead {
  * Reads what the session needs of each block, from its props and the files
  * it names: its form, a form block's or a task's own, and its props as a
  * client is sent them. `fields` gets no services, so this does no I/O, as it
- * happens before trust. A form that cannot be read, or props that cannot be
- * sent, is a configuration error in its block, which the block's node then
- * holds beside the parser's, so the block is `Misconfigured` like any other.
+ * happens before trust. A form that cannot be read, a form block output
+ * naming a field its form does not have, or props that cannot be sent, is a
+ * configuration error in its block, which the block's node then holds beside
+ * the parser's, so the block is `Misconfigured` like any other.
  */
 const readBlocks = Effect.fnUntraced(function* (
   document: RunbookDocument,
@@ -363,7 +366,10 @@ const readBlocks = Effect.fnUntraced(function* (
       case "credential":
         return Effect.succeed(none)
       case "form":
-        return readForm(document, node, block.fields(node.props, texts.get(node.index) ?? NO_FILES))
+        return Effect.map(
+          readForm(document, node, block.fields(node.props, texts.get(node.index) ?? NO_FILES)),
+          (formRead) => withOutputFields(document, formRead, block.outputs(node.props)),
+        )
       case "task":
         return block.fields === undefined
           ? Effect.succeed(readProps(document, node, block))
@@ -392,11 +398,39 @@ const readForm = (
   Effect.match(fields, {
     onSuccess: (spec) => ({ node, spec: Option.some(spec), props: Option.none() }),
     onFailure: (error) => ({
-      node: withError(node, openError(document, node, error.message, error.prop)),
+      node: withError(node, openError(document, node, error.message, { prop: error.prop })),
       spec: Option.none(),
       props: Option.none(),
     }),
   })
+
+/**
+ * A form block's read, refused when an output names a field its form does
+ * not have: that output could never be published. One error for each.
+ */
+function withOutputFields(
+  document: RunbookDocument,
+  read: BlockRead,
+  outputs: FormOutputDecls,
+): BlockRead {
+  if (Option.isNone(read.spec)) return read
+  const fields = read.spec.value.fields.map(({ name }) => name)
+  const errors = Object.entries(outputs).flatMap(([output, { field }]) => {
+    if (fields.includes(field)) return []
+    const suggestion = nearest(field, fields)
+    const has = fields.length > 0 ? `Its fields: ${fields.join(", ")}.` : "It has no fields."
+    return [
+      openError(
+        document,
+        read.node,
+        `The output "${output}" carries the field "${field}", which the form does not have. ${has}`,
+        suggestion === undefined ? {} : { suggestion },
+      ),
+    ]
+  })
+  if (errors.length === 0) return read
+  return { node: errors.reduce(withError, read.node), spec: Option.none(), props: Option.none() }
+}
 
 /**
  * A block's props, encoded with its own schema, as JSON. A block's schema
@@ -430,7 +464,12 @@ const withError = (node: BlockNode, error: ConfigError): BlockNode => ({
 })
 
 /** A configuration error the engine found in a block when the session opened. */
-const openError = (document: RunbookDocument, node: BlockNode, message: string, prop?: string) =>
+const openError = (
+  document: RunbookDocument,
+  node: BlockNode,
+  message: string,
+  { prop, suggestion }: { readonly prop?: string; readonly suggestion?: string } = {},
+) =>
   new ConfigError({
     code: "badProp",
     message,
@@ -440,6 +479,7 @@ const openError = (document: RunbookDocument, node: BlockNode, message: string, 
       block: { tag: node.tag, ...(node.idAsWritten === undefined ? {} : { id: node.idAsWritten }) },
       ...(prop === undefined ? {} : { prop }),
     },
+    ...(suggestion === undefined ? {} : { suggestion }),
   })
 
 /** The session's document as a window renders it, each block's props as `readBlocks` encoded them. */
@@ -547,7 +587,7 @@ function credentialSlotsOf(
   })
 }
 
-function formOutputsOf(node: BlockNode, registry: Registry): OutputDecls<string> {
+function formOutputsOf(node: BlockNode, registry: Registry): FormOutputDecls {
   if (node.class !== "form" || node.errors.length > 0) return {}
   const block: AnyBlock | undefined = resolveTag(registry, node.tag)?.block
   // The parser resolved this tag against the same registry, so it resolves here.

@@ -6,7 +6,7 @@
  * changes it, as it would in the window.
  */
 import { Redacted, Schema } from "effect"
-import type { OutputDecls, TaskValues } from "@runbooks/blocks-core/contract"
+import type { FormOutputDecls, TaskValues } from "@runbooks/blocks-core/contract"
 import { type Field, FieldValue, type FormSpec, templateText } from "@runbooks/blocks-core/form"
 import { nearest } from "../document/nearest.ts"
 import { hiddenVariables } from "../domain/boilerplate/showWhen.ts"
@@ -274,22 +274,22 @@ export const valuesOf = (form: Form): TaskValues =>
   )
 
 /**
- * A submitted form's outputs: each declared output is the field of the same
- * name, as text, sensitive if either the declaration or the field is.
+ * A submitted form's outputs: each declared output is the value of the field
+ * it names, as text, as `valuesOf` gives it to a task, and sensitive when the
+ * field is. The session refuses a form whose output names a field it does not
+ * have when it opens, so each declared output is here.
  */
 export function outputsOf(
   form: Form,
-  declared: OutputDecls<string>,
+  declared: FormOutputDecls,
 ): ReadonlyMap<string, Held<string>> {
   const values = valuesOf(form)
   return new Map(
-    form.flatMap(({ field }): Array<[string, Held<string>]> => {
-      const decl = Object.hasOwn(declared, field.name) ? declared[field.name] : undefined
-      const value = values.get(field.name)
-      if (decl === undefined || value === undefined) return []
-      return [
-        [field.name, hold(decl.sensitive || field.sensitive, templateText(Redacted.value(value)))],
-      ]
+    Object.entries(declared).flatMap(([output, { field: name }]): Array<[string, Held<string>]> => {
+      const entry = form.find(({ field }) => field.name === name)
+      const value = values.get(name)
+      if (entry === undefined || value === undefined) return []
+      return [[output, hold(entry.field.sensitive, templateText(Redacted.value(value)))]]
     }),
   )
 }

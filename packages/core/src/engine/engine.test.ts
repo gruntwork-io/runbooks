@@ -1249,7 +1249,7 @@ describe("Engine values", () => {
         yield* rb.wait("deploy")
         // The task that reads the form gets the value itself.
         expect(seen.map((values) => values.token)).toEqual(["typed-s3cret@example.com"])
-        // The form declares the field as an output that is not sensitive; the field still is.
+        // The form's output carries the field, so it is sensitive as the field is.
         yield* rb.run("config")
         expect((yield* rb.outputs).config?.token).toEqual({ _tag: "Hidden" })
 
@@ -1644,6 +1644,178 @@ describe("Engine values", () => {
         expect(yield* rb.status("c")).toEqual({ _tag: "Blocked", by: [waitingFor("b")] })
       }),
     )
+  })
+
+  describe("a form's outputs", () => {
+    /** A `<Publisher>` with its fields as YAML children and `outputs` as written. */
+    const publisher = (id: string, outputs: string, fields: ReadonlyArray<string>) =>
+      withFields(`<Publisher id="${id}" outputs={${outputs}}>`, fields, "</Publisher>")
+
+    it("are the fields they name, so DirPicker's PATH is its path, and none while the path is empty", async () => {
+      const given: Array<string | undefined> = []
+      const ship = "ship {{ .outputs.pick.PATH }}"
+      const record: Script = (input) =>
+        Stream.fromEffectDrain(
+          Effect.sync(() => {
+            const path = input.outputs.get(blockId("pick"))?.get("PATH")
+            given.push(path === undefined ? undefined : Redacted.value(path))
+          }),
+        )
+      const runbook = [
+        publisher("pick", '{ PATH: "path" }', [
+          "- name: path",
+          "  type: string",
+          "  required: true",
+        ]),
+        `<Run id="ship" command="${ship}" />`,
+      ].join("\n\n")
+      await withEngine(
+        runbook,
+        { [ship]: record },
+        Effect.gen(function* () {
+          const rb = yield* commandsFor(yield* open)
+          yield* rb.trust
+          yield* rb.set("pick", { path: "dev/region-1" })
+          expect(yield* rb.run("pick")).toEqual({ _tag: "Submitted" })
+          expect(yield* rb.outputs).toEqual({ pick: { PATH: shown("dev/region-1") } })
+          yield* rb.run("ship")
+          yield* rb.wait("ship")
+          expect(given).toEqual(["dev/region-1"])
+
+          // A cleared path fails the required check: the form is not done, so it gives no output.
+          yield* rb.set("pick", { path: "" })
+          expect(yield* rb.status("pick")).toEqual({ _tag: "NeedsInput", fields: ["path"] })
+          expect(yield* rb.outputs).not.toHaveProperty("pick")
+        }),
+      )
+    })
+
+    it("are sensitive when their field is, so GetOutputs and every event hide them", async () => {
+      const secret = "fake-secret-form-output-7c1d"
+      await withEngine(
+        publisher("vault", '{ TOKEN: "token" }', [
+          "- name: token",
+          "  type: string",
+          "  sensitive: true",
+        ]),
+        {},
+        Effect.gen(function* () {
+          const rb = yield* commandsFor(yield* open)
+          const recording = yield* rb.record
+          yield* rb.trust
+          yield* rb.set("vault", { token: secret })
+          expect(yield* rb.run("vault")).toEqual({ _tag: "Submitted" })
+          expect(yield* rb.outputs).toEqual({ vault: { TOKEN: { _tag: "Hidden" } } })
+          yield* rb.close
+          const events = yield* Fiber.join(recording)
+          const published = events.flatMap(({ event }) =>
+            event._tag === "OutputsPublished" ? [event.outputs] : [],
+          )
+          expect(published).toEqual([{ TOKEN: { _tag: "Hidden" } }])
+          expect(JSON.stringify(events)).not.toContain(secret)
+        }),
+      )
+    })
+
+    it("of an empty optional field are the text a task's template reads for it", async () => {
+      await withEngine(
+        publisher("opt", '{ NOTE: "note", COUNT: "count", TAGS: "tags" }', [
+          "- name: note",
+          "  type: string",
+          "- name: count",
+          "  type: int",
+          "- name: tags",
+          "  type: list",
+        ]),
+        {},
+        Effect.gen(function* () {
+          const rb = yield* commandsFor(yield* open)
+          yield* rb.trust
+          expect(yield* rb.run("opt")).toEqual({ _tag: "Submitted" })
+          expect(yield* rb.outputs).toEqual({
+            opt: { NOTE: shown(""), COUNT: shown(""), TAGS: shown("[]") },
+          })
+        }),
+      )
+    })
+
+    it("of an Iframe-shaped form appear only once the page has set every one", async () => {
+      await withEngine(
+        '<Embed id="page" outputs={["region", "zone"]} />',
+        {},
+        Effect.gen(function* () {
+          const rb = yield* commandsFor(yield* open)
+          yield* rb.trust
+          // One required field per output, empty until the window sets it from what the page posts.
+          expect((yield* rb.fields("page"))?.map((f) => [f.name, f.required, f.value])).toEqual([
+            ["region", true, undefined],
+            ["zone", true, undefined],
+          ])
+          yield* rb.set("page", { region: "eu-west-1" })
+          expect(yield* rb.run("page")).toEqual({
+            _tag: "Refused",
+            reason: { _tag: "NeedsInput", fields: ["zone"] },
+          })
+          expect(yield* rb.outputs).toEqual({})
+
+          yield* rb.set("page", { zone: "eu-west-1a" })
+          expect(yield* rb.run("page")).toEqual({ _tag: "Submitted" })
+          expect(yield* rb.outputs).toEqual({
+            page: { region: shown("eu-west-1"), zone: shown("eu-west-1a") },
+          })
+
+          // A later post replaces what the page set before, and the block stays done.
+          yield* rb.set("page", { region: "us-east-1" })
+          expect(yield* rb.status("page")).toEqual({ _tag: "Done", outcome: "success" })
+          expect((yield* rb.outputs).page?.region).toEqual(shown("us-east-1"))
+        }),
+      )
+    })
+
+    it("that name a field the form does not have make it misconfigured when the session opens, one error each", async () => {
+      const runbook = [
+        publisher("lost", '{ PATH: "pth", HOME: "home", KEPT: "path" }', [
+          "- name: path",
+          "  type: string",
+          "  default: dev",
+        ]),
+        '<Run id="read" command="ok" inputsId={["lost"]} />',
+      ].join("\n\n")
+      await withEngine(
+        runbook,
+        { ok },
+        Effect.gen(function* () {
+          const view = yield* open
+          const rb = yield* commandsFor(view)
+          yield* rb.trust
+          const document = yield* (yield* Engine).getDocument({ session: view.session })
+          const lost = document.blocks[0]
+          const errors = lost?._tag === "Misconfigured" ? lost.errors : []
+          expect(errors.map((e) => [e.code, e.location.block?.id, e.suggestion])).toEqual([
+            ["badProp", "lost", "path"],
+            ["badProp", "lost", undefined],
+          ])
+          expect(errors[0]?.message).toContain('"PATH"')
+          expect(errors[0]?.message).toContain('"pth"')
+
+          const block = yield* rb.block("lost")
+          expect([block.status, block.actions, block.outputs]).toEqual([
+            { _tag: "Misconfigured" },
+            [],
+            {},
+          ])
+          expect(block).not.toHaveProperty("fields")
+          expect(yield* rb.run("lost")).toEqual({
+            _tag: "Refused",
+            reason: { _tag: "Misconfigured" },
+          })
+          expect(yield* rb.status("read")).toEqual({
+            _tag: "Blocked",
+            by: [waitingForValues("lost")],
+          })
+        }),
+      )
+    })
   })
 })
 
