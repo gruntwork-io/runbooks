@@ -21,13 +21,13 @@
  * - A node of a type the walk doesn't know, or an element it doesn't create,
  *   shows its children, or its text value; `unknownParts` counts them for
  *   the page to say so.
- * - A block node is its placeholder (`block.tsx`), its markdown children
- *   inside it.
+ * - A block node is its frame (`frame.tsx`), its markdown children inside
+ *   it.
  */
 import { Option, Schema } from "effect"
 import { createElement, Fragment, type ReactNode } from "react"
 import type { DocumentView } from "@runbooks/core/protocol"
-import { BlockPlaceholder } from "./block.tsx"
+import { BlockFrame } from "./frame.tsx"
 
 type TreeNode = DocumentView["tree"]
 
@@ -383,9 +383,9 @@ function render(tree: TreeNode, key: number, walk: Walk): ReactNode {
       const block = walk.blocks[part.index]
       if (block === undefined) return <Fragment key={key}>{children(tree, walk)}</Fragment>
       return (
-        <BlockPlaceholder key={key} block={block} runbook={walk.runbook}>
+        <BlockFrame key={key} block={block} runbook={walk.runbook}>
           {children(tree, walk)}
-        </BlockPlaceholder>
+        </BlockFrame>
       )
     }
     case "unknown":

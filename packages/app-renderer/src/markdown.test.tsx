@@ -334,7 +334,7 @@ describe("the walk", () => {
     expect(unknownParts(root(p(text("a")), el("kbd", {}, text("K"))))).toEqual(new Map())
   })
 
-  it("renders a block as its placeholder, with its markdown children inside", () => {
+  it("renders a block in its frame, with its markdown children inside", () => {
     const shown = html(root({ type: "block", index: 0, children: [p(text("Runs the setup."))] }), [
       block({ id: "setup", title: "Literal title", description: "No substitutions here" }),
     ])
