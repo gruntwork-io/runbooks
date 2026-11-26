@@ -38,6 +38,7 @@ beforeEach(() => {
   state = path.join(root, "state", "s1", "fake")
   starts = path.join(root, "starts")
   mkdirSync(path.join(root, "bin"))
+  mkdirSync(path.join(root, "run"), { mode: 0o700 })
   mkdirSync(path.join(root, "home"))
 })
 afterEach(() => rmSync(root, { recursive: true, force: true }))
@@ -89,7 +90,9 @@ const withFake = <A, E>(
         yield* provider.describe
         return yield* use(provider)
       }),
-    ).pipe(Effect.provide(pluginProviders(path.join(root, "bin"), [entry]))),
+    ).pipe(
+      Effect.provide(pluginProviders(path.join(root, "bin"), path.join(root, "run"), [entry])),
+    ),
   )
 }
 
