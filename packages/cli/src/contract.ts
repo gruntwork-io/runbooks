@@ -72,9 +72,20 @@ const testOutput = Flag.Literals("output", TestOutputFormat.literals).pipe(
 export const ValidateOutputFormat = Schema.Literals(["text", "json"])
 export type ValidateOutputFormat = typeof ValidateOutputFormat.Type
 
+/**
+ * `RUNBOOKS_OUTPUT` is one variable for both commands, so a CI that sets
+ * `junit` for `runbooks test` runs `runbooks validate` too: `validate`
+ * writes no JUnit, and reads `junit` as `text`. A value neither command
+ * writes is refused; `--output junit` is refused too, as it names a format
+ * this command does not write.
+ */
 const validateOutput = Flag.Literals("output", ValidateOutputFormat.literals).pipe(
   Flag.withDescription("text for people, json for scripts"),
-  withEnv(Config.Literals(ValidateOutputFormat.literals, "RUNBOOKS_OUTPUT")),
+  withEnv(
+    Config.Literals(TestOutputFormat.literals, "RUNBOOKS_OUTPUT").pipe(
+      Config.map((format): ValidateOutputFormat => (format === "junit" ? "text" : format)),
+    ),
+  ),
   Flag.withDefault("text"),
 )
 
