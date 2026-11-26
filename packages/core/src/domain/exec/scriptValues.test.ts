@@ -215,6 +215,12 @@ describe("a value bash gets exactly as given, never as code", () => {
     expect(ranWithBash(template, value)).toBe(printed)
   })
 
+  it("as a redirection's target, which `read` never takes as a variable name", () => {
+    expect(
+      ranWithBash(`read -r r < {{ .inputs.f }}; printf '<%s>' "$r"`, sources({ f: "/dev/null" })),
+    ).toBe("<>")
+  })
+
   it("as `printf`'s first operand after `--`, where a value that starts with `-` is no option", () => {
     expect(ranWithBash("printf -- {{ .inputs.v }}", sources({ v: "-v x" }))).toBe("-v x")
   })
