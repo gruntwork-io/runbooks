@@ -6,6 +6,7 @@
  */
 import { readFileSync } from "node:fs"
 import path from "node:path"
+import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "electron-vite"
 import { reactWithCompiler } from "./scripts/vite-react.ts"
 
@@ -53,7 +54,7 @@ export default defineConfig({
   renderer: {
     root: path.join(ROOT, "packages/app-renderer"),
     base: "./",
-    plugins: [reactWithCompiler()],
+    plugins: [reactWithCompiler(), tailwindcss()],
     build: {
       outDir: path.join(OUT, "renderer"),
       rolldownOptions: {

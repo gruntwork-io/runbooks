@@ -8,7 +8,7 @@
  * - Its session is a partition kept in memory, so the window writes no
  *   storage, cookies or cache to disk. The session denies every permission.
  * - Its page gets a Content-Security-Policy response header from here, where
- *   the page can't loosen it: no 'unsafe-eval' and no inline script.
+ *   the page can't loosen it: no 'unsafe-eval', and no inline script or style.
  * - It never navigates away from its page and opens no other window. A link
  *   to an http or https page opens in the browser instead.
  *
@@ -55,13 +55,19 @@ const USER_DATA = "runbooks-rebuild"
 const PARTITION = "window"
 
 /**
- * The page may run the bundle's scripts and load nothing else: no inline or
- * evaluated script, no stylesheet, image, font, frame, plugin or network
- * request, no `<base>`, and no form submission. On a file:// page Chromium
- * counts every file:// URL as 'self', so a script at any local path loads.
+ * The page may run the bundle's scripts, load the bundle's stylesheet, and
+ * load nothing else: no inline or evaluated script, no inline style, no
+ * image, font, frame, plugin or network request, no `<base>`, and no form
+ * submission. On a file:// page Chromium counts every file:// URL as 'self',
+ * so a script or stylesheet at any local path loads.
+ *
+ * Without 'unsafe-inline', a `<style>` element or a `style` attribute in
+ * markup is refused, but a style set through the CSSOM (`element.style`),
+ * as React sets its `style` props, applies. A `url()` in such a style loads
+ * nothing: default-src 'none' covers images and fonts.
  */
 const CONTENT_SECURITY_POLICY =
-  "default-src 'none'; script-src 'self'; base-uri 'none'; form-action 'none'"
+  "default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'"
 
 /** The renderer's page in a build: electron-vite writes main/, preload/ and renderer/ side by side. */
 const RENDERER_PAGE = path.join(import.meta.dirname, "../renderer/index.html")
