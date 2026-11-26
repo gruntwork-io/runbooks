@@ -1,6 +1,6 @@
 /**
- * The data a parsed YAML document holds, for every YAML an author writes:
- * a runbook's front matter, a block's YAML children and `runbook_test.yml`.
+ * The data a parsed YAML document holds, for the YAML a runbook and its test
+ * file hold: the front matter, a block's YAML children and `runbook_test.yml`.
  *
  * An alias may repeat a node, but it may not name a node that holds it,
  * since the data would then hold itself, and nothing that reads it would
@@ -8,9 +8,9 @@
  * file: the yaml library refuses that ("Excessive alias count").
  */
 import { Result } from "effect"
-import { type Document, isAlias, visit } from "yaml"
+import { type Alias, type Document, visit } from "yaml"
 
-/** Why a document's data cannot be read, at the offset of its first alias. */
+/** Why a document's data cannot be read, and the offset of the alias at fault. */
 export interface YamlDataProblem {
   readonly message: string
   readonly offset: number
@@ -22,31 +22,39 @@ export function yamlData(doc: Document): Result.Result<unknown, YamlDataProblem>
   try {
     data = doc.toJS()
   } catch (error) {
-    const alias = firstAliasOffset(doc)
+    const message = error instanceof Error ? error.message : String(error)
+    // The library refuses an alias bomb with this message; it has no type.
     return Result.fail(
-      alias === undefined
-        ? { message: `It could not be read: ${(error as Error).message}`, offset: 0 }
-        : {
+      message.includes("Excessive alias count")
+        ? {
             message:
               "Its aliases repeat a node so often that the data would grow too large to read.",
-            offset: alias,
-          },
+            offset: aliasOffset(doc, () => true),
+          }
+        : { message: `It could not be read: ${message}`, offset: 0 },
     )
   }
   if (holdsItself(data))
     return Result.fail({
       message: "An alias names a node that holds it, so the data would hold itself.",
-      offset: firstAliasOffset(doc) ?? 0,
+      offset: aliasOffset(doc, (alias, path) => {
+        const named = alias.resolve(doc)
+        return named !== undefined && path.includes(named)
+      }),
     })
   return Result.succeed(data)
 }
 
-/** Where the document's first alias starts, if it has one. */
-function firstAliasOffset(doc: Document): number | undefined {
-  let offset: number | undefined
+/** Where the first alias `matches` starts, or the document's start if none does. */
+function aliasOffset(
+  doc: Document,
+  matches: (alias: Alias, path: readonly unknown[]) => boolean,
+): number {
+  let offset = 0
   visit(doc, {
-    Alias: (_, node) => {
-      if (isAlias(node) && node.range) offset = node.range[0]
+    Alias: (_, node, path) => {
+      if (!matches(node, path) || !node.range) return undefined
+      offset = node.range[0]
       return visit.BREAK
     },
   })

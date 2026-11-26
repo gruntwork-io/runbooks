@@ -26,9 +26,28 @@ describe("the data a YAML document holds", () => {
     }
   })
 
+  it("points at the alias that holds itself, not an earlier harmless one", () => {
+    const text = "defaults: &d\n  region: us-east-1\nprod: *d\nloop: &x\n  - *x\n"
+    const result = read(text)
+    expect(
+      Result.isFailure(result) && text.slice(0, result.failure.offset).split("\n"),
+    ).toHaveLength(5)
+    expect(Result.isFailure(result) && text.slice(result.failure.offset)).toStartWith("*x")
+  })
+
   it("is refused when aliases repeat a node so often that it would grow too large", () => {
     const result = read(ALIAS_BOMB)
     expect(Result.isFailure(result) && result.failure.message).toContain("too large to read")
+  })
+
+  it("gives any other failure to read the data as it is, not as too many aliases", () => {
+    const doc = YAML.parseDocument("a: &a 1\nb: *a")
+    doc.toJS = () => {
+      throw new Error("Unresolved tag")
+    }
+    expect(yamlData(doc)).toEqual(
+      Result.fail({ message: "It could not be read: Unresolved tag", offset: 0 }),
+    )
   })
 
   it("returns a result, never throwing, for data nested 20,000 deep", () => {
