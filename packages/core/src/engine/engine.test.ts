@@ -235,6 +235,52 @@ const hanging = () => {
   return { script, started: Deferred.await(started), state }
 }
 
+/** A ladder of `length` tasks, each waiting for the two before it, and its last block's id. */
+const ladder = (length: number) => {
+  const ids = Array.from({ length }, (_, k) => `b${k}`)
+  const runbook = ids
+    .map((id, k) => {
+      const before = ids.slice(Math.max(0, k - 2), k).map((d) => `"${d}"`)
+      return `<Run id="${id}" command="ok" dependsOn={[${before.join(", ")}]} />`
+    })
+    .join("\n\n")
+  return { runbook, last: ids[length - 1]! }
+}
+
+/**
+ * Opens a ladder, trusts it, asks for the session `views` times, as a client
+ * does each time it changes, and asks its last block's status: the status,
+ * and the time it all took.
+ */
+const openAndAsk = async (length: number, views = 0) => {
+  const { runbook, last } = ladder(length)
+  const started = performance.now()
+  const status = await withEngine(
+    runbook,
+    { ok },
+    Effect.gen(function* () {
+      const rb = yield* commandsFor(yield* open)
+      yield* rb.trust
+      for (let i = 0; i < views; i++) yield* rb.view
+      const lastStatus = yield* rb.status(last)
+      yield* rb.close
+      return lastStatus
+    }),
+  )
+  return { status, ms: performance.now() - started }
+}
+
+/** The median time of three such opens. Each finds the last block waiting. */
+const median = async (length: number, views = 0) => {
+  const runs = [
+    await openAndAsk(length, views),
+    await openAndAsk(length, views),
+    await openAndAsk(length, views),
+  ]
+  expect(runs.map(({ status }) => status?._tag)).toEqual(["Blocked", "Blocked", "Blocked"])
+  return runs.map(({ ms }) => ms).sort((x, y) => x - y)[1]!
+}
+
 describe("Engine", () => {
   it("blocks every block of an untrusted session and refuses to run one", async () => {
     let calls = 0
@@ -326,6 +372,25 @@ describe("Engine", () => {
       }),
     )
   })
+
+  it("decides a ladder's statuses in time that grows with its length, not exponentially", async () => {
+    // Each block waits for the two before it, and none has run, so each status
+    // asks for both of theirs. Undecided twice over, the 30-block ladder takes
+    // about 1.5^18 times the 12-block one; decided once, about 2.5 times.
+    await openAndAsk(12) // so neither side pays for the first compile
+    const short = await median(12)
+    const long = await median(30)
+    expect(long / short).toBeLessThan(6)
+  }, 60_000)
+
+  it("decides each update's statuses, and the session's, once for all its blocks", async () => {
+    // Deciding each block's status apart decides the ones it waits for again:
+    // for 16 times the blocks, about 256 times the work, against 16.
+    await openAndAsk(50, 5)
+    const short = await median(50, 5)
+    const long = await median(800, 5)
+    expect(long / short).toBeLessThan(32)
+  }, 60_000)
 
   it("unblocks a task's dependents when it is done and blocks them again when it is reset", async () => {
     const runbook = [
