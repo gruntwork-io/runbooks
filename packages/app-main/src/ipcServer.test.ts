@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { EventEmitter } from "node:events"
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { Deferred, Effect, Fiber, Layer, Queue, type Scope, Stream } from "effect"
@@ -14,7 +14,14 @@ import { ProcessEnvironmentLive } from "@runbooks/platform-node/layers/ProcessEn
 import { FROM_PAGE, MAX_PAGE_MESSAGE, TO_PAGE } from "./bridge.ts"
 import { appEngine } from "./engine.ts"
 import { DROPPED, isAppPage, makeIpcServerProtocol, MAX_QUEUED, servePage } from "./ipcServer.ts"
-import { serveLaunch } from "./launch.ts"
+import {
+  type Launch,
+  type Launches,
+  makeLaterLaunches,
+  MAX_WAITING_LAUNCHES,
+  serveLaunch,
+  waitToOpen,
+} from "./launch.ts"
 
 // The server end over stand-ins for the window's web contents and its
 // frames, serving the app's real engine over a temporary user data folder.
@@ -531,44 +538,65 @@ describe("the engine over IPC", () => {
   })
 })
 
-describe("a runbook the launch names", () => {
-  /** Credentials for no host. A source the parser refuses gets no further than the hosts. */
-  const unused = (name: string) => () => Effect.die(`${name} is not used by a refused source`)
-  const noCredentials = Layer.succeed(VcsCredentials, {
-    enumerateGitHubHosts: () => Effect.succeed({ configHosts: [], defaultHost: "github.com" }),
-    detectProvider: unused("detectProvider"),
-    tokenForHost: unused("tokenForHost"),
-    detectGitHubEnv: unused("detectGitHubEnv"),
-    detectGitHubCli: unused("detectGitHubCli"),
-    detectGitLabEnv: unused("detectGitLabEnv"),
-    detectGitLabCli: unused("detectGitLabCli"),
-    validateDirect: unused("validateDirect"),
-    enumerateGitLabHosts: unused("enumerateGitLabHosts"),
-    validateViaCli: unused("validateViaCli"),
-    cliStatus: unused("cliStatus"),
-    invalidateCache: unused("invalidateCache"),
-    markTransportDegraded: unused("markTransportDegraded"),
-  })
+/** Credentials for no host. A source the parser refuses gets no further than the hosts. */
+const unused = (name: string) => () => Effect.die(`${name} is not used by a refused source`)
+const noCredentials = Layer.succeed(VcsCredentials, {
+  enumerateGitHubHosts: () => Effect.succeed({ configHosts: [], defaultHost: "github.com" }),
+  detectProvider: unused("detectProvider"),
+  tokenForHost: unused("tokenForHost"),
+  detectGitHubEnv: unused("detectGitHubEnv"),
+  detectGitHubCli: unused("detectGitHubCli"),
+  detectGitLabEnv: unused("detectGitLabEnv"),
+  detectGitLabCli: unused("detectGitLabCli"),
+  validateDirect: unused("validateDirect"),
+  enumerateGitLabHosts: unused("enumerateGitLabHosts"),
+  validateViaCli: unused("validateViaCli"),
+  cliStatus: unused("cliStatus"),
+  invalidateCache: unused("invalidateCache"),
+  markTransportDegraded: unused("markTransportDegraded"),
+})
 
+/**
+ * The engine a launch's runbook opens on, over the test's user data folder,
+ * with what cloning takes. `openSession`, given last, takes the place of the
+ * engine's own handler.
+ */
+const launchEngine = (openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>) => {
+  const engine = Layer.mergeAll(
+    appEngine({
+      userData: path.join(folder, "user data"),
+      appVersion: "0.31.0",
+      processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
+    }),
+    NodeFileSystemLive,
+    GitCliClientLive.pipe(Layer.provide(ChildProcessSpawnerLive)),
+    ChildProcessSpawnerLive,
+    ProcessEnvironmentLive,
+    noCredentials,
+  )
+  return openSession === undefined ? engine : Layer.merge(engine, openSession)
+}
+
+/** The launches main serves: `first`, those put in `later`, and each time it shows one. */
+const launchesOf = (
+  first: Launch | undefined,
+  later: Queue.Dequeue<Launch>,
+  shown: string[] = [],
+): Launches => ({
+  first,
+  later,
+  clones: path.join(folder, "user data", "v0", "clones"),
+  log: (line) => logged.push(line),
+  show: () => shown.push("shown"),
+})
+
+describe("a runbook the launch names", () => {
   /**
    * Has the page send `ListSessions` before main serves anything, then serves
    * the launch of `argument` and returns what the page heard.
    */
-  const listFirst = (argument: string, openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>) => {
-    const userData = path.join(folder, "user data")
-    const engine = Layer.mergeAll(
-      appEngine({
-        userData,
-        appVersion: "0.31.0",
-        processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
-      }),
-      NodeFileSystemLive,
-      GitCliClientLive.pipe(Layer.provide(ChildProcessSpawnerLive)),
-      ChildProcessSpawnerLive,
-      ProcessEnvironmentLive,
-      noCredentials,
-    )
-    return Effect.runPromise(
+  const listFirst = (argument: string, openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>) =>
+    Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const protocol = yield* makeIpcServerProtocol({
@@ -580,21 +608,15 @@ describe("a runbook the launch names", () => {
           const client = yield* pageClient()
           const listed = yield* Effect.forkScoped(client.ListSessions())
           yield* settle
-          yield* serveLaunch(
-            protocol,
-            { argument, startedIn: folder },
-            path.join(userData, "v0", "clones"),
-            (line) => logged.push(line),
-          ).pipe(
-            // A handler given last takes the place of the engine's own.
-            Effect.provide(openSession === undefined ? engine : Layer.merge(engine, openSession)),
+          const later = yield* makeLaterLaunches()
+          yield* serveLaunch(protocol, launchesOf({ argument, startedIn: folder }, later)).pipe(
+            Effect.provide(launchEngine(openSession)),
             Effect.forkScoped,
           )
           return yield* Fiber.join(listed)
         }),
       ),
     )
-  }
 
   it("is open when a page that asked before the open was done hears back", async () => {
     const sessions = await listFirst(FIXTURE)
@@ -653,6 +675,111 @@ describe("a runbook the launch names", () => {
     expect(logged).toEqual([
       `Runbooks could not open ${path.join(folder, "missing")}: there is no file or folder there.`,
     ])
+  })
+})
+
+describe("a runbook a later launch names", () => {
+  /**
+   * Serves the launch of `first`, puts each of `later` in line, waits until
+   * `done` holds, and returns the runbooks of the sessions the page lists and
+   * each time main showed one.
+   */
+  const serveLater = (
+    first: string | undefined,
+    later: ReadonlyArray<Launch>,
+    done: (shown: ReadonlyArray<string>) => boolean,
+  ) =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const protocol = yield* makeIpcServerProtocol({
+            contents,
+            page: PAGE,
+            log: (line) => logged.push(line),
+          })
+          contents.navigate()
+          const client = yield* pageClient()
+          const waiting = yield* makeLaterLaunches()
+          const shown: string[] = []
+          const launches = launchesOf(
+            first === undefined ? undefined : { argument: first, startedIn: folder },
+            waiting,
+            shown,
+          )
+          for (const launch of later) waitToOpen(waiting, launch, launches.log)
+          yield* serveLaunch(protocol, launches).pipe(
+            Effect.provide(launchEngine()),
+            Effect.forkScoped,
+          )
+          yield* until(() => done(shown))
+          yield* settle
+          const sessions = yield* client.ListSessions()
+          return { sessions: sessions.map(({ path: file }) => file), shown }
+        }),
+      ),
+    )
+
+  it("opens after the first launch's, from the folder its launch started in, and main shows it", async () => {
+    const started = path.join(folder, "elsewhere")
+    mkdirSync(path.join(started, "later"), { recursive: true })
+    writeFileSync(path.join(started, "later", "runbook.mdx"), "# Later\n")
+    const { sessions, shown } = await serveLater(
+      FIXTURE,
+      [{ argument: "later", startedIn: started }],
+      (seen) => seen.length === 1,
+    )
+    expect(sessions).toEqual([
+      path.join(FIXTURE, "runbook.mdx"),
+      path.join(started, "later", "runbook.mdx"),
+    ])
+    expect(shown).toEqual(["shown"])
+    expect(logged).toEqual([])
+  })
+
+  it("opens one at a time, and main shows each", async () => {
+    const one = path.join(folder, "one.mdx")
+    const two = path.join(folder, "two.mdx")
+    writeFileSync(one, "# One\n")
+    writeFileSync(two, "# Two\n")
+    const { sessions, shown } = await serveLater(
+      undefined,
+      [
+        { argument: one, startedIn: folder },
+        { argument: two, startedIn: folder },
+      ],
+      (seen) => seen.length === 2,
+    )
+    expect(sessions).toEqual([one, two])
+    expect(shown).toEqual(["shown", "shown"])
+  })
+
+  it("is not shown when it does not open, and main says why", async () => {
+    const { sessions, shown } = await serveLater(
+      FIXTURE,
+      [{ argument: "missing", startedIn: folder }],
+      () => logged.length === 1,
+    )
+    expect(sessions).toEqual([path.join(FIXTURE, "runbook.mdx")])
+    expect(shown).toEqual([])
+    expect(logged).toEqual([
+      `Runbooks could not open ${path.join(folder, "missing")}: there is no file or folder there.`,
+    ])
+  })
+
+  it("is refused past the launches already waiting, and main says so without its credentials", async () => {
+    // Built at runtime so secret scanners don't flag the fixture.
+    const password = ["hunter", "2"].join("")
+    const waiting = await Effect.runPromise(makeLaterLaunches())
+    const launch = {
+      argument: `https://someone:${password}@github.com/acme/runbooks/tree/main/walk`,
+      startedIn: folder,
+    }
+    for (let index = 0; index <= MAX_WAITING_LAUNCHES; index += 1)
+      waitToOpen(waiting, launch, (line) => logged.push(line))
+    expect(logged).toEqual([
+      `Runbooks could not open https://github.com/acme/runbooks/tree/main/walk: ${MAX_WAITING_LAUNCHES} launches already wait to open. Launch it again once they have.`,
+    ])
+    expect(await Effect.runPromise(Queue.size(waiting))).toBe(MAX_WAITING_LAUNCHES)
   })
 })
 

@@ -220,7 +220,25 @@ test.describe("launching the rebuilt app", () => {
     expect(fs.existsSync(path.join(userDataDir, "v0", "clones"))).toBe(false)
   })
 
-  test("again on its user data folder focuses the first window and opens nothing", async ({
+  test("again with a runbook's path, from another folder, shows that runbook in the first window", async ({
+    launch,
+    launchAgain,
+  }) => {
+    const { app, page } = await launch({ args: [RUNBOOK_FOLDER] })
+    await expect(page.getByRole("heading", { level: 1, name: "Command, end to end" })).toBeVisible()
+
+    const second = await launchAgain(["walk"], { cwd: RUNBOOKS })
+
+    expect(second.code, second.output).toBe(0)
+    await expect(page.getByRole("heading", { level: 1, name: "Walk the document" })).toBeVisible()
+    expect(app.windows()).toHaveLength(1)
+    expect(await openRunbooks(page)).toEqual([
+      path.join(RUNBOOK_FOLDER, "runbook.mdx"),
+      path.join(WALK, "runbook.mdx"),
+    ])
+  })
+
+  test("again with no runbook focuses the first window and opens nothing", async ({
     launch,
     launchAgain,
   }) => {
@@ -241,7 +259,7 @@ test.describe("launching the rebuilt app", () => {
       undefined,
     )
 
-    const second = await launchAgain([RUNBOOK_FOLDER])
+    const second = await launchAgain([])
 
     expect(second.code, second.output).toBe(0)
     await expect
