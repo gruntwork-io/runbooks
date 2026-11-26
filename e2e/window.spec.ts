@@ -43,7 +43,11 @@ const test = base.extend<{
   launch: async ({ userDataDir }, use) => {
     const open = new Set<ElectronApplication>()
     await use(async () => {
-      const app = await electron.launch({ args: [MAIN, `--user-data-dir=${userDataDir}`] })
+      // On Linux, Playwright adds --no-sandbox unless it's told to keep Chromium's sandbox.
+      const app = await electron.launch({
+        args: [MAIN, `--user-data-dir=${userDataDir}`],
+        chromiumSandbox: true,
+      })
       open.add(app)
       app.on("close", () => open.delete(app))
       const page = await app.firstWindow()
@@ -109,7 +113,8 @@ async function rendererConfinement(
   )
   if (process.platform !== "linux") return { confinement: { sandboxed }, seen: `pid ${pid}` }
   const status = fs.readFileSync(`/proc/${pid}/status`, "utf8")
-  const args = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0")
+  // Chromium rewrites a child's title over its arguments, as one line split by spaces.
+  const args = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split(/[\0 ]/)
   const type = args.find((arg) => arg.startsWith("--type="))?.slice("--type=".length)
   const seccomp = /^Seccomp:\s+(\d+)$/m.exec(status)?.[1]
   const seen = [
