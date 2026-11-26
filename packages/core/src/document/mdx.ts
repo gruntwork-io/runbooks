@@ -62,6 +62,33 @@ export function parseMdx(
 
 const processor = unified().use(remarkParse).use(remarkMdx).use(remarkGfm)
 
+/**
+ * How many levels deep a runbook's tree may go below its root: each block,
+ * element, quote, list, list item, paragraph and other part is a level
+ * inside the one that holds it. The deepest of the repository's 87 MDX files
+ * goes 17 deep. Electron's main process runs out of stack sending the window
+ * a tree about 500 deep, and nested elements overflow the engine at 500, so
+ * this leaves room for what the engine, the transport and the window's walk
+ * add on top.
+ */
+export const MAX_NESTING = 100
+
+/**
+ * The first part of `tree`, in document order, more than `MAX_NESTING`
+ * levels below it, or undefined when none is. It keeps its own stack, so no
+ * tree is too deep for it.
+ */
+export function nestedTooDeep(tree: MdxNode): MdxNode | undefined {
+  const pending: Array<readonly [MdxNode, number]> = [[tree, 0]]
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const [node, depth] = next
+    if (depth > MAX_NESTING) return node
+    // Last child first, so the first is taken next.
+    for (const child of [...(node.children ?? [])].reverse()) pending.push([child, depth + 1])
+  }
+  return undefined
+}
+
 function syntaxProblem(error: unknown): SyntaxProblem {
   // A VFileMessage has its reason and place apart. Under Bun every Error has
   // a `line`, the JavaScript's, so `reason` is what marks one.

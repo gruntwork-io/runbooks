@@ -6,6 +6,7 @@ import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import type { ConfigError, ConfigWarning } from "./configError.ts"
 import { configErrors, ContentHash, type RunbookDocument } from "./document.ts"
 import type { FileFact } from "./files.ts"
+import { MAX_NESTING, parseMdx, splitFrontMatter } from "./mdx.ts"
 import { parseRunbook } from "./parse.ts"
 
 const id = Schema.decodeSync(BlockId)
@@ -505,6 +506,46 @@ describe("parseRunbook", () => {
         ],
       ])
       expect(errors("---\ntitle: [Deploy\n---\n")[0]).toMatchObject({ code: "syntax" })
+    })
+  })
+
+  describe("nesting", () => {
+    const TOO_DEEP = `Nested more than ${MAX_NESTING} levels deep. A runbook may nest its blocks, elements, quotes and lists, and the parts inside them, at most ${MAX_NESTING} levels deep.`
+    /** A runbook whose `bottom` is inside `quotes` blockquotes, on line 3. */
+    const quoted = (quotes: number) => `# Deep\n\n${"> ".repeat(quotes)}bottom\n`
+    /** A runbook whose `bottom` is inside `elements` divs, on line 3. */
+    const inElements = (elements: number) =>
+      `# Deep\n\n${"<div>".repeat(elements)}bottom${"</div>".repeat(elements)}\n`
+    /** A runbook whose last item is inside `lists` lists, from line 3. */
+    const listed = (lists: number) =>
+      `# Deep\n\n${Array.from({ length: lists }, (_, i) => `${"  ".repeat(i)}- item`).join("\n")}\n`
+
+    it("reads a runbook nested as deep as a runbook may be", () => {
+      // The quotes, then the paragraph, then its text, MAX_NESTING levels down.
+      expect(parse(quoted(MAX_NESTING - 2))._tag).toBe("Parsed")
+    })
+
+    it("refuses a runbook nested deeper, at the first part too deep, with that error alone", () => {
+      const found = errors(`${quoted(MAX_NESTING - 1)}\n<Unknown />\n`)
+      expect(brief(found)).toEqual([["tooDeep", 3, TOO_DEEP]])
+      // The text `bottom`, after the quotes' markers.
+      expect(found[0]?.location.span.start.column).toBe(2 * (MAX_NESTING - 1) + 1)
+      expect(found[0]?.expected).toBe(`at most ${MAX_NESTING} levels of nesting`)
+    })
+
+    it("refuses elements and lists nested too deep", () => {
+      expect(brief(errors(inElements(MAX_NESTING)))).toEqual([["tooDeep", 3, TOO_DEEP]])
+      // Each list and its item are a level each.
+      expect(errors(listed(MAX_NESTING / 2)).map((error) => error.code)).toEqual(["tooDeep"])
+    })
+
+    it("refuses a runbook nested deeper than the parser's own walks could go, without running out of stack", () => {
+      // runbooks-reviewer on #650: Electron main ran out of stack on 500
+      // nested blockquotes. Under Bun the MDX parser reads 10000 nested
+      // elements, and the walks after it ran out of stack on them.
+      const source = inElements(10_000)
+      expect("tree" in parseMdx(splitFrontMatter(source).body)).toBe(true)
+      expect(brief(errors(source))).toEqual([["tooDeep", 3, TOO_DEEP]])
     })
   })
 
