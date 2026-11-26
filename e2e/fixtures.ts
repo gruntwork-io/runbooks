@@ -9,7 +9,6 @@ import { spawn } from "node:child_process"
 import fs from "node:fs"
 import { createRequire } from "node:module"
 import path from "node:path"
-import { pathToFileURL } from "node:url"
 import {
   _electron as electron,
   expect,
@@ -24,8 +23,8 @@ export { expect }
 const OUT = path.join(import.meta.dirname, "..", "app-out")
 const MAIN = path.join(OUT, "main", "index.js")
 
-/** The renderer's page, as the window shows it. */
-export const PAGE = pathToFileURL(path.join(OUT, "renderer", "index.html")).href
+/** The renderer's page, as the window shows it: from the app's own scheme (packages/app-main/src/pageScheme.ts). */
+export const PAGE = "runbooks-app://window/index.html"
 
 export interface Launched {
   readonly app: ElectronApplication

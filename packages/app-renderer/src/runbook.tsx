@@ -39,7 +39,7 @@ export function Runbook({
         </p>
       )}
       <div className="runbook-body" style={{ contain: "paint" }}>
-        <Markdown document={document} runbook={session.path} />
+        <Markdown document={document} runbook={session.path} session={session.session} />
       </div>
     </article>
   )

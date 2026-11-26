@@ -63,11 +63,22 @@ export interface FileSystemShape {
   readonly readFileBuffer: (
     path: string,
   ) => Effect.Effect<Buffer, FileNotFoundError | FileReadError>
+  /**
+   * The bytes of a file from `start` to `end`, both included, read a chunk
+   * at a time as the stream is pulled. Ending the stream closes the file.
+   */
+  readonly readFileRange: (
+    path: string,
+    start: number,
+    end: number,
+  ) => Stream.Stream<Uint8Array, FileNotFoundError | FileReadError>
   readonly readdir: (path: string) => Effect.Effect<string[], FileReadError>
   readonly readdirWithTypes: (
     path: string,
   ) => Effect.Effect<Array<{ name: string; isFile: boolean; isDirectory: boolean }>, FileReadError>
   readonly stat: (path: string) => Effect.Effect<FileStat, FileNotFoundError>
+  /** Whether `path` is a symbolic link itself, which it does not follow. Fails when nothing is there. */
+  readonly isSymbolicLink: (path: string) => Effect.Effect<boolean, FileNotFoundError>
   readonly exists: (path: string) => Effect.Effect<boolean>
   readonly writeFile: (
     path: string,

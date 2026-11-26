@@ -34,10 +34,13 @@ export function recordFileSystem(inner: FileSystemShape, calls: ServiceCall[]): 
     readFileUpTo: (...args) => effect("readFileUpTo", args, () => inner.readFileUpTo(...args)),
     readFileBuffer: (...args) =>
       effect("readFileBuffer", args, () => inner.readFileBuffer(...args)),
+    readFileRange: (...args) => stream("readFileRange", args, () => inner.readFileRange(...args)),
     readdir: (...args) => effect("readdir", args, () => inner.readdir(...args)),
     readdirWithTypes: (...args) =>
       effect("readdirWithTypes", args, () => inner.readdirWithTypes(...args)),
     stat: (...args) => effect("stat", args, () => inner.stat(...args)),
+    isSymbolicLink: (...args) =>
+      effect("isSymbolicLink", args, () => inner.isSymbolicLink(...args)),
     exists: (...args) => effect("exists", args, () => inner.exists(...args)),
     writeFile: (...args) => effect("writeFile", args, () => inner.writeFile(...args)),
     appendFile: (...args) => effect("appendFile", args, () => inner.appendFile(...args)),

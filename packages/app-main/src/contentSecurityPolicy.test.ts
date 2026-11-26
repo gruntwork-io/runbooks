@@ -10,9 +10,9 @@ const directives = (policy: string) =>
   )
 
 describe("the window's CSP", () => {
-  it("lets a build's page run its scripts and load its stylesheet, and nothing else", () => {
+  it("lets a build's page run its scripts, load its stylesheet and a runbook's images and media, and nothing else", () => {
     expect(contentSecurityPolicy(undefined)).toBe(
-      "default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'",
+      "default-src 'none'; script-src 'self'; style-src 'self'; img-src runbook-asset:; media-src runbook-asset:; base-uri 'none'; form-action 'none'",
     )
   })
 

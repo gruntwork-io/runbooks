@@ -71,7 +71,7 @@ test.describe("a runbook given on the command line", () => {
     const { page } = await launch({ args: [runbook("untrusted-markup")] })
     const body = page.locator(".runbook-body")
     await expect(body).toContainText("Image: A tracking pixel (https://example.invalid/pixel.gif)")
-    await expect(body).toContainText("Image: A diagram (./assets/diagram.png)")
+    await expect(body).toContainText("Image: A diagram (./diagram.png)")
     await expect(body.getByText("A div with a handler.")).toHaveAttribute("title", "Kept title")
     await expect(page.locator("img, [onclick], [onerror], [popover], [popovertarget]")).toHaveCount(
       0,

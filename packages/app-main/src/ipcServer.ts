@@ -167,7 +167,7 @@ interface Connection {
 export interface IpcServerOptions {
   /** The app window's web contents. */
   readonly contents: WindowContents
-  /** The app's page: its file URL in a build, the dev server's in dev. */
+  /** The app's page: its `runbooks-app` URL in a build (pageScheme.ts), the dev server's in dev. */
   readonly page: URL
   /** Where a dropped message is reported. */
   readonly log: (line: string) => void

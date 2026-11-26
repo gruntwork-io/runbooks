@@ -59,7 +59,7 @@ export const SECURITY_TESTS: ReadonlyArray<Guard> = [
       "Path guard: no read, write, clone or served asset reaches outside its root, through `..`, a symlink, percent-encoding or a cycle",
     fix: "#160 (aab30b51), #205 (c97770d7), #207 (d2492366)",
     portsTo:
-      "phase 2: the filesystem roots the engine sets, in packages/core, with the containment helpers in packages/platform-node",
+      "phase 2: the filesystem roots the engine sets, in packages/core, with the containment helpers in packages/platform-node; phase 3: the served-asset tests, in packages/app-main (runbookAssets.test.ts)",
     tests: [
       {
         file: "src/path-validation.test.ts",

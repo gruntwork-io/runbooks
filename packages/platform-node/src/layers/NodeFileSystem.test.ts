@@ -80,6 +80,51 @@ describe("modes", () => {
   })
 })
 
+describe("readFileRange", () => {
+  it("reads the bytes from start to end, both included, and says a missing file is missing", async () => {
+    const file = nodePath.join(root, "digits")
+    nodeFs.writeFileSync(file, "0123456789")
+    const text = (start: number, end: number, at = file) =>
+      withFs((fs) =>
+        Effect.result(
+          Stream.runCollect(fs.readFileRange(at, start, end)).pipe(
+            Effect.map((chunks) => Buffer.concat(chunks).toString()),
+          ),
+        ),
+      )
+    expect(await text(2, 5)).toEqual(Result.succeed("2345"))
+    expect(await text(9, 9)).toEqual(Result.succeed("9"))
+    expect(await text(0, 9)).toEqual(Result.succeed("0123456789"))
+    const missing = await text(0, 1, nodePath.join(root, "none"))
+    expect(Result.isFailure(missing) && missing.failure._tag).toBe("FileNotFoundError")
+  })
+
+  it("reads a chunk at a time, as the stream is pulled", async () => {
+    const file = nodePath.join(root, "large")
+    nodeFs.writeFileSync(file, Buffer.alloc(4 * 1024 * 1024, 1))
+    const first = await withFs((fs) =>
+      Stream.runCollect(Stream.take(fs.readFileRange(file, 0, 4 * 1024 * 1024 - 1), 1)),
+    )
+    expect(first).toHaveLength(1)
+    expect(first[0]?.length).toBeLessThan(1024 * 1024)
+  })
+})
+
+describe("isSymbolicLink", () => {
+  it("says whether a path is a link itself, without following it, and fails where nothing is", async () => {
+    nodeFs.mkdirSync(nodePath.join(root, "folder"))
+    nodeFs.symlinkSync("folder", nodePath.join(root, "to-folder"))
+    nodeFs.symlinkSync("none", nodePath.join(root, "dangling"))
+    const link = (name: string) =>
+      withFs((fs) => Effect.result(fs.isSymbolicLink(nodePath.join(root, name))))
+    expect(await link("to-folder")).toEqual(Result.succeed(true))
+    expect(await link("dangling")).toEqual(Result.succeed(true))
+    expect(await link("folder")).toEqual(Result.succeed(false))
+    const missing = await link("none")
+    expect(Result.isFailure(missing) && missing.failure._tag).toBe("FileNotFoundError")
+  })
+})
+
 describe("walk", () => {
   it("reads every entry under a folder, with its size, and a link as neither file nor folder", async () => {
     nodeFs.mkdirSync(nodePath.join(root, "a", "b"), { recursive: true })

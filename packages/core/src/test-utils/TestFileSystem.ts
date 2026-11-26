@@ -71,6 +71,11 @@ export const testFileSystem = (
 
     readFileBuffer: (path) => read(path).pipe(Effect.map(bytesOf)),
 
+    readFileRange: (path, start, end) =>
+      Stream.fromEffect(read(path)).pipe(
+        Stream.map((content) => bytesOf(content).subarray(start, end + 1)),
+      ),
+
     exists: (path) => Effect.succeed(target(path) in files || dirs.has(target(path))),
 
     writeFile: (path, content, options) =>
@@ -119,6 +124,13 @@ export const testFileSystem = (
             })
           : Effect.fail(new FileNotFoundError({ path }))
     },
+
+    isSymbolicLink: (path) =>
+      path in links
+        ? Effect.succeed(true)
+        : path in files || dirs.has(path)
+          ? Effect.succeed(false)
+          : Effect.fail(new FileNotFoundError({ path })),
 
     mkdir: (path, options) =>
       Effect.sync(() => {
