@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os"
 import path from "node:path"
 import plugin from "./oxlint-plugin.ts"
+import { PACKAGES } from "./packages.ts"
 
 const REPO = path.resolve(import.meta.dirname, "..")
 const OXLINT = path.join(REPO, "node_modules", ".bin", "oxlint")
@@ -125,6 +126,18 @@ describe("no-relative-import-across-packages", () => {
         message:
           "../../core/src/engine/protocol.ts crosses from cli into core. Import a package by name, as @runbooks/<package>/<export>, from a package that references it.",
       },
+    ])
+  })
+
+  it("covers the app's main and renderer packages", () => {
+    const found = lint({
+      "packages/app-main/src/main.ts": 'export * from "../../app-renderer/src/main.tsx"\n',
+      "packages/app-renderer/src/main.tsx": 'export * from "../../core/src/engine/inProcess.ts"\n',
+      "packages/app-renderer/src/view.tsx": 'export * from "./main.tsx"\n',
+    })
+    expect(found.map(({ file, message }) => `${file}: ${message.split(". ")[0]}`)).toEqual([
+      "packages/app-main/src/main.ts: ../../app-renderer/src/main.tsx crosses from app-main into app-renderer",
+      "packages/app-renderer/src/main.tsx: ../../core/src/engine/inProcess.ts crosses from app-renderer into core",
     ])
   })
 })
@@ -541,6 +554,20 @@ describe(".oxlintrc.json", () => {
       ["blocks/command/block.ts", "packages/core/src/imports.ts"].flatMap((file) =>
         [1, 2, 3, 4].map((line) => `eslint(no-restricted-imports) ${file}:${line}`),
       ),
+    )
+  })
+
+  it("keeps Electron out of every package but app-main", () => {
+    const electron = 'import { app } from "electron"\nexport const a = app\n'
+    const files = Object.fromEntries(
+      Object.values(PACKAGES).map(({ dir }) => [`${dir}/src/electron.ts`, electron]),
+    )
+    const found = reported("eslint(no-restricted-imports)", files)
+    expect(brief(found)).toEqual(
+      Object.keys(files)
+        .filter((file) => file !== `${PACKAGES["app-main"].dir}/src/electron.ts`)
+        .sort()
+        .map((file) => `eslint(no-restricted-imports) ${file}:1`),
     )
   })
 })
