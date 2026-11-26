@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The rebuild's PRs are GitHub stack #519 on gruntwork-io/runbooks, based on
+# The rebuild's PRs are GitHub stack #614 on gruntwork-io/runbooks, based on
 # rebuild/main. Each PR's base is the head of the PR below it, and each head
 # contains its base's tip.
 #
@@ -15,7 +15,7 @@
 #       Open a draft PR from <branch> on the top of the stack, and link it.
 set -euo pipefail
 REPO=gruntwork-io/runbooks
-STACK=519
+STACK=614
 
 # Sets trunk, and numbers/heads/bases of the stack's open PRs, bottom up.
 read_stack() {

@@ -6,13 +6,14 @@ The running index of the rebuild stack. Update it whenever the stack changes.
   and "Runbooks block contract proposal", https://claude.ai/artifact/EEiqpN8kjtoekEV2QX6Qrh (JSON Schema sketch, RFC-188 notes).
 - Integration branch: `rebuild/main`, cut from `main` at ac543199 (2026-11-24).
 - The bottom open PR targets `rebuild/main`; each later PR targets the branch below it.
-- A PR is marked ready for review once it is green, or red only for a known cause with its fix in progress (the human, 2026-11-25). Only the human merges.
+- Every PR opens as a draft and goes to runbooks-reviewer once its branch is done and green. It is marked ready for review only after that review passes: a draft has not yet passed agent review (the human, 2026-11-26). Only the human merges.
 - On 2026-11-25 the human merged #496 to #560 into `rebuild/main`, one commit per PR. The trunk's tree equals the old stack top's (3cd837b5), so open PRs rebase onto it with `git rebase --onto origin/rebuild/main <old base tip>`.
 - Later on 2026-11-25 the human merged #565 to #581 the same way: `rebuild/main` 17064004, whose tree equals #581's head (70ff25fe) outside this file. GitHub rebased #582 onto it (7896e7ba). An index commit on `rebuild/main` leaves #582 one commit behind; its diff is unaffected, and its branch was last pushed by GitHub, so it is not force-pushed from here.
 - On 2026-11-26 (UTC) the human merged #582 and #585 to #594 the same way: `rebuild/main` d845152e. GitHub rebased #595 onto it (f8229880), so it is not force-pushed from here; this index commit leaves it one commit behind. A rework of a merged PR comes as a new PR on top of the stack (#596 for #594, #597 for #589), never as a push to the merged branch.
 - On 2026-11-26 no PR was merged. #598 to #607 went on top of #597, and runbooks-reviewer's finding 6 (test CLI false greens) closed with #601 to #604. #598 is held for decision 9 (Waiting on the human), and #599 and up are stacked on it: if decision 9 goes another way, they rebase onto #597 with `git rebase --onto`.
-- **Keep it stacked.** The PRs are GitHub stack #519, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/519`). `.more9s/stack.sh` keeps it that way:
-  - `add <branch> <title> <body-file>` opens each new PR as a draft on the top of the stack, links it into #519, and waits until GitHub lists it on top (two adds in a row once based the second on the PR below the first). Mark it ready with `gh pr ready` once green. Don't open a rebuild PR with `gh pr create` alone.
+- Later on 2026-11-26 the human merged #595 to #597 (`rebuild/main` e3e6b8b0), ruled decision 9 (env only) and had #598 closed. Stack #519 had reached GitHub's cap of 100 PRs, merged ones included, so it was unstacked, and #599 to #612 were rebased off #598 onto e3e6b8b0 and linked as stack #614. The human then merged #599 to #611 the same way: `rebuild/main` 242b4e8c. GitHub rebased #612 onto it (50c89a80), so it is not force-pushed from here; this index commit leaves it one commit behind.
+- **Keep it stacked.** The open PRs are GitHub stack #614, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/614`); #519 holds #496 to #598. `.more9s/stack.sh` keeps it that way:
+  - `add <branch> <title> <body-file>` opens each new PR as a draft on the top of the stack, links it into #614, and waits until GitHub lists it on top (two adds in a row once based the second on the PR below the first). Once it is green, send it to runbooks-reviewer, and mark it ready with `gh pr ready` only when the review passes. Don't open a rebuild PR with `gh pr create` alone.
   - `restack` (`--dry-run` first, in a linked worktree) is needed after any commit to `rebuild/main`, such as an index update, or to a lower branch. It rebases each branch onto the one below and force-pushes it with a lease. CI then reruns on every PR above the change, so batch index updates.
   - `check` exits 1 if a PR's base is not the head below it, or if a head lacks commits its base has.
 
@@ -134,20 +135,28 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 81 | #592 | 2 | `rebuild/p2-fix-shared-refs` | p2-fix-state-dir | merged | contract change: `inputsId`, `dependsOn`, `envFrom` take one id or a list |
 | 82 | #593 | 2 | `rebuild/p2-fix-yaml-aliases` | p2-fix-shared-refs | merged | YAML whose alias holds itself is an error at the alias |
 | 83 | #594 | 2 | `rebuild/p2-fix-spawner-bounds` | p2-fix-yaml-aliases | merged; review asked for changes (#596) | the spawner's memory is bounded; a signal exits 128+n |
-| 84 | #595 | 2 | `rebuild/p2-fix-trust-hash` | `rebuild/main` | green; review: merge | a folder's trust hash covers each byte and executable bit; size and count limits on named files |
-| 85 | #596 | 2 | `rebuild/p2-fix-whole-lines` | p2-fix-trust-hash | green; review: merge | #594's rework: a long line's pieces are marked and joined for parsers; the spawner pauses only while read |
-| 86 | #597 | 2 | `rebuild/p2-command-rework` | p2-fix-whole-lines | green; review: merge | #589's rework: an exit test that can fail, recorded calls, no Node in `block.ts` |
-| 87 | #598 | 2 | `rebuild/p2-values-rework` | p2-command-rework | green; held for decision 9 (review round 2: change) | #588's rework: `{{ }}` lexer bypasses, evaluating positions, NUL and size limits, every problem reported |
-| 88 | #599 | 2 | `rebuild/p2-command-inputs` | p2-values-rework | green; review: merge | #589 finding 3: a nested `<Inputs>` in a task, read last |
-| 89 | #600 | 2 | `rebuild/p2-e2e-spec-list` | p2-command-inputs | green; review: merge | the baseline's e2e list equals the specs on disk |
-| 90 | #601 | 2 | `rebuild/p2-fix-test-regex` | p2-e2e-spec-list | green; review: merge | review finding 6: `runbooks test` reads regexes as today's CLI does |
-| 91 | #602 | 2 | `rebuild/p2-run-files-contract` | p2-fix-test-regex | green; review: merge | contract change: `BlockView.files` and `filesTruncated` |
-| 92 | #603 | 2 | `rebuild/p2-run-generated-files` | p2-run-files-contract | red, a `web/` focus flake, rerun; review: merge | `$GENERATED_FILES` and `$REPO_FILES`; the copy on a good end |
-| 93 | #604 | 2 | `rebuild/p2-fix-files-generated` | p2-run-generated-files | green; review: merge | review finding 6: `files_generated` counts the named block's files |
-| 94 | #605 | 2 | `rebuild/p2-command-repository` | p2-fix-files-generated | open | Command's `repository` prop, so a Command gets `$REPO_FILES` |
-| 95 | #606 | 2 | `rebuild/p2-command-docs-landed` | p2-command-repository | open | #589 finding 5: Command's `docs.mdx` |
-| 96 | #607 | 2 | `rebuild/p2-e2e-test-match` | p2-command-docs-landed | open | #600 follow-up: each Playwright config runs only `*.spec.ts` |
-| 97 | none | 2 | the rest of the `rebuild/main` review's fixes | p2-e2e-test-match | planned | see Follow-ups owed |
+| 84 | #595 | 2 | `rebuild/p2-fix-trust-hash` | `rebuild/main` | merged | a folder's trust hash covers each byte and executable bit; size and count limits on named files |
+| 85 | #596 | 2 | `rebuild/p2-fix-whole-lines` | p2-fix-trust-hash | merged | #594's rework: a long line's pieces are marked and joined for parsers; the spawner pauses only while read |
+| 86 | #597 | 2 | `rebuild/p2-command-rework` | p2-fix-whole-lines | merged | #589's rework: an exit test that can fail, recorded calls, no Node in `block.ts` |
+| 87 | #598 | 2 | `rebuild/p2-values-rework` | p2-command-rework | closed: the human ruled decision 9 env only | #588's rework: `{{ }}` lexer bypasses, evaluating positions, NUL and size limits, every problem reported |
+| 88 | #599 | 2 | `rebuild/p2-command-inputs` | `rebuild/main` | merged | #589 finding 3: a nested `<Inputs>` in a task, read last |
+| 89 | #600 | 2 | `rebuild/p2-e2e-spec-list` | p2-command-inputs | merged | the baseline's e2e list equals the specs on disk |
+| 90 | #601 | 2 | `rebuild/p2-fix-test-regex` | p2-e2e-spec-list | merged | review finding 6: `runbooks test` reads regexes as today's CLI does |
+| 91 | #602 | 2 | `rebuild/p2-run-files-contract` | p2-fix-test-regex | merged | contract change: `BlockView.files` and `filesTruncated` |
+| 92 | #603 | 2 | `rebuild/p2-run-generated-files` | p2-run-files-contract | merged | `$GENERATED_FILES` and `$REPO_FILES`; the copy on a good end |
+| 93 | #604 | 2 | `rebuild/p2-fix-files-generated` | p2-run-generated-files | merged | review finding 6: `files_generated` counts the named block's files |
+| 94 | #605 | 2 | `rebuild/p2-command-repository` | p2-fix-files-generated | merged | Command's `repository` prop, so a Command gets `$REPO_FILES` |
+| 95 | #606 | 2 | `rebuild/p2-command-docs-landed` | p2-command-repository | merged | #589 finding 5: Command's `docs.mdx` |
+| 96 | #607 | 2 | `rebuild/p2-e2e-test-match` | p2-command-docs-landed | merged | #600 follow-up: each Playwright config runs only `*.spec.ts` |
+| 96a | #608 | 2 | `rebuild/p2-fix-status-memo` | p2-e2e-test-match | merged | review: a block's status is decided once per pass |
+| 96b | #609 | 2 | `rebuild/p2-fix-credential-restart` | p2-fix-status-memo | merged | review: a block whose provider lost its login finds it again or signs out |
+| 96c | #610 | 2 | `rebuild/p2-fix-secret-scan` | p2-fix-credential-restart | merged | contract change: a `values` detection source says which values are secret |
+| 96d | #611 | 2 | `rebuild/p2-fix-secret-scan-client` | p2-fix-secret-scan | merged | review: the credential client scans each string, and knows detect's secrets |
+| 96e | #612 | 2 | `rebuild/p2-fix-interrupts` | `rebuild/main` | draft, awaiting review | review group 8 items 1 and 2: a run's start and a session's close, once begun, end |
+| 96f | #615 | 2 | `rebuild/p2-fix-concurrent-open` | p2-fix-interrupts | draft, awaiting review | review group 8 item 3: two opens at once resume a saved session once |
+| 96g | none | 2 | `rebuild/p2-env-templates` | p2-fix-concurrent-open | in progress | decision 9: `env` values render `{{ }}`, and take numbers and booleans again |
+| 96h | none | 2 | `rebuild/p2-script-template-error` | p2-env-templates | in progress | decision 9: `{{ }}` in a script is a parse error naming the `env` to write; migrations; Command docs |
+| 97 | none | 2 | the rest of the `rebuild/main` review's fixes | p2-script-template-error | planned | see Follow-ups owed |
 | 98 | none | A | `rebuild/pA-plugins-lock` | row 97 | planned (built) | A.5 (`resources/plugins.lock`, its loader) |
 | 99 | none | A | `rebuild/pA-plugins-recipes` | pA-plugins-lock | planned (built) | A.5 (fetch, check and bump recipes) |
 | 100 | none | A | `rebuild/pA-plugins-packaging` | pA-plugins-recipes | planned (built) | A.6 (CI and release check the bundled binaries; `mac.signIgnore`) |
@@ -232,7 +241,7 @@ Each row names the PR whose description carries the Decisions entry.
 | 3 | Baseline is today's behaviour with the nine ruled changes applied | #509 |
 | 5 | `*AuthId` aliases kept with a warning, no removal date; fixtures keep them | #510 |
 | 17 | Finish needs a clean success; gh and az still read their own config | #510 |
-| 9 | `{{ }}` kept in scripts, inserted as quoted variable expansions | #588; #598 reworks it and is held (Waiting on the human) |
+| 9 | Ruled by the human (2026-11-26): env only. A value reaches a script only through `env`, and `{{ }}` in a script is a parse error naming the `env` line to write. A breaking change for runbooks that write `{{ }}` in a script; the parse error is the migration path | #588 built the old recommendation; #598 closed; rows 96g and 96h build the ruling |
 | 15 | Windows left as it is: environment names compare case-sensitively | #539 |
 | 6 | Saved sessions keep form values and credentials, drop run history from older versions | #544 |
 | 16 | One repo, one version for all binaries, hashes checked against the release's `SHA256SUMS` | row 90 (unopened) |
@@ -308,7 +317,6 @@ Choices of my own that need a ruling (not among the 18):
 | The master plan's line 218 shows `instruction(TaskInput)`; #587 made it `TaskReads` | update the plan | the master plan |
 | A linux arm64 plugin binary | build it (runbooks-plugins has a branch) or leave Linux on ARM `notInstalled` | `resources/plugins.lock` |
 | A no-proxy list | a setting plus a contract change, or none | the credential contract |
-| Decision 9: `{{ }}` in scripts. The premise of #588 and #598, that the places where bash evaluates a word can be listed by lexing the script, failed twice: round 2 of the review still ran a value through 7 classes (`OPTIND`, `HISTCMD`, `RANDOM` and `SRANDOM` arithmetic; `printf -v`'s target; `read NAME <<<`; `wait -p`; `bash -c`, `sh -c` and `. <(...)`). The misses are an open set that changes with bash's version. No third patch. | values reach a script only through `env` (recommended; `{{ }}` in a script becomes a parse error that names the `env` to write), or #598 with its known gaps listed | #598, the Command docs (#606) |
 | A link inside a folder a block names is refused (#595 Decision 1); `docs/intro/files_workspace.mdx:125-131` documents following links that stay in the folder | refuse (built), or follow a link whose real path is inside the runbook's folder | #595 |
 | The 2000-entry cap on a named folder now counts folders as well as files (#595 Decision 2) | keep, or count files only | #595 |
 | A block id is ASCII letters, digits, `-` and `_` (#590); authors see it as a parse error | keep, or widen the pattern | #590 |
@@ -319,7 +327,7 @@ Choices of my own that need a ruling (not among the 18):
 |---|---|---|
 | #573's unit tests in CI | Read the message of a plugin that fails to load from oxlint's output | GitHub's runners default oxlint to its github format, which drops that message; the test asks for `-f default` (907fda47). |
 | Generate TS from `plugin/base.schema.json` | `not: { required: [id] }` on notifications | Effect's importer: "Cannot import JSON Schema keyword \"not\"". Rule moved to the transport owner (#499). |
-| Decision 9 in CI and review | List the places bash evaluates a word by lexing the script (#588), then patch the misses (#598) | Review rounds 1 and 2 each found classes that still ran a value. The premise, not the patch, failed; see Waiting on the human. |
+| Decision 9 in CI and review | List the places bash evaluates a word by lexing the script (#588), then patch the misses (#598) | Review rounds 1 and 2 each found classes that still ran a value. The premise, not the patch, failed; the human ruled env only (2026-11-26). |
 
 ## Follow-ups owed
 
@@ -360,15 +368,18 @@ Choices of my own that need a ruling (not among the 18):
 | Bump `resources/plugins.lock` to the plugins release that sends `envValue.file` | track A, when released |
 | Real Developer ID signing and notarization with `mac.signIgnore` | the first release run |
 | A large org's target list can pass the 1 MiB line cap (the plugins answer `internal`): page `targets` | a later contract change |
-| The `rebuild/main` review at 17064004, groups still to fix: status memo, credential restart re-detect, secret scan, the CLI contract (a bad test file in JUnit; `RUNBOOK_OUTPUT=junit` and `validate`), parse smalls and `literalOnly`, interrupts and concurrency, lint gaps, settings and sessions database, owner TOCTOU and stdout close, protocol "2" and a schema CI check, `env` prop `{{ }}` rendering | row 89, one subagent at a time |
+| The `rebuild/main` review at 17064004, groups still to fix: the CLI contract (a bad test file in JUnit; `RUNBOOK_OUTPUT=junit` and `validate`), parse smalls and `literalOnly`, interrupts and concurrency (items 4 and 5: a resumed session restarts its event sequence at 0; `events` with `after` past the end never ends), lint gaps, settings and sessions database, owner TOCTOU and stdout close, protocol "2" and a schema CI check | row 97, one subagent at a time |
 | Inferred from that review, not reproduced: a second Ctrl-C or SIGTERM and process groups; run files 0644 in tmpdir; `valueLength` 128K over `MAX_ARG_STRLEN`; `agentAccess`/`confirmAgentRuns` not read (gate before MCP) | reproduce first |
 | `boilerplate.yml` readers (`config.ts:388`, `warmEligibility.ts:95`) move to `yamlData` | phase 4, Template |
 | `openFileTail.finish()` reads what is left of a log file in one go when the child ends (#594) | before phase 6 |
 | A test that walks each `blocks/*/block.ts` import graph, through the aliases, and fails on a `node:` or built-in module (#597 checks direct imports only; runbooks-reviewer has a walker) | row 97, with the lint gaps |
 | `NodeFileSystem.walk`'s queue is unbounded and doesn't wait for a slow reader; the generated-files copy (#603) feeds it a folder a script fills | row 97, with the bounds |
 | `runbooks test` applies a Command's `timeoutMs`; today's CLI ignores it (`testing.mdx:102`, `:439`), and a block it stops reports `timeout`, which no `expect` matches. Not a ruled change: restore today's behaviour | row 97 |
-| `env` values take only strings; today numbers and booleans pass. Not a ruled change: restore | row 97, with `env` `{{ }}` rendering |
+| `env` values take only strings; today numbers and booleans pass. Not a ruled change: restore | row 96g |
 | Command has no `exclusive` prop (`validate` warns it is ignored) | phase 3, with run order |
 | No saved session keeps `BlockView.files` (#602) | phase 5, the files panel |
 | Template and TemplateInline report their files as `File` events, so `files_generated` counts them | phase 4, Template |
 | Old-tree CI flakes: `GitAuth.switch` Reload (a stale-effect race), and `SessionName.test.tsx`'s refused-name focus check (#603's first run) | before phase 6, or with the old tree's deletion |
+| #606's Command docs describe #598's value limits (64 KiB, 256 KiB) and `$[ ]` lexing, which are not in the tree since #598 closed (runbooks-reviewer, 2026-11-26) | row 96h, which rewrites that section before the page ships |
+| #608's timing test doesn't assert that each of the 16 short opens is Blocked (runbooks-reviewer) | the next PR that touches `engine.test.ts`'s timing tests |
+| Opening a 3200-block runbook takes 42 to 57 times a 200-block one (16 times the blocks), even with #608: something in open or parse grows faster than linear past about 800 blocks. Not investigated | with the bounds (row 97) |
