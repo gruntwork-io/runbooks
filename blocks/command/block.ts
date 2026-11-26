@@ -21,6 +21,7 @@
  */
 import { Effect, Redacted, Result, Schema, Stream } from "effect"
 import {
+  BlockId,
   defineTask,
   endWithExitCode,
   RunbookPath,
@@ -58,6 +59,11 @@ const CommandProps = Schema.Struct({
     ),
   ),
   timeoutMs: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+  /**
+   * The block that makes the repository the script starts in, and that
+   * `$REPO_FILES` names. A block that works in a repository names it.
+   */
+  repository: Schema.optionalKey(BlockId),
   /** Shown by the view. */
   successMessage: Schema.optionalKey(Schema.String),
   failMessage: Schema.optionalKey(Schema.String),
@@ -110,7 +116,7 @@ export const command = defineTask({
   class: "task",
   props: CommandProps,
   children: { kind: "markdown" },
-  references: {},
+  references: { repository: "repository" },
   runbookFiles: (p) => (p.path === undefined ? [] : [p.path]),
   provides: ["run", "env"],
   effects: ["process"],

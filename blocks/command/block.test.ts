@@ -226,6 +226,23 @@ describe("a command", () => {
     ])
   })
 
+  it("starts in the repository it names, which $REPO_FILES names too", async () => {
+    const spawn = await withSession(
+      [
+        '<Clone id="clone" url="https://example.com/infra.git" />',
+        '<Command id="c" command="ls" repository="clone" />',
+      ].join("\n\n"),
+      (s) =>
+        Effect.gen(function* () {
+          expect(yield* s.run("clone")).toEqual(success)
+          expect(yield* s.run("c")).toEqual(success)
+          return s.spawns[0]!
+        }),
+    )
+    expect(spawn.cwd).toMatch(/^\/work\/[^/]+\/infra$/)
+    expect(spawn.env["REPO_FILES"]).toBe(spawn.cwd)
+  })
+
   it("runs the file its path names as it was when the runbook was trusted", async () => {
     const script = await withSession(
       '<Command id="c" path="scripts/a.sh" />',
