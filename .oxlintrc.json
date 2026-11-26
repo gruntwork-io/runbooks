@@ -76,7 +76,8 @@
     "runbooks/no-node-in-block-ts": "error",
     "runbooks/block-name-outside-its-folder": "error",
     "runbooks/plugin-binary-outside-owner": "error",
-    "runbooks/no-computed-import": "error"
+    "runbooks/no-computed-import": "error",
+    "runbooks/blocks-core-imports-only-effect": "error"
   },
   "overrides": [
     {

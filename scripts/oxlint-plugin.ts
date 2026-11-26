@@ -44,6 +44,10 @@
  * which none does. The core and the blocks do no I/O, so their `import()`
  * names no module chosen at run time either; the layers may, to load a file
  * they found.
+ *
+ * blocks-core-imports-only-effect: blocks/core, the block contract, imports
+ * `effect` and its own files and nothing else, types included, so every
+ * block and every client can load it. Its tests also import `bun:test`.
  */
 import { existsSync, readFileSync } from "node:fs"
 import { builtinModules } from "node:module"
@@ -449,6 +453,32 @@ const noComputedImport = {
   },
 }
 
+const EFFECT = /^effect(\/|$)/
+
+const blocksCoreImportsOnlyEffect = {
+  meta: {
+    type: "problem",
+    docs: { description: "blocks/core imports only effect and its own files" },
+    messages: {
+      other:
+        "blocks/core imports {{spec}}. The block contract imports only effect, so every block and every client can load it: write what it needs with effect, or keep it out of the contract.",
+    },
+    schema: ROOT_OPTION,
+  },
+  create(context: Context) {
+    const { file } = fileOf(context)
+    if (packageOf(file) !== "blocks-core") return {}
+    const test = file.endsWith(".test.ts")
+    return imports((node) => {
+      const spec = specOf(node)
+      if (spec === undefined || EFFECT.test(spec) || spec.startsWith("./")) return
+      // A relative import out of blocks/core is no-relative-import-across-packages'.
+      if (spec.startsWith("../") || (test && spec === "bun:test")) return
+      context.report({ node: node.source, messageId: "other", data: { spec } })
+    })
+  },
+}
+
 /** Reports each statement in the registry that is not one registry line. `export {}` keeps an empty registry a module. */
 function registryLines(program: Node, context: Context): void {
   for (const node of program.body ?? []) {
@@ -470,5 +500,6 @@ export default {
     "block-name-outside-its-folder": blockNameOutsideItsFolder,
     "plugin-binary-outside-owner": pluginBinaryOutsideOwner,
     "no-computed-import": noComputedImport,
+    "blocks-core-imports-only-effect": blocksCoreImportsOnlyEffect,
   },
 }

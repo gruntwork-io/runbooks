@@ -20,6 +20,7 @@ const RULES = [
   "block-name-outside-its-folder",
   "plugin-binary-outside-owner",
   "no-computed-import",
+  "blocks-core-imports-only-effect",
 ]
 
 interface Finding {
@@ -420,6 +421,40 @@ describe("no-computed-import", () => {
     ])
     expect(found[1]?.message).toBe(
       'blocks/core does no I/O, so it loads no module chosen at run time: name the module with a plain string, import("./x.ts"), which the import rules read.',
+    )
+  })
+})
+
+describe("blocks-core-imports-only-effect", () => {
+  it("reports any import in blocks/core but effect and its own files, and lets its tests import bun:test", () => {
+    const found = lint({
+      "blocks/core/contract.ts": [
+        'import { Schema } from "effect"',
+        'import type { Rpc } from "effect/rpc"',
+        'import type { FormSpec } from "./form.ts"',
+        'import path from "node:path"',
+        'import type { ReactNode } from "react"',
+        'import { parse } from "yaml"',
+        'export * from "@runbooks/core/protocol"',
+        'import { it } from "bun:test"',
+        'export const x = () => import("zod")',
+        'import { pipe } from "effectful"',
+      ].join("\n"),
+      "blocks/core/contract.test.ts": [
+        'import { it } from "bun:test"',
+        'import { Schema } from "effect"',
+        'import path from "node:path"',
+      ].join("\n"),
+      "packages/core/src/a.ts": 'import { parse } from "yaml"\n',
+    }).filter((f) => f.rule === "blocks-core-imports-only-effect")
+    expect(brief(found)).toEqual([
+      "blocks-core-imports-only-effect blocks/core/contract.test.ts:3",
+      ...[4, 5, 6, 7, 8, 9, 10].map(
+        (line) => `blocks-core-imports-only-effect blocks/core/contract.ts:${line}`,
+      ),
+    ])
+    expect(found[1]?.message).toBe(
+      "blocks/core imports node:path. The block contract imports only effect, so every block and every client can load it: write what it needs with effect, or keep it out of the contract.",
     )
   })
 })
