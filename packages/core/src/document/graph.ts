@@ -119,16 +119,17 @@ function what(reference: WrittenReference, from: BlockNode): string {
   const { source, prop, targetAsWritten, inFile } = reference
   const where =
     inFile !== undefined
-      ? `${inFile.path}, a file ${named(from)} names,`
+      ? `${inFile.path}, a file ${blockName(from)} names,`
       : prop === undefined
-        ? named(from)
-        : `\`${prop}\` on ${named(from)}`
+        ? blockName(from)
+        : `\`${prop}\` on ${blockName(from)}`
   return source._tag === "Prop"
     ? `${where} names "${targetAsWritten}"`
     : `${where} reads {{ .outputs.${targetAsWritten}.${source.key} }}`
 }
 
-function named(node: BlockNode): string {
+/** `<Run id="deploy">`, or `<Run>` for a block without an id. */
+export function blockName(node: BlockNode): string {
   return node.idAsWritten === undefined ? `<${node.tag}>` : `<${node.tag} id="${node.idAsWritten}">`
 }
 
@@ -163,7 +164,7 @@ function fits(
       .map((tag) => `<${tag}>`)
     report(
       "missingCapability",
-      `\`${reference.prop}\` on ${named(from)} names ${named(target)}, which doesn't ${DOES[capability]}. ${
+      `\`${reference.prop}\` on ${blockName(from)} names ${blockName(target)}, which doesn't ${DOES[capability]}. ${
         providers.length > 0 ? `Blocks that do: ${providers.join(", ")}.` : "No block does."
       }`,
       reference.span,
@@ -178,7 +179,7 @@ function fits(
   const suggestion = nearest(source.key, declared)
   report(
     "undeclaredOutput",
-    `${what(reference, from)}, and ${named(target)} doesn't declare \`${source.key}\`. ${
+    `${what(reference, from)}, and ${blockName(target)} doesn't declare \`${source.key}\`. ${
       declared.length > 0 ? `It declares: ${declared.join(", ")}.` : "It declares no outputs."
     }`,
     reference.span,

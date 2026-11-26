@@ -1282,6 +1282,22 @@ describe("a login that cannot be used", () => {
     )
   })
 
+  it("is unavailable when its provider may set a name the block declares neither in envNames nor as an output", async () => {
+    const extra = cloud({ info: { ...CLOUD_INFO, names: [...CLOUD_INFO.names, "CLOUD_SECRET"] } })
+    await withCloud('<CloudLogin id="cloud" />', { cloud: extra }, (rb) =>
+      Effect.gen(function* () {
+        expect(yield* rb.until("cloud", "Unavailable")).toMatchObject({
+          error: {
+            kind: "providerFailed",
+            message:
+              "The cloud credential provider may set CLOUD_SECRET, which CloudLogin declares neither in envNames nor as an output. The app and the provider do not match: update the app.",
+          },
+        })
+      }),
+    )
+    expect(callsOf("cloud")).toEqual(["open", "describe"])
+  })
+
   it("takes a provider's defect as the provider failing", async () => {
     await withCloud(
       '<CloudLogin id="cloud" />',

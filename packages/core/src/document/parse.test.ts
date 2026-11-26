@@ -332,6 +332,28 @@ describe("parseRunbook", () => {
       ])
     })
 
+    it("warns when two credential blocks in one envFrom declare a name in common", () => {
+      const doc = parsed(
+        '<Run id="a" command="ls" envFrom={["one", "setup", "two"]} />\n\n<Run id="setup" command="make" />\n\n<GitLogin id="one" />\n\n<GitHubLogin id="two" />',
+      )
+      expect(brief(doc.warnings)).toEqual([
+        [
+          "envConflict",
+          1,
+          '`envFrom` on <Run id="a"> names <GitLogin id="one"> and <GitHubLogin id="two">, which both declare GITHUB_TOKEN, GITLAB_TOKEN. A run gets them from <GitHubLogin id="two">, the later one.',
+        ],
+      ])
+      expect(doc.warnings[0]?.location.prop).toBe("envFrom")
+    })
+
+    it("does not warn for credential blocks whose names differ, or a task's exports, which it cannot know", () => {
+      expect(
+        warnings(
+          '<Run id="a" command="ls" envFrom={["git", "cloud", "setup"]} />\n\n<Run id="setup" command="make" />\n\n<GitLogin id="git" />\n\n<CloudLogin id="cloud" />',
+        ),
+      ).toEqual([])
+    })
+
     it("reads githubAuthId as the block's git-credential prop, with a warning", () => {
       const doc = parsed(
         '<Clone id="g" url="https://example.com/r.git" githubAuthId="gh" />\n\n<GitHubLogin id="gh" />',
