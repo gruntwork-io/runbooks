@@ -110,6 +110,12 @@ export interface EngineOptions<R extends Registry> {
    * the registry declares and the reserved ones.
    */
   readonly processEnvironment: Readonly<Record<string, string>>
+  /**
+   * Whether a task's own time limit (`TaskBlock.timeLimit`) applies.
+   * `runbooks test` sets `"ignore"`: its `timeout` setting limits every step
+   * instead, as today's test runner does. Absent: `"apply"`.
+   */
+  readonly blockTimeLimits?: "apply" | "ignore"
 }
 
 const decodeSessionId = Schema.decodeSync(SessionId)
@@ -191,7 +197,8 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
               props,
               input,
             )
-            const limit = block.timeLimit?.(props)
+            const limit =
+              options.blockTimeLimits === "ignore" ? undefined : block.timeLimit?.(props)
             const limited =
               limit === undefined
                 ? run

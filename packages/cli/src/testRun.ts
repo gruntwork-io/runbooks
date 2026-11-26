@@ -551,6 +551,8 @@ const engineFor = <R extends Registry>(
     workingFolders: path.join(folder, "working"),
     stateFolders: path.join(folder, "state"),
     processEnvironment: { ...options.env, ...env },
+    // As today's runner: the test file's `timeout` setting, which `settle` keeps, limits every step.
+    blockTimeLimits: "ignore",
   }).pipe(
     Layer.provideMerge(DefaultSettings),
     Layer.provide(NoCredentialProviders),
