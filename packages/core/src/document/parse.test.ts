@@ -72,6 +72,83 @@ describe("parseRunbook", () => {
     expect(outer?.children?.map((node) => node.type)).toEqual(["paragraph", "block"])
   })
 
+  describe("a form nested in a task", () => {
+    const form = (formId: string) =>
+      [
+        '<Form id="' + formId + '">',
+        "```yaml",
+        "- name: region",
+        "  type: string",
+        "```",
+        "</Form>",
+      ].join("\n")
+
+    it("is the last form the task reads, as an inputsId that names it would be", () => {
+      const doc = parsed(
+        [
+          form("config"),
+          "",
+          '<Run id="deploy" command="ls" inputsId="config">',
+          form("here"),
+          "</Run>",
+        ].join("\n"),
+      )
+      expect(doc.blocks.map((b) => [b.index, b.tag, b.id])).toEqual([
+        [0, "Form", "config"],
+        [1, "Run", "deploy"],
+        [2, "Form", "here"],
+      ])
+      expect(doc.blocks[1]?.shared).toEqual({ inputsId: [id("config"), id("here")] })
+      expect(
+        doc.edges.filter((edge) => edge.from === 1).map((edge) => [edge.to, edge.source]),
+      ).toEqual([
+        [0, { _tag: "Prop", prop: "inputsId", capability: "values" }],
+        [2, { _tag: "Prop", prop: "inputsId", capability: "values" }],
+      ])
+    })
+
+    it("is read last even when the task's inputsId names it first, with one edge to it", () => {
+      const doc = parsed(
+        [
+          form("config"),
+          "",
+          '<Run id="deploy" command="ls" inputsId={["here", "config"]}>',
+          form("here"),
+          "</Run>",
+        ].join("\n"),
+      )
+      expect(doc.blocks[1]?.shared).toEqual({ inputsId: [id("config"), id("here")] })
+      expect(
+        doc.edges
+          .filter((edge) => edge.from === 1)
+          .map((edge) => edge.to)
+          .sort((a, b) => a - b),
+      ).toEqual([0, 2])
+    })
+
+    it("counts the first form in the task's own markdown, not one in a block nested in it", () => {
+      const doc = parsed(
+        [
+          '<Run id="deploy" command="ls">',
+          "<div>",
+          form("first"),
+          "</div>",
+          form("second"),
+          '<Note title="Inner">',
+          form("in-note"),
+          "</Note>",
+          "</Run>",
+        ].join("\n"),
+      )
+      expect(doc.blocks[0]?.shared).toEqual({ inputsId: [id("first")] })
+    })
+
+    it("is no form a display block reads", () => {
+      const doc = parsed(['<Note title="Outer">', form("here"), "</Note>"].join("\n"))
+      expect(doc.blocks[0]?.shared.inputsId).toBeUndefined()
+    })
+  })
+
   it("leaves a block in a code fence or inline code as text", () => {
     const doc = parsed('```mdx\n<Run command="rm -rf /" />\n```\n\nInline `<Run />` too.')
     expect(doc.blocks).toEqual([])

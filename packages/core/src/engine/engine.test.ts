@@ -885,6 +885,39 @@ describe("Engine values", () => {
     )
   })
 
+  it("gives a task the values of a form nested in it after those of its inputsId forms", async () => {
+    const { script, seen } = recorder()
+    const runbook = [
+      CONFIG,
+      [
+        '<Run id="deploy" command="record" inputsId={["config"]}>',
+        withFields('<Form id="nested">', [
+          "- name: region",
+          "  type: string",
+          "  default: eu-west-1",
+        ]),
+        "</Run>",
+      ].join("\n"),
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { record: script },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        yield* rb.run("deploy")
+        yield* rb.wait("deploy")
+        yield* rb.set("nested", { region: "ap-south-1" })
+        yield* rb.run("deploy")
+        yield* rb.wait("deploy")
+        expect(seen).toEqual([
+          { region: "eu-west-1", count: 3 },
+          { region: "ap-south-1", count: 3 },
+        ])
+      }),
+    )
+  })
+
   it("keeps a dependent's run when a form it read changes, and runs it again with the new values", async () => {
     const { script, seen } = recorder()
     const runbook = [
