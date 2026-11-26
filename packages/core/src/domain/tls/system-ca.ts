@@ -23,6 +23,7 @@
  */
 import { Effect } from "effect"
 import type { Cause } from "effect"
+import { Environment } from "../../services/Environment.ts"
 import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { VCS_TOKEN_ENV_VARS } from "../vcs/redact.ts"
 import { SpawnError, SystemCaReadError } from "../../errors/index.ts"
@@ -101,9 +102,9 @@ const COLD_READ_TIMEOUT_MS = 10_000
 const COLD_READ_SCRIPT =
   "process.stdout.write(JSON.stringify(require('node:tls').getCACertificates('system')))"
 
-// The cold-read child receives no token env at all.
-const coldReadChildEnv = (): Record<string, string | undefined> => {
-  const env: Record<string, string | undefined> = { ...process.env, ELECTRON_RUN_AS_NODE: "1" }
+// The cold-read child gets the app's environment with no token in it.
+const coldReadChildEnv = (app: Readonly<Record<string, string>>): Record<string, string> => {
+  const env: Record<string, string> = { ...app, ELECTRON_RUN_AS_NODE: "1" }
   for (const name of VCS_TOKEN_ENV_VARS) {
     delete env[name]
   }
@@ -115,19 +116,25 @@ const coldReadChildEnv = (): Record<string, string | undefined> => {
  * empty getCACertificates("system") cache and performs a real OS-store query
  * — the only way to observe a CA installed after this process launched.
  *
- * Spawns `process.execPath` with ELECTRON_RUN_AS_NODE=1 (turns the Electron
+ * Spawns `execPath`, the app's own binary (the entry point passes
+ * process.execPath), with ELECTRON_RUN_AS_NODE=1 (turns the Electron
  * binary into plain Node; harmless for an actual node binary) and parses the
  * JSON PEM array from stdout. Fails on spawn error, timeout, non-zero exit,
  * or unparseable output — callers fall back via `refreshSystemPems`.
  */
 export const coldReadSystemPems = (
-  execPath: string = process.execPath,
+  execPath: string,
   timeoutMs: number = COLD_READ_TIMEOUT_MS,
-): Effect.Effect<string[], SystemCaReadError | SpawnError | Cause.TimeoutError, ProcessSpawner> =>
+): Effect.Effect<
+  string[],
+  SystemCaReadError | SpawnError | Cause.TimeoutError,
+  ProcessSpawner | Environment
+> =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
+    const app = yield* (yield* Environment).getAll()
     const proc = yield* spawner.spawn(execPath, ["-e", COLD_READ_SCRIPT], {
-      env: coldReadChildEnv(),
+      env: coldReadChildEnv(app),
     })
     const { exitCode, lines } = yield* collectOutput(proc, timeoutMs)
     if (exitCode !== 0) {
