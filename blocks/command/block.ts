@@ -179,9 +179,16 @@ export const command = defineTask({
         )
       }),
     ),
+  // The old app's wording: "Run this command:" for an inline one, "Run this script:" for a file.
   instruction: (p, reads) => {
     const script = scriptOf(p, reads.files) ?? ""
-    return [{ kind: "code", language: resolveScriptRunner(script, "").interpreter, code: script }]
+    return [
+      {
+        kind: "text",
+        markdown: p.command === undefined ? "Run this script:" : "Run this command:",
+      },
+      { kind: "code", language: resolveScriptRunner(script, "").interpreter, code: script },
+    ]
   },
   plugins: [],
 })
