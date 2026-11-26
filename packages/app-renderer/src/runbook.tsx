@@ -11,6 +11,7 @@
  * so it holds whether or not the stylesheet loads.
  */
 import type { DocumentView, SessionSummary } from "@runbooks/core/protocol"
+import { useEnded } from "./following.ts"
 import { Markdown, unknownParts } from "./markdown.tsx"
 import { place } from "./place.ts"
 
@@ -23,9 +24,11 @@ export function Runbook({
 }) {
   const unknown = [...unknownParts(document.tree)]
   const hidden = unknown.reduce((total, [, count]) => total + count, 0)
+  const ended = useEnded()
   return (
     <article className="runbook">
       <h1>{document.title ?? session.name}</h1>
+      {ended === undefined ? null : <p className="ended">{ended}</p>}
       {document.warnings.length === 0 ? null : (
         <ul className="warnings" aria-label="Warnings">
           {document.warnings.map((warning, index) => (

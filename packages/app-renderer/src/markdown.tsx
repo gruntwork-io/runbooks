@@ -269,6 +269,8 @@ interface Walk {
   readonly runbook: string
   /** The id of the session that has the runbook open: the host of its assets' URLs. */
   readonly session: string
+  /** The ids of the blocks the walk draws a frame for. */
+  readonly framed: ReadonlySet<string>
 }
 
 function definitionsIn(tree: TreeNode): Walk["definitions"] {
@@ -282,7 +284,26 @@ function definitionsIn(tree: TreeNode): Walk["definitions"] {
   return found
 }
 
-/** A runbook's markdown: `document.tree`, its blocks as placeholders. */
+/**
+ * The ids of the blocks the walk draws a frame for: each block that is not
+ * inside a misconfigured one, whose children it draws none of.
+ */
+function framedIn(tree: TreeNode, blocks: DocumentView["blocks"]): ReadonlySet<string> {
+  const found = new Set<string>()
+  const visit = (node: TreeNode) => {
+    const part = read(node)
+    if (part.type === "block") {
+      const block = blocks[part.index]
+      if (block?.id !== undefined) found.add(block.id)
+      if (block?._tag === "Misconfigured") return
+    }
+    node.children?.forEach(visit)
+  }
+  visit(tree)
+  return found
+}
+
+/** A runbook's markdown: `document.tree`, each block in its frame. */
 export function Markdown({
   document,
   runbook,
@@ -299,6 +320,7 @@ export function Markdown({
     definitions: definitionsIn(document.tree),
     runbook,
     session,
+    framed: framedIn(document.tree, document.blocks),
   }
   return render(document.tree, 0, walk)
 }
@@ -383,7 +405,7 @@ function render(tree: TreeNode, key: number, walk: Walk): ReactNode {
       const block = walk.blocks[part.index]
       if (block === undefined) return <Fragment key={key}>{children(tree, walk)}</Fragment>
       return (
-        <BlockFrame key={key} block={block} runbook={walk.runbook}>
+        <BlockFrame key={key} block={block} runbook={walk.runbook} onPage={walk.framed}>
           {children(tree, walk)}
         </BlockFrame>
       )

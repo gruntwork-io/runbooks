@@ -167,3 +167,29 @@ export const follow = (
     }),
   )
 }
+
+/** What the window shows of the session now, for React to read (`useSyncExternalStore`). */
+export interface LiveStore {
+  readonly get: () => Live
+  /** Calls `listener` after each change, until the function it returns is called. */
+  readonly subscribe: (listener: () => void) => () => void
+}
+
+/** A store that shows no block until `set` is called, as `follow`'s `publish`. */
+export function makeLiveStore(): LiveStore & { readonly set: (live: Live) => void } {
+  let live: Live = { blocks: new Map() }
+  const listeners = new Set<() => void>()
+  return {
+    get: () => live,
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    set: (next) => {
+      live = next
+      for (const listener of listeners) listener()
+    },
+  }
+}

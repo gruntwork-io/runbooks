@@ -53,6 +53,7 @@
   }
   .warnings,
   .unknown-parts,
+  .ended,
   .failed {
     margin-bottom: calc(var(--spacing) * 6);
     padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
@@ -185,6 +186,23 @@
   .block-no-view {
     color: var(--color-zinc-500);
     font-style: italic;
+  }
+  .block-status,
+  .block-blockers {
+    margin-top: calc(var(--spacing) * 2);
+    color: var(--color-zinc-600);
+  }
+  .block-blockers ul {
+    padding-left: 1.5em;
+    list-style: disc;
+  }
+  .block-link {
+    font-family: var(--font-mono);
+  }
+  .block-fold {
+    margin-left: auto;
+    font-size: var(--text-sm);
+    color: var(--color-zinc-500);
   }
   .block-errors {
     margin-top: calc(var(--spacing) * 2);

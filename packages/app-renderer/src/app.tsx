@@ -8,6 +8,7 @@
 import { Cause, Effect } from "effect"
 import { useEffect, useState } from "react"
 import type { DocumentView, EngineClient, SessionSummary } from "@runbooks/core/protocol"
+import { FollowingContext, followingOf } from "./following.ts"
 import { Runbook } from "./runbook.tsx"
 import { Welcome } from "./welcome.tsx"
 
@@ -70,20 +71,27 @@ export function App({ engine }: { readonly engine: EngineClient }) {
     <div className="app">
       <header className="app-header">Runbooks</header>
       <main className="app-main">
-        <Content shown={shown} />
+        <Content engine={engine} shown={shown} />
       </main>
     </div>
   )
 }
 
-function Content({ shown }: { readonly shown: Shown }) {
+function Content({ engine, shown }: { readonly engine: EngineClient; readonly shown: Shown }) {
   switch (shown._tag) {
     case "Asking":
       return <p className="asking">Asking the engine.</p>
     case "Welcome":
       return <Welcome />
     case "Runbook":
-      return <Runbook session={shown.session} document={shown.document} />
+      return (
+        <Followed
+          key={shown.session.session}
+          engine={engine}
+          session={shown.session}
+          document={shown.document}
+        />
+      )
     case "Failed":
       return <p className="failed">{shown.message}</p>
     default: {
@@ -91,4 +99,23 @@ function Content({ shown }: { readonly shown: Shown }) {
       throw new Error(`The window has no view for ${JSON.stringify(unhandled)}.`)
     }
   }
+}
+
+/** The runbook, each block in it as the engine has it now. */
+function Followed({
+  engine,
+  session,
+  document,
+}: {
+  readonly engine: EngineClient
+  readonly session: SessionSummary
+  readonly document: DocumentView
+}) {
+  const [following] = useState(() => followingOf(engine, session.session))
+  useEffect(() => following.start(), [following])
+  return (
+    <FollowingContext value={following}>
+      <Runbook session={session} document={document} />
+    </FollowingContext>
+  )
 }
