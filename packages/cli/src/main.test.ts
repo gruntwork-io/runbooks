@@ -228,6 +228,19 @@ describe("stopping runbooks test", () => {
     expect(code).toBe(1)
   }, 60_000)
 
+  it("ends the grace on a second Ctrl-C after the script has ended, killing the processes that outlived it", async () => {
+    const r = await start("outlived")
+    r.cli.kill("SIGINT")
+    await eventually("the report", 30_000, () => reported(r))
+    const script = r.pids()[0]!
+    await eventually("the script to end", 10_000, () => !alive(script))
+    const signalled = Date.now()
+    r.cli.kill("SIGINT")
+    const { exitedAt, survivors } = await finish(r)
+    expect(exitedAt - signalled).toBeLessThan(STOP_GRACE_MILLIS)
+    expect(survivors).toEqual([])
+  }, 60_000)
+
   for (const second of ["SIGINT", "SIGTERM"] as const)
     it(`ends the grace on ${second} during the stop: kills the script's processes at once, then exits`, async () => {
       const r = await start("ignored")

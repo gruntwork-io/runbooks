@@ -8,6 +8,7 @@
 #   with their output redirected, so they outlive it. The first takes a second
 #   to clean up on SIGTERM, then writes "cleaned" to that file; the second
 #   ignores SIGTERM.
+: "${SLEEPS_PIDS_FILE:?set by packages/cli/src/main.test.ts}"
 pids=$SLEEPS_PIDS_FILE
 echo $$ >> "$pids"
 if [ -n "$SLEEPS_CLEANED_FILE" ]; then
