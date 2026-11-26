@@ -23,6 +23,7 @@ import {
   resolveClonePaths,
   countFiles,
   deleteBranch,
+  commitsAheadOfBase,
   createPullRequest,
   createMergeRequest,
   seedDefaultBranch,
@@ -926,6 +927,18 @@ export function registerGitHandlers(): void {
           const repoPath = yield* validateSessionPath(params.worktreePath)
           yield* deleteBranch(repoPath, params.branch)
           return { ok: true as const }
+        }),
+      )
+    },
+  )
+
+  ipcMain.handle(
+    "git:commits-ahead",
+    async (_event, params: { worktreePath: string; baseBranch: string }) => {
+      return runAndUnwrap(
+        Effect.gen(function* () {
+          const repoPath = yield* validateSessionPath(params.worktreePath)
+          return { count: yield* commitsAheadOfBase(repoPath, params.baseBranch) }
         }),
       )
     },

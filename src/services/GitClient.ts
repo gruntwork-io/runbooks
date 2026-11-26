@@ -114,6 +114,14 @@ export interface GitClientShape {
     ref: string,
   ) => Effect.Effect<boolean, GitError | SpawnError>
   /**
+   * How many commits HEAD has that `ref` (a full refname, `refs/…`) doesn't
+   * (`git rev-list --count <ref>..HEAD`). Fails when either can't be resolved.
+   */
+  readonly countCommitsNotIn: (
+    repoPath: string,
+    ref: string,
+  ) => Effect.Effect<number, GitError | SpawnError>
+  /**
    * Whether HEAD has commits that no remote-tracking branch of `remote` has
    * (`git rev-list HEAD --not --remotes=<remote>`): commits that, as far as
    * the last fetch or push knows, were never pushed there. Fails when HEAD

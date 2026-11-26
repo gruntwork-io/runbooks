@@ -13,7 +13,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect, Layer } from "effect"
-import { createPullRequest, createMergeRequest } from "./operations.ts"
+import { commitsAheadOfBase, createPullRequest, createMergeRequest } from "./operations.ts"
 import type { CreatePullRequestParams } from "./operations.ts"
 import { makeTestLayer, makeTestGitHubClient } from "../../test-utils/TestLayer.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
@@ -684,6 +684,73 @@ describe("createPullRequest retry (real git)", () => {
 
     expect(second).toMatchObject({ _tag: "Success", success: { branch: "runbook/123" } })
     expect(opened).toEqual(["runbook/123"])
+  })
+
+  // Commits made on the head branch outside this flow (e.g. a runbook step that
+  // saves progress), with a clean working tree.
+  const commitOnHeadBranch = () => {
+    git(work, "checkout", "-q", "-b", "runbook/123")
+    for (const name of ["a.tf", "b.tf"]) {
+      fs.writeFileSync(path.join(work, name), "resource {}\n")
+      git(work, "add", name)
+      git(work, "commit", "-q", "-m", `add ${name}`)
+    }
+    return git(work, "rev-parse", "HEAD").trim()
+  }
+
+  it("opens the PR from commits already pushed to the head branch, without an empty commit", async () => {
+    git(work, "remote", "add", "origin", remote)
+    git(work, "push", "-u", "origin", "main")
+    const head = commitOnHeadBranch()
+    git(work, "push", "-u", "origin", "runbook/123")
+
+    const logs: string[] = []
+    const result = await Effect.runPromise(
+      createPullRequest("tok", { ...params, repoPath: work }, (l) => logs.push(l)).pipe(
+        Effect.result,
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(result).toMatchObject({ _tag: "Success", success: { branch: "runbook/123" } })
+    expect(opened).toEqual(["runbook/123"])
+    expect(logs).toContain("No new changes to commit; pushing the existing commits…")
+    expect(git(work, "rev-parse", "HEAD").trim()).toBe(head)
+    expect(git(remote, "rev-parse", "runbook/123").trim()).toBe(head)
+  })
+
+  it("pushes commits on the head branch that never reached origin, without an empty commit", async () => {
+    git(work, "remote", "add", "origin", remote)
+    git(work, "push", "-u", "origin", "main")
+    const head = commitOnHeadBranch()
+
+    const result = await Effect.runPromise(
+      createPullRequest("tok", { ...params, repoPath: work }).pipe(
+        Effect.result,
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(result).toMatchObject({ _tag: "Success", success: { branch: "runbook/123" } })
+    expect(git(work, "rev-parse", "HEAD").trim()).toBe(head)
+    expect(git(remote, "rev-parse", "runbook/123").trim()).toBe(head)
+  })
+
+  it("commitsAheadOfBase counts HEAD's commits over origin's base, else the local base, else 0", async () => {
+    const count = (base: string) =>
+      Effect.runPromise(commitsAheadOfBase(work, base).pipe(Effect.provide(layer)))
+
+    // No origin/main yet: measured against the local main.
+    commitOnHeadBranch()
+    expect(await count("main")).toBe(2)
+
+    // origin/main ahead of the local main: origin's copy is the one measured.
+    git(work, "remote", "add", "origin", remote)
+    git(work, "push", "origin", "runbook/123:main")
+    git(work, "fetch", "-q", "origin")
+    expect(await count("main")).toBe(0)
+
+    expect(await count("no-such-branch")).toBe(0)
   })
 
   it("with nothing new, fails with nothing to commit before creating the branch", async () => {

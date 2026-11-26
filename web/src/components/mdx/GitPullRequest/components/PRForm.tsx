@@ -40,6 +40,10 @@ interface PRFormProps {
   availableLabels: GitLabel[]
   labelsLoading: boolean
   changeSummary: ChangeSummary | null
+  /** Commits the branch already has that the base branch lacks; null when unknown. */
+  commitsAhead: number | null
+  /** Re-query commitsAhead, resolving with the fresh count. */
+  refreshCommitsAhead: () => Promise<number | null>
   status: PRBlockStatus
   disabled: boolean
   onSubmit: () => void
@@ -63,6 +67,8 @@ export function PRForm({
   availableLabels,
   labelsLoading,
   changeSummary,
+  commitsAhead,
+  refreshCommitsAhead,
   status,
   disabled,
   onSubmit,
@@ -71,18 +77,35 @@ export function PRForm({
   const [commitMessageExpanded, setCommitMessageExpanded] = useState(false)
   const [whatFilesExpanded, setWhatFilesExpanded] = useState(false)
   const [showNoChangesConfirm, setShowNoChangesConfirm] = useState(false)
+  const [checkingCommits, setCheckingCommits] = useState(false)
 
   const isCreating = status === "creating"
   const isFormDisabled = disabled || isCreating
   const hasChanges = changeSummary !== null && changeSummary.fileCount > 0
+  const commitCount = commitsAhead ?? 0
 
-  const handleSubmitClick = () => {
+  const handleSubmitClick = async () => {
     if (hasChanges) {
+      onSubmit()
+      return
+    }
+    // The count shown may predate a commit made since, so ask again before warning.
+    setCheckingCommits(true)
+    const fresh = await refreshCommitsAhead()
+    setCheckingCommits(false)
+    if ((fresh ?? 0) > 0) {
       onSubmit()
     } else {
       setShowNoChangesConfirm(true)
     }
   }
+
+  const commitsSentence = (
+    <>
+      <span className="font-medium">{commitCount}</span> {commitCount === 1 ? "commit" : "commits"}{" "}
+      already on this branch that the base branch does not have
+    </>
+  )
 
   return (
     <div className="space-y-3">
@@ -217,6 +240,12 @@ export function PRForm({
               )}{" "}
               from the <span className="font-semibold">Changed files</span> tab in the workspace
               panel. Review your changes there before creating the {noun.lower}.
+              {commitCount > 0 && <> It will also include the {commitsSentence}.</>}
+            </p>
+          ) : commitCount > 0 ? (
+            <p className="m-0">
+              There are no uncommitted file changes. This {noun.lower} will include the{" "}
+              {commitsSentence}.
             </p>
           ) : (
             <p className="m-0">
@@ -232,8 +261,8 @@ export function PRForm({
       <div className="flex items-center gap-2">
         <Button
           size="sm"
-          disabled={isFormDisabled || !prTitle.trim() || !branchName.trim()}
-          onClick={handleSubmitClick}
+          disabled={isFormDisabled || checkingCommits || !prTitle.trim() || !branchName.trim()}
+          onClick={() => void handleSubmitClick()}
         >
           {isCreating ? (
             <>
@@ -262,8 +291,9 @@ export function PRForm({
           <AlertDialogHeader>
             <AlertDialogTitle>No file changes detected</AlertDialogTitle>
             <AlertDialogDescription>
-              There are no modified files in the workspace. The {noun.lower} will be created with an
-              empty commit. Are you sure you want to continue?
+              There are no modified files in the workspace and no commits that the base branch does
+              not have, so there may be nothing to put in the {noun.lower}. Are you sure you want to
+              continue?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
