@@ -30,9 +30,10 @@ export const EXIT = {
   /** Every test passed; every runbook is valid; the app opened. */
   success: 0,
   /**
-   * A test failed or a runbook is invalid, a `runbook_test.yml` could not be
-   * loaded, no runbook matched, `--test` named no test case, or a flag was
-   * wrong. `--output json` says which, in `failure`.
+   * A test failed or a runbook is invalid; a `runbook_test.yml` that could
+   * not be loaded is a failed test, `config`, whose message says why. Or no
+   * runbook matched, `--test` named no test case, or a flag was wrong:
+   * `--output json` says which, in `failure`.
    */
   failure: 1,
 } as const
@@ -72,9 +73,20 @@ const testOutput = Flag.Literals("output", TestOutputFormat.literals).pipe(
 export const ValidateOutputFormat = Schema.Literals(["text", "json"])
 export type ValidateOutputFormat = typeof ValidateOutputFormat.Type
 
+/**
+ * `RUNBOOKS_OUTPUT` is one variable for both commands, so a CI that sets
+ * `junit` for `runbooks test` runs `runbooks validate` too: `validate`
+ * writes no JUnit, and reads `junit` as `text`. A value neither command
+ * writes is refused; `--output junit` is refused too, as it names a format
+ * this command does not write.
+ */
 const validateOutput = Flag.Literals("output", ValidateOutputFormat.literals).pipe(
   Flag.withDescription("text for people, json for scripts"),
-  withEnv(Config.Literals(ValidateOutputFormat.literals, "RUNBOOKS_OUTPUT")),
+  withEnv(
+    Config.Literals(TestOutputFormat.literals, "RUNBOOKS_OUTPUT").pipe(
+      Config.map((format): ValidateOutputFormat => (format === "junit" ? "text" : format)),
+    ),
+  ),
   Flag.withDefault("text"),
 )
 
@@ -205,7 +217,6 @@ export const CliFailure = Schema.Union([
   /** A folder given with `/...` holds more files and folders than the CLI looks through. */
   Schema.TaggedStruct("TooManyFiles", { path: Schema.String, limit: Schema.Int }),
   Schema.TaggedStruct("TestCaseNotFound", { name: Schema.String, runbooks: Schema.Int }),
-  Schema.TaggedStruct("BadTestFile", { path: Schema.String, message: Schema.String }),
   Schema.TaggedStruct("BadFlag", { flag: Schema.String, message: Schema.String }),
   /** Ctrl-C stopped `runbooks test`: the block running then was cancelled, and nothing after it ran. */
   Schema.TaggedStruct("Cancelled", {}),
@@ -266,6 +277,11 @@ export const RunbookTestReport = Schema.Struct({
   /** A runbook with configuration errors fails every test before any block runs. */
   errors: Schema.Array(ConfigError),
   warnings: Schema.Array(ConfigWarning),
+  /**
+   * Its test cases, as `runbook_test.yml` names them. A test file that can't
+   * be loaded gives one failed test, `config`, whose message names the file,
+   * line and column; the other runbooks are still tested.
+   */
   tests: Schema.Array(TestCaseReport),
 })
 export type RunbookTestReport = typeof RunbookTestReport.Type

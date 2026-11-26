@@ -218,6 +218,20 @@ describe("runbooks validate", () => {
     const text = await validate(["good", "--output", "text"], { RUNBOOKS_OUTPUT: "json" })
     expect(text.stdout).toContain("good/runbook.mdx: valid")
   })
+
+  it("writes text when RUNBOOKS_OUTPUT is junit, which is for runbooks test, as CI sets it for both", async () => {
+    runbook("good", GOOD)
+    const run = await validate(["good"], { RUNBOOKS_OUTPUT: "junit" })
+    expect(run.code).toBe(EXIT.success)
+    expect(run.stdout).toContain("good/runbook.mdx: valid")
+  })
+
+  it("still refuses a RUNBOOKS_OUTPUT no command writes", async () => {
+    runbook("good", GOOD)
+    const run = await validate(["good"], { RUNBOOKS_OUTPUT: "xml" })
+    expect(run.code).toBe(EXIT.failure)
+    expect(run.stdout).toBe("")
+  })
 })
 
 describe("the runbooks command line", () => {

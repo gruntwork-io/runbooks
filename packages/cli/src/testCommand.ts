@@ -12,7 +12,7 @@
  * more, and ends with the report so far, the failure `Cancelled` and exit 1.
  */
 import path from "node:path"
-import { Clock, Console, Deferred, Effect, type Scope } from "effect"
+import { Clock, Console, Deferred, Effect, Result, type Scope } from "effect"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { loadRunbook } from "@runbooks/core/document/load"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
@@ -46,10 +46,17 @@ interface TestOptions<R extends Registry> {
 type Services<R extends Registry> = FileSystem | Exclude<ServicesOf<R>, Scope.Scope>
 
 /** A runbook found, before its tests run. `document` is undefined when it does not open. */
-interface Found extends Omit<Loaded, "document"> {
+interface Found extends Omit<Loaded, "document" | "testFile"> {
   readonly document: Loaded["document"] | undefined
+  /** The test file, or why it could not be loaded: the runbook then fails one test, `config`. */
+  readonly testFile: Result.Result<TestFile, string>
   readonly errors: RunbookTestReport["errors"]
   readonly warnings: RunbookTestReport["warnings"]
+}
+
+/** A runbook to test, and the test cases chosen from its test file: none when it could not be loaded. */
+interface Chosen extends Found {
+  readonly tests: TestFile["tests"]
 }
 
 const causeText = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
@@ -97,15 +104,14 @@ const load = <R extends Registry>(file: string, options: TestOptions<R>) =>
     // its blocks, so a broken test file is reported either way.
     const targets =
       parsed._tag === "Parsed" ? targetsOf(parsed.document, options.registry) : new Map()
-    const testFile: TestFile = yield* readTestFile(
-      testPath,
-      parsed._tag === "Parsed" ? boundTestFile(targets) : undefined,
-    ).pipe(
-      Effect.mapError(({ message }): CliFailure => ({
-        _tag: "BadTestFile",
-        path: shownPath(testPath, options.cwd),
-        message,
-      })),
+    // A test file that can't be loaded fails its runbook's `config` test; the other runbooks still run.
+    const testFile = yield* Effect.result(
+      // Its message names the file as the report shows paths, with the line and column.
+      readTestFile(
+        testPath,
+        parsed._tag === "Parsed" ? boundTestFile(targets) : undefined,
+        shownPath(testPath, options.cwd),
+      ).pipe(Effect.mapError(({ message }) => message)),
     )
     return {
       file,
@@ -114,6 +120,16 @@ const load = <R extends Registry>(file: string, options: TestOptions<R>) =>
       targets,
     }
   })
+
+/** The one test of a runbook whose test file could not be loaded, as today's CLI names it. */
+const badTestFile = (message: string): TestCaseReport => ({
+  name: "config",
+  outcome: "failed",
+  durationMillis: 0,
+  message,
+  steps: [],
+  assertions: [],
+})
 
 /** A test case of a runbook that does not open: failed, with nothing run. */
 const notOpened = (name: string): TestCaseReport => ({
@@ -160,9 +176,13 @@ export const test = <R extends Registry>(
     if (prepared._tag === "Failure") failure = prepared.failure
     else {
       const wanted = args.test._tag === "Some" ? args.test.value : undefined
-      const chosen = prepared.success.flatMap((found) => {
-        const tests = found.testFile.tests.filter((t) => wanted === undefined || t.name === wanted)
-        return tests.length === 0 ? [] : [{ ...found, tests }]
+      const chosen = prepared.success.flatMap((found): ReadonlyArray<Chosen> => {
+        const { testFile } = found
+        if (Result.isFailure(testFile)) return [{ ...found, testFile, tests: [] }]
+        const tests = testFile.success.tests.filter(
+          (t) => wanted === undefined || t.name === wanted,
+        )
+        return tests.length === 0 ? [] : [{ ...found, testFile, tests }]
       })
       if (wanted !== undefined && chosen.length === 0)
         failure = { _tag: "TestCaseNotFound", name: wanted, runbooks: prepared.success.length }
@@ -171,9 +191,10 @@ export const test = <R extends Registry>(
         const run = (found: (typeof chosen)[number]) =>
           Effect.gen(function* () {
             const started = yield* Clock.currentTimeMillis
-            const { document } = found
-            const tests =
-              document === undefined
+            const { document, testFile } = found
+            const tests = Result.isFailure(testFile)
+              ? [badTestFile(testFile.failure)]
+              : document === undefined
                 ? found.tests.map((t) => notOpened(t.name))
                 : yield* runTests(
                     {
@@ -184,7 +205,7 @@ export const test = <R extends Registry>(
                       log: (line) => Console.error(line),
                       stop: options.stop,
                     },
-                    { ...found, document },
+                    { ...found, document, testFile: testFile.success },
                     found.tests,
                   )
             const ended = yield* Clock.currentTimeMillis
@@ -197,7 +218,8 @@ export const test = <R extends Registry>(
             } satisfies RunbookTestReport
           })
         const alone = (found: (typeof chosen)[number]) =>
-          found.testFile.settings?.parallelizable === false
+          Result.isSuccess(found.testFile) &&
+          found.testFile.success.settings?.parallelizable === false
         const together = chosen.filter((found) => !alone(found))
         const reports = new Map<string, RunbookTestReport>()
         yield* Effect.forEach(

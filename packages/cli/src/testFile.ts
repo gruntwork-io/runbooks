@@ -561,10 +561,14 @@ export function parseTestFile(
   )
 }
 
-/** Reads and decodes the `runbook_test.yml` at `file`, up to `MAX_TEST_FILE_BYTES`. */
+/**
+ * Reads and decodes the `runbook_test.yml` at `file`, up to
+ * `MAX_TEST_FILE_BYTES`. Its errors name it as `shown`.
+ */
 export const readTestFile = (
   file: string,
   schema: Schema.Codec<TestFile, unknown> = TestFile,
+  shown: string = file,
 ): Effect.Effect<TestFile, TestFileError, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
@@ -572,18 +576,18 @@ export const readTestFile = (
       Effect.mapError(
         (error) =>
           new TestFileError({
-            path: file,
+            path: shown,
             message:
               error._tag === "FileNotFoundError"
-                ? `${file} does not exist.`
-                : `${file} could not be read: ${String(error.cause)}`,
+                ? `${shown} does not exist.`
+                : `${shown} could not be read: ${String(error.cause)}`,
           }),
       ),
     )
     if (truncated)
       return yield* new TestFileError({
-        path: file,
-        message: `${file} is larger than ${MAX_TEST_FILE_BYTES} bytes.`,
+        path: shown,
+        message: `${shown} is larger than ${MAX_TEST_FILE_BYTES} bytes.`,
       })
-    return yield* parseTestFile(file, text, schema)
+    return yield* parseTestFile(shown, text, schema)
   })
