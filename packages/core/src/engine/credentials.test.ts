@@ -99,10 +99,22 @@ const who = (account: string, role: string | null = "Admin"): Identity => ({
 /** What a cloud provider's `env` gives: the token to the run and as a hidden output, the account to both. */
 const cloudEnv = (token: string, account = "111"): CredentialEnv => ({
   values: [
-    { name: "CLOUD_TOKEN", value: Redacted.make(token), sensitive: true, to: ["env"] },
-    { name: "CLOUD_ACCOUNT", value: Redacted.make(account), sensitive: false, to: ["env"] },
-    { name: "account", value: Redacted.make(account), sensitive: false, to: ["output"] },
-    { name: "token", value: Redacted.make(token), sensitive: true, to: ["output"] },
+    { name: "CLOUD_TOKEN", value: Redacted.make(token), sensitive: true, to: ["env"], file: false },
+    {
+      name: "CLOUD_ACCOUNT",
+      value: Redacted.make(account),
+      sensitive: false,
+      to: ["env"],
+      file: false,
+    },
+    {
+      name: "account",
+      value: Redacted.make(account),
+      sensitive: false,
+      to: ["output"],
+      file: false,
+    },
+    { name: "token", value: Redacted.make(token), sensitive: true, to: ["output"], file: false },
   ],
   expiresAt: Option.none(),
 })
@@ -724,6 +736,7 @@ describe("signing in", () => {
                 value: Redacted.make("glpat-SECRET"),
                 sensitive: true,
                 to: ["env"],
+                file: false,
               },
             ],
             expiresAt: Option.none(),
@@ -1350,6 +1363,7 @@ describe("a run that names the block in envFrom", () => {
       value: Redacted.make(value),
       sensitive: false,
       to: ["env" as const],
+      file: false,
     })
     await withCloud(
       runbookOf(pinned, '<Shell id="sh" label="sh" script="true" envFrom={["cloud"]} />'),

@@ -201,6 +201,12 @@ export interface CredentialValue {
   /** False for a value the view may show: a region, an account id. */
   readonly sensitive: boolean
   readonly to: ReadonlyArray<"env" | "output">
+  /**
+   * The value is the absolute path of a file, or a folder, the provider
+   * wrote inside its state directory for this credential, which only the
+   * directory's owner may read.
+   */
+  readonly file: boolean
 }
 
 export interface CredentialEnv {
