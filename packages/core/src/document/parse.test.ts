@@ -533,6 +533,11 @@ describe("parseRunbook", () => {
       expect(found[0]?.expected).toBe(`at most ${MAX_NESTING} levels of nesting`)
     })
 
+    it("names the first part too deep in the runbook, when two parts are", () => {
+      const twice = `${quoted(MAX_NESTING - 1)}\n${"<div>".repeat(MAX_NESTING)}later${"</div>".repeat(MAX_NESTING)}\n`
+      expect(brief(errors(twice))).toEqual([["tooDeep", 3, TOO_DEEP]])
+    })
+
     it("refuses elements and lists nested too deep", () => {
       expect(brief(errors(inElements(MAX_NESTING)))).toEqual([["tooDeep", 3, TOO_DEEP]])
       // Each list and its item are a level each.
