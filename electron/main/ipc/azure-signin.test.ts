@@ -41,6 +41,8 @@ interface FakeAz {
   token: Record<string, unknown>
   assignments: unknown[]
   loginFails?: string
+  refreshed?: unknown[]
+  refreshFails?: string
 }
 
 let az: FakeAz
@@ -57,6 +59,11 @@ function respond(args: string[]): SpawnResponse {
         "stderr",
       )
     }
+    return out("")
+  }
+  if (cmd === "account list --refresh") {
+    if (az.refreshFails) return out(`ERROR: ${az.refreshFails}`, "stderr", 1)
+    if (az.refreshed) az.accounts = az.refreshed
     return out("")
   }
   if (cmd.startsWith("account list")) return out(JSON.stringify(az.accounts))
@@ -462,6 +469,53 @@ describe("detection", () => {
     expect(
       (await handleConfirmDetected({ blockId: "x", source: "env", prefix: "a;b" })).status,
     ).toBe("failed")
+  })
+})
+
+describe("signing in with the user's own az login", () => {
+  async function withUserAzureDir<A>(body: (userDir: string) => Promise<A>): Promise<A> {
+    const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "user-azure-"))
+    fs.writeFileSync(path.join(userDir, "azureProfile.json"), "{}")
+    const previous = process.env.AZURE_CONFIG_DIR
+    process.env.AZURE_CONFIG_DIR = userDir
+    try {
+      return await body(userDir)
+    } finally {
+      if (previous === undefined) delete process.env.AZURE_CONFIG_DIR
+      else process.env.AZURE_CONFIG_DIR = previous
+      fs.rmSync(userDir, { recursive: true, force: true })
+    }
+  }
+
+  const azArgs = () => spawner.calls.map((call) => call.args.slice(0, 3).join(" "))
+
+  it("refreshes the copy's subscriptions before choosing one, so a new subscription can be used", async () => {
+    az.refreshed = [
+      ...az.accounts,
+      { id: "sub-new", name: "Created since az login", tenantId: GUEST_TENANT },
+    ]
+    await withUserAzureDir(async (userDir) => {
+      const result = authenticated(
+        await handleConfirmDetected({ blockId: "cli", source: "cli", subscriptionId: "sub-new" }),
+      )
+      expect(result.subscriptionId).toBe("sub-new")
+      const refresh = spawner.calls.find((call) => call.args.includes("--refresh"))!
+      expect(refresh.env!.AZURE_CONFIG_DIR).toBe(result.configDir)
+      expect(refresh.env!.AZURE_CONFIG_DIR).not.toBe(userDir)
+      expect(azArgs().indexOf("account list --refresh")).toBeLessThan(
+        azArgs().indexOf("account list --all"),
+      )
+    })
+  })
+
+  it("signs in with the copied subscriptions when the refresh fails", async () => {
+    az.refreshFails = "network unreachable"
+    await withUserAzureDir(async () => {
+      const result = authenticated(
+        await handleConfirmDetected({ blockId: "cli", source: "cli", subscriptionId: "sub-1" }),
+      )
+      expect(result.subscriptionId).toBe("sub-1")
+    })
   })
 })
 

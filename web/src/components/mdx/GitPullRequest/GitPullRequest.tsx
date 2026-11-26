@@ -42,6 +42,7 @@ import {
 } from "@/lib/sessionHistory"
 import { PR_PROVIDERS } from "./providers"
 import { useGitPullRequest } from "./hooks/useGitPullRequest"
+import { useCommitsAhead } from "./hooks/useCommitsAhead"
 import { PRForm } from "./components/PRForm"
 import { PRResultDisplay } from "./components/PRResult"
 import { WrongProviderError } from "./components/WrongProviderError"
@@ -124,7 +125,7 @@ function GitPullRequestInteractive({
     blockRef,
   )
   const { reportError, clearError } = useErrorReporting()
-  const { activeWorkTree } = useGitWorkTree()
+  const { activeWorkTree, treeVersion } = useGitWorkTree()
 
   // Runbook context for metadata
   const { runbookName } = useRunbookContext()
@@ -246,6 +247,14 @@ function GitPullRequestInteractive({
       deletions: workspaceChanges.reduce((sum, c) => sum + c.deletions, 0),
     }
   }, [workspaceChanges])
+
+  // A branch that earlier steps committed to (and maybe pushed) has something
+  // to open a PR/MR from even with a clean working tree.
+  const commitsAhead = useCommitsAhead(
+    activeWorkTree?.localPath,
+    activeWorkTree?.gitInfo.ref,
+    `${treeVersion}:${workspaceChanges?.length ?? 0}`,
+  )
 
   // Resolve prefilled values with template expressions ({{ .inputs.X }} and {{ .outputs.X.Y }})
   const resolvedTitle = useMemo(
@@ -893,6 +902,8 @@ function GitPullRequestInteractive({
                 status={effectiveStatus}
                 disabled={isFormDisabled}
                 changeSummary={changeSummary}
+                commitsAhead={commitsAhead.count}
+                refreshCommitsAhead={commitsAhead.refresh}
                 onSubmit={handleCreatePR}
                 onCancel={cancel}
               />

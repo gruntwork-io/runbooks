@@ -52,7 +52,11 @@ const LOCAL_CONFLICT = "fatal: a branch named 'runbook/1' already exists"
 let testApi: TestApi
 
 function renderBlock(handlers: Handlers) {
-  testApi = makeTestApi({ "github:labels": () => ({ labels: [] }), ...handlers })
+  testApi = makeTestApi({
+    "github:labels": () => ({ labels: [] }),
+    "git:commits-ahead": () => ({ count: 0 }),
+    ...handlers,
+  })
 
   return render(
     <TestWrapper>
@@ -63,9 +67,11 @@ function renderBlock(handlers: Handlers) {
   )
 }
 
-/** The create/delete invokes in order, ignoring the label fetch. */
+/** The create/delete invokes in order, ignoring the form's read-only queries. */
 function actionCalls(): string[] {
-  return testApi.calls.map((call) => call.channel).filter((channel) => channel !== "github:labels")
+  return testApi.calls
+    .map((call) => call.channel)
+    .filter((channel) => channel !== "github:labels" && channel !== "git:commits-ahead")
 }
 
 function fail(message: string, code?: string) {

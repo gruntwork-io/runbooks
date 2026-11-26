@@ -1,0 +1,59 @@
+# Show Content for One Choice
+
+A `<ShowWhen>` block shows its content only while another block's output has a given value:
+
+```mdx
+<ShowWhen output="pick_provider.GIT_PROVIDER" equals="gitlab">
+
+...
+
+</ShowWhen>
+```
+
+Until the output exists, the content shows, so you can read every case first. Add `whenUnknown="hide"` to hide it until then.
+
+## Pick a provider
+
+<Inputs id="provider">
+```yaml
+variables:
+  - name: Provider
+    type: enum
+    options: [github, gitlab]
+    default: github
+```
+</Inputs>
+
+<Command
+  id="pick-provider"
+  inputsId="provider"
+  title="Use this provider"
+  env={{ PROVIDER: "{{ .inputs.Provider }}" }}
+  command='echo "GIT_PROVIDER=$PROVIDER" >> "$RUNBOOK_OUTPUT"'
+/>
+
+Run the command, then pick the other provider and run it again. The steps below follow it.
+
+## Set up access
+
+<ShowWhen output="pick_provider.GIT_PROVIDER" equals="github">
+
+**On GitHub**, install the app on your repository.
+
+<Command id="github-step" title="Set up GitHub" command='echo "Set up GitHub"' />
+
+</ShowWhen>
+
+<ShowWhen output="pick_provider.GIT_PROVIDER" equals="gitlab">
+
+**On GitLab**, add a token as a CI/CD variable.
+
+<Command id="gitlab-step" title="Set up GitLab" command='echo "Set up GitLab"' />
+
+</ShowWhen>
+
+<ShowWhen output="pick_provider.GIT_PROVIDER" in={["github", "gitlab"]} whenUnknown="hide">
+
+You picked a provider. This shows only once **Use this provider** has run.
+
+</ShowWhen>

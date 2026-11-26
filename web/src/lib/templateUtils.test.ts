@@ -9,6 +9,7 @@ import {
   extractInputValueReferences,
   maskTemplateOutputs,
   resolveTemplateReferences,
+  resolveValueReferences,
   revealTemplateOutputs,
   type TemplateOutputs,
 } from "./templateUtils"
@@ -324,11 +325,11 @@ describe("extractInputValueReferences", () => {
     ).toEqual([])
   })
 
-  it("matches exactly what resolveTemplateReferences substitutes", () => {
+  it("matches exactly what resolveValueReferences substitutes", () => {
     const text = "{{ if .inputs.x }}{{ .inputs.y }}{{ end }} {{ .inputs.z | quote }}"
     const ctx: TemplateContext = { inputs: { x: "X", y: "Y", z: "Z" }, outputs: {} }
     expect(extractInputValueReferences(text)).toEqual(["y", "z"])
-    expect(resolveTemplateReferences(text, ctx)).toBe("{{ if .inputs.x }}Y{{ end }} Z")
+    expect(resolveValueReferences(text, ctx)).toBe("{{ if .inputs.x }}Y{{ end }} Z")
   })
 })
 
@@ -477,5 +478,83 @@ describe("inputsThatMayBeEmpty", () => {
       undefined,
     ])
     expect([...names]).toEqual([])
+  })
+})
+
+describe("resolveTemplateReferences conditionals", () => {
+  const term = `{{ if eq .outputs.git_auth.GIT_PROVIDER "gitlab" }}Merge Request{{ else }}Pull Request{{ end }}`
+  const withProvider = (provider?: string): TemplateContext => ({
+    inputs: { env: "prod" },
+    outputs: provider ? { git_auth: { GIT_PROVIDER: provider } } : {},
+  })
+
+  it("takes the branch whose comparison holds", () => {
+    expect(resolveTemplateReferences(`Open the ${term}`, withProvider("gitlab"))).toBe(
+      "Open the Merge Request",
+    )
+    expect(resolveTemplateReferences(`Open the ${term}`, withProvider("github"))).toBe(
+      "Open the Pull Request",
+    )
+  })
+
+  it("takes the else branch while the output doesn't exist yet", () => {
+    expect(resolveTemplateReferences(`Open the ${term}`, withProvider())).toBe(
+      "Open the Pull Request",
+    )
+  })
+
+  it("reads a hyphenated block id as its normalized id", () => {
+    const text = `{{ if eq .outputs.git-auth.GIT_PROVIDER "gitlab" }}MR{{ else }}PR{{ end }}`
+    expect(resolveTemplateReferences(text, withProvider("gitlab"))).toBe("MR")
+  })
+
+  it("supports ne, else if, a bare reference and no else", () => {
+    const ctx = withProvider("gitlab")
+    expect(resolveTemplateReferences(`{{ if ne .inputs.env "prod" }}dev{{ end }}!`, ctx)).toBe("!")
+    expect(
+      resolveTemplateReferences(
+        `{{ if eq .inputs.env "dev" }}a{{ else if eq .inputs.env "prod" }}b{{ else }}c{{ end }}`,
+        ctx,
+      ),
+    ).toBe("b")
+    expect(resolveTemplateReferences(`{{ if .inputs.env }}set{{ else }}unset{{ end }}`, ctx)).toBe(
+      "set",
+    )
+    expect(
+      resolveTemplateReferences(`{{ if .inputs.missing }}set{{ else }}unset{{ end }}`, ctx),
+    ).toBe("unset")
+  })
+
+  it("resolves nested blocks and value references inside the branch taken", () => {
+    const text = `{{ if eq .inputs.env "prod" }}{{ if .outputs.git_auth.GIT_PROVIDER }}on {{ .outputs.git_auth.GIT_PROVIDER }}{{ else }}nowhere{{ end }}{{ else }}dev{{ end }}`
+    expect(resolveTemplateReferences(text, withProvider("gitlab"))).toBe("on gitlab")
+    expect(resolveTemplateReferences(text, withProvider())).toBe("nowhere")
+  })
+
+  it("honors trim markers", () => {
+    expect(
+      resolveTemplateReferences(
+        `a {{- if .inputs.env }} b {{- else }} c {{ end -}} d`,
+        withProvider(),
+      ),
+    ).toBe("a bd")
+  })
+
+  it("compares a sensitive output as <redacted>", () => {
+    const ctx: TemplateContext = {
+      inputs: {},
+      outputs: { mint: { token: sensitiveOutput("s3cr3t") } },
+    }
+    expect(
+      resolveTemplateReferences(
+        `{{ if eq .outputs.mint.token "s3cr3t" }}leak{{ else }}ok{{ end }}`,
+        ctx,
+      ),
+    ).toBe("ok")
+  })
+
+  it("leaves a condition it doesn't understand as written", () => {
+    const text = `{{ if hasKey .outputs "x" }}a{{ else }}b{{ end }}`
+    expect(resolveTemplateReferences(text, withProvider())).toBe(text)
   })
 })

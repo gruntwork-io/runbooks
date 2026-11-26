@@ -11,7 +11,7 @@
  * tree, so nothing is dropped from it unnoticed.
  */
 
-/** The 21 MDX tags and their props, as their docs pages list them: `props.json`. */
+/** The 22 MDX tags and their props, as their docs pages list them: `props.json`. */
 export const PROPS_FILE = "baseline/props.json"
 
 /** The `runbook_test.yml` format, as documented and as today's test CLI parses it. */
@@ -70,6 +70,7 @@ export const FIXTURES = [
   "testdata/feature-demos/script-env/runbook_test.yml",
   "testdata/feature-demos/script-logging/runbook_test.yml",
   "testdata/feature-demos/show-when-block/runbook_test.yml",
+  "testdata/feature-demos/show-when/runbook_test.yml",
   "testdata/feature-demos/template-defaults/runbook_test.yml",
   "testdata/sample-runbooks/demo1/runbook_test.yml",
   "testdata/sample-runbooks/demo2/runbook_test.yml",

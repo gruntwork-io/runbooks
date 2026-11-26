@@ -25,11 +25,11 @@ const unionMembers = (source: string, name: string) => {
 }
 
 describe("the frozen baseline, against today's tree", () => {
-  it("names 37 fixtures, every one there is, and each exists", () => {
+  it("names 38 fixtures, every one there is, and each exists", () => {
     const found = [
       ...new Bun.Glob("testdata/{feature-demos,sample-runbooks}/*/runbook_test.yml").scanSync(ROOT),
     ]
-    expect(FIXTURES).toHaveLength(37)
+    expect(FIXTURES).toHaveLength(38)
     expect(missing(FIXTURES)).toEqual([])
     expect(sorted(found)).toEqual(sorted(FIXTURES))
   })
@@ -39,10 +39,10 @@ describe("the frozen baseline, against today's tree", () => {
     expect(missing([...E2E_SPECS, ...STEP_0_E2E_SPECS])).toEqual([])
   })
 
-  it("freezes 21 tags, and the docs still list every frozen prop", () => {
+  it("freezes 22 tags, and the docs still list every frozen prop", () => {
     const frozen = JSON.parse(read(PROPS_FILE)) as Record<string, string[]>
     const today = documentedProps()
-    expect(Object.keys(frozen)).toHaveLength(21)
+    expect(Object.keys(frozen)).toHaveLength(22)
     expect(sorted(Object.keys(today))).toEqual(sorted(Object.keys(frozen)))
     const dropped = Object.entries(frozen).flatMap(([tag, props]) =>
       props.filter((p) => !today[tag]?.includes(p)).map((p) => `${tag}.${p}`),

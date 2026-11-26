@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useApi } from "@/contexts/ApiContext"
+import { useApi, type RunbooksAPI } from "@/contexts/ApiContext"
 import { createAppError, type AppError } from "@/types/error"
 import type { ScriptFileChange } from "../../../../../../electron/shared/channels.ts"
 
@@ -10,6 +10,58 @@ interface UseScriptFileChangeReturn {
   reload: () => void
   isReloading: boolean
   reloadError: AppError | null
+}
+
+interface ScriptChangeWatch {
+  /** The callbacks of each block, by component ID. */
+  callbacks: Map<string, Set<() => void>>
+  unsubscribe: () => void
+}
+
+// One watch:script-change listener per API, shared by every block. A listener
+// per block passes ipcRenderer's default limit of 10 listeners per channel on
+// a runbook with more script blocks, and Node logs MaxListenersExceededWarning.
+const scriptChangeWatches = new WeakMap<RunbooksAPI, ScriptChangeWatch>()
+
+function openScriptChangeWatch(api: RunbooksAPI): ScriptChangeWatch {
+  const callbacks = new Map<string, Set<() => void>>()
+  const unsubscribe = api.on("watch:script-change", ({ componentIds }) => {
+    for (const id of componentIds) {
+      for (const callback of Array.from(callbacks.get(id) ?? [])) callback()
+    }
+  })
+  const watch = { callbacks, unsubscribe }
+  scriptChangeWatches.set(api, watch)
+  return watch
+}
+
+/**
+ * Calls `onChange` each time the main process reports that the script file of
+ * block `componentId` was written. Returns a function that stops the calls.
+ */
+export function watchScriptChange(
+  api: RunbooksAPI,
+  componentId: string,
+  onChange: () => void,
+): () => void {
+  const watch = scriptChangeWatches.get(api) ?? openScriptChangeWatch(api)
+  const forBlock = watch.callbacks.get(componentId) ?? new Set()
+  watch.callbacks.set(componentId, forBlock)
+  // Wrapped so that one function passed twice is two subscriptions.
+  const subscription = () => onChange()
+  forBlock.add(subscription)
+
+  let subscribed = true
+  return () => {
+    if (!subscribed) return
+    subscribed = false
+    forBlock.delete(subscription)
+    if (forBlock.size > 0) return
+    watch.callbacks.delete(componentId)
+    if (watch.callbacks.size > 0) return
+    scriptChangeWatches.delete(api)
+    watch.unsubscribe()
+  }
 }
 
 /**
@@ -56,9 +108,7 @@ export function useScriptFileChange(
       }
     }
     void check()
-    const unsubscribe = api.on("watch:script-change", ({ componentIds }) => {
-      if (componentIds.includes(componentId)) void check()
-    })
+    const unsubscribe = watchScriptChange(api, componentId, () => void check())
     return () => {
       active = false
       unsubscribe()

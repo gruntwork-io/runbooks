@@ -244,6 +244,7 @@
     "failMessage",
     "runningMessage"
   ],
+  "ShowWhen": ["output", "equals", "notEquals", "in", "whenUnknown"],
   "Template": ["id", "path", "inputsId", "target"],
   "TemplateInline": ["id", "inputsId", "outputPath", "generateFile", "target"]
 }

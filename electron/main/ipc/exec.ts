@@ -23,6 +23,7 @@ import { PathRefreshError } from "../../../src/errors/index.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 import type { IpcEventMap } from "../../shared/channels.ts"
 import { readLoginShellPath } from "../shell-env.ts"
+import { ensureFreshGlabSessionCredential } from "./gitlab-cli-refresh.ts"
 import { makeLogger } from "../logger.ts"
 
 const log = makeLogger("ipc:exec")
@@ -110,6 +111,9 @@ export function registerExecHandlers(): void {
     }
 
     try {
+      // A script reads GITLAB_TOKEN from the session env as it starts.
+      await ensureFreshGlabSessionCredential()
+
       // Run execution directly (no forkDetach). The IPC handler awaits
       // the result, which is exactly the same as forkDetach + Fiber.await
       // but without the scope/fiber lifecycle issues that caused hangs.

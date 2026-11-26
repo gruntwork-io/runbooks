@@ -662,3 +662,226 @@ describe("GitAuth in a session: a token that expires", () => {
     expect(screen.getByTestId("git")).toHaveClass("bg-destructive-muted")
   })
 })
+
+describe("GitAuth: a sign-in detected from glab nears expiry", () => {
+  const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString()
+
+  /** glab's OAuth sign-in for gitlab.com, detected with `expiresAt`. */
+  const glabDetected = (expiresAt: string): Handlers => ({
+    "gitlab:enumerate-hosts": () => onlyGitLabHost("gitlab.com"),
+    "gitlab:cli-credentials": () => ({
+      found: true,
+      valid: true,
+      outcome: "valid",
+      user: { login: "tanuki" },
+      source: "cli",
+      tokenType: "unknown",
+      host: "gitlab.com",
+      expiresAt,
+    }),
+  })
+
+  const renewed = (
+    expiresAt: string,
+    outcome: "refreshed" | "unchanged" = "refreshed",
+  ): Result<"gitlab:refresh-cli-credential"> => ({
+    outcome,
+    host: "gitlab.com",
+    user: { login: "tanuki" },
+    scopes: ["api"],
+    expiresAt,
+  })
+
+  const SAVED_GLAB: SavedGitAuth = {
+    status: "signed-in",
+    block: "git",
+    provider: "gitlab",
+    host: "gitlab.com",
+    instanceUrl: "",
+    user: { login: "tanuki" },
+    source: "cli",
+    scopes: ["api"],
+    tokenType: "unknown",
+    meta: { source: "cli" },
+    expiresAt: inMinutes(-90),
+    outputs: {
+      GITLAB_USER: { value: "tanuki", sensitive: false },
+      GITLAB_HOST: { value: "gitlab.com", sensitive: false },
+      GIT_PROVIDER: { value: "gitlab", sensitive: false },
+      __AUTHENTICATED: { value: "true", sensitive: false },
+    },
+  }
+
+  it("swaps in glab's fresher token without a warning", async () => {
+    const later = inMinutes(120)
+    renderInSession(
+      {
+        ...glabDetected(inMinutes(3)),
+        "gitlab:refresh-cli-credential": () => renewed(later),
+      },
+      <GitLabAuth id="git" />,
+    )
+
+    await waitFor(() => expect(callsTo("gitlab:refresh-cli-credential")).toHaveLength(1))
+    expect(callsTo("gitlab:refresh-cli-credential")[0]).toEqual({ host: "gitlab.com" })
+    await waitFor(() => expect(recorded().at(-1)).toMatchObject({ expiresAt: later }))
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByTestId("git")).toHaveClass("bg-success-muted")
+  })
+
+  it("stays signed in while glab holds the same, unexpired token", async () => {
+    const soon = inMinutes(3)
+    renderInSession(
+      {
+        ...glabDetected(soon),
+        "gitlab:refresh-cli-credential": () => renewed(soon, "unchanged"),
+      },
+      <GitLabAuth id="git" />,
+    )
+
+    await waitFor(() => expect(callsTo("gitlab:refresh-cli-credential")).toHaveLength(1))
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByTestId("git")).toHaveClass("bg-success-muted")
+  })
+
+  it("asks again once the token expires, when glab has refreshed it", async () => {
+    const soon = new Date(Date.now() + 1_500).toISOString()
+    const later = inMinutes(120)
+    let calls = 0
+    renderInSession(
+      {
+        ...glabDetected(soon),
+        "gitlab:refresh-cli-credential": () =>
+          ++calls === 1 ? renewed(soon, "unchanged") : renewed(later),
+      },
+      <GitLabAuth id="git" />,
+    )
+
+    await waitFor(() => expect(callsTo("gitlab:refresh-cli-credential")).toHaveLength(2), {
+      timeout: 5_000,
+    })
+    await waitFor(() => expect(recorded().at(-1)).toMatchObject({ expiresAt: later }))
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
+  it("names glab and offers Re-authenticate when glab cannot renew", async () => {
+    renderInSession(
+      {
+        ...glabDetected(inMinutes(3)),
+        "gitlab:refresh-cli-credential": () => ({
+          outcome: "failed",
+          host: "gitlab.com",
+          error:
+            "glab could not renew your sign-in for gitlab.com. Run 'glab auth login --hostname gitlab.com', then select Re-authenticate.",
+        }),
+      },
+      <GitLabAuth id="git" />,
+    )
+
+    const notice = await screen.findByRole("alert")
+    expect(notice).toHaveTextContent("Your glab sign-in expires in less than 5 minutes")
+    expect(notice).toHaveTextContent("Run 'glab auth login --hostname gitlab.com'")
+    expect(screen.getByTestId("git")).toHaveClass("bg-destructive-muted")
+
+    // Re-authenticate detects again, so a fresh `glab auth login` is picked up.
+    const detections = callsTo("gitlab:cli-credentials").length
+    fireEvent.click(within(notice).getByRole("button", { name: "Re-authenticate" }))
+    await waitFor(() =>
+      expect(callsTo("gitlab:cli-credentials").length).toBeGreaterThan(detections),
+    )
+  })
+
+  it("takes a fresher expiry that main reports after renewing on its own", async () => {
+    renderInSession(glabDetected(inMinutes(60)), <GitLabAuth id="git" />)
+    await screen.findByText(/Authenticated to GitLab/)
+    await waitFor(() => expect(testApi.listenerCount("gitlab:cli-credential-refreshed")).toBe(1))
+
+    const later = inMinutes(120)
+    act(() => {
+      testApi.emit("gitlab:cli-credential-refreshed", {
+        host: "gitlab.com",
+        user: { login: "tanuki" },
+        expiresAt: later,
+      })
+    })
+    await waitFor(() => expect(recorded().at(-1)).toMatchObject({ expiresAt: later }))
+  })
+
+  it("warns as before for a token that is not a glab sign-in, without asking main to renew", async () => {
+    renderInSession(
+      {
+        "gitlab:enumerate-hosts": () => onlyGitLabHost("gitlab.com"),
+        "gitlab:env-credentials": () => ({
+          found: true,
+          valid: true,
+          outcome: "valid",
+          user: { login: "tanuki" },
+          envVar: "GITLAB_TOKEN",
+          tokenType: "pat",
+          expiresAt: inMinutes(3),
+        }),
+      },
+      <GitLabAuth id="git" />,
+    )
+
+    expect(
+      await screen.findByText("These credentials expire in less than 5 minutes"),
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Sign in again" })).toBeInTheDocument()
+    expect(callsTo("gitlab:refresh-cli-credential")).toEqual([])
+  })
+
+  it("re-reads glab for a resumed sign-in instead of showing its saved expiry", async () => {
+    const later = inMinutes(120)
+    renderInSession(
+      {
+        "gitlab:enumerate-hosts": () => onlyGitLabHost("gitlab.com"),
+        "gitlab:refresh-cli-credential": () => renewed(later),
+      },
+      <GitLabAuth id="git" />,
+      SAVED_GLAB,
+    )
+
+    await waitFor(() => expect(callsTo("gitlab:refresh-cli-credential")).toHaveLength(1))
+    await waitFor(() => expect(recorded().at(-1)).toMatchObject({ expiresAt: later }))
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByTestId("git")).toHaveClass("bg-success-muted")
+    expect(callsTo("gitlab:validate")).toEqual([])
+  })
+
+  it("checks a resumed sign-in as before when main cannot renew it from glab", async () => {
+    renderInSession(
+      {
+        "gitlab:enumerate-hosts": () => onlyGitLabHost("gitlab.com"),
+        "gitlab:refresh-cli-credential": () => ({ outcome: "not-glab" }),
+        "gitlab:validate": () => ({ valid: true, user: { login: "tanuki" } }),
+      },
+      <GitLabAuth id="git" />,
+      SAVED_GLAB,
+    )
+
+    await waitFor(() => expect(callsTo("gitlab:validate")).toHaveLength(1))
+    expect(callsTo("gitlab:validate")[0]).toMatchObject({ useSessionToken: true })
+    expect(await screen.findByText("These credentials have expired")).toBeInTheDocument()
+  })
+
+  it("signs a resumed glab sign-in out when glab cannot renew it", async () => {
+    renderInSession(
+      {
+        "gitlab:enumerate-hosts": () => onlyGitLabHost("gitlab.com"),
+        "gitlab:refresh-cli-credential": () => ({
+          outcome: "failed",
+          host: "gitlab.com",
+          error: "glab could not renew your sign-in for gitlab.com.",
+        }),
+      },
+      <GitLabAuth id="git" />,
+      SAVED_GLAB,
+    )
+
+    expect(
+      await screen.findByText("glab could not renew your sign-in for gitlab.com."),
+    ).toBeInTheDocument()
+    await waitFor(() => expect(publishedOutputs()).toEqual({ GIT_PROVIDER: "gitlab" }))
+  })
+})

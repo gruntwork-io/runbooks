@@ -11,7 +11,7 @@ const ORDER: readonly GitProvider[] = ["github", "gitlab"] as const
 /**
  * A small segmented control to pick the git provider (GitHub / GitLab),
  * styled like the auth-method tabs. Hidden by the parent when the author sets
- * hideProviderSelect or once authenticated.
+ * hideProviderSelect. Choosing the other provider signs out of the current one.
  */
 export function ProviderSelect({ provider, onSelect }: ProviderSelectProps) {
   return (

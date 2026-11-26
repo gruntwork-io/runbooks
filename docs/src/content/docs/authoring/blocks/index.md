@@ -44,6 +44,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 
 - [`<Admonition>`](/authoring/blocks/admonition) renders a note, info, warning, or danger callout.
 - [`<Chapter>`](/authoring/blocks/chapter) splits a long runbook into chapters, shown one at a time with a table of contents.
+- [`<ShowWhen>`](/authoring/blocks/showwhen) shows its content only while another block's output has a given value, such as the GitHub or GitLab steps after a `<GitAuth>`.
 - [`<Iframe>`](/authoring/blocks/iframe) embeds a web page: an external site, or an HTML page from the runbook's `assets/` folder.
 
 ## Block IDs
@@ -54,6 +55,7 @@ Interactive blocks take an `id` prop, a unique identifier for the block. When on
 - `awsAuthId`, `azureAuthId`, `googleAuthId`, `gitAuthId` and `githubAuthId` choose which auth block's credentials a block uses.
 - `dependsOn` names the `<Command>` or `<Check>` blocks that must succeed before a `<Command>`, `<Check>` or `<Finish>` can run. A `<Check>` that ends with a warning counts too. See [Run order](/authoring/blocks/command/#run-order).
 - `showWhenBlock` shows a `<Command>`, `<Check>` or `<Finish>` only while another block's latest run ended a certain way. See [Showing a block after another one fails](/authoring/blocks/command/#showing-a-block-after-another-one-fails).
+- `<ShowWhen output="<block_id>.<OUTPUT_NAME>">` shows its content only while another block's output has a given value. See [`<ShowWhen>`](/authoring/blocks/showwhen/).
 - `gitCloneId` roots a `<DirPicker>` in the repository a `<GitClone>` block cloned.
 - `{{ .outputs.<block_id>.<output_name> }}` reads the outputs of a block that has already run. In template syntax, write any hyphens in the ID as underscores. See [Block outputs](/authoring/inputs-and-outputs/#block-outputs).
 
@@ -83,7 +85,7 @@ Each block the user acts on is a step. It is done once the block shows it's done
 | `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>` | It opened its pull or merge request. |
 | `<DirPicker>` | It has a path. |
 
-`<TemplateInline>`, `<Admonition>`, `<Chapter>` and `<Iframe>` aren't steps, as there is nothing in them for the user to do. The blocks inside a `<Chapter>` are steps as they would be anywhere else, and its table of contents counts them per chapter. Neither is an `<Inputs>` nested in a `<Command>` or `<Check>`, which is part of that block, nor a block that shows a configuration error, such as a duplicate ID, in its place.
+`<TemplateInline>`, `<Admonition>`, `<Chapter>`, `<ShowWhen>` and `<Iframe>` aren't steps, as there is nothing in them for the user to do. The blocks inside a `<Chapter>` are steps as they would be anywhere else, and its table of contents counts them per chapter. The blocks inside a `<ShowWhen>` are steps only while its content shows. Neither is an `<Inputs>` nested in a `<Command>` or `<Check>`, which is part of that block, nor a block that shows a configuration error, such as a duplicate ID, in its place.
 
 A [resumed session](/commands/sessions/#resuming-a-session) brings the blocks back as the user left them, so their steps are done as they were. In [instruction mode](/intro/instruction-mode/#tracking-your-progress), a step is done once the user marks it as done.
 

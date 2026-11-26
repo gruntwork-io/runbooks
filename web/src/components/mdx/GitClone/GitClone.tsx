@@ -16,6 +16,7 @@ import { parseSavedClone, type SavedClone } from "@/lib/sessionHistory"
 import { omitUndefined } from "@/lib/omitUndefined"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
+import { GitLabBrowser } from "./components/GitLabBrowser"
 import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
 import { hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
 import { gitRemoteOwnerRepo } from "@/lib/gitRemoteUrl"
@@ -24,6 +25,8 @@ import { SourceSelect } from "./components/SourceSelect"
 import { LocalRepoForm } from "./components/LocalRepoForm"
 import { CloneResultDisplay } from "./components/CloneResult"
 import { EmptyRepoWarning } from "./components/EmptyRepoWarning"
+import { SshUrlNote } from "./components/SshUrlNote"
+import { isSshAuthError, sshRemoteForSignIn, sshSignInNote } from "./sshUrl"
 import { CollapsibleToggle } from "@/components/mdx/GitPullRequest/components/CollapsibleToggle"
 import {
   extractTemplateDependenciesFromString,
@@ -186,6 +189,8 @@ function GitCloneInteractive({
     tokenChecked,
     gitHubAuthMet,
     githubHost,
+    gitlabHost,
+    authProvider,
     workingDir,
     localPreview,
     localPreviewStatus,
@@ -204,6 +209,9 @@ function GitCloneInteractive({
     fetchOrgs,
     fetchRepos,
     fetchRefs,
+    fetchGitLabNamespaces,
+    fetchGitLabProjects,
+    fetchGitLabRefs,
   } = useGitClone({
     id,
     githubAuthId,
@@ -471,6 +479,34 @@ function GitCloneInteractive({
     }
     return null
   }, [resolvedUrl, githubHost])
+
+  // A block linked to a GitLab sign-in browses no GitHub repositories, even
+  // when the session also holds a GitHub token from another block.
+  const linkedToGitLab = authProvider === "gitlab"
+  const showGitHubBrowser = tokenChecked && hasGitHubToken && !linkedToGitLab
+  const showGitLabBrowser = linkedToGitLab && gitHubAuthMet
+
+  // Seed the GitLab browser's project, but only from a URL on the linked
+  // block's GitLab instance.
+  const prefilledGitLabProject = useMemo(() => {
+    const urlHost = hostFromRepoUrl(resolvedUrl)?.toLowerCase()
+    if (!resolvedUrl || urlHost !== gitlabHost.toLowerCase()) return undefined
+    const parsed = parseOwnerRepoFromURL(resolvedUrl)
+    return parsed ? `${parsed.org}/${parsed.repo}` : undefined
+  }, [resolvedUrl, gitlabHost])
+  const urlPlaceholder = linkedToGitLab
+    ? `https://${gitlabHost}/group/project.git`
+    : `https://${githubHost}/org/repo.git`
+
+  // The clone sends the sign-in's token only over HTTPS; an SSH URL uses SSH keys.
+  const signedInProvider = authBlockId && gitHubAuthMet ? authProvider : undefined
+  const signInHost = signedInProvider === "gitlab" ? gitlabHost : githubHost
+  const sshUrl = signedInProvider ? sshRemoteForSignIn(gitUrl, signInHost) : undefined
+  const showSshAuthHint =
+    signedInProvider !== undefined &&
+    !!errorMessage &&
+    isSshAuthError(errorMessage) &&
+    !!sshRemoteForSignIn(submittedForm?.gitUrl ?? gitUrl, signInHost)
 
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
 
@@ -927,14 +963,22 @@ function GitCloneInteractive({
                         type="text"
                         value={gitUrl}
                         onChange={(e) => setGitUrl(e.target.value)}
-                        placeholder={`https://${githubHost}/org/repo.git`}
+                        placeholder={urlPlaceholder}
                         disabled={isFormDisabled}
                         className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                       />
+                      {sshUrl && signedInProvider && (
+                        <SshUrlNote
+                          provider={signedInProvider}
+                          httpsUrl={sshUrl.httpsUrl}
+                          onUseHttps={setGitUrl}
+                          disabled={isFormDisabled}
+                        />
+                      )}
                     </div>
 
-                    {/* GitHub Browser (only if token available) */}
-                    {tokenChecked && hasGitHubToken && (
+                    {/* GitHub Browser (only with a GitHub token and no GitLab link) */}
+                    {showGitHubBrowser && (
                       <GitHubBrowser
                         key={githubHost}
                         host={githubHost}
@@ -946,6 +990,21 @@ function GitCloneInteractive({
                         disabled={isFormDisabled}
                         initialOrg={prefilledGitHub?.org}
                         initialRepo={prefilledGitHub?.repo}
+                        defaultOpen={false}
+                      />
+                    )}
+
+                    {/* GitLab Browser (only when linked to a signed-in GitLab block) */}
+                    {showGitLabBrowser && (
+                      <GitLabBrowser
+                        key={gitlabHost}
+                        onRepoSelected={handleRepoSelected}
+                        onRefSelected={handleRefSelected}
+                        fetchNamespaces={fetchGitLabNamespaces}
+                        fetchProjects={fetchGitLabProjects}
+                        fetchRefs={fetchGitLabRefs}
+                        disabled={isFormDisabled}
+                        initialProject={prefilledGitLabProject}
                         defaultOpen={false}
                       />
                     )}
@@ -966,11 +1025,12 @@ function GitCloneInteractive({
                             <InfoTooltip>
                               The branch or tag to clone. Defaults to the repository&apos;s default
                               branch if not specified.
-                              {tokenChecked && hasGitHubToken && (
+                              {(showGitHubBrowser || showGitLabBrowser) && (
                                 <>
                                   <br />
                                   <br />
-                                  <strong>Tip:</strong> Use the GitHub browser above to browse
+                                  <strong>Tip:</strong> Use the{" "}
+                                  {showGitLabBrowser ? "GitLab" : "GitHub"} browser above to browse
                                   branches and tags.
                                 </>
                               )}
@@ -1051,6 +1111,11 @@ function GitCloneInteractive({
                       <p className="text-xs text-destructive m-0 mt-0.5 font-mono">
                         {displayPath(errorMessage)}
                       </p>
+                      {showSshAuthHint && signedInProvider && !isLocalSource && (
+                        <p className="text-xs text-destructive m-0 mt-1.5">
+                          {sshSignInNote(signedInProvider)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}

@@ -4,7 +4,7 @@ title: <GitAuth>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<GitAuth>` block authenticates the user to GitHub or GitLab. A dropdown on the block selects the provider.
+The `<GitAuth>` block authenticates the user to GitHub or GitLab. A dropdown on the block selects the provider. The dropdown stays visible after the user signs in, including a sign-in from detected credentials, so the user can always switch to the other provider. Switching signs out of the current provider and looks for credentials for the new one.
 
 It detects whether the user is already authenticated by checking their environment variables and the provider's CLI (`gh` for GitHub, `glab` for GitLab). Users can also authenticate manually. GitHub supports OAuth and a Personal Access Token (PAT). GitLab supports a PAT. Once authenticated, the credentials are available to later [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), and [GitClone](/authoring/blocks/gitclone/) blocks.
 
@@ -114,6 +114,8 @@ An unprefixed GitLab token from the environment (`GITLAB_TOKEN`, `GITLAB_ACCESS_
 The block warns before a token expires when the provider says when that is. GitHub says so for a token that has an expiration date, such as a fine-grained personal access token. GitLab says so for a personal access token with an expiry date, and for an OAuth token such as the one `glab auth login` stores.
 
 Five minutes before the token expires, the block turns red, says when it expires, and offers **Sign in again**. Once it has expired, the block says so. It stays signed in until you sign in again, so a script that runs in the meantime gets the expired token.
+
+A sign-in detected from `glab` is kept fresh. GitLab OAuth tokens last two hours, and glab replaces its token when it refreshes it, which revokes the old one. As the token nears expiry, the block reads glab's current token and, when needed, runs `glab auth status` so that glab refreshes it. The block then uses the new token without asking. Runbooks does the same before a git operation, a GitLab API call or a script that would use a token about to expire, and after GitLab refuses the token. After Runbooks restarts, a saved glab sign-in is read from glab again rather than shown with its old expiry. The block turns red only when glab cannot renew the sign-in. It then names glab, asks you to run `glab auth login`, and offers **Re-authenticate**, which checks for credentials again. Personal access tokens, environment tokens and pasted tokens are never replaced.
 
 ## Props
 

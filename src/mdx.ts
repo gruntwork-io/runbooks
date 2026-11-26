@@ -57,6 +57,8 @@ export interface MdxElement {
   readonly content: string
   /** The offset of the opening tag in the runbook, after its front matter is blanked out. */
   readonly index: number
+  /** The offset just past the element's closing tag, or past a self-closing tag. */
+  readonly end: number
 }
 
 /** A runbook's JSX elements in document order, or why the renderer refuses it. */
@@ -219,6 +221,7 @@ function toElement(node: MdxNode, name: string, source: string): MdxElement {
     propsSource: propsStart === undefined ? "" : source.slice(propsStart, propsEnd),
     content,
     index: start,
+    end,
   }
 }
 

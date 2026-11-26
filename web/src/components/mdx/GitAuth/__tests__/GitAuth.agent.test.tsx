@@ -136,5 +136,12 @@ describe("GitAuth agent adapter", () => {
       state: { signedInAs: "octocat", detectedFrom: "cli" },
     })
     expect(availableActions(detail)).toContain("sign_out")
+    expect(availableActions(detail)).toContain("select_provider")
+  })
+
+  it("offers no provider switch when the block hides the picker", async () => {
+    const api = renderWithAgent(<GitAuth id="git" hideProviderSelect />)
+    const detail = await askAgent(api, { op: "get_block", blockId: "git" })
+    expect(availableActions(detail)).not.toContain("select_provider")
   })
 })

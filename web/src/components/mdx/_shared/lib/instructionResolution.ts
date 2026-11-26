@@ -18,7 +18,7 @@ import {
 import {
   extractInputValueReferences,
   resolveInputPath,
-  resolveTemplateReferences,
+  resolveValueReferences,
   type TemplateContext,
   type TemplateInputs,
   type TemplateOutputs,
@@ -226,7 +226,7 @@ export function buildMergedContext(
  * evaluate it.
  */
 export function resolveCommandClientSide(command: string, ctx: TemplateContext): string {
-  return resolveTemplateReferences(command, ctx)
+  return resolveValueReferences(command, ctx)
 }
 
 /** Normalize a `string | string[] | undefined` command into a string array. */
