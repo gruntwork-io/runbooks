@@ -132,6 +132,7 @@ jobs:
         run: xvfb-run --auto-servernum just test-e2e-run
 
       - name: Run the rebuilt app's E2E tests
+        if: ${{ !cancelled() }}
         run: xvfb-run --auto-servernum just app-test-e2e
 
       - name: Upload Playwright report

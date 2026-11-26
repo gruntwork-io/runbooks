@@ -242,7 +242,7 @@ clean:
     #!/usr/bin/env bash
     set -u
     for i in 1 2 3; do
-        rm -rf dist out resources/bin/runbooks-test resources/bin/runbooks-test.exe resources/bin/boilerplate resources/bin/boilerplate.exe resources/wasm resources/.boilerplate-version && exit 0
+        rm -rf dist out app-out resources/bin/runbooks-test resources/bin/runbooks-test.exe resources/bin/boilerplate resources/bin/boilerplate.exe resources/wasm resources/.boilerplate-version && exit 0
         sleep 0.3
     done
     exit 1
