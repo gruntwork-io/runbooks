@@ -13,6 +13,7 @@ The running index of the rebuild stack. Update it whenever the stack changes.
 - On 2026-11-26 no PR was merged. #598 to #607 went on top of #597, and runbooks-reviewer's finding 6 (test CLI false greens) closed with #601 to #604. #598 is held for decision 9 (Waiting on the human), and #599 and up are stacked on it: if decision 9 goes another way, they rebase onto #597 with `git rebase --onto`.
 - Later on 2026-11-26 the human merged #595 to #597 (`rebuild/main` e3e6b8b0), ruled decision 9 (env only) and had #598 closed. Stack #519 had reached GitHub's cap of 100 PRs, merged ones included, so it was unstacked, and #599 to #612 were rebased off #598 onto e3e6b8b0 and linked as stack #614. The human then merged #599 to #611 the same way: `rebuild/main` 242b4e8c. GitHub rebased #612 onto it (50c89a80), so it is not force-pushed from here; this index commit leaves it one commit behind.
 - Later on 2026-11-26 the human merged #612 and #615 to #625 the same way (`rebuild/main` c0df6d11). #626's base, #625, was merged while #626 sat in stack #614, and GitHub refuses a base change inside a stack, so #614 was unstacked, #626 rebased onto `rebuild/main`, and #626 and #627 linked as stack **#628**. #629 to #634 followed on top. This index commit leaves #626 one commit behind; its diff is unaffected, and it is not restacked, so the reviewed heads stay as reviewed.
+- Later on 2026-11-26 (14:51 UTC) the human merged #626 to #639 the same way (`rebuild/main` d2c172ed), and ruled #640's `<style>`: refuse it. GitHub rebased #640 to #648 onto `rebuild/main`, patch for patch (`git patch-id --stable` before and after). #640 then gained its behaviour-changes row (fca0c8e9), and #641 to #648 were restacked onto it with leases pinned to GitHub's heads. This index commit leaves #640 one commit behind; it is not restacked.
 - **Keep it stacked.** The open PRs are GitHub stack #628, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/628`); #519 holds #496 to #598, and #614 holds #599 to #625. `.more9s/stack.sh` keeps it that way:
   - `add <branch> <title> <body-file>` opens each new PR as a draft on the top of the stack, links it into #628, and waits until GitHub lists it on top (two adds in a row once based the second on the PR below the first). Once it is green, send it to runbooks-reviewer, and mark it ready with `gh pr ready` only when the review passes. Don't open a rebuild PR with `gh pr create` alone.
   - `restack` (`--dry-run` first, in a linked worktree) is needed after any commit to `rebuild/main`, such as an index update, or to a lower branch. It rebases each branch onto the one below and force-pushes it with a lease. CI then reruns on every PR above the change, so batch index updates.
@@ -165,31 +166,30 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 96n | #623 | 2 | `rebuild/p2-script-template-error` | p2-script-contract | merged | decision 9 and the no-checks ruling: a script runs as written and makes no edges; migrations to `env`; Command docs |
 | 96o | #624 | 2 | `rebuild/p2-sessions-db-damaged` | p2-script-template-error | merged | review group 11: a damaged sessions database (`quick_check`) is left as it is |
 | 96p | #625 | 2 | `rebuild/p2-settings-temp-name` | p2-sessions-db-damaged | merged | review group 11: each settings write has its own temporary file |
-| 96q | #626 | 2 | `rebuild/p2-review-smalls` | `rebuild/main` | ready (reviewer passed) | runbooks-reviewer's notes on #621, #623 and #625: the `{{ "{{" }}` hint, `Object.hasOwn`, a refused task's props not read, `replaceWith`'s own error |
-| 96r | #627 | 2 | `rebuild/p2-cli-contract` | p2-review-smalls | ready (reviewer passed) | review group 12: `validate` reads `RUNBOOKS_OUTPUT=junit` as text; a test file that can't be loaded fails its runbook's `config` test |
-| 96s | #629 | 2 | `rebuild/p2-task-time-limit` | p2-cli-contract | ready (reviewer passed) | contract change: `TaskBlock.timeLimit`, kept by the engine |
-| 96t | #630 | 2 | `rebuild/p2-test-ignores-timeouts` | p2-task-time-limit | ready (reviewer passed) | review group 12: `runbooks test` ignores a block's own time limit, as today (`blockTimeLimits`) |
-| 96u | #631 | 2 | `rebuild/p2-load-flakes` | p2-test-ignores-timeouts | ready (reviewer passed) | three tests that failed with other suites running (#620's second writer, #608's one-pass ratio, the CLI tests' case-folder check), and #608's Blocked note |
-| 96v | #632 | 2 | `rebuild/p2-core-environment` | p2-load-flakes | ready (reviewer passed) | review group 9: the core reads the app's environment only through `Environment` |
-| 96w | #633 | 2 | `rebuild/p2-lint-gaps` | p2-core-environment | ready (reviewer passed) | review group 9: the lint gaps, and a test of each `block.ts`'s import graph |
-| 96x | #634 | 2 | `rebuild/p2-walk-bound` | p2-lint-gaps | ready (reviewer passed) | review group 9: a walk holds at most 256 entries for its reader |
-| 96y | #635 | 2 | `rebuild/p2-run-checked-bytes` | p2-walk-bound | ready (reviewer passed) | review group 14: a plugin runs from a copy made while hashing, in its own run folder, removed when the scope closes |
-| 96z | #636 | 2 | `rebuild/p2-plugin-stdout-close` | p2-run-checked-bytes | ready (reviewer passed) | review group 13: a plugin that closes its standard output and keeps running is a protocol violation, after a bounded wait for its exit |
-| 96aa | #637 | 2 | `rebuild/p2-parse-errors` | p2-plugin-stdout-close | ready (reviewer passed) | review group 13: a block inside a block that shows no markdown is `badChildren`; `path=""` is a bad prop; a quoted `runbooks` key's error is at its line; no error quotes what a prop holds |
-| 96ab | #638 | 2 | `rebuild/p2-template-refs-linear` | p2-parse-errors | ready (reviewer passed) | review group 13: the template-reference scan is linear in the template |
-| 96ac | #639 | 2 | `rebuild/p2-not-allowed-state` | p2-template-refs-linear | ready (reviewer passed) | contract change: `NotAllowed.state` is a closed set |
-| 96ad | #640 | 2 | `rebuild/p2-literal-only-gaps` | p2-not-allowed-state | draft (code passed; held for the human's ruling, Waiting on the human) | review group 13: `literalOnly` refuses `<meta>`, `<base>`, `<link>`, `<style>` and `javascript:` markdown URLs |
+| 96q | #626 | 2 | `rebuild/p2-review-smalls` | `rebuild/main` | merged | runbooks-reviewer's notes on #621, #623 and #625: the `{{ "{{" }}` hint, `Object.hasOwn`, a refused task's props not read, `replaceWith`'s own error |
+| 96r | #627 | 2 | `rebuild/p2-cli-contract` | p2-review-smalls | merged | review group 12: `validate` reads `RUNBOOKS_OUTPUT=junit` as text; a test file that can't be loaded fails its runbook's `config` test |
+| 96s | #629 | 2 | `rebuild/p2-task-time-limit` | p2-cli-contract | merged | contract change: `TaskBlock.timeLimit`, kept by the engine |
+| 96t | #630 | 2 | `rebuild/p2-test-ignores-timeouts` | p2-task-time-limit | merged | review group 12: `runbooks test` ignores a block's own time limit, as today (`blockTimeLimits`) |
+| 96u | #631 | 2 | `rebuild/p2-load-flakes` | p2-test-ignores-timeouts | merged | three tests that failed with other suites running (#620's second writer, #608's one-pass ratio, the CLI tests' case-folder check), and #608's Blocked note |
+| 96v | #632 | 2 | `rebuild/p2-core-environment` | p2-load-flakes | merged | review group 9: the core reads the app's environment only through `Environment` |
+| 96w | #633 | 2 | `rebuild/p2-lint-gaps` | p2-core-environment | merged | review group 9: the lint gaps, and a test of each `block.ts`'s import graph |
+| 96x | #634 | 2 | `rebuild/p2-walk-bound` | p2-lint-gaps | merged | review group 9: a walk holds at most 256 entries for its reader |
+| 96y | #635 | 2 | `rebuild/p2-run-checked-bytes` | p2-walk-bound | merged | review group 14: a plugin runs from a copy made while hashing, in its own run folder, removed when the scope closes |
+| 96z | #636 | 2 | `rebuild/p2-plugin-stdout-close` | p2-run-checked-bytes | merged | review group 13: a plugin that closes its standard output and keeps running is a protocol violation, after a bounded wait for its exit |
+| 96aa | #637 | 2 | `rebuild/p2-parse-errors` | p2-plugin-stdout-close | merged | review group 13: a block inside a block that shows no markdown is `badChildren`; `path=""` is a bad prop; a quoted `runbooks` key's error is at its line; no error quotes what a prop holds |
+| 96ab | #638 | 2 | `rebuild/p2-template-refs-linear` | p2-parse-errors | merged | review group 13: the template-reference scan is linear in the template |
+| 96ac | #639 | 2 | `rebuild/p2-not-allowed-state` | p2-template-refs-linear | merged | contract change: `NotAllowed.state` is a closed set |
+| 96ad | #640 | 2 | `rebuild/p2-literal-only-gaps` | `rebuild/main` | ready (reviewer passed; the human ruled `<style>` refused) | review group 13: `literalOnly` refuses `<meta>`, `<base>`, `<link>`, `<style>` and `javascript:` markdown URLs; `metadataElements` in baseline/behaviour-changes.ts |
 | 96ae | #641 | 2 | `rebuild/p2-renew-before-expiry` | p2-literal-only-gaps | ready (reviewer passed) | contract change: `env` refreshes a credential within 5 minutes of its expiry; the fake does, and the contract suite has a refresh case |
 | 96af | #642 | 2 | `rebuild/p2-blocks-throw-nothing` | p2-renew-before-expiry | ready (reviewer passed) | `runbooks/no-throw-in-blocks`: block code throws nothing (runbooks-reviewer on #637) |
 | 96ag | #643 | 2 | `rebuild/p2-cli-signals` | p2-blocks-throw-nothing | ready (reviewer passed) | review, inferred item: `runbooks test` stops on SIGTERM as on Ctrl-C; a second signal ends the stop at once; no process a script started outlives the CLI |
 | 96ah | #644 | 2 | `rebuild/p2-run-env-bound` | p2-cli-signals | ready (reviewer passed) | review, inferred item: a run's environment fits what a process can be started with (131072 bytes a variable a block gives, 983040 in all); an output's value is capped in bytes |
 | 96ai | #645 | 3 | `rebuild/p3-task-values-redacted` | p2-run-env-bound | ready (reviewer passed) | 3a, contract change: a task gets every form value it reads `Redacted` (`TaskValues`), as it gets outputs |
-| 96aj | #646 | 3 | `rebuild/p3-document-view` | p3-task-values-redacted | draft (CI, then runbooks-reviewer) | 3b, protocol change: `GetDocument` gives a client the document (tree, encoded props for display blocks and formless tasks, each block's errors); `FieldView` has `section` and `optionLabels`. 3.2 (part) |
-| 3c | none | 3 | `rebuild/p3-form-outputs` | p3-document-view | planned | contract change: where a form block's output values come from |
-| 3d | none | 3 | `rebuild/p3-app-packages` | 3c | planned | 3.1 (part): `app-main` and `app-renderer` with declared exports; a lint that the renderer imports only the protocol |
-| 3e | none | 3 | `rebuild/p3-app-window` | 3d | planned | 3.1 (part): the window, CSP without `'unsafe-eval'`, asset serving, the path guard; quit waits for the stops' grace |
-| 3f | none | 3 | `rebuild/p3-ipc-transport` | 3e | planned | 3.1 (part): the IPC transport (main, preload, renderer client), its event buffer bounded |
-| 3g | none | 3 | `rebuild/p3-renderer-walk` | 3f | planned | 3.2: the renderer walks `DocumentView`: literal props, MDXContainer's security rendering half, errors in place of a view, the body in a `contain: paint` box |
+| 96aj | #646 | 3 | `rebuild/p3-document-view` | p3-task-values-redacted | ready (reviewer passed) | 3b, protocol change: `GetDocument` gives a client the document (tree, encoded props for display blocks and formless tasks, each block's errors); `FieldView` has `section` and `optionLabels`; a YAML error quotes none of the runbook (`parseYaml`). 3.2 (part) |
+| 96ak | #647 | 3 | `rebuild/p3-form-outputs` | p3-document-view | ready (reviewer passed) | 3c, contract change: a form output names the field it carries (`FormOutputDecls`), sensitive when the field is; an output naming a missing field is refused at open; the test CLI's `set_outputs` goes to fields |
+| 96al | #648 | 3 | `rebuild/p3-app-window` | p3-form-outputs | draft (green; with runbooks-reviewer) | 3d and 3e, 3.1 (part): `app-main` opens the one window (sandboxed, context-isolated, a CSP without `'unsafe-eval'` or inline script, navigation and new windows refused, permissions denied, an in-memory partition, user data in `<appData>/runbooks-rebuild`); `app-renderer`'s tsconfig maps only the protocol and the views (a compile error otherwise); `electron.vite.app.config.ts` into `app-out/`, `just app-build`, `app-dev`, `app-test-e2e`; an e2e of the window in CI |
+| 3f | none | 3 | `rebuild/p3-ipc-transport` | p3-app-window | planned | 3.1 (part): the IPC transport (main, preload, renderer client) with the IPC sender check, its event buffer bounded; quit waits for the stops' grace |
+| 3g | none | 3 | `rebuild/p3-renderer-walk` | 3f | planned | 3.2: the renderer walks `DocumentView`: literal props, MDXContainer's security rendering half, errors in place of a view, the body in a `contain: paint` box; 3.1 (part): asset serving and the path guard, the page from a custom protocol so `'self'` isn't every `file://` URL, and the CSP's `style-src 'self'` (and `img-src`) once the window loads CSS |
 | 3h | none | 3 | `rebuild/p3-block-frame` | 3g | planned | 3.3: `BlockFrame` and a default view per class |
 | 3i | none | 3 | `rebuild/p3-trust-prompt` | 3h | planned | 3.5: the trust prompt, listing each block's declared effects |
 | 3j | none | 3 | `rebuild/p3-command-app` | 3i | planned | 3.8 (Command): decision 8's `outputs` patches to testdata, waits on referenced inputs, `exclusive`, hashed script texts to a run |
@@ -262,14 +262,14 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 | 2.11 | The `runbook_test.yml` schema | #569 | merged |
 | 2.12 | The plugin transport owner, tests against a stub binary | #571, #572, #573 | merged |
 | 2.13 | The credential client, the fake provider, the contract suite | #574 to #581 (#582 a contract addendum) | merged |
-| 3.1 | The app frame: window, IPC transport, CSP without `'unsafe-eval'`, asset serving, path guard | rows 3d, 3e, 3f | planned |
-| 3.2 | The renderer that walks the document | #646 (`GetDocument`); row 3g | #646 draft; 3g planned |
+| 3.1 | The app frame: window, IPC transport, CSP without `'unsafe-eval'`, asset serving, path guard | #648 (the window, the CSP); rows 3f, 3g (assets, path guard) | #648 draft; the rest planned |
+| 3.2 | The renderer that walks the document | #646 (`GetDocument`); row 3g | #646 ready; 3g planned |
 | 3.3 | `BlockFrame` and the default view for each class | row 3h | planned |
 | 3.4 | The common auth view | row 3m | planned |
 | 3.5 | The trust prompt, listing each block's declared effects | row 3i | planned |
 | 3.6 | The MCP tools generated from the protocol, on both transports | row 3p | planned |
 | 3.7 | Agent run confirmation in the engine | row 3o | planned |
-| 3.8 | Command, AwsAuth, Inputs and Admonition, end to end | #645 (values redacted); rows 3j, 3k, 3l, 3m, 3q | #645 ready; the rest planned |
+| 3.8 | Command, AwsAuth, Inputs and Admonition, end to end | #645 (values redacted), #647 (form outputs); rows 3j, 3k, 3l, 3m, 3q | #645, #647 ready; the rest planned |
 | A.1 | The binaries' repo, with its build, signing and release | runbooks-plugins | done (that session) |
 | A.2 | The AWS binary | runbooks-plugins | released v0.1.0 |
 | A.3 | The Google binary | runbooks-plugins | released v0.1.0 |
@@ -374,7 +374,6 @@ Choices of my own that need a ruling (not among the 18):
 | A link inside a folder a block names is refused (#595 Decision 1); `docs/intro/files_workspace.mdx:125-131` documents following links that stay in the folder | refuse (built), or follow a link whose real path is inside the runbook's folder | #595 |
 | The 2000-entry cap on a named folder now counts folders as well as files (#595 Decision 2) | keep, or count files only | #595 |
 | A block id is ASCII letters, digits, `-` and `_` (#590); authors see it as a parse error | keep, or widen the pattern | #590 |
-| `literalOnly` refuses `<meta>`, `<base>`, `<link>` and `<style>` (#640; `<style>` is its last commit, 6eca0ad8): behaviour changes the plan's table doesn't list. A runbook's `<style>` hid the trust banner in today's renderer; no runbook uses any of the four. runbooks-reviewer passed the code and recommends keeping all four with one behaviour-changes row; the row lands with the ruling, since `behaviour-changes.ts` lists ruled changes and its test pins 10 | keep all four (built) and add the row, or drop the `<style>` commit | #640 |
 | No `received` quotes a prop's text, `id` and `dependsOn` included, so a mistyped id shows `received: text` (#637 Decision 1; runbooks-reviewer agrees) | keep (built), or echo the text for id-like props | #637 |
 | The credential contract's six `[account]` cases need real AWS, GCP and Azure accounts, and the Azure waiting case needs `az` installed where it runs | provide test accounts (and `az`) for a run, or leave those cases unrun | the track-A lock PR's Gaps (row 98) |
 
@@ -390,7 +389,6 @@ Choices of my own that need a ruling (not among the 18):
 
 | What | Where it lands |
 |---|---|
-| `app-renderer` may import only the protocol from core: no rule enforces it yet | phase 3, when the package gets code |
 | `src/` and its copies in `packages/` drift until the old tree goes | phase 6 |
 | GitGuardian incidents 27121678, 33923057, 33923058 re-raised by the copy | the human, in the GitGuardian dashboard |
 | Decision 8 (declared outputs): 21 template reads in 9 testdata runbooks use a Command output no `outputs` prop declares, so they fail to load. They need `outputs` patches. | phase 3, with Command (Check in phase 4) |
@@ -400,7 +398,8 @@ Choices of my own that need a ruling (not among the 18):
 | `showWhenBlock`'s target check becomes a `run`-capability reference on Command, Check and Finish (#525 removed the old type list) | phases 3 and 4 |
 | `<Iframe>` passes the literal-only check: a test in the Iframe block's folder (#525 moved the core's case to `<Script>`) | phase 4, Iframe |
 | The block-name lint reads `baseline/props.json`; when the baseline retires, the registry alone names the blocks (#526) | phase 6 |
-| Where a form block's output values come from (the engine uses the same-name field, wrong for DirPicker and Iframe) | phase 3 |
+| Iframe's outputs (#647): no field can be kept for the window to set, so an agent's `SetValues` can set an Iframe's page fields; a page posting `""` no longer counts as set; `runbooks test`'s `set_outputs` with two outputs on one field keeps the last without a word (runbooks-reviewer) | phase 4, Iframe |
+| The baseline's stand-in forms declare outputs over an empty field list (#647): opening a session on one would refuse it | when a stand-in is opened |
 | A block waits for each input its template references (today, #489); a referenced optional field with no default runs with an empty string | phase 3, Command |
 | A run gets the hashed script texts instead of re-reading them; `instruction()` input needs an I/O-free build | phase 3, Command (contract change) |
 | A plugin-backed form needs a read after trust (Layer 3 against the trust rule) | phase 4 (contract change) |
@@ -452,4 +451,8 @@ Choices of my own that need a ruling (not among the 18):
 | `if hasKey` stays refused in `env` (runbooks-reviewer). GitClone's optional output: the block always gives it, empty when it doesn't apply, and a script tests `[ -n "$X" ]` | phase 4, GitClone |
 | Check must declare `scripts`, so its script makes no edges | phase 4, Check |
 | A sessions database that can't be used (damaged, foreign, newer) is only an `Effect.logWarning`; the person must see it, as settings' `problems` | phase 3, when the database is wired |
+| A tab indent reads as UNEXPECTED_TOKEN's reason (#646, runbooks-reviewer): say tabs in that reason at the next touch | `yamlData.ts` |
+| Every rebuilt-app e2e launch keeps `chromiumSandbox: true`: Playwright's `_electron.launch` adds `--no-sandbox` on Linux otherwise (#648 caught it). The old `electron/e2e` specs run unsandboxed on Linux CI for that reason, and `web/e2e` passes `--no-sandbox` | a shared launch fixture, row 3f |
+| `metadataElements`' doc comment (#640) says `<base>` hands the window another document to load; it moves where every relative URL in the window resolves (runbooks-reviewer) | baseline/behaviour-changes.ts, at the next touch |
+| `app-main` and `app-renderer` (#648): no lint keeps SDK or Node I/O imports out of the renderer beyond its `types: []`; Linux sandbox evidence is the renderer's seccomp mode | if it matters |
 | Two stores on one settings file, as two Runbooks, can lose one's change: each writes back what it holds (#625 Gaps) | if a second writer becomes real |
