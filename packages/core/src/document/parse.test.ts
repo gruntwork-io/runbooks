@@ -426,6 +426,8 @@ describe("parseRunbook", () => {
         `<Run id="r" command="ls" env={{ "1BAD": "${SECRET}" }} />`,
         `<Run id="r" command="ls" env={{ A: null, B: "${SECRET}" }} />`,
         `<Run id="r" command="ls" env={{ A: "{{ printf \\"%s\\" \\"${SECRET}\\" }}" }} />`,
+        `<Run id="r" command="ls" env={{ A: "x{{${SECRET}}}y" }} />`,
+        `<Run id="r" command="ls" env={{ A: "{{ ${SECRET} | x }}" }} />`,
         `<Run id="r" command="ls" env="${SECRET}" />`,
         `<Run id="r" command={["${SECRET}"]} />`,
         `<Run id="r" command="ls" awsAuthId={["${SECRET}"]} />`,

@@ -126,7 +126,8 @@ export function parseValueTemplate(
       case "Other":
         return Result.fail({
           at: action.start,
-          message: `\`${withoutConstants(written)}\` is not a value Runbooks can insert. A \`{{ }}\` may name a value, \`{{ .inputs.<name> }}\` or \`{{ .outputs.<block>.<key> }}\`, and nothing else: no condition, pipe or function. To write \`{{\` as text, write \`{{ "{{" }}\`.`,
+          // Nothing of the action is quoted: it may hold a secret, quoted or not.
+          message: `The \`{{ }}\` at character ${action.start + 1} is not a value Runbooks can insert. A \`{{ }}\` may name a value, \`{{ .inputs.<name> }}\` or \`{{ .outputs.<block>.<key> }}\`, and nothing else: no condition, pipe or function. To write \`{{\` as text, write \`{{ "{{" }}\`.`,
         })
     }
   }
@@ -236,19 +237,6 @@ function constantEnd(text: string, start: number): number {
     at++
   }
   return -1
-}
-
-/** A closed action as a message shows it: each string constant's text left out, as it may be a secret. */
-function withoutConstants(action: string): string {
-  let shown = ""
-  let at = 0
-  while (at < action.length) {
-    const char = action[at] ?? ""
-    const end = char === "`" || char === '"' || char === "'" ? constantEnd(action, at) : -1
-    shown += end < 0 ? char : `${char}…${char}`
-    at = end < 0 ? at + 1 : end
-  }
-  return shown
 }
 
 /** What an action's code, its trims and spaces removed, holds. */
