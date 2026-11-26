@@ -233,6 +233,30 @@ describe("runbooks test", () => {
     expect(readdirSync(folder.path)).toEqual(["rb"])
   })
 
+  it("matches a pattern as today's CLI does: `$` ends the text, and `\\-` is a hyphen", async () => {
+    runbook(
+      BUILD,
+      `version: 1
+tests:
+  - name: patterns
+    inputs:
+      config.region: us-west-2
+    steps:
+      - block: build
+        assertions:
+          - { type: output_matches, block: build, output: artifact, pattern: '^app\\.tar\\-?$' }
+          - { type: file_matches, path: out.txt, pattern: '^hello\\-?$' }
+`,
+    )
+    const { code, stdout } = await runTest(["rb", "--output", "json"])
+    expect(code).toBe(1)
+    const [test] = decodeReport(JSON.parse(stdout)).runbooks[0]!.tests
+    expect(test!.steps[0]!.assertions).toEqual([
+      { type: "output_matches", passed: true },
+      { type: "file_matches", passed: false, message: "out.txt does not match ^hello\\-?$." },
+    ])
+  })
+
   it("fails a step that does not end as it expects, with that step's log only", async () => {
     runbook(DEPLOY, DEPLOY_TEST)
     const { code, stdout } = await runTest(["rb"])

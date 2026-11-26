@@ -441,7 +441,7 @@ const check = (s: Session, a: Assertion) =>
       case "file_matches": {
         const read = yield* readText(a.path)
         if ("error" in read) return assertion(a.type, read.error)
-        const pattern = Effect.try(() => new RegExp(a.pattern, "mu"))
+        const pattern = Effect.try(() => new RegExp(a.pattern))
         const regex = yield* Effect.option(pattern)
         if (Option.isNone(regex))
           return assertion(a.type, `${a.pattern} is not a regular expression.`)
@@ -481,7 +481,7 @@ const check = (s: Session, a: Assertion) =>
               ? undefined
               : `${a.block}.${a.output} is "${value.value}", not "${a.value}".`,
           )
-        const regex = yield* Effect.option(Effect.try(() => new RegExp(a.pattern, "u")))
+        const regex = yield* Effect.option(Effect.try(() => new RegExp(a.pattern)))
         if (Option.isNone(regex))
           return assertion(a.type, `${a.pattern} is not a regular expression.`)
         return assertion(
