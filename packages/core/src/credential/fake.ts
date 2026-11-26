@@ -11,7 +11,8 @@
  * `configure`; `invalidParams` for a bad method, field, pin or requirement
  * before it does anything else; `notSignedIn` for `env`, `targets` and
  * `select` before a sign-in; a credential that expires by `Clock`, so a
- * test moves it with `TestClock`; a sign-in that waits for the person
+ * test moves it with `TestClock`, and that `env` refreshes within 5 minutes
+ * of its expiry when it can be; a sign-in that waits for the person
  * answers `timedOut` a second before its method's limit; and `signOut`
  * deletes the file it wrote. A script can make any method answer any
  * error kind, one the app does not know included, and `faults` break the
@@ -28,6 +29,7 @@ import {
 } from "../plugin/memory.ts"
 import { PROTOCOL_VERSION } from "../plugin/transport.ts"
 import { FileSystem } from "../services/FileSystem.ts"
+import { EXPIRY_WARNING_MILLIS } from "./lifecycle.ts"
 import { pluginCredentialProviders } from "./plugin.ts"
 import type { CredentialProviders } from "./provider.ts"
 
@@ -43,7 +45,11 @@ export interface FakeLogin {
   readonly roles?: ReadonlyArray<string>
   /** How long its credential lasts after a sign-in or a refresh. It never expires without one. */
   readonly lifetimeMillis?: number
-  /** Whether `env` gets a new credential once the last has expired, rather than answer `expired`. */
+  /**
+   * Whether `env` gets a new credential once the last expires within
+   * `EXPIRY_WARNING_MILLIS`, as the contract asks. Otherwise `env` gives the
+   * last one until it has expired, then answers `expired`.
+   */
   readonly refreshable?: boolean
   /** Its credential has expired already: signing in or detecting it answers `expired`. */
   readonly expired?: boolean
@@ -187,6 +193,14 @@ export const FAKE_SCRIPT: FakeScript = {
       principal: "fake-expired@example.com",
       kind: "user",
       expired: true,
+    },
+    {
+      // A second past the refresh window, so the contract suite's refresh case waits a second.
+      token: "fake-refresh-token-0001",
+      principal: "fake-refresh@example.com",
+      kind: "user",
+      lifetimeMillis: EXPIRY_WARNING_MILLIS + 1_000,
+      refreshable: true,
     },
   ],
   file: true,
@@ -486,10 +500,11 @@ export const fakeCredentialPlugin =
           if (state === undefined) return yield* refusal("notSignedIn", "Sign in first.")
           const now = yield* Clock.currentTimeMillis
           const expiry = expiryOf(state)
-          if (Option.isSome(expiry) && now >= expiry.value) {
-            if (state.login.refreshable !== true)
+          // The contract refreshes a credential that expires within the engine's warning window.
+          if (Option.isSome(expiry) && expiry.value - now <= EXPIRY_WARNING_MILLIS) {
+            if (state.login.refreshable === true) state.issuedAt = now
+            else if (now >= expiry.value)
               return yield* refusal("expired", "The credential has expired: sign in again.")
-            state.issuedAt = now
           }
           const values: Array<Wire.EnvValue> = [
             {
