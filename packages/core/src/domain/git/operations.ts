@@ -10,6 +10,7 @@ import { GitHubClient } from "../../services/GitHubClient.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
 import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { CreateMRParams } from "../../services/GitLabClient.ts"
+import { Environment } from "../../services/Environment.ts"
 import { ProcessSpawner, wholeLines } from "../../services/ProcessSpawner.ts"
 import { GitError, GitHubApiError, GitLabApiError } from "../../errors/index.ts"
 import { gitSpawnEnv } from "./env.ts"
@@ -608,7 +609,7 @@ export const unbornBranchName = (repoPath: string) =>
     const spawner = yield* ProcessSpawner
     const proc = yield* spawner.spawn("git", ["branch", "--show-current"], {
       cwd: repoPath,
-      env: gitSpawnEnv(),
+      env: gitSpawnEnv(yield* (yield* Environment).getAll()),
     })
 
     return yield* Effect.gen(function* () {
@@ -654,7 +655,8 @@ export const resolveClonePaths = (localPath: string | undefined, url: string, wo
 export const countFiles = (dir: string) =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
-    const proc = yield* spawner.spawn("git", ["ls-files"], { cwd: dir, env: gitSpawnEnv() })
+    const env = gitSpawnEnv(yield* (yield* Environment).getAll())
+    const proc = yield* spawner.spawn("git", ["ls-files"], { cwd: dir, env })
     const lines = yield* Stream.runCollect(wholeLines(proc.output))
     const code = yield* proc.exitCode
     if (code !== 0) return 0

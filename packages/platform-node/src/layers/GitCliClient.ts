@@ -30,9 +30,9 @@ import { gitSpawnEnv, resolveSshCommand } from "@runbooks/core/domain/git/env"
  * Run a git command, collect all output, and return stdout lines.
  * Fails with GitError if the exit code is non-zero.
  *
- * `env` overrides the spawn environment; defaults to `gitSpawnEnv()`. Callers
+ * `env` overrides the spawn environment; defaults to `gitSpawnEnv(process.env)`. Callers
  * that need extra variables (e.g. a fallback committer identity) build on top of
- * `gitSpawnEnv()` so PATH/HOME/SSH_AUTH_SOCK and the no-prompt guards survive.
+ * `gitSpawnEnv(process.env)` so PATH/HOME/SSH_AUTH_SOCK and the no-prompt guards survive.
  */
 function runGit(
   spawner: ProcessSpawnerShape,
@@ -42,7 +42,11 @@ function runGit(
   env?: Record<string, string | undefined>,
 ) {
   return Effect.gen(function* () {
-    const proc = yield* spawner.spawn("git", args, { cwd, stdin, env: env ?? gitSpawnEnv() })
+    const proc = yield* spawner.spawn("git", args, {
+      cwd,
+      stdin,
+      env: env ?? gitSpawnEnv(process.env),
+    })
     const lines = yield* Stream.runCollect(wholeLines(proc.output))
     const code = yield* proc.exitCode
 
@@ -73,9 +77,9 @@ function runGit(
  * `cwd`. See gitSpawnEnv.
  */
 function sshSpawnEnv(spawner: ProcessSpawnerShape, cwd: string) {
-  return resolveSshCommand(cwd).pipe(
+  return resolveSshCommand(process.env, cwd).pipe(
     Effect.provideService(ProcessSpawner, spawner),
-    Effect.map((sshCommand) => gitSpawnEnv(sshCommand)),
+    Effect.map((sshCommand) => gitSpawnEnv(process.env, sshCommand)),
   )
 }
 
@@ -487,7 +491,7 @@ function makeGitClient(spawner: ProcessSpawnerShape): GitClientShape {
         const proc = yield* spawner.spawn("git", ["check-ignore", "-z", "--stdin"], {
           cwd: repoPath,
           stdin,
-          env: gitSpawnEnv(),
+          env: gitSpawnEnv(process.env),
         })
         // Ignore exit code — 1 just means "no ignored files found"
         const lines = (yield* Stream.runCollect(wholeLines(proc.output)))
@@ -552,7 +556,7 @@ function makeGitClient(spawner: ProcessSpawnerShape): GitClientShape {
         if (options?.author && !(yield* hasConfiguredIdentity(spawner, repoPath))) {
           const { name, email } = options.author
           env = {
-            ...gitSpawnEnv(),
+            ...gitSpawnEnv(process.env),
             GIT_AUTHOR_NAME: name,
             GIT_AUTHOR_EMAIL: email,
             GIT_COMMITTER_NAME: name,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import {
   parseOwnerRepoFromURL,
   isValidGitURL,
@@ -10,7 +10,9 @@ import {
   createMergeRequest,
   seedDefaultBranch,
 } from "./operations.ts"
+import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
+import { makeRecordingSpawner } from "../../test-utils/TestSpawner.ts"
 import { GitError, GitLabApiError } from "../../errors/index.ts"
 
 // ---------------------------------------------------------------------------
@@ -287,6 +289,18 @@ describe("resolveClonePaths", () => {
 // ---------------------------------------------------------------------------
 
 describe("countFiles", () => {
+  it("runs git with the app's environment, from Environment", async () => {
+    const spawner = makeRecordingSpawner(() => ({ lines: [], exitCode: 0 }))
+    const environment = makeTestEnvironment({ PATH: "/test/bin" })
+    await Effect.runPromise(
+      countFiles("/repo").pipe(Effect.provide(Layer.merge(spawner.layer, environment))),
+    )
+
+    expect(spawner.calls.map(({ args, env }) => [args.join(" "), env?.PATH])).toEqual([
+      ["ls-files", "/test/bin"],
+    ])
+  })
+
   it("counts files excluding .git", async () => {
     const layer = makeTestLayer({
       commands: [

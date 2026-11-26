@@ -130,12 +130,16 @@ const withBatchMode = (command: string) => {
  * It also sets UNTRUSTED_REPO_CONFIG, so no git spawned here runs a command
  * that a repository's own config names.
  *
- * process.env is spread first so PATH, HOME, and SSH_AUTH_SOCK (the ssh-agent
- * socket) are preserved — passing an explicit env to spawn() replaces the
- * inherited one wholesale, so omitting these would break git and ssh entirely.
+ * `inherited`, the app's environment, is spread first so PATH, HOME, and
+ * SSH_AUTH_SOCK (the ssh-agent socket) are preserved: passing an explicit env
+ * to spawn() replaces the inherited one wholesale, so omitting these would
+ * break git and ssh entirely. The core reads it from Environment.
  */
-export const gitSpawnEnv = (sshCommand?: string): Record<string, string | undefined> => {
-  const env: Record<string, string | undefined> = { ...process.env, GIT_TERMINAL_PROMPT: "0" }
+export const gitSpawnEnv = (
+  inherited: Readonly<Record<string, string | undefined>>,
+  sshCommand?: string,
+): Record<string, string | undefined> => {
+  const env: Record<string, string | undefined> = { ...inherited, GIT_TERMINAL_PROMPT: "0" }
   const { GIT_SSH_COMMAND, GIT_SSH } = env
   const command = GIT_SSH_COMMAND || sshCommand || (GIT_SSH ? gitSshCommand(GIT_SSH) : "ssh")
   if (command) env.GIT_SSH_COMMAND = withBatchMode(command)
@@ -154,19 +158,23 @@ const SSH_COMMAND_LOOKUP_TIMEOUT_MS = 5_000
  * process's own cwd, like a git spawned without one.
  *
  * Only commands that reach a remote (clone, push, ls-remote) start ssh, so
- * only those look this up and pass it to gitSpawnEnv; local commands use
- * gitSpawnEnv() as-is. A clone has no repo yet, so its callers look up from
+ * only those look this up and pass it to gitSpawnEnv; local commands leave
+ * the ssh command out. `inherited` is the app's environment, as gitSpawnEnv
+ * takes it. A clone has no repo yet, so its callers look up from
  * an existing directory the clone lands under. There git reads the same global
  * and system config as the clone; inside another checkout it also reads that
  * checkout's config and matches `includeIf "gitdir:..."` rules against it, a
  * close stand-in for the new repo's own.
  */
-export const resolveSshCommand = (cwd?: string) =>
+export const resolveSshCommand = (
+  inherited: Readonly<Record<string, string | undefined>>,
+  cwd?: string,
+) =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
     const args = ["config", "--get", "core.sshCommand"]
     const proc = yield* spawner.spawn("git", cwd ? ["-C", cwd, ...args] : args, {
-      env: gitSpawnEnv(),
+      env: gitSpawnEnv(inherited),
     })
 
     const { exitCode, lines } = yield* collectOutput(proc, SSH_COMMAND_LOOKUP_TIMEOUT_MS)

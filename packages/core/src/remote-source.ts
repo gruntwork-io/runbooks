@@ -34,6 +34,7 @@
  * Either way the path may name a runbook directory or a runbook file.
  */
 import { Effect, Stream } from "effect"
+import { Environment } from "./services/Environment.ts"
 import { ProcessSpawner, wholeLines } from "./services/ProcessSpawner.ts"
 import type { SpawnError } from "./errors/index.ts"
 import { GitError, RemoteSourceError } from "./errors/index.ts"
@@ -475,10 +476,11 @@ export const resolveRef = (
 ): Effect.Effect<
   { ref: string; path: string | undefined },
   GitError | SpawnError,
-  ProcessSpawner
+  ProcessSpawner | Environment
 > =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
+    const app = yield* (yield* Environment).getAll()
 
     // Fetch all remote refs. gitSpawnEnv keeps ssh non-interactive so an
     // ls-remote against an unknown SSH host fails fast instead of hanging on
@@ -486,7 +488,7 @@ export const resolveRef = (
     // A caller-supplied env must be built the same way (see electron/main/remote.ts).
     // `--` so a URL starting with `-` can never read as an option.
     const proc = yield* spawner.spawn("git", ["ls-remote", "--refs", "--", cloneURL], {
-      env: env ?? gitSpawnEnv(yield* resolveSshCommand()),
+      env: env ?? gitSpawnEnv(app, yield* resolveSshCommand(app)),
     })
     const lines: string[] = []
     const stderr: string[] = []

@@ -3,11 +3,12 @@ import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { Effect, Fiber } from "effect"
+import { Effect, Fiber, Layer } from "effect"
 import { TestClock } from "effect/testing"
 import { gitSpawnEnv, resolveSshCommand } from "@runbooks/core/domain/git/env"
 import { resolveRef } from "@runbooks/core/remote-source"
 import { ChildProcessSpawnerLive } from "../../../layers/ChildProcessSpawner.ts"
+import { ProcessEnvironmentLive } from "../../../layers/ProcessEnvironment.ts"
 import { makeControlledSpawner } from "@runbooks/core/test-utils/TestSpawner"
 
 const BATCH_OPTIONS = "-o BatchMode=yes -o StrictHostKeyChecking=yes"
@@ -67,20 +68,20 @@ describe("gitSpawnEnv", () => {
     // BatchMode=yes makes ssh fail instead of prompting (passphrase/password),
     // and StrictHostKeyChecking=yes makes an unknown host fail fast rather than
     // hanging on the "Are you sure you want to continue connecting?" prompt.
-    const env = gitSpawnEnv()
+    const env = gitSpawnEnv(process.env)
     expect(env.GIT_SSH_COMMAND).toContain("BatchMode=yes")
     expect(env.GIT_SSH_COMMAND).toContain("StrictHostKeyChecking=yes")
   })
 
   it("disables git's own interactive credential prompt", () => {
-    expect(gitSpawnEnv().GIT_TERMINAL_PROMPT).toBe("0")
+    expect(gitSpawnEnv(process.env).GIT_TERMINAL_PROMPT).toBe("0")
   })
 
   it("preserves the inherited environment so git/ssh still find PATH, HOME, and the ssh-agent", () => {
     // spawn() replaces the inherited env wholesale when given an explicit one,
     // so dropping these would break git and ssh entirely.
     process.env.SSH_AUTH_SOCK = "/tmp/agent.test.sock"
-    const env = gitSpawnEnv()
+    const env = gitSpawnEnv(process.env)
     expect(env.PATH).toBe(process.env.PATH)
     expect(env.HOME).toBe(process.env.HOME)
     expect(env.SSH_AUTH_SOCK).toBe("/tmp/agent.test.sock")
@@ -89,38 +90,38 @@ describe("gitSpawnEnv", () => {
 
   it("overrides any inherited values that would re-enable prompting", () => {
     process.env.GIT_TERMINAL_PROMPT = "1"
-    expect(gitSpawnEnv().GIT_TERMINAL_PROMPT).toBe("0")
+    expect(gitSpawnEnv(process.env).GIT_TERMINAL_PROMPT).toBe("0")
     delete process.env.GIT_TERMINAL_PROMPT
   })
 
   describe("wraps the ssh client the user's git would run", () => {
     it("runs plain ssh when nothing else is configured", () => {
-      expect(gitSpawnEnv().GIT_SSH_COMMAND).toBe(`ssh ${BATCH_OPTIONS}`)
+      expect(gitSpawnEnv(process.env).GIT_SSH_COMMAND).toBe(`ssh ${BATCH_OPTIONS}`)
     })
 
     it("keeps an inherited GIT_SSH_COMMAND and appends the batch flags", () => {
       // The user's own flags come first, and ssh keeps the first value it sees
       // for an option, so anything they set explicitly still wins.
       process.env.GIT_SSH_COMMAND = "ssh -i /keys/id_work"
-      expect(gitSpawnEnv().GIT_SSH_COMMAND).toBe(`ssh -i /keys/id_work ${BATCH_OPTIONS}`)
+      expect(gitSpawnEnv(process.env).GIT_SSH_COMMAND).toBe(`ssh -i /keys/id_work ${BATCH_OPTIONS}`)
     })
 
     it("wraps the core.sshCommand it is given", () => {
-      expect(gitSpawnEnv("ssh -i /keys/id_work").GIT_SSH_COMMAND).toBe(
+      expect(gitSpawnEnv(process.env, "ssh -i /keys/id_work").GIT_SSH_COMMAND).toBe(
         `ssh -i /keys/id_work ${BATCH_OPTIONS}`,
       )
     })
 
     it("ranks an inherited GIT_SSH_COMMAND over core.sshCommand, as git does", () => {
       process.env.GIT_SSH_COMMAND = "ssh -i /keys/from-env"
-      expect(gitSpawnEnv("ssh -i /keys/from-config").GIT_SSH_COMMAND).toBe(
+      expect(gitSpawnEnv(process.env, "ssh -i /keys/from-config").GIT_SSH_COMMAND).toBe(
         `ssh -i /keys/from-env ${BATCH_OPTIONS}`,
       )
     })
 
     it("ranks core.sshCommand over GIT_SSH, as git does", () => {
       process.env.GIT_SSH = "/opt/putty/plink"
-      expect(gitSpawnEnv("ssh -i /keys/id_work").GIT_SSH_COMMAND).toBe(
+      expect(gitSpawnEnv(process.env, "ssh -i /keys/id_work").GIT_SSH_COMMAND).toBe(
         `ssh -i /keys/id_work ${BATCH_OPTIONS}`,
       )
     })
@@ -134,13 +135,15 @@ describe("gitSpawnEnv", () => {
         // GIT_SSH is a bare program run without a shell, so the path is quoted
         // to stay one word — git still reads plink from its basename.
         process.env.GIT_SSH = gitSsh
-        expect(gitSpawnEnv().GIT_SSH_COMMAND).toBe(expected)
+        expect(gitSpawnEnv(process.env).GIT_SSH_COMMAND).toBe(expected)
       },
     )
 
     it("quotes a GIT_SSH path containing a single quote", () => {
       process.env.GIT_SSH = "/opt/o'brien/ssh"
-      expect(gitSpawnEnv().GIT_SSH_COMMAND).toBe(`'/opt/o'\\''brien/ssh' ${BATCH_OPTIONS}`)
+      expect(gitSpawnEnv(process.env).GIT_SSH_COMMAND).toBe(
+        `'/opt/o'\\''brien/ssh' ${BATCH_OPTIONS}`,
+      )
     })
 
     it.each([
@@ -148,19 +151,19 @@ describe("gitSpawnEnv", () => {
       "/usr/local/bin/my-ssh-wrapper",
     ])("leaves any other GIT_SSH (%s) for git to run as-is", (gitSsh) => {
       process.env.GIT_SSH = gitSsh
-      const env = gitSpawnEnv()
+      const env = gitSpawnEnv(process.env)
       expect(env.GIT_SSH_COMMAND).toBeUndefined()
       expect(env.GIT_SSH).toBe(gitSsh)
     })
 
     it("gives a plink command -batch rather than ssh options it would reject", () => {
       const command = `"C:\\Program Files\\PuTTY\\plink.exe" -ssh`
-      expect(gitSpawnEnv(command).GIT_SSH_COMMAND).toBe(`${command} -batch`)
+      expect(gitSpawnEnv(process.env, command).GIT_SSH_COMMAND).toBe(`${command} -batch`)
     })
 
     it("adds nothing to a TortoisePlink command, which git runs with -batch itself", () => {
       process.env.GIT_SSH_COMMAND = "TortoisePlink.exe"
-      expect(gitSpawnEnv().GIT_SSH_COMMAND).toBe("TortoisePlink.exe")
+      expect(gitSpawnEnv(process.env).GIT_SSH_COMMAND).toBe("TortoisePlink.exe")
     })
   })
 })
@@ -178,7 +181,7 @@ describe("gitSpawnEnv repository config", () => {
   isolateEnv(["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"])
 
   it("turns off the settings that let a repository's own config run a command", () => {
-    expect(gitConfigEntries(gitSpawnEnv())).toEqual([
+    expect(gitConfigEntries(gitSpawnEnv(process.env))).toEqual([
       ["core.fsmonitor", "false"],
       ["safe.bareRepository", "explicit"],
     ])
@@ -188,7 +191,7 @@ describe("gitSpawnEnv repository config", () => {
     process.env.GIT_CONFIG_COUNT = "1"
     process.env.GIT_CONFIG_KEY_0 = "core.fsmonitor"
     process.env.GIT_CONFIG_VALUE_0 = "/tmp/hook"
-    expect(gitConfigEntries(gitSpawnEnv())).toEqual([
+    expect(gitConfigEntries(gitSpawnEnv(process.env))).toEqual([
       ["core.fsmonitor", "/tmp/hook"],
       ["core.fsmonitor", "false"],
       ["safe.bareRepository", "explicit"],
@@ -230,8 +233,8 @@ describe("gitSpawnEnv repository config (real git)", () => {
     git(tmp, ["config", "core.fsmonitor", "echo ran > fsmonitor-ran; false"])
     const ran = () => fs.existsSync(path.join(tmp, "fsmonitor-ran"))
 
-    git(tmp, ["status", "--porcelain"], gitSpawnEnv())
-    git(tmp, ["ls-files"], gitSpawnEnv())
+    git(tmp, ["status", "--porcelain"], gitSpawnEnv(process.env))
+    git(tmp, ["ls-files"], gitSpawnEnv(process.env))
     expect(ran()).toBe(false)
 
     // The same repository does run it for a git without gitSpawnEnv's config,
@@ -251,7 +254,7 @@ describe("gitSpawnEnv repository config (real git)", () => {
     git(embedded, ["config", "core.worktree", "wt"])
 
     expect(git(embedded, ["rev-parse", "--show-toplevel"]).trim()).toContain("wt")
-    expect(() => git(embedded, ["rev-parse", "--show-toplevel"], gitSpawnEnv())).toThrow(
+    expect(() => git(embedded, ["rev-parse", "--show-toplevel"], gitSpawnEnv(process.env))).toThrow(
       /safe\.bareRepository/,
     )
   })
@@ -274,7 +277,7 @@ describe("gitSpawnEnv repository config (real git)", () => {
     git(repo, ["worktree", "add", "-q", linked])
 
     const toplevel = (cwd: string) =>
-      fs.realpathSync(git(cwd, ["rev-parse", "--show-toplevel"], gitSpawnEnv()).trim())
+      fs.realpathSync(git(cwd, ["rev-parse", "--show-toplevel"], gitSpawnEnv(process.env)).trim())
     expect(toplevel(repo)).toBe(fs.realpathSync(repo))
     expect(toplevel(linked)).toBe(fs.realpathSync(linked))
   })
@@ -296,7 +299,9 @@ describe("resolveSshCommand (real git)", () => {
   })
 
   const run = (cwd?: string) =>
-    Effect.runPromise(resolveSshCommand(cwd).pipe(Effect.provide(ChildProcessSpawnerLive)))
+    Effect.runPromise(
+      resolveSshCommand(process.env, cwd).pipe(Effect.provide(ChildProcessSpawnerLive)),
+    )
 
   it("reads a repo-local core.sshCommand from the repo it is given", async () => {
     // The usual multi-account setup: a per-repo key, set inside the checkout.
@@ -323,7 +328,7 @@ describe("resolveSshCommand timeout", () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         const lookup = yield* Effect.forkChild(
-          resolveSshCommand("/repo").pipe(Effect.provide(spawner.layer)),
+          resolveSshCommand(process.env, "/repo").pipe(Effect.provide(spawner.layer)),
         )
         // Let the lookup spawn git and register its timeout with the TestClock.
         yield* Effect.promise(
@@ -372,7 +377,7 @@ describe("remote-source resolveRef ssh command (real git)", () => {
 
     await Effect.runPromise(
       resolveRef("git@example.invalid:o/r.git", "main/docs").pipe(
-        Effect.provide(ChildProcessSpawnerLive),
+        Effect.provide(Layer.merge(ChildProcessSpawnerLive, ProcessEnvironmentLive)),
         Effect.result,
       ),
     )
