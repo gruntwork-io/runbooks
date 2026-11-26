@@ -480,6 +480,71 @@ describe("a template refused, at its line", () => {
     expect(refused("echo\necho {{ .inputs.v").line).toBe(2)
     expect(refused("echo \u0000").message).toContain("NUL")
   })
+
+  it("a string constant that holds a NUL character, leaving the reference after it its own value", () => {
+    const problem = refused('echo {{ "\\u0000" }} {{ .inputs.v }}', value)
+    expect(problem).toEqual({
+      line: 1,
+      column: 6,
+      message: expect.stringContaining('`{{ "\\u0000" }}` holds a NUL character'),
+    })
+  })
+
+  it("a comment with more after it in its action, which would drop the reference", () => {
+    expect(refused("echo {{/* x */ .inputs.v }}", value).message).toContain(
+      "`{{/* x */ .inputs.v }}` holds more than a comment",
+    )
+  })
+})
+
+describe("a value the environment cannot hold", () => {
+  const KIB = 1024
+
+  it("holds a NUL character: refused, naming the reference and never the value", () => {
+    const problems = refusedAll(
+      "echo {{ .inputs.v }} {{ .outputs.s.k }}",
+      sources({ v: "secret-token\u0000rest" }, outputs({ s: { k: "other-secret\u0000" } })),
+    )
+    expect(problems.map((problem) => problem.message)).toEqual([
+      expect.stringContaining("`{{ .inputs.v }}` holds a NUL character"),
+      expect.stringContaining("`{{ .outputs.s.k }}` holds a NUL character"),
+    ])
+    expect(JSON.stringify(problems)).not.toContain("secret")
+  })
+
+  it("is over 64 KiB as UTF-8: refused, naming the reference and the limit; 64 KiB runs", () => {
+    // "é" is two bytes as UTF-8, so this is 64 KiB in 32 Ki characters.
+    const most = "é".repeat(32 * KIB)
+    expect(ranWithBash("printf %s {{ .inputs.v }} | wc -c", sources({ v: most })).trim()).toBe(
+      String(64 * KIB),
+    )
+    const problem = refused("echo {{ .inputs.v }}", sources({ v: `${most}a` }))
+    expect(problem.message).toContain("`{{ .inputs.v }}` is over 64 KiB")
+    expect(problem.message).not.toContain("éé")
+  })
+
+  it("brings all the values over 256 KiB: refused at the reference that does; 256 KiB runs", () => {
+    const most = "a".repeat(64 * KIB)
+    const four = sources({ a: most, b: most, c: most, d: most })
+    // A value read twice is one variable, so `.inputs.a` counts once.
+    expect(
+      ranWithBash(
+        "printf %s {{ .inputs.a }}{{ .inputs.b }}{{ .inputs.c }}{{ .inputs.d }}{{ .inputs.a }} | wc -c",
+        four,
+      ).trim(),
+    ).toBe(String(5 * 64 * KIB))
+    const problem = refused(
+      "echo {{ .inputs.a }} {{ .inputs.b }} {{ .inputs.c }} {{ .inputs.d }} {{ .inputs.e }}",
+      sources({ a: most, b: most, c: most, d: most, e: "x" }),
+    )
+    expect(problem).toEqual({
+      line: 1,
+      column: 70,
+      message: expect.stringContaining(
+        "`{{ .inputs.e }}` brings this script's values over 256 KiB",
+      ),
+    })
+  })
 })
 
 describe("every problem in a template", () => {

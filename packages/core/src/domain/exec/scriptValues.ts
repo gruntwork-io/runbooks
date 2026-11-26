@@ -58,11 +58,16 @@
  * - Builtins reached another way: a name built at run time, a function or
  *   alias named like one, or `enable`.
  *
- * Besides references, a script's `{{ }}` may hold a Go template comment, or a
- * string constant (``{{`{{.Names}}`}}``, `{{ "{{" }}`), whose text becomes
- * part of the script. `{{-` and `-}}` trim the white space beside them. Any
- * other action (`if`, a pipe, a function) is refused, and so is a reference
- * in a script that does not run with bash.
+ * A value goes in the environment, so it is refused, naming its reference and
+ * never the value, if it holds a NUL character, if it is over 64 KiB as
+ * UTF-8, or if it brings the script's values over 256 KiB together.
+ *
+ * Besides references, a script's `{{ }}` may hold a Go template comment, as
+ * the whole action, or a string constant (``{{`{{.Names}}`}}``, `{{ "{{" }}`)
+ * with no NUL character, whose text becomes part of the script. `{{-` and
+ * `-}}` trim the white space beside them. Any other action (`if`, a pipe, a
+ * function) is refused, and so is a reference in a script that does not run
+ * with bash.
  */
 import { Redacted, Result, Schema } from "effect"
 import type { NonEmptyReadonlyArray } from "effect/Array"
@@ -116,6 +121,8 @@ export function insertValues(
         message: `\`${written}\` names a value, and Runbooks inserts values only into a script that runs with bash or sh. This one runs with ${interpreter}.`,
       })
   else {
+    /** Bytes the values hold so far, as UTF-8. */
+    let held = 0
     for (const reference of references) {
       const value = valueOf(reference, sources)
       if (Result.isFailure(value)) found.push(value.failure)
@@ -123,7 +130,10 @@ export function insertValues(
       const name = known ?? `RUNBOOK_VALUE_${names.size + 1}`
       if (known === undefined) {
         names.set(reference.key, name)
-        if (Result.isSuccess(value)) env[name] = value.success
+        if (Result.isSuccess(value)) {
+          env[name] = value.success
+          held = checkHeld(reference, Redacted.value(value.success), held, found)
+        }
       }
       variables.push(name)
     }
@@ -134,6 +144,50 @@ export function insertValues(
     .sort((a, b) => a.at - b.at)
     .map(({ at, message }): ScriptTemplateProblem => ({ ...positionOf(template, at), message }))
   return first === undefined ? Result.succeed({ script, env }) : Result.fail([first, ...rest])
+}
+
+/**
+ * Most bytes one value may be, as UTF-8. Linux takes at most 128 KiB for one
+ * `NAME=value` string in a process's environment (`MAX_ARG_STRLEN`), so
+ * `RUNBOOK_VALUE_1` can hold 131,055 bytes there; this leaves room.
+ */
+const VALUE_BYTES = 64 * 1024
+
+/**
+ * Most bytes a script's values may be together, as UTF-8. A process's
+ * arguments and environment together may be at most 2 MiB on Linux and 1 MiB
+ * on macOS (`ARG_MAX`), and the run's own environment needs the rest.
+ */
+const ALL_VALUES_BYTES = 256 * 1024
+
+const utf8 = new TextEncoder()
+
+/**
+ * Adds a problem to `found` if `value`, the value of `reference`, is one the
+ * environment cannot hold, when the values before it hold `held` bytes. Never
+ * puts the value in a message. Returns the bytes the values then hold.
+ */
+function checkHeld(reference: Reference, value: string, held: number, found: Found[]): number {
+  const { at, written } = reference
+  if (value.includes(MARK))
+    found.push({
+      at,
+      message: `\`${written}\` holds a NUL character, which no environment variable can hold. Encode the value where it is made, as with \`base64\`, and decode it in the script.`,
+    })
+  const bytes = utf8.encode(value).length
+  if (bytes > VALUE_BYTES) {
+    found.push({
+      at,
+      message: `\`${written}\` is over 64 KiB as UTF-8, the most one value may be. Write the value to a file where it is made, and pass the file's path instead.`,
+    })
+    return held
+  }
+  if (held <= ALL_VALUES_BYTES && held + bytes > ALL_VALUES_BYTES)
+    found.push({
+      at,
+      message: `\`${written}\` brings this script's values over 256 KiB as UTF-8, the most they may be together. Write the larger values to files where they are made, and pass the files' paths instead.`,
+    })
+  return held + bytes
 }
 
 /** A problem, at its index in the template. */
@@ -249,22 +303,41 @@ function constantEnd(template: string, start: number): number {
   return -1
 }
 
+/** The text of a string constant, ``{{`...`}}`` or `{{ "..." }}`, or undefined if `body` is no constant. */
+function constantOf(body: string): string | undefined {
+  if (/^`[^`]*`$/.test(body)) return body.slice(1, -1)
+  if (!body.startsWith('"') || !body.endsWith('"')) return undefined
+  try {
+    const constant: unknown = JSON.parse(body)
+    return typeof constant === "string" ? constant : undefined
+  } catch {
+    // Not a constant JSON can read, such as one with a Go-only escape.
+    return undefined
+  }
+}
+
 /** What an action puts in the script: text as written, or a reference to a value. */
 function actionOf(
   body: string,
   written: string,
   at: number,
 ): Result.Result<string | Reference, Found> {
-  if (body.startsWith("/*")) return Result.succeed("")
-  if (/^`[^`]*`$/.test(body)) return Result.succeed(body.slice(1, -1))
-  if (body.startsWith('"') && body.endsWith('"')) {
-    try {
-      const constant: unknown = JSON.parse(body)
-      if (typeof constant === "string") return Result.succeed(constant)
-    } catch {
-      // Not a constant JSON can read, such as one with a Go-only escape.
-    }
-  }
+  if (body.startsWith("/*"))
+    // As in Go, a comment is the whole of its action, so nothing after it is dropped unread.
+    return body.indexOf("*/", 2) === body.length - 2
+      ? Result.succeed("")
+      : Result.fail({
+          at,
+          message: `\`${written}\` holds more than a comment. A comment must be the whole of its \`{{ }}\`, as in \`{{/* a comment */}}\`.`,
+        })
+  const constant = constantOf(body)
+  if (constant !== undefined)
+    return constant.includes(MARK)
+      ? Result.fail({
+          at,
+          message: `\`${written}\` holds a NUL character, which bash cannot run.`,
+        })
+      : Result.succeed(constant)
   const input = INPUT.exec(body)
   if (input) {
     const path = input[1]!.slice(1).split(".")
