@@ -7,7 +7,7 @@ import { FileSystem } from "../services/FileSystem.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import { configErrors, type ParseResult, type RunbookDocument } from "./document.ts"
-import type { FileFact } from "./files.ts"
+import { type FileFact, fileHash } from "./files.ts"
 import { loadRunbook } from "./load.ts"
 import { parseRunbook } from "./parse.ts"
 
@@ -62,7 +62,7 @@ describe("loadRunbook", () => {
   it("hashes each file a block names, and the combined hash changes with it", async () => {
     const runbook = '<Run id="a" path="scripts/a.sh" />'
     const before = await loaded({ [RUNBOOK]: runbook, "/rb/scripts/a.sh": "echo hi\n" })
-    expect(fileHashes(before)).toEqual([["scripts/a.sh", sha256("echo hi\n")]])
+    expect(fileHashes(before)).toEqual([["scripts/a.sh", fileHash(Buffer.from("echo hi\n"))]])
     expect(String(before.hash.runbook)).toBe(sha256(runbook))
 
     const after = await loaded({ [RUNBOOK]: runbook, "/rb/scripts/a.sh": "echo bye\n" })
@@ -154,7 +154,9 @@ describe("loadRunbook", () => {
         ["working", []],
       ],
     )
-    expect(fileHashes(result.document)).toEqual([["scripts/ok.sh", sha256("echo ok\n")]])
+    expect(fileHashes(result.document)).toEqual([
+      ["scripts/ok.sh", fileHash(Buffer.from("echo ok\n"))],
+    ])
   })
 
   it("refuses a file that doesn't exist, at the prop that names it", async () => {

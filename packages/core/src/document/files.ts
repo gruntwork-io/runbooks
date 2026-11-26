@@ -26,8 +26,9 @@ export type FileFact =
   | {
       readonly _tag: "Found"
       /**
-       * A file's bytes. A folder's: each file's path in it, executable bit and
-       * bytes, so a change to any of them changes the hash.
+       * A file's: its bytes. A folder's: each file's path in it, executable
+       * bit and bytes, so a change to any of them changes the hash. Each is
+       * tagged with its kind, so a file never hashes as a folder does.
        */
       readonly hash: ContentHash
       /** The file, or each file in the folder: the text of the bytes hashed. */
@@ -99,8 +100,11 @@ export const readRunbookFile = (
     if (!stat.value.isFile) return { _tag: "NotAFile", path: file }
     const read = yield* readBytes(real.value, file, stat.value)
     if (read._tag !== "Read") return read.fact
-    const hash = toHash(`sha256:${createHash("sha256").update(read.bytes).digest("hex")}`)
-    return { _tag: "Found", hash, texts: [{ path: file, text: textOf(read.bytes) }] }
+    return {
+      _tag: "Found",
+      hash: fileHash(read.bytes),
+      texts: [{ path: file, text: textOf(read.bytes) }],
+    }
   })
 
 /** A file's bytes, or why they weren't read: it is over the limit, or can't be read. */
@@ -204,12 +208,24 @@ const readFolder = (real: string, named: RunbookPath): Effect.Effect<FileFact, n
   })
 
 /**
- * SHA-256 over each file's path, executable bit and bytes, in the order
- * read. A length goes before the path and the bytes, so "a" + "bc" and
- * "ab" + "c" hash apart.
+ * The tag each hash starts with. Neither starts the other, so a file whose
+ * bytes are some folder's framing still hashes apart from that folder.
+ */
+const FILE_TAG = "file\n"
+const FOLDER_TAG = "folder\n"
+
+/** SHA-256 over the file tag and a named file's bytes. */
+export function fileHash(bytes: Uint8Array): ContentHash {
+  return toHash(`sha256:${createHash("sha256").update(FILE_TAG).update(bytes).digest("hex")}`)
+}
+
+/**
+ * SHA-256 over the folder tag, then each file's path, executable bit and
+ * bytes, in the order read. A length goes before the path and the bytes, so
+ * "a" + "bc" and "ab" + "c" hash apart.
  */
 function folderHash(files: ReadonlyArray<FolderFile>): ContentHash {
-  const hash = createHash("sha256")
+  const hash = createHash("sha256").update(FOLDER_TAG)
   for (const file of files) {
     const name = encoder.encode(file.path)
     hash.update(`${name.length}:`).update(name)
