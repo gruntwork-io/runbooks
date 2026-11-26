@@ -136,6 +136,46 @@ fetch-boilerplate target_os="" target_arch="":
     echo "$target_id" > "$MARKER"
     echo "[fetch-boilerplate] Done"
 
+# Fetch the plugin binaries resources/plugins.lock pins, at the version it
+# pins, into resources/bin for one platform: the host's by default, or one
+# the lock names, e.g. `just fetch-plugins darwin-amd64`. Each binary is
+# downloaded to a temporary folder and checked against its SHA-256; only
+# when every one matches are they moved in, mode 755. On a mismatch it
+# prints the asset, the expected hash and the actual one, and exits 1.
+# Plugin binaries the lock does not pin for the platform are removed, so
+# resources/bin holds one platform's at a time, as with boilerplate.
+#
+# Fetch the plugin binaries resources/plugins.lock pins, verified, into resources/bin
+fetch-plugins $platform="":
+    mise x bun -- bun scripts/plugins/lock.ts fetch ${platform:+--platform "$platform"}
+
+# Check that a bin folder holds exactly the plugin binaries the lock pins
+# for a platform, each with its pinned hash and executable: resources/bin by
+# default, or another folder relative to the repo root, such as a packaged
+# app's. Exits 1, naming each file, when it does not.
+#
+# Check a bin folder against the plugin binaries resources/plugins.lock pins
+check-plugins $platform="" $bin_dir="":
+    mise x bun -- bun scripts/plugins/lock.ts check ${platform:+--platform "$platform"} ${bin_dir:+--bin-dir "$bin_dir"}
+
+# Pin another release of gruntwork-io/runbooks-plugins, e.g.
+# `just bump-plugins 0.3.0`: rewrites resources/plugins.lock with every
+# binary in the release's SHA256SUMS, each checked against the digest
+# GitHub's API gives for it. On any disagreement the lock is left as it was.
+#
+# Rewrite resources/plugins.lock for another plugins release
+bump-plugins $version:
+    mise x bun -- bun scripts/plugins/lock.ts bump "$version"
+
+# Check that plugin/*.schema.json are byte for byte the schemas the release
+# resources/plugins.lock pins lists in its SHA256SUMS, and that plugin/ holds
+# no other, so the app's protocol types are the plugins'. Exits 1, naming
+# each file and both hashes, when they are not. CI runs it.
+#
+# Check plugin/*.schema.json against the pinned plugins release's schemas
+check-plugin-schemas:
+    mise x bun -- bun scripts/plugins/lock.ts schemas
+
 # Package the Electron app for distribution
 package: build compile-test-cli fetch-boilerplate
     mise x node -- npx electron-builder
@@ -242,7 +282,7 @@ clean:
     #!/usr/bin/env bash
     set -u
     for i in 1 2 3; do
-        rm -rf dist out app-out resources/bin/runbooks-test resources/bin/runbooks-test.exe resources/bin/boilerplate resources/bin/boilerplate.exe resources/wasm resources/.boilerplate-version && exit 0
+        rm -rf dist out app-out resources/bin/runbooks-test resources/bin/runbooks-test.exe resources/bin/boilerplate resources/bin/boilerplate.exe resources/bin/runbooks-credential-* resources/bin/runbooks-driver-* resources/.plugins-download-* resources/wasm resources/.boilerplate-version && exit 0
         sleep 0.3
     done
     exit 1

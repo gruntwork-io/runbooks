@@ -43,6 +43,9 @@ node_modules/*
 # Ignore additional binaries
 resources/bin/*
 
+# Ignore what a killed `just fetch-plugins` leaves of its downloads
+resources/.plugins-download-*/
+
 # Ignore fetched boilerplate WASM artifacts (see justfile fetch-boilerplate)
 resources/wasm/
 resources/.boilerplate-version
