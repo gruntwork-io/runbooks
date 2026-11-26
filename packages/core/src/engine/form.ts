@@ -274,8 +274,9 @@ export const valuesOf = (form: Form): TaskValues =>
   )
 
 /**
- * A submitted form's outputs: each declared output is the field of the same
- * name, as text, sensitive if the field is.
+ * A submitted form's outputs: each declared output is the value of the field
+ * it names, as text, as `valuesOf` gives it to a task, and sensitive when the
+ * field is. An output naming a field the form does not have gives nothing.
  */
 export function outputsOf(
   form: Form,
@@ -283,11 +284,11 @@ export function outputsOf(
 ): ReadonlyMap<string, Held<string>> {
   const values = valuesOf(form)
   return new Map(
-    form.flatMap(({ field }): Array<[string, Held<string>]> => {
-      const decl = Object.hasOwn(declared, field.name) ? declared[field.name] : undefined
-      const value = values.get(field.name)
-      if (decl === undefined || value === undefined) return []
-      return [[field.name, hold(field.sensitive, templateText(Redacted.value(value)))]]
+    Object.entries(declared).flatMap(([output, { field: name }]): Array<[string, Held<string>]> => {
+      const entry = form.find(({ field }) => field.name === name)
+      const value = values.get(name)
+      if (entry === undefined || value === undefined) return []
+      return [[output, hold(entry.field.sensitive, templateText(Redacted.value(value)))]]
     }),
   )
 }
