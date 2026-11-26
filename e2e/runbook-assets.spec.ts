@@ -85,6 +85,8 @@ interface MediaState {
   duration: number
   currentTime: number
   seekable: [number, number][]
+  /** What was buffered once the metadata was in, before any seek. */
+  bufferedBeforeSeek: [number, number][]
 }
 
 /**
@@ -104,20 +106,25 @@ function mediaState(page: Page, selector: string, seekTo?: number): Promise<Medi
         })
       if (el.readyState < HTMLMediaElement.HAVE_METADATA && !el.error)
         await settle("loadedmetadata")
+      const ranges = (list: TimeRanges) => {
+        const found: [number, number][] = []
+        for (let i = 0; i < list.length; i++) found.push([list.start(i), list.end(i)])
+        return found
+      }
+      const bufferedBeforeSeek = ranges(el.buffered)
       if (seekTarget !== undefined && !el.error) {
         const seeked = settle("seeked")
         el.currentTime = seekTarget
         await seeked
       }
-      const seekable: [number, number][] = []
-      for (let i = 0; i < el.seekable.length; i++)
-        seekable.push([el.seekable.start(i), el.seekable.end(i)])
+      const seekable = ranges(el.seekable)
       return {
         readyState: el.readyState,
         error: el.error ? `${el.error.code} ${el.error.message}` : null,
         duration: el.duration,
         currentTime: el.currentTime,
         seekable,
+        bufferedBeforeSeek,
       }
     },
     { selector, seekTo },
@@ -159,7 +166,15 @@ test.describe("a runbook's assets", () => {
   // Without 206 answers Chromium treats the WAV as a live stream, with no
   // duration and nothing seekable. An answer cut short of the range asked
   // for makes it end early (byteRange.ts).
-  test("seeks within audio and video", async ({ launch }, testInfo) => {
+  //
+  // The audio loads only its metadata, so the seek reads past what Chromium
+  // had: by a second range request, which fails unless the asset scheme is
+  // `standard` (PIPELINE_ERROR_READ). Before the seek its end isn't buffered:
+  // unless the scheme is `stream`, Chromium reads the whole file at once
+  // (runbooks-reviewer on #651), so nothing else bounds what one asset reads.
+  test("seeks within audio and video, the audio reading its end only for the seek", async ({
+    launch,
+  }, testInfo) => {
     const { page } = await openMedia(launch, testInfo)
     for (const [selector, seconds] of [
       ["audio", WAV_SECONDS],
@@ -171,6 +186,11 @@ test.describe("a runbook's assets", () => {
       expect(state.duration, selector).toBeCloseTo(seconds, 1)
       expect(state.seekable, selector).toEqual([[0, expect.closeTo(seconds, 1)]])
       expect(state.currentTime, selector).toBeCloseTo(target, 0)
+      if (selector === "audio")
+        expect(
+          state.bufferedBeforeSeek.filter(([, end]) => end >= target),
+          selector,
+        ).toEqual([])
     }
   })
 
