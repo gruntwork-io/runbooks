@@ -17,8 +17,6 @@ import {
 import { FieldType, FieldValue, type FormSpec, Validation } from "@runbooks/blocks-core/form"
 import type { Registry } from "@runbooks/blocks-core/registry"
 
-const toPath = Schema.decodeSync(RunbookPath)
-
 /** Display, markdown children, its own `title` and `description`, which are shared props too. */
 const note = defineDisplay({
   name: "Note",
@@ -39,7 +37,7 @@ const note = defineDisplay({
 
 const RunProps = Schema.Struct({
   command: Schema.optionalKey(Schema.String),
-  path: Schema.optionalKey(Schema.String),
+  path: Schema.optionalKey(RunbookPath),
   shell: Schema.optionalKey(Schema.String),
   args: Schema.optionalKey(Schema.Array(Schema.String)),
   outputs: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -58,7 +56,7 @@ const run = defineTask({
   props: RunProps,
   children: { kind: "markdown" },
   references: {},
-  runbookFiles: (p) => (p.path === undefined ? [] : [toPath(p.path)]),
+  runbookFiles: (p) => (p.path === undefined ? [] : [p.path]),
   provides: ["run", "env"],
   effects: ["process"],
   outputs: (p) => Object.fromEntries((p.outputs ?? []).map((key) => [key, { sensitive: false }])),

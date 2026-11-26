@@ -40,7 +40,6 @@ import { Caller, type RunResult } from "./protocol.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
 const blockId = Schema.decodeSync(BlockId)
-const toPath = Schema.decodeSync(RunbookPath)
 const decodeFields = Schema.decodeUnknownEffect(Schema.Array(ToyField))
 
 /** A form whose fields are the YAML file its `path` names, as a template's `boilerplate.yml`. */
@@ -48,10 +47,10 @@ const fileForm = defineForm({
   name: "FileForm",
   since: "0.1.0",
   class: "form",
-  props: Schema.Struct({ path: Schema.String }),
+  props: Schema.Struct({ path: RunbookPath }),
   children: { kind: "none" },
   references: {},
-  runbookFiles: (p) => [toPath(p.path)],
+  runbookFiles: (p) => [p.path],
   provides: ["values"],
   effects: [],
   outputs: () => ({}),
@@ -75,10 +74,10 @@ const script = defineTask({
   name: "Script",
   since: "0.1.0",
   class: "task",
-  props: Schema.Struct({ path: Schema.String }),
+  props: Schema.Struct({ path: RunbookPath }),
   children: { kind: "none" },
   references: {},
-  runbookFiles: (p) => [toPath(p.path)],
+  runbookFiles: (p) => [p.path],
   provides: ["run"],
   effects: ["process", "files"],
   outputs: () => ({}),

@@ -490,6 +490,7 @@ describe("a command that cannot run", () => {
     '<Command id="neither" />',
     '<Command id="named" command="x" outputs={["1st"]} />',
     '<Command id="slow" command="x" timeoutMs={0} />',
+    '<Command id="empty" path="" />',
   ].join("\n\n")
 
   it("is a configuration error, saying what to change", () => {
@@ -502,6 +503,7 @@ describe("a command that cannot run", () => {
       expect.stringContaining("set `command`, the script itself, or `path`"),
       expect.stringContaining("an output's name is letters, digits and `_`"),
       expect.stringContaining("the `timeoutMs` prop of <Command>"),
+      expect.stringContaining("the `path` prop of <Command>"),
     ])
   })
 

@@ -219,7 +219,7 @@ describe("parseRunbook", () => {
 
       const [bad] = errors('<Run id="c" args="x" />')
       expect(bad?.location).toMatchObject({ block: { tag: "Run", id: "c" }, prop: "args" })
-      expect(bad?.received).toBe("x")
+      expect(bad?.received).toBe("text")
     })
 
     // An id names its block's credential state folder, so it may not reach
@@ -376,6 +376,82 @@ describe("parseRunbook", () => {
       expect(found[0]?.location.prop).toBe("variables")
     })
 
+    describe("a block inside a block that shows no markdown", () => {
+      it("is an error on the outer block, at the inner block's line, and the runbook opens", () => {
+        const doc = parsed(
+          '<Clone id="c" url="https://x/y.git">\n\n<Run id="inner" command="ls" />\n\n</Clone>',
+        )
+        expect(doc.blocks.map((b) => b.tag)).toEqual(["Clone"])
+        const [error, ...rest] = doc.blocks[0]?.errors ?? []
+        expect(rest).toEqual([])
+        expect(error?.code).toBe("badChildren")
+        expect(error?.location.span.start).toEqual({ line: 3, column: 1 })
+        expect(error?.location.block).toEqual({ tag: "Clone", id: "c" })
+        expect(error?.message).toContain('<Run id="inner">')
+        expect(error?.message).toContain("out of <Clone")
+      })
+
+      it("is found at any depth in YAML children, and only the outermost one", () => {
+        const found = errors(
+          [
+            '<Form id="f">',
+            "```yaml",
+            "- name: region",
+            "  type: string",
+            "```",
+            "",
+            '> <Run id="deep" command="ls" />',
+            "",
+            "<Note>",
+            "",
+            '<Run id="in-note" command="ls" />',
+            "",
+            "</Note>",
+            "</Form>",
+          ].join("\n"),
+        )
+        expect(
+          found.map((e) => [e.code, e.location.span.start.line, e.location.block?.tag]),
+        ).toEqual([
+          ["badChildren", 7, "Form"],
+          ["badChildren", 9, "Form"],
+        ])
+        expect(found[1]?.message).toContain("<Note>")
+      })
+    })
+
+    it("never quotes what a prop holds, which may be a secret, and says what kind of value it is", () => {
+      const SECRET = "fake-secret-7f3a"
+      const cases = [
+        `<Run id="r" command="ls" env={{ "1BAD": "${SECRET}" }} />`,
+        `<Run id="r" command="ls" env={{ A: null, B: "${SECRET}" }} />`,
+        `<Run id="r" command="ls" env={{ A: "{{ printf \\"%s\\" \\"${SECRET}\\" }}" }} />`,
+        `<Run id="r" command="ls" env={{ A: "x{{${SECRET}}}y" }} />`,
+        `<Run id="r" command="ls" env={{ A: "{{ ${SECRET} | x }}" }} />`,
+        `<Run id="r" command="ls" env="${SECRET}" />`,
+        `<Run id="r" command={["${SECRET}"]} />`,
+        `<Run id="r" command="ls" awsAuthId={["${SECRET}"]} />`,
+        `<Run id="${SECRET} x" command="ls" />`,
+        `<Run id="r" command="ls" dependsOn={["${SECRET} x"]} />`,
+        `<Clone id="c" url="u" githubAuthId="${SECRET} x" />`,
+      ]
+      for (const source of cases) {
+        const result = parse(source)
+        const found = configErrors(result)
+        const warned = result._tag === "Parsed" ? result.document.warnings : result.warnings
+        expect(found.length).toBeGreaterThan(0)
+        expect(JSON.stringify([...found, ...warned])).not.toContain(SECRET)
+      }
+      expect(errors(`<Run id="r" command="ls" env="${SECRET}" />`)[0]?.received).toBe("text")
+      expect(errors(`<Run id="r" command={["${SECRET}"]} />`)[0]?.received).toBe("a list")
+    })
+
+    it("refuses an empty path as a bad prop of its block, and throws nothing", () => {
+      expect(
+        errors('<Run id="r" path="" />').map((e) => [e.code, e.location.prop, e.location.block]),
+      ).toEqual([["badProp", "path", { tag: "Run", id: "r" }]])
+    })
+
     it("refuses a value no block takes", () => {
       expect(brief(errors('<Run id="a" command={/ls/} />'))).toEqual([
         [
@@ -406,6 +482,20 @@ describe("parseRunbook", () => {
       ])
     })
 
+    it("puts a requirement's error at its key's line, however the key is written", () => {
+      for (const yaml of [
+        'title: x\nrunbooks: ">= 0.40"',
+        'title: x\n"runbooks": ">= 0.40"',
+        "title: x\n'runbooks': \">= 0.40\"",
+        '{ title: x,\n  "runbooks": ">= 0.40" }',
+      ]) {
+        const found = errors(`---\n${yaml}\n---\n\n# Deploy\n`)
+        expect(found.map((e) => [e.code, e.location.span.start.line])).toEqual([
+          ["versionRequired", 3],
+        ])
+      }
+    })
+
     it("reports a requirement it can't read, and front matter that isn't YAML", () => {
       expect(brief(errors("---\nruns: 1\nrunbooks: 0.30\n---\n"))).toEqual([
         [
@@ -429,7 +519,7 @@ describe("parseRunbook", () => {
           p.command !== undefined
             ? [{ _tag: "Prop", prop: "command" }]
             : p.path !== undefined
-              ? [{ _tag: "File", path: toPath(p.path) }]
+              ? [{ _tag: "File", path: p.path }]
               : [],
       }),
     }

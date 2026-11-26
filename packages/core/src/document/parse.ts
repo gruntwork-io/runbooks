@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
 import { Option, Result, Schema, SchemaAST, SchemaIssue } from "effect"
-import YAML from "yaml"
+import YAML, { type Document, isMap, isScalar } from "yaml"
 import { yamlData } from "./yamlData.ts"
 import {
   BlockId,
@@ -470,8 +470,8 @@ class Parse {
       const requirement = record[REQUIREMENT_KEY]
       const unmet = versionProblem(requirement, this.options.appVersion)
       if (unmet !== undefined) {
-        const index = yaml.split("\n").findIndex((l) => l.startsWith(`${REQUIREMENT_KEY}:`))
-        this.error("versionRequired", unmet, lineSpan(index + 2), {
+        const line = 1 + lineIn(yaml, keyOffset(doc, REQUIREMENT_KEY))
+        this.error("versionRequired", unmet, lineSpan(line), {
           expected: `a version range such as ${REQUIREMENT_KEY}: ">= 0.28"`,
         })
       } else if (typeof requirement === "string") {
@@ -502,7 +502,7 @@ class Parse {
         const name = node.name
         if (!name) return this.children(node)
         if (/^[a-z]/.test(name) && !/[.:-]/.test(name)) return [this.element(node, name)]
-        if (/^[A-Z]/.test(name) && !/[.:-]/.test(name)) return this.block(node, name)
+        if (isBlockTag(name)) return this.block(node, name)
         return []
       }
       default: {
@@ -604,6 +604,7 @@ class Parse {
 
     let children: TreeNode[] = []
     if (block.children.kind === "markdown") children = this.children(node)
+    else this.unshownBlocks(node, block.children.kind, where, index)
     const yamlRead =
       childrenProp === undefined || this.yamlChildren(node, childrenProp, input, where, index)
 
@@ -671,6 +672,29 @@ class Parse {
     return [{ type: "block", index, children }]
   }
 
+  /**
+   * An error for each block written inside a block that shows no markdown,
+   * at the inner block: it would never appear or run.
+   */
+  private unshownBlocks(node: MdxNode, kind: "none" | "yaml", where: Where, index: number): void {
+    const reads =
+      kind === "yaml" ? "reads only the YAML inside it" : "shows nothing written inside it"
+    for (const inner of blocksIn(node)) {
+      const id = inner.attributes?.find((a) => a.type === "mdxJsxAttribute" && a.name === "id")
+      const idValue = id === undefined ? undefined : attributeValue(id.value)
+      const name =
+        typeof idValue === "string" && Option.isSome(blockIdOf(idValue))
+          ? `<${inner.name} id="${idValue}">`
+          : `<${inner.name}>`
+      this.error(
+        "badChildren",
+        `<${where.tag}> ${reads}, so ${name} in it never appears or runs. Move it out of <${where.tag}>.`,
+        spanOf(inner),
+        { block: where, index },
+      )
+    }
+  }
+
   /** The props as written, in order. A later duplicate wins, as in JSX. */
   private written(node: MdxNode, tag: string, index: number): Map<string, Written> {
     const written = new Map<string, Written>()
@@ -716,7 +740,7 @@ class Parse {
           prop: "id",
           index,
           expected: "a block id",
-          received: excerpt(prop.value),
+          received: kindOf(prop.value),
         },
       )
       return undefined
@@ -786,7 +810,7 @@ class Parse {
     where: Where,
     index: number,
   ): void {
-    if (typeof alias.value !== "string" || alias.value === "") {
+    if (typeof alias.value !== "string" || Option.isNone(blockIdOf(alias.value))) {
       this.error(
         "badProp",
         `\`${GIT_CREDENTIAL_ALIAS}\` must be a block id, such as ${prop}="git-auth".`,
@@ -796,7 +820,7 @@ class Parse {
           prop: GIT_CREDENTIAL_ALIAS,
           index,
           expected: "a block id",
-          received: excerpt(alias.value),
+          received: kindOf(alias.value),
         },
       )
       return
@@ -932,7 +956,7 @@ class Parse {
           prop: key,
           index,
           expected: "a block id",
-          received: excerpt(prop.value),
+          received: kindOf(prop.value),
         })
         continue
       }
@@ -981,7 +1005,7 @@ class Parse {
         block: where,
         index,
         ...(prop !== "" ? { prop } : {}),
-        ...(value !== undefined ? { received: excerpt(value.value) } : {}),
+        ...(value !== undefined ? { received: kindOf(value.value) } : {}),
       })
     }
   }
@@ -1014,6 +1038,20 @@ class Parse {
   }
 }
 
+/** Whether an element named `name` is a block: capitalized, and no member or namespace name. */
+const isBlockTag = (name: string): boolean => /^[A-Z]/.test(name) && !/[.:-]/.test(name)
+
+/** The blocks written among `node`'s descendants, not looking inside them. */
+function blocksIn(node: MdxNode): MdxNode[] {
+  return (node.children ?? []).flatMap((child) =>
+    (child.type === "mdxJsxFlowElement" || child.type === "mdxJsxTextElement") &&
+    child.name &&
+    isBlockTag(child.name)
+      ? [child]
+      : blocksIn(child),
+  )
+}
+
 const isReferenceValue = (value: unknown): value is ReferenceValue =>
   typeof value === "string" ||
   (Array.isArray(value) && value.every((entry) => typeof entry === "string"))
@@ -1024,6 +1062,13 @@ function strings(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(strings)
   if (typeof value === "object" && value !== null) return Object.values(value).flatMap(strings)
   return []
+}
+
+/** Where the top-level key `name` starts in `doc`'s YAML, quoted, flow or plain; else its start. */
+function keyOffset(doc: Document, name: string): number {
+  if (!isMap(doc.contents)) return 0
+  const pair = doc.contents.items.find(({ key }) => isScalar(key) && key.value === name)
+  return isScalar(pair?.key) ? (pair.key.range?.[0] ?? 0) : 0
 }
 
 const LINE_ONE: Span = { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } }
@@ -1058,9 +1103,12 @@ function propKeys(schema: Schema.Top): ReadonlySet<string> | undefined {
   return collect(SchemaAST.toEncoded(schema.ast)) ? keys : undefined
 }
 
-function excerpt(value: PropValue): string {
-  const text = typeof value === "string" ? value : JSON.stringify(value)
-  return text.length > 60 ? `${text.slice(0, 57)}...` : text
+/** What kind of value a prop holds, as `received` says it: never the text, which may be a secret. */
+function kindOf(value: PropValue): string {
+  if (typeof value === "string") return "text"
+  if (typeof value === "number") return "a number"
+  if (typeof value === "boolean" || value === null) return String(value)
+  return Array.isArray(value) ? "a list" : "an object"
 }
 
 /** What a path a block names is, when the loader didn't find it whole inside the runbook's folder. */

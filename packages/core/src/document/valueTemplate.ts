@@ -126,7 +126,8 @@ export function parseValueTemplate(
       case "Other":
         return Result.fail({
           at: action.start,
-          message: `\`${written}\` is not a value Runbooks can insert. A \`{{ }}\` may name a value, \`{{ .inputs.<name> }}\` or \`{{ .outputs.<block>.<key> }}\`, and nothing else: no condition, pipe or function. To write \`{{\` as text, write \`{{ "{{" }}\`.`,
+          // Nothing of the action is quoted: it may hold a secret, quoted or not.
+          message: `The \`{{ }}\` at character ${action.start + 1} is not a value Runbooks can insert. A \`{{ }}\` may name a value, \`{{ .inputs.<name> }}\` or \`{{ .outputs.<block>.<key> }}\`, and nothing else: no condition, pipe or function. To write \`{{\` as text, write \`{{ "{{" }}\`.`,
         })
     }
   }
