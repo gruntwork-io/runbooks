@@ -33,10 +33,11 @@ import { serveEngine } from "@runbooks/core/handlers"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
 import { type BlockView, type EngineClient, LIMITS, type SessionId } from "@runbooks/core/protocol"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
+import { NoSavedSessions } from "@runbooks/core/sessionStore"
 import type { AssertionReport, ExpectedStatus, StepReport, TestCaseReport } from "./contract.ts"
 
 type AssertionResult = typeof AssertionReport.Type
-import { DefaultSettings, NoCredentialProviders, NoSavedSessions } from "./testIsolation.ts"
+import { DefaultSettings, NoCredentialProviders } from "./testIsolation.ts"
 import {
   type Assertion,
   DEFAULT_EXPECT,

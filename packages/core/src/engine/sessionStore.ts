@@ -549,3 +549,21 @@ export class SessionStore extends Context.Service<SessionStore, SessionStoreShap
   static readonly layer: Layer.Layer<SessionStore, never, SessionDatabase | SessionCipher> =
     Layer.effect(SessionStore, make)
 }
+
+/**
+ * A session store that keeps nothing: every session is new, and none
+ * outlives the engine. `runbooks test` runs on it, so no test resumes a
+ * session or leaves one for the app to resume.
+ */
+export const NoSavedSessions: Layer.Layer<SessionStore> = Layer.succeed(SessionStore, {
+  latest: () => Effect.succeed(Option.none()),
+  keep: () =>
+    Effect.succeed({
+      put: () => Effect.void,
+      drop: () => Effect.void,
+      trust: () => Effect.void,
+      close: () => Effect.void,
+    }),
+  expired: Effect.succeed([]),
+  forget: () => Effect.void,
+})
