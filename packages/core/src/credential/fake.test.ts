@@ -8,6 +8,7 @@ import { describe, expect, it } from "bun:test"
 import {
   DateTime,
   Effect,
+  Exit,
   Fiber,
   Layer,
   Option,
@@ -18,12 +19,13 @@ import {
 } from "effect"
 import { TestClock } from "effect/testing"
 import type { CredentialError } from "@runbooks/blocks-core/contract"
+import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { FileSystem, type FileSystemShape } from "../services/FileSystem.ts"
 import {
   credentialProviderContract,
   FAKE_SCENARIOS,
 } from "../test-utils/credentialProviderContract.ts"
-import { withEnvSession } from "../test-utils/envSessions.ts"
+import { type EnvSession, type UseEnvSession, withEnvSession } from "../test-utils/envSessions.ts"
 import { makeTestFileSystem, testFileSystem } from "../test-utils/TestFileSystem.ts"
 import { makeRecordingSpawner } from "../test-utils/TestSpawner.ts"
 import {
@@ -43,6 +45,7 @@ import {
 
 const STATE = "/state/s1/fake"
 const TOKEN = "fake-token-0001-secret"
+const DONE: BlockStatus = { _tag: "Done", outcome: "success" }
 const NONE: Constraints = { pins: {}, requirements: [] }
 
 const config = (environment: Record<string, string> = {}): ProviderConfig => ({
@@ -329,6 +332,38 @@ describe("the fake credential plugin", () => {
     expect(Result.isFailure(expired!.later) && expired!.later.failure.kind).toBe("expired")
   })
 
+  // The contract (envResult in plugin/credential.schema.json): a credential
+  // that expires within 5 minutes is refreshed before env answers, if it can be.
+  it("renews a refreshable credential from 5 minutes before its expiry, and gives another as it is", async () => {
+    const lasting: FakeScript = {
+      ...FAKE_SCRIPT,
+      logins: [{ ...FAKE_SCRIPT.logins[0]!, refreshable: false }],
+    }
+    const minute = 60_000
+    const expiries = await Promise.all(
+      [FAKE_SCRIPT, lasting].map((script) =>
+        withFake(
+          (provider) =>
+            Effect.gen(function* () {
+              yield* signIn(provider, "token", { token: TOKEN })
+              yield* TestClock.adjust(55 * minute - 1)
+              const before = yield* provider.env
+              yield* TestClock.adjust(1)
+              const within = yield* provider.env
+              return [before, within].map((env) =>
+                Option.map(env.expiresAt, DateTime.toEpochMillis),
+              )
+            }),
+          { script },
+        ),
+      ),
+    )
+    expect(expiries).toEqual([
+      [Option.some(60 * minute), Option.some(115 * minute)],
+      [Option.some(60 * minute), Option.some(60 * minute)],
+    ])
+  })
+
   it("signs out: env answers notSignedIn, and its credentials file is gone", async () => {
     const result = await withFake((provider, fs) =>
       Effect.gen(function* () {
@@ -402,44 +437,83 @@ describe("each of the fake's faults", () => {
 })
 
 describe("the engine, against the fake", () => {
-  it("signs a block in, and a run gets the values the block declares", async () => {
-    const script: FakeScript = {
-      ...FAKE_SCRIPT,
-      prefix: "CLOUD",
-      levels: [{ name: "account", label: "Account", chosen: "afterSignIn" }],
-      file: false,
-    }
-    const fileSystem = makeTestFileSystem({
-      "/rb/runbook.mdx": [
-        '<CloudLogin id="cloud" account="111111111111" detect={false} />',
-        '<Run id="deploy" command="deploy" envFrom={["cloud"]} />',
-      ].join("\n\n"),
-    })
-    const env = await withEnvSession(
+  const script: FakeScript = {
+    ...FAKE_SCRIPT,
+    prefix: "CLOUD",
+    levels: [{ name: "account", label: "Account", chosen: "afterSignIn" }],
+    file: false,
+  }
+  /** A session of a runbook with a `cloud` block, signed out, and a run that reads it. */
+  const withCloud = <A>(use: UseEnvSession<A>, options: { readonly testClock?: boolean } = {}) =>
+    withEnvSession(
       {
         file: "/rb/runbook.mdx",
         workingFolders: "/work",
         processEnvironment: { PATH: "/usr/bin" },
-        fileSystem,
+        fileSystem: makeTestFileSystem({
+          "/rb/runbook.mdx": [
+            '<CloudLogin id="cloud" account="111111111111" detect={false} />',
+            '<Run id="deploy" command="deploy" envFrom={["cloud"]} />',
+          ].join("\n\n"),
+        }),
         spawner: makeRecordingSpawner(() => ({ lines: [], exitCode: 0 })).layer,
         providers: fakeCredentialProviders({ cloud: script }),
+        ...options,
       },
-      (rb) =>
-        Effect.gen(function* () {
-          yield* rb.until("cloud", "SignedOut")
-          yield* rb.act("cloud", {
-            _tag: "SignIn",
-            method: "token",
-            fields: { token: Redacted.make(TOKEN) },
-          })
-          yield* rb.until("cloud", "Ready")
-          yield* rb.run("deploy")
-          const given = rb.envOf("deploy")
-          yield* rb.close
-          return given
-        }),
+      use,
+    )
+  const signInCloud = (rb: EnvSession) =>
+    Effect.gen(function* () {
+      yield* rb.until("cloud", "SignedOut")
+      yield* rb.act("cloud", {
+        _tag: "SignIn",
+        method: "token",
+        fields: { token: Redacted.make(TOKEN) },
+      })
+      return yield* rb.until("cloud", "Ready")
+    })
+
+  it("signs a block in, and a run gets the values the block declares", async () => {
+    const env = await withCloud((rb) =>
+      Effect.gen(function* () {
+        yield* signInCloud(rb)
+        yield* rb.run("deploy")
+        const given = rb.envOf("deploy")
+        yield* rb.close
+        return given
+      }),
     )
     expect(env).toEqual({ PATH: "/usr/bin", CLOUD_TOKEN: TOKEN, CLOUD_ACCOUNT: "111111111111" })
+  })
+
+  // The token login lasts an hour and can be refreshed. The engine refreshes
+  // it through env 5 minutes before it expires, which the contract asks env
+  // to answer with a later expiry.
+  it("keeps a refreshable login Ready through its last 5 minutes, its expiry moved later", async () => {
+    const minute = 60_000
+    const at = (minutes: number) => DateTime.makeUnsafe(minutes * minute)
+    const seen = await withCloud(
+      (rb) =>
+        Effect.gen(function* () {
+          const signedIn = yield* signInCloud(rb)
+          yield* TestClock.adjust(55 * minute)
+          const refreshed = yield* Effect.race(
+            rb.until("cloud", "Ready"),
+            rb.until("cloud", "Expired"),
+          )
+          yield* TestClock.adjust(6 * minute)
+          const status = yield* rb.status("cloud")
+          const run = yield* Effect.exit(rb.run("deploy"))
+          yield* rb.close
+          return { signedIn, refreshed, status, run }
+        }),
+      { testClock: true },
+    )
+    expect(seen.signedIn).toMatchObject({ _tag: "Ready", identity: { expiresAt: at(60) } })
+    expect(seen.refreshed).toMatchObject({ _tag: "Ready", identity: { expiresAt: at(115) } })
+    // Past the hour the first sign-in gave, the block is still done and a run gets it.
+    expect(seen.status).toEqual(DONE)
+    expect(Exit.isSuccess(seen.run) && seen.run.value).toEqual(DONE)
   })
 })
 
