@@ -131,6 +131,10 @@ jobs:
       - name: Run E2E tests
         run: xvfb-run --auto-servernum just test-e2e-run
 
+      - name: Run the rebuilt app's E2E tests
+        if: ${{ !cancelled() }}
+        run: xvfb-run --auto-servernum just app-test-e2e
+
       - name: Upload Playwright report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
@@ -139,6 +143,7 @@ jobs:
           path: |
             web/test-results/
             electron/e2e/test-results/
+            e2e/test-results/
           retention-days: 30
           if-no-files-found: ignore
 

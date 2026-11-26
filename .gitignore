@@ -49,6 +49,10 @@ resources/.boilerplate-version
 
 # Ignore electron-vite build-time scratch configs
 electron.vite.config.*.mjs
+electron.vite.app.config.*.mjs
+
+# The rebuilt app's build (just app-build)
+app-out/
 
 # more9s draft reports stay local; the rebuild index and its stack script are tracked
 .more9s/*

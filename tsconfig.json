@@ -10,6 +10,8 @@
     { "path": "./packages/core" },
     { "path": "./packages/platform-node" },
     { "path": "./packages/cli" },
+    { "path": "./packages/app-main" },
+    { "path": "./packages/app-renderer" },
     { "path": "./tsconfig.e2e.json" },
     { "path": "./web/tsconfig.json" }
   ],

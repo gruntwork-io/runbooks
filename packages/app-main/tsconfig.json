@@ -1,0 +1,12 @@
+// The rebuilt app's Electron main process. It runs on Electron's Node, so it
+// gets Node's types and not Bun's.
+{
+  "extends": "../../tsconfig.packages.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": ["node"],
+    "declarationDir": "../../node_modules/.tmp/packages/app-main",
+    "tsBuildInfoFile": "../../node_modules/.tmp/packages/app-main.tsbuildinfo"
+  },
+  "include": ["**/*"]
+}

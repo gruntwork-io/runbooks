@@ -10,6 +10,8 @@
     ".github/scripts/**/*.mjs",
     "{src,electron,cli,scripts,test}/**/*.test.ts",
     "packages/cli/src/{main,writeTestFileSchema}.ts",
+    "packages/app-main/src/main.ts",
+    "packages/app-renderer/src/main.tsx",
     "{packages,blocks,baseline}/**/*.test.{ts,tsx}",
     "blocks/core/{contract,form,registry,status}.ts",
     "blocks/{index,views}.ts",
@@ -23,7 +25,7 @@
     "packages/platform-node/src/fixtures/*.ts"
   ],
   "project": [
-    "{src,electron,web,cli,scripts,test}/**/*.{ts,tsx}",
+    "{src,electron,web,cli,scripts,test,e2e}/**/*.{ts,tsx}",
     ".github/scripts/**/*.mjs",
     "{packages,blocks,baseline}/**/*.{ts,tsx}"
   ],
@@ -42,7 +44,8 @@
     "config": [
       "playwright.config.ts",
       "web/playwright.config.ts",
-      "electron/e2e/playwright.config.ts"
+      "electron/e2e/playwright.config.ts",
+      "e2e/playwright.config.ts"
     ]
   }
 }

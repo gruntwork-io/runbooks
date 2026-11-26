@@ -242,7 +242,7 @@ clean:
     #!/usr/bin/env bash
     set -u
     for i in 1 2 3; do
-        rm -rf dist out resources/bin/runbooks-test resources/bin/runbooks-test.exe resources/bin/boilerplate resources/bin/boilerplate.exe resources/wasm resources/.boilerplate-version && exit 0
+        rm -rf dist out app-out resources/bin/runbooks-test resources/bin/runbooks-test.exe resources/bin/boilerplate resources/bin/boilerplate.exe resources/wasm resources/.boilerplate-version && exit 0
         sleep 0.3
     done
     exit 1
@@ -320,3 +320,18 @@ typecheck: _no-nested-node-modules
 
 # Run all checks (lint + format check + unused code + typecheck)
 check: lint fmt-check knip typecheck
+
+# --- The rebuilt app (packages/app-main, packages/app-renderer) ---
+# Built by electron.vite.app.config.ts into app-out/, beside the old app.
+
+# Build the rebuilt app into app-out/
+app-build:
+    mise x node -- npx electron-vite build -c electron.vite.app.config.ts
+
+# Start the rebuilt app in dev mode, its page from Vite's dev server (HMR, no CSP)
+app-dev: _electron-binary
+    mise x node -- npx electron-vite dev -c electron.vite.app.config.ts --entry app-out/main/index.js
+
+# Build the rebuilt app and run its Playwright specs (e2e/)
+app-test-e2e: app-build
+    mise x bun -- bunx playwright test --config e2e/playwright.config.ts

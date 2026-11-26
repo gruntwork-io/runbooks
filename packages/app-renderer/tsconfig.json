@@ -1,0 +1,24 @@
+// The rebuilt app's window. It runs in a sandboxed renderer, so it gets the
+// DOM and no Node or Bun globals: `types` lists none.
+//
+// Its `paths` replace tsconfig.packages.json's: the window imports the core's
+// protocol only and the blocks' view map only (scripts/packages.test.ts), so
+// any other package export fails the compile with TS2307. Their own imports
+// resolve with their packages' options.
+{
+  "extends": "../../tsconfig.packages.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "jsx": "react-jsx",
+    "declarationDir": "../../node_modules/.tmp/packages/app-renderer",
+    "tsBuildInfoFile": "../../node_modules/.tmp/packages/app-renderer.tsbuildinfo",
+    "paths": {
+      "@runbooks/core/protocol": ["../core/src/engine/protocol.ts"],
+      "@runbooks/blocks/views": ["../../blocks/views.ts"]
+    }
+  },
+  "references": [{ "path": "../core" }, { "path": "../../blocks" }],
+  "include": ["**/*"]
+}
