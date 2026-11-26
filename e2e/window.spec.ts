@@ -87,11 +87,15 @@ async function recordBrowserOpens(app: ElectronApplication): Promise<() => Promi
 }
 
 /**
- * Whether the OS sandboxes the window's renderer process. macOS and Windows
- * report it. On Linux, which doesn't, a sandboxed renderer runs under a
- * seccomp-bpf filter (`Seccomp: 2`) and an unsandboxed one under none.
+ * How the OS confines the window's renderer process. macOS and Windows say
+ * whether they sandbox it. Linux doesn't, so on Linux this reads the
+ * process's type and its seccomp mode: Chromium's sandbox runs a renderer
+ * under a seccomp-bpf filter (mode 2), and an unsandboxed one under none (0).
+ * `seen` holds what was read, for a failure's message.
  */
-async function rendererSandboxed(app: ElectronApplication): Promise<boolean> {
+async function rendererConfinement(
+  app: ElectronApplication,
+): Promise<{ readonly confinement: object; readonly seen: string }> {
   const { pid, sandboxed } = await readFromMain(
     app,
     ({ app: electronApp, BrowserWindow }) => {
@@ -103,8 +107,19 @@ async function rendererSandboxed(app: ElectronApplication): Promise<boolean> {
     },
     undefined,
   )
-  if (sandboxed !== undefined) return sandboxed
-  return /^Seccomp:\s+2$/m.test(fs.readFileSync(`/proc/${pid}/status`, "utf8"))
+  if (process.platform !== "linux") return { confinement: { sandboxed }, seen: `pid ${pid}` }
+  const status = fs.readFileSync(`/proc/${pid}/status`, "utf8")
+  const args = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0")
+  const type = args.find((arg) => arg.startsWith("--type="))?.slice("--type=".length)
+  const seccomp = /^Seccomp:\s+(\d+)$/m.exec(status)?.[1]
+  const seen = [
+    `pid ${pid}`,
+    ...status.split("\n").filter((line) => /^(Name|Seccomp|NoNewPrivs|NSpid):/.test(line)),
+    ...args.filter((arg) =>
+      /^--(type|no-sandbox|no-zygote|enable-sandbox|disable-seccomp)/.test(arg),
+    ),
+  ].join("; ")
+  return { confinement: { type, seccomp }, seen }
 }
 
 test.describe("the rebuilt app's window", () => {
@@ -145,7 +160,10 @@ test.describe("the rebuilt app's window", () => {
 
   test("runs its renderer in the OS sandbox", async ({ launch }) => {
     const { app } = await launch()
-    expect(await rendererSandboxed(app)).toBe(true)
+    const { confinement, seen } = await rendererConfinement(app)
+    expect(confinement, seen).toEqual(
+      process.platform === "linux" ? { type: "renderer", seccomp: "2" } : { sandboxed: true },
+    )
   })
 
   test("stays on its page, and opens an https link in the browser instead", async ({ launch }) => {
