@@ -1,5 +1,6 @@
 // The rebuilt app's Electron main process. It runs on Electron's Node, so it
-// gets Node's types and not Bun's.
+// gets Node's types and not Bun's. Its tests run under bun test, and
+// tsconfig.test.json checks them with Bun's types.
 {
   "extends": "../../tsconfig.packages.json",
   "compilerOptions": {
@@ -8,5 +9,12 @@
     "declarationDir": "../../node_modules/.tmp/packages/app-main",
     "tsBuildInfoFile": "../../node_modules/.tmp/packages/app-main.tsbuildinfo"
   },
-  "include": ["**/*"]
+  "references": [
+    { "path": "../core" },
+    { "path": "../../blocks/core" },
+    { "path": "../platform-node" },
+    { "path": "../../blocks" }
+  ],
+  "include": ["**/*"],
+  "exclude": ["**/*.test.ts"]
 }

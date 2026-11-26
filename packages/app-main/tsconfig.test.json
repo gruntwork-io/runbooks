@@ -1,0 +1,20 @@
+// app-main's tests. They run under bun test, so they get Bun's types, which
+// app-main's own files do not (tsconfig.json). Like baseline/, this is not a
+// package: it compiles the files the tests import as its own.
+{
+  "extends": "../../tsconfig.packages.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "rootDir": ".",
+    "tsBuildInfoFile": "../../node_modules/.tmp/packages/app-main.test.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../core" },
+    { "path": "../../blocks/core" },
+    { "path": "../platform-node" },
+    { "path": "../../blocks" }
+  ],
+  "include": ["**/*.test.ts"]
+}

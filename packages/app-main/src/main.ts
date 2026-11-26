@@ -14,9 +14,17 @@
  * Unpackaged, with ELECTRON_RENDERER_URL set (`electron-vite dev`), it loads
  * that dev server's page and sets no CSP: Vite's React refresh runs an inline
  * script.
+ *
+ * It hosts the engine (`engine.ts`), which keeps its files in the user data
+ * folder, and reads the process's environment once, here, for its runs.
  */
 import path from "node:path"
 import { app, BrowserWindow, session, shell } from "electron"
+import { Effect, Layer } from "effect"
+import { appEngine } from "./engine.ts"
+
+/** The repository's version, set by the build (electron.vite.app.config.ts). */
+declare const __RUNBOOKS_VERSION__: string
 
 /**
  * The app's user data folder, in the OS's app data folder. The old app's is
@@ -45,6 +53,10 @@ if (!app.commandLine.hasSwitch("user-data-dir")) {
   app.setPath("userData", path.join(app.getPath("appData"), USER_DATA))
 }
 
+const processEnvironment: Record<string, string> = {}
+for (const [name, value] of Object.entries(process.env))
+  if (value !== undefined) processEnvironment[name] = value
+
 // Electron answers a server that asks for a client certificate with the
 // first one in the OS store, which identifies the user to that server.
 app.on("select-client-certificate", (event, _contents, _url, _certificates, callback) => {
@@ -56,7 +68,18 @@ app.on("window-all-closed", () => app.quit())
 
 app
   .whenReady()
-  .then(() => openWindow(app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL))
+  .then(() => {
+    Effect.runFork(
+      Layer.launch(
+        appEngine({
+          userData: app.getPath("userData"),
+          appVersion: __RUNBOOKS_VERSION__,
+          processEnvironment,
+        }),
+      ),
+    )
+    openWindow(app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL)
+  })
   .catch((error: unknown) => {
     console.error("The app could not open its window:", error)
     app.exit(1)
