@@ -6,7 +6,18 @@
  * `packages/platform-node/src/integration/credential/client.test.ts`.
  */
 import { describe, expect, it } from "bun:test"
-import { DateTime, Effect, Exit, Fiber, Layer, Option, Redacted, type Scope, Stream } from "effect"
+import {
+  DateTime,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+  Redacted,
+  Result,
+  type Scope,
+  Stream,
+} from "effect"
 import { TestClock } from "effect/testing"
 import { CredentialError } from "@runbooks/blocks-core/contract"
 import * as Wire from "../plugin/generated/credential.ts"
@@ -14,7 +25,12 @@ import { memoryPluginProcess, type PluginHandler, type PluginRefusal } from "../
 import { PROTOCOL_VERSION } from "../plugin/transport.ts"
 import { FileSystem, type FileSystemShape } from "../services/FileSystem.ts"
 import { testFileSystem } from "../test-utils/TestFileSystem.ts"
-import { CREDENTIAL_LIMITS, openPluginProvider, pluginCredentialProviders } from "./plugin.ts"
+import {
+  CREDENTIAL_LIMITS,
+  openPluginProvider,
+  pluginCredentialProviders,
+  stringsIn,
+} from "./plugin.ts"
 import { type CredentialProvider, CredentialProviders, type ProviderConfig } from "./provider.ts"
 
 const STATE = "/state/s1/cloud"
@@ -474,6 +490,14 @@ describe("what the engine gets", () => {
 // The secret rules
 // ---------------------------------------------------------------------------
 
+describe("the strings a secret scan reads", () => {
+  it("are every string and object key, through arrays and objects, each object once", () => {
+    const nested: Record<string, unknown> = { a: ["x", { k: "y" }, 1, null], b: true }
+    nested["self"] = nested
+    expect([...stringsIn(nested)].sort()).toEqual(["a", "b", "k", "self", "x", "y"])
+  })
+})
+
 describe("the secret rules", () => {
   /** The error, after checking its message quotes neither secret. */
   const quotesNoSecret = (error: CredentialError) => {
@@ -559,6 +583,112 @@ describe("the secret rules", () => {
       "providerFailed",
       "providerFailed",
     ])
+  })
+
+  it("finds a secret JSON escapes, in an identity and in an error's data", async () => {
+    /** A quote, a backslash and a tab: JSON text holds each escaped. */
+    const escaped = 'typed-"quoted"\\secret\t0001'
+    const [selected, targets] = await withProvider(
+      {
+        signIn: signingIn(),
+        select: answers({ ...IDENTITY, principal: `key ${escaped}` }),
+        targets: refuse("accessDenied", "Denied.", { tried: [escaped] }),
+      },
+      (provider) =>
+        Effect.gen(function* () {
+          yield* provider.describe
+          yield* signIn(provider, { token: escaped })
+          return yield* Effect.all([
+            failureOf(provider.select({ account: "111" })),
+            failureOf(provider.targets("account", Option.none())),
+          ])
+        }),
+    )
+    expect([selected.message, targets.message]).toEqual([
+      "The cloud credential plugin put a secret in select, so the app refused it.",
+      "The cloud credential plugin put a secret in an error, so the app does not show it.",
+    ])
+  })
+
+  it("looks for the values detect sent as secret, and not the plain ones an identity may name", async () => {
+    const detectWith = (secret: boolean) =>
+      withProvider(
+        {
+          detect: answers({
+            found: true,
+            identity: { ...IDENTITY, principal: `key ${RETURNED_SECRET}` },
+            source: "keys",
+          }),
+        },
+        (provider) =>
+          Effect.result(
+            provider.detect(
+              [
+                {
+                  kind: "values",
+                  from: "keys",
+                  values: { CLOUD_TOKEN: { value: Redacted.make(RETURNED_SECRET), secret } },
+                },
+              ],
+              { pins: {}, requirements: [] },
+            ),
+          ),
+      )
+    const [asSecret, asPlain] = [await detectWith(true), await detectWith(false)]
+    expect(Result.isFailure(asSecret) && quotesNoSecret(asSecret.failure).message).toBe(
+      "The cloud credential plugin put a secret in detect, so the app refused it.",
+    )
+    expect(
+      Result.isSuccess(asPlain) &&
+        Option.map(asPlain.success, ({ identity }) => identity.principal),
+    ).toEqual(Option.some(`key ${RETURNED_SECRET}`))
+  })
+
+  it("knows detect's secrets before it asks: its own error, or a source named by one, is refused", async () => {
+    const detectAnswering = (detect: Answer) =>
+      withProvider({ detect }, (provider) =>
+        failureOf(
+          provider.detect(
+            [
+              {
+                kind: "values",
+                from: "keys",
+                values: {
+                  CLOUD_TOKEN: { value: Redacted.make(RETURNED_SECRET), secret: true },
+                },
+              },
+            ],
+            { pins: {}, requirements: [] },
+          ),
+        ),
+      )
+    const [error, source] = [
+      await detectAnswering(refuse("notSignedIn", `bad token ${RETURNED_SECRET}`)),
+      await detectAnswering(
+        answers({ found: true, identity: IDENTITY, source: `keys ${RETURNED_SECRET}` }),
+      ),
+    ]
+    expect([quotesNoSecret(error).message, quotesNoSecret(source).message]).toEqual([
+      "The cloud credential plugin put a secret in an error, so the app does not show it.",
+      "The cloud credential plugin put a secret in a detection source's name, so the app refused it.",
+    ])
+  })
+
+  it("refuses a plain copy of a value env marks sensitive in the same answer", async () => {
+    const error = await withProvider(
+      {
+        env: answers({
+          values: [
+            value("CLOUD_TOKEN", RETURNED_SECRET, { sensitive: true }),
+            value("CLOUD_ACCOUNT", RETURNED_SECRET),
+          ],
+        }),
+      },
+      (provider) => failureOf(provider.env),
+    )
+    expect(quotesNoSecret(error).message).toBe(
+      "The cloud credential plugin returned a secret in CLOUD_ACCOUNT without marking it sensitive.",
+    )
   })
 
   it("looks for no secret shorter than 8 characters, which ordinary text holds by chance", async () => {

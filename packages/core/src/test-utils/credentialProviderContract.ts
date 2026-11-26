@@ -22,6 +22,7 @@ import {
   CredentialProviders,
   type ProviderConfig,
 } from "../credential/provider.ts"
+import { stringsIn } from "../credential/plugin.ts"
 import { isOwnerOnly, prepareStateDir } from "../credential/stateDir.ts"
 import { FileSystem, type FileSystemShape } from "../services/FileSystem.ts"
 
@@ -285,8 +286,8 @@ export function credentialProviderContract(name: string, subject: CredentialSubj
         Effect.gen(function* () {
           const secrets = yield* typedSecrets(provider, account.signIn)
           const events = yield* Stream.runCollect(signInWith(provider, account.signIn))
-          const text = JSON.stringify(events)
-          return secrets.filter((secret) => text.includes(secret)).length
+          const strings = stringsIn(events)
+          return secrets.filter((secret) => strings.some((text) => text.includes(secret))).length
         }),
       )
       expect(shown).toBe(0)
