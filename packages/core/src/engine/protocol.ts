@@ -655,6 +655,11 @@ export class CloseSession extends Rpc.make("CloseSession", {
   error: SessionError,
 }) {}
 
+/**
+ * The sessions open in the engine, in the order it opened them: the last
+ * is the one opened last. Opening a runbook that is already open opens
+ * another session of it, which comes last.
+ */
 export class ListSessions extends Rpc.make("ListSessions", {
   success: Schema.Array(SessionSummary),
 }) {}
