@@ -178,18 +178,23 @@ export function unknownParts(tree: TreeNode): ReadonlyMap<string, number> {
   return counts
 }
 
+/** Where a reference link goes. */
+interface Definition {
+  readonly url: string
+  readonly title?: string | null
+}
+
 /** What the walk carries down the tree. */
 interface Walk {
   readonly blocks: DocumentView["blocks"]
   /** Link definitions, by identifier, for references. */
-  readonly definitions: ReadonlyMap<
-    string,
-    { readonly url: string; readonly title?: string | null }
-  >
+  readonly definitions: ReadonlyMap<string, Definition>
+  /** The runbook file, which a block's errors are located in. */
+  readonly runbook: string
 }
 
 function definitionsIn(tree: TreeNode): Walk["definitions"] {
-  const found = new Map<string, { readonly url: string; readonly title?: string | null }>()
+  const found = new Map<string, Definition>()
   const visit = (node: TreeNode) => {
     const part = read(node)
     if (part.type === "definition" && !found.has(part.identifier)) found.set(part.identifier, part)
@@ -202,10 +207,13 @@ function definitionsIn(tree: TreeNode): Walk["definitions"] {
 /** A runbook's markdown: `document.tree`, its blocks as placeholders. */
 export function Markdown({
   document,
+  runbook,
 }: {
   readonly document: Pick<DocumentView, "tree" | "blocks">
+  /** The runbook file. */
+  readonly runbook: string
 }) {
-  const walk: Walk = { blocks: document.blocks, definitions: definitionsIn(document.tree) }
+  const walk: Walk = { blocks: document.blocks, definitions: definitionsIn(document.tree), runbook }
   return render(document.tree, 0, walk)
 }
 
@@ -289,7 +297,7 @@ function render(tree: TreeNode, key: number, walk: Walk): ReactNode {
       const block = walk.blocks[part.index]
       if (block === undefined) return <Fragment key={key}>{children(tree, walk)}</Fragment>
       return (
-        <BlockPlaceholder key={key} block={block}>
+        <BlockPlaceholder key={key} block={block} runbook={walk.runbook}>
           {children(tree, walk)}
         </BlockPlaceholder>
       )

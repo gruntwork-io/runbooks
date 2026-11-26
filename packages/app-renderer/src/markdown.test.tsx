@@ -32,8 +32,17 @@ const block = (fields: Record<string, unknown>): DocumentBlock =>
     ...fields,
   })
 
+const RUNBOOK = "/work/demo/runbook.mdx"
+
 const html = (tree: TreeNode, blocks: ReadonlyArray<DocumentBlock> = []) =>
-  renderToStaticMarkup(<Markdown document={{ tree, blocks }} />)
+  renderToStaticMarkup(<Markdown document={{ tree, blocks }} runbook={RUNBOOK} />)
+
+const configError = (file: string, line: number, message: string) => ({
+  _tag: "ConfigError",
+  code: "badProp",
+  message,
+  location: { file, span: { start: { line, column: 3 }, end: { line, column: 9 } } },
+})
 
 describe("the walk", () => {
   it("renders headings, paragraphs, emphasis and code", () => {
@@ -262,6 +271,23 @@ describe("the walk", () => {
     expect(shown).toContain('<span class="block-title">Literal title</span>')
     expect(shown).toContain("No substitutions here")
     expect(shown).toContain('<div class="block-body"><p>Runs the setup.</p></div>')
+  })
+
+  it("shows a misconfigured block's errors, each with its line, in place of its view", () => {
+    const shown = html(root({ type: "block", index: 0, children: [p(text("Runs the setup."))] }), [
+      block({
+        _tag: "Misconfigured",
+        id: "setup",
+        errors: [
+          configError(RUNBOOK, 7, "set `command`, the script itself, or `path`"),
+          configError("/work/demo/scripts/setup.yml", 2, "the YAML does not parse"),
+        ],
+      }),
+    ])
+    expect(shown).toContain('<span class="block-id">setup</span>')
+    expect(shown).toContain("Line 7: set `command`, the script itself, or `path`")
+    expect(shown).toContain("scripts/setup.yml, line 2: the YAML does not parse")
+    expect(shown).not.toContain("Runs the setup.")
   })
 })
 
