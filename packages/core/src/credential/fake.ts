@@ -194,6 +194,14 @@ export const FAKE_SCRIPT: FakeScript = {
       kind: "user",
       expired: true,
     },
+    {
+      // A second past the refresh window, so the contract suite's refresh case waits a second.
+      token: "fake-refresh-token-0001",
+      principal: "fake-refresh@example.com",
+      kind: "user",
+      lifetimeMillis: EXPIRY_WARNING_MILLIS + 1_000,
+      refreshable: true,
+    },
   ],
   file: true,
 }

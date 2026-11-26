@@ -11,11 +11,24 @@
  * make is refused before it would reach one, or waits until it is given
  * up. The cases that need a real account are in a group of their own,
  * tagged `[account]` in its name; a subject without account scenarios
- * does not register it, so a job without credentials runs the rest.
+ * does not register it, so a job without credentials runs the rest. The
+ * refresh case there also needs the `refreshable` scenario.
  */
 import { describe, expect, it } from "bun:test"
-import { Effect, type Layer, Option, Redacted, Result, Schema, type Scope, Stream } from "effect"
+import {
+  Clock,
+  DateTime,
+  Effect,
+  type Layer,
+  Option,
+  Redacted,
+  Result,
+  Schema,
+  type Scope,
+  Stream,
+} from "effect"
 import { type CredentialError, Requirement } from "@runbooks/blocks-core/contract"
+import { EXPIRY_WARNING_MILLIS } from "../credential/lifecycle.ts"
 import {
   type Constraints,
   type CredentialProvider,
@@ -54,6 +67,13 @@ export const ContractScenarios = Schema.Struct({
       requirementNotMet: ContractSignIn,
       /** One whose login has expired: the sign-in or env answers expired. */
       expired: ContractSignIn,
+      /**
+       * One whose credential the plugin refreshes without the person, and
+       * that lasts a little more than 5 minutes: the refresh case waits
+       * until 5 minutes before the expiry env first gives. Without it, that
+       * case is not registered.
+       */
+      refreshable: Schema.optionalKey(ContractSignIn),
       /** The names env returns that hold secrets: each must be marked sensitive. */
       secretNames: Schema.Array(Schema.String),
     }),
@@ -329,8 +349,34 @@ export function credentialProviderContract(name: string, subject: CredentialSubj
       )
       expect(kind).toBe("expired")
     })
+
+    const refreshable = account.refreshable
+    if (refreshable !== undefined)
+      it("env renews a refreshable credential within 5 minutes of its expiry", async () => {
+        const seen = await withProvider("account", (provider) =>
+          Effect.gen(function* () {
+            yield* Stream.runDrain(signInWith(provider, refreshable))
+            const first = Option.map((yield* provider.env).expiresAt, DateTime.toEpochMillis)
+            const now = yield* Clock.currentTimeMillis
+            const inWindow =
+              Option.getOrElse(first, () => now) - EXPIRY_WARNING_MILLIS + INTO_WINDOW_MILLIS
+            yield* Effect.sleep(Math.max(0, inWindow - now))
+            const renewed = Option.map((yield* provider.env).expiresAt, DateTime.toEpochMillis)
+            return { first, renewed, answered: yield* Clock.currentTimeMillis }
+          }),
+        )
+        expect([Option.isSome(seen.first), Option.isSome(seen.renewed)]).toEqual([true, true])
+        const first = Option.getOrThrow(seen.first)
+        const renewed = Option.getOrThrow(seen.renewed)
+        expect(renewed).toBeGreaterThan(first)
+        // Outside the window, so the engine keeps the block Ready.
+        expect(renewed - seen.answered).toBeGreaterThan(EXPIRY_WARNING_MILLIS)
+      })
   })
 }
+
+/** How far into the 5-minute window the refresh case calls env, so the plugin's clock is in it too. */
+const INTO_WINDOW_MILLIS = 50
 
 /** What the suite signs in with against `FAKE_SCRIPT`, account cases included: the fake's logins are its accounts. */
 export const FAKE_SCENARIOS: ContractScenarios = {
@@ -356,6 +402,7 @@ export const FAKE_SCENARIOS: ContractScenarios = {
       requirements: [{ kind: "scopes", scopes: ["admin"] }],
     },
     expired: { method: "token", fields: { token: "fake-expired-token-0001" } },
+    refreshable: { method: "token", fields: { token: "fake-refresh-token-0001" } },
     secretNames: ["FAKE_TOKEN"],
   },
 }
