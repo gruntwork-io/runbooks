@@ -488,6 +488,34 @@
               {
                 "name": "node:zlib",
                 "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "process",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:process",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "module",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "node:module",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "bun",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "bun:sqlite",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
+              },
+              {
+                "name": "bun:ffi",
+                "message": "The core and the blocks do no I/O themselves: reach the OS through an Effect service. Only packages/platform-node imports Node I/O (scripts/packages.ts)."
               }
             ],
             "patterns": [
@@ -539,6 +567,59 @@
           {
             "name": "require",
             "message": "A block reaches the OS only through the services its run gets, so its other functions, which the engine calls before trust, do no I/O (BEFORE_TRUST in blocks/core/contract.ts)."
+          },
+          {
+            "name": "globalThis",
+            "message": "A block reaches the OS only through the services its run gets, so its other functions, which the engine calls before trust, do no I/O (BEFORE_TRUST in blocks/core/contract.ts)."
+          },
+          {
+            "name": "global",
+            "message": "A block reaches the OS only through the services its run gets, so its other functions, which the engine calls before trust, do no I/O (BEFORE_TRUST in blocks/core/contract.ts)."
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/core/**"],
+      "excludeFiles": ["packages/core/**/*.test.ts"],
+      "rules": {
+        "no-restricted-globals": [
+          "error",
+          {
+            "name": "fetch",
+            "message": "The core does no I/O itself: reach the OS through an Effect service, and the environment through Environment. Only packages/platform-node uses process, fetch or Bun (scripts/packages.ts)."
+          },
+          {
+            "name": "XMLHttpRequest",
+            "message": "The core does no I/O itself: reach the OS through an Effect service, and the environment through Environment. Only packages/platform-node uses process, fetch or Bun (scripts/packages.ts)."
+          },
+          {
+            "name": "WebSocket",
+            "message": "The core does no I/O itself: reach the OS through an Effect service, and the environment through Environment. Only packages/platform-node uses process, fetch or Bun (scripts/packages.ts)."
+          },
+          {
+            "name": "EventSource",
+            "message": "The core does no I/O itself: reach the OS through an Effect service, and the environment through Environment. Only packages/platform-node uses process, fetch or Bun (scripts/packages.ts)."
+          },
+          {
+            "name": "Bun",
+            "message": "The core does no I/O itself: reach the OS through an Effect service, and the environment through Environment. Only packages/platform-node uses process, fetch or Bun (scripts/packages.ts)."
+          },
+          {
+            "name": "process",
+            "message": "The core does no I/O itself: reach the OS through an Effect service, and the environment through Environment. Only packages/platform-node uses process, fetch or Bun (scripts/packages.ts)."
+          },
+          {
+            "name": "require",
+            "message": "The core does no I/O itself: reach the OS through an Effect service, and the environment through Environment. Only packages/platform-node uses process, fetch or Bun (scripts/packages.ts)."
+          },
+          {
+            "name": "globalThis",
+            "message": "The core does no I/O itself: reach the OS through an Effect service, and the environment through Environment. Only packages/platform-node uses process, fetch or Bun (scripts/packages.ts)."
+          },
+          {
+            "name": "global",
+            "message": "The core does no I/O itself: reach the OS through an Effect service, and the environment through Environment. Only packages/platform-node uses process, fetch or Bun (scripts/packages.ts)."
           }
         ]
       }

@@ -1,6 +1,7 @@
 /**
- * Runs oxlint with this plugin over a tree of its own, in a temporary folder,
- * and reads what each rule reports.
+ * Runs oxlint over a tree of its own, in a temporary folder, with this
+ * plugin's rules or with the repo's .oxlintrc.json, and reads what each rule
+ * reports.
  */
 import { describe, expect, it } from "bun:test"
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
@@ -34,19 +35,47 @@ interface Diagnostic {
   readonly labels: ReadonlyArray<{ readonly span: { readonly line: number } }>
 }
 
-/** Runs oxlint with every rule of this plugin over `files`, in a temporary folder, with `args`. */
-function oxlint(files: Record<string, string>, args: ReadonlyArray<string>) {
+interface Config {
+  readonly options?: Record<string, unknown>
+  readonly jsPlugins?: ReadonlyArray<{ readonly name: string; readonly specifier: string }>
+}
+
+/**
+ * The repo's .oxlintrc.json, made to run from another folder: its plugins by
+ * absolute path, and no type-aware rules, which need a TypeScript project the
+ * tree doesn't have. Its overrides match paths from the tree's root.
+ */
+function repoConfig(): Config {
+  const config = JSON.parse(readFileSync(path.join(REPO, ".oxlintrc.json"), "utf8")) as Config
+  const { typeAware: _, ...options } = config.options ?? {}
+  return {
+    ...config,
+    options,
+    jsPlugins: (config.jsPlugins ?? []).map(({ name, specifier }) => ({
+      name,
+      specifier: specifier.startsWith("./")
+        ? path.join(REPO, specifier)
+        : Bun.resolveSync(specifier, REPO),
+    })),
+  }
+}
+
+/**
+ * Runs oxlint over `files`, in a temporary folder, with `args`: with every
+ * rule of this plugin, or with `config` when one is given.
+ */
+function oxlint(files: Record<string, string>, args: ReadonlyArray<string>, config?: Config) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "runbooks-lint-")))
   try {
     for (const [file, text] of Object.entries(files)) {
       mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
       writeFileSync(path.join(root, file), text)
     }
-    const config = {
+    const rules = {
       jsPlugins: [{ name: "runbooks", specifier: PLUGIN }],
       rules: Object.fromEntries(RULES.map((rule) => [`runbooks/${rule}`, ["error", { root }]])),
     }
-    writeFileSync(path.join(root, ".oxlintrc.json"), JSON.stringify(config))
+    writeFileSync(path.join(root, ".oxlintrc.json"), JSON.stringify(config ?? rules))
     const run = Bun.spawnSync([OXLINT, "-c", ".oxlintrc.json", ...args, "."], { cwd: root })
     return { exitCode: run.exitCode, output: run.stdout.toString() }
   } finally {
@@ -54,20 +83,26 @@ function oxlint(files: Record<string, string>, args: ReadonlyArray<string>) {
   }
 }
 
-/** What this plugin's rules report on `files`, by path from the tree's root, in file and line order. */
-function lint(files: Record<string, string>): Finding[] {
-  const { diagnostics } = JSON.parse(oxlint(files, ["-f", "json"]).output) as {
+/** What oxlint reports on `files`, by its rule code and path from the tree's root, in file and line order. */
+function diagnose(files: Record<string, string>, config?: Config): Finding[] {
+  const { diagnostics } = JSON.parse(oxlint(files, ["-f", "json"], config).output) as {
     diagnostics: ReadonlyArray<Diagnostic>
   }
   return diagnostics
-    .filter((d) => d.code.startsWith("runbooks("))
     .map((d) => ({
-      rule: d.code.slice("runbooks(".length, -1),
+      rule: d.code,
       file: d.filename,
       line: d.labels[0]?.span.line ?? 0,
       message: d.message,
     }))
     .sort((a, b) => (a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1))
+}
+
+/** What this plugin's rules report on `files`, by rule name. */
+function lint(files: Record<string, string>): Finding[] {
+  return diagnose(files)
+    .filter((f) => f.rule.startsWith("runbooks("))
+    .map((f) => ({ ...f, rule: f.rule.slice("runbooks(".length, -1) }))
 }
 
 /** Each finding as `rule file:line`. */
@@ -329,6 +364,55 @@ describe("plugin-binary-outside-owner", () => {
     expect(exitCode).toBe(1)
     expect(output).toContain(
       "packages/core/src/plugin/transport.ts declares no `export const PluginKind = Schema.Literals([...])`",
+    )
+  })
+})
+
+describe(".oxlintrc.json", () => {
+  /** What the repo's config reports on `files` under `rule`, a built-in rule's code. */
+  const reported = (rule: string, files: Record<string, string>) =>
+    diagnose(files, repoConfig()).filter((f) => f.rule === rule)
+
+  it("keeps the core and the blocks off process, fetch, Bun and globalThis, and not their tests or the layers", () => {
+    const io = [
+      "export const a = process.env.HOME",
+      'export const b = () => fetch("https://example.com")',
+      'export const c = Bun.file("x")',
+      "export const d = globalThis.fetch",
+    ].join("\n")
+    const found = reported("eslint(no-restricted-globals)", {
+      "packages/core/src/io.ts": io,
+      "blocks/core/io.ts": io,
+      "blocks/command/block.ts": io,
+      "packages/core/src/io.test.ts": io,
+      "packages/platform-node/src/io.ts": io,
+    })
+    expect(brief(found)).toEqual(
+      ["blocks/command/block.ts", "blocks/core/io.ts", "packages/core/src/io.ts"].flatMap((file) =>
+        [1, 2, 3, 4].map((line) => `eslint(no-restricted-globals) ${file}:${line}`),
+      ),
+    )
+    expect(found.at(-1)?.message).toContain("Only packages/platform-node")
+  })
+
+  it("keeps the core and the blocks from importing process, module or bun, and not their tests", () => {
+    const imports = [
+      'import { env } from "node:process"',
+      'import { createRequire } from "module"',
+      'import { file } from "bun"',
+      'import { Database } from "bun:sqlite"',
+      "export const x = [env, createRequire, file, Database]",
+    ].join("\n")
+    const found = reported("eslint(no-restricted-imports)", {
+      "packages/core/src/imports.ts": imports,
+      "blocks/command/block.ts": imports,
+      "packages/core/src/imports.test.ts": imports,
+      "packages/platform-node/src/imports.ts": imports,
+    })
+    expect(brief(found)).toEqual(
+      ["blocks/command/block.ts", "packages/core/src/imports.ts"].flatMap((file) =>
+        [1, 2, 3, 4].map((line) => `eslint(no-restricted-imports) ${file}:${line}`),
+      ),
     )
   })
 })
