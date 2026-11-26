@@ -281,6 +281,10 @@ export interface TaskInput<N extends string = never> extends TaskReads {
 export type TaskEvent<K extends string> =
   | { readonly _tag: "Log"; readonly stream: "stdout" | "stderr"; readonly line: string }
   | { readonly _tag: "Output"; readonly key: K; readonly value: string }
+  /**
+   * The run wrote, changed or removed the file at `path`, an absolute path.
+   * The engine lists it in the block's view and tells clients.
+   */
   | {
       readonly _tag: "File"
       readonly path: string

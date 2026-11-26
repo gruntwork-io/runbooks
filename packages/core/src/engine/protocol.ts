@@ -55,6 +55,8 @@ export const LIMITS = {
   /** `WaitForBlock` waits at most this long in one call, inside MCP clients' tool timeouts. */
   maxWaitMillis: 120_000,
   defaultWaitMillis: 30_000,
+  /** The files a block's view lists for its latest run. */
+  maxRunFiles: 10_000,
 } as const
 
 const LogLimit = Schema.Int.check(
@@ -169,6 +171,13 @@ export const BlockSummary = Schema.Struct({
 })
 export type BlockSummary = typeof BlockSummary.Type
 
+/** A file a run wrote, changed or removed. */
+export const FileChange = Schema.Struct({
+  path: AbsolutePath,
+  change: Schema.Literals(["created", "modified", "deleted"]),
+})
+export type FileChange = typeof FileChange.Type
+
 export const BlockView = Schema.Struct({
   ...BlockSummary.fields,
   log: Schema.optionalKey(LogPage),
@@ -176,6 +185,13 @@ export const BlockView = Schema.Struct({
   /** A form block's fields, or a task's own form. */
   fields: Schema.optionalKey(Schema.Array(FieldView)),
   credential: Schema.optionalKey(CredentialState),
+  /**
+   * The files the block's latest run wrote, changed or removed: one entry
+   * per path, with its latest change, in the order the run first touched
+   * each. The first `LIMITS.maxRunFiles` paths only. Absent when it touched
+   * none.
+   */
+  files: Schema.optionalKey(Schema.Array(FileChange).check(Schema.isMaxLength(LIMITS.maxRunFiles))),
 })
 export type BlockView = typeof BlockView.Type
 
@@ -504,15 +520,8 @@ export const EngineEvent = Schema.Union([
   }),
   Schema.TaggedStruct("OutputsWithdrawn", { block: BlockId }),
   Schema.TaggedStruct("FieldsChanged", { block: BlockId, fields: Schema.Array(FieldView) }),
-  Schema.TaggedStruct("FilesChanged", {
-    block: BlockId,
-    files: Schema.Array(
-      Schema.Struct({
-        path: Schema.String,
-        change: Schema.Literals(["created", "modified", "deleted"]),
-      }),
-    ),
-  }),
+  /** What a run just touched. The block's view keeps the run's list. */
+  Schema.TaggedStruct("FilesChanged", { block: BlockId, files: Schema.Array(FileChange) }),
   Schema.TaggedStruct("CredentialChanged", { block: BlockId, state: CredentialState }),
   Schema.TaggedStruct("ApprovalRequested", { approval: Approval }),
   Schema.TaggedStruct("ApprovalResolved", { approval: ApprovalId, approved: Schema.Boolean }),

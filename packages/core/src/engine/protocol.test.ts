@@ -6,6 +6,7 @@ import { ContentHash } from "../document/document.ts"
 import {
   ActResult,
   BASELINE_MCP_TOOLS,
+  BlockView,
   Caller,
   CallerMiddleware,
   ChangeSettings,
@@ -13,7 +14,9 @@ import {
   EngineProtocol,
   EventEnvelope,
   FieldView,
+  type FileChange,
   Forbidden,
+  LIMITS,
   OpenSession,
   type Origin,
   RunBlock,
@@ -183,6 +186,24 @@ describe("engine protocol", () => {
     expect(wire.at).toBe("2026-11-24T12:00:00.000Z")
     expect(wire.event.outputs.token).toEqual({ _tag: "Hidden" })
     expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
+  })
+
+  it("lists the files a block's run touched by absolute path, up to a limit", () => {
+    const view = Schema.decodeUnknownSync(BlockView)
+    const base = { block: greet, tag: "Run", class: "task", actions: [], outputs: {} }
+    const files: ReadonlyArray<FileChange> = [
+      { path: "/work/generated/main.tf", change: "created" },
+      { path: "C:\\work\\generated\\old.tf", change: "deleted" },
+    ]
+    expect(view({ ...base, files }).files).toEqual(files)
+    expect(() =>
+      view({ ...base, files: [{ path: "generated/main.tf", change: "created" }] }),
+    ).toThrow(/Expected an absolute path/)
+    const many = Array.from({ length: LIMITS.maxRunFiles + 1 }, (_, i) => ({
+      path: `/work/generated/${i}`,
+      change: "created",
+    }))
+    expect(() => view({ ...base, files: many })).toThrow(/at \["files"\]/)
   })
 
   it("says what a resumed session did not restore, and carries it through JSON", () => {
