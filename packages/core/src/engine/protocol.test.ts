@@ -12,6 +12,7 @@ import {
   Caller,
   CallerMiddleware,
   ChangeSettings,
+  type DocumentBlock,
   DocumentView,
   type EngineCommand,
   EngineProtocol,
@@ -368,6 +369,26 @@ describe("engine protocol", () => {
     const json = Schema.toCodecJson(DocumentView)
     const span = { start: { line: 3, column: 1 }, end: { line: 3, column: 30 } }
     const place = { tag: "Run", block: "Run", class: "task", span } as const
+    const configured: DocumentBlock = {
+      _tag: "Configured",
+      index: 0,
+      ...place,
+      id: greet,
+      title: "Greet",
+      props: { command: "echo hi", args: ["-n", 1, true, null] },
+    }
+    const misconfigured: DocumentBlock = {
+      _tag: "Misconfigured",
+      index: 1,
+      ...place,
+      errors: [
+        new ConfigError({
+          code: "badProp",
+          message: "`args` is not a list.",
+          location: { file: "/rb/runbook.mdx", span, block: { tag: "Run" }, prop: "args" },
+        }),
+      ],
+    }
     const document: DocumentView = {
       title: "Deploy",
       tree: {
@@ -378,44 +399,23 @@ describe("engine protocol", () => {
           { type: "block", index: 1, children: [] },
         ],
       },
-      blocks: [
-        {
-          _tag: "Configured",
-          index: 0,
-          ...place,
-          id: greet,
-          title: "Greet",
-          props: { command: "echo hi", args: ["-n", 1, true, null] },
-        },
-        {
-          _tag: "Misconfigured",
-          index: 1,
-          ...place,
-          errors: [
-            new ConfigError({
-              code: "badProp",
-              message: "`args` is not a list.",
-              location: { file: "/rb/runbook.mdx", span, block: { tag: "Run" }, prop: "args" },
-            }),
-          ],
-        },
-      ],
+      blocks: [configured, misconfigured],
       warnings: [],
     }
     const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(document)))
     expect(Schema.decodeUnknownSync(json)(wire)).toEqual(document)
 
-    const [configured, misconfigured] = wire.blocks
     expect(() =>
       Schema.encodeUnknownSync(json)({
         ...document,
-        blocks: [{ ...document.blocks[0]!, props: { at: new Date(0) } }],
+        blocks: [{ ...configured, props: { at: new Date(0) } }],
       }),
     ).toThrow(/Expected JSON value/)
+    const [, wireMisconfigured] = wire.blocks
     expect(() =>
       Schema.decodeUnknownSync(json)({
         ...wire,
-        blocks: [configured, { ...misconfigured, errors: [] }],
+        blocks: [wire.blocks[0], { ...wireMisconfigured, errors: [] }],
       }),
     ).toThrow(/at \["blocks"\]\[1\]/)
   })
