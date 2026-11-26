@@ -42,6 +42,7 @@ import {
 } from "effect"
 import type {
   BlockId,
+  BlockOutputs,
   CredentialBlock,
   OutputDecls,
   PathOutsideRoot,
@@ -54,6 +55,7 @@ import type {
   TaskError,
   TaskEvent,
   TaskInput,
+  TaskReads,
 } from "@runbooks/blocks-core/contract"
 import { TaskCancelled, TaskFailed } from "@runbooks/blocks-core/contract"
 import type { FieldValue, FormSpec, FormValues } from "@runbooks/blocks-core/form"
@@ -118,7 +120,7 @@ import {
   taskSource,
   withReserved,
 } from "./env.ts"
-import { type Held, hold, reveal, visible } from "./held.ts"
+import { type Held, hold, redacted, reveal, visible } from "./held.ts"
 import type { RunFiles, RunWrote } from "./runFiles.ts"
 import type { RunRoots } from "./roots.ts"
 import {
@@ -220,6 +222,13 @@ interface Runnable {
   readonly outputs: OutputDecls<string>
 }
 
+/** The outputs of one block that another's templates read. */
+interface OutputsRead {
+  readonly index: number
+  readonly id: BlockId
+  readonly keys: ReadonlySet<string>
+}
+
 /** A block a client can address: every block with an id. */
 interface Slot {
   readonly index: number
@@ -229,6 +238,8 @@ interface Slot {
   readonly waits: ReadonlyArray<Wait>
   /** The blocks whose values it reads (`inputsId`), in the order written, each once. */
   readonly reads: ReadonlyArray<{ readonly index: number; readonly id: BlockId }>
+  /** The outputs its templates read: each block once, with the keys read. */
+  readonly readsOutputs: ReadonlyArray<OutputsRead>
   readonly runnable: Option.Option<Runnable>
   /** A form's declared outputs, published while it is done. None for another block. */
   readonly formOutputs: OutputDecls<string>
@@ -274,20 +285,23 @@ const decodeRunId = Schema.decodeSync(RunId)
 
 const sameFields = Schema.toEquivalence(Schema.Array(FieldView))
 
+/** A block that names no files. */
+const NO_FILES: RunbookTexts = new Map()
+
 /**
- * What a task reads when it runs: `values` from the forms it reads, then its
- * own; its environment; the session's roots and the repository it names, and
+ * What a task reads when it runs: what it reads from the session (`reads`);
+ * its environment; the session's roots and the repository it names, and
  * each path it names, resolved. It starts in the repository, or else the
  * working folder. `gitCredential` stays empty until the engine resolves the
  * `git-credential` capability from a Ready git credential block.
  */
 const taskInput = (
   at: RunRoots,
-  values: FormValues,
+  reads: TaskReads,
   env: RunEnv,
   paths: Readonly<Record<string, string>>,
 ): TaskInput<string> => ({
-  values,
+  ...reads,
   env,
   cwd: Option.match(at.repository, { onNone: () => at.roots.working, onSome: (ref) => ref.path }),
   roots: at.roots,
@@ -312,8 +326,7 @@ const readForms = Effect.fnUntraced(function* (
     const block = node.errors.length > 0 ? undefined : resolveTag(registry, node.tag)?.block
     const fields = block?.class === "form" || block?.class === "task" ? block.fields : undefined
     if (fields === undefined) return Effect.succeed({ node, spec: Option.none<FormSpec>() })
-    const files = texts.get(node.index) ?? new Map<string, string>()
-    return Effect.match(fields(node.props, files), {
+    return Effect.match(fields(node.props, texts.get(node.index) ?? NO_FILES), {
       onSuccess: (spec) => ({ node, spec: Option.some(spec) }),
       onFailure: (error) => ({
         node: { ...node, errors: [...node.errors, formError(document, node, error)] },
@@ -367,6 +380,15 @@ function slotsOf(document: RunbookDocument, registry: Registry): ReadonlyArray<S
       const index = indices.get(id)
       return index === undefined ? [] : [{ index, id }]
     })
+    const keysRead = new Map<number, Set<string>>()
+    for (const { from, to, source } of document.edges) {
+      if (from !== node.index || source._tag !== "Output") continue
+      keysRead.set(to, (keysRead.get(to) ?? new Set()).add(source.key))
+    }
+    const readsOutputs = Array.from(keysRead, ([index, keys]) => {
+      const id = ids.get(index)
+      return id === undefined ? [] : [{ index, id, keys }]
+    }).flat()
     return [
       {
         index: node.index,
@@ -374,6 +396,7 @@ function slotsOf(document: RunbookDocument, registry: Registry): ReadonlyArray<S
         id: node.id,
         waits,
         reads,
+        readsOutputs,
         runnable: runnableOf(node, registry),
         formOutputs: formOutputsOf(node, registry),
       },
@@ -880,6 +903,24 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     )
 
   /**
+   * What a task reads from the session: its values, each output its
+   * templates name as its block last published it, and the files it names
+   * as they were hashed when the runbook opened. An output its block has
+   * not published is left out.
+   */
+  const readsFor = (slot: Slot): TaskReads => {
+    const outputs: BlockOutputs = new Map(
+      slot.readsOutputs.map((read) => {
+        const target = slotAt.get(read.index)
+        const given = target === undefined ? undefined : doneOutputs(target)
+        const named = Array.from(given ?? []).filter(([key]) => read.keys.has(key))
+        return [read.id, new Map(named.map(([key, value]) => [key, redacted(value)]))] as const
+      }),
+    )
+    return { values: valuesFor(slot), outputs, files: options.texts.get(slot.index) ?? NO_FILES }
+  }
+
+  /**
    * A block's own run decides its status once it has one. Only an idle block,
    * or a submitted form, shows what blocks it or its fields that need input;
    * `runBlock` still refuses a block that has run while either holds.
@@ -1198,7 +1239,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     runnable: Runnable,
     runScope: Scope.Closeable,
     at: RunRoots,
-    values: FormValues,
+    reads: TaskReads,
     sources: ReadonlyArray<EnvSource>,
     runner: Runner,
   ) => {
@@ -1216,7 +1257,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       Effect.gen(function* () {
         yield* Effect.forkChild(flushEvery)
         const env = yield* runEnv(run, runnable, sources)
-        const named = block.paths?.(props, values) ?? {}
+        const named = block.paths?.(props, reads.values) ?? {}
         const paths = yield* runner.resolve(at, named, block.repository)
         if (block.repository !== undefined && run.state._tag === "Running")
           run.state.repository = Option.fromUndefinedOr(paths[block.repository])
@@ -1225,7 +1266,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           : undefined
         const input = taskInput(
           at,
-          values,
+          reads,
           files === undefined ? env : withReserved(env, files),
           paths,
         )
@@ -1461,7 +1502,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
 
           // Approvals are a later work product: an agent's run starts as a person's does.
           const at: RunRoots = { roots, repository: repositoryFor(slot) }
-          const values = valuesFor(slot)
+          const reads = readsFor(slot)
           const sources = yield* envSourcesFor(slot)
           const runScope = yield* Scope.fork(scope)
           const run: Run = {
@@ -1484,7 +1525,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           })
           // Started at once, so a cancel that comes before the run's first step still ends it.
           yield* Effect.forkIn(
-            task(run, runnable, runScope, at, values, sources, runner),
+            task(run, runnable, runScope, at, reads, sources, runner),
             runScope,
             {
               startImmediately: true,

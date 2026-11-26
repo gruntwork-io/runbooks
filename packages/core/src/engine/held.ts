@@ -21,3 +21,7 @@ export const visible = <A>(
 /** The value itself, for the block that reads it. Never for a view or an event. */
 export const reveal = <A>(held: Held<A>): A =>
   held.sensitive ? Redacted.value(held.value) : held.value
+
+/** The value redacted, sensitive or not, for a block that reads it. */
+export const redacted = <A>(held: Held<A>): Redacted.Redacted<A> =>
+  held.sensitive ? held.value : Redacted.make(held.value)
