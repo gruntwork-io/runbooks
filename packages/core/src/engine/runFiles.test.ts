@@ -7,9 +7,13 @@
  */
 import { describe, expect, it } from "bun:test"
 import { inspect } from "node:util"
-import { Effect, Redacted, Result } from "effect"
-import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
+import { Effect, Layer, Redacted, Result, Stream } from "effect"
+import { FileSystem } from "../services/FileSystem.ts"
+import { FileWriteError } from "../errors/index.ts"
+import { makeTestFileSystem, testFileSystem } from "../test-utils/TestFileSystem.ts"
+import { LIMITS } from "./protocol.ts"
 import {
+  copyGenerated,
   parseRunFile,
   RUN_FILE_LIMITS,
   type RunFile,
@@ -43,7 +47,11 @@ const values = (text: string, file: RunFile = "RUNBOOK_OUTPUT") => {
 const problemsIn = (text: string, file: RunFile = "RUNBOOK_OUTPUT") =>
   parse(text, file).problems.map(({ line, problem }) => [line, problem._tag])
 
-const FILES: RunFiles = { RUNBOOK_OUTPUT: "/run/output", RUNBOOK_ENV: "/run/env" }
+const FILES: RunFiles = {
+  RUNBOOK_OUTPUT: "/run/output",
+  RUNBOOK_ENV: "/run/env",
+  GENERATED_FILES: "/run/files",
+}
 
 /** What `readRunFiles` makes of `files`, its outputs revealed. */
 const readFrom = (files: Record<string, string>) =>
@@ -293,5 +301,78 @@ describe("the run's error", () => {
     const lines = runFilesFailed(problems).message.split("\n")
     expect(lines).toHaveLength(1 + RUN_FILE_LIMITS.problemsNamed + 1)
     expect(lines.at(-1)).toBe("And 3 more.")
+  })
+})
+
+describe("the generated files", () => {
+  /** Copies `/run/files` into `/gen` on a filesystem of `files`, and what each then holds. */
+  const copyFrom = (files: Record<string, string>) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const copied = yield* copyGenerated("/run/files", "/gen")
+        const fs = yield* FileSystem
+        const gen = yield* fs.walk("/gen").pipe(
+          Stream.mapEffect((entry) =>
+            Effect.map(fs.readFile(entry.path), (text) => [entry.relativePath, text] as const),
+          ),
+          Stream.runCollect,
+        )
+        return { copied, gen: Object.fromEntries(gen) }
+      }).pipe(Effect.provide(makeTestFileSystem(files))),
+    )
+
+  it("copies each file, a nested one too, and says which it made and which it replaced", async () => {
+    const { copied, gen } = await copyFrom({
+      "/run/files/main.tf": "new main",
+      "/run/files/modules/vpc/vpc.tf": "vpc",
+      "/gen/main.tf": "old main",
+      "/gen/kept.tf": "kept",
+    })
+    expect(copied.links).toEqual([])
+    expect([...copied.changes].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+      { path: "/gen/main.tf", change: "modified" },
+      { path: "/gen/modules/vpc/vpc.tf", change: "created" },
+    ])
+    expect(gen).toEqual({
+      "main.tf": "new main",
+      "modules/vpc/vpc.tf": "vpc",
+      "kept.tf": "kept",
+    })
+  })
+
+  it("copies nothing and says nothing for a run that left nothing", async () => {
+    const { copied, gen } = await copyFrom({ "/gen/kept.tf": "kept" })
+    expect(copied).toEqual({ changes: [], truncated: false, links: [] })
+    expect(gen).toEqual({ "kept.tf": "kept" })
+  })
+
+  it("copies every file and lists the first of them, up to the limit", async () => {
+    const files = Object.fromEntries(
+      Array.from({ length: LIMITS.maxRunFiles + 1 }, (_, i) => [`/run/files/${i}.txt`, `${i}`]),
+    )
+    const { copied, gen } = await copyFrom(files)
+    expect(copied.changes).toHaveLength(LIMITS.maxRunFiles)
+    expect(copied.truncated).toBe(true)
+    expect(Object.keys(gen)).toHaveLength(LIMITS.maxRunFiles + 1)
+  })
+
+  it("fails a copy that stops part way with what it had copied, which stays copied", async () => {
+    const files: Record<string, string> = { "/run/files/a.txt": "a", "/run/files/b.txt": "b" }
+    const base = testFileSystem(files)
+    const full = Layer.succeed(FileSystem, {
+      ...base,
+      copyFile: (src: string, dest: string) =>
+        dest.endsWith("/b.txt")
+          ? Effect.fail(new FileWriteError({ path: dest, cause: "no space left" }))
+          : base.copyFile(src, dest),
+    })
+    const failed = await Effect.runPromise(
+      Effect.flip(copyGenerated("/run/files", "/gen")).pipe(Effect.provide(full)),
+    )
+    expect(failed.failure.message).toBe(
+      "Runbooks could not copy b.txt from $GENERATED_FILES into the generated folder.",
+    )
+    expect(failed.copied.changes).toEqual([{ path: "/gen/a.txt", change: "created" }])
+    expect(files["/gen/a.txt"]).toBe("a")
   })
 })

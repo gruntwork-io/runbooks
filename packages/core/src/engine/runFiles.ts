@@ -20,12 +20,17 @@
  *
  * Reading is bounded (`RUN_FILE_LIMITS`). Any line Runbooks cannot read
  * fails the run, naming the file and the line, never what the line held.
+ *
+ * The run also gets `$GENERATED_FILES`, an empty folder of its own, as
+ * today's app gives one. Once the run has ended well, the engine copies what
+ * the script left there into the session's generated folder.
  */
 import path from "node:path"
-import { Effect, Redacted, type Scope } from "effect"
+import { Data, Effect, Redacted, type Scope, Stream } from "effect"
 import { TaskFailed } from "@runbooks/blocks-core/contract"
 import { envNameProblem } from "../document/document.ts"
-import { FileSystem } from "../services/FileSystem.ts"
+import { FileSystem, type WalkEntry } from "../services/FileSystem.ts"
+import { type FileChange, LIMITS } from "./protocol.ts"
 
 /** What the engine reads of a run file, at most. */
 export const RUN_FILE_LIMITS = {
@@ -199,8 +204,8 @@ export const runFilesFailed = (problems: ReadonlyArray<RunFileProblem>): TaskFai
   })
 }
 
-/** Where a run's script writes, by the variable that names each file. */
-export type RunFiles = { readonly [file in RunFile]: string }
+/** Where a run's script writes, by the variable that names each file or folder. */
+export type RunFiles = { readonly [file in RunFile | "GENERATED_FILES"]: string }
 
 /** What a run's script wrote, once it is read. */
 export interface RunWrote {
@@ -208,7 +213,7 @@ export interface RunWrote {
   readonly env: ReadonlyMap<string, Redacted.Redacted<string>>
 }
 
-/** Makes the run's two files, empty, in a folder of its own that goes when `Scope` closes. */
+/** Makes the run's two files and its generated-files folder, empty, in a folder of its own that goes when `Scope` closes. */
 export const makeRunFiles: Effect.Effect<RunFiles, TaskFailed, FileSystem | Scope.Scope> =
   Effect.gen(function* () {
     const fs = yield* FileSystem
@@ -218,16 +223,18 @@ export const makeRunFiles: Effect.Effect<RunFiles, TaskFailed, FileSystem | Scop
     const files: RunFiles = {
       RUNBOOK_OUTPUT: path.join(folder, "output"),
       RUNBOOK_ENV: path.join(folder, "env"),
+      GENERATED_FILES: path.join(folder, "files"),
     }
     yield* fs.writeFile(files.RUNBOOK_OUTPUT, "")
     yield* fs.writeFile(files.RUNBOOK_ENV, "")
+    yield* fs.mkdir(files.GENERATED_FILES)
     return files
   }).pipe(
     Effect.mapError(
       () =>
         new TaskFailed({
           message:
-            "Runbooks could not make the files a script writes its outputs and environment to.",
+            "Runbooks could not make the files and the folder a script writes its outputs, environment and generated files to.",
         }),
     ),
   )
@@ -259,3 +266,77 @@ export const readRunFiles = (files: RunFiles): Effect.Effect<RunWrote, TaskFaile
       env: new Map(Array.from(env.written, ([name, { value }]) => [name, value])),
     }
   })
+
+/** What `copyGenerated` copied, and what it would not. */
+export interface Copied {
+  /** Each file it copied, by its path in the generated folder: the first `LIMITS.maxRunFiles`. */
+  readonly changes: ReadonlyArray<FileChange>
+  /** Whether it copied more files than `changes` lists. */
+  readonly truncated: boolean
+  /** Each symbolic link the script left, by its path in `$GENERATED_FILES`, which it does not copy. */
+  readonly links: ReadonlyArray<string>
+}
+
+/**
+ * Copies what a run's script left in `$GENERATED_FILES` (`from`) into the
+ * session's generated folder, as today's app does: folders and files, not
+ * symbolic links. A file is `modified` if the generated folder had one at
+ * its path, else `created`. A file whose place in the generated folder leads
+ * out of it, through a link there, is refused, and the run fails.
+ *
+ * A copy that stops part way fails with what it had copied by then, since
+ * those files are in the generated folder.
+ */
+export const copyGenerated = (
+  from: string,
+  generated: string,
+): Effect.Effect<Copied, CopyFailed, FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem
+    const changes: FileChange[] = []
+    const links: string[] = []
+    let truncated = false
+    const copied = (): Copied => ({ changes, truncated, links })
+    const copy = (entry: WalkEntry) =>
+      Effect.gen(function* () {
+        const to = path.join(generated, entry.relativePath)
+        if (!entry.isFile && !entry.isDirectory) {
+          if (links.length < LIMITS.maxRunFiles) links.push(entry.relativePath)
+          return
+        }
+        if (!(yield* fs.isContainedInReal(to, generated)))
+          return yield* new TaskFailed({
+            message: `Runbooks did not copy ${entry.relativePath} from $GENERATED_FILES: its place in the generated folder leads outside it.`,
+          })
+        if (entry.isDirectory) return yield* fs.mkdir(to, { recursive: true })
+        const existed = yield* fs.exists(to)
+        yield* fs.mkdir(path.dirname(to), { recursive: true })
+        yield* fs.copyFile(entry.path, to)
+        if (changes.length < LIMITS.maxRunFiles)
+          changes.push({ path: to, change: existed ? "modified" : "created" })
+        else truncated = true
+      }).pipe(
+        Effect.catchTags({
+          FileWriteError: () =>
+            Effect.fail(
+              new TaskFailed({
+                message: `Runbooks could not copy ${entry.relativePath} from $GENERATED_FILES into the generated folder.`,
+              }),
+            ),
+        }),
+      )
+    yield* fs.walk(from).pipe(
+      Stream.mapError(
+        () => new TaskFailed({ message: "Runbooks could not read $GENERATED_FILES." }),
+      ),
+      Stream.runForEach(copy),
+      Effect.mapError((failure) => new CopyFailed({ failure, copied: copied() })),
+    )
+    return copied()
+  })
+
+/** A copy from `$GENERATED_FILES` stopped at `failure`, having copied `copied`. */
+export class CopyFailed extends Data.TaggedError("CopyFailed")<{
+  readonly failure: TaskFailed
+  readonly copied: Copied
+}> {}

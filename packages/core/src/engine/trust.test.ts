@@ -276,7 +276,7 @@ describe("an untrusted session", () => {
         expect(ran.block.status).toEqual({ _tag: "Done", outcome: "success" })
 
         const working = `/work/${session}`
-        // The folder the engine makes for the files the script writes to.
+        // The folder the engine makes for the files and the folder the script writes to.
         const runFolder = expect.stringMatching(/^runbooks-run-\w+$/)
         const runFile = (name: string) =>
           expect.stringMatching(new RegExp(`^runbooks-run-\\w+/${name}$`))
@@ -289,6 +289,7 @@ describe("an untrusted session", () => {
           FileSystemCall("mkdtemp", "runbooks-run-"),
           FileSystemCall("writeFile", runFile("output"), ""),
           FileSystemCall("writeFile", runFile("env"), ""),
+          FileSystemCall("mkdir", runFile("files")),
           FileSystemCall(
             "writeFile",
             `${working}/run.log`,
@@ -301,6 +302,7 @@ describe("an untrusted session", () => {
           },
           FileSystemCall("readFileUpTo", runFile("output"), RUN_FILE_LIMITS.bytes),
           FileSystemCall("readFileUpTo", runFile("env"), RUN_FILE_LIMITS.bytes),
+          FileSystemCall("walk", runFile("files")),
           FileSystemCall("rm", runFolder, { recursive: true, force: true }),
         ])
         yield* engine.closeSession({ session })

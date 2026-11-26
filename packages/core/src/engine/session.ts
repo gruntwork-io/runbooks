@@ -74,6 +74,7 @@ import {
   type EngineEvent,
   type EventEnvelope,
   FieldView,
+  type FileChange,
   type LogLine,
   type LogPage,
   LIMITS,
@@ -121,7 +122,7 @@ import {
   withReserved,
 } from "./env.ts"
 import { type Held, hold, redacted, reveal, visible } from "./held.ts"
-import type { RunFiles, RunWrote } from "./runFiles.ts"
+import type { Copied, CopyFailed, RunFiles, RunWrote } from "./runFiles.ts"
 import type { RunRoots } from "./roots.ts"
 import {
   fileHashesOf,
@@ -165,6 +166,8 @@ export interface Runner {
   readonly makeRunFiles: Effect.Effect<RunFiles, TaskFailed, Scope.Scope>
   /** Reads, within bounds, what the script wrote to them. */
   readonly readRunFiles: (files: RunFiles) => Effect.Effect<RunWrote, TaskFailed>
+  /** Copies what the script left in `$GENERATED_FILES` (`from`) into the generated folder (`to`). */
+  readonly copyGenerated: (from: string, to: string) => Effect.Effect<Copied, CopyFailed>
   /** Opens a credential block's provider by its registry name, in the scope it is given. */
   readonly openProvider: OpenProvider
 }
@@ -278,6 +281,13 @@ interface Run {
   /** Lines before this place have gone out in a `LogLines` event. */
   flushed: number
   state: RunState
+  /**
+   * The files the run touched, by absolute path, each with its latest
+   * change, in the order first touched: the first `LIMITS.maxRunFiles`.
+   */
+  readonly files: Map<string, FileChange["change"]>
+  /** Whether the run touched more paths than `files` holds. */
+  filesTruncated: boolean
 }
 
 const sameStatus = Schema.toEquivalence(BlockStatus)
@@ -295,6 +305,10 @@ const NO_FILES: RunbookTexts = new Map()
  * working folder. `gitCredential` stays empty until the engine resolves the
  * `git-credential` capability from a Ready git credential block.
  */
+/** `$REPO_FILES`, for a process task's run: the repository the task names, as today's app gives it. */
+const repoFiles = (at: RunRoots): { readonly REPO_FILES?: string } =>
+  Option.match(at.repository, { onNone: () => ({}), onSome: (ref) => ({ REPO_FILES: ref.path }) })
+
 const taskInput = (
   at: RunRoots,
   reads: TaskReads,
@@ -517,7 +531,15 @@ function restoredRun(slot: Slot, saved: SavedRun): Run | undefined {
   ): Run => {
     const log = makeWindow<LogLine>(MAX_RUN_LOG_LINES, kept.omitted)
     log.push(kept.lines)
-    return { id: decodeRunId(crypto.randomUUID()), slot, log, flushed: log.start(), state }
+    return {
+      id: decodeRunId(crypto.randomUUID()),
+      slot,
+      log,
+      flushed: log.start(),
+      state,
+      files: new Map(),
+      filesTruncated: false,
+    }
   }
   switch (saved._tag) {
     case "Submitted":
@@ -1114,7 +1136,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       const state = run.state
       if (state._tag !== "Running") return
       const lines: LogLine[] = []
-      const files: Array<{ path: string; change: "created" | "modified" | "deleted" }> = []
+      const files: FileChange[] = []
       for (const event of batch) {
         switch (event._tag) {
           case "Log":
@@ -1133,8 +1155,39 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         }
       }
       run.log.push(lines)
-      if (files.length > 0 && isCurrent(run))
-        emit({ _tag: "FilesChanged", block: run.slot.id, files })
+      touched(run, files, emit)
+    })
+
+  /** Lists what a running run touched, up to the limit, and tells clients what it listed. */
+  const touched = (
+    run: Run,
+    changes: ReadonlyArray<FileChange>,
+    emit: (event: EngineEvent) => void,
+  ) => {
+    const listed = changes.filter(({ path: file, change }) => {
+      if (!run.files.has(file) && run.files.size >= LIMITS.maxRunFiles) {
+        run.filesTruncated = true
+        return false
+      }
+      run.files.set(file, change)
+      return true
+    })
+    if (listed.length > 0 && isCurrent(run))
+      emit({ _tag: "FilesChanged", block: run.slot.id, files: listed })
+  }
+
+  /** Records what a run copied from `$GENERATED_FILES`, and logs each link it did not copy. */
+  const recordCopied = (run: Run, { changes, truncated, links }: Copied) =>
+    update((emit) => {
+      if (run.state._tag !== "Running") return
+      if (truncated) run.filesTruncated = true
+      run.log.push(
+        links.map((link) => ({
+          stream: "stderr" as const,
+          text: `Runbooks did not copy ${link} from $GENERATED_FILES: it is a symbolic link.`,
+        })),
+      )
+      touched(run, changes, emit)
     })
 
   /** Ends a run: publishes its outputs if it ended well, or records why it did not. */
@@ -1267,14 +1320,25 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         const input = taskInput(
           at,
           reads,
-          files === undefined ? env : withReserved(env, files),
+          files === undefined ? env : withReserved(env, { ...files, ...repoFiles(at) }),
           paths,
         )
         yield* Stream.runForEachArray(runner.start(block, props, input, held), (batch) =>
           record(run, runnable, batch),
         )
-        if (files !== undefined)
-          yield* recordWrote(run, runnable, yield* runner.readRunFiles(files))
+        if (files !== undefined) {
+          const wrote = yield* runner.readRunFiles(files)
+          // What a copy that stopped part way copied is in the generated folder, so it is listed.
+          const copied = yield* runner
+            .copyGenerated(files.GENERATED_FILES, at.roots.generated)
+            .pipe(
+              Effect.catchTag("CopyFailed", ({ failure, copied: some }) =>
+                Effect.andThen(recordCopied(run, some), Effect.fail(failure)),
+              ),
+            )
+          yield* recordWrote(run, runnable, wrote)
+          yield* recordCopied(run, copied)
+        }
       }),
     ).pipe(
       Effect.onExit((exit) => Effect.andThen(finish(run, exit), Scope.close(runScope, Exit.void))),
@@ -1424,6 +1488,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       outputs: outputs === undefined ? {} : outputsView(outputs),
       ...(form === undefined ? {} : { fields: fieldViews(form) }),
       ...(credential === undefined ? {} : { credential }),
+      ...(run === undefined || run.files.size === 0
+        ? {}
+        : { files: Array.from(run.files, ([file, change]) => ({ path: file, change })) }),
+      ...(run?.filesTruncated === true ? { filesTruncated: true as const } : {}),
     }
   }
 
@@ -1510,6 +1578,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
             slot,
             log: makeWindow(MAX_RUN_LOG_LINES),
             flushed: 0,
+            files: new Map(),
+            filesTruncated: false,
             state: {
               _tag: "Running",
               scope: runScope,

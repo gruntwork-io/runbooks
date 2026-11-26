@@ -6,12 +6,14 @@
  * script environment allowlist, by name.
  */
 import { describe, expect, it } from "bun:test"
-import { Effect, Option, Redacted, Result, Schema } from "effect"
+import { Effect, Layer, Option, Redacted, Result, Schema } from "effect"
 import { BlockId, CredentialError } from "@runbooks/blocks-core/contract"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import type { CredentialEnv, CredentialValue } from "../credential/provider.ts"
 import { revealed, type UseEnvSession, withEnvSession } from "../test-utils/envSessions.ts"
-import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
+import { FileWriteError } from "../errors/index.ts"
+import { FileSystem } from "../services/FileSystem.ts"
+import { makeTestFileSystem, testFileSystem } from "../test-utils/TestFileSystem.ts"
 import { makeRecordingSpawner, type RecordedSpawn } from "../test-utils/TestSpawner.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import {
@@ -25,6 +27,7 @@ import {
   taskSource,
   withReserved,
 } from "./env.ts"
+import { type FileChange, LIMITS } from "./protocol.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
 const blockId = Schema.decodeSync(BlockId)
@@ -265,6 +268,7 @@ describe("a run's environment", () => {
         expect(rb.runFilesOf("c")).toEqual({
           RUNBOOK_OUTPUT: expect.stringMatching(/^runbooks-run-\w+\/output$/),
           RUNBOOK_ENV: expect.stringMatching(/^runbooks-run-\w+\/env$/),
+          GENERATED_FILES: expect.stringMatching(/^runbooks-run-\w+\/files$/),
         })
       }),
     )
@@ -320,6 +324,7 @@ describe("a run's environment", () => {
               OWN: "own",
               RUNBOOK_OUTPUT: expect.stringMatching(/\/output$/),
               RUNBOOK_ENV: expect.stringMatching(/\/env$/),
+              GENERATED_FILES: expect.stringMatching(/\/files$/),
             },
           ])
         }),
@@ -379,6 +384,159 @@ const build = (layers: Parameters<typeof buildRunEnv>[0]) =>
       Effect.map(buildRunEnv(layers), ({ env, conflicts }) => ({ env: revealed(env), conflicts })),
     ),
   )
+
+describe("a run's generated files", () => {
+  /**
+   * A session of `runbook` on a filesystem whose files the test can read
+   * after, where copying a file named `full` fails, as on a full disk.
+   */
+  const withFiles = <A>(runbook: string, use: UseEnvSession<A>, full?: string) => {
+    const files: Record<string, string> = { [RUNBOOK]: runbook }
+    const base = testFileSystem(files)
+    const spawner = makeRecordingSpawner(() => ({ lines: [], exitCode: 0 }))
+    return withEnvSession(
+      {
+        file: RUNBOOK,
+        workingFolders: "/work",
+        processEnvironment: {},
+        fileSystem: Layer.succeed(FileSystem, {
+          ...base,
+          copyFile: (src: string, dest: string) =>
+            full !== undefined && dest.endsWith(`/${full}`)
+              ? Effect.fail(new FileWriteError({ path: dest, cause: "no space left" }))
+              : base.copyFile(src, dest),
+        }),
+        spawner: spawner.layer,
+      },
+      use,
+    ).then((result) => ({ result, files }))
+  }
+
+  it("are copied into the generated folder once the run ends well, and the block lists each", async () => {
+    const { result, files } = await withFiles(
+      '<Script id="s" label="s" writesGenerated={["main.tf=resource", "vpc/vpc.tf=module"]} />',
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.run("s")).toEqual(done)
+          const generated = rb.inputOf("s")?.roots.generated ?? ""
+          const first = (yield* rb.view("s")).files
+          expect(yield* rb.run("s")).toEqual(done)
+          const again = (yield* rb.view("s")).files
+          const events = yield* rb.close
+          return { generated, first, again, events }
+        }),
+    )
+    const { generated, first, again, events } = result
+    expect(first).toEqual([
+      { path: `${generated}/main.tf`, change: "created" },
+      { path: `${generated}/vpc/vpc.tf`, change: "created" },
+    ])
+    // A rerun lists its own files: the same paths, now replaced.
+    expect(again).toEqual([
+      { path: `${generated}/main.tf`, change: "modified" },
+      { path: `${generated}/vpc/vpc.tf`, change: "modified" },
+    ])
+    expect(files[`${generated}/main.tf`]).toBe("resource")
+    expect(files[`${generated}/vpc/vpc.tf`]).toBe("module")
+    const told = events.flatMap(({ event }) => (event._tag === "FilesChanged" ? [event.files] : []))
+    expect(told).toEqual([first ?? [], again ?? []])
+  })
+
+  it("are not copied from a run that failed, and the block lists none", async () => {
+    const { result, files } = await withFiles(
+      '<Script id="s" label="s" writesGenerated={["main.tf=resource"]} ends={[1]} />',
+      (rb) =>
+        Effect.gen(function* () {
+          expect((yield* rb.run("s"))?._tag).toBe("Failed")
+          return { generated: rb.inputOf("s")?.roots.generated ?? "", view: yield* rb.view("s") }
+        }),
+    )
+    expect(result.view.files).toBeUndefined()
+    expect(Object.keys(files).filter((file) => file.startsWith(result.generated))).toEqual([])
+  })
+
+  it("are copied from a run that warned (exit 2), as its outputs are kept", async () => {
+    const { result } = await withFiles(
+      '<Script id="s" label="s" writesGenerated={["main.tf=resource"]} ends={[2]} />',
+      (rb) => Effect.andThen(rb.run("s"), rb.view("s")),
+    )
+    expect(result.status).toEqual({ _tag: "Done", outcome: "warning" })
+    expect(result.files?.map(({ change }) => change)).toEqual(["created"])
+  })
+
+  it("lists what a copy that stopped part way had copied, and fails the run", async () => {
+    const { result } = await withFiles(
+      '<Script id="s" label="s" writesGenerated={["a.txt=a", "b.txt=b"]} />',
+      (rb) =>
+        Effect.gen(function* () {
+          const status = yield* rb.run("s")
+          const generated = rb.inputOf("s")?.roots.generated ?? ""
+          const view = yield* rb.view("s")
+          return { status, generated, view, events: yield* rb.close }
+        }),
+      "b.txt",
+    )
+    const { status, generated, view, events } = result
+    expect(status?._tag === "Failed" ? status.error.message : status).toBe(
+      "Runbooks could not copy b.txt from $GENERATED_FILES into the generated folder.",
+    )
+    const listed: ReadonlyArray<FileChange> = [{ path: `${generated}/a.txt`, change: "created" }]
+    expect(view.files).toEqual(listed)
+    expect(
+      events.flatMap(({ event }) => (event._tag === "FilesChanged" ? [event.files] : [])),
+    ).toEqual([listed])
+  })
+
+  it("keeps the first paths at the limit, says so, and still takes a later change to one", async () => {
+    const { result: view } = await withFiles(
+      `<Script id="s" label="s" reports={${LIMITS.maxRunFiles + 1}} />`,
+      (rb) => Effect.andThen(rb.run("s"), rb.view("s")),
+    )
+    expect(view.files).toHaveLength(LIMITS.maxRunFiles)
+    expect(view.files?.[0]).toEqual({ path: "/reported/0", change: "modified" })
+    expect(view.files?.at(-1)).toEqual({
+      path: `/reported/${LIMITS.maxRunFiles - 1}`,
+      change: "created",
+    })
+    expect(view.filesTruncated).toBe(true)
+  })
+
+  it("says so when it copied more files than it lists", async () => {
+    const { result: view } = await withFiles(
+      `<Script id="s" label="s" leavesMany={${LIMITS.maxRunFiles + 1}} />`,
+      (rb) => Effect.andThen(rb.run("s"), rb.view("s")),
+    )
+    expect(view.files).toHaveLength(LIMITS.maxRunFiles)
+    expect(view.filesTruncated).toBe(true)
+  })
+
+  it("does not say a list at the limit was cut when it was not", async () => {
+    const { result: view } = await withFiles(
+      `<Script id="s" label="s" reports={${LIMITS.maxRunFiles}} />`,
+      (rb) => Effect.andThen(rb.run("s"), rb.view("s")),
+    )
+    expect(view.files).toHaveLength(LIMITS.maxRunFiles)
+    expect(view.filesTruncated).toBeUndefined()
+  })
+
+  it("$REPO_FILES is the repository a task names, and is unset for a task that names none", async () => {
+    const { result } = await withFiles(
+      [
+        '<Clone id="clone" url="https://example.com/infra.git" />',
+        '<Script id="in" label="in" repository="clone" />',
+        '<Script id="out" label="out" />',
+      ].join("\n\n"),
+      (rb) =>
+        Effect.gen(function* () {
+          for (const block of ["clone", "in", "out"]) expect(yield* rb.run(block)).toEqual(done)
+          return { in: rb.runFilesOf("in"), out: rb.runFilesOf("out"), cwd: rb.inputOf("in")?.cwd }
+        }),
+    )
+    expect(result.in["REPO_FILES"]).toBe(result.cwd)
+    expect(result.in["REPO_FILES"]).toMatch(/^\/work\//)
+    expect(result.out["REPO_FILES"]).toBeUndefined()
+  })
+})
 
 describe("a credential source", () => {
   // The next three are today's guards, by name: two from

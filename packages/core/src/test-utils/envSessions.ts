@@ -88,6 +88,9 @@ export const revealed = (env: RunEnv): Record<string, string> =>
 /** The two variables that name the files a run's script writes to. */
 const RUN_FILES = ["RUNBOOK_OUTPUT", "RUNBOOK_ENV"] as const
 
+/** The variables the engine sets for a process task's run: its files, and the folders it writes to. */
+const RUN_VARIABLES: ReadonlyArray<string> = [...RUN_FILES, "GENERATED_FILES", "REPO_FILES"]
+
 /** Appends `lines` to the run file `file`, as a script would. */
 const write = (
   input: TaskInput<string>,
@@ -102,6 +105,22 @@ const write = (
     yield* fs
       .appendFile(Redacted.value(at), lines.map((line) => `${line}\n`).join(""))
       .pipe(Effect.mapError(() => new TaskFailed({ message: `${file} could not be written.` })))
+  })
+
+/** Leaves each `path=content` file in the run's `$GENERATED_FILES`, as a script would. */
+const leave = (input: TaskInput<string>, files: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const folder = input.env["GENERATED_FILES"]
+    if (files.length === 0) return
+    if (folder === undefined)
+      return yield* new TaskFailed({ message: "The run has no GENERATED_FILES." })
+    const fs = yield* FileSystem
+    for (const file of files) {
+      const [name = "", content = ""] = file.split("=")
+      yield* fs
+        .writeFile(`${Redacted.value(folder)}/${name}`, content)
+        .pipe(Effect.mapError(() => new TaskFailed({ message: `${name} could not be written.` })))
+    }
   })
 
 const declared = (names: ReadonlyArray<string> | undefined) =>
@@ -140,13 +159,24 @@ const envRegistry = ({ inputs, printed, wrote }: Noted) => {
         label: Schema.String,
         writesOutput: Schema.optionalKey(Schema.Array(Schema.String)),
         writesEnv: Schema.optionalKey(Schema.Array(Schema.String)),
+        /** Files to leave in `$GENERATED_FILES`, each `path=content`. */
+        writesGenerated: Schema.optionalKey(Schema.Array(Schema.String)),
+        /** How many more files to leave in `$GENERATED_FILES`, `many/0` and on. */
+        leavesMany: Schema.optionalKey(Schema.Int),
+        /**
+         * Reports this many files created, `/reported/0` and on, then
+         * `/reported/0` again as modified, as a task that writes files itself does.
+         */
+        reports: Schema.optionalKey(Schema.Int),
+        /** The block that makes the repository the run starts in. */
+        repository: Schema.optionalKey(BlockId),
         declares: Schema.optionalKey(Schema.Array(Schema.String)),
         ends: Schema.optionalKey(
           Schema.Array(Schema.Union([Schema.Int, Schema.Literals(["timeout", "never"])])),
         ),
       }),
       children: { kind: "none" },
-      references: {},
+      references: { repository: "repository" },
       runbookFiles: () => [],
       provides: ["run", "env"],
       effects: ["process"],
@@ -157,6 +187,10 @@ const envRegistry = ({ inputs, printed, wrote }: Noted) => {
             inputs.set(p.label, input)
             yield* write(input, "RUNBOOK_OUTPUT", p.writesOutput ?? [])
             yield* write(input, "RUNBOOK_ENV", p.writesEnv ?? [])
+            yield* leave(input, [
+              ...(p.writesGenerated ?? []),
+              ...Array.from({ length: p.leavesMany ?? 0 }, (_, i) => `many/${i}=${i}`),
+            ])
             const count = wrote.get(p.label) ?? 0
             wrote.set(p.label, count + 1)
             const ends = p.ends ?? [0]
@@ -167,7 +201,18 @@ const envRegistry = ({ inputs, printed, wrote }: Noted) => {
               : how === "never"
                 ? Stream.never
                 : endWithExitCode(how)
-            return end
+            const reported = Array.from({ length: p.reports ?? 0 }, (_, i) => `/reported/${i}`)
+            const reports: ReadonlyArray<TaskEvent<never>> = [
+              ...reported.map((path) => ({
+                _tag: "File" as const,
+                path,
+                change: "created" as const,
+              })),
+              ...reported
+                .slice(0, 1)
+                .map((path) => ({ _tag: "File" as const, path, change: "modified" as const })),
+            ]
+            return Stream.concat(Stream.fromIterable(reports), end)
           }),
         ),
       instruction: () => [],
@@ -203,6 +248,7 @@ const envRegistry = ({ inputs, printed, wrote }: Noted) => {
             const spawner = yield* ProcessSpawner
             const proc = yield* spawner.spawn("/bin/bash", ["-c", p.script], {
               env: revealed(input.env),
+              cwd: input.cwd,
             })
             const { exitCode, lines } = yield* collectOutput(proc, 10_000)
             printed.set(
@@ -237,10 +283,10 @@ export interface EnvSession {
   >
   /**
    * The environment the block's latest run was given, revealed, less the
-   * two variables that name its run files (`runFilesOf`).
+   * variables the engine sets for its run (`runFilesOf`).
    */
   readonly envOf: (label: string) => Record<string, string>
-  /** Where the block's latest run was told to write `$RUNBOOK_OUTPUT` and `$RUNBOOK_ENV`. */
+  /** The variables the engine set for the block's latest run: where it writes its files, and `$REPO_FILES`. */
   readonly runFilesOf: (label: string) => Record<string, string>
   readonly inputOf: (label: string) => TaskInput<string> | undefined
   /** How many times a `Script` block has written its files. */
@@ -315,7 +361,7 @@ export const withEnvSession = <A>(
         if (input === undefined) throw new Error(`${label} did not run`)
         return Object.entries(revealed(input.env))
       }
-      const isRunFile = (name: string) => RUN_FILES.some((file) => file === name)
+      const isRunFile = (name: string) => RUN_VARIABLES.includes(name)
       /** Each block's last state `until` returned, by its sequence. */
       const cursors = new Map<string, number>()
       const until = (block: string, tag: CredentialStateTag) => {
