@@ -418,7 +418,11 @@ describe("Engine", () => {
     await openAndAsk(50, 5)
     const sixteen = async () => {
       let ms = 0
-      for (let i = 0; i < 16; i++) ms += (await openAndAsk(50, 5)).ms
+      for (let i = 0; i < 16; i++) {
+        const short = await openAndAsk(50, 5)
+        expect(short.status?._tag).toBe("Blocked")
+        ms += short.ms
+      }
       return ms
     }
     const shorts: number[] = []
