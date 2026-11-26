@@ -3,7 +3,7 @@
  * evaluated: the renderer walks `tree`, and the engine reads `blocks` and
  * `edges`. Every client gets the same document.
  */
-import { Schema } from "effect"
+import { Schema, SchemaGetter } from "effect"
 import {
   BlockClass,
   BlockId,
@@ -84,17 +84,29 @@ const EnvProp = Schema.Record(Schema.String, Schema.String).check(
  * so no block repeats them. Which apply depends on the class and on the
  * block's effects; one that does not apply is an `unknownProp` warning.
  */
+/**
+ * One block's id, or a list of them, decoded to the list. The docs give
+ * `inputsId` and `dependsOn` as `string | string[]`, and runbooks write both
+ * (`inputsId="config"` and `inputsId={["config", "region"]}`).
+ */
+const OneOrMoreIds = Schema.Union([BlockId, Schema.Array(BlockId)]).pipe(
+  Schema.decodeTo(Schema.toType(Schema.Array(BlockId)), {
+    decode: SchemaGetter.transform((ids) => (typeof ids === "string" ? [ids] : ids)),
+    encode: SchemaGetter.transform((ids) => ids),
+  }),
+)
+
 export const SharedProps = Schema.Struct({
   title: Schema.optionalKey(Schema.String),
   description: Schema.optionalKey(Schema.String),
   /** Fold the block to its header once it is done. */
   autoCollapse: Schema.optionalKey(Schema.Boolean),
   /** Any block: the forms whose values it reads (capability `values`). A display block reads them into its text. */
-  inputsId: Schema.optionalKey(Schema.Array(BlockId)),
+  inputsId: Schema.optionalKey(OneOrMoreIds),
   /** Task: blocks that must be done first (capability `run`). */
-  dependsOn: Schema.optionalKey(Schema.Array(BlockId)),
+  dependsOn: Schema.optionalKey(OneOrMoreIds),
   /** Task with the `process` effect: environment sources, in order, later winning (capability `env`). */
-  envFrom: Schema.optionalKey(Schema.Array(BlockId)),
+  envFrom: Schema.optionalKey(OneOrMoreIds),
   /** Task with the `process` effect: variables set last, before the reserved `RUNBOOK_*` ones. Values may hold template references. */
   env: Schema.optionalKey(EnvProp),
 })

@@ -334,6 +334,29 @@ describe("parseRunbook", () => {
       expect(doc.blocks[0]?.shared).toEqual({ title: "Careful", inputsId: [id("config")] })
     })
 
+    // The docs give inputsId and dependsOn as string | string[], and most
+    // runbooks write inputsId="config".
+    it("reads inputsId, dependsOn and envFrom written as one id as a list of it, with its reference", () => {
+      const doc = parsed(
+        [
+          '<Run id="a" command="ls" inputsId="config" dependsOn="setup" envFrom="setup" />',
+          '<Run id="setup" command="make" />',
+          '<Form id="config">\n```yaml\n[]\n```\n</Form>',
+        ].join("\n\n"),
+      )
+      expect(doc.blocks[0]?.shared).toEqual({
+        inputsId: [id("config")],
+        dependsOn: [id("setup")],
+        envFrom: [id("setup")],
+      })
+      expect(doc.edges.filter((edge) => edge.from === 0).map((edge) => edge.to)).toEqual([2, 1, 1])
+    })
+
+    it("refuses a reference prop that is neither an id nor a list of them", () => {
+      const found = errors('<Run id="a" command="ls" inputsId={3} />')
+      expect(found.map((e) => [e.code, e.location.prop])).toEqual([["badProp", "inputsId"]])
+    })
+
     it("reads an *AuthId prop as an envFrom source, with a warning", () => {
       const doc = parsed(
         '<Run id="a" command="ls" envFrom={["setup"]} awsAuthId="aws-prod" />\n\n<Run id="setup" command="make" />\n\n<GitLogin id="aws-prod" />',
