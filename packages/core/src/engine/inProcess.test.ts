@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test"
+import { inspect } from "node:util"
 import {
   Cause,
   DateTime,
@@ -12,6 +13,7 @@ import {
   Queue,
   Redacted,
   Schema,
+  SchemaGetter,
   SchemaIssue,
   SchemaRepresentation,
   Scope,
@@ -22,7 +24,11 @@ import { type Rpc, RpcClient, RpcSchema, RpcSerialization, RpcServer } from "eff
 import {
   BlockId,
   CredentialError,
+  defineDisplay,
+  defineForm,
   defineTask,
+  type OutputDecls,
+  PropError,
   type TaskError,
   type TaskEvent,
   TaskFailed,
@@ -40,6 +46,7 @@ import {
   ApprovalId,
   Caller,
   CallerMiddleware,
+  DocumentView,
   type EngineCommand,
   EngineProtocol,
   type EventEnvelope,
@@ -64,6 +71,78 @@ const registryWith = (scripts: Readonly<Record<string, Script>>) => ({
         (p.outputs ?? []).map((key) => [key, { sensitive: key.startsWith("secret") }]),
       ),
     run: (p) => scripts[p.command ?? ""]?.() ?? Stream.empty,
+  }),
+  /** A display block whose prop is a number written as text, as a client is sent it. */
+  Gauge: defineDisplay({
+    name: "Gauge",
+    since: "0.1.0",
+    class: "display",
+    props: Schema.Struct({ count: Schema.NumberFromString }),
+    children: { kind: "none" },
+    references: {},
+    runbookFiles: () => [],
+    provides: [],
+    effects: [],
+  }),
+  /** A task whose schema decodes its prop and cannot encode it again: a bug in a block. */
+  OneWay: defineTask({
+    name: "OneWay",
+    since: "0.1.0",
+    class: "task",
+    props: Schema.Struct({
+      value: Schema.String.pipe(
+        Schema.decodeTo(Schema.String, {
+          decode: SchemaGetter.passthrough(),
+          encode: SchemaGetter.forbiddenEncoding,
+        }),
+      ),
+    }),
+    children: { kind: "none" },
+    references: {},
+    runbookFiles: () => [],
+    provides: ["run"],
+    effects: [],
+    outputs: (): OutputDecls<string> => ({}),
+    run: () => Stream.empty,
+    instruction: () => [],
+    plugins: [],
+  }),
+  /** A display block whose schema encodes its prop as a `Date`, which JSON cannot carry: a bug in a block. */
+  Dated: defineDisplay({
+    name: "Dated",
+    since: "0.1.0",
+    class: "display",
+    props: Schema.Struct({
+      at: Schema.Unknown.pipe(
+        Schema.decodeTo(Schema.String, {
+          decode: SchemaGetter.transform(String),
+          encode: SchemaGetter.transform(() => new Date(0)),
+        }),
+      ),
+    }),
+    children: { kind: "none" },
+    references: {},
+    runbookFiles: () => [],
+    provides: [],
+    effects: [],
+  }),
+  /** A form whose fields cannot be read, as a template whose `boilerplate.yml` is missing. */
+  BadForm: defineForm({
+    name: "BadForm",
+    since: "0.1.0",
+    class: "form",
+    props: Schema.Struct({}),
+    children: { kind: "none" },
+    references: {},
+    runbookFiles: () => [],
+    provides: ["values"],
+    effects: [],
+    outputs: () => ({}),
+    fields: () =>
+      Effect.fail(
+        new PropError({ prop: "path", message: "There is no boilerplate.yml at ./gone." }),
+      ),
+    plugins: [],
   }),
 })
 
@@ -483,6 +562,216 @@ describe("the in-process transport", () => {
   })
 })
 
+const DOCUMENT = [
+  "---",
+  "title: Deploy",
+  "---",
+  "# Deploy",
+  "Some *markdown* first.",
+  '<Note title="Heads up">\n\nRead **this** first.\n\n</Note>',
+  '<Bash id="greet" title="Say hi" description="Greets the world" autoCollapse={true} command="echo hi" />',
+  '<Run id="broken" args="not-a-list" />',
+  '<BadForm id="gone" />',
+  '<Gauge id="gauge" count="3" />',
+  '<OneWay id="oneway" value="x" />',
+  '<Run id="after" command="ok" dependsOn="greet" />',
+  '<Dated at="noon" />',
+].join("\n\n")
+
+/** What a person or agent could read of `value`: as JSON, and as `console.log` prints it. */
+const printed = (value: unknown): ReadonlyArray<string> => [
+  JSON.stringify(value),
+  inspect(value, { depth: null }),
+]
+
+const SECRET_DEFAULT = "fake-secret-default-5d1e"
+const SECRET_VALUE = "fake-secret-value-8b2c"
+const SECRET_SIGN_IN_DEFAULT = "fake-secret-sign-in-3a9f"
+
+describe("the session's document", () => {
+  it("gives the tree with each block in place, its encoded props or its errors, and no edges", async () => {
+    await withClients({ runbook: DOCUMENT }, ({ person }) =>
+      Effect.gen(function* () {
+        const session = (yield* opened(person)).session
+        const document = yield* person.GetDocument({ session })
+
+        expect(document.title).toBe("Deploy")
+        const top = document.tree.children ?? []
+        expect(top[0]).toMatchObject({ type: "heading", depth: 1 })
+        expect(top[1]).toMatchObject({ type: "paragraph" })
+        expect(top.filter((node) => node.type === "block").map((node) => node.index)).toEqual([
+          0, 1, 2, 3, 4, 5, 6, 7,
+        ])
+        expect(top[2]).toMatchObject({ type: "block", index: 0, children: [{ type: "paragraph" }] })
+
+        const [note, bash, broken, gone, gauge, oneway, after, dated] = document.blocks
+        expect(note).toMatchObject({
+          _tag: "Configured",
+          index: 0,
+          tag: "Note",
+          class: "display",
+          title: "Heads up",
+          props: { title: "Heads up" },
+        })
+        expect(note).not.toHaveProperty("id")
+        // An alias's locks are in its props, as if the author had written them.
+        expect(bash).toEqual({
+          _tag: "Configured",
+          index: 1,
+          tag: "Bash",
+          block: "Run",
+          class: "task",
+          id: blockId("greet"),
+          span: expect.anything(),
+          title: "Say hi",
+          description: "Greets the world",
+          autoCollapse: true,
+          props: { command: "echo hi", shell: "bash" },
+        })
+        // The parser's error, on the node.
+        expect(broken?._tag).toBe("Misconfigured")
+        expect(broken).not.toHaveProperty("props")
+        expect(
+          broken?._tag === "Misconfigured" && broken.errors.map((e) => [e.code, e.location.prop]),
+        ).toEqual([["badProp", "args"]])
+        // The engine's error, found when the session opened.
+        expect(
+          gone?._tag === "Misconfigured" && gone.errors.map((e) => [e.code, e.message]),
+        ).toEqual([["badProp", "There is no boilerplate.yml at ./gone."]])
+        // Encoded with the block's own schema: the text the author wrote, not the number it decodes to.
+        expect(gauge).toMatchObject({ _tag: "Configured", props: { count: "3" } })
+        // Props the block's schema cannot encode: the block does not run, as the window could not show it.
+        const unsent = oneway?._tag === "Misconfigured" ? oneway.errors : []
+        expect(unsent.map((e) => [e.code, e.location.block?.id])).toEqual([["badProp", "oneway"]])
+        // One line, as the CLI prints it, naming the block and where its schema failed.
+        expect(unsent[0]?.message).toContain(
+          '<OneWay>\'s props to the window (Encoding is not supported at ["value"])',
+        )
+        expect(yield* person.RunBlock({ session, block: blockId("oneway") })).toEqual({
+          _tag: "Refused",
+          reason: { _tag: "Misconfigured" },
+        })
+        expect(after).toMatchObject({ _tag: "Configured", props: { command: "ok" } })
+        // Props that encode to more than JSON: that block's error, and the rest of the document is sent.
+        expect(
+          dated?._tag === "Misconfigured" && dated.errors.map((e) => e.message.includes("JSON")),
+        ).toEqual([true])
+        expect(document).not.toHaveProperty("edges")
+
+        expect(
+          yield* Effect.flip(person.GetDocument({ session: sessionId("gone") })),
+        ).toMatchObject({ _tag: "UnknownSession", session: "gone" })
+      }),
+    )
+  })
+
+  it("carries no runbook text in a YAML error, to an agent or in a refusal", async () => {
+    const secret = "fake-secret-yaml-9d2e"
+    const fenced = [
+      '<Form id="config">',
+      "```yaml",
+      "- name: token",
+      "  sensitive: true",
+      `  default: ${secret}`,
+      "  default: again",
+      "```",
+      "</Form>",
+    ].join("\n")
+    await withClients({ runbook: fenced }, ({ person, agent }) =>
+      Effect.gen(function* () {
+        const { session } = yield* opened(person)
+        const document = yield* agent.GetDocument({ session })
+        expect(document.blocks[0]?._tag).toBe("Misconfigured")
+        for (const text of printed(document)) expect(text).not.toContain(secret)
+      }),
+    )
+    const front = [
+      "---",
+      "title: Deploy",
+      `api_key: ${secret}`,
+      "api_key: again",
+      "---",
+      "",
+      "# Deploy",
+    ]
+    await withClients({ runbook: front.join("\n") }, ({ agent }) =>
+      Effect.gen(function* () {
+        const result = yield* agent.OpenSession({ path: RUNBOOK })
+        expect(result._tag).toBe("Invalid")
+        for (const text of printed(result)) expect(text).not.toContain(secret)
+      }),
+    )
+  })
+
+  it("crosses JSON as a transport carries it, and back", async () => {
+    const document = await withClients({ runbook: DOCUMENT }, ({ person }) =>
+      Effect.flatMap(opened(person), ({ session }) => person.GetDocument({ session })),
+    )
+    const json = Schema.toCodecJson(DocumentView)
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(document)))
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(document)
+  })
+
+  it("holds no sensitive field's default or value, and no secret sign-in field's default", async () => {
+    const runbook = [
+      '<Form id="config">',
+      "```yaml",
+      "- name: token",
+      "  type: string",
+      "  sensitive: true",
+      `  default: ${SECRET_DEFAULT}`,
+      "- name: password",
+      "  type: string",
+      "  sensitive: true",
+      "```",
+      "</Form>",
+      `<CloudLogin id="cloud" detect={false} defaults={{ keys: { accessKey: "AKIA-shown", secretKey: "${SECRET_SIGN_IN_DEFAULT}" } }} />`,
+      '<Run id="greet" command="greet" outputs={["greeting", "secret_token"]} />',
+    ].join("\n\n")
+    await withClients({ runbook, scripts: { greet } }, ({ person }) =>
+      Effect.gen(function* () {
+        const view = yield* opened(person)
+        const { session } = view
+        yield* person.SetValues({
+          session,
+          block: blockId("config"),
+          values: { password: SECRET_VALUE },
+        })
+        yield* person.TrustSession({ session, hash: view.trust.hash })
+        yield* person.RunBlock({ session, block: blockId("greet") })
+        yield* person.WaitForBlock({ session, block: blockId("greet"), timeoutMillis: 5000 })
+        // The engine holds each secret, hidden from every view.
+        expect((yield* person.GetOutputs({ session })).greet?.secret_token).toEqual({
+          _tag: "Hidden",
+        })
+        const fields = (yield* person.GetBlock({ session, block: blockId("config") })).fields
+        expect(fields?.map((f) => [f.name, f.value])).toEqual([
+          ["token", { _tag: "Hidden" }],
+          ["password", { _tag: "Hidden" }],
+        ])
+        const document = yield* person.GetDocument({ session })
+
+        const [config, login, run] = document.blocks
+        expect([config?._tag, login?._tag, run?._tag]).toEqual([
+          "Configured",
+          "Configured",
+          "Configured",
+        ])
+        expect(config).not.toHaveProperty("props")
+        expect(login).not.toHaveProperty("props")
+        for (const text of printed(document))
+          for (const secret of [
+            SECRET_DEFAULT,
+            SECRET_VALUE,
+            SECRET_SIGN_IN_DEFAULT,
+            "s3cr3t-value",
+          ])
+            expect(text).not.toContain(secret)
+      }),
+    )
+  })
+})
+
 describe("the in-process transport's caller", () => {
   it("takes the origin from the client it made, never from what the client sends", async () => {
     await withClients({ runbook: RUNBOOK_TEXT }, ({ person, agent }) =>
@@ -542,6 +831,7 @@ const UNUSED = {
   CloseSession: unused,
   ListSessions: unused,
   GetSession: unused,
+  GetDocument: unused,
   TrustSession: unused,
   Events: () => Stream.die("not used in this test"),
   GetBlock: unused,

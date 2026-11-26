@@ -4,8 +4,7 @@
  * Parses boilerplate.yml directly using the `yaml` npm package.
  */
 
-import { Effect, Stream } from "effect"
-import YAML from "yaml"
+import { Effect, Result, Stream } from "effect"
 
 import { BoilerplateConfigError } from "../../errors/index.js"
 import { errorMessage } from "../../errors/message.ts"
@@ -13,6 +12,7 @@ import { FileSystem } from "../../services/FileSystem.ts"
 import { BATCH_IO_CONCURRENCY } from "../files/manifest.ts"
 import { parseShowWhen } from "./showWhen.ts"
 import { outputsRead } from "../../document/templateReferences.ts"
+import { parseYaml, yamlData } from "../../document/yamlData.ts"
 import {
   optionFields,
   parseOptionsReference,
@@ -384,14 +384,20 @@ export function parseBoilerplateConfig(
   yamlContent: string,
 ): Effect.Effect<BoilerplateConfig, BoilerplateConfigError> {
   return Effect.gen(function* () {
-    const raw = yield* Effect.try({
-      try: () => YAML.parse(yamlContent) as RawConfig,
-      catch: (err) =>
-        new BoilerplateConfigError({
-          message: `Failed to parse boilerplate YAML: ${errorMessage(err)}`,
-          cause: err,
-        }),
-    })
+    const {
+      doc,
+      problems: [invalid],
+    } = parseYaml(yamlContent)
+    if (invalid)
+      return yield* new BoilerplateConfigError({
+        message: `boilerplate.yml isn't valid YAML at line ${invalid.line}, column ${invalid.column}: ${invalid.reason}.`,
+      })
+    const data = yamlData(doc)
+    if (Result.isFailure(data))
+      return yield* new BoilerplateConfigError({
+        message: `boilerplate.yml can't be read: ${data.failure.message}`,
+      })
+    const raw = data.success as RawConfig
 
     if (!raw || !Array.isArray(raw.variables)) {
       return {

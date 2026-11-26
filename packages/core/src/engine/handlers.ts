@@ -24,6 +24,7 @@ export const EngineHandlers: Layer.Layer<
       CloseSession: engine.closeSession,
       ListSessions: () => engine.listSessions,
       GetSession: engine.getSession,
+      GetDocument: engine.getDocument,
       TrustSession: engine.trustSession,
       Events: engine.events,
       GetBlock: engine.getBlock,

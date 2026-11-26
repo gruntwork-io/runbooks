@@ -24,6 +24,7 @@ import {
   type Events,
   Forbidden,
   type GetBlock,
+  type GetDocument,
   type GetOutputs,
   type GetSession,
   LIMITS,
@@ -64,6 +65,8 @@ export interface EngineShape {
   readonly closeSession: Command<typeof CloseSession>
   readonly listSessions: Effect.Effect<Rpc.Success<typeof ListSessions>>
   readonly getSession: Command<typeof GetSession>
+  /** The document as the session opened it, with the errors the engine found then. */
+  readonly getDocument: Command<typeof GetDocument>
   /** Person only. */
   readonly trustSession: Command<typeof TrustSession, Caller>
   readonly events: (
@@ -336,6 +339,10 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
 
           getSession: Effect.fn("Engine.getSession")(function* ({ session }) {
             return (yield* lookup(session)).view()
+          }),
+
+          getDocument: Effect.fn("Engine.getDocument")(function* ({ session }) {
+            return (yield* lookup(session)).documentView
           }),
 
           trustSession: Effect.fn("Engine.trustSession")(function* ({ session, hash }) {

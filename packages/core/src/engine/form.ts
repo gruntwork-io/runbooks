@@ -247,6 +247,8 @@ export const fieldViews = (form: Form): ReadonlyArray<FieldView> =>
       required: field.required,
       sensitive: field.sensitive,
       ...(field.options === undefined ? {} : { options: field.options }),
+      ...(field.optionLabels === undefined ? {} : { optionLabels: field.optionLabels }),
+      ...(field.section === undefined ? {} : { section: field.section }),
       ...(value === undefined ? {} : { value: visible(value) }),
       ...(field.default === undefined || field.sensitive ? {} : { default: field.default }),
       readOnly: field.locked,

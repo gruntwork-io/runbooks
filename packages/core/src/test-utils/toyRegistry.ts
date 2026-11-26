@@ -72,6 +72,8 @@ export const ToyField = Schema.Struct({
   default: Schema.optionalKey(FieldValue),
   required: Schema.optionalKey(Schema.Boolean),
   options: Schema.optionalKey(Schema.Array(Schema.String)),
+  optionLabels: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  section: Schema.optionalKey(Schema.String),
   validations: Schema.optionalKey(Schema.Array(Validation)),
   sensitive: Schema.optionalKey(Schema.Boolean),
   locked: Schema.optionalKey(Schema.Boolean),

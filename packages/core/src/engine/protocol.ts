@@ -18,11 +18,11 @@
 import { Context, Schema, Struct } from "effect"
 import { Rpc, RpcGroup, RpcMiddleware } from "effect/rpc"
 import { BlockClass, BlockId } from "@runbooks/blocks-core/contract"
-import { FieldType, FieldValue, Validation } from "@runbooks/blocks-core/form"
+import { Field, FieldType, FieldValue, Validation } from "@runbooks/blocks-core/form"
 import { Blocker, BlockStatus } from "@runbooks/blocks-core/status"
 import { CredentialAction, CredentialState } from "../credential/lifecycle.ts"
-import { ConfigError, ConfigWarning } from "../document/configError.ts"
-import { ContentHash } from "../document/document.ts"
+import { ConfigError, ConfigWarning, Span } from "../document/configError.ts"
+import { ContentHash, TreeNode } from "../document/document.ts"
 
 // ---------------------------------------------------------------------------
 // Identifiers and limits
@@ -111,6 +111,9 @@ export const FieldView = Schema.Struct({
   required: Schema.Boolean,
   sensitive: Schema.Boolean,
   options: Schema.optionalKey(Schema.Array(Schema.String)),
+  optionLabels: Field.fields.optionLabels,
+  /** The section the window groups the field in. */
+  section: Field.fields.section,
   /** Absent while the field is empty: an optional int left blank has no value, not `""`. */
   value: Schema.optionalKey(Visible(FieldValue)),
   /** The runbook's default. Left out for a sensitive field. */
@@ -261,6 +264,64 @@ export const SessionView = Schema.Struct({
   resumed: Schema.optionalKey(Resumed),
 })
 export type SessionView = typeof SessionView.Type
+
+/** What a window is shown of every block in the document, whatever its configuration. */
+const placedBlock = {
+  /** Its place in `DocumentView.blocks`. The tree's `block` node for it holds the same index. */
+  index: Schema.Int,
+  /** The MDX tag as written, which may be an alias. */
+  tag: Schema.String,
+  /** The registry block the tag resolves to. */
+  block: Schema.String,
+  class: BlockClass,
+  /** Normalized, as `BlockSummary.block`. Absent only for a display block written without one. */
+  id: Schema.optionalKey(BlockId),
+  /** Where the block is written in the runbook. */
+  span: Span,
+  /** Shared props the block's frame shows: its header, and whether it folds once done. */
+  title: Schema.optionalKey(Schema.String),
+  description: Schema.optionalKey(Schema.String),
+  autoCollapse: Schema.optionalKey(Schema.Boolean),
+}
+
+export const DocumentBlock = Schema.Union([
+  Schema.TaggedStruct("Configured", {
+    ...placedBlock,
+    /**
+     * The block's own props, encoded with its own schema after alias locks:
+     * what the author wrote. Sent for a display block, and for a task with no
+     * form of its own. Any other block's props can hold a default the engine
+     * hides (a sensitive field's, a secret sign-in field's), so its view
+     * draws from `BlockView.fields` or `BlockView.credential` instead.
+     */
+    props: Schema.optionalKey(Schema.Json),
+  }),
+  /**
+   * The block's configuration has errors: the parser's, then those the
+   * engine found when the session opened, as a form it could not read. Its
+   * status is `Misconfigured`, and a window shows these in place of its view.
+   */
+  Schema.TaggedStruct("Misconfigured", {
+    ...placedBlock,
+    errors: Schema.NonEmptyArray(ConfigError),
+  }),
+])
+export type DocumentBlock = typeof DocumentBlock.Type
+
+/** The session's runbook as a window renders it. Nothing in it changes while the session is open. */
+export const DocumentView = Schema.Struct({
+  /** The front matter's title. */
+  title: Schema.optionalKey(Schema.String),
+  /**
+   * The mdast root, as JSON. Each block is a `{ type: "block", index }`
+   * node, holding its markdown children for a block that takes them.
+   */
+  tree: TreeNode,
+  /** Every block, in document order: `blocks[i].index` is `i`. */
+  blocks: Schema.Array(DocumentBlock),
+  warnings: Schema.Array(ConfigWarning),
+})
+export type DocumentView = typeof DocumentView.Type
 
 // ---------------------------------------------------------------------------
 // Results: expected outcomes, as closed unions
@@ -604,6 +665,18 @@ export class GetSession extends Rpc.make("GetSession", {
   error: SessionError,
 }) {}
 
+/**
+ * The session's runbook as a window renders it: its markdown, and each
+ * block's place, props and configuration errors. It is as large as the
+ * runbook and does not change while the session is open, so a client asks
+ * once, where `GetSession` is asked after every change.
+ */
+export class GetDocument extends Rpc.make("GetDocument", {
+  payload: session,
+  success: DocumentView,
+  error: SessionError,
+}) {}
+
 /** Person only. `hash` is the one the person was shown. */
 export class TrustSession extends Rpc.make("TrustSession", {
   payload: { ...session, hash: ContentHash },
@@ -733,6 +806,7 @@ export const EngineProtocol = RpcGroup.make(
   CloseSession,
   ListSessions,
   GetSession,
+  GetDocument,
   TrustSession,
   Events,
   GetBlock,

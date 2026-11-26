@@ -35,6 +35,7 @@ import {
   Option,
   PubSub,
   Redacted,
+  Result,
   Schema,
   Scope,
   Semaphore,
@@ -72,6 +73,8 @@ import {
   type BlockAction,
   type BlockSummary,
   type BlockView,
+  type DocumentBlock,
+  type DocumentView,
   type EngineEvent,
   type EventEnvelope,
   FieldView,
@@ -325,49 +328,150 @@ const taskInput = (
   gitCredential: Option.none(),
 })
 
+/** What the session reads of one block when it opens. */
+interface BlockRead {
+  /** The block's node, with any error found reading it after the parser's. */
+  readonly node: BlockNode
+  /** Its form: a form block's, or a task's own. */
+  readonly spec: Option.Option<FormSpec>
+  /** Its own props as a client is sent them (`DocumentBlock`). */
+  readonly props: Option.Option<Schema.Json>
+}
+
 /**
- * Reads each form: a form block's, or a task's own, from its props and the
- * files it names. `fields` gets no services, so this does no I/O, as it
- * happens before trust. A form that cannot be read is a configuration error
- * in its block, which the block's node then holds beside the parser's, so
- * the block is `Misconfigured` like any other.
+ * Reads what the session needs of each block, from its props and the files
+ * it names: its form, a form block's or a task's own, and its props as a
+ * client is sent them. `fields` gets no services, so this does no I/O, as it
+ * happens before trust. A form that cannot be read, or props that cannot be
+ * sent, is a configuration error in its block, which the block's node then
+ * holds beside the parser's, so the block is `Misconfigured` like any other.
  */
-const readForms = Effect.fnUntraced(function* (
+const readBlocks = Effect.fnUntraced(function* (
   document: RunbookDocument,
   registry: Registry,
   texts: ReadonlyMap<number, RunbookTexts>,
 ) {
-  const read = yield* Effect.forEach(document.blocks, (node) => {
+  const read = yield* Effect.forEach(document.blocks, (node): Effect.Effect<BlockRead> => {
     const block = node.errors.length > 0 ? undefined : resolveTag(registry, node.tag)?.block
-    const fields = block?.class === "form" || block?.class === "task" ? block.fields : undefined
-    if (fields === undefined) return Effect.succeed({ node, spec: Option.none<FormSpec>() })
-    return Effect.match(fields(node.props, texts.get(node.index) ?? NO_FILES), {
-      onSuccess: (spec) => ({ node, spec: Option.some(spec) }),
-      onFailure: (error) => ({
-        node: { ...node, errors: [...node.errors, formError(document, node, error)] },
-        spec: Option.none<FormSpec>(),
-      }),
-    })
+    const none: BlockRead = { node, spec: Option.none(), props: Option.none() }
+    switch (block?.class) {
+      // The parser found errors in it: the block is Misconfigured, and nothing more is read.
+      case undefined:
+        return Effect.succeed(none)
+      // Its props may hold a sign-in field's default, which the engine shows
+      // only once the block's provider says the field is not secret.
+      case "credential":
+        return Effect.succeed(none)
+      case "form":
+        return readForm(document, node, block.fields(node.props, texts.get(node.index) ?? NO_FILES))
+      case "task":
+        return block.fields === undefined
+          ? Effect.succeed(readProps(document, node, block))
+          : readForm(document, node, block.fields(node.props, texts.get(node.index) ?? NO_FILES))
+      case "display":
+        return Effect.succeed(readProps(document, node, block))
+    }
   })
   return {
     document: { ...document, blocks: read.map(({ node }) => node) },
     specs: new Map(
       read.flatMap(({ node, spec }) => (Option.isSome(spec) ? [[node.index, spec.value]] : [])),
     ),
+    props: new Map(
+      read.flatMap(({ node, props }) => (Option.isSome(props) ? [[node.index, props.value]] : [])),
+    ),
   }
 })
 
-const formError = (document: RunbookDocument, node: BlockNode, error: PropError) =>
+/** A block's form. Its props are not sent: they define the form, and may hold a sensitive field's default. */
+const readForm = (
+  document: RunbookDocument,
+  node: BlockNode,
+  fields: Effect.Effect<FormSpec, PropError>,
+): Effect.Effect<BlockRead> =>
+  Effect.match(fields, {
+    onSuccess: (spec) => ({ node, spec: Option.some(spec), props: Option.none() }),
+    onFailure: (error) => ({
+      node: withError(node, openError(document, node, error.message, error.prop)),
+      spec: Option.none(),
+      props: Option.none(),
+    }),
+  })
+
+/**
+ * A block's props, encoded with its own schema, as JSON. A block's schema
+ * that cannot encode what it decoded is a bug in the block, not in the
+ * runbook; its block does not run, as the window could not show it.
+ */
+function readProps(document: RunbookDocument, node: BlockNode, block: AnyBlock): BlockRead {
+  const encoded = Result.flatMap(Schema.encodeUnknownResult(block.props)(node.props), (props) =>
+    Schema.decodeUnknownResult(Schema.Json)(props),
+  )
+  return Result.match(encoded, {
+    onSuccess: (props) => ({ node, spec: Option.none(), props: Option.some(props) }),
+    onFailure: (error) => ({
+      node: withError(
+        node,
+        openError(
+          document,
+          node,
+          `Runbooks could not send <${node.tag}>'s props to the window (${error.message.replace(/\s+/g, " ")}). This is a bug in Runbooks, not in the runbook.`,
+        ),
+      ),
+      spec: Option.none(),
+      props: Option.none(),
+    }),
+  })
+}
+
+const withError = (node: BlockNode, error: ConfigError): BlockNode => ({
+  ...node,
+  errors: [...node.errors, error],
+})
+
+/** A configuration error the engine found in a block when the session opened. */
+const openError = (document: RunbookDocument, node: BlockNode, message: string, prop?: string) =>
   new ConfigError({
     code: "badProp",
-    message: error.message,
+    message,
     location: {
       file: document.file,
       span: node.span,
       block: { tag: node.tag, ...(node.idAsWritten === undefined ? {} : { id: node.idAsWritten }) },
-      prop: error.prop,
+      ...(prop === undefined ? {} : { prop }),
     },
   })
+
+/** The session's document as a window renders it, each block's props as `readBlocks` encoded them. */
+function documentViewOf(
+  document: RunbookDocument,
+  props: ReadonlyMap<number, Schema.Json>,
+): DocumentView {
+  const { frontMatter } = document
+  return {
+    ...(frontMatter.title === undefined ? {} : { title: frontMatter.title }),
+    tree: document.tree,
+    blocks: document.blocks.map((node): DocumentBlock => {
+      const { title, description, autoCollapse } = node.shared
+      const placed = {
+        index: node.index,
+        tag: node.tag,
+        block: node.block,
+        class: node.class,
+        ...(node.id === undefined ? {} : { id: node.id }),
+        span: node.span,
+        ...(title === undefined ? {} : { title }),
+        ...(description === undefined ? {} : { description }),
+        ...(autoCollapse === undefined ? {} : { autoCollapse }),
+      }
+      const [first, ...rest] = node.errors
+      if (first !== undefined) return { _tag: "Misconfigured", ...placed, errors: [first, ...rest] }
+      const sent = props.get(node.index)
+      return { _tag: "Configured", ...placed, ...(sent === undefined ? {} : { props: sent }) }
+    }),
+    warnings: document.warnings,
+  }
+}
 
 function slotsOf(document: RunbookDocument, registry: Registry): ReadonlyArray<Slot> {
   const ids = new Map<number, BlockId>()
@@ -588,6 +692,8 @@ export interface Session {
   readonly id: SessionId
   readonly summary: () => SessionSummary
   readonly view: () => SessionView
+  /** Built when the session opens: nothing in it changes while it is open. */
+  readonly documentView: DocumentView
   /** Trusts the session if `hash` is its document's, and takes `runner` to run its blocks with. */
   readonly trust: (hash: ContentHash, runner: Runner) => Effect.Effect<TrustResult>
   /** Every event after `after`, then each new one. Ends with `SessionClosed`. */
@@ -664,7 +770,12 @@ export const makeSession = Effect.fnUntraced(function* (options: {
 }) {
   const { id, roots, baseEnvironment, saver } = options
   const resume = Option.getOrUndefined(options.resume)
-  const { document, specs } = yield* readForms(options.document, options.registry, options.texts)
+  const {
+    document,
+    specs,
+    props: sentProps,
+  } = yield* readBlocks(options.document, options.registry, options.texts)
+  const documentView = documentViewOf(document, sentProps)
   const slots = slotsOf(document, options.registry)
   const credentialSlots = credentialSlotsOf(slots, options.registry)
   const credentialSlotAt = new Map(credentialSlots.map((slot) => [slot.index, slot]))
@@ -1558,6 +1669,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       warnings: document.warnings,
       ...(resume === undefined ? {} : { resumed: resume.resumed }),
     }),
+
+    documentView,
 
     trust: (hash, runner) =>
       update((emit): TrustResult => {

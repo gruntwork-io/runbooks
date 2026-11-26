@@ -287,7 +287,7 @@ describe("runbook_test.yml", () => {
       /^runbook_test\.yml:\d+:\d+: /,
     )
     expect(decode("version: 1\nversion: 1\ntests: [{ name: a }]\n").message).toContain(
-      "runbook_test.yml:2:1: Map keys must be unique",
+      "runbook_test.yml:2:1: a key appears twice in one map.",
     )
   })
 })

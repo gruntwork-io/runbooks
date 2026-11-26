@@ -7,8 +7,8 @@
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
 import { Option, Result, Schema, SchemaAST, SchemaIssue } from "effect"
-import YAML, { type Document, isMap, isScalar } from "yaml"
-import { yamlData } from "./yamlData.ts"
+import { type Document, isMap, isScalar } from "yaml"
+import { parseYaml, yamlData } from "./yamlData.ts"
 import {
   BlockId,
   type Capability,
@@ -442,12 +442,17 @@ class Parse {
   // -------------------------------------------------------------------------
 
   private frontMatter(yaml: string): FrontMatter {
-    const doc = YAML.parseDocument(yaml)
-    const [problem] = doc.errors
+    const {
+      doc,
+      problems: [problem],
+    } = parseYaml(yaml)
     if (problem) {
       // The YAML starts on the file's second line, after `---`.
-      const line = 1 + (problem.linePos?.[0].line ?? 1)
-      this.error("syntax", `The front matter isn't valid YAML: ${problem.message}`, lineSpan(line))
+      this.error(
+        "syntax",
+        `The front matter isn't valid YAML: ${problem.reason}.`,
+        pointSpan(1 + problem.line, problem.column),
+      )
       return {}
     }
     const data = yamlData(doc)
@@ -771,15 +776,17 @@ class Parse {
       (child) => child.type === "code" && (child.lang === "yaml" || child.lang === "yml"),
     )
     if (fence === undefined || typeof fence.value !== "string") return true
-    const doc = YAML.parseDocument(fence.value)
-    const [problem] = doc.errors
+    const {
+      doc,
+      problems: [problem],
+    } = parseYaml(fence.value)
     if (problem) {
-      // The YAML starts on the line after the fence's opening line.
-      const line = spanOf(fence).start.line + (problem.linePos?.[0].line ?? 1)
+      // The YAML starts on the line after the fence's opening line, indented as the fence is.
+      const { start } = spanOf(fence)
       this.error(
         "badChildren",
-        `The YAML in <${where.tag}> isn't valid: ${problem.message}`,
-        lineSpan(line),
+        `The YAML in <${where.tag}> isn't valid: ${problem.reason}.`,
+        pointSpan(start.line + problem.line, start.column - 1 + problem.column),
         {
           block: where,
           prop,
@@ -1075,6 +1082,11 @@ const LINE_ONE: Span = { start: { line: 1, column: 1 }, end: { line: 1, column: 
 
 function lineSpan(line: number): Span {
   return { start: { line, column: 1 }, end: { line: line + 1, column: 1 } }
+}
+
+/** From `column` of `line` to the line's end. */
+function pointSpan(line: number, column: number): Span {
+  return { start: { line, column }, end: { line: line + 1, column: 1 } }
 }
 
 function spanOf(node: MdxNode): Span {

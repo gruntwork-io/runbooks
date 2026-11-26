@@ -52,6 +52,27 @@ describe("runbooks validate", () => {
     expect(run.stdout).not.toContain("--force")
   })
 
+  it("prints no runbook text in a YAML error, as text or as JSON", async () => {
+    const secret = "fake-secret-yaml-5b0a"
+    runbook("front", `---\napi_key: ${secret}\napi_key: again\n---\n\n# Deploy\n`)
+    const form = ["- name: token", "  sensitive: true", `  default: ${secret}`, "  default: again"]
+    runbook("fence", ['<Form id="config">', "```yaml", ...form, "```", "</Form>", ""].join("\n"))
+    const text = await validate(["front", "fence"])
+    expect(text.code).toBe(EXIT.failure)
+    expect(text.stdout).toMatch(
+      /^front\/runbook\.mdx:3:1: error syntax: The front matter isn't valid YAML: a key appears twice in one map\.$/m,
+    )
+    expect(text.stdout).toMatch(
+      /^fence\/runbook\.mdx:6:3: error badChildren: The YAML in <Form> isn't valid: a key appears twice in one map\.$/m,
+    )
+    const json = await validate(["front", "fence", "--output", "json"])
+    expect(json.code).toBe(EXIT.failure)
+    for (const run of [text, json]) {
+      expect(run.stdout).not.toContain(secret)
+      expect(run.stderr).not.toContain(secret)
+    }
+  })
+
   it("prints what was expected and what it likely meant", async () => {
     runbook("typo", '<Runn id="a" />\n\n<Run id="b" comand="make" />\n')
     const run = await validate(["typo"])
