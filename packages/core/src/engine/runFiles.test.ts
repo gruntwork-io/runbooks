@@ -269,9 +269,36 @@ describe("the bounds", () => {
     expect(parse(lines(RUN_FILE_LIMITS.lines + 1)).written).toEqual({})
   })
 
+  // Linux's execve refuses an environment string past MAX_ARG_STRLEN, 32
+  // pages of 4 KiB: 131072 bytes of `NAME=value` and its NUL together.
+  const MAX_ARG_STRLEN = 128 * 1024
+
+  it("refuses a variable a process cannot take, counting the bytes of NAME=value and its NUL", () => {
+    const at = (name: string, value: string) => `${name}=${value}\n`
+    // "A=" and the NUL are 3 bytes; "€" is 3 bytes in UTF-8, and one UTF-16 unit.
+    const euros = "€".repeat((MAX_ARG_STRLEN - 3 - 2) / 3) + "xx"
+    expect(problemsIn(at("A", euros), "RUNBOOK_ENV")).toEqual([])
+    expect(problemsIn(at("A", `${euros}x`), "RUNBOOK_ENV")).toEqual([[1, "VariableTooLong"]])
+    // "😀" is 4 bytes, and two UTF-16 units.
+    const faces = "😀".repeat((MAX_ARG_STRLEN - 3 - 1) / 4) + "x"
+    expect(problemsIn(at("A", faces), "RUNBOOK_ENV")).toEqual([])
+    expect(problemsIn(at("A", `${faces}x`), "RUNBOOK_ENV")).toEqual([[1, "VariableTooLong"]])
+    // The name counts too.
+    const name = "A_LONGER_NAME"
+    const ascii = "v".repeat(MAX_ARG_STRLEN - name.length - 2)
+    expect(problemsIn(at(name, ascii), "RUNBOOK_ENV")).toEqual([])
+    expect(problemsIn(at(name, `${ascii}v`), "RUNBOOK_ENV")).toEqual([[1, "VariableTooLong"]])
+  })
+
+  it("refuses an output's value past 128 KiB, counting its bytes", () => {
+    const value = "€".repeat((128 * 1024 - 2) / 3) + "xx"
+    expect(problemsIn(`A=${value}\n`)).toEqual([])
+    expect(problemsIn(`A=${value}x\n`)).toEqual([[1, "ValueTooLong"]])
+  })
+
   it("refuses a name or a value past its length, and takes one at it", () => {
     const name = "N".repeat(RUN_FILE_LIMITS.nameLength)
-    const value = "v".repeat(RUN_FILE_LIMITS.valueLength)
+    const value = "v".repeat(RUN_FILE_LIMITS.valueBytes)
     expect(problemsIn(`${name}=${value}\n`)).toEqual([])
     expect(problemsIn(`${name}N=v\nA=${value}v\n`)).toEqual([
       [1, "NameTooLong"],
@@ -301,6 +328,14 @@ describe("the run's error", () => {
     const lines = runFilesFailed(problems).message.split("\n")
     expect(lines).toHaveLength(1 + RUN_FILE_LIMITS.problemsNamed + 1)
     expect(lines.at(-1)).toBe("And 3 more.")
+  })
+
+  it("names a variable too large for a process, its size and the limit in bytes, not its value", async () => {
+    const result = await readFrom({ [FILES.RUNBOOK_ENV]: `OK=1\nBIG=${"€".repeat(50_000)}\n` })
+    const message = Result.isFailure(result) ? result.failure.message : ""
+    expect(message).toContain("$RUNBOOK_ENV line 2: BIG is 150005 bytes")
+    expect(message).toContain("131072 bytes")
+    expect(message).not.toContain("€")
   })
 })
 

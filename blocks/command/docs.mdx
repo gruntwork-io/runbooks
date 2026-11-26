@@ -408,6 +408,8 @@ Each run starts fresh. A script runs with these variables, a later layer winning
 3. The [`env`](#setting-variables-with-env) prop.
 4. The variables Runbooks sets for the run: `$RUNBOOK_OUTPUT`, `$RUNBOOK_ENV`, [`$GENERATED_FILES`](#writing-to-generated-files), the [log files](#log-files), and [`$REPO_FILES`](#writing-to-repository-files) for a block that names a repository.
 
+The first three layers together can be at most 960 KiB (983,040 bytes), so that every system Runbooks runs on can start the script with them. Each variable counts as `NAME=value` in UTF-8 and 9 bytes more: the NUL that ends it and its pointer. One variable from `envFrom` or `env`, `NAME=value` and its NUL, can be at most 128 KiB (131,072 bytes). A run past either limit fails before its script starts, and the error names the variable, or the blocks that gave the most.
+
 Nothing else carries from one block to the next. An `export`, `unset` or `cd` in one script doesn't reach later blocks. To pass a variable on, write it to `$RUNBOOK_ENV` and name the block in the later block's `envFrom`. To pass a value, write a [block output](#block-outputs).
 
 Scripts run in a non-interactive shell, so shell aliases such as `ll` and shell functions such as `nvm` or `rvm` are not available.
@@ -427,7 +429,7 @@ A script gives variables to later blocks by writing `NAME=value` lines to the `$
 ```
 
 - **Only the blocks that name it get them.** A block that names `login` only in `dependsOn` doesn't get `API_TOKEN`. A block passes on only what its own script wrote, not what it got from its own `envFrom` sources.
-- **The format is that of `$RUNBOOK_OUTPUT`.** See [Block outputs](#block-outputs). Runbooks treats every value in `$RUNBOOK_ENV` as sensitive. A line that sets a name Runbooks keeps for itself, or a value that holds a NUL character, fails the run.
+- **The format is that of `$RUNBOOK_OUTPUT`.** See [Block outputs](#block-outputs). Runbooks treats every value in `$RUNBOOK_ENV` as sensitive. A line that sets a name Runbooks keeps for itself, or a value that holds a NUL character, fails the run. So does a variable larger than a process can be given: 128 KiB (131,072 bytes) for `NAME=value` in UTF-8, one byte of it for the NUL that ends it.
 - **Runbooks reads it when the script exits 0 or 2.** A block that names a failed block in `envFrom` waits, as for `dependsOn`.
 - **An auth block gives its credentials.** `envFrom="aws"` gives the script the variables of the AwsAuth block `aws`, read when the run starts. See [AwsAuth](/authoring/blocks/awsauth/), [GoogleAuth](/authoring/blocks/googleauth/), [AzureAuth](/authoring/blocks/azureauth/) and [GitAuth](/authoring/blocks/gitauth/).
 
@@ -609,7 +611,7 @@ echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
 - **A declared output must be written.** If the script never writes it, the block that reads it fails when it runs.
 - **Runbooks reads the file when the script exits 0 or 2.** When the script exits with any other code, the block's outputs are withdrawn.
 
-Write one output per line. A name starts with a letter or underscore and contains only letters, digits and underscores. For a value with line breaks, write `name<<EOF`, then the value's lines, then `EOF` on a line of its own. Runbooks fails the run when it can't read a line, and the error names the line. It reads at most 1 MiB and 10,000 lines of the file. See [Producing outputs](/authoring/inputs-and-outputs/#producing-outputs) for the full format.
+Write one output per line. A name starts with a letter or underscore and contains only letters, digits and underscores. For a value with line breaks, write `name<<EOF`, then the value's lines, then `EOF` on a line of its own. Runbooks fails the run when it can't read a line, and the error names the line. It reads at most 1 MiB and 10,000 lines of the file, and 128 KiB of one value, counted in UTF-8 bytes. See [Producing outputs](/authoring/inputs-and-outputs/#producing-outputs) for the full format.
 
 After a block runs, click **View Outputs** below the log viewer to inspect its outputs. To keep a credential off screen there, write `sensitive:` before its name, as in `echo "sensitive:API_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"`. See [Sensitive outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
 
