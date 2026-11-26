@@ -64,6 +64,10 @@ describe("remarkLiteralOnly", () => {
         "links and text that only mention javascript:",
         '<a href="https://example.com/javascript:">Docs</a>\n\n<Run command="echo javascript: is off" />',
       ],
+      [
+        "markdown links and images that only mention javascript:",
+        "[Docs](https://example.com/javascript:) and [javascript: links](./javascript.md)\n\n![Logo](./javascript.png)\n\n[More][more]\n\n[more]: ./javascript:more.md",
+      ],
     ])("%s", (_name, source) => {
       // Unknown toy tags and missing ids are other errors; none is a refusal.
       expect(codes(source)).not.toContain("notAllowed")
@@ -147,10 +151,62 @@ describe("remarkLiteralOnly", () => {
       ["a javascript: URL in a literal expression", "<a HREF={`javascript:alert(1)`}>Go</a>"],
       ["a javascript: URL in an array", `<a HREF={['javascript:alert(1)']}>Go</a>`],
       ["a javascript: URL in an exactly spelled href", '<a href="javascript:alert(1)">Go</a>'],
+      ["a javascript: URL in a markdown link", "[Next step](javascript:alert(1))"],
+      [
+        "an obfuscated javascript: URL in a markdown link",
+        "[Go](&#x6A;ava&#x09;script&colon;alert(1))",
+      ],
+      ["a javascript: URL in a markdown image", "![Diagram](javascript:alert(1))"],
+      [
+        "a javascript: URL in a reference link's definition",
+        "[Next step][go]\n\n[go]: javascript:alert(1)",
+      ],
+      [
+        "a javascript: URL in a markdown link in a block",
+        "<Note>\n[Go](javascript:alert(1))\n</Note>",
+      ],
     ])("%s", (_name, source) => {
       expect(firstRefusal(source).message).toMatch(
         /not allowed in runbooks|must be a literal value/,
       )
+    })
+  })
+
+  describe("rejects elements that hand the app another document to load", () => {
+    it.each([
+      [
+        "a meta refresh to a javascript: URL",
+        '<meta http-equiv="refresh" content="0;url=javascript:alert(1)" />',
+        "meta",
+      ],
+      [
+        "a meta refresh to another page",
+        '<meta http-equiv="refresh" content="0; url=https://example.com/" />',
+        "meta",
+      ],
+      ["a base element", '<base href="https://example.com/" />', "base"],
+      ["a stylesheet link", '<link rel="stylesheet" href="https://example.com/x.css" />', "link"],
+      [
+        "a prefetch link",
+        'Inline <link rel="prefetch" href="https://example.com/next" /> text',
+        "link",
+      ],
+    ])("%s", (_name, source, element) => {
+      expect(firstRefusal(source).message).toBe(
+        `<${element}> elements are not allowed in runbooks.`,
+      )
+    })
+  })
+
+  // Its CSS applies to the whole window, so it could hide the trust banner.
+  describe("rejects a style element", () => {
+    it.each([
+      ["a style element", "<style>{'.mb-4 { display: none }'}</style>"],
+      ["a style element in text", "Inline <style>{`.mb-4 { display: none }`}</style> text"],
+      ["a style element in an svg", "<svg><style>{'.mb-4 { display: none }'}</style></svg>"],
+      ["a style element in a block", "<Note>\n<style>{'.mb-4 { display: none }'}</style>\n</Note>"],
+    ])("%s", (_name, source) => {
+      expect(firstRefusal(source).message).toBe("<style> elements are not allowed in runbooks.")
     })
   })
 
@@ -178,6 +234,26 @@ describe("remarkLiteralOnly", () => {
     expect(url.message).toBe(
       "`javascript:` URLs like the `HREF` prop of <a> are not allowed in runbooks.",
     )
+  })
+
+  it("names the line of a markdown link, image or definition that has a javascript: URL", () => {
+    const at = (source: string) => {
+      const { location, message } = firstRefusal(source)
+      return [location.span.start.line, message]
+    }
+    expect(at("# Title\n\nSee [the next step](javascript:alert(1)).")).toEqual([
+      3,
+      "`javascript:` URLs like this link's are not allowed in runbooks.",
+    ])
+    expect(at("# Title\n\n![Diagram](javascript:alert(1))")).toEqual([
+      3,
+      "`javascript:` URLs like this image's are not allowed in runbooks.",
+    ])
+    // A reference link has no URL of its own: its definition, where the author fixes it, has.
+    expect(at("# Title\n\n[Next step][go]\n\n[go]: javascript:alert(1)")).toEqual([
+      5,
+      "`javascript:` URLs like this link definition's are not allowed in runbooks.",
+    ])
   })
 })
 

@@ -1,7 +1,8 @@
 /**
  * What keeps runbook MDX declarative: every construct that would run
- * JavaScript, or hand the app raw HTML or another document to load, is
- * refused at parse time, before any client shows the runbook.
+ * JavaScript, hand the app raw HTML or another document to load, or restyle
+ * the app's window, is refused at parse time, before any client shows the
+ * runbook.
  *
  * The renderer no longer evaluates MDX, but it still renders HTML elements
  * and their props, so the element and prop checks still matter:
@@ -10,7 +11,13 @@
  * - `{...}` in text or between blocks, unless it is empty, a comment, or a
  *   literal value;
  * - `prop={...}` values that are not literal values;
- * - elements that load scripts or embed documents (BLOCKED_ELEMENTS);
+ * - elements that load scripts, embed documents, or hand the app another
+ *   document to load (BLOCKED_ELEMENTS): a `<meta>` refresh navigates the
+ *   window, `<base>` moves where every relative link and image loads from,
+ *   and `<link>` loads a stylesheet or prefetches a page;
+ * - `<style>` elements (BLOCKED_ELEMENTS), whose CSS applies to the whole
+ *   window: one can hide the trust banner or restyle the app around the
+ *   runbook;
  * - custom elements (`<x-widget>`), whose props React passes through as DOM
  *   attributes, so `ONANIMATIONSTART="..."` becomes an inline handler;
  * - dotted element names, which reach properties of a block;
@@ -20,7 +27,9 @@
  *   (BLOCKED_PROPS);
  * - `javascript:` URLs in any prop, because React only neutralizes them in
  *   props spelled exactly `href`, `src`, `action`, `formAction` or
- *   `xlinkHref`.
+ *   `xlinkHref`;
+ * - `javascript:` URLs in markdown links, images and link definitions, so no
+ *   renderer has to neutralize them.
  *
  * A literal value is a string, number, boolean, null or regex literal; a
  * template string without `${...}`; a number with a leading `-` or `+`; or an
@@ -39,7 +48,7 @@ import type { MdxNode } from "./mdx.ts"
 
 /** One construct the check refuses. */
 export interface Refusal {
-  /** The node to point at: the element, the attribute, the expression. */
+  /** The node to point at: the element, the attribute, the expression, the link. */
   readonly node: MdxNode
   readonly message: string
   /** The element's name, when the refusal is about an element or its prop. */
@@ -74,6 +83,18 @@ export function refusals(tree: MdxNode): ReadonlyArray<Refusal> {
       case "mdxJsxTextElement":
         found.push(...elementRefusals(node))
         break
+      // A reference link has no URL: its definition, where the author fixes it, has.
+      case "link":
+      case "image":
+      case "definition":
+        if (node.url !== undefined && isJavascriptUrl(node.url)) {
+          const kind = node.type === "definition" ? "link definition" : node.type
+          found.push({
+            node,
+            message: `\`javascript:\` URLs like this ${kind}'s are not allowed in runbooks.`,
+          })
+        }
+        break
     }
     node.children?.forEach(visit)
   }
@@ -81,7 +102,8 @@ export function refusals(tree: MdxNode): ReadonlyArray<Refusal> {
   return found
 }
 
-// Elements that load and run scripts or embed other documents. Compared lowercased.
+// Elements that load and run scripts, embed other documents, hand the app
+// another document to load, or restyle the whole window. Compared lowercased.
 const BLOCKED_ELEMENTS = new Set([
   "script",
   "iframe",
@@ -90,6 +112,10 @@ const BLOCKED_ELEMENTS = new Set([
   "object",
   "embed",
   "webview",
+  "meta",
+  "base",
+  "link",
+  "style",
 ])
 
 // Prop names (compared lowercased) that are never literal content:
