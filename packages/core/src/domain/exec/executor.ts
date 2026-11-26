@@ -9,8 +9,6 @@ import { ExecEnvOverrideError, ExecTimeoutError } from "../../errors/index.ts"
 import { buildFileTree } from "../workspace/file-tree.ts"
 import { disallowedEnvVars } from "./authEnv.ts"
 import { makeLogger } from "../../logger.ts"
-
-const log = makeLogger("domain:exec")
 import type {
   ExecRequest,
   ExecLogEvent,
@@ -164,6 +162,7 @@ export const executeScript = (
       })
     }
 
+    const log = makeLogger("domain:exec", yield* (yield* Environment).get("DEBUG"))
     log.debug("step 1: getting services")
     const fs = yield* FileSystem
     const spawner = yield* ProcessSpawner

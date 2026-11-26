@@ -2,7 +2,7 @@
  * Namespaced logger gated by the DEBUG environment variable.
  *
  * Usage:
- *   const log = makeLogger("ipc:exec")
+ *   const log = makeLogger("ipc:exec", debug)  // debug: the DEBUG variable
  *   log.debug("handler called for:", id)   // only emitted if DEBUG matches
  *   log.info("eager loading WASM")          // always emitted
  *   log.warn("retrying after error")        // always emitted
@@ -14,9 +14,8 @@
  *   DEBUG=ipc:exec,git:*   — enable specific tag plus a prefix
  *   DEBUG=-ipc:exec        — disable a tag (with `*` or another prefix enabled)
  *
- * The patterns are evaluated once at module load, so changing process.env.DEBUG
- * at runtime has no effect. This matches the behaviour of the `debug` npm
- * package and keeps the per-call cost down to a boolean check.
+ * The caller reads DEBUG from its environment and passes it to makeLogger,
+ * which evaluates the patterns once, so each call costs a boolean check.
  */
 
 import { inspect } from "node:util"
@@ -48,8 +47,6 @@ export function compilePatterns(raw: string | undefined): CompiledPattern[] {
     })
 }
 
-const PATTERNS = compilePatterns(typeof process !== "undefined" ? process.env.DEBUG : undefined)
-
 /** Exposed for unit tests. */
 export function matchesPatterns(tag: string, patterns: CompiledPattern[]): boolean {
   let enabled = false
@@ -59,10 +56,6 @@ export function matchesPatterns(tag: string, patterns: CompiledPattern[]): boole
     }
   }
   return enabled
-}
-
-function isDebugEnabled(tag: string): boolean {
-  return matchesPatterns(tag, PATTERNS)
 }
 
 const noop = (..._args: unknown[]): void => {}
@@ -206,13 +199,14 @@ function sanitizeArgs(args: unknown[]): unknown[] {
   })
 }
 
-export function makeLogger(tag: string): Logger {
+/** A logger for `tag`. Its debug lines print when `debug`, the DEBUG patterns, enable the tag. */
+export function makeLogger(tag: string, debug: string | undefined): Logger {
   const prefix = `[${tag}]`
-  const debug = isDebugEnabled(tag)
+  const debugLine = matchesPatterns(tag, compilePatterns(debug))
     ? (...args: unknown[]) => console.debug(prefix, ...sanitizeArgs(args))
     : noop
   return {
-    debug,
+    debug: debugLine,
     info: (...args: unknown[]) => console.log(prefix, ...sanitizeArgs(args)),
     warn: (...args: unknown[]) => console.warn(prefix, ...sanitizeArgs(args)),
     error: (...args: unknown[]) => console.error(prefix, ...sanitizeArgs(args)),

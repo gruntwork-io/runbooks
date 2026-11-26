@@ -67,7 +67,7 @@ describe("matchesPatterns", () => {
 
 describe("makeLogger", () => {
   it("returns a logger with all four levels", () => {
-    const log = makeLogger("test")
+    const log = makeLogger("test", undefined)
     expect(typeof log.debug).toBe("function")
     expect(typeof log.info).toBe("function")
     expect(typeof log.warn).toBe("function")
@@ -75,11 +75,30 @@ describe("makeLogger", () => {
   })
 
   it("does not throw when called", () => {
-    const log = makeLogger("test")
+    const log = makeLogger("test", undefined)
     expect(() => log.debug("x")).not.toThrow()
     expect(() => log.info("x")).not.toThrow()
     expect(() => log.warn("x")).not.toThrow()
     expect(() => log.error("x")).not.toThrow()
+  })
+})
+
+describe("makeLogger debug lines", () => {
+  /** What `makeLogger(tag, debug).debug("x")` printed. */
+  function debugged(tag: string, debug: string | undefined): unknown[][] {
+    const spy = spyOn(console, "debug").mockImplementation(() => {})
+    try {
+      makeLogger(tag, debug).debug("x")
+      return [...spy.mock.calls]
+    } finally {
+      spy.mockRestore()
+    }
+  }
+
+  it("prints them only for a tag the caller's DEBUG patterns enable", () => {
+    expect(debugged("domain:exec", "domain:*")).toEqual([["[domain:exec]", "x"]])
+    expect(debugged("domain:exec", "*,-domain:exec")).toEqual([])
+    expect(debugged("domain:exec", undefined)).toEqual([])
   })
 })
 
@@ -103,7 +122,7 @@ describe("makeLogger error formatting", () => {
   function logged(...args: unknown[]): string {
     const spy = spyOn(console, "error").mockImplementation(() => {})
     try {
-      makeLogger("test").error(...args)
+      makeLogger("test", undefined).error(...args)
       return spy.mock.calls.flat().map(String).join(" ")
     } finally {
       spy.mockRestore()
