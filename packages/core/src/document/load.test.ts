@@ -1,12 +1,13 @@
 import { describe, expect, it } from "bun:test"
 import { createHash } from "node:crypto"
-import { Effect } from "effect"
-import { hashTemplateDir } from "../domain/boilerplate/templateHash.ts"
+import { Effect, Schema } from "effect"
+import { RunbookPath } from "@runbooks/blocks-core/contract"
 import { FileNotFoundError } from "../errors/index.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import { configErrors, type ParseResult, type RunbookDocument } from "./document.ts"
+import { type FileFact, fileHash } from "./files.ts"
 import { loadRunbook } from "./load.ts"
 import { parseRunbook } from "./parse.ts"
 
@@ -61,7 +62,7 @@ describe("loadRunbook", () => {
   it("hashes each file a block names, and the combined hash changes with it", async () => {
     const runbook = '<Run id="a" path="scripts/a.sh" />'
     const before = await loaded({ [RUNBOOK]: runbook, "/rb/scripts/a.sh": "echo hi\n" })
-    expect(fileHashes(before)).toEqual([["scripts/a.sh", sha256("echo hi\n")]])
+    expect(fileHashes(before)).toEqual([["scripts/a.sh", fileHash(Buffer.from("echo hi\n"))]])
     expect(String(before.hash.runbook)).toBe(sha256(runbook))
 
     const after = await loaded({ [RUNBOOK]: runbook, "/rb/scripts/a.sh": "echo bye\n" })
@@ -69,23 +70,15 @@ describe("loadRunbook", () => {
     expect(after.hash.combined).not.toBe(before.hash.combined)
   })
 
-  it("hashes a folder as the template hash does, and reads the template references in its files", async () => {
+  it("hashes a folder as one entry, and reads the template references in its files", async () => {
     const files = {
       [RUNBOOK]:
         '<Run id="setup" command="make" outputs={["region"]} />\n\n<Run id="plan" path="templates" />',
       "/rb/templates/main.tf": 'provider "aws" {}\nregion = "{{ .outputs.setup.region }}"\n',
       "/rb/templates/modules/vars.tf": "variable x {}\n",
     }
-    const dirs = ["/rb/templates", "/rb/templates/modules"]
-    const doc = await loaded(files, dirs)
-    const folderHash = await Effect.runPromise(
-      Effect.gen(function* () {
-        const fs = yield* FileSystem
-        for (const dir of dirs) yield* fs.mkdir(dir)
-        return yield* hashTemplateDir("/rb/templates")
-      }).pipe(Effect.provide(makeTestFileSystem({ ...files }))),
-    )
-    expect(fileHashes(doc)).toEqual([["templates", `sha256:${folderHash}`]])
+    const doc = await loaded(files, ["/rb/templates", "/rb/templates/modules"])
+    expect(Object.keys(doc.hash.files)).toEqual(["templates"])
     expect(doc.edges).toEqual([
       {
         from: 1,
@@ -161,7 +154,9 @@ describe("loadRunbook", () => {
         ["working", []],
       ],
     )
-    expect(fileHashes(result.document)).toEqual([["scripts/ok.sh", sha256("echo ok\n")]])
+    expect(fileHashes(result.document)).toEqual([
+      ["scripts/ok.sh", fileHash(Buffer.from("echo ok\n"))],
+    ])
   })
 
   it("refuses a file that doesn't exist, at the prop that names it", async () => {
@@ -211,6 +206,81 @@ describe("loadRunbook", () => {
       ),
     )
     expect(failure).toBeInstanceOf(FileNotFoundError)
+  })
+})
+
+describe("parseRunbook, given a path the loader could not use", () => {
+  const toPath = Schema.decodeSync(RunbookPath)
+  const deep = `templates/${Array.from({ length: 17 }, (_, i) => `d${i + 1}`).join("/")}`
+
+  it.each<[string, string, FileFact, ReadonlyArray<string>]>([
+    [
+      "a symbolic link in the folder",
+      "templates",
+      { _tag: "NotAFile", path: "templates/link.tf" },
+      ["names templates, and templates/link.tf in it is neither a file nor a folder"],
+    ],
+    [
+      "a named pipe",
+      "scripts/pipe",
+      { _tag: "NotAFile", path: "scripts/pipe" },
+      ["names scripts/pipe, which is neither a file nor a folder"],
+    ],
+    [
+      "a file it can't read",
+      "scripts/a.sh",
+      { _tag: "Unreadable", path: "scripts/a.sh" },
+      ["names scripts/a.sh, which can't be read"],
+    ],
+    [
+      "a file in the folder it can't read",
+      "templates",
+      { _tag: "Unreadable", path: "templates/secret.tf" },
+      ["templates/secret.tf in it can't be read"],
+    ],
+    [
+      "a file over the byte limit",
+      "scripts/big.sh",
+      { _tag: "OverLimit", limit: "fileBytes", path: "scripts/big.sh" },
+      ["names scripts/big.sh, which is over 1 MiB", "at most 1 MiB"],
+    ],
+    [
+      "a file in the folder over the byte limit",
+      "templates",
+      { _tag: "OverLimit", limit: "fileBytes", path: "templates/big.bin" },
+      ["templates/big.bin in it is over 1 MiB"],
+    ],
+    [
+      "a folder over the byte limit",
+      "templates",
+      { _tag: "OverLimit", limit: "folderBytes", path: "templates" },
+      ["names templates, which holds over 8 MiB of files", "at most 8 MiB"],
+    ],
+    [
+      "a folder over the file limit",
+      "templates",
+      { _tag: "OverLimit", limit: "entries", path: "templates" },
+      ["names templates, which holds over 2000 files and folders", "at most 2000"],
+    ],
+    [
+      "a folder nested too deep",
+      "templates",
+      { _tag: "OverLimit", limit: "depth", path: deep },
+      [`${deep} in it is over 16 folders deep`, "at most 16 deep"],
+    ],
+  ])("stops the block at the prop that names %s, hashing none of it", (_, path, fact, parts) => {
+    const result = parseRunbook(
+      `<Run id="a" path="${path}" />`,
+      TOY_REGISTRY,
+      { file: "runbook.mdx", appVersion: "0.31.0" },
+      new Map([[toPath(path), fact]]),
+    )
+    if (result._tag === "Invalid") throw new Error("refused")
+    const errors = result.document.blocks[0]?.errors ?? []
+    expect(errors.map((e) => [e.code, e.location.prop])).toEqual([["badFile", "path"]])
+    for (const part of parts) expect(errors[0]?.message).toContain(part)
+    expect(fileHashes(result.document)).toEqual([])
+    expect(result.texts).toEqual(new Map())
   })
 })
 
