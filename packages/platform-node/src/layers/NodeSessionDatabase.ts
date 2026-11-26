@@ -85,12 +85,14 @@ const EventRecord = Schema.Struct({
 
 const UserVersion = Schema.Struct({ user_version: Schema.Number })
 const ApplicationId = Schema.Struct({ application_id: Schema.Number })
+const QuickCheck = Schema.Struct({ quick_check: Schema.String })
 const Id = Schema.Struct({ id: Schema.String })
 
 const decodeSession = Schema.decodeUnknownSync(SessionRecord)
 const decodeEvent = Schema.decodeUnknownSync(EventRecord)
 const decodeUserVersion = Schema.decodeUnknownSync(UserVersion)
 const decodeApplicationId = Schema.decodeUnknownSync(ApplicationId)
+const decodeQuickCheck = Schema.decodeUnknownSync(QuickCheck)
 const decodeId = Schema.decodeUnknownSync(Id)
 
 const toSessionRow = (row: unknown): SessionRow => {
@@ -157,7 +159,9 @@ function migrate(db: DatabaseSync): void {
   db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MILLIS}`)
   db.exec("PRAGMA foreign_keys = ON")
   db.exec("PRAGMA synchronous = NORMAL")
-  if (versionOf(db) === MIGRATIONS.length) return
+  const version = versionOf(db)
+  checkIntact(db)
+  if (version === MIGRATIONS.length) return
   transaction(db, () => {
     for (let step = versionOf(db); step < MIGRATIONS.length; step += 1) {
       if (step === 0) db.exec(`PRAGMA application_id = ${SESSIONS_APPLICATION_ID}`)
@@ -165,6 +169,20 @@ function migrate(db: DatabaseSync): void {
       db.exec(`PRAGMA user_version = ${step + 1}`)
     }
   })
+}
+
+/**
+ * Throws when SQLite finds pages of `db` missing or overwritten, as in a
+ * file cut short. Its header and schema can still read well, but every save
+ * into it would fail. It reads the whole file; a store keeps at most
+ * `MAX_KEPT_SESSIONS` sessions.
+ */
+function checkIntact(db: DatabaseSync): void {
+  const { quick_check: found } = decodeQuickCheck(db.prepare("PRAGMA quick_check(1)").get())
+  if (found !== "ok")
+    throw new Error(
+      `It is damaged: ${found.replace(/^\*\*\* in database main \*\*\*\n/, "")}. Move it aside, and Runbooks makes a new one at the next start.`,
+    )
 }
 
 const isBusy = (error: unknown): boolean =>

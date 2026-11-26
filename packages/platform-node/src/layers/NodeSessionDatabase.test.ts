@@ -213,3 +213,46 @@ describe("the sessions database with a second Runbooks", () => {
     expect(inFile(file)).toEqual([{ id: "s1" }])
   })
 })
+
+describe("a sessions database that is damaged", () => {
+  /**
+   * This layer's database, holding more sessions than its first pages do,
+   * closed with every page in the file, none left in its write-ahead log.
+   */
+  async function made() {
+    await run((db) => db.putSession(session))
+    const filler = new DatabaseSync(file)
+    const insert = filler.prepare(
+      "INSERT INTO sessions (id, runbook, created_at, used_at, trusted, next_sequence) VALUES (?, ?, 1, 1, NULL, 0)",
+    )
+    for (let i = 0; i < 300; i++) insert.run(`filler-${i}`, `/rb/filler-${i}.mdx`.repeat(8))
+    filler.exec("PRAGMA wal_checkpoint(TRUNCATE)")
+    filler.close()
+  }
+
+  const damages: ReadonlyArray<readonly [string, () => void]> = [
+    ["cut short", () => nodeFs.truncateSync(file, 2 * 4096)],
+    [
+      // Page 2 is the root of the sessions table, the first table the schema makes.
+      "with a page overwritten",
+      () => {
+        const handle = nodeFs.openSync(file, "r+")
+        nodeFs.writeSync(handle, Buffer.alloc(4096), 0, 4096, 4096)
+        nodeFs.closeSync(handle)
+      },
+    ],
+  ]
+
+  for (const [how, damage] of damages)
+    it(`leaves one ${how} as it is, and keeps this run's sessions in memory`, async () => {
+      await made()
+      damage()
+      const before = nodeFs.readFileSync(file)
+
+      const saved = { ...session, id: "s2", runbook: "/rb/b.mdx" }
+      expect(
+        await run((db) => Effect.andThen(db.putSession(saved), db.latest("/rb/b.mdx"))),
+      ).toEqual(Option.some(saved))
+      expect(nodeFs.readFileSync(file)).toEqual(before)
+    })
+})
