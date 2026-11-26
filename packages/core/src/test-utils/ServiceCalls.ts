@@ -34,6 +34,7 @@ export function recordFileSystem(inner: FileSystemShape, calls: ServiceCall[]): 
     readFileUpTo: (...args) => effect("readFileUpTo", args, () => inner.readFileUpTo(...args)),
     readFileBuffer: (...args) =>
       effect("readFileBuffer", args, () => inner.readFileBuffer(...args)),
+    readFileRange: (...args) => stream("readFileRange", args, () => inner.readFileRange(...args)),
     readdir: (...args) => effect("readdir", args, () => inner.readdir(...args)),
     readdirWithTypes: (...args) =>
       effect("readdirWithTypes", args, () => inner.readdirWithTypes(...args)),

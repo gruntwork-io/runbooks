@@ -181,7 +181,7 @@ const BASENAME_LANGUAGE_MAP: Record<string, string> = {
 
 /**
  * Runbook asset extensions mapped to their MIME types, for the Content-Type
- * of the runbook-asset:// protocol's byte-range responses.
+ * of the runbook-asset:// protocol's responses.
  */
 const ASSET_CONTENT_TYPES: Record<string, string> = {
   // Images

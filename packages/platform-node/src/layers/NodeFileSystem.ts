@@ -1,7 +1,7 @@
 /**
  * Live implementation of the FileSystem service using Node.js fs/promises and chokidar.
  */
-import { constants as fsConstants } from "node:fs"
+import { constants as fsConstants, createReadStream } from "node:fs"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
@@ -76,6 +76,16 @@ const impl: FileSystemShape = {
       try: () => fs.readFile(filePath),
       catch: (err) => mapReadError(err, filePath),
     }) as Effect.Effect<Buffer, FileNotFoundError | FileReadError>,
+
+  readFileRange: (filePath: string, start: number, end: number) =>
+    // Opened when the stream is run, and destroyed by the iterator's return
+    // when the stream ends early.
+    Stream.suspend(() =>
+      Stream.fromAsyncIterable<Uint8Array, FileNotFoundError | FileReadError>(
+        createReadStream(filePath, { start, end }),
+        (err) => mapReadError(err, filePath),
+      ),
+    ),
 
   readdir: (dirPath: string) =>
     Effect.tryPromise({

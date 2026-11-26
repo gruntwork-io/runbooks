@@ -6,7 +6,12 @@ import { Effect } from "effect"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
 import { appEngine } from "./engine.ts"
-import { runbookAsset, type SessionRunbook, sessionRunbook } from "./runbookAssets.ts"
+import {
+  runbookAsset,
+  type SessionRunbook,
+  serveRunbookAsset,
+  sessionRunbook,
+} from "./runbookAssets.ts"
 
 // Layout, under a realpath'd temp root (macOS' /var is a symlink):
 //   outside/secret.txt
@@ -154,6 +159,40 @@ describe("runbookAsset", () => {
     expect(new URL("http://12345678-1234-1234-1234-123456789012/").hostname).toBe(
       "12345678-1234-1234-1234-123456789012",
     )
+  })
+})
+
+describe("serveRunbookAsset", () => {
+  const runbookOf: SessionRunbook = (host) =>
+    Effect.succeed(host === HOST ? path.join(work, "runbook.mdx") : undefined)
+  const serve = (asset: string, init?: RequestInit) =>
+    Effect.runPromise(
+      serveRunbookAsset(new Request(`runbook-asset://${HOST}/${asset}`, init), runbookOf).pipe(
+        Effect.provide(NodeFileSystemLive),
+      ),
+    )
+
+  it("answers with the whole file, its type and its size", async () => {
+    const res = await serve("my%20image.png")
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toBe("image/png")
+    expect(res.headers.get("content-length")).toBe("3")
+    expect(await res.text()).toBe("png")
+  })
+
+  it("answers a GET with a Range header with that range", async () => {
+    const res = await serve("ok.png", { headers: { Range: "bytes=1-" } })
+    expect(res.status).toBe(206)
+    expect(res.headers.get("content-range")).toBe("bytes 1-2/3")
+    expect(await res.text()).toBe("ng")
+  })
+
+  it("answers a refused, missing or folder path with a 404 and no body", async () => {
+    fs.mkdirSync(path.join(work, "assets", "icons"))
+    for (const asset of ["leak.png", "..%2Frunbook.mdx", "none.png", "icons"]) {
+      const res = await serve(asset)
+      expect([asset, res.status, await res.text()]).toEqual([asset, 404, ""])
+    }
   })
 })
 

@@ -419,6 +419,7 @@ describe("applyDiffFromContent idempotency", () => {
       readFile: () => Effect.succeed(""),
       readFileUpTo: () => Effect.succeed({ text: "", truncated: false }),
       readFileBuffer: () => Effect.succeed(Buffer.from("")),
+      readFileRange: () => Stream.empty,
       readdir: () => Effect.succeed([]),
       readdirWithTypes: () => Effect.succeed([]),
       stat: () =>

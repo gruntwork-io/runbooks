@@ -18,8 +18,10 @@
 import path from "node:path"
 import { Effect, Option } from "effect"
 import type { EngineClient } from "@runbooks/core/protocol"
+import { getContentType } from "@runbooks/core/domain/workspace/file"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
-import { servedFile } from "./pathGuard.ts"
+import { fileResponse } from "./byteRange.ts"
+import { notFound, servedFile } from "./pathGuard.ts"
 
 /** The scheme main serves a runbook's assets from. */
 export const ASSET_SCHEME = "runbook-asset"
@@ -61,4 +63,22 @@ export const runbookAsset = (
     const linked = yield* Effect.option((yield* FileSystem).isSymbolicLink(assets))
     if (Option.isNone(linked) || linked.value) return undefined
     return yield* servedFile(url, assets)
+  })
+
+/**
+ * The answer to `request` for a runbook asset: the file, or a byte range of
+ * it for a GET with a Range header (byteRange.ts), or a 404 for a file the
+ * guard refuses or that is not there.
+ */
+export const serveRunbookAsset = (
+  request: Request,
+  runbookOf: SessionRunbook,
+): Effect.Effect<Response, never, FileSystem> =>
+  Effect.gen(function* () {
+    const file = yield* runbookAsset(request.url, runbookOf)
+    if (file === undefined) return notFound()
+    const stat = yield* Effect.option((yield* FileSystem).stat(file))
+    if (Option.isNone(stat) || !stat.value.isFile) return notFound()
+    const range = request.method === "GET" ? request.headers.get("range") : null
+    return yield* fileResponse(file, stat.value.size, getContentType(file), range)
   })

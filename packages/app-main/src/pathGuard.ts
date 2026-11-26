@@ -34,3 +34,6 @@ export const servedFile = (
     const stat = yield* Effect.option(fs.stat(file))
     return Option.isSome(stat) && stat.value.isFile ? file : undefined
   })
+
+/** The answer for a file the guard refuses, as for one that is not there: a 404 with no body. */
+export const notFound = (): Response => new Response(null, { status: 404 })

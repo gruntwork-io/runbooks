@@ -53,7 +53,8 @@ import { appEngine } from "./engine.ts"
 import { makeIpcServerProtocol } from "./ipcServer.ts"
 import { type Launch, launchArgument, serveLaunch } from "./launch.ts"
 import { APP_PAGE, PAGE_SCHEME, pageFile } from "./pageScheme.ts"
-import { ASSET_SCHEME, runbookAsset, sessionRunbook } from "./runbookAssets.ts"
+import { notFound } from "./pathGuard.ts"
+import { ASSET_SCHEME, serveRunbookAsset, sessionRunbook } from "./runbookAssets.ts"
 
 /** The repository's version, set by the build (electron.vite.app.config.ts). */
 declare const __RUNBOOKS_VERSION__: string
@@ -260,9 +261,6 @@ function openWindow(devServer: URL | undefined): BrowserWindow {
   return appWindow
 }
 
-/** An answer that serves nothing: for a file the guard refuses as for one that is not there. */
-const notFound = () => new Response(null, { status: 404 })
-
 /** Answers a request for the page's scheme from the renderer's build, through the path guard. */
 function servePage(request: Request): Promise<Response> {
   return Effect.runPromise(
@@ -294,18 +292,7 @@ const serveRunbookAssets = (
     const lookups = yield* Semaphore.make(MAX_ASSET_LOOKUPS)
     const run = yield* FiberSet.makeRuntimePromise<FileSystem>()
     windowSession.protocol.handle(ASSET_SCHEME, (request) =>
-      run(
-        lookups
-          .withPermits(1)(runbookAsset(request.url, runbookOf))
-          .pipe(
-            Effect.flatMap((file) =>
-              file === undefined
-                ? Effect.succeed(notFound())
-                : Effect.tryPromise(() => net.fetch(pathToFileURL(file).href)),
-            ),
-            Effect.orElseSucceed(notFound),
-          ),
-      ),
+      run(lookups.withPermits(1)(serveRunbookAsset(request, runbookOf))),
     )
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => windowSession.protocol.unhandle(ASSET_SCHEME)),
