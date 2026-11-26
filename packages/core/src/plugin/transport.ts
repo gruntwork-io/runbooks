@@ -64,7 +64,9 @@ export const LIMITS = {
    * After standard input closes, how long the plugin has to exit before it
    * is killed. A plugin must stop what it started within it: the owner's
    * kill reaches only the plugin's process group, and the Azure plugin
-   * starts `az` in a group of its own, which it kills itself.
+   * starts `az` in a group of its own, which it kills itself. A plugin
+   * whose standard output closes has as long to exit before its session
+   * ends with `PluginProtocolViolation`.
    */
   exitGraceMillis: 5_000,
 } as const
@@ -102,8 +104,9 @@ export class PluginUnsupportedProtocolVersion extends Schema.TaggedError<PluginU
 
 /**
  * A line that is not JSON, a message that fails its schema, a response to no
- * open request, or a notification with no request. `message` says which,
- * and never quotes the line: it may hold a secret.
+ * open request, a notification with no request, or standard output closed
+ * by a plugin that keeps running. `message` says which, and never quotes
+ * the line: it may hold a secret.
  */
 export class PluginProtocolViolation extends Schema.TaggedError<PluginProtocolViolation>()(
   "PluginProtocolViolation",

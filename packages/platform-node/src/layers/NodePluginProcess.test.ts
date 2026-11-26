@@ -69,7 +69,11 @@ const pinnedText = (text: string) => [
   }),
 ]
 
-/** A shell plugin's answer to configure, the first request. A shell plugin starts faster than the stub. */
+/**
+ * A shell plugin's answer to configure, the first request. A shell plugin
+ * starts faster than the stub, and can close its own standard output,
+ * which Bun cannot.
+ */
 const SHELL_CONFIGURED = `printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1","driverVersion":"0.0.0","received":{},"pid":0}}'`
 
 const Empty = Schema.Struct({})
@@ -620,6 +624,49 @@ describe("an exit", () => {
     expect(Buffer.byteLength(stderr)).toBe(LIMITS.maxStderrBytes)
     expect(stderr.endsWith("eeeTHE END")).toBe(true)
   })
+})
+
+describe("standard output closing", () => {
+  /** Answers configure, closes standard output on the next request, and runs until standard input closes. */
+  const CLOSES_STDOUT = [
+    "#!/bin/sh",
+    'echo $$ > "$STUB_STARTED"',
+    "read -r request",
+    SHELL_CONFIGURED,
+    "read -r request",
+    "exec 1>&-",
+    "while read -r request; do :; done",
+    "",
+  ].join("\n")
+
+  it(
+    "while the plugin keeps running ends the session after the grace period, and stops it",
+    async () => {
+      writeFileSync(path.join(bin, BINARY), CLOSES_STDOUT)
+      const [first, took, stopped, after] = await run(
+        Effect.gen(function* () {
+          const session = yield* open()
+          const called = Date.now()
+          // Bounded here, so this fails as an assertion before the call's own 30 s timeout.
+          const failed = yield* Effect.flip(session.call(echo, { word: "never answered" })).pipe(
+            Effect.timeoutOption(LIMITS.exitGraceMillis + 2_000),
+          )
+          const failedAfter = Date.now() - called
+          const stubStopped = yield* Effect.promise(() => gone(stubPid(), 1_000))
+          const next = yield* Effect.flip(session.call(echo, { word: "after" }))
+          return [Option.getOrUndefined(failed), failedAfter, stubStopped, next] as const
+        }),
+        pinnedText(CLOSES_STDOUT),
+      )
+      expect(first).toMatchObject({ _tag: "PluginProtocolViolation", plugin: "stub" })
+      expect(first?.message).toContain("closed its standard output")
+      expect(took).toBeGreaterThanOrEqual(LIMITS.exitGraceMillis - 50)
+      expect(took).toBeLessThan(LIMITS.exitGraceMillis + 1_000)
+      expect(stopped).toBe(true)
+      expect(first).toBe(after)
+    },
+    WAITS_OUT_GRACE,
+  )
 })
 
 describe("protocol violations", () => {

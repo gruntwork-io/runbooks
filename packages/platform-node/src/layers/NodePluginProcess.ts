@@ -21,6 +21,9 @@
  * - Ending a session closes standard input, waits `LIMITS.exitGraceMillis`
  *   for the plugin to exit, then kills its process group: the plugin and
  *   whatever it started. On Windows only the plugin itself is killed.
+ * - Standard output ending ends the session: `PluginExited` once the plugin
+ *   exits, or `PluginProtocolViolation` if it is still running
+ *   `LIMITS.exitGraceMillis` later.
  */
 import { type ChildProcessByStdio, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -616,14 +619,20 @@ const start = <K extends string, P, C>(
     )
 
     // Standard output until it ends, then the plugin's exit ends the session.
+    // A plugin still running `LIMITS.exitGraceMillis` later ends it as a violation.
     yield* Stream.fromAsyncIterable(child.stdout, () => undefined).pipe(
       Stream.runForEach(lines),
       Effect.catch((error) => (error === undefined ? Effect.void : end(error))),
       Effect.andThen(
         Effect.gen(function* () {
-          const exit = yield* Deferred.await(exited)
+          const exit = yield* Deferred.await(exited).pipe(
+            Effect.timeoutOption(LIMITS.exitGraceMillis),
+          )
+          if (Option.isNone(exit)) {
+            return yield* end(violation("the plugin closed its standard output and kept running"))
+          }
           yield* Fiber.await(stderrDrained).pipe(Effect.timeoutOption(LIMITS.exitGraceMillis))
-          yield* end(exitedError(exit))
+          yield* end(exitedError(exit.value))
         }),
       ),
       Effect.forkIn(scope),
