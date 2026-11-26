@@ -54,6 +54,9 @@ export default defineConfig({
   renderer: {
     root: path.join(ROOT, "packages/app-renderer"),
     base: "./",
+    // The renderer imports @runbooks/* by its tsconfig's paths. Rolldown
+    // resolves those in a build by itself; Vite's dev server only with this.
+    resolve: { tsconfigPaths: true },
     plugins: [reactWithCompiler(), tailwindcss()],
     build: {
       outDir: path.join(OUT, "renderer"),
