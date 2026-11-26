@@ -23,7 +23,7 @@ import { sensitiveOutput, type OutputValues } from "./outputValues.ts"
  * after the run ended and the file was deleted), they write to stderr
  * instead of failing. Keep in sync with scripts/logging.sh.
  */
-const LOGGING_FUNCTIONS = `
+export const LOGGING_FUNCTIONS = `
 # --- Runbooks Logging Functions ---
 # (auto-injected; see also scripts/logging.sh for local development)
 _RUNBOOKS_LOGGING_LOADED=1

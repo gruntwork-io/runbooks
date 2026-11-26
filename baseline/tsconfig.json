@@ -12,6 +12,7 @@
   "references": [
     { "path": "../packages/core" },
     { "path": "../blocks/core" },
+    { "path": "../blocks" },
     { "path": "../packages/cli" }
   ],
   "include": ["**/*"]

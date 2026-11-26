@@ -1,11 +1,11 @@
 /**
  * Every fixture's `runbook_test.yml` against the `runbook_test.yml` schema
  * (work product 2.11), bound to its runbook through a registry with today's
- * 22 tags. The real registry has no blocks until phase 3, so this one stands
- * in: each tag's class and effects as the plan gives them ("The classes" and
- * "Effects and capabilities"), its props as `props.json` lists them, taken
- * as written, since the stand-in checks what a step may say about a block,
- * not the block's props.
+ * 22 tags. Each block the real registry has is its entry here. Until it has
+ * them all, the rest stand in: each tag's class and effects as the plan
+ * gives them ("The classes" and "Effects and capabilities"), its props as
+ * `props.json` lists them, taken as written, since a stand-in checks what a
+ * step may say about a block, not the block's props.
  */
 import { describe, expect, it } from "bun:test"
 import { readFileSync } from "node:fs"
@@ -20,6 +20,7 @@ import {
   type MachineEffect,
 } from "@runbooks/blocks-core/contract"
 import type { AnyBlock, Registry } from "@runbooks/blocks-core/registry"
+import * as registry from "@runbooks/blocks"
 import { configErrors } from "@runbooks/core/document/document"
 import { parseRunbook } from "@runbooks/core/document/parse"
 import { boundTestFile, parseTestFile, targetsOf } from "@runbooks/cli/testFile"
@@ -127,7 +128,7 @@ const STAND_IN: Registry = {
   Inputs: form("Inputs"),
   DirPicker: form("DirPicker"),
   Iframe: form("Iframe"),
-  Command: task("Command", ["process"]),
+  Command: registry.Command,
   Check: task("Check", ["process"]),
   Finish: task("Finish", ["process"]),
   Prerequisites: task("Prerequisites", ["process"]),
