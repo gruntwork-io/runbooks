@@ -464,12 +464,14 @@ describe(".oxlintrc.json", () => {
   const reported = (rule: string, files: Record<string, string>) =>
     diagnose(files, repoConfig()).filter((f) => f.rule === rule)
 
-  it("keeps the core and the blocks off process, fetch, Bun and globalThis, and not their tests or the layers", () => {
+  it("keeps the core and the blocks off process, fetch, Bun, globalThis and self, and not their tests or the layers", () => {
     const io = [
       "export const a = process.env.HOME",
       'export const b = () => fetch("https://example.com")',
       'export const c = Bun.file("x")',
       "export const d = globalThis.fetch",
+      // Under Bun, `self` is `globalThis`.
+      "export const e = self.process.env.HOME",
     ].join("\n")
     const found = reported("eslint(no-restricted-globals)", {
       "packages/core/src/io.ts": io,
@@ -480,7 +482,7 @@ describe(".oxlintrc.json", () => {
     })
     expect(brief(found)).toEqual(
       ["blocks/command/block.ts", "blocks/core/io.ts", "packages/core/src/io.ts"].flatMap((file) =>
-        [1, 2, 3, 4].map((line) => `eslint(no-restricted-globals) ${file}:${line}`),
+        [1, 2, 3, 4, 5].map((line) => `eslint(no-restricted-globals) ${file}:${line}`),
       ),
     )
     expect(found.at(-1)?.message).toContain("Only packages/platform-node")
