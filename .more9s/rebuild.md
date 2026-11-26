@@ -152,11 +152,19 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 96b | #609 | 2 | `rebuild/p2-fix-credential-restart` | p2-fix-status-memo | merged | review: a block whose provider lost its login finds it again or signs out |
 | 96c | #610 | 2 | `rebuild/p2-fix-secret-scan` | p2-fix-credential-restart | merged | contract change: a `values` detection source says which values are secret |
 | 96d | #611 | 2 | `rebuild/p2-fix-secret-scan-client` | p2-fix-secret-scan | merged | review: the credential client scans each string, and knows detect's secrets |
-| 96e | #612 | 2 | `rebuild/p2-fix-interrupts` | `rebuild/main` | draft, awaiting review | review group 8 items 1 and 2: a run's start and a session's close, once begun, end |
-| 96f | #615 | 2 | `rebuild/p2-fix-concurrent-open` | p2-fix-interrupts | draft, awaiting review | review group 8 item 3: two opens at once resume a saved session once |
-| 96g | none | 2 | `rebuild/p2-env-templates` | p2-fix-concurrent-open | in progress | decision 9: `env` values render `{{ }}`, and take numbers and booleans again |
-| 96h | none | 2 | `rebuild/p2-script-template-error` | p2-env-templates | in progress | decision 9: `{{ }}` in a script is a parse error naming the `env` to write; migrations; Command docs |
-| 97 | none | 2 | the rest of the `rebuild/main` review's fixes | p2-script-template-error | planned | see Follow-ups owed |
+| 96e | #612 | 2 | `rebuild/p2-fix-interrupts` | `rebuild/main` | merged | review group 8 items 1 and 2: a run's start and a session's close, once begun, end |
+| 96f | #615 | 2 | `rebuild/p2-fix-concurrent-open` | p2-fix-interrupts | merged | review group 8 item 3: two opens at once resume a saved session once |
+| 96g | #616 | 2 | `rebuild/p2-events-unknown-sequence` | p2-fix-concurrent-open | merged | contract change: `Events` refuses an `after` the session has not logged (`UnknownSequence`) |
+| 96h | #617 | 2 | `rebuild/p2-resume-sequence` | p2-events-unknown-sequence | merged | review group 8: a resumed session goes on past every sequence the one it resumes reserved |
+| 96i | #618 | 2 | `rebuild/p2-events-docs` | `rebuild/main` | merged | runbooks-reviewer's notes on #616/#617: where a resumed or trimmed log starts; `LIMITS.keptEvents` |
+| 96j | #619 | 2 | `rebuild/p2-settings-import-once` | p2-events-docs | merged | review group 11: today's settings are imported once (`settings.imported`) |
+| 96k | #620 | 2 | `rebuild/p2-sessions-db-open` | p2-settings-import-once | merged | review group 11: the sessions database waits for another's lock, and migrates in one transaction |
+| 96l | #621 | 2 | `rebuild/p2-env-templates` | p2-sessions-db-open | merged | decision 9: `env` values fill in `{{ }}`, and take numbers and booleans again |
+| 96m | #622 | 2 | `rebuild/p2-script-contract` | `rebuild/main` | ready (reviewer passed) | contract change: `TaskBlock.scripts` (`ScriptSource`) |
+| 96n | #623 | 2 | `rebuild/p2-script-template-error` | p2-script-contract | ready (reviewer passed) | decision 9 and the no-checks ruling: a script runs as written and makes no edges; migrations to `env`; Command docs |
+| 96o | #624 | 2 | `rebuild/p2-sessions-db-damaged` | p2-script-template-error | ready (reviewer passed) | review group 11: a damaged sessions database (`quick_check`) is left as it is |
+| 96p | #625 | 2 | `rebuild/p2-settings-temp-name` | p2-sessions-db-damaged | ready (reviewer passed) | review group 11: each settings write has its own temporary file |
+| 97 | none | 2 | the rest of the `rebuild/main` review's fixes | p2-settings-temp-name | planned | see Follow-ups owed |
 | 98 | none | A | `rebuild/pA-plugins-lock` | row 97 | planned (built) | A.5 (`resources/plugins.lock`, its loader) |
 | 99 | none | A | `rebuild/pA-plugins-recipes` | pA-plugins-lock | planned (built) | A.5 (fetch, check and bump recipes) |
 | 100 | none | A | `rebuild/pA-plugins-packaging` | pA-plugins-recipes | planned (built) | A.6 (CI and release check the bundled binaries; `mac.signIgnore`) |
@@ -177,6 +185,7 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 - Contract changes since the handover, sent to that session with their hashes: #574 (`callTimeoutsMillis`), #575 (`envValue.file`), #582 (no answer at end of input). v0.1.0 ignores `callTimeoutsMillis` but fails `env` without `file`, so the lock moves to the next release before any block uses a real binary.
 - A.6 (the hash check): the owner checks the pinned hash before every start (#572). electron-builder would re-sign bundled Mach-O binaries and change their bytes, so `mac.signIgnore` leaves the plugin binaries as their release signed them; proven on a local ad hoc package (byte-equal, Developer ID kept), unproven with real signing and notarization until a release run.
 - Since 2026-11-26 that session copies the schemas from `rebuild/main` (at d845152e: `base.schema.json` ce6348b7, `credential.schema.json` 846beb2a). Its open PRs: #36 (Azure `error_line` past a wrapper's first line, for #520) and #37 to #39 (resume from saved values, Google TLS errors).
+- **The plugin protocol stays at version "1"** (the human, 2026-11-26: "we should not uptick the protocol to 2, no one uses it yet. Let's start at 1. Keep the variable value for the protocol version though"). `PROTOCOL_VERSION` stays in `packages/core/src/plugin/transport.ts` as "1"; runbooks-plugins dropped its held bump, so 0.2.0 (its #49) speaks "1". Row 98 pins 0.2.0, with a CI check that `plugin/*.schema.json` are byte-equal to the release's schema assets.
 - Crates approved by the human: serde, serde_json, thiserror, tokio, reqwest (rustls), time, typify, jsonschema and tempfile (dev), aws-config, aws-sdk-sts/sso/ssooidc/iam/account, aws-runtime, aws-types, aws-smithy-http-client, rustls, base64, subtle, libc, windows-sys. Any other direct crate is ask-first; transitive ones are vetted in the PR body.
 
 ## Work products
@@ -220,8 +229,8 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 | A.2 | The AWS binary | runbooks-plugins | released v0.1.0 |
 | A.3 | The Google binary | runbooks-plugins | released v0.1.0 |
 | A.4 | The Azure binary, wrapping `az` | runbooks-plugins | released v0.1.0 |
-| A.5 | `resources/plugins.lock`, the fetch recipe and the bump recipe | rows 90, 91 | built, opens after the phase 2 fixes |
-| A.6 | The hash check before a binary starts | #572; row 92 for the packaged bytes | merged; row 92 built |
+| A.5 | `resources/plugins.lock`, the fetch recipe and the bump recipe | rows 98, 99 | built, opens after the phase 2 fixes and the plugins 0.2.0 release |
+| A.6 | The hash check before a binary starts | #572; row 100 for the packaged bytes | merged; row 100 built |
 
 ## Open decisions built on
 
@@ -241,10 +250,10 @@ Each row names the PR whose description carries the Decisions entry.
 | 3 | Baseline is today's behaviour with the nine ruled changes applied | #509 |
 | 5 | `*AuthId` aliases kept with a warning, no removal date; fixtures keep them | #510 |
 | 17 | Finish needs a clean success; gh and az still read their own config | #510 |
-| 9 | Ruled by the human (2026-11-26): env only. A value reaches a script only through `env`, and `{{ }}` in a script is a parse error naming the `env` line to write. A breaking change for runbooks that write `{{ }}` in a script; the parse error is the migration path | #588 built the old recommendation; #598 closed; rows 96g and 96h build the ruling |
+| 9 | Ruled by the human (2026-11-26): env only, and then no `{{ }}` checks in scripts ("we only have a few runbooks in public and we manage them. We can retire the old logic entirely and rely on env vars"). A script runs as written: Runbooks neither fills in nor checks a `{{ }}` in it, and a script makes no edges. A value reaches a script only through `env`, whose values are templates | #588 built the old recommendation; #598 closed; #621 to #623 build the ruling |
 | 15 | Windows left as it is: environment names compare case-sensitively | #539 |
 | 6 | Saved sessions keep form values and credentials, drop run history from older versions | #544 |
-| 16 | One repo, one version for all binaries, hashes checked against the release's `SHA256SUMS` | row 90 (unopened) |
+| 16 | One repo, one version for all binaries, hashes checked against the release's `SHA256SUMS` | row 98 (unopened) |
 
 Choices of my own that need a ruling (not among the 18):
 
@@ -285,8 +294,8 @@ Choices of my own that need a ruling (not among the 18):
 | A plugin started again must describe the same levels, names and requirements | #578 |
 | A provider name outside its block's `envNames` and outputs makes the block unavailable; `envConflict` warns once per pair of blocks | #581 |
 | A call in flight when standard input closes gets no answer (with runbooks-plugins) | #582 |
-| Track A's lock PRs open before phase 3, which reads the lock | row 90 |
-| The lock is `{ plugins: PluginEntry[] }`; fetch is all or nothing and removes unpinned plugin binaries; bump takes the plugins from `SHA256SUMS`, cross-checked both ways with the API's digests | rows 90, 91 |
+| Track A's lock PRs open before phase 3, which reads the lock | row 98 |
+| The lock is `{ plugins: PluginEntry[] }`; fetch is all or nothing and removes unpinned plugin binaries; bump takes the plugins from `SHA256SUMS` (only `<bin>_<ver>_<os>_<arch>[.exe]` entries: since plugins #46 it also lists `*.schema.json`, which the schema byte check reads), cross-checked both ways with the API's digests | rows 90, 91 |
 | Plugin settings: AWS `defaultRegion`; Google `defaultRegion`, `defaultZone`; Azure none. No settings declaration in the contract (with runbooks-plugins: a refusal names the valid ones) | phase 3 |
 | After a restart an AWS SSO or role login comes back as plain keys that cannot refresh: carrying the SSO token needs a secret at rest in `stateDir` (not built) | runbooks-plugins resume follow-up |
 | runbooks-plugins keeps rust-base's `unsafe_code = "forbid"`: Azure's process tree uses std plus `/bin/kill` and `taskkill.exe`, not the approved libc/windows-sys FFI; Windows ACLs on `stateDir` wait on the same ruling | runbooks-plugins #24 |
@@ -368,18 +377,21 @@ Choices of my own that need a ruling (not among the 18):
 | Bump `resources/plugins.lock` to the plugins release that sends `envValue.file` | track A, when released |
 | Real Developer ID signing and notarization with `mac.signIgnore` | the first release run |
 | A large org's target list can pass the 1 MiB line cap (the plugins answer `internal`): page `targets` | a later contract change |
-| The `rebuild/main` review at 17064004, groups still to fix: the CLI contract (a bad test file in JUnit; `RUNBOOK_OUTPUT=junit` and `validate`), parse smalls and `literalOnly`, interrupts and concurrency (items 4 and 5: a resumed session restarts its event sequence at 0; `events` with `after` past the end never ends), lint gaps, settings and sessions database, owner TOCTOU and stdout close, protocol "2" and a schema CI check | row 97, one subagent at a time |
+| The `rebuild/main` review at 17064004, groups still to fix: lint gaps, the import-graph test and the walk bound (group 9); the schema byte check, with row 98 (group 10; the protocol stays "1"); the CLI contract (a bad test file in JUnit; `RUNBOOK_OUTPUT=junit` and `validate`) (group 12); parse smalls, `literalOnly`, owner TOCTOU and stdout close (group 13); hash-then-spawn (group 14, before phase 3). Groups 8 and 11 are done (#612 to #620, #624, #625) | row 97, one subagent at a time |
 | Inferred from that review, not reproduced: a second Ctrl-C or SIGTERM and process groups; run files 0644 in tmpdir; `valueLength` 128K over `MAX_ARG_STRLEN`; `agentAccess`/`confirmAgentRuns` not read (gate before MCP) | reproduce first |
 | `boilerplate.yml` readers (`config.ts:388`, `warmEligibility.ts:95`) move to `yamlData` | phase 4, Template |
 | `openFileTail.finish()` reads what is left of a log file in one go when the child ends (#594) | before phase 6 |
 | A test that walks each `blocks/*/block.ts` import graph, through the aliases, and fails on a `node:` or built-in module (#597 checks direct imports only; runbooks-reviewer has a walker) | row 97, with the lint gaps |
 | `NodeFileSystem.walk`'s queue is unbounded and doesn't wait for a slow reader; the generated-files copy (#603) feeds it a folder a script fills | row 97, with the bounds |
 | `runbooks test` applies a Command's `timeoutMs`; today's CLI ignores it (`testing.mdx:102`, `:439`), and a block it stops reports `timeout`, which no `expect` matches. Not a ruled change: restore today's behaviour | row 97 |
-| `env` values take only strings; today numbers and booleans pass. Not a ruled change: restore | row 96g |
 | Command has no `exclusive` prop (`validate` warns it is ignored) | phase 3, with run order |
 | No saved session keeps `BlockView.files` (#602) | phase 5, the files panel |
 | Template and TemplateInline report their files as `File` events, so `files_generated` counts them | phase 4, Template |
 | Old-tree CI flakes: `GitAuth.switch` Reload (a stale-effect race), and `SessionName.test.tsx`'s refused-name focus check (#603's first run) | before phase 6, or with the old tree's deletion |
-| #606's Command docs describe #598's value limits (64 KiB, 256 KiB) and `$[ ]` lexing, which are not in the tree since #598 closed (runbooks-reviewer, 2026-11-26) | row 96h, which rewrites that section before the page ships |
 | #608's timing test doesn't assert that each of the 16 short opens is Blocked (runbooks-reviewer) | the next PR that touches `engine.test.ts`'s timing tests |
 | Opening a 3200-block runbook takes 42 to 57 times a 200-block one (16 times the blocks), even with #608: something in open or parse grows faster than linear past about 800 blocks. Not investigated | with the bounds (row 97) |
+| From runbooks-reviewer on #621 and #623: the load error for a `{{ }}` `env` can't fill in should say how to write `{{` as text (`{{ "{{" }}`); a test that pins `Object.hasOwn` in the map-key walk; and a block whose props fail to decode is not asked for its `scripts`, so its script prop is read for references again (a false `missingReference` beside the real `badProp`); in `replaceWith`'s catch, an `fs.rm` that throws hides the write's own error (`.catch(() => {})` keeps it, #625) | one small PR after group 11 |
+| `if hasKey` stays refused in `env` (runbooks-reviewer). GitClone's optional output: the block always gives it, empty when it doesn't apply, and a script tests `[ -n "$X" ]` | phase 4, GitClone |
+| Check must declare `scripts`, so its script makes no edges | phase 4, Check |
+| A sessions database that can't be used (damaged, foreign, newer) is only an `Effect.logWarning`; the person must see it, as settings' `problems` | phase 3, when the database is wired |
+| Two stores on one settings file, as two Runbooks, can lose one's change: each writes back what it holds (#625 Gaps) | if a second writer becomes real |
