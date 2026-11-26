@@ -76,6 +76,19 @@ describe("a value template refused, where its problem starts", () => {
     expect(problem.message).toContain("is not a value Runbooks can insert")
   })
 
+  it("another tool's `{{ }}`, saying how to write `{{` as text", () => {
+    expect(refused("x {{.Names}}").message).toContain('To write `{{` as text, write `{{ "{{" }}`.')
+  })
+
+  it("a name an object has but no form gives, such as `constructor`", () => {
+    expect(refused("{{ .inputs.constructor }}", sources({ v: "y" })).message).toContain(
+      "names no field",
+    )
+    expect(
+      refused("{{ .inputs.tags.constructor }}", sources({ tags: { env: "prod" } })).message,
+    ).toContain("names no field")
+  })
+
   it("a `{{` never closed, even by a `}}` inside a string constant", () => {
     expect(refused('x {{ "}}"')).toEqual({ at: 2, message: "A `{{` is not closed with `}}`." })
     expect(refused("x {{ .inputs.v").at).toBe(2)

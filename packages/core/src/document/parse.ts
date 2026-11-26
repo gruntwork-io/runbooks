@@ -649,7 +649,10 @@ class Parse {
       index,
       new Set(scripts.flatMap((s) => (s._tag === "File" ? [s.path] : []))),
     )
-    for (const [prop, value] of [...Object.entries(input), ...Object.entries(shared)]) {
+    // A task whose props were refused cannot say which are its scripts, so none of its own props is read.
+    const ownRead =
+      block.class === "task" && block.scripts !== undefined && Result.isFailure(props) ? {} : input
+    for (const [prop, value] of [...Object.entries(ownRead), ...Object.entries(shared)]) {
       if (scriptProps.has(prop)) continue
       this.templateReads(index, prop, value, written.get(prop)?.span ?? span)
     }

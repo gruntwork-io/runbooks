@@ -126,7 +126,7 @@ export function parseValueTemplate(
       case "Other":
         return Result.fail({
           at: action.start,
-          message: `\`${written}\` is not a value Runbooks can insert. A \`{{ }}\` may name a value, \`{{ .inputs.<name> }}\` or \`{{ .outputs.<block>.<key> }}\`, and nothing else: no condition, pipe or function.`,
+          message: `\`${written}\` is not a value Runbooks can insert. A \`{{ }}\` may name a value, \`{{ .inputs.<name> }}\` or \`{{ .outputs.<block>.<key> }}\`, and nothing else: no condition, pipe or function. To write \`{{\` as text, write \`{{ "{{" }}\`.`,
         })
     }
   }
