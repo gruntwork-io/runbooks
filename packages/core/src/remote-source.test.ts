@@ -1,12 +1,13 @@
 import { describe, it, expect } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import {
   isRemoteSource,
   parseRemoteSource,
   redactSourceCredentials,
   resolveRef,
 } from "./remote-source.ts"
-import { makeTestSpawner } from "./test-utils/TestSpawner.ts"
+import { makeTestEnvironment } from "./test-utils/TestEnvironment.ts"
+import { makeRecordingSpawner, makeTestSpawner } from "./test-utils/TestSpawner.ts"
 
 function parse(url: string) {
   return Effect.runSync(parseRemoteSource(url))
@@ -650,6 +651,35 @@ describe("resolveRef", () => {
   // ls-remote output: <sha>\t<refname>; refs/heads/<branch> or refs/tags/<tag>
   const refOutput = (names: string[]) => names.map((n, i) => `${"a".repeat(40)}${i}\t${n}`)
 
+  it("runs each git with the app's environment, from Environment, and no prompt", async () => {
+    const spawner = makeRecordingSpawner((_command, args) =>
+      args[0] === "ls-remote"
+        ? {
+            lines: refOutput(["refs/heads/main"]).map((line) => ({ source: "stdout", line })),
+            exitCode: 0,
+          }
+        : { lines: [], exitCode: 1 },
+    )
+    const environment = makeTestEnvironment({ PATH: "/test/bin", HOME: "/home/tester" })
+    await Effect.runPromise(
+      resolveRef("https://github.com/o/r.git", "main").pipe(
+        Effect.provide(Layer.merge(spawner.layer, environment)),
+      ),
+    )
+
+    expect(
+      spawner.calls.map(({ args, env }) => [
+        args[0],
+        env?.PATH,
+        env?.HOME,
+        env?.GIT_TERMINAL_PROMPT,
+      ]),
+    ).toEqual([
+      ["config", "/test/bin", "/home/tester", "0"],
+      ["ls-remote", "/test/bin", "/home/tester", "0"],
+    ])
+  })
+
   it("picks the longest matching ref over a shorter one", async () => {
     const spawner = makeTestSpawner([
       {
@@ -666,7 +696,7 @@ describe("resolveRef", () => {
 
     const result = await Effect.runPromise(
       resolveRef("https://github.com/o/r.git", "release/v1.2/foo/bar.md").pipe(
-        Effect.provide(spawner),
+        Effect.provide(Layer.merge(spawner, makeTestEnvironment())),
       ),
     )
 
@@ -685,7 +715,9 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef("https://github.com/o/r.git", "unknown/dir/file.md").pipe(Effect.provide(spawner)),
+      resolveRef("https://github.com/o/r.git", "unknown/dir/file.md").pipe(
+        Effect.provide(Layer.merge(spawner, makeTestEnvironment())),
+      ),
     )
 
     expect(result.ref).toBe("unknown")
@@ -703,7 +735,9 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef("https://github.com/o/r.git", "main").pipe(Effect.provide(spawner)),
+      resolveRef("https://github.com/o/r.git", "main").pipe(
+        Effect.provide(Layer.merge(spawner, makeTestEnvironment())),
+      ),
     )
 
     expect(result.ref).toBe("main")
@@ -721,7 +755,9 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef("https://github.com/o/r.git", "v1.0.0/README.md").pipe(Effect.provide(spawner)),
+      resolveRef("https://github.com/o/r.git", "v1.0.0/README.md").pipe(
+        Effect.provide(Layer.merge(spawner, makeTestEnvironment())),
+      ),
     )
 
     expect(result.ref).toBe("v1.0.0")
@@ -741,7 +777,10 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef(url, "feature/foo/runbooks/x").pipe(Effect.provide(spawner), Effect.result),
+      resolveRef(url, "feature/foo/runbooks/x").pipe(
+        Effect.provide(Layer.merge(spawner, makeTestEnvironment())),
+        Effect.result,
+      ),
     )
 
     expect(result._tag).toBe("Failure")

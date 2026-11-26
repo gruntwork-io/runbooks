@@ -1,7 +1,15 @@
 import { describe, expect, it } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { SystemCaReadError } from "../../errors/index.ts"
-import { classifyTlsError, dedupePems, installSystemTrust, refreshSystemPems } from "./system-ca.ts"
+import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
+import { makeRecordingSpawner } from "../../test-utils/TestSpawner.ts"
+import {
+  classifyTlsError,
+  coldReadSystemPems,
+  dedupePems,
+  installSystemTrust,
+  refreshSystemPems,
+} from "./system-ca.ts"
 import type { CaSources } from "./system-ca.ts"
 
 const PEM_A = "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----"
@@ -68,6 +76,26 @@ describe("installSystemTrust", () => {
 
     expect(installed()).toEqual(first)
     expect(installed().filter((pem) => pem === PEM_C)).toHaveLength(1)
+  })
+})
+
+describe("coldReadSystemPems", () => {
+  it("runs the app's binary as Node, with the app's environment less every token", async () => {
+    const spawner = makeRecordingSpawner(() => ({
+      lines: [{ source: "stdout", line: JSON.stringify([PEM_A]) }],
+      exitCode: 0,
+    }))
+    const environment = makeTestEnvironment({ PATH: "/test/bin", GITHUB_TOKEN: "ghp_test" })
+    const pems = await Effect.runPromise(
+      coldReadSystemPems("/opt/Runbooks/runbooks").pipe(
+        Effect.provide(Layer.merge(spawner.layer, environment)),
+      ),
+    )
+
+    expect(pems).toEqual([PEM_A])
+    expect(spawner.calls.map(({ command, env }) => ({ command, env }))).toEqual([
+      { command: "/opt/Runbooks/runbooks", env: { PATH: "/test/bin", ELECTRON_RUN_AS_NODE: "1" } },
+    ])
   })
 })
 

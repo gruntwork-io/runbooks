@@ -506,6 +506,19 @@ describe("detectConfigCredentials", () => {
     expect(result).toBe("glpat-from_config")
   })
 
+  it("reads glab's Windows config folder when the app runs on Windows", async () => {
+    const home = "/home/tester"
+    const layer = Layer.merge(
+      makeTestFileSystem({
+        [`${home}/AppData/Local/glab-cli/config.yml`]: configYml,
+      }),
+      makeTestEnvironment({ HOME: home }, "win32"),
+    )
+
+    const result = await Effect.runPromise(detectConfigCredentials().pipe(Effect.provide(layer)))
+    expect(result).toBe("glpat-from_config")
+  })
+
   it("reads a self-hosted host's token when that host is passed", async () => {
     const home = "/home/tester"
     const layer = Layer.merge(

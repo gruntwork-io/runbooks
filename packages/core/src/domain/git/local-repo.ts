@@ -13,6 +13,7 @@ import { Effect, Stream } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
 import type { GitInfo } from "../../services/GitClient.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
+import { Environment } from "../../services/Environment.ts"
 import { ProcessSpawner, collectOutput, wholeLines } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
 import { compareVersions, extractVersion, parseVersion } from "../prerequisites/version.ts"
@@ -66,7 +67,7 @@ export const resolveLocalRepoPath = (dir: string, workingDir: string): string =>
 export const inspectLocalRepo = (
   dir: string,
   workingDir: string,
-): Effect.Effect<LocalRepoInfo, GitError, GitClient | FileSystem | ProcessSpawner> =>
+): Effect.Effect<LocalRepoInfo, GitError, GitClient | FileSystem | ProcessSpawner | Environment> =>
   Effect.gen(function* () {
     const trimmed = dir.trim()
     if (!trimmed) {
@@ -176,7 +177,8 @@ const requireGitVersion = Effect.gen(function* () {
   const spawner = yield* ProcessSpawner
   const fail = (stderr: string) => new GitError({ command: "git --version", stderr, exitCode: 1 })
 
-  const output = yield* spawner.spawn("git", ["--version"], { env: gitSpawnEnv() }).pipe(
+  const env = gitSpawnEnv(yield* (yield* Environment).getAll())
+  const output = yield* spawner.spawn("git", ["--version"], { env }).pipe(
     Effect.flatMap((proc) => collectOutput(proc, GIT_VERSION_TIMEOUT_MS)),
     Effect.mapError(() => fail("Could not run git. Install Git and try again.")),
   )
@@ -273,7 +275,8 @@ const firstRemoteUrl = (repoPath: string) =>
 const readGitLines = (repoPath: string, args: string[]) =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
-    const proc = yield* spawner.spawn("git", args, { cwd: repoPath, env: gitSpawnEnv() })
+    const env = gitSpawnEnv(yield* (yield* Environment).getAll())
+    const proc = yield* spawner.spawn("git", args, { cwd: repoPath, env })
 
     return yield* Effect.gen(function* () {
       const lines = (yield* Stream.runCollect(wholeLines(proc.output)))

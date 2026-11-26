@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { GitLabHttpClientLive } from "./GitLabHttpClient.ts"
 import { GitLabClient } from "@runbooks/core/services/GitLabClient"
 import { GitLabApiError } from "@runbooks/core/errors"
-import { makeFakeFetch } from "@runbooks/core/test-utils/FakeFetch"
+import { makeFakeFetch } from "../test-utils/FakeFetch.ts"
 
 const originalFetch = globalThis.fetch
 

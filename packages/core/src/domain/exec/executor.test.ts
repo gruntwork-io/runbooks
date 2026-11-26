@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test"
+import { describe, it, expect, spyOn } from "bun:test"
 import { Effect, Layer, Result, Stream } from "effect"
 import { ExecEnvOverrideError } from "../../errors/index.ts"
 import { executeScript, type ExecEvent } from "./executor.ts"
@@ -411,6 +411,41 @@ describe("executeScript — log files", () => {
       `[ERROR] raw ${env.RUNBOOK_ERROR_LOG}`,
       `[DEBUG] raw ${env.RUNBOOK_DEBUG_LOG}`,
     ])
+  })
+})
+
+describe("executeScript: debug lines", () => {
+  /** How many `[domain:exec]` debug lines a run printed, with the app's DEBUG set to `debug`. */
+  async function debugLines(debug: string): Promise<number> {
+    const spy = spyOn(console, "debug").mockImplementation(() => {})
+    try {
+      const layer = makeTestLayer({
+        env: { PATH: "/usr/bin", DEBUG: debug },
+        commands: [{ command: "bash", outputLines: [], exitCode: 0 }],
+      })
+      const run = Effect.gen(function* () {
+        const { logStream, completionEffect } = yield* executeScript(
+          "echo hi",
+          "",
+          {},
+          { env: { PATH: "/usr/bin" }, workDir: "/work" },
+          "",
+          "/output",
+          "/logs/block",
+        )
+        yield* Stream.runDrain(logStream)
+        yield* completionEffect
+      })
+      await Effect.runPromise(Effect.scoped(run).pipe(Effect.provide(layer)))
+      return spy.mock.calls.filter(([prefix]) => prefix === "[domain:exec]").length
+    } finally {
+      spy.mockRestore()
+    }
+  }
+
+  it("prints them when the app's DEBUG enables domain:exec, and not otherwise", async () => {
+    expect(await debugLines("domain:exec")).toBeGreaterThan(0)
+    expect(await debugLines("git:*")).toBe(0)
   })
 })
 

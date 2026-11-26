@@ -14,7 +14,7 @@ import {
 } from "./GoogleSdkClient.ts"
 import { GoogleClient } from "@runbooks/core/services/GoogleClient"
 import type { GoogleClientShape } from "@runbooks/core/services/GoogleClient"
-import { makeFakeFetch } from "@runbooks/core/test-utils/FakeFetch"
+import { makeFakeFetch } from "../test-utils/FakeFetch.ts"
 
 /**
  * Found against a real GCP org: `projects:search` returned a DELETE_REQUESTED

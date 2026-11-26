@@ -1,8 +1,9 @@
 import { describe, it, expect } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { inspectLocalRepo, resolveLocalRepoPath } from "./local-repo.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
 import type { TestLayerOptions } from "../../test-utils/TestLayer.ts"
+import { makeRecordingSpawner } from "../../test-utils/TestSpawner.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { GitError } from "../../errors/index.ts"
 
@@ -83,6 +84,38 @@ describe("resolveLocalRepoPath", () => {
 })
 
 describe("inspectLocalRepo", () => {
+  it("runs each git with the app's environment, from Environment", async () => {
+    const spawner = makeRecordingSpawner((_command, args) => ({
+      lines:
+        args[0] === "--version"
+          ? [{ source: "stdout", line: "git version 2.54.0" }]
+          : args[0] === "remote" && args.length === 1
+            ? [{ source: "stdout", line: "upstream" }]
+            : [],
+      exitCode: 0,
+    }))
+    const layer = makeTestLayer({
+      env: { PATH: "/test/bin" },
+      git: {
+        getRepoRoot: () => Effect.succeed("/repo"),
+        getInfo: () => Effect.succeed({ branch: "main", refType: "branch" as const }),
+      },
+    })
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* (yield* FileSystem).mkdir("/repo")
+        return yield* inspectLocalRepo("/repo", WORKING_DIR)
+      }).pipe(Effect.provide(Layer.merge(layer, spawner.layer))),
+    )
+
+    expect(spawner.calls.map(({ args, env }) => [args.join(" "), env?.PATH])).toEqual([
+      ["--version", "/test/bin"],
+      ["remote", "/test/bin"],
+      ["remote get-url upstream", "/test/bin"],
+      ["ls-files", "/test/bin"],
+    ])
+  })
+
   it("describes a checkout outside the working directory", async () => {
     const info = await inspect("/home/me/infra", {
       dirs: ["/home/me/infra"],

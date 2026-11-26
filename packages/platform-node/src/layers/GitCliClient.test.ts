@@ -698,7 +698,7 @@ describe("GitCliClientLive.commit (real repo)", () => {
     // Make git ignore any *ambient* (global/system) identity so these tests
     // exercise the layer's own identity handling deterministically — the repo
     // starts with NO resolvable identity on every machine, dev laptop or clean
-    // CI runner. (GitCliClientLive runs git via gitSpawnEnv(), which spreads
+    // CI runner. (GitCliClientLive runs git via gitSpawnEnv(process.env), which spreads
     // process.env, so these reach the real commit too.)
     savedConfigGlobal = process.env.GIT_CONFIG_GLOBAL
     savedConfigSystem = process.env.GIT_CONFIG_SYSTEM
@@ -1282,7 +1282,7 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     expect(server.seenAuthorization).not.toContain(basic("oauth2", TOKEN))
     // No auth config appended: only what every git spawn carries.
     const push = spawns.find((s) => s.args[0] === "push")
-    expect(push?.env?.GIT_CONFIG_COUNT).toBe(gitSpawnEnv().GIT_CONFIG_COUNT)
+    expect(push?.env?.GIT_CONFIG_COUNT).toBe(gitSpawnEnv(process.env).GIT_CONFIG_COUNT)
   }, 30_000)
 
   it("never hands a rejected token's fallback to the user's credential helper", async () => {
@@ -1320,7 +1320,7 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     // top of whatever the environment already did (some CI/sandbox shells
     // export their own).
     const push = spawns.find((s) => s.args[0] === "push")
-    expect(push?.env?.GIT_CONFIG_COUNT).toBe(gitSpawnEnv().GIT_CONFIG_COUNT)
+    expect(push?.env?.GIT_CONFIG_COUNT).toBe(gitSpawnEnv(process.env).GIT_CONFIG_COUNT)
     expect(gitOut(work, "remote", "get-url", "origin").trim()).toBe(sshUrl)
   }, 30_000)
 

@@ -643,7 +643,7 @@ const scanGlabConfigs = <T>(pick: (content: string) => T | undefined) =>
     const allEnv = yield* env.getAll()
     const candidates = resolveGlabConfigPaths({
       env: allEnv,
-      platform: process.platform,
+      platform: env.platform,
     })
 
     for (const path of candidates) {
