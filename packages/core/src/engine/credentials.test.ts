@@ -23,7 +23,9 @@ import {
   type SignInEvent,
 } from "../credential/provider.ts"
 import { type UseEnvSession, withEnvSession } from "../test-utils/envSessions.ts"
+import { stateDirOf } from "../credential/stateDir.ts"
 import {
+  blockOfStateDir,
   type ProviderCall,
   type ScriptedProvider,
   testCredentialProviders,
@@ -265,7 +267,7 @@ describe("detecting a credential", () => {
     expect(config).toMatchObject({ settings: { defaultRegion: "eu-west-1" } })
     expect(networkOf("cloud")).toEqual([{ caBundleFile: null, proxy: null }])
     const { stateDir } = config as ProviderConfig
-    expect(path.basename(stateDir)).toBe("cloud")
+    expect(stateDir).toBe(stateDirOf(path.dirname(stateDir), blockId("cloud")))
     expect(path.dirname(path.dirname(stateDir))).toBe("/state")
     expect(callsOf("cloud")).toEqual(["open", "describe", "detect"])
   })
@@ -1755,7 +1757,7 @@ describe("each block's own credential", () => {
   const perBlock =
     (...finding: ReadonlyArray<string>) =>
     (config: ProviderConfig): ScriptedProvider => {
-      const block = path.basename(config.stateDir)
+      const block = blockOfStateDir(config.stateDir)
       const account = block === "a" ? "111" : "222"
       return cloud({
         detect: () =>
@@ -1779,6 +1781,28 @@ describe("each block's own credential", () => {
     const dirs = calls
       .filter((call) => call.method === "open")
       .map((call) => (call.args[1] as ProviderConfig).stateDir)
+    expect(new Set(dirs).size).toBe(2)
+  })
+
+  // A file system that ignores case (macOS's default) would give "cloud" and
+  // "Cloud" one folder, and one block's sign-out would delete the other's files.
+  it("gives two blocks whose ids differ only in case two state folders, whatever the file system's case", async () => {
+    await withCloud(
+      runbookOf(
+        '<CloudLogin id="cloud" account="111" />',
+        '<CloudLogin id="Cloud" account="222" />',
+      ),
+      { cloud: cloud() },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "SignedOut")
+          yield* rb.until("Cloud", "SignedOut")
+        }),
+    )
+    const dirs = calls
+      .filter((call) => call.method === "open")
+      .map((call) => (call.args[1] as ProviderConfig).stateDir.toLowerCase())
+    expect(dirs).toHaveLength(2)
     expect(new Set(dirs).size).toBe(2)
   })
 
