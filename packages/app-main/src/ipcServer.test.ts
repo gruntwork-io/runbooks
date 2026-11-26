@@ -122,6 +122,26 @@ const withServer = <A>(use: (seen: Seen) => Effect.Effect<A, unknown, Scope.Scop
     ),
   )
 
+/** Runs `use` with the server end alone, which no server reads from. */
+const withProtocol = <A>(
+  use: (protocol: RpcServer.Protocol["Service"]) => Effect.Effect<A, unknown, Scope.Scope>,
+) =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.flatMap(
+        makeIpcServerProtocol({ contents, page: PAGE, log: (line) => logged.push(line) }),
+        use,
+      ),
+    ),
+  )
+
+/** The server's answer to `requestId`, as it sends one. */
+const exitOf = (requestId: string, value: string): RpcMessage.FromServerEncoded => ({
+  _tag: "Exit",
+  requestId,
+  exit: { _tag: "Success", value },
+})
+
 const { codecFor } = RpcSerialization.json
 
 /** A client on the page the contents show now, as the renderer makes one. */
@@ -380,6 +400,23 @@ describe("the engine over IPC", () => {
     expect(result.watched).toBe("dark")
     expect(result.toOld).toEqual([])
     expect(result.oldHeard).toBe(1)
+  })
+
+  it("sends a reloaded page nothing the server answers for the page before it", async () => {
+    // Each page's client numbers its requests from 0, so an answer to the
+    // old page that the server sends after the reload has the id of the new
+    // page's first request.
+    const heard = await withProtocol((protocol) =>
+      Effect.gen(function* () {
+        contents.navigate()
+        contents.navigate()
+        const page = rawPage()
+        yield* protocol.send(0, exitOf("0", "the old page's settings"))
+        yield* protocol.send(1, exitOf("0", "the new page's settings"))
+        return page.heard
+      }),
+    )
+    expect(heard).toEqual([exitOf("0", "the new page's settings")])
   })
 
   it("sends a stream's next chunk only after the page acks the last", async () => {
