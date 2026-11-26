@@ -89,6 +89,7 @@ interface Node {
   readonly specifiers?: ReadonlyArray<Node>
   readonly declaration?: Node | null
   readonly body?: ReadonlyArray<Node>
+  readonly property?: Node
 }
 
 interface Context {
@@ -482,6 +483,39 @@ const blocksCoreImportsOnlyEffect = {
   },
 }
 
+/**
+ * Members whose call throws on a bad value or a failure: Schema's `*Sync`
+ * decoders and encoders, `Effect.runSync`, `Option.getOrThrow` and kin.
+ */
+const THROWS = /Sync$|^getOrThrow(With)?$|^asserts$/
+
+const noThrowInBlocks = {
+  meta: {
+    type: "problem",
+    docs: { description: "Block code throws nothing: the parser and the engine call it" },
+    messages: {
+      throw:
+        "Block code throws nothing, because the parser and the engine call it and a throw would end them: fail an Effect, or return a Result.",
+      call: "{{name}} throws on a bad value. Block code throws nothing, because the parser and the engine call it and a throw would end them: decode in the block's props schema, or use the Effect or Result form.",
+    },
+    schema: ROOT_OPTION,
+  },
+  create(context: Context) {
+    const { file } = fileOf(context)
+    const pkg = packageOf(file)
+    if ((pkg !== "blocks" && pkg !== "blocks-core") || !file.endsWith(".ts")) return {}
+    if (file.endsWith(".test.ts")) return {}
+    return {
+      ThrowStatement: (node: Node) => context.report({ node, messageId: "throw" }),
+      MemberExpression: (node: Node) => {
+        const name = node.computed === true ? undefined : node.property?.name
+        if (name === undefined || !THROWS.test(name)) return
+        context.report({ node: node.property, messageId: "call", data: { name } })
+      },
+    }
+  },
+}
+
 /** Reports each statement in the registry that is not one registry line. `export {}` keeps an empty registry a module. */
 function registryLines(program: Node, context: Context): void {
   for (const node of program.body ?? []) {
@@ -504,5 +538,6 @@ export default {
     "plugin-binary-outside-owner": pluginBinaryOutsideOwner,
     "no-computed-import": noComputedImport,
     "blocks-core-imports-only-effect": blocksCoreImportsOnlyEffect,
+    "no-throw-in-blocks": noThrowInBlocks,
   },
 }

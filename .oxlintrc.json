@@ -77,7 +77,8 @@
     "runbooks/block-name-outside-its-folder": "error",
     "runbooks/plugin-binary-outside-owner": "error",
     "runbooks/no-computed-import": "error",
-    "runbooks/blocks-core-imports-only-effect": "error"
+    "runbooks/blocks-core-imports-only-effect": "error",
+    "runbooks/no-throw-in-blocks": "error"
   },
   "overrides": [
     {
