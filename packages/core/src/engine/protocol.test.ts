@@ -1,7 +1,8 @@
-import { describe, expect, it } from "bun:test"
+import { describe, expect, expectTypeOf, it } from "bun:test"
 import { Cause, Context, DateTime, Effect, Exit, Layer, Option, Schema, Stream } from "effect"
 import { Rpc, type RpcClient, RpcTest } from "effect/rpc"
 import { BlockId } from "@runbooks/blocks-core/contract"
+import { type CredentialStateTag, TRANSITIONS } from "../credential/lifecycle.ts"
 import { ContentHash } from "../document/document.ts"
 import {
   ActResult,
@@ -285,6 +286,18 @@ describe("engine protocol", () => {
     }
     expect(Schema.decodeUnknownSync(json)(notOffered)).toEqual(notOffered)
     expect(() => Schema.decodeUnknownSync(json)({ ...notOffered, field: "fields" })).toThrow()
+  })
+
+  it("says which state refused an action: a credential state, Blocked or Misconfigured, and nothing else", () => {
+    const json = Schema.toCodecJson(ActResult)
+    const states = [...Object.keys(TRANSITIONS), "Blocked", "Misconfigured"]
+    for (const state of states) {
+      const decoded: unknown = Schema.decodeUnknownSync(json)({ _tag: "NotAllowed", state })
+      expect(decoded).toEqual({ _tag: "NotAllowed", state })
+    }
+    expect(() => Schema.decodeUnknownSync(json)({ _tag: "NotAllowed", state: "Asleep" })).toThrow()
+    type State = Extract<ActResult, { _tag: "NotAllowed" }>["state"]
+    expectTypeOf<State>().toEqualTypeOf<CredentialStateTag | "Blocked" | "Misconfigured">()
   })
 
   it("refuses a setting it does not have, naming each one, and a value a setting does not take", () => {
