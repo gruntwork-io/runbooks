@@ -10,6 +10,7 @@ The running index of the rebuild stack. Update it whenever the stack changes.
 - On 2026-11-25 the human merged #496 to #560 into `rebuild/main`, one commit per PR. The trunk's tree equals the old stack top's (3cd837b5), so open PRs rebase onto it with `git rebase --onto origin/rebuild/main <old base tip>`.
 - Later on 2026-11-25 the human merged #565 to #581 the same way: `rebuild/main` 17064004, whose tree equals #581's head (70ff25fe) outside this file. GitHub rebased #582 onto it (7896e7ba). An index commit on `rebuild/main` leaves #582 one commit behind; its diff is unaffected, and its branch was last pushed by GitHub, so it is not force-pushed from here.
 - On 2026-11-26 (UTC) the human merged #582 and #585 to #594 the same way: `rebuild/main` d845152e. GitHub rebased #595 onto it (f8229880), so it is not force-pushed from here; this index commit leaves it one commit behind. A rework of a merged PR comes as a new PR on top of the stack (#596 for #594, #597 for #589), never as a push to the merged branch.
+- On 2026-11-26 no PR was merged. #598 to #607 went on top of #597, and runbooks-reviewer's finding 6 (test CLI false greens) closed with #601 to #604. #598 is held for decision 9 (Waiting on the human), and #599 and up are stacked on it: if decision 9 goes another way, they rebase onto #597 with `git rebase --onto`.
 - **Keep it stacked.** The PRs are GitHub stack #519, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/519`). `.more9s/stack.sh` keeps it that way:
   - `add <branch> <title> <body-file>` opens each new PR as a draft on the top of the stack, links it into #519, and waits until GitHub lists it on top (two adds in a row once based the second on the PR below the first). Mark it ready with `gh pr ready` once green. Don't open a rebuild PR with `gh pr create` alone.
   - `restack` (`--dry-run` first, in a linked worktree) is needed after any commit to `rebuild/main`, such as an index update, or to a lower branch. It rebases each branch onto the one below and force-pushes it with a lease. CI then reruns on every PR above the change, so batch index updates.
@@ -133,21 +134,29 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 81 | #592 | 2 | `rebuild/p2-fix-shared-refs` | p2-fix-state-dir | merged | contract change: `inputsId`, `dependsOn`, `envFrom` take one id or a list |
 | 82 | #593 | 2 | `rebuild/p2-fix-yaml-aliases` | p2-fix-shared-refs | merged | YAML whose alias holds itself is an error at the alias |
 | 83 | #594 | 2 | `rebuild/p2-fix-spawner-bounds` | p2-fix-yaml-aliases | merged; review asked for changes (#596) | the spawner's memory is bounded; a signal exits 128+n |
-| 84 | #595 | 2 | `rebuild/p2-fix-trust-hash` | `rebuild/main` | green | a folder's trust hash covers each byte and executable bit; size and count limits on named files |
-| 85 | #596 | 2 | `rebuild/p2-fix-whole-lines` | p2-fix-trust-hash | open | #594's rework: a long line's pieces are marked and joined for parsers; the spawner pauses only while read |
-| 86 | #597 | 2 | `rebuild/p2-command-rework` | p2-fix-whole-lines | open | #589's rework: an exit test that can fail, recorded calls, no Node in `block.ts` |
-| 87 | none | 2 | #588's rework | p2-command-rework | planned (in progress) | `{{ }}` lexer bypasses, evaluating positions, NUL and size limits, every problem reported |
-| 88 | none | 2 | Command: nested `<Inputs>`, `docs.mdx` | row 87 | planned | #589 findings 3 and 5 |
-| 89 | none | 2 | the rest of the `rebuild/main` review's fixes | row 88 | planned | see Follow-ups owed |
-| 90 | none | A | `rebuild/pA-plugins-lock` | row 89 | planned (built) | A.5 (`resources/plugins.lock`, its loader) |
-| 91 | none | A | `rebuild/pA-plugins-recipes` | pA-plugins-lock | planned (built) | A.5 (fetch, check and bump recipes) |
-| 92 | none | A | `rebuild/pA-plugins-packaging` | pA-plugins-recipes | planned (built) | A.6 (CI and release check the bundled binaries; `mac.signIgnore`) |
+| 84 | #595 | 2 | `rebuild/p2-fix-trust-hash` | `rebuild/main` | green; review: merge | a folder's trust hash covers each byte and executable bit; size and count limits on named files |
+| 85 | #596 | 2 | `rebuild/p2-fix-whole-lines` | p2-fix-trust-hash | green; review: merge | #594's rework: a long line's pieces are marked and joined for parsers; the spawner pauses only while read |
+| 86 | #597 | 2 | `rebuild/p2-command-rework` | p2-fix-whole-lines | green; review: merge | #589's rework: an exit test that can fail, recorded calls, no Node in `block.ts` |
+| 87 | #598 | 2 | `rebuild/p2-values-rework` | p2-command-rework | green; held for decision 9 (review round 2: change) | #588's rework: `{{ }}` lexer bypasses, evaluating positions, NUL and size limits, every problem reported |
+| 88 | #599 | 2 | `rebuild/p2-command-inputs` | p2-values-rework | green; review: merge | #589 finding 3: a nested `<Inputs>` in a task, read last |
+| 89 | #600 | 2 | `rebuild/p2-e2e-spec-list` | p2-command-inputs | green; review: merge | the baseline's e2e list equals the specs on disk |
+| 90 | #601 | 2 | `rebuild/p2-fix-test-regex` | p2-e2e-spec-list | green; review: merge | review finding 6: `runbooks test` reads regexes as today's CLI does |
+| 91 | #602 | 2 | `rebuild/p2-run-files-contract` | p2-fix-test-regex | green; review: merge | contract change: `BlockView.files` and `filesTruncated` |
+| 92 | #603 | 2 | `rebuild/p2-run-generated-files` | p2-run-files-contract | red, a `web/` focus flake, rerun; review: merge | `$GENERATED_FILES` and `$REPO_FILES`; the copy on a good end |
+| 93 | #604 | 2 | `rebuild/p2-fix-files-generated` | p2-run-generated-files | green; review: merge | review finding 6: `files_generated` counts the named block's files |
+| 94 | #605 | 2 | `rebuild/p2-command-repository` | p2-fix-files-generated | open | Command's `repository` prop, so a Command gets `$REPO_FILES` |
+| 95 | #606 | 2 | `rebuild/p2-command-docs-landed` | p2-command-repository | open | #589 finding 5: Command's `docs.mdx` |
+| 96 | #607 | 2 | `rebuild/p2-e2e-test-match` | p2-command-docs-landed | open | #600 follow-up: each Playwright config runs only `*.spec.ts` |
+| 97 | none | 2 | the rest of the `rebuild/main` review's fixes | p2-e2e-test-match | planned | see Follow-ups owed |
+| 98 | none | A | `rebuild/pA-plugins-lock` | row 97 | planned (built) | A.5 (`resources/plugins.lock`, its loader) |
+| 99 | none | A | `rebuild/pA-plugins-recipes` | pA-plugins-lock | planned (built) | A.5 (fetch, check and bump recipes) |
+| 100 | none | A | `rebuild/pA-plugins-packaging` | pA-plugins-recipes | planned (built) | A.6 (CI and release check the bundled binaries; `mac.signIgnore`) |
 
 On 2026-11-24 the human found the PRs were not properly stacked:
 - #496 lacked four index commits on `rebuild/main`. Every branch was rebased; trees were unchanged apart from this file.
 - The PRs were not linked as a GitHub stack. They now are, with `gh stack link --base rebuild/main 496 … 518` (gh-stack v0.2.0), which created stack #519.
 
-Phase 1 ended with #526 on 2026-11-24. Phase 2's work products ended with #581 (merged 2026-11-25); #582 is a contract addendum. Command landing in phase 2 is my choice: the Done when needs a Command fixture in the test CLI, and the registry is empty until it lands. #589 carries phase 2's Done when, and #597 replaces its exit test with one that can fail. runbooks-reviewer's review of `rebuild/main` at 17064004 asked for changes, so the phase 2 fix PRs (from #590) come before track A. Track A's two lock PRs and its packaging PR then open before phase 3, because phase 3's entry points read the lock to start real binaries; they also wait for a plugins release that speaks protocol "2".
+Phase 1 ended with #526 on 2026-11-24. Phase 2's work products ended with #581 (merged 2026-11-25); #582 is a contract addendum. Command landing in phase 2 is my choice: the Done when needs a Command fixture in the test CLI, and the registry is empty until it lands. #589 carries phase 2's Done when, and #597 replaces its exit test with one that can fail. runbooks-reviewer's review of `rebuild/main` at 17064004 asked for changes, so the phase 2 fix PRs (from #590) come before track A. Rows 87 to 96 are that queue so far, in the order the reviewer's findings and the docs subagent's report asked for them. Track A's two lock PRs and its packaging PR then open before phase 3, because phase 3's entry points read the lock to start real binaries; they also wait for a plugins release that speaks protocol "2".
 
 ## Track A: gruntwork-io/runbooks-plugins
 
@@ -223,7 +232,7 @@ Each row names the PR whose description carries the Decisions entry.
 | 3 | Baseline is today's behaviour with the nine ruled changes applied | #509 |
 | 5 | `*AuthId` aliases kept with a warning, no removal date; fixtures keep them | #510 |
 | 17 | Finish needs a clean success; gh and az still read their own config | #510 |
-| 9 | `{{ }}` kept in scripts, inserted as quoted variable expansions | #588 |
+| 9 | `{{ }}` kept in scripts, inserted as quoted variable expansions | #588; #598 reworks it and is held (Waiting on the human) |
 | 15 | Windows left as it is: environment names compare case-sensitively | #539 |
 | 6 | Saved sessions keep form values and credentials, drop run history from older versions | #544 |
 | 16 | One repo, one version for all binaries, hashes checked against the release's `SHA256SUMS` | row 90 (unopened) |
@@ -299,6 +308,10 @@ Choices of my own that need a ruling (not among the 18):
 | The master plan's line 218 shows `instruction(TaskInput)`; #587 made it `TaskReads` | update the plan | the master plan |
 | A linux arm64 plugin binary | build it (runbooks-plugins has a branch) or leave Linux on ARM `notInstalled` | `resources/plugins.lock` |
 | A no-proxy list | a setting plus a contract change, or none | the credential contract |
+| Decision 9: `{{ }}` in scripts. The premise of #588 and #598, that the places where bash evaluates a word can be listed by lexing the script, failed twice: round 2 of the review still ran a value through 7 classes (`OPTIND`, `HISTCMD`, `RANDOM` and `SRANDOM` arithmetic; `printf -v`'s target; `read NAME <<<`; `wait -p`; `bash -c`, `sh -c` and `. <(...)`). The misses are an open set that changes with bash's version. No third patch. | values reach a script only through `env` (recommended; `{{ }}` in a script becomes a parse error that names the `env` to write), or #598 with its known gaps listed | #598, the Command docs (#606) |
+| A link inside a folder a block names is refused (#595 Decision 1); `docs/intro/files_workspace.mdx:125-131` documents following links that stay in the folder | refuse (built), or follow a link whose real path is inside the runbook's folder | #595 |
+| The 2000-entry cap on a named folder now counts folders as well as files (#595 Decision 2) | keep, or count files only | #595 |
+| A block id is ASCII letters, digits, `-` and `_` (#590); authors see it as a parse error | keep, or widen the pattern | #590 |
 
 ## Failed attempts
 
@@ -306,6 +319,7 @@ Choices of my own that need a ruling (not among the 18):
 |---|---|---|
 | #573's unit tests in CI | Read the message of a plugin that fails to load from oxlint's output | GitHub's runners default oxlint to its github format, which drops that message; the test asks for `-f default` (907fda47). |
 | Generate TS from `plugin/base.schema.json` | `not: { required: [id] }` on notifications | Effect's importer: "Cannot import JSON Schema keyword \"not\"". Rule moved to the transport owner (#499). |
+| Decision 9 in CI and review | List the places bash evaluates a word by lexing the script (#588), then patch the misses (#598) | Review rounds 1 and 2 each found classes that still ran a value. The premise, not the patch, failed; see Waiting on the human. |
 
 ## Follow-ups owed
 
@@ -346,8 +360,15 @@ Choices of my own that need a ruling (not among the 18):
 | Bump `resources/plugins.lock` to the plugins release that sends `envValue.file` | track A, when released |
 | Real Developer ID signing and notarization with `mac.signIgnore` | the first release run |
 | A large org's target list can pass the 1 MiB line cap (the plugins answer `internal`): page `targets` | a later contract change |
-| The `rebuild/main` review at 17064004, groups still to fix: status memo, credential restart re-detect, secret scan, test CLI false greens and CLI contract, parse smalls and `literalOnly`, interrupts and concurrency, lint gaps, settings and sessions database, owner TOCTOU and stdout close, protocol "2" and a schema CI check, `env` prop `{{ }}` rendering | row 89, one subagent at a time |
+| The `rebuild/main` review at 17064004, groups still to fix: status memo, credential restart re-detect, secret scan, the CLI contract (a bad test file in JUnit; `RUNBOOK_OUTPUT=junit` and `validate`), parse smalls and `literalOnly`, interrupts and concurrency, lint gaps, settings and sessions database, owner TOCTOU and stdout close, protocol "2" and a schema CI check, `env` prop `{{ }}` rendering | row 89, one subagent at a time |
 | Inferred from that review, not reproduced: a second Ctrl-C or SIGTERM and process groups; run files 0644 in tmpdir; `valueLength` 128K over `MAX_ARG_STRLEN`; `agentAccess`/`confirmAgentRuns` not read (gate before MCP) | reproduce first |
-| The e2e spec list must equal the specs on disk (runbooks-reviewer, #585) | phase 2 fix PR |
 | `boilerplate.yml` readers (`config.ts:388`, `warmEligibility.ts:95`) move to `yamlData` | phase 4, Template |
 | `openFileTail.finish()` reads what is left of a log file in one go when the child ends (#594) | before phase 6 |
+| A test that walks each `blocks/*/block.ts` import graph, through the aliases, and fails on a `node:` or built-in module (#597 checks direct imports only; runbooks-reviewer has a walker) | row 97, with the lint gaps |
+| `NodeFileSystem.walk`'s queue is unbounded and doesn't wait for a slow reader; the generated-files copy (#603) feeds it a folder a script fills | row 97, with the bounds |
+| `runbooks test` applies a Command's `timeoutMs`; today's CLI ignores it (`testing.mdx:102`, `:439`), and a block it stops reports `timeout`, which no `expect` matches. Not a ruled change: restore today's behaviour | row 97 |
+| `env` values take only strings; today numbers and booleans pass. Not a ruled change: restore | row 97, with `env` `{{ }}` rendering |
+| Command has no `exclusive` prop (`validate` warns it is ignored) | phase 3, with run order |
+| No saved session keeps `BlockView.files` (#602) | phase 5, the files panel |
+| Template and TemplateInline report their files as `File` events, so `files_generated` counts them | phase 4, Template |
+| Old-tree CI flakes: `GitAuth.switch` Reload (a stale-effect race), and `SessionName.test.tsx`'s refused-name focus check (#603's first run) | before phase 6, or with the old tree's deletion |
