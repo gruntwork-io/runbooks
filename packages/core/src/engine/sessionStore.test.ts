@@ -98,7 +98,7 @@ const LOGIN: Saved = {
     provider: "cloud",
     source: "sso",
     targets: { account: { id: "111", name: "acct-111" }, role: null },
-    values: { CLOUD_TOKEN: "tok-SECRET" },
+    values: { CLOUD_TOKEN: { value: "tok-SECRET", secret: true } },
   },
 }
 

@@ -371,7 +371,7 @@ export const openPluginProvider = (
             kind: "values",
             from: source.from,
             values: Object.fromEntries(
-              Object.entries(source.values).map(([key, value]) => [key, Redacted.value(value)]),
+              Object.entries(source.values).map(([key, { value }]) => [key, Redacted.value(value)]),
             ),
           }
         case "named":

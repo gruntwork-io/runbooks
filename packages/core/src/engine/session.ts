@@ -739,7 +739,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
                   source: state.source,
                   targets: state.identity.targets,
                   values: Object.fromEntries(
-                    env.values.map(({ name, value }) => [name, Redacted.value(value)]),
+                    env.values.map(({ name, value, sensitive }) => [
+                      name,
+                      { value: Redacted.value(value), secret: sensitive },
+                    ]),
                   ),
                 },
               },

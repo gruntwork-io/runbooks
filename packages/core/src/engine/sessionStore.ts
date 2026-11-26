@@ -116,8 +116,11 @@ export const SavedCredential = Schema.Struct({
   /** Where the login came from, as the Ready state showed it. */
   source: Schema.String,
   targets: Schema.Record(Schema.String, Schema.NullOr(Target)),
-  /** What the provider's `env` gave, by name. */
-  values: Schema.Record(Schema.String, Schema.String),
+  /** What the provider's `env` gave, by name, and whether it marked each one sensitive. */
+  values: Schema.Record(
+    Schema.String,
+    Schema.Struct({ value: Schema.String, secret: Schema.Boolean }),
+  ),
 })
 export type SavedCredential = typeof SavedCredential.Type
 

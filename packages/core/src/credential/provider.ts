@@ -165,11 +165,22 @@ export type ProviderInfo = typeof ProviderInfo.Type
  * them, `from` its own id: a provider finds its login in them and checks it
  * as it checks any login it detects.
  */
+/** A value a `values` source holds. */
+export interface SourceValue {
+  readonly value: Redacted.Redacted<string>
+  /**
+   * A sensitive output, or a value `env` marked sensitive. A plugin-backed
+   * provider holds it as a secret it knows, which no identity, target,
+   * prompt or error may carry.
+   */
+  readonly secret: boolean
+}
+
 export type ResolvedSource =
   | { readonly kind: "env"; readonly prefix: Option.Option<string> }
   | {
       readonly kind: "values"
-      readonly values: { readonly [name: string]: Redacted.Redacted<string> }
+      readonly values: { readonly [name: string]: SourceValue }
       /** The id of the block the values were read from: the block itself, for its own saved values. A login found in them has it as its source. */
       readonly from: string
     }

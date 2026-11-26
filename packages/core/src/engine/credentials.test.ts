@@ -507,14 +507,16 @@ describe("detecting a credential", () => {
       {
         kind: "values",
         from: "keys",
-        values: { accessKey: expect.anything(), secretKey: expect.anything() },
+        values: {
+          accessKey: { value: expect.anything(), secret: false },
+          secretKey: { value: expect.anything(), secret: true },
+        },
       },
     ])
-    const values = (sources as ReadonlyArray<{ values?: Record<string, unknown> }>)[1]?.values ?? {}
-    expect(Object.values(values).every(Redacted.isRedacted)).toBe(true)
-    expect(
-      Object.values(values).map((value) => Redacted.value(value as Redacted.Redacted)),
-    ).toEqual(["AKIAKEYS", "keys-SECRET"])
+    const source = (sources as ReadonlyArray<ResolvedSource>)[1]
+    const values = source?.kind === "values" ? Object.values(source.values) : []
+    expect(values.every(({ value }) => Redacted.isRedacted(value))).toBe(true)
+    expect(values.map(({ value }) => Redacted.value(value))).toEqual(["AKIAKEYS", "keys-SECRET"])
   })
 
   it("names the block a login was found through", async () => {
@@ -1483,15 +1485,22 @@ describe("a run that names the block in envFrom", () => {
   })
 
   describe("a login the provider lost, as a plugin that started again has", () => {
-    /** Whether `sources` is the block's own login: the values its `env` gave, from the block itself. */
+    /**
+     * Whether `sources` is the block's own login: the values its `env` gave,
+     * from the block itself, the token secret and the account not.
+     */
     const ownLogin = (sources: ReadonlyArray<ResolvedSource>) =>
-      sources.some(
-        (source) =>
-          source.kind === "values" &&
-          source.from === blockId("cloud") &&
-          Object.hasOwn(source.values, "CLOUD_TOKEN") &&
-          Redacted.value(source.values["CLOUD_TOKEN"]!) === "tok-SECRET",
-      )
+      sources.some((source) => {
+        if (source.kind !== "values" || source.from !== blockId("cloud")) return false
+        const token = source.values["CLOUD_TOKEN"]
+        const account = source.values["CLOUD_ACCOUNT"]
+        return (
+          token !== undefined &&
+          Redacted.value(token.value) === "tok-SECRET" &&
+          token.secret &&
+          account?.secret === false
+        )
+      })
     /** A provider Ready with `tok-SECRET`, whose next `env` fails with `lost`, then gives `tok-AGAIN`. */
     const losing = (lost: CredentialError, findsAgain: boolean) => {
       let envCalls = 0
