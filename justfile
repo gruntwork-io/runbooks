@@ -320,3 +320,14 @@ typecheck: _no-nested-node-modules
 
 # Run all checks (lint + format check + unused code + typecheck)
 check: lint fmt-check knip typecheck
+
+# --- The rebuilt app (packages/app-main, packages/app-renderer) ---
+# Built by electron.vite.app.config.ts into app-out/, beside the old app.
+
+# Build the rebuilt app into app-out/
+app-build:
+    mise x node -- npx electron-vite build -c electron.vite.app.config.ts
+
+# Start the rebuilt app in dev mode, its page from Vite's dev server (HMR, no CSP)
+app-dev: _electron-binary
+    mise x node -- npx electron-vite dev -c electron.vite.app.config.ts --entry app-out/main/index.js
