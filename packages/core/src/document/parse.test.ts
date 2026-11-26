@@ -1,13 +1,16 @@
 import { describe, expect, it } from "bun:test"
 import { createHash } from "node:crypto"
 import { Schema } from "effect"
-import { BlockId } from "@runbooks/blocks-core/contract"
+import { BlockId, defineTask, RunbookPath } from "@runbooks/blocks-core/contract"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import type { ConfigError, ConfigWarning } from "./configError.ts"
-import { configErrors, type RunbookDocument } from "./document.ts"
+import { configErrors, ContentHash, type RunbookDocument } from "./document.ts"
+import type { FileFact } from "./files.ts"
 import { parseRunbook } from "./parse.ts"
 
 const id = Schema.decodeSync(BlockId)
+const toPath = Schema.decodeSync(RunbookPath)
+const toHash = Schema.decodeSync(ContentHash)
 
 const parse = (source: string, appVersion = "0.31.0") =>
   parseRunbook(source, TOY_REGISTRY, { file: "demo/runbook.mdx", appVersion })
@@ -412,6 +415,63 @@ describe("parseRunbook", () => {
         ],
       ])
       expect(errors("---\ntitle: [Deploy\n---\n")[0]).toMatchObject({ code: "syntax" })
+    })
+  })
+
+  describe("scripts", () => {
+    /** A task whose `command` prop or `path` file is its script, as Command's is. */
+    const SCRIPT_REGISTRY = {
+      ...TOY_REGISTRY,
+      Sh: defineTask({
+        ...TOY_REGISTRY.Run,
+        name: "Sh",
+        scripts: (p) =>
+          p.command !== undefined
+            ? [{ _tag: "Prop", prop: "command" }]
+            : p.path !== undefined
+              ? [{ _tag: "File", path: toPath(p.path) }]
+              : [],
+      }),
+    }
+    const found = (text: string): FileFact => ({
+      _tag: "Found",
+      hash: toHash(`sha256:${createHash("sha256").update(text).digest("hex")}`),
+      texts: [{ path: "scripts/use.sh", text }],
+    })
+    const withScripts = (source: string, script?: string) =>
+      parseRunbook(
+        source,
+        SCRIPT_REGISTRY,
+        { file: "demo/runbook.mdx", appVersion: "0.31.0" },
+        new Map(script === undefined ? [] : [[toPath("scripts/use.sh"), found(script)]]),
+      )
+    const edgesFrom = (result: ReturnType<typeof parseRunbook>) =>
+      result._tag === "Parsed" ? result.document.edges.map((edge) => edge.from) : "refused"
+
+    it("reads no `{{ }}` in a script prop as a reference: no edge, no error", () => {
+      const result = withScripts(
+        [
+          '<Sh id="a" command="true" outputs={["b"]} />',
+          `<Sh id="gen" command='echo "{{ .outputs.a.b }}" {{ .inputs.region }}\ncat > ci.yml <<"EOF"\nrun: echo \${{ steps.a.outputs.b }} {{ .outputs.gone.k }}\nEOF' />`,
+          '<Run id="old" command="{{ .outputs.a.b }}" />',
+        ].join("\n\n"),
+      )
+      expect(configErrors(result)).toEqual([])
+      // A block that does not name its scripts, the toy Run here, still reads its props' references.
+      expect(edgesFrom(result)).toEqual([2])
+    })
+
+    it("reads no `{{ }}` in a script file as a reference, though the same file read by another block is", () => {
+      const result = withScripts(
+        [
+          '<Sh id="a" command="true" outputs={["k"]} />',
+          '<Sh id="b" path="scripts/use.sh" />',
+          '<Run id="c" path="scripts/use.sh" />',
+        ].join("\n\n"),
+        '#!/usr/bin/env bash\nuse "{{ .outputs.a.k }}" {{ if .inputs.x }}\n',
+      )
+      expect(configErrors(result)).toEqual([])
+      expect(edgesFrom(result)).toEqual([2])
     })
   })
 

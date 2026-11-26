@@ -3,7 +3,8 @@
  * `{{ .outputs.B.K }}` references in a Go template, each with where it is
  * written and whether a `hasKey` guard covers it. The parser makes the
  * document's edges from it, and every other reader of a template (the
- * blockers, the script warning, a Template block's files) uses it too.
+ * blockers, a Template block's files) uses it too. A script reads no
+ * references (`ScriptSource`).
  *
  * Only references inside `{{ }}` actions count, not ones in comments or text.
  *

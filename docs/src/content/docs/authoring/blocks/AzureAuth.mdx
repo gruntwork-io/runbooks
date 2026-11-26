@@ -98,7 +98,11 @@ The client secret outputs are [sensitive](/authoring/inputs-and-outputs/#sensiti
 ```mdx
 <Command
   id="show-principal"
-  command={`echo "Signed in as {{ .outputs.azure_auth.AZURE_PRINCIPAL_NAME }} ({{ .outputs.azure_auth.AZURE_PRINCIPAL_TYPE }})"`}
+  env={{
+    PRINCIPAL_NAME: "{{ .outputs.azure_auth.AZURE_PRINCIPAL_NAME }}",
+    PRINCIPAL_TYPE: "{{ .outputs.azure_auth.AZURE_PRINCIPAL_TYPE }}",
+  }}
+  command='echo "Signed in as $PRINCIPAL_NAME ($PRINCIPAL_TYPE)"'
 />
 ```
 

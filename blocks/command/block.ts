@@ -10,8 +10,8 @@
  * - Its outputs go to `$RUNBOOK_OUTPUT`, the variables it gives the blocks
  *   that name it in `envFrom` to `$RUNBOOK_ENV`. The engine reads both once
  *   it ends well. Only the outputs its `outputs` prop declares are kept.
- * - `{{ }}` values are quoted as `scriptValues.ts` says, so only a script
- *   that runs with bash or sh may name one.
+ * - It runs as written (`scripts`): a value reaches it only through `env`,
+ *   and a `{{ }}` in it is text, as another tool's is.
  * - A bash or sh script runs under bash with the `log_*` helpers, which
  *   write to `$RUNBOOK_LOG`. Each level has a file of its own as well
  *   (`$RUNBOOK_INFO_LOG` and so on). Runbooks shows their lines as it shows
@@ -19,7 +19,7 @@
  * - It is stopped, with every process it started, when it is cancelled or
  *   runs past `timeoutMs`.
  */
-import { Effect, Redacted, Result, Schema, Stream } from "effect"
+import { Effect, Redacted, Schema, Stream } from "effect"
 import {
   BlockId,
   defineTask,
@@ -33,7 +33,6 @@ import {
 import { shellQuote } from "@runbooks/core/domain/exec/blockEnv"
 import { LOG_CHANNELS, logChannelFiles, tagLogLine } from "@runbooks/core/domain/exec/logChannels"
 import { LOGGING_FUNCTIONS, resolveScriptRunner } from "@runbooks/core/domain/exec/script"
-import { insertValues } from "@runbooks/core/domain/exec/scriptValues"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
 import { type OutputLine, ProcessSpawner } from "@runbooks/core/services/ProcessSpawner"
 
@@ -118,6 +117,12 @@ export const command = defineTask({
   children: { kind: "markdown" },
   references: { repository: "repository" },
   runbookFiles: (p) => (p.path === undefined ? [] : [p.path]),
+  scripts: (p) =>
+    p.command !== undefined
+      ? [{ _tag: "Prop", prop: "command" }]
+      : p.path !== undefined
+        ? [{ _tag: "File", path: p.path }]
+        : [],
   provides: ["run", "env"],
   effects: ["process"],
   outputs: (p) => Object.fromEntries((p.outputs ?? []).map((name) => [name, { sensitive: false }])),
@@ -131,11 +136,6 @@ export const command = defineTask({
             message: `${source} was not read when the runbook opened, so it cannot run.`,
           })
         const runner = resolveScriptRunner(script, "")
-        const withValues = insertValues(script, input, runner.interpreter)
-        if (Result.isFailure(withValues))
-          return yield* new TaskFailed({
-            message: `${source}, line ${withValues.failure.line}: ${withValues.failure.message}`,
-          })
 
         const fs = yield* FileSystem
         const folder = yield* Effect.acquireRelease(fs.mkdtemp("runbooks-command-"), (made) =>
@@ -145,9 +145,7 @@ export const command = defineTask({
         const logs = logChannelFiles(folder, LOG_CHANNELS)
         const helpers = `${folder}/helpers.sh`
         // Sourced on the script's first line, so its line numbers stay its own.
-        const text = runner.wrap
-          ? `. ${shellQuote(helpers)}; ${withValues.success.script}`
-          : withValues.success.script
+        const text = runner.wrap ? `. ${shellQuote(helpers)}; ${script}` : script
         yield* Effect.all(
           [
             fs.writeFile(scriptFile, text),
@@ -163,7 +161,6 @@ export const command = defineTask({
             cwd: input.cwd,
             env: {
               ...revealed(input.env),
-              ...revealed(withValues.success.env),
               ...Object.fromEntries(logs.map((log) => [log.envVar, log.path])),
             },
             logChannels: logs.map((log) => ({

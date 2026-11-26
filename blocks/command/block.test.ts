@@ -3,6 +3,7 @@ import { Deferred, Effect, Layer, Schema, Stream } from "effect"
 import { BlockId, RunbookPath } from "@runbooks/blocks-core/contract"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { configErrors } from "@runbooks/core/document/document"
+import { loadRunbook } from "@runbooks/core/document/load"
 import { parseRunbook } from "@runbooks/core/document/parse"
 import { serveEngine } from "@runbooks/core/handlers"
 import { type EngineClient, makeInProcessClient } from "@runbooks/core/inProcess"
@@ -393,72 +394,46 @@ describe("its environment", () => {
   })
 })
 
-describe("its {{ }} values", () => {
-  const FORM = [
-    '<Form id="config">',
-    "```yaml",
-    "- name: region",
-    "  type: string",
-    '  default: "us-east-1; $(touch pwned)"',
-    "```",
-    "</Form>",
-  ].join("\n")
-
-  it("are variables the script expands, quoted where each stands", async () => {
-    const spawn = await withSession(
-      [
-        FORM,
-        '<Command id="source" command="source" outputs={["k"]} />',
-        `<Command id="c" inputsId={["config"]} command={"echo {{ .inputs.region }} '{{ .outputs.source.k }}'"} />`,
-      ].join("\n\n"),
-      (s) =>
-        Effect.gen(function* () {
-          yield* s.run("config")
-          yield* s.run("source")
-          expect(yield* s.run("c")).toEqual(success)
-          return s.spawns[1]!
-        }),
-      { does: ({ script }) => (script.endsWith("source") ? { outputs: ["k=it's"] } : {}) },
+describe("its script", () => {
+  it("runs as written, another tool's {{ }} and all", async () => {
+    const script = `docker ps --format '{{.Names}}' && echo '\${{ steps.a.outputs.b }}'`
+    const spawn = await withSession(`<Command id="c" command={${JSON.stringify(script)}} />`, (s) =>
+      Effect.andThen(
+        s.run("c"),
+        Effect.sync(() => s.spawns[0]!),
+      ),
     )
-    expect(spawn.script).toEndWith(`; echo "\${RUNBOOK_VALUE_1}" ''"\${RUNBOOK_VALUE_2}"''`)
-    expect(spawn.env["RUNBOOK_VALUE_1"]).toBe("us-east-1; $(touch pwned)")
-    expect(spawn.env["RUNBOOK_VALUE_2"]).toBe("it's")
+    expect(spawn.script).toEndWith(`; ${script}`)
   })
 
-  it("insert an optional field left empty as one empty word, and the block runs", async () => {
-    const [status, spawn] = await withSession(
-      [
-        [
-          '<Form id="config">',
-          "```yaml",
-          "- name: suffix",
-          "  type: string",
-          "```",
-          "</Form>",
-        ].join("\n"),
-        `<Command id="c" inputsId={["config"]} command={"printf '<%s>' {{ .inputs.suffix }}"} />`,
-      ].join("\n\n"),
+  it("runs a {{ }} value as written too, in its command or its file, with no error and no wait", async () => {
+    const runbook = [
+      `<Command id="c" outputs={["k"]} command='echo "{{ .inputs.region }}"' />`,
+      "",
+      '<Command id="f" path="a.sh" />',
+    ].join("\n")
+    const file = 'echo "{{ .outputs.c.k }}"\n'
+    const files = { [RUNBOOK]: runbook, "/rb/a.sh": file }
+    const loaded = await Effect.runPromise(
+      Effect.provideService(
+        loadRunbook(RUNBOOK, REGISTRY, { appVersion: "0.31.0" }),
+        FileSystem,
+        testFileSystem(files, ["/rb"]),
+      ),
+    )
+    expect(configErrors(loaded)).toEqual([])
+    // `f` first: it names no block, so it does not wait for `c`.
+    const scripts = await withSession(
+      runbook,
       (s) =>
-        Effect.gen(function* () {
-          yield* s.run("config")
-          return [yield* s.run("c"), s.spawns[0]!] as const
-        }),
+        Effect.andThen(
+          Effect.andThen(s.run("f"), s.run("c")),
+          Effect.sync(() => s.spawns.map((spawn) => spawn.script)),
+        ),
+      { files },
     )
-    expect(status).toEqual(success)
-    expect(spawn.script).toEndWith(`; printf '<%s>' "\${RUNBOOK_VALUE_1}"`)
-    expect(spawn.env["RUNBOOK_VALUE_1"]).toBe("")
-  })
-
-  it("fail the run at the line Runbooks cannot insert, before anything starts", async () => {
-    const [status, spawns] = await withSession(
-      '<Command id="c" path="a.sh" />',
-      (s) => Effect.all([s.run("c"), Effect.sync(() => s.spawns.length)]),
-      { files: { "/rb/a.sh": "echo ok\n{{ if .inputs.region }}x{{ end }}" } },
-    )
-    expect(status).toMatchObject({ _tag: "Failed", error: { _tag: "TaskFailed" } })
-    const message = status?._tag === "Failed" ? (status.error as { message: string }).message : ""
-    expect(message).toStartWith("a.sh, line 2: `{{ if .inputs.region }}` is not a value")
-    expect(spawns).toBe(0)
+    expect(scripts[0]).toEndWith(`; ${file}`)
+    expect(scripts[1]).toEndWith(`; echo "{{ .inputs.region }}"`)
   })
 })
 
@@ -549,7 +524,7 @@ describe("a command that cannot run", () => {
       does: () => ({
         spawnFails: Object.assign(
           new Error(
-            "The argument 'options.env['RUNBOOK_VALUE_0']' must be a string without null bytes. Received 'hunter2\\x00'",
+            "The argument 'options.env['TOKEN']' must be a string without null bytes. Received 'hunter2\\x00'",
           ),
           { code: "ERR_INVALID_ARG_VALUE" },
         ),
