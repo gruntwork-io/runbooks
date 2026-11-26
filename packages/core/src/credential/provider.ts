@@ -158,18 +158,30 @@ export const ProviderInfo = Schema.Struct({
 })
 export type ProviderInfo = typeof ProviderInfo.Type
 
+/** A value a `values` source holds. */
+export interface SourceValue {
+  readonly value: Redacted.Redacted<string>
+  /**
+   * A sensitive output, or a value `env` marked sensitive. A plugin-backed
+   * provider holds it as a secret it knows, which no identity, target,
+   * prompt or error may carry.
+   */
+  readonly secret: boolean
+}
+
 /**
  * A detection source after the engine resolved it: an `outputs` source
- * becomes the values it read. A resumed session's block also detects from
- * a `values` source of its own saved values, under the names `env` gave
- * them, `from` its own id: a provider finds its login in them and checks it
- * as it checks any login it detects.
+ * becomes the values it read. A block also detects from a `values` source
+ * of its own last values, under the names `env` gave them, `from` its own
+ * id, when its session resumes and when its provider has lost its login: a
+ * provider finds its login in them and checks it as it checks any login it
+ * detects.
  */
 export type ResolvedSource =
   | { readonly kind: "env"; readonly prefix: Option.Option<string> }
   | {
       readonly kind: "values"
-      readonly values: { readonly [name: string]: Redacted.Redacted<string> }
+      readonly values: { readonly [name: string]: SourceValue }
       /** The id of the block the values were read from: the block itself, for its own saved values. A login found in them has it as its source. */
       readonly from: string
     }

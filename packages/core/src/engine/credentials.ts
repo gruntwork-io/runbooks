@@ -76,6 +76,7 @@ import type {
   ProviderConfig,
   ProviderInfo,
   ResolvedSource,
+  SourceValue,
   Target,
 } from "../credential/provider.ts"
 import { CREDENTIAL_CALL_BOUNDS } from "../credential/plugin.ts"
@@ -83,7 +84,7 @@ import { stateDirOf } from "../credential/stateDir.ts"
 import type { CredentialStore } from "./credentialStore.ts"
 import type { SavedCredential } from "./sessionStore.ts"
 import type { CredentialHandle } from "./env.ts"
-import { type Held, hold, reveal } from "./held.ts"
+import { type Held, hold, redacted } from "./held.ts"
 import type { ActResult, EngineEvent } from "./protocol.ts"
 
 /** Starting a plugin's binary and checking its hash, on top of what the credential client may take. */
@@ -619,7 +620,10 @@ export function makeCredentials(
             kind: "values",
             from: source.from,
             values: Object.fromEntries(
-              Array.from(outputs, ([key, held]) => [key, Redacted.make(reveal(held))]),
+              Array.from(outputs, ([key, held]) => [
+                key,
+                { value: redacted(held), secret: held.sensitive },
+              ]),
             ),
           }
         }
@@ -751,7 +755,7 @@ export function makeCredentials(
   const foundAgain = (
     credential: Credential,
     opened: Opened,
-    values: { readonly [name: string]: Redacted.Redacted<string> },
+    values: { readonly [name: string]: SourceValue },
     source: string,
     targets: Chosen,
   ): Effect.Effect<Option.Option<ToReady>> => {
@@ -786,7 +790,10 @@ export function makeCredentials(
     if (saved === undefined || saved.provider !== block.provider)
       return Effect.succeed(Option.none())
     const values = Object.fromEntries(
-      Object.entries(saved.values).map(([name, value]) => [name, Redacted.make(value)]),
+      Object.entries(saved.values).map(([name, { value, secret }]) => [
+        name,
+        { value: Redacted.make(value), secret },
+      ]),
     )
     return foundAgain(credential, opened, values, saved.source, saved.targets)
   }
@@ -814,7 +821,12 @@ export function makeCredentials(
           : yield* foundAgain(
               credential,
               opened,
-              Object.fromEntries(last.values.map(({ name, value }) => [name, value])),
+              Object.fromEntries(
+                last.values.map(({ name, value, sensitive }) => [
+                  name,
+                  { value, secret: sensitive },
+                ]),
+              ),
               ready.source,
               ready.identity.targets,
             )

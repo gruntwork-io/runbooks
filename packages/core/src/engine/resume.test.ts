@@ -597,13 +597,15 @@ const cloud = (finds: (source: ResolvedSource) => boolean) => (): ScriptedProvid
 
 /** Finds the login in the environment, as on the first start. */
 const inEnvironment = cloud((source) => source.kind === "env")
-/** Finds the login only in the values the block's own `env` gave before. */
+/** Finds the login only in the values the block's own `env` gave before, each as secret as `env` said. */
 const inSavedValues = cloud(
   (source) =>
     source.kind === "values" &&
     source.from === "cloud" &&
     source.values.CLOUD_TOKEN !== undefined &&
-    Redacted.value(source.values.CLOUD_TOKEN) === "tok-SECRET",
+    Redacted.value(source.values.CLOUD_TOKEN.value) === "tok-SECRET" &&
+    source.values.CLOUD_TOKEN.secret &&
+    source.values.CLOUD_ACCOUNT?.secret === false,
 )
 const findsNothing = cloud(() => false)
 

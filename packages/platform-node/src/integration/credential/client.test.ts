@@ -168,7 +168,9 @@ describe("a plugin-backed provider, as a process", () => {
         while (isRunning(first)) yield* Effect.sleep(10)
         const onTheDead = yield* failure(provider.env)
         const onTheFresh = yield* failure(provider.env)
-        const values = Object.fromEntries(before.values.map(({ name, value }) => [name, value]))
+        const values = Object.fromEntries(
+          before.values.map(({ name, value, sensitive }) => [name, { value, secret: sensitive }]),
+        )
         const found = yield* provider.detect([{ kind: "values", values, from: "cloud" }], NONE)
         const after = yield* provider.env
         const token = (env: typeof before) =>

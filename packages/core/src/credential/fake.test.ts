@@ -251,7 +251,11 @@ describe("the fake credential plugin", () => {
           provider.detect(
             [
               { kind: "env", prefix: Option.some("OTHER_") },
-              { kind: "values", from: "keys", values: { FAKE_TOKEN: Redacted.make(TOKEN) } },
+              {
+                kind: "values",
+                from: "keys",
+                values: { FAKE_TOKEN: { value: Redacted.make(TOKEN), secret: true } },
+              },
             ],
             NONE,
           ),
