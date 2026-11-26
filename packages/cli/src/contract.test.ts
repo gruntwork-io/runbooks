@@ -194,6 +194,17 @@ describe("--output json", () => {
       failure: { _tag: "TestCaseNotFound", name: "happy-path", runbooks: 3 },
     })
     expect(report.failure?._tag).toBe("TestCaseNotFound")
+    const validate = Schema.decodeUnknownSync(ValidateReport)({
+      version: 1,
+      outcome: "invalid",
+      runbooks: [],
+      failure: { _tag: "TooManyFiles", path: "./runbooks/...", limit: 10_000 },
+    })
+    expect(validate.failure).toEqual({
+      _tag: "TooManyFiles",
+      path: "./runbooks/...",
+      limit: 10_000,
+    })
     expect(() =>
       Schema.decodeUnknownSync(ValidateReport)({ version: 2, outcome: "valid", runbooks: [] }),
     ).toThrow()

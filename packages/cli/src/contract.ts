@@ -200,6 +200,10 @@ export const makeCli = <E, R>(handlers: Handlers<E, R>) =>
 export const CliFailure = Schema.Union([
   Schema.TaggedStruct("NoRunbooks", { patterns: Schema.Array(Schema.String) }),
   Schema.TaggedStruct("PathNotFound", { path: Schema.String }),
+  /** A runbook that exists but could not be read. */
+  Schema.TaggedStruct("Unreadable", { path: Schema.String, message: Schema.String }),
+  /** A folder given with `/...` holds more files and folders than the CLI looks through. */
+  Schema.TaggedStruct("TooManyFiles", { path: Schema.String, limit: Schema.Int }),
   Schema.TaggedStruct("TestCaseNotFound", { name: Schema.String, runbooks: Schema.Int }),
   Schema.TaggedStruct("BadTestFile", { path: Schema.String, message: Schema.String }),
   Schema.TaggedStruct("BadFlag", { flag: Schema.String, message: Schema.String }),
