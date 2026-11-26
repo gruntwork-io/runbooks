@@ -73,6 +73,7 @@
     "runbooks/no-relative-import-across-packages": "error",
     "runbooks/no-import-between-blocks": "error",
     "runbooks/no-react-in-block-ts": "error",
+    "runbooks/no-node-in-block-ts": "error",
     "runbooks/block-name-outside-its-folder": "error",
     "runbooks/plugin-binary-outside-owner": "error"
   },

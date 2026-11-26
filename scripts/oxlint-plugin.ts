@@ -17,6 +17,11 @@
  * file, so the engine and the CLI load it without a view. The `blocks/**`
  * override already keeps Electron, Node I/O and SDKs out of every block file.
  *
+ * no-node-in-block-ts: a block's `block.ts` imports no Node built-in, not even
+ * `node:path`, so every client loads it, the renderer included. It reaches
+ * the OS through the services its run gets, and pure helpers it needs live
+ * in `packages/core`. Only `block.ts`'s own imports are checked.
+ *
  * block-name-outside-its-folder: no file in the packages names a block
  * outside the block's folder and its lines in the registry files, so adding
  * or removing a block touches one folder and those lines. The blocks are the
@@ -35,6 +40,7 @@
  * and comments are not checked.
  */
 import { existsSync, readFileSync } from "node:fs"
+import { builtinModules } from "node:module"
 import path from "node:path"
 import { packageOf } from "./packages.ts"
 
@@ -202,6 +208,32 @@ const noReactInBlockTs = {
       const spec = specOf(node)
       if (spec === undefined || !(REACT.test(spec) || spec.endsWith(".tsx"))) return
       context.report({ node: node.source, messageId: "react", data: { spec } })
+    })
+  },
+}
+
+/** Node's built-in modules, by bare name, with or without `node:`, and any `node:` import. */
+const NODE_BUILTINS: ReadonlySet<string> = new Set(builtinModules)
+const isNodeBuiltin = (spec: string) =>
+  spec.startsWith("node:") || NODE_BUILTINS.has(spec.split("/")[0] ?? spec)
+
+const noNodeInBlockTs = {
+  meta: {
+    type: "problem",
+    docs: { description: "A block's block.ts may not import a Node built-in" },
+    messages: {
+      node: "block.ts imports {{spec}}. Every client loads block.ts, the renderer included, so it imports no Node built-in: it reaches the OS through the services its run gets, and pure helpers go in packages/core.",
+    },
+    schema: ROOT_OPTION,
+  },
+  create(context: Context) {
+    const { file } = fileOf(context)
+    const folder = blockFolderOf(file)
+    if (folder === undefined || file !== `blocks/${folder}/block.ts`) return {}
+    return imports((node) => {
+      const spec = specOf(node)
+      if (spec === undefined || !isNodeBuiltin(spec)) return
+      context.report({ node: node.source, messageId: "node", data: { spec } })
     })
   },
 }
@@ -389,6 +421,7 @@ export default {
     "no-relative-import-across-packages": noRelativeImportAcrossPackages,
     "no-import-between-blocks": noImportBetweenBlocks,
     "no-react-in-block-ts": noReactInBlockTs,
+    "no-node-in-block-ts": noNodeInBlockTs,
     "block-name-outside-its-folder": blockNameOutsideItsFolder,
     "plugin-binary-outside-owner": pluginBinaryOutsideOwner,
   },

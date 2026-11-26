@@ -19,7 +19,6 @@
  * - It is stopped, with every process it started, when it is cancelled or
  *   runs past `timeoutMs`.
  */
-import path from "node:path"
 import { Effect, Redacted, Result, Schema, Stream } from "effect"
 import {
   defineTask,
@@ -128,9 +127,9 @@ export const command = defineTask({
         const folder = yield* Effect.acquireRelease(fs.mkdtemp("runbooks-command-"), (made) =>
           Effect.ignore(fs.rm(made, { recursive: true, force: true })),
         ).pipe(Effect.mapError(couldNot("make a folder for the script")))
-        const scriptFile = path.join(folder, "script")
+        const scriptFile = `${folder}/script`
         const logs = logChannelFiles(folder, LOG_CHANNELS)
-        const helpers = path.join(folder, "helpers.sh")
+        const helpers = `${folder}/helpers.sh`
         // Sourced on the script's first line, so its line numbers stay its own.
         const text = runner.wrap
           ? `. ${shellQuote(helpers)}; ${withValues.success.script}`
