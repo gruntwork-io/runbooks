@@ -3,7 +3,7 @@ import * as nodeFs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import { Effect, Option } from "effect"
+import { Effect, Logger, Option } from "effect"
 import { SessionDatabase, type SessionRow } from "@runbooks/core/services/SessionDatabase"
 import { sessionDatabaseContract } from "@runbooks/core/test-utils/sessionDatabaseContract"
 import { MIGRATIONS, nodeSessionDatabase, SESSIONS_APPLICATION_ID } from "./NodeSessionDatabase.ts"
@@ -40,6 +40,21 @@ const run = <A, E>(use: (db: SessionDatabase["Service"]) => Effect.Effect<A, E>)
       return yield* use(yield* SessionDatabase)
     }).pipe(Effect.provide(nodeSessionDatabase(data))),
   )
+
+/** As `run`, and every warning the layer and `use` logged: a database that can't be used says why in one. */
+const runWarned = async <A, E>(use: (db: SessionDatabase["Service"]) => Effect.Effect<A, E>) => {
+  const warnings: string[] = []
+  const logger = Logger.make(({ logLevel, message }) => {
+    if (logLevel === "Warn")
+      warnings.push(Array.isArray(message) ? message.join(" ") : String(message))
+  })
+  const result = await Effect.runPromise(
+    Effect.gen(function* () {
+      return yield* use(yield* SessionDatabase)
+    }).pipe(Effect.provide(nodeSessionDatabase(data)), Effect.provide(Logger.layer([logger]))),
+  )
+  return { result, warnings }
+}
 
 const modeOf = (at: string) => nodeFs.statSync(at).mode & 0o777
 
@@ -136,6 +151,13 @@ describe("the sessions database file", () => {
 })
 
 /**
+ * How long the other writer holds its lock once it says so. Short of the
+ * layer's 1-second busy timeout by enough that its commit lands in time on a
+ * loaded machine, and long enough that the open starts while it is held.
+ */
+const HOLD_MILLIS = 75
+
+/**
  * Another process holding `file`'s write lock for `millis`, as a second
  * Runbooks saving would: it runs `inside` in the transaction, then waits.
  * `node:sqlite` blocks its thread while it waits for a lock, so the holder
@@ -179,9 +201,10 @@ const inFile = (at: string) => {
 describe("the sessions database with a second Runbooks", () => {
   it("waits for the other one's write, rather than drop the save", async () => {
     await run((db) => db.putSession(session))
-    const other = await anotherWriter(file, 300, "SELECT 1")
-    await run((db) => db.putSession({ ...session, usedAt: 3 }))
+    const other = await anotherWriter(file, HOLD_MILLIS, "SELECT 1")
+    const { warnings } = await runWarned((db) => db.putSession({ ...session, usedAt: 3 }))
     await other.exited
+    expect(warnings).toEqual([])
     expect(await run((db) => db.latest("/rb/a.mdx"))).toEqual(
       Option.some({ ...session, usedAt: 3 }),
     )
@@ -191,11 +214,12 @@ describe("the sessions database with a second Runbooks", () => {
     nodeFs.mkdirSync(data)
     const other = await anotherWriter(
       file,
-      300,
+      HOLD_MILLIS,
       `PRAGMA application_id = ${SESSIONS_APPLICATION_ID}; ${MIGRATIONS[0]} PRAGMA user_version = 1;`,
     )
-    await run((db) => db.putSession(session))
+    const { warnings } = await runWarned((db) => db.putSession(session))
     await other.exited
+    expect(warnings).toEqual([])
     expect(inFile(file)).toEqual([{ id: "s1" }])
   })
 
@@ -207,9 +231,10 @@ describe("the sessions database with a second Runbooks", () => {
       `PRAGMA application_id = ${SESSIONS_APPLICATION_ID}; ${MIGRATIONS[0]} PRAGMA user_version = 1;`,
     )
     made.close()
-    const other = await anotherWriter(file, 300, "SELECT 1")
-    await run((db) => db.putSession(session))
+    const other = await anotherWriter(file, HOLD_MILLIS, "SELECT 1")
+    const { warnings } = await runWarned((db) => db.putSession(session))
     await other.exited
+    expect(warnings).toEqual([])
     expect(inFile(file)).toEqual([{ id: "s1" }])
   })
 })
