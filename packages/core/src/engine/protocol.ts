@@ -45,7 +45,11 @@ export const AbsolutePath = Schema.NonEmptyString.check(
   Schema.isPattern(/^(?:\/|[A-Za-z]:[\\/]|\\\\)/, { expected: "an absolute path" }),
 )
 
-/** An event's place in its session's log, from 0. A client resumes with the last one it saw. */
+/**
+ * An event's place in its session's log: from 0 in a new session, and on
+ * past the session it resumes in a resumed one. A client resumes with the
+ * last one it saw.
+ */
 export const Sequence = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 
 export const LIMITS = {
@@ -57,6 +61,8 @@ export const LIMITS = {
   defaultWaitMillis: 30_000,
   /** The files a block's view lists for its latest run. */
   maxRunFiles: 10_000,
+  /** The events a session keeps for `Events` to replay. Older ones are dropped. */
+  keptEvents: 10_000,
 } as const
 
 const LogLimit = Schema.Int.check(
@@ -592,7 +598,9 @@ export class TrustSession extends Rpc.make("TrustSession", {
 /**
  * Every event after `after`, then each new one as it happens. Ends when the
  * session closes. `after` is a sequence the session has logged: a later one
- * is `UnknownSequence`.
+ * is `UnknownSequence`. The session keeps its last `LIMITS.keptEvents`
+ * events, so an older `after` (or none) starts from the oldest it keeps, and
+ * the jump in `sequence` shows what was dropped.
  */
 export class Events extends Rpc.make("Events", {
   payload: { ...session, after: Schema.optionalKey(Sequence) },
