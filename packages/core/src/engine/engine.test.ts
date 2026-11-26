@@ -1277,6 +1277,27 @@ describe("Engine values", () => {
     )
   })
 
+  it("makes an agent's run whose env reads a form wait for review, as a script that read it did", async () => {
+    await withEngine(
+      `${CONFIG}\n\n<Run id="deploy" command="ok" inputsId={["config"]} env={{ REGION: "{{ .inputs.region }}" }} />`,
+      { ok },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        expect(yield* asAgent(rb.run("deploy"))).toMatchObject({
+          _tag: "Refused",
+          reason: { _tag: "NeedsReview", form: "config", unreviewed: ["region", "count"] },
+        })
+        yield* asAgent(rb.confirm("config"))
+        expect((yield* asAgent(rb.run("deploy")))._tag).toBe("Started")
+        expect((yield* rb.wait("deploy")).block.status).toEqual({
+          _tag: "Done",
+          outcome: "success",
+        })
+      }),
+    )
+  })
+
   it("rejects values for fields a form lacks or nobody may change, and enters the rest", async () => {
     const runbook = withFields('<Form id="config">', [
       "- name: region",

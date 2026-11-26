@@ -31,7 +31,11 @@ import {
   testCredentialProviders,
 } from "../test-utils/TestCredentialProviders.ts"
 import { testFileSystem } from "../test-utils/TestFileSystem.ts"
-import { type TestCipherOptions, testCiphertext } from "../test-utils/TestSessionCipher.ts"
+import {
+  type TestCipherOptions,
+  testCiphertext,
+  testPlaintext,
+} from "../test-utils/TestSessionCipher.ts"
 import {
   makeHold,
   type MemorySessionDatabase,
@@ -254,6 +258,27 @@ describe("resuming a session", () => {
     expect(deployEvents).toEqual(
       expect.arrayContaining(["LogLines", "OutputsPublished", "BlockStatusChanged"]),
     )
+  })
+
+  it("saves no value a block's env gave its process, only the outputs it read", async () => {
+    const on = machine(
+      `${DEPLOY}\n\n<Run id="use" command="use" env={{ AUTH: "Bearer {{ .outputs.deploy.secretToken }}", URL: "{{ .outputs.deploy.url }}/x" }} />`,
+    )
+    await start(
+      on,
+      Effect.gen(function* () {
+        const rb = yield* open
+        yield* rb.trust
+        yield* rb.run("deploy")
+        expect((yield* rb.run("use")).block.status).toEqual({ _tag: "Done", outcome: "success" })
+      }),
+    )
+    const saved = on.database
+      .events()
+      .map(({ payload }) => Option.getOrThrow(testPlaintext(payload)))
+    expect(saved.some((payload) => payload.includes("tok-SECRET"))).toBe(true)
+    expect(saved.some((payload) => payload.includes("Bearer"))).toBe(false)
+    expect(saved.some((payload) => payload.includes("https://app/x"))).toBe(false)
   })
 
   it("brings a session never trusted back untrusted, with its values", async () => {

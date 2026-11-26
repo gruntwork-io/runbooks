@@ -18,7 +18,8 @@ export function testCiphertext(plaintext: string, key = 1): Uint8Array {
   return Uint8Array.from([MARK, key, ...bytes.map((byte, i) => byte ^ scramble(key, i))])
 }
 
-function open(ciphertext: Uint8Array, key: number): Option.Option<string> {
+/** What a payload the test cipher with `key` encrypted holds, for a test that looks inside one. */
+export function testPlaintext(ciphertext: Uint8Array, key = 1): Option.Option<string> {
   if (ciphertext[0] !== MARK || ciphertext[1] !== key) return Option.none()
   const bytes = ciphertext.subarray(2).map((byte, i) => byte ^ scramble(key, i))
   try {
@@ -46,7 +47,8 @@ export const testSessionCipher = (options: TestCipherOptions = {}): Layer.Layer<
             ? Option.none()
             : Option.some(testCiphertext(Redacted.value(plaintext), key)),
         ),
-      decrypt: (ciphertext) => Effect.sync(() => Option.map(open(ciphertext, key), Redacted.make)),
+      decrypt: (ciphertext) =>
+        Effect.sync(() => Option.map(testPlaintext(ciphertext, key), Redacted.make)),
     }),
   )
 }

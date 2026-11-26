@@ -59,11 +59,11 @@ tests:
 `
 
 describe("runbooks test, on a runbook of commands", () => {
-  it("runs each with bash: outputs, envFrom, {{ }} values and exit codes", () => {
+  it("runs each with bash: outputs, envFrom, env, {{ }} values and exit codes", () => {
     const { code, out, home } = runbooksTest("commands", {
       "runbook.mdx": [
         '<Command id="make" path="scripts/make.sh" outputs={["value"]} />',
-        '<Command id="use" path="scripts/use.sh" envFrom={["make"]} />',
+        '<Command id="use" path="scripts/use.sh" envFrom={["make"]} env={{ VALUE: "{{ .outputs.make.value }}", COUNT: 2 }} />',
         '<Command id="fails" command="exit 3" />',
       ].join("\n\n"),
       "scripts/make.sh": [
@@ -76,6 +76,8 @@ describe("runbooks test, on a runbook of commands", () => {
         "#!/bin/bash",
         `[ {{ .outputs.make.value }} = ${shellQuoted(HOSTILE)} ] || exit 1`,
         `[ "{{ .outputs.make.value }}" = ${shellQuoted(HOSTILE)} ] || exit 1`,
+        `[ "$VALUE" = ${shellQuoted(HOSTILE)} ] || exit 1`,
+        `[ "$COUNT" = 2 ] || exit 1`,
         `[ "$FROM_MAKE" = made ] || exit 1`,
         "[ ! -e pwned ] || exit 1",
         "exit 2",

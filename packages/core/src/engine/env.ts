@@ -10,7 +10,7 @@
  * the environment to its process. A message here names variables, never
  * their values.
  */
-import { Effect, Redacted } from "effect"
+import { Effect, Redacted, Result } from "effect"
 import {
   type BlockId,
   type CredentialError,
@@ -20,6 +20,7 @@ import {
 import { isAlias, type Registry } from "@runbooks/blocks-core/registry"
 import type { CredentialEnv } from "../credential/provider.ts"
 import { isReservedEnvName } from "../document/document.ts"
+import { renderValueTemplate, type ValueSources } from "../document/valueTemplate.ts"
 
 /** The app's process environment less every credential block's names and every reserved name. */
 export type BaseEnvironment = ReadonlyMap<string, Redacted.Redacted<string>>
@@ -138,8 +139,30 @@ export interface EnvConflict {
 export interface RunEnvLayers {
   readonly base: BaseEnvironment
   readonly sources: ReadonlyArray<EnvSource>
-  /** The block's own `env` prop, which holds no reserved name. */
-  readonly own: Readonly<Record<string, string>>
+  /** The block's own `env` prop, filled in (`ownEnv`). It holds no reserved name. */
+  readonly own: RunEnv
+}
+
+/**
+ * The block's `env` prop with each value's `{{ }}` filled in from what the
+ * run reads, as the run starts. A field or output that is not there fails
+ * the run before it starts; the message names each variable and reference,
+ * never a value.
+ */
+export const ownEnv = (
+  env: Readonly<Record<string, string>>,
+  reads: ValueSources,
+): Effect.Effect<RunEnv, TaskFailed> => {
+  const filled: Record<string, Redacted.Redacted<string>> = {}
+  const problems: string[] = []
+  for (const [name, template] of Object.entries(env)) {
+    const value = renderValueTemplate(template, reads)
+    if (Result.isSuccess(value)) filled[name] = value.success
+    else problems.push(`${name} in env: ${value.failure.message}`)
+  }
+  return problems.length === 0
+    ? Effect.succeed(filled)
+    : Effect.fail(new TaskFailed({ message: problems.join(" ") }))
 }
 
 /**
@@ -176,7 +199,7 @@ export const buildRunEnv = Effect.fnUntraced(function* ({ base, sources, own }: 
     }
   }
   // The parser refused a reserved name in `env`; a source's names come from a run or a provider.
-  for (const [name, value] of Object.entries(own)) env.set(name, Redacted.make(value))
+  for (const [name, value] of Object.entries(own)) env.set(name, value)
   const built: RunEnv = Object.fromEntries(env)
   return { env: built, conflicts }
 })

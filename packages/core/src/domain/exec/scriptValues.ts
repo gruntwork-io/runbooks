@@ -29,9 +29,14 @@
  * other action (`if`, a pipe, a function) is refused, and so is a reference
  * in a script that does not run with bash.
  */
-import { Redacted, Result, Schema } from "effect"
-import { BlockId, type BlockOutputs, type RunEnv } from "@runbooks/blocks-core/contract"
-import { type FieldValue, type FormValues, templateText } from "@runbooks/blocks-core/form"
+import { type Redacted, Result } from "effect"
+import type { RunEnv } from "@runbooks/blocks-core/contract"
+import {
+  parseValueTemplate,
+  type ValueReference,
+  type ValueSources,
+  valueOf,
+} from "../../document/valueTemplate.ts"
 
 /** A script with each reference replaced, and the variables the replacements expand. */
 export interface ScriptWithValues {
@@ -44,12 +49,6 @@ export interface ScriptWithValues {
 export interface ScriptTemplateProblem {
   readonly line: number
   readonly message: string
-}
-
-/** What the references read: the task's values and the outputs its templates name. */
-export interface ValueSources {
-  readonly values: FormValues
-  readonly outputs: BlockOutputs
 }
 
 /**
@@ -66,9 +65,21 @@ export function insertValues(
       line: lineOf(template, template.indexOf(MARK)),
       message: "The script holds a NUL character, which bash cannot run.",
     })
-  const split = splitTemplate(template)
-  if (Result.isFailure(split)) return Result.fail(split.failure)
-  const { text, references } = split.success
+  const parts = parseValueTemplate(template)
+  if (Result.isFailure(parts))
+    return Result.fail({
+      line: lineOf(template, parts.failure.at),
+      message: parts.failure.message,
+    })
+  let text = ""
+  const references: Reference[] = []
+  for (const part of parts.success) {
+    if (part._tag === "Text") text += part.text
+    else {
+      references.push({ ...part, line: lineOf(template, part.at), key: keyOf(part) })
+      text += MARK
+    }
+  }
   if (references.length === 0) return Result.succeed({ script: text, env: {} })
   if (interpreter !== "bash")
     return Result.fail({
@@ -81,7 +92,8 @@ export function insertValues(
   const variables: string[] = []
   for (const reference of references) {
     const value = valueOf(reference, sources)
-    if (Result.isFailure(value)) return Result.fail(value.failure)
+    if (Result.isFailure(value))
+      return Result.fail({ line: reference.line, message: value.failure.message })
     const known = names.get(reference.key)
     const name = known ?? `RUNBOOK_VALUE_${names.size + 1}`
     if (known === undefined) {
@@ -96,182 +108,19 @@ export function insertValues(
   return Result.succeed({ script: quoted.success, env })
 }
 
-// ---------------------------------------------------------------------------
-// The template
-// ---------------------------------------------------------------------------
-
 /** Where a reference stood in the template, the text left holds `MARK`. */
 const MARK = "\u0000"
 
-interface Reference {
-  /** The action as written, for a message. */
-  readonly written: string
+interface Reference extends ValueReference {
   readonly line: number
   /** One per value, so a value read twice is one variable. */
   readonly key: string
-  readonly source:
-    | { readonly _tag: "Input"; readonly path: ReadonlyArray<string> }
-    | { readonly _tag: "Output"; readonly block: BlockId; readonly key: string }
 }
 
-const INPUT = /^\.inputs((?:\.[A-Za-z0-9_-]+)+)$/
-const OUTPUT = /^\.outputs\.([A-Za-z0-9_-]+)\.(\w+)$/
-const toBlockId = Schema.decodeSync(BlockId)
-/** White space as Go's template trim markers trim it. */
-const LEADING_SPACE = /^[ \t\r\n]+/
-const TRAILING_SPACE = /[ \t\r\n]+$/
-const isSpace = (char: string | undefined) =>
-  char === " " || char === "\t" || char === "\r" || char === "\n"
-
-/** The template's text with each reference a `MARK`, and the references in order. */
-function splitTemplate(
-  template: string,
-): Result.Result<
-  { readonly text: string; readonly references: ReadonlyArray<Reference> },
-  ScriptTemplateProblem
-> {
-  let text = ""
-  const references: Reference[] = []
-  let at = 0
-  while (at < template.length) {
-    const open = template.indexOf("{{", at)
-    if (open < 0) {
-      text += template.slice(at)
-      break
-    }
-    const trimBefore = template[open + 2] === "-" && isSpace(template[open + 3])
-    const before = template.slice(at, open)
-    text += trimBefore ? before.replace(TRAILING_SPACE, "") : before
-    const start = open + (trimBefore ? 3 : 2)
-    const close = actionEnd(template, start)
-    const line = lineOf(template, open)
-    if (close < 0) return Result.fail({ line, message: "A `{{` is not closed with `}}`." })
-    const trimAfter = template[close - 1] === "-" && isSpace(template[close - 2])
-    const body = template.slice(start, trimAfter ? close - 1 : close).trim()
-    const written = template.slice(open, close + 2)
-    at = close + 2
-    if (trimAfter) at += (LEADING_SPACE.exec(template.slice(at))?.[0] ?? "").length
-
-    const action = actionOf(body, written, line)
-    if (Result.isFailure(action)) return Result.fail(action.failure)
-    if (typeof action.success === "string") text += action.success
-    else {
-      references.push(action.success)
-      text += MARK
-    }
-  }
-  return Result.succeed({ text, references })
-}
-
-/** The index of the `}}` that closes the action whose code starts at `start`, or -1. */
-function actionEnd(template: string, start: number): number {
-  let at = start
-  while (at < template.length && isSpace(template[at])) at++
-  if (template.startsWith("/*", at)) {
-    const end = template.indexOf("*/", at + 2)
-    return end < 0 ? -1 : template.indexOf("}}", end + 2)
-  }
-  while (at < template.length) {
-    const char = template[at]
-    if (char === "`" || char === '"' || char === "'") {
-      at = constantEnd(template, at)
-      if (at < 0) return -1
-    } else if (template.startsWith("}}", at)) return at
-    else at++
-  }
-  return -1
-}
-
-/** The index after the constant that starts with the quote at `start`, or -1. */
-function constantEnd(template: string, start: number): number {
-  const quote = template[start]
-  let at = start + 1
-  while (at < template.length) {
-    const char = template[at]
-    if (char === quote) return at + 1
-    if (quote !== "`" && char === "\\") at++
-    else if (quote !== "`" && char === "\n") return -1
-    at++
-  }
-  return -1
-}
-
-/** What an action puts in the script: text as written, or a reference to a value. */
-function actionOf(
-  body: string,
-  written: string,
-  line: number,
-): Result.Result<string | Reference, ScriptTemplateProblem> {
-  if (body.startsWith("/*")) return Result.succeed("")
-  if (/^`[^`]*`$/.test(body)) return Result.succeed(body.slice(1, -1))
-  if (body.startsWith('"') && body.endsWith('"')) {
-    try {
-      const constant: unknown = JSON.parse(body)
-      if (typeof constant === "string") return Result.succeed(constant)
-    } catch {
-      // Not a constant JSON can read, such as one with a Go-only escape.
-    }
-  }
-  const input = INPUT.exec(body)
-  if (input) {
-    const path = input[1]!.slice(1).split(".")
-    return Result.succeed({
-      written,
-      line,
-      key: `inputs.${path.join(".")}`,
-      source: { _tag: "Input", path },
-    })
-  }
-  const output = OUTPUT.exec(body)
-  if (output) {
-    const block = toBlockId(output[1]!)
-    return Result.succeed({
-      written,
-      line,
-      key: `outputs.${block}.${output[2]!}`,
-      source: { _tag: "Output", block, key: output[2]! },
-    })
-  }
-  return Result.fail({
-    line,
-    message: `\`${written}\` is not a value Runbooks can insert. A script's \`{{ }}\` may name a value, \`{{ .inputs.<name> }}\` or \`{{ .outputs.<block>.<key> }}\`, and nothing else: no condition, pipe or function.`,
-  })
-}
-
-/** The value a reference names, as text, redacted. */
-function valueOf(
-  reference: Reference,
-  sources: ValueSources,
-): Result.Result<Redacted.Redacted<string>, ScriptTemplateProblem> {
-  const { source, written, line } = reference
-  if (source._tag === "Output") {
-    const value = sources.outputs.get(source.block)?.get(source.key)
-    return value === undefined
-      ? Result.fail({
-          line,
-          message: `\`${written}\` names an output block ${source.block} has not given.`,
-        })
-      : Result.succeed(value)
-  }
-  const [name, ...keys] = source.path
-  let value: FieldValue | undefined = Object.hasOwn(sources.values, name!)
-    ? sources.values[name!]
-    : undefined
-  for (const key of keys) {
-    value =
-      value !== undefined && typeof value === "object" && !Array.isArray(value)
-        ? Object.hasOwn(value, key)
-          ? (value as { readonly [key: string]: FieldValue })[key]
-          : undefined
-        : undefined
-  }
-  return value === undefined
-    ? Result.fail({
-        line,
-        message: `\`${written}\` names no field of the forms this block reads (its \`inputsId\` forms and its own).`,
-      })
-    : Result.succeed(Redacted.make(templateText(value)))
-}
+const keyOf = ({ source }: ValueReference) =>
+  source._tag === "Input"
+    ? `inputs.${source.path.join(".")}`
+    : `outputs.${source.block}.${source.key}`
 
 /** The 1-based line of `index` in `text`. */
 const lineOf = (text: string, index: number) => text.slice(0, index).split("\n").length

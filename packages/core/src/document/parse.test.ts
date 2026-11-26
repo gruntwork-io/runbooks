@@ -266,6 +266,62 @@ describe("parseRunbook", () => {
       ).toEqual([])
     })
 
+    // Today's blockEnv.test.ts guard for values, by name: parseBlockEnv took
+    // a number or a boolean as its text.
+    it("takes a number or boolean in env as its text, as a template prints it", () => {
+      const doc = parsed(
+        '<Run id="a" env={{ PORT: 8080, RATIO: 0.5, DOWN: -1, DEBUG: true, QUIET: false, NAME: "x" }} />',
+      )
+      expect(doc.blocks[0]?.shared.env).toEqual({
+        PORT: "8080",
+        RATIO: "0.5",
+        DOWN: "-1",
+        DEBUG: "true",
+        QUIET: "false",
+        NAME: "x",
+      })
+    })
+
+    it("refuses an env value that is not text, a number or a boolean", () => {
+      for (const value of ['["a"]', '{ b: "c" }', "null"]) {
+        const found = errors(`<Run id="a" env={{ OK: "y", BAD: ${value} }} />`)
+        expect(found.map((e) => [e.code, e.location.prop])).toEqual([["badProp", "env"]])
+        expect(found[0]?.message).toEndWith("(at BAD)")
+      }
+    })
+
+    it("refuses an env value whose {{ }} Runbooks cannot fill in, naming the variable", () => {
+      for (const value of [
+        "{{ if .inputs.a }}y{{ end }}",
+        "{{ .inputs.a | upper }}",
+        '{{ eq .inputs.a "x" }}',
+        "{{.Names}}",
+        "x {{ .inputs.a",
+      ]) {
+        const found = errors(
+          `<Run id="a" env={{ OK: "{{ .inputs.a }}", BAD: ${JSON.stringify(value)} }} />`,
+        )
+        expect(found.map((e) => [e.code, e.location.prop])).toEqual([["badProp", "env"]])
+        expect(found[0]?.message).toEndWith("(at BAD)")
+      }
+      expect(
+        configErrors(
+          parse(
+            '<Run id="a" env={{ A: "{{- .inputs.a -}}", B: "{{/* note */}}{{ `{{.Names}}` }}" }} />',
+          ),
+        ),
+      ).toEqual([])
+    })
+
+    it("refuses an env value that reads an output of a block the runbook does not have", () => {
+      expect(
+        errors('<Run id="a" env={{ X: "{{ .outputs.nope.k }}" }} />').map((e) => [
+          e.code,
+          e.location.prop,
+        ]),
+      ).toEqual([["missingReference", "env"]])
+    })
+
     it("says when a required prop is missing", () => {
       expect(brief(errors('<Clone id="g" />'))).toEqual([
         ["badProp", 1, "<Clone> needs the `url` prop."],

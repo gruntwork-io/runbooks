@@ -41,7 +41,7 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 - `outputs` (string[]): the names of the outputs the script writes to `$RUNBOOK_OUTPUT`, such as `outputs={["account_id"]}`. Runbooks keeps only these, and other blocks can read only these. A name has letters, digits and underscores, and doesn't start with a digit. See [Block outputs](#block-outputs).
 - `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to read values from. Can be a single ID or an array of IDs. When multiple IDs are provided, values are merged in order, and later IDs override earlier ones. See [With variables](#with-variables).
 - `envFrom` (string | string[]): ID of a block, or an array of IDs, whose variables the script runs with: another Command's, from what its script wrote to `$RUNBOOK_ENV`, or an auth block's credentials. Later IDs override earlier ones. The block can't run until each one is done. See [Variables from other blocks](#variables-from-other-blocks).
-- `env` (object): environment variables the script runs with, by name, such as `env={{ DEBUG: "true" }}`. Each value is a string. See [Setting variables with env](#setting-variables-with-env).
+- `env` (object): environment variables the script runs with, by name, such as `env={{ REGION: "{{ .inputs.Region }}", DEBUG: true }}`. A value is a string, a number or a boolean, and can read inputs and block outputs. See [Setting variables with env](#setting-variables-with-env).
 - `dependsOn` (string | string[]): ID of a block, or an array of IDs, that must be done before this block can run, such as another Command or a Check. A block that ended with a warning counts, including a Command that exited 2. See [Run order](#run-order).
 - `repository` (string): ID of a block that gives a repository, such as a [GitClone](/authoring/blocks/gitclone/) block. The script starts in that repository, and `$REPO_FILES` holds its path. The block can't run until that block is done. See [Writing to repository files](#writing-to-repository-files).
 - `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is stopped, with every process it started, and the block fails. A whole number greater than 0. Defaults to `3600000` (60 minutes). Raise it for scripts that run longer, for example `timeoutMs={7200000}` for a 2-hour deployment, or lower it so a hung script fails sooner. [Runbook tests](/authoring/testing/) apply it too, as well as the test's `timeout` setting: the run stops at whichever limit comes first.
@@ -388,22 +388,32 @@ Quoting protects the shell, not a program inside the script. A value in single q
 
 #### Setting variables with env
 
-The `env` prop sets environment variables for the script, by name:
+The `env` prop sets environment variables for the script, by name. A value can read inputs, as `{{ .inputs.<name> }}`, and other blocks' outputs, as `{{ .outputs.<block-id>.<name> }}`. Runbooks fills them in when the run starts, and the script reads the result like any other environment variable:
 
 ```mdx
 <Command
-    id="plan"
-    env={{ TF_IN_AUTOMATION: "1", DEBUG: "true" }}
-    command="tofu plan"
+    id="label-pr"
+    inputsId="pr-config"
+    env={{
+        REPO: "{{ .inputs.RepoName }}",
+        PR_TITLE: "{{ .outputs.fetch_pr.title }}",
+        DRY_RUN: false,
+    }}
+    command='gh pr edit --repo "$REPO" --title "[infra] $PR_TITLE"'
 />
 ```
 
-{/* A `{{ }}` in an `env` value is used as written for now, not rendered. The examples of `env` values that read inputs and outputs, such as `REPO: "{{ .inputs.RepoName }}"`, return when `env` values are rendered. */}
+Runbooks gives the script the values as data. The shell never runs anything in them, so a value can hold quotes, `$(...)` or backticks, as a PR title or an API response can. Quote each variable where you use it, as above, so a value with spaces stays in one piece.
 
+- **The block waits for them.** A block whose `env` reads an output can't run until the block that gives it is done, as with [`dependsOn`](#run-order). An input comes from the blocks `inputsId` names, or an `<Inputs>` nested in the Command.
+- **A value that isn't there fails the run.** A field no form the block reads has, or an output its block didn't write, fails the run before the script starts. The error names the variable.
+- **A sensitive value stays hidden.** Runbooks gives the script a value that reads a [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs), and keeps it out of the block's view and the saved session. What the script prints shows in its log, so don't print it.
 - **They override other variables.** A variable in `env` replaces one of the same name from Runbooks' own environment or from an [`envFrom`](#variables-from-other-blocks) source, so `env={{ AWS_REGION: "us-west-2" }}` picks the region for a block that names an AwsAuth block in `envFrom`.
 - **They are this block's.** Later blocks don't get them, not even through `envFrom`. To pass a variable on, write it to [`$RUNBOOK_ENV`](#variables-from-other-blocks).
 
-A name has letters, digits and underscores, and doesn't start with a digit. A value is a string. Runbooks keeps `GENERATED_FILES`, `REPO_FILES` and every name that starts with `RUNBOOK_` for itself, so `env` can't use them. A block whose `env` breaks these rules shows the error and can't run.
+A value's `{{ }}` can hold an input or output reference, a template comment, or a string constant such as `{{ "{{" }}`, and `{{-` and `-}}` trim the white space beside them. Nothing else is allowed: no `if`, `range`, pipe or function.
+
+A name has letters, digits and underscores, and doesn't start with a digit. A value is a string, a number or a boolean. A number or boolean is its text: `PORT: 8080` sets `PORT` to `8080`. Runbooks keeps `GENERATED_FILES`, `REPO_FILES` and every name that starts with `RUNBOOK_` for itself, so `env` can't use them. A block whose `env` breaks these rules shows the error and can't run.
 
 ### Execution context
 
