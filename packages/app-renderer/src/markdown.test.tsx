@@ -201,7 +201,9 @@ describe("the walk", () => {
           onClick: "alert(1)",
           onclick: "alert(1)",
           id: "root",
-          className: "fixed",
+          // An app class would let the author mimic the app's own UI.
+          class: "block-errors",
+          className: "warnings",
           popover: "manual",
         },
         text("inside"),
