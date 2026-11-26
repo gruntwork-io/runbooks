@@ -9,6 +9,7 @@
  */
 import fs from "node:fs"
 import path from "node:path"
+import { pathToFileURL } from "node:url"
 import type { ElectronApplication } from "@playwright/test"
 import { readFromMain, runInMain } from "../electron/e2e/main-process.ts"
 import { expect, PAGE, runAsPage, test } from "./fixtures.ts"
@@ -109,6 +110,37 @@ test.describe("the rebuilt app's window", () => {
       })()`,
     )
     expect(inline).toEqual(["0px", "0px"])
+  })
+
+  test("refuses a script and a stylesheet from a file:// path", async ({ launch }, testInfo) => {
+    const script = testInfo.outputPath("planted.js")
+    const stylesheet = testInfo.outputPath("planted.css")
+    fs.writeFileSync(script, "window.plantedRan = true")
+    fs.writeFileSync(stylesheet, "body { margin: 77px }")
+    const { app } = await launch()
+    const loaded = await runAsPage(
+      app,
+      `new Promise((resolve) => {
+        const settled = (element) => new Promise((done) => {
+          element.addEventListener("load", () => done("loaded"))
+          element.addEventListener("error", () => done("refused"))
+        })
+        const script = document.createElement("script")
+        script.src = ${JSON.stringify(pathToFileURL(script).href)}
+        const stylesheet = document.createElement("link")
+        stylesheet.rel = "stylesheet"
+        stylesheet.href = ${JSON.stringify(pathToFileURL(stylesheet).href)}
+        const both = Promise.all([settled(script), settled(stylesheet)])
+        document.head.append(script, stylesheet)
+        both.then(([scriptLoad, stylesheetLoad]) => resolve({
+          script: scriptLoad,
+          ran: window.plantedRan === true,
+          stylesheet: stylesheetLoad,
+          margin: getComputedStyle(document.body).margin,
+        }))
+      })`,
+    )
+    expect(loaded).toEqual({ script: "refused", ran: false, stylesheet: "refused", margin: "0px" })
   })
 
   test("has no require or process", async ({ launch }) => {
