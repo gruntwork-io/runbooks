@@ -175,14 +175,33 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 96x | #634 | 2 | `rebuild/p2-walk-bound` | p2-lint-gaps | ready (reviewer passed) | review group 9: a walk holds at most 256 entries for its reader |
 | 96y | #635 | 2 | `rebuild/p2-run-checked-bytes` | p2-walk-bound | ready (reviewer passed) | review group 14: a plugin runs from a copy made while hashing, in its own run folder, removed when the scope closes |
 | 96z | #636 | 2 | `rebuild/p2-plugin-stdout-close` | p2-run-checked-bytes | ready (reviewer passed) | review group 13: a plugin that closes its standard output and keeps running is a protocol violation, after a bounded wait for its exit |
-| 96aa | #637 | 2 | `rebuild/p2-parse-errors` | p2-plugin-stdout-close | draft | review group 13: a block inside a block that shows no markdown is `badChildren`; `path=""` is a bad prop; a quoted `runbooks` key's error is at its line; no error quotes what a prop holds |
-| 96ab | #638 | 2 | `rebuild/p2-template-refs-linear` | p2-parse-errors | draft | review group 13: the template-reference scan is linear in the template |
-| 96ac | #639 | 2 | `rebuild/p2-not-allowed-state` | p2-template-refs-linear | draft | contract change: `NotAllowed.state` is a closed set |
-| 96ad | #640 | 2 | `rebuild/p2-literal-only-gaps` | p2-not-allowed-state | draft | review group 13: `literalOnly` refuses `<meta>`, `<base>`, `<link>`, `<style>` and `javascript:` markdown URLs |
-| 96ae | #641 | 2 | `rebuild/p2-renew-before-expiry` | p2-literal-only-gaps | draft | contract change: `env` refreshes a credential within 5 minutes of its expiry; the fake does, and the contract suite has a refresh case |
-| 96af | #642 | 2 | `rebuild/p2-blocks-throw-nothing` | p2-renew-before-expiry | draft | `runbooks/no-throw-in-blocks`: block code throws nothing (runbooks-reviewer on #637) |
-| 97 | none | 2 | the rest of the `rebuild/main` review's fixes | p2-blocks-throw-nothing | planned | see Follow-ups owed |
-| 98 | none | A | `rebuild/pA-plugins-lock` | row 97 | planned (built) | A.5 (`resources/plugins.lock`, its loader) |
+| 96aa | #637 | 2 | `rebuild/p2-parse-errors` | p2-plugin-stdout-close | ready (reviewer passed) | review group 13: a block inside a block that shows no markdown is `badChildren`; `path=""` is a bad prop; a quoted `runbooks` key's error is at its line; no error quotes what a prop holds |
+| 96ab | #638 | 2 | `rebuild/p2-template-refs-linear` | p2-parse-errors | ready (reviewer passed) | review group 13: the template-reference scan is linear in the template |
+| 96ac | #639 | 2 | `rebuild/p2-not-allowed-state` | p2-template-refs-linear | ready (reviewer passed) | contract change: `NotAllowed.state` is a closed set |
+| 96ad | #640 | 2 | `rebuild/p2-literal-only-gaps` | p2-not-allowed-state | draft (code passed; held for the human's ruling, Waiting on the human) | review group 13: `literalOnly` refuses `<meta>`, `<base>`, `<link>`, `<style>` and `javascript:` markdown URLs |
+| 96ae | #641 | 2 | `rebuild/p2-renew-before-expiry` | p2-literal-only-gaps | ready (reviewer passed) | contract change: `env` refreshes a credential within 5 minutes of its expiry; the fake does, and the contract suite has a refresh case |
+| 96af | #642 | 2 | `rebuild/p2-blocks-throw-nothing` | p2-renew-before-expiry | ready (reviewer passed) | `runbooks/no-throw-in-blocks`: block code throws nothing (runbooks-reviewer on #637) |
+| 96ag | #643 | 2 | `rebuild/p2-cli-signals` | p2-blocks-throw-nothing | ready (reviewer passed) | review, inferred item: `runbooks test` stops on SIGTERM as on Ctrl-C; a second signal ends the stop at once; no process a script started outlives the CLI |
+| 96ah | #644 | 2 | `rebuild/p2-run-env-bound` | p2-cli-signals | ready (reviewer passed) | review, inferred item: a run's environment fits what a process can be started with (131072 bytes a variable a block gives, 983040 in all); an output's value is capped in bytes |
+| 96ai | #645 | 3 | `rebuild/p3-task-values-redacted` | p2-run-env-bound | ready (reviewer passed) | 3a, contract change: a task gets every form value it reads `Redacted` (`TaskValues`), as it gets outputs |
+| 96aj | #646 | 3 | `rebuild/p3-document-view` | p3-task-values-redacted | draft (CI, then runbooks-reviewer) | 3b, protocol change: `GetDocument` gives a client the document (tree, encoded props for display blocks and formless tasks, each block's errors); `FieldView` has `section` and `optionLabels`. 3.2 (part) |
+| 3c | none | 3 | `rebuild/p3-form-outputs` | p3-document-view | planned | contract change: where a form block's output values come from |
+| 3d | none | 3 | `rebuild/p3-app-packages` | 3c | planned | 3.1 (part): `app-main` and `app-renderer` with declared exports; a lint that the renderer imports only the protocol |
+| 3e | none | 3 | `rebuild/p3-app-window` | 3d | planned | 3.1 (part): the window, CSP without `'unsafe-eval'`, asset serving, the path guard; quit waits for the stops' grace |
+| 3f | none | 3 | `rebuild/p3-ipc-transport` | 3e | planned | 3.1 (part): the IPC transport (main, preload, renderer client), its event buffer bounded |
+| 3g | none | 3 | `rebuild/p3-renderer-walk` | 3f | planned | 3.2: the renderer walks `DocumentView`: literal props, MDXContainer's security rendering half, errors in place of a view, the body in a `contain: paint` box |
+| 3h | none | 3 | `rebuild/p3-block-frame` | 3g | planned | 3.3: `BlockFrame` and a default view per class |
+| 3i | none | 3 | `rebuild/p3-trust-prompt` | 3h | planned | 3.5: the trust prompt, listing each block's declared effects |
+| 3j | none | 3 | `rebuild/p3-command-app` | 3i | planned | 3.8 (Command): decision 8's `outputs` patches to testdata, waits on referenced inputs, `exclusive`, hashed script texts to a run |
+| 3k | none | 3 | `rebuild/p3-inputs` | 3j | planned | 3.8 (Inputs) |
+| 3l | none | 3 | `rebuild/p3-admonition` | 3k | planned | 3.8 (Admonition) |
+| 3m | none | 3 | `rebuild/p3-aws-auth` | 3l | planned | 3.4 and 3.8 (AwsAuth): the common auth view; AwsAuth against the fake; dev mode wired to `fakeCredentialProviders` |
+| 3n | none | 3 | `rebuild/p3-session-database` | 3m | planned | the session database wired by the app's entry; its warnings shown |
+| 3o | none | 3 | `rebuild/p3-agent-confirm` | 3n | planned | 3.7: agent run confirmation in the engine; `agentAccess`/`confirmAgentRuns` read |
+| 3p | none | 3 | `rebuild/p3-mcp` | 3o | planned | 3.6: the MCP tools from the protocol, on both transports; the `SetValues` cap |
+| 3q | none | 3 | `rebuild/p3-done-when` | 3p | planned | phase 3's Done when: the four blocks in the app, the test CLI and MCP; the CSP; a secret typed into AwsAuth in no event |
+| 97 | none | 2 | the rest of the `rebuild/main` review's fixes | none | done | every group but 10 is fixed, #590 to #644; group 10 goes with row 98 |
+| 98 | none | A | `rebuild/pA-plugins-lock` | the stack's top then | planned (built; waits on plugins 0.2.1: runbooks-plugins #50 and #51, the human's merge and release) | A.5 (`resources/plugins.lock`, its loader) |
 | 99 | none | A | `rebuild/pA-plugins-recipes` | pA-plugins-lock | planned (built) | A.5 (fetch, check and bump recipes) |
 | 100 | none | A | `rebuild/pA-plugins-packaging` | pA-plugins-recipes | planned (built) | A.6 (CI and release check the bundled binaries; `mac.signIgnore`) |
 
@@ -190,7 +209,7 @@ On 2026-11-24 the human found the PRs were not properly stacked:
 - #496 lacked four index commits on `rebuild/main`. Every branch was rebased; trees were unchanged apart from this file.
 - The PRs were not linked as a GitHub stack. They now are, with `gh stack link --base rebuild/main 496 … 518` (gh-stack v0.2.0), which created stack #519.
 
-Phase 1 ended with #526 on 2026-11-24. Phase 2's work products ended with #581 (merged 2026-11-25); #582 is a contract addendum. Command landing in phase 2 is my choice: the Done when needs a Command fixture in the test CLI, and the registry is empty until it lands. #589 carries phase 2's Done when, and #597 replaces its exit test with one that can fail. runbooks-reviewer's review of `rebuild/main` at 17064004 asked for changes, so the phase 2 fix PRs (from #590) come before track A. Rows 87 to 96 are that queue so far, in the order the reviewer's findings and the docs subagent's report asked for them. Track A's two lock PRs and its packaging PR then open before phase 3, because phase 3's entry points read the lock to start real binaries; they also wait for a plugins release that speaks protocol "2".
+Phase 1 ended with #526 on 2026-11-24. Phase 2's work products ended with #581 (merged 2026-11-25); #582 is a contract addendum. Command landing in phase 2 is my choice: the Done when needs a Command fixture in the test CLI, and the registry is empty until it lands. #589 carries phase 2's Done when, and #597 replaces its exit test with one that can fail. runbooks-reviewer's review of `rebuild/main` at 17064004 asked for changes, so the phase 2 fix PRs (from #590) come before track A. Rows 87 to 96 are that queue so far, in the order the reviewer's findings and the docs subagent's report asked for them. The phase 2 fixes ended with #644. Track A's two lock PRs and its packaging PR wait for the plugins 0.2.1 release (the protocol stays "1", the human's ruling), which is the human's to make, so phase 3 started first, with #645 on 2026-11-26. Nothing before the app starts a real plugin (row 3m and later) reads the lock, and the lock PRs open on the stack's top once the release lands.
 
 ## Track A: gruntwork-io/runbooks-plugins
 
@@ -243,11 +262,19 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 | 2.11 | The `runbook_test.yml` schema | #569 | merged |
 | 2.12 | The plugin transport owner, tests against a stub binary | #571, #572, #573 | merged |
 | 2.13 | The credential client, the fake provider, the contract suite | #574 to #581 (#582 a contract addendum) | merged |
+| 3.1 | The app frame: window, IPC transport, CSP without `'unsafe-eval'`, asset serving, path guard | rows 3d, 3e, 3f | planned |
+| 3.2 | The renderer that walks the document | #646 (`GetDocument`); row 3g | #646 draft; 3g planned |
+| 3.3 | `BlockFrame` and the default view for each class | row 3h | planned |
+| 3.4 | The common auth view | row 3m | planned |
+| 3.5 | The trust prompt, listing each block's declared effects | row 3i | planned |
+| 3.6 | The MCP tools generated from the protocol, on both transports | row 3p | planned |
+| 3.7 | Agent run confirmation in the engine | row 3o | planned |
+| 3.8 | Command, AwsAuth, Inputs and Admonition, end to end | #645 (values redacted); rows 3j, 3k, 3l, 3m, 3q | #645 ready; the rest planned |
 | A.1 | The binaries' repo, with its build, signing and release | runbooks-plugins | done (that session) |
 | A.2 | The AWS binary | runbooks-plugins | released v0.1.0 |
 | A.3 | The Google binary | runbooks-plugins | released v0.1.0 |
 | A.4 | The Azure binary, wrapping `az` | runbooks-plugins | released v0.1.0 |
-| A.5 | `resources/plugins.lock`, the fetch recipe and the bump recipe | rows 98, 99 | built, opens after the phase 2 fixes and the plugins 0.2.0 release |
+| A.5 | `resources/plugins.lock`, the fetch recipe and the bump recipe | rows 98, 99 | built; opens once plugins 0.2.1 is released |
 | A.6 | The hash check before a binary starts | #572; row 100 for the packaged bytes | merged; row 100 built |
 
 ## Open decisions built on
@@ -312,7 +339,7 @@ Choices of my own that need a ruling (not among the 18):
 | A plugin started again must describe the same levels, names and requirements | #578 |
 | A provider name outside its block's `envNames` and outputs makes the block unavailable; `envConflict` warns once per pair of blocks | #581 |
 | A call in flight when standard input closes gets no answer (with runbooks-plugins) | #582 |
-| Track A's lock PRs open before phase 3, which reads the lock | row 98 |
+| Track A's lock PRs open on the stack's top once plugins 0.2.1 is released. Phase 3 started first: the release is the human's, and nothing before the app runs a real plugin reads the lock | row 98 |
 | The lock is `{ plugins: PluginEntry[] }`; fetch is all or nothing and removes unpinned plugin binaries; bump takes the plugins from `SHA256SUMS` (only `<bin>_<ver>_<os>_<arch>[.exe]` entries: since plugins #46 it also lists `*.schema.json`, which the schema byte check reads), cross-checked both ways with the API's digests | rows 90, 91 |
 | Plugin settings: AWS `defaultRegion`; Google `defaultRegion`, `defaultZone`; Azure none. No settings declaration in the contract (with runbooks-plugins: a refusal names the valid ones) | phase 3 |
 | After a restart an AWS SSO or role login comes back as plain keys that cannot refresh: carrying the SSO token needs a secret at rest in `stateDir` (not built) | runbooks-plugins resume follow-up |
@@ -347,7 +374,7 @@ Choices of my own that need a ruling (not among the 18):
 | A link inside a folder a block names is refused (#595 Decision 1); `docs/intro/files_workspace.mdx:125-131` documents following links that stay in the folder | refuse (built), or follow a link whose real path is inside the runbook's folder | #595 |
 | The 2000-entry cap on a named folder now counts folders as well as files (#595 Decision 2) | keep, or count files only | #595 |
 | A block id is ASCII letters, digits, `-` and `_` (#590); authors see it as a parse error | keep, or widen the pattern | #590 |
-| `literalOnly` refuses `<style>` (#640, its last commit, 6eca0ad8): a behaviour change the plan's table doesn't list. A runbook's `<style>` hid the trust banner in today's renderer; no runbook uses one | keep it (built), or drop the commit | #640 |
+| `literalOnly` refuses `<meta>`, `<base>`, `<link>` and `<style>` (#640; `<style>` is its last commit, 6eca0ad8): behaviour changes the plan's table doesn't list. A runbook's `<style>` hid the trust banner in today's renderer; no runbook uses any of the four. runbooks-reviewer passed the code and recommends keeping all four with one behaviour-changes row; the row lands with the ruling, since `behaviour-changes.ts` lists ruled changes and its test pins 10 | keep all four (built) and add the row, or drop the `<style>` commit | #640 |
 | No `received` quotes a prop's text, `id` and `dependsOn` included, so a mistyped id shows `received: text` (#637 Decision 1; runbooks-reviewer agrees) | keep (built), or echo the text for id-like props | #637 |
 | The credential contract's six `[account]` cases need real AWS, GCP and Azure accounts, and the Azure waiting case needs `az` installed where it runs | provide test accounts (and `az`) for a run, or leave those cases unrun | the track-A lock PR's Gaps (row 98) |
 
@@ -367,14 +394,12 @@ Choices of my own that need a ruling (not among the 18):
 | `src/` and its copies in `packages/` drift until the old tree goes | phase 6 |
 | GitGuardian incidents 27121678, 33923057, 33923058 re-raised by the copy | the human, in the GitGuardian dashboard |
 | Decision 8 (declared outputs): 21 template reads in 9 testdata runbooks use a Command output no `outputs` prop declares, so they fail to load. They need `outputs` patches. | phase 3, with Command (Check in phase 4) |
-| The MDXContainer security tests' rendering half (the page shows literal props) | phase 3, with the tree walker |
+| The MDXContainer security tests' rendering half (the page shows literal props) | row 3g |
 | `rebuild/main` holds `main` to d7136710 (#585, #586); a later sync repeats the merge and the port command in #586's Evidence | before phase 6 |
-| A block's errors show in place of its view (#522) | phase 3, the renderer |
+| A block's errors show in place of its view (#522); #646 sends them | row 3g |
 | `showWhenBlock`'s target check becomes a `run`-capability reference on Command, Check and Finish (#525 removed the old type list) | phases 3 and 4 |
 | `<Iframe>` passes the literal-only check: a test in the Iframe block's folder (#525 moved the core's case to `<Script>`) | phase 4, Iframe |
 | The block-name lint reads `baseline/props.json`; when the baseline retires, the registry alone names the blocks (#526) | phase 6 |
-| `TaskInput.values` hands sensitive form values in clear: make them `Redacted` entries or a secrets map | phase 3, before the phase 4 fan-out |
-| `BlockView` and `SessionView` carry node errors (parse and engine-found); `FieldView` needs `section` and `optionLabels` | phase 3 |
 | Where a form block's output values come from (the engine uses the same-name field, wrong for DirPicker and Iframe) | phase 3 |
 | A block waits for each input its template references (today, #489); a referenced optional field with no default runs with an empty string | phase 3, Command |
 | A run gets the hashed script texts instead of re-reading them; `instruction()` input needs an I/O-free build | phase 3, Command (contract change) |
@@ -382,7 +407,7 @@ Choices of my own that need a ruling (not among the 18):
 | A person-picked checkout root, and Template targets in it | phase 4 |
 | `NodeSessionDatabase` is first wired by the app's entry point; the test CLI keeps no saved sessions (#570) | phase 3 |
 | `SetValues` payload (keys, value size) uncapped; a malformed payload from an untyped caller is untested | phase 3, MCP (the first untyped caller) |
-| A `LogLines` event holds up to 10,000 lines and no line length is capped; the transport's stream buffer counts events | phase 3, with the IPC transport |
+| A `LogLines` event holds up to 10,000 lines and no line length is capped; the transport's stream buffer counts events | row 3f |
 | The base environment's `PATH` is not refreshed; the heredoc advice in the docs (plan item 615) | phase 5 |
 | `baseline/security-tests.ts`: two tests renamed in phase 2 | phase 6 |
 | No no-proxy list in the credential contract; the plugins take only `configure`'s `proxy` and ignore the environment's proxy variables by design (`az` inherits what the plugin passes) | the human, then a contract change |
@@ -407,14 +432,21 @@ Choices of my own that need a ruling (not among the 18):
 | Bump `resources/plugins.lock` to the plugins release that sends `envValue.file` | track A, when released |
 | Real Developer ID signing and notarization with `mac.signIgnore` | the first release run |
 | A large org's target list can pass the 1 MiB line cap (the plugins answer `internal`): page `targets` | a later contract change |
-| The `rebuild/main` review at 17064004, group still to fix: the schema byte check, with row 98 (group 10; the protocol stays "1"; runbooks-plugins #53 carries #641's string). Groups 8 and 11 are done (#612 to #620, #624, #625), group 12 is #627 to #630, group 9 is #632 to #634, group 14 is #635, and group 13 is #636 to #641 (its fenced children move to phase 4, TemplateInline) | row 98 |
-| Inferred from that review, not reproduced: a second Ctrl-C or SIGTERM and process groups; run files 0644 in tmpdir; `valueLength` 128K over `MAX_ARG_STRLEN`; `agentAccess`/`confirmAgentRuns` not read (gate before MCP) | reproduce first |
+| The `rebuild/main` review at 17064004, group still to fix: the schema byte check, with row 98 (group 10; the protocol stays "1"; runbooks-plugins #53 carries #641's string). Groups 8 and 11 are done (#612 to #620, #624, #625), group 12 is #627 to #630, group 9 is #632 to #634, group 14 is #635, group 13 is #636 to #641 (its fenced children move to phase 4, TemplateInline), and #642 adds the lint runbooks-reviewer asked for on #637 | row 98 |
+| Inferred from that review: the second Ctrl-C or SIGTERM (reproduced, fixed in #643) and `valueLength` over `MAX_ARG_STRLEN` (reproduced, fixed in #644). Run files 0644 in tmpdir was not reproduced: the run folder is 0700. `agentAccess`/`confirmAgentRuns` not read stays the gate before MCP | row 3o |
+| `runbooks test` (#643): SIGHUP isn't handled; `validate` prints "Stopped at once" on Ctrl-C though it runs no script; a child whose `error` event fires after it spawned stays in the spawner's kill set (the pid-reuse window) | if it matters |
+| The app's quit: the spawner's exit hook SIGKILLs a stopped script's group at once, and Electron doesn't wait for ref'd timers, so the quit should wait for the stops' grace or say it can't (runbooks-reviewer on #643) | row 3e |
+| The environment bound (#644): Windows' 32767-character limit on one variable isn't enforced; on Linux with a stack limit under about 4 MiB the real total is below 983040 bytes; `sizeProblem`'s doc comment breaks after "`totalBytes`. The" | if it matters; the comment at the next touch of env.ts |
+| `instruction` unwraps no value only by its doc comment (#645). When instruction mode gets its first caller, a test runs every registry block's `instruction` with a fake secret in `values` and looks for it in the result (runbooks-reviewer) | instruction mode's first caller |
+| A form's, a task-with-a-form's or a credential block's view gets no props (#646 Decision 1: they can hold a secret default). A block whose view needs a prop needs a contract addition naming the props a view may get | phase 4, the first such block (DirPicker) |
+| `DocumentView` (#646): `validate` reports only the parser's errors, not those found at open; `FieldView` has each field's section but not `FormSpec.sections`' order; `SessionView.warnings` repeats `DocumentView.warnings`; props typed `Codec<P, Schema.Json>` would move the JSON check to the build | rows 3g, 3k; the rest if it matters |
+| The runbook body in a box its styles can't escape (`contain: paint` makes it the containing block for `position: fixed` and clips it), the trust banner outside it; closes the `style`-prop overlay at its root (runbooks-reviewer on #640) | row 3g |
 | `boilerplate.yml` readers (`config.ts:388`, `warmEligibility.ts:95`) move to `yamlData` | phase 4, Template |
 | `openFileTail.finish()` reads what is left of a log file in one go when the child ends (#594) | before phase 6 |
 | Command has no `exclusive` prop (`validate` warns it is ignored) | phase 3, with run order |
 | No saved session keeps `BlockView.files` (#602) | phase 5, the files panel |
 | Template and TemplateInline report their files as `File` events, so `files_generated` counts them | phase 4, Template |
-| Old-tree CI flakes: `GitAuth.switch` Reload (a stale-effect race), and `SessionName.test.tsx`'s refused-name check (#603's first run; on #636, run 45791836449, `aria-invalid` true) | before phase 6, or with the old tree's deletion |
+| Old-tree CI flakes: `GitAuth.switch` Reload (a stale-effect race), and `SessionName.test.tsx`'s refused-name check (#603's first run; on #636, run 45791836449, `aria-invalid` true; `GitAuth.switch` again on #645, run 45820711300) | before phase 6, or with the old tree's deletion |
 | No size cap on the runbook file: `loadRunbook` reads it whole. `parseMdx` (the MDX library) is quadratic on an expression attribute that holds many braces: 8k references in one `env`, about 150 KB, took 9 s, so a 1 MiB cap like named files' would still allow about 8 minutes at open. The cap has to bound one expression attribute, or the file, much tighter. `envNameConflicts` is O(blocks × edges), and one `dependsOn` naming n blocks grows faster than linear (#638 Gaps, runbooks-reviewer) | with the bounds (row 97) |
 | Opening a 3200-block runbook takes 42 to 57 times a 200-block one (16 times the blocks), even with #608: something in open or parse grows faster than linear past about 800 blocks. Not investigated | with the bounds (row 97) |
 | `if hasKey` stays refused in `env` (runbooks-reviewer). GitClone's optional output: the block always gives it, empty when it doesn't apply, and a script tests `[ -n "$X" ]` | phase 4, GitClone |
