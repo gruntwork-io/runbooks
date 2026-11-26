@@ -306,7 +306,7 @@ const VALUE_REFERENCE_PATTERN =
 
 /**
  * The distinct input paths `text` uses as plain value actions: exactly the
- * `{{ .inputs.* }}` references resolveTemplateReferences substitutes. An input
+ * `{{ .inputs.* }}` references resolveValueReferences substitutes. An input
  * referenced only inside template logic is not included.
  */
 export function extractInputValueReferences(text: string): InputName[] {
@@ -319,15 +319,31 @@ export function extractInputValueReferences(text: string): InputName[] {
 }
 
 /**
- * Resolve {{ .inputs.X }} and {{ .outputs.X.Y }} expressions in a string.
- * Client-side string resolver for blocks that don't go through the Go template engine
- * (e.g., GitClone prefilled props, GitHubPullRequest title/body).
+ * Resolve the template expressions in a string shown on screen or sent as text,
+ * such as a title, a status message, a form field or PR text. Client-side
+ * resolver for blocks that don't go through the Go template engine.
  *
- * Its results are shown on screen (titles, descriptions, form fields) or sent
- * where a secret doesn't belong (a PR title or body), so a sensitive output
- * resolves to `<redacted>`, never its real value.
+ * It evaluates `{{ if }}` / `{{ else if }}` / `{{ else }}` / `{{ end }}` whose
+ * condition is a reference or `eq`/`ne` of a reference and a quoted string,
+ * then substitutes `{{ .inputs.X }}` and `{{ .outputs.X.Y }}`. A value that
+ * doesn't exist yet is empty in a condition, so the `else` branch shows until
+ * the block that publishes it runs.
+ *
+ * Its results are shown on screen or sent where a secret doesn't belong (a PR
+ * title or body), so a sensitive output resolves to `<redacted>`, never its
+ * real value, and compares as `<redacted>` in a condition.
  */
 export function resolveTemplateReferences(text: string, ctx: TemplateContext): string {
+  if (!text) return text
+  return resolveValueReferences(resolveConditionals(text, ctx), ctx)
+}
+
+/**
+ * Substitute `{{ .inputs.X }}` and `{{ .outputs.X.Y }}` value references only,
+ * leaving template logic as written. A reference with no value stays as
+ * written, in backticks.
+ */
+export function resolveValueReferences(text: string, ctx: TemplateContext): string {
   if (!text) return text
   return text.replace(VALUE_REFERENCE_PATTERN, (match, namespace, path) => {
     if (namespace === "inputs") {
@@ -341,19 +357,129 @@ export function resolveTemplateReferences(text: string, ctx: TemplateContext): s
       return JSON.stringify(value)
     }
     if (namespace === "outputs") {
-      const dotIdx = path.indexOf(".")
-      if (dotIdx > 0) {
-        const blockId = normalizeBlockId(path.slice(0, dotIdx))
-        const outputName = path.slice(dotIdx + 1)
-        const value = ctx.outputs[blockId]?.[outputName]
-        return value !== undefined ? maskOutput(value) : `\`${match}\``
-      }
+      const value = lookupOutput(ctx, path)
+      return value !== undefined ? maskOutput(value) : `\`${match}\``
     }
     return `\`${match}\``
   })
 }
 
 // --- Internal helpers ---
+
+function lookupOutput(ctx: TemplateContext, path: string): OutputValue | undefined {
+  const dotIdx = path.indexOf(".")
+  if (dotIdx <= 0) return undefined
+  return ctx.outputs[normalizeBlockId(path.slice(0, dotIdx))]?.[path.slice(dotIdx + 1)]
+}
+
+/** `{{ if … }}`, `{{ else if … }}`, `{{ else }}` and `{{ end }}` actions, with optional trim markers. */
+const CONDITIONAL_ACTION_PATTERN = /\{\{(-?)\s*(if|else if|else|end)\b([^}]*?)\s*(-?)\}\}/g
+
+/** A condition operand: an input or output reference, or a double-quoted string. */
+const OPERAND = String.raw`(\.(?:inputs|outputs)\.[a-zA-Z0-9_.-]+|"(?:[^"\\]|\\.)*")`
+const COMPARISON_PATTERN = new RegExp(String.raw`^(eq|ne)\s+${OPERAND}\s+${OPERAND}$`)
+const BARE_REFERENCE_PATTERN = new RegExp(String.raw`^${OPERAND}$`)
+
+/** An operand's value as the condition sees it: a missing value is "". */
+function operandValue(operand: string, ctx: TemplateContext): string {
+  if (operand.startsWith('"')) return JSON.parse(operand) as string
+  const [, namespace, ...rest] = operand.split(".")
+  const path = rest.join(".")
+  if (namespace === "inputs") {
+    const value = resolveInputPath(ctx.inputs, path)
+    if (value == null) return ""
+    if (typeof value === "string") return value
+    if (typeof value === "number" || typeof value === "boolean") return String(value)
+    return JSON.stringify(value)
+  }
+  const value = lookupOutput(ctx, path)
+  return value === undefined ? "" : maskOutput(value)
+}
+
+/** null when the condition isn't one this resolver understands. */
+function evaluateCondition(condition: string, ctx: TemplateContext): boolean | null {
+  const comparison = COMPARISON_PATTERN.exec(condition)
+  if (comparison) {
+    const equal = operandValue(comparison[2]!, ctx) === operandValue(comparison[3]!, ctx)
+    return comparison[1] === "eq" ? equal : !equal
+  }
+  const bare = BARE_REFERENCE_PATTERN.exec(condition)
+  if (bare) return operandValue(bare[1]!, ctx) !== ""
+  return null
+}
+
+interface ConditionalAction {
+  start: number
+  end: number
+  trimLeft: boolean
+  trimRight: boolean
+  keyword: "if" | "else if" | "else" | "end"
+  condition: string
+}
+
+/**
+ * Evaluate the `{{ if }}` blocks in `text`, innermost first. A block whose
+ * condition this resolver doesn't understand, or that isn't closed, is left as
+ * written, as are the actions around it.
+ */
+function resolveConditionals(text: string, ctx: TemplateContext): string {
+  for (;;) {
+    const actions: ConditionalAction[] = [...text.matchAll(CONDITIONAL_ACTION_PATTERN)].map(
+      (m) => ({
+        start: m.index,
+        end: m.index + m[0].length,
+        trimLeft: m[1] === "-",
+        trimRight: m[4] === "-",
+        keyword: m[2] as ConditionalAction["keyword"],
+        condition: m[3]!.trim(),
+      }),
+    )
+    // The innermost block: the last `if` before the first `end` that follows it.
+    const endIdx = actions.findIndex((a) => a.keyword === "end")
+    if (endIdx < 0) return text
+    let ifIdx = -1
+    for (let i = endIdx - 1; i >= 0; i--) {
+      if (actions[i]!.keyword === "if") {
+        ifIdx = i
+        break
+      }
+    }
+    if (ifIdx < 0) return text
+    const block = actions.slice(ifIdx, endIdx + 1)
+    const resolved = evaluateBlock(text, block, ctx)
+    if (resolved === null) return text
+    const first = block[0]!
+    const last = block[block.length - 1]!
+    let before = text.slice(0, first.start)
+    let after = text.slice(last.end)
+    if (first.trimLeft) before = before.trimEnd()
+    if (last.trimRight) after = after.trimStart()
+    text = before + resolved + after
+  }
+}
+
+/** The text of the branch the block takes, or null if a condition isn't understood. */
+function evaluateBlock(
+  text: string,
+  block: ConditionalAction[],
+  ctx: TemplateContext,
+): string | null {
+  for (let i = 0; i < block.length - 1; i++) {
+    const action = block[i]!
+    const next = block[i + 1]!
+    let taken: boolean | null
+    if (action.keyword === "else") taken = true
+    else taken = evaluateCondition(action.condition, ctx)
+    if (taken === null) return null
+    if (taken) {
+      let body = text.slice(action.end, next.start)
+      if (action.trimRight) body = body.trimStart()
+      if (next.trimLeft) body = body.trimEnd()
+      return body
+    }
+  }
+  return ""
+}
 
 /**
  * Group output dependencies by block ID, mapping each output name to whether

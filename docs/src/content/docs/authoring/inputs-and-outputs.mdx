@@ -240,6 +240,20 @@ This syntax works in the `env` prop and the scripts of `<Command>`, `<Check>` an
 
 To show part of a runbook only while an output has a given value, such as the GitHub or GitLab steps after a `<GitAuth>` block, wrap it in a [`<ShowWhen>`](/authoring/blocks/showwhen/) block.
 
+#### Choosing a prop's text
+
+A prop that sets text and accepts `{{ .outputs.* }}`, such as a block's `title`, `description`, `successMessage` or `failMessage`, can also choose its text with `{{ if }}`. Its condition is an input or output reference, or `eq` or `ne` of a reference and a quoted string. `{{ else if }}`, `{{ else }}` and nested `{{ if }}` blocks work too:
+
+```mdx
+<Check
+  id="check-merged"
+  title='Check the {{ if eq .outputs.git_auth.GIT_PROVIDER "gitlab" }}Merge Request{{ else }}Pull Request{{ end }} Is Merged'
+  path="checks/merged.sh"
+/>
+```
+
+An output that doesn't exist yet counts as empty, so this title says "Pull Request" until the `git_auth` block runs. A sensitive output counts as `<redacted>`. Other functions, such as `hasKey`, aren't evaluated in these props, so an `{{ if }}` that uses one is shown as written.
+
 An output often holds text from outside the runbook, such as a PR title or an API response. To use one in a script, pass it with [`env`](/authoring/blocks/command/#passing-values-as-environment-variables): the script gets the value as data, so nothing in it runs, whatever it holds.
 
 ```mdx
