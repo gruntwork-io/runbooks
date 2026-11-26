@@ -7,7 +7,7 @@
 import path from "node:path"
 import { Clock, Context, Effect, Layer, Option, Schema, Scope, Stream } from "effect"
 import type { Rpc } from "effect/rpc"
-import type { TaskError, TaskEvent } from "@runbooks/blocks-core/contract"
+import { type TaskError, type TaskEvent, TaskTimedOut } from "@runbooks/blocks-core/contract"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { CredentialProviders } from "../credential/provider.ts"
 import { prepareStateDir } from "../credential/stateDir.ts"
@@ -191,7 +191,18 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
               props,
               input,
             )
-            return Stream.provideContext(run, Context.add(services, Scope.Scope, scope))
+            const limit = block.timeLimit?.(props)
+            const limited =
+              limit === undefined
+                ? run
+                : Stream.interruptWhen(
+                    run,
+                    Effect.andThen(
+                      Effect.sleep(limit),
+                      Effect.fail(new TaskTimedOut({ afterMillis: limit })),
+                    ),
+                  )
+            return Stream.provideContext(limited, Context.add(services, Scope.Scope, scope))
           },
           resolve: (at, named, repository) =>
             resolvePaths(at, named, repository).pipe(Effect.provideContext(fileSystem)),

@@ -32,7 +32,6 @@ import {
   type TaskEvent,
   type TaskInput,
   TaskFailed,
-  TaskTimedOut,
 } from "@runbooks/blocks-core/contract"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import type {
@@ -171,9 +170,9 @@ const envRegistry = ({ inputs, printed, wrote }: Noted) => {
         /** The block that makes the repository the run starts in. */
         repository: Schema.optionalKey(BlockId),
         declares: Schema.optionalKey(Schema.Array(Schema.String)),
-        ends: Schema.optionalKey(
-          Schema.Array(Schema.Union([Schema.Int, Schema.Literals(["timeout", "never"])])),
-        ),
+        ends: Schema.optionalKey(Schema.Array(Schema.Union([Schema.Int, Schema.Literal("never")]))),
+        /** The run's time limit, which the engine keeps. */
+        timeLimitMillis: Schema.optionalKey(Schema.Int),
       }),
       children: { kind: "none" },
       references: { repository: "repository" },
@@ -181,6 +180,7 @@ const envRegistry = ({ inputs, printed, wrote }: Noted) => {
       provides: ["run", "env"],
       effects: ["process"],
       outputs: (p) => declared(p.declares),
+      timeLimit: (p) => p.timeLimitMillis,
       run: (p, input) =>
         Stream.unwrap(
           Effect.gen(function* () {
@@ -195,12 +195,9 @@ const envRegistry = ({ inputs, printed, wrote }: Noted) => {
             wrote.set(p.label, count + 1)
             const ends = p.ends ?? [0]
             const how = ends[Math.min(count, ends.length - 1)] ?? 0
-            const end: Stream.Stream<TaskEvent<never>, TaskFailed | TaskTimedOut> = how ===
-            "timeout"
-              ? Stream.fail(new TaskTimedOut({ afterMillis: 50 }))
-              : how === "never"
-                ? Stream.never
-                : endWithExitCode(how)
+            const end: Stream.Stream<TaskEvent<never>, TaskFailed> = how === "never"
+              ? Stream.never
+              : endWithExitCode(how)
             const reported = Array.from({ length: p.reports ?? 0 }, (_, i) => `/reported/${i}`)
             const reports: ReadonlyArray<TaskEvent<never>> = [
               ...reported.map((path) => ({

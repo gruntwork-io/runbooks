@@ -322,7 +322,8 @@ const WARNING_EXIT_CODE = 2
  * | 2     | warning | published       | yes |
  * | other | failure | withdrawn       | no  |
  *
- * A timeout is a failure too: the task fails with `TaskTimedOut`.
+ * A timeout is a failure too: a run the engine stops at its `timeLimit`
+ * fails with `TaskTimedOut`.
  */
 export const endWithExitCode = (exitCode: number): Stream.Stream<TaskEvent<never>, TaskFailed> => {
   switch (exitCode) {
@@ -393,6 +394,12 @@ export interface TaskBlock<P, K extends string, R, N extends string = never> ext
   readonly repository?: N
   /** Its scripts, which run as written (`ScriptSource`). Each `File` source is one of its `runbookFiles`. */
   readonly scripts?: (p: P) => ReadonlyArray<ScriptSource<P>>
+  /**
+   * How long a run may take, in milliseconds. The engine stops a run still
+   * going then, as a cancel does, and the task fails with `TaskTimedOut`.
+   * Absent, or undefined for these props: no limit.
+   */
+  readonly timeLimit?: (p: P) => number | undefined
   /** The one function that gets services. The engine calls it only in a trusted session. */
   readonly run: (p: P, input: TaskInput<N>) => Stream.Stream<TaskEvent<K>, TaskError, R>
   readonly instruction: (p: P, reads: TaskReads) => Instruction
@@ -564,6 +571,7 @@ export const BEFORE_TRUST = {
   fields: true,
   paths: true,
   scripts: true,
+  timeLimit: true,
   step: true,
   instruction: true,
   request: true,
