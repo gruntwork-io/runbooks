@@ -17,7 +17,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { Effect, Option, Redacted, Schema, Scope, Stream } from "effect"
+import { Cause, Effect, Exit, Option, Redacted, Schema, Scope, Stream } from "effect"
 import {
   LIMITS,
   type Method,
@@ -37,7 +37,7 @@ const STUB = path.join(import.meta.dirname, "..", "fixtures", "pluginStub.ts")
  * `shasum -a 256 packages/platform-node/src/fixtures/pluginStub.ts`.
  */
 const STUB_SHA256 = Schema.decodeUnknownSync(Sha256)(
-  "a83088d5ac2fac3fcaf2e1de9ec0e8b2b7975108d001577c180f5fc865ac15e3",
+  "84494822794544cb326213f524db49bbbfabe8045be196f93686465cb69ff2af",
 )
 
 const PLATFORM = Schema.decodeUnknownSync(Platform)(
@@ -46,6 +46,9 @@ const PLATFORM = Schema.decodeUnknownSync(Platform)(
 const BINARY = binaryName("credential", "stub", PLATFORM)
 /** Bun for the stub's `#!`, and `/bin` for its `sleep`: the only environment a test gives it. */
 const PATH = `${path.dirname(process.execPath)}:/usr/bin:/bin`
+
+/** Bun's per-test timeout for a test that waits out `LIMITS.exitGraceMillis`. */
+const WAITS_OUT_GRACE = LIMITS.exitGraceMillis + 5_000
 
 const pinned = (sha256: Partial<Record<Platform, Sha256>>): PluginEntry => ({
   name: "stub",
@@ -74,27 +77,6 @@ const Configured = Schema.Struct({
   pid: Schema.Int,
 })
 
-const stubProtocol = (
-  configureTimeoutMillis?: number,
-): PluginProtocol<
-  "invalidParams" | "stubbed",
-  { readonly stateDir: string },
-  typeof Configured.Type
-> => ({
-  kind: "credential",
-  errorKinds: ["invalidParams", "stubbed"],
-  configure: method(
-    "configure",
-    Schema.Struct({
-      protocolVersion: Schema.String,
-      caller: Schema.String,
-      stateDir: Schema.String,
-    }),
-    Configured,
-    configureTimeoutMillis,
-  ),
-})
-
 const echo = method(
   "echo",
   Schema.Struct({ word: Schema.String }),
@@ -120,11 +102,60 @@ const remoteError = method(
   Schema.Struct({ kind: Schema.String, detail: Schema.String }),
   Empty,
 )
+/** Answers `timedOut` a second before the limit `configure` gave it. */
+const budget = method("budget", Empty, Empty, 1_500)
 const count: StreamMethod<{ readonly n: number }, { readonly i: number }, { readonly n: number }> =
   {
     ...method("count", Schema.Struct({ n: Schema.Int }), Schema.Struct({ n: Schema.Int })),
     notification: { method: "count.tick", params: Schema.Struct({ i: Schema.Int }) },
   }
+
+/** Methods whose answer breaks the protocol, by name (`protocol violations`). */
+const VIOLATIONS = [
+  "unknownId",
+  "notJson",
+  "idAndMethod",
+  "nullId",
+  "notifyUnknown",
+  "notifyCall",
+] as const
+const violating = (name: (typeof VIOLATIONS)[number]) => method(name, Empty, Empty)
+
+const stubProtocol = (
+  configureTimeoutMillis?: number,
+): PluginProtocol<
+  "invalidParams" | "stubbed" | "timedOut",
+  { readonly stateDir: string },
+  typeof Configured.Type
+> => ({
+  kind: "credential",
+  errorKinds: ["invalidParams", "stubbed", "timedOut"],
+  configure: method(
+    "configure",
+    Schema.Struct({
+      protocolVersion: Schema.String,
+      caller: Schema.String,
+      callTimeoutsMillis: Schema.Record(Schema.String, Schema.Int),
+      stateDir: Schema.String,
+    }),
+    Configured,
+    configureTimeoutMillis,
+  ),
+  methods: [
+    echo,
+    later,
+    env,
+    line,
+    hang,
+    exit,
+    flood,
+    child,
+    remoteError,
+    budget,
+    count,
+    ...VIOLATIONS.map(violating),
+  ],
+})
 
 let bin = ""
 let started = ""
@@ -199,12 +230,37 @@ describe("starting a plugin", () => {
         return [session.configured, yield* session.call(echo, { word: "hello" })] as const
       }),
     )
-    expect(configured.received).toEqual({
+    expect(configured.received).toMatchObject({
       protocolVersion: "1",
       caller: "runbooks/test",
       stateDir: "/state",
     })
     expect(answer).toEqual({ word: "hello" })
+  })
+
+  it("tells the plugin in configure how long it waits for each method, configure's own included", async () => {
+    const protocol = stubProtocol(2_000)
+    const configured = await run(Effect.map(open({}, protocol), (session) => session.configured))
+    const limits = configured.received.callTimeoutsMillis
+    expect(Object.keys(limits ?? {}).sort()).toEqual(
+      [protocol.configure, ...protocol.methods].map(({ name }) => name).sort(),
+    )
+    expect(limits).toMatchObject({
+      configure: 2_000,
+      hang: 300,
+      budget: 1_500,
+      echo: LIMITS.callTimeoutMillis,
+      count: LIMITS.callTimeoutMillis,
+    })
+  })
+
+  it("refuses a call to a method its protocol does not list", async () => {
+    const ended = await run(
+      Effect.flatMap(open(), (session) =>
+        Effect.exit(session.call(method("unlisted", Empty, Empty), {})),
+      ),
+    )
+    expect(Exit.isFailure(ended) && Cause.hasDies(ended.cause)).toBe(true)
   })
 
   it("matches each answer to its request by id, in whatever order they come", async () => {
@@ -324,16 +380,20 @@ describe("timeouts", () => {
     expect(stopped).toBe(true)
   })
 
-  it("stop a plugin that keeps running after standard input closes, without waiting for the scope", async () => {
-    const stopped = await run(
-      Effect.gen(function* () {
-        const session = yield* open({ STUB_IGNORES_STDIN: "1" })
-        yield* Effect.flip(session.call(hang, {}))
-        return yield* Effect.promise(() => gone(stubPid(), LIMITS.exitGraceMillis + 1_000))
-      }),
-    )
-    expect(stopped).toBe(true)
-  })
+  it(
+    "stop a plugin that keeps running after standard input closes, without waiting for the scope",
+    async () => {
+      const stopped = await run(
+        Effect.gen(function* () {
+          const session = yield* open({ STUB_IGNORES_STDIN: "1" })
+          yield* Effect.flip(session.call(hang, {}))
+          return yield* Effect.promise(() => gone(stubPid(), LIMITS.exitGraceMillis + 1_000))
+        }),
+      )
+      expect(stopped).toBe(true)
+    },
+    WAITS_OUT_GRACE,
+  )
 
   it("apply to configure", async () => {
     const error = await run(Effect.flip(open({ STUB_CONFIGURE: "hang" }, stubProtocol(300))))
@@ -412,11 +472,11 @@ describe("an exit", () => {
 })
 
 describe("protocol violations", () => {
-  const violation = (name: string, word = "") =>
+  const violation = (name: (typeof VIOLATIONS)[number], word = "") =>
     run(
       Effect.gen(function* () {
         const session = yield* open()
-        const first = yield* Effect.flip(session.call(method(name, Empty, Empty), {}))
+        const first = yield* Effect.flip(session.call(violating(name), {}))
         const after = yield* Effect.flip(session.call(echo, { word }))
         return { first, after }
       }),
@@ -429,7 +489,7 @@ describe("protocol violations", () => {
     ["nullId", "the plugin could not read a request: the line is not JSON"],
     ["notifyUnknown", "count.tick names request 1002, which is not open"],
     ["notifyCall", "count.tick names request 2, a call that streams nothing"],
-  ])("end the session: %s", async (name, message) => {
+  ] as const)("end the session: %s", async (name, message) => {
     const { first, after } = await violation(name)
     expect(first).toMatchObject({ _tag: "PluginProtocolViolation", plugin: "stub", message })
     expect(after).toBe(first)
@@ -474,6 +534,25 @@ describe("a remote error", () => {
       data: { detail: "d" },
     })
     expect(unknown).toMatchObject({ kind: "unknown", rawKind: "newKind", data: { detail: "e" } })
+    expect(after).toEqual({ word: "still here" })
+  })
+
+  it("of kind timedOut, answered before the method's limit, ends only that call", async () => {
+    const begun = Date.now()
+    const [timedOut, took, after] = await run(
+      Effect.gen(function* () {
+        const session = yield* open()
+        const refused = yield* Effect.flip(session.call(budget, {}))
+        const at = Date.now() - begun
+        return [refused, at, yield* session.call(echo, { word: "still here" })] as const
+      }),
+    )
+    expect(timedOut).toMatchObject({
+      _tag: "PluginRemoteError",
+      method: "budget",
+      kind: "timedOut",
+    })
+    expect(took).toBeLessThan(1_500)
     expect(after).toEqual({ word: "still here" })
   })
 })
@@ -525,11 +604,13 @@ describe("a stream", () => {
 
 describe("giving up a call", () => {
   it("cancels it: standard input closes, and the calls left fail once the plugin exits", async () => {
-    const waitsLong = method("hang", Empty, Empty, 10_000)
     const [gaveUp, after] = await run(
       Effect.gen(function* () {
         const session = yield* open()
-        const first = yield* Effect.timeoutOption(session.call(waitsLong, {}), 100)
+        const first = yield* Effect.timeoutOption(
+          session.call(later, { word: "never", millis: 10_000 }),
+          100,
+        )
         return [first, yield* Effect.flip(session.call(echo, { word: "after" }))] as const
       }),
     )
@@ -558,26 +639,30 @@ describe("closing the session", () => {
     }
   })
 
-  it("kills a plugin that keeps running after standard input closes, after the grace period", async () => {
-    let grandchild = 0
-    let closed = 0
-    try {
-      await run(
-        Effect.gen(function* () {
-          const session = yield* open({ STUB_IGNORES_STDIN: "1" })
-          grandchild = (yield* session.call(child, {})).pid
-          closed = Date.now()
-        }),
-      )
-      const took = Date.now() - closed
-      expect(took).toBeGreaterThanOrEqual(LIMITS.exitGraceMillis - 50)
-      expect(took).toBeLessThan(LIMITS.exitGraceMillis + 1_000)
-      expect(alive(stubPid())).toBe(false)
-      expect(await gone(grandchild)).toBe(true)
-    } finally {
-      for (const pid of [grandchild, existsSync(started) ? stubPid() : 0]) {
-        if (pid > 0 && alive(pid)) process.kill(pid, "SIGKILL")
+  it(
+    "kills a plugin that keeps running after standard input closes, after the grace period",
+    async () => {
+      let grandchild = 0
+      let closed = 0
+      try {
+        await run(
+          Effect.gen(function* () {
+            const session = yield* open({ STUB_IGNORES_STDIN: "1" })
+            grandchild = (yield* session.call(child, {})).pid
+            closed = Date.now()
+          }),
+        )
+        const took = Date.now() - closed
+        expect(took).toBeGreaterThanOrEqual(LIMITS.exitGraceMillis - 50)
+        expect(took).toBeLessThan(LIMITS.exitGraceMillis + 1_000)
+        expect(alive(stubPid())).toBe(false)
+        expect(await gone(grandchild)).toBe(true)
+      } finally {
+        for (const pid of [grandchild, existsSync(started) ? stubPid() : 0]) {
+          if (pid > 0 && alive(pid)) process.kill(pid, "SIGKILL")
+        }
       }
-    }
-  })
+    },
+    WAITS_OUT_GRACE,
+  )
 })

@@ -7,12 +7,13 @@
  * - A plugin is found by kind and name among the pinned plugins, as the
  *   binary `runbooks-<kind>-<name>` in `binDir`. Its SHA-256 is checked
  *   before it starts, with no shell and only the environment it is given.
- * - `configure` goes first, with `PROTOCOL_VERSION` and the caller, and its
- *   answer must name the same version.
+ * - `configure` goes first, with `PROTOCOL_VERSION`, the caller and each
+ *   method's limit, and its answer must name the same version.
  * - Responses are matched to requests by id, and notifications to their
  *   request's stream. Every message is parsed against its schema.
- * - Every call has a timeout. `LIMITS` caps a line either way, the standard
- *   error kept, and a stream's items.
+ * - Every call has the timeout `configure` named for its method, and a
+ *   method the protocol does not list cannot be called. `LIMITS` caps a
+ *   line either way, the standard error kept, and a stream's items.
  * - Ending a session closes standard input, waits `LIMITS.exitGraceMillis`
  *   for the plugin to exit, then kills its process group: the plugin and
  *   whatever it started. On Windows only the plugin itself is killed.
@@ -38,12 +39,14 @@ import {
   Stream,
 } from "effect"
 import {
+  ConfigureParams,
   ConfigureResult,
   ErrorResponse,
   Notification,
   ResultResponse,
 } from "@runbooks/core/plugin/generated/base"
 import {
+  callTimeoutsOf,
   type ConfigureFields,
   LIMITS,
   type Method,
@@ -142,6 +145,8 @@ const sha256 = (file: string): Effect.Effect<string, Error> =>
     return Effect.sync(() => input.destroy())
   })
 
+const isConfigureParams = Schema.is(ConfigureParams)
+
 type Child = ChildProcessByStdio<Writable, Readable, Readable>
 
 interface ChildExit {
@@ -195,6 +200,14 @@ const start = <K extends string, P, C>(
   Effect.gen(function* () {
     type SessionError = PluginTransportError | PluginRemoteError<K>
     const windows = isWindows(config.platform)
+    const limits = callTimeoutsOf(protocol)
+    /** A method's limit, as `configure` told the plugin. A method the protocol does not list is a bug in its client. */
+    const limitOf = (method: string): Effect.Effect<number> => {
+      const limit = Object.hasOwn(limits, method) ? limits[method] : undefined
+      return limit === undefined
+        ? Effect.die(new Error(`${method} is not a method of the ${protocol.kind} protocol`))
+        : Effect.succeed(limit)
+    }
     const exited = yield* Deferred.make<ChildExit>()
     const child = yield* spawnChild(plugin, binary, env, windows, exited)
 
@@ -447,12 +460,10 @@ const start = <K extends string, P, C>(
 
     const call = <A, R>(method: Method<A, R>, params: A): Effect.Effect<R, SessionError> =>
       Effect.gen(function* () {
+        const timeoutMillis = yield* limitOf(method.name)
         const encoded = yield* encode(method, params)
-        return yield* request(
-          method.name,
-          encoded,
-          method.timeoutMillis ?? LIMITS.callTimeoutMillis,
-          (raw) => decodeOr(method.result, raw, `the result of ${method.name}`),
+        return yield* request(method.name, encoded, timeoutMillis, (raw) =>
+          decodeOr(method.result, raw, `the result of ${method.name}`),
         )
       })
 
@@ -462,45 +473,41 @@ const start = <K extends string, P, C>(
     ): Stream.Stream<StreamItem<N, R>, SessionError> =>
       Stream.unwrap(
         Effect.gen(function* () {
+          const timeoutMillis = yield* limitOf(method.name)
           const encoded = yield* encode(method, params)
           const items = yield* Queue.bounded<StreamItem<N, R>, SessionError | Cause.Done>(
             STREAM_BUFFER,
           )
           let count = 0
-          const id = yield* send(
-            method.name,
-            encoded,
-            method.timeoutMillis ?? LIMITS.callTimeoutMillis,
-            {
-              notification: Option.some({
-                method: method.notification.method,
-                deliver: (raw) =>
-                  Effect.gen(function* () {
-                    count++
-                    if (count > LIMITS.maxStreamItems) {
-                      return yield* new PluginTooLarge({
-                        plugin,
-                        limit: "streamItems",
-                        max: LIMITS.maxStreamItems,
-                      })
-                    }
-                    const notification = yield* decodeOr(
-                      method.notification.params,
-                      raw,
-                      `a ${method.notification.method} notification`,
-                    )
-                    yield* Queue.offer(items, { _tag: "Notification", params: notification })
-                  }),
-              }),
-              result: (raw) =>
-                decodeOr(method.result, raw, `the result of ${method.name}`).pipe(
-                  Effect.tapError((error) => Queue.fail(items, error)),
-                  Effect.flatMap((result) => Queue.offer(items, { _tag: "Result", result })),
-                  Effect.andThen(Queue.end(items)),
-                ),
-              fail: (error) => Effect.asVoid(Queue.fail(items, error)),
-            },
-          )
+          const id = yield* send(method.name, encoded, timeoutMillis, {
+            notification: Option.some({
+              method: method.notification.method,
+              deliver: (raw) =>
+                Effect.gen(function* () {
+                  count++
+                  if (count > LIMITS.maxStreamItems) {
+                    return yield* new PluginTooLarge({
+                      plugin,
+                      limit: "streamItems",
+                      max: LIMITS.maxStreamItems,
+                    })
+                  }
+                  const notification = yield* decodeOr(
+                    method.notification.params,
+                    raw,
+                    `a ${method.notification.method} notification`,
+                  )
+                  yield* Queue.offer(items, { _tag: "Notification", params: notification })
+                }),
+            }),
+            result: (raw) =>
+              decodeOr(method.result, raw, `the result of ${method.name}`).pipe(
+                Effect.tapError((error) => Queue.fail(items, error)),
+                Effect.flatMap((result) => Queue.offer(items, { _tag: "Result", result })),
+                Effect.andThen(Queue.end(items)),
+              ),
+            fail: (error) => Effect.asVoid(Queue.fail(items, error)),
+          })
           // Shut down first: reading the plugin's output may be waiting to offer to it.
           return Stream.fromQueue(items).pipe(
             Stream.ensuring(Effect.andThen(Queue.shutdown(items), cancel(id))),
@@ -567,11 +574,20 @@ const start = <K extends string, P, C>(
       }),
     )
 
-    const fields: ConfigureFields = { protocolVersion: PROTOCOL_VERSION, caller: config.caller }
+    const fields: ConfigureFields = {
+      protocolVersion: PROTOCOL_VERSION,
+      caller: config.caller,
+      callTimeoutsMillis: limits,
+    }
+    const params = yield* encode(protocol.configure, configure(fields))
+    if (!isConfigureParams(params))
+      return yield* Effect.die(
+        new Error(`the ${protocol.kind} protocol's configure params drop the owner's fields`),
+      )
     const configured = yield* request(
       protocol.configure.name,
-      yield* encode(protocol.configure, configure(fields)),
-      protocol.configure.timeoutMillis ?? LIMITS.callTimeoutMillis,
+      params,
+      yield* limitOf(protocol.configure.name),
       (raw) =>
         Effect.gen(function* () {
           const base = yield* decodeOr(ConfigureResult, raw, "the result of configure")

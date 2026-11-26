@@ -60,8 +60,13 @@ export const LIMITS = {
   maxStderrBytes: 64 * 1024,
   /** Notifications one streaming call may produce. */
   maxStreamItems: 10_000,
-  /** After standard input closes, how long the plugin has to exit before it is killed. */
-  exitGraceMillis: 2_000,
+  /**
+   * After standard input closes, how long the plugin has to exit before it
+   * is killed. A plugin must stop what it started within it: the owner's
+   * kill reaches only the plugin's process group, and the Azure plugin
+   * starts `az` in a group of its own, which it kills itself.
+   */
+  exitGraceMillis: 5_000,
 } as const
 
 // ---------------------------------------------------------------------------
@@ -183,18 +188,46 @@ export interface ConfigureFields {
   readonly protocolVersion: string
   /** The calling app and its version: runbooks/0.31.0. */
   readonly caller: string
+  /**
+   * How long the owner waits for each method's answer, by method name,
+   * `configure`'s own included (`callTimeoutsOf`). The plugin answers a
+   * call it cannot finish in time with `timedOut`, which ends only that
+   * call, before the owner's timer ends the session.
+   */
+  readonly callTimeoutsMillis: { readonly [method: string]: number }
 }
+
+/** A method's name and its own limit: what `configure` tells the plugin of it. */
+export type MethodLimit = Pick<Method<unknown, unknown>, "name" | "timeoutMillis">
 
 /**
  * What the owner needs of a kind (the credential protocol, later the
- * driver's): the kind's own error kinds and its `configure`, whose params
- * hold `ConfigureFields` and whose result holds `protocolVersion`.
+ * driver's): the kind's own error kinds, its `configure`, whose params
+ * hold `ConfigureFields` and whose result holds `protocolVersion`, and
+ * every other method its client calls.
  */
 export interface PluginProtocol<K extends string, P, C> {
   readonly kind: PluginKind
   readonly errorKinds: ReadonlyArray<K>
   readonly configure: Method<P, C>
+  /** The owner refuses a call to a method not listed here, since `configure` told the plugin no limit for it. */
+  readonly methods: ReadonlyArray<MethodLimit>
 }
+
+/**
+ * Each method's limit, by name: its `timeoutMillis`, or
+ * `LIMITS.callTimeoutMillis`. The owner sends it in `configure` and times
+ * each call by it, so the plugin and the owner work to the same numbers.
+ */
+export const callTimeoutsOf = <K extends string, P, C>(
+  protocol: PluginProtocol<K, P, C>,
+): { readonly [method: string]: number } =>
+  Object.fromEntries(
+    [protocol.configure, ...protocol.methods].map((method) => [
+      method.name,
+      method.timeoutMillis ?? LIMITS.callTimeoutMillis,
+    ]),
+  )
 
 /**
  * One running plugin, configured. A timeout, a protocol violation, a line or

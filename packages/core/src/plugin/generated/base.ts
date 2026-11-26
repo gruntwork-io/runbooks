@@ -42,6 +42,17 @@ export const ConfigureParams = Schema.StructWithRest(
     caller: Schema.String.annotate({
       description: "The calling app and its version: runbooks/0.31.0.",
     }),
+    callTimeoutsMillis: Schema.Record(
+      Schema.String,
+      Schema.Int.check(
+        Schema.isGreaterThanOrEqualTo(1).annotate({
+          expected: "a value greater than or equal to 1",
+        }),
+      ),
+    ).annotate({
+      description:
+        "How long the app waits for each method's answer, in milliseconds, keyed by method name, configure's own included. A plugin answers a call it cannot finish in time with error kind timedOut at least 1000 ms before its method's limit. The app's own timer, at the limit, ends the session.",
+    }),
   }),
   [Schema.Record(Schema.String, Schema.Json.annotate({ expected: "JSON value" }))],
 ).annotate({ identifier: "configureParams" })
