@@ -64,6 +64,18 @@ const killUnfinished = (): void => {
 /** Whether `killUnfinished` listens for this process's exit: from the first spawn on. */
 let killsOnExit = false
 
+/** Each killed group's grace while it lasts, done when the group is empty or SIGKILLed. */
+const stopping = new Set<Promise<void>>()
+
+/**
+ * Waits until every group killed so far has ended or had its grace: then
+ * none is left for `killUnfinished`. Node waits for the grace's timer by
+ * itself; Electron quits without it, so the app waits on this first.
+ */
+export const stopsEnded: Effect.Effect<void> = Effect.promise(() => Promise.all(stopping)).pipe(
+  Effect.asVoid,
+)
+
 export interface FileTail {
   /** Emit every complete line appended since the last call. */
   readonly read: () => void
@@ -367,12 +379,19 @@ const impl: ProcessSpawnerShape = {
           killed = true
           killGroup("SIGTERM")
           const graceEnds = Date.now() + STOP_GRACE_MS
+          let ended = () => {}
+          const stopped = new Promise<void>((resolve) => {
+            ended = resolve
+          })
+          stopping.add(stopped)
           const watch = setInterval(() => {
             const left = groupLeft()
             if (left && Date.now() < graceEnds) return
             clearInterval(watch)
             if (left) killGroup("SIGKILL")
             unfinished.delete(killGroup)
+            stopping.delete(stopped)
+            ended()
           }, STOPPED_GROUP_POLL_MS)
         })
 

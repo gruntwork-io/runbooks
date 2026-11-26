@@ -19,11 +19,18 @@
  * It hosts the engine (`engine.ts`), which keeps its files in the user data
  * folder, and reads the process's environment once, here, for its runs. The
  * engine serves the window's page over IPC (`ipcServer.ts`), and only it.
+ *
+ * Quitting stops the engine first: its sessions close, and a script still
+ * running is sent SIGTERM. The app exits once each such script has ended
+ * or had its grace (`stopsEnded`), and at most `QUIT_DEADLINE` after the
+ * quit. Electron would exit at once, and the spawner's exit hook would
+ * SIGKILL the scripts mid-cleanup.
  */
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { app, BrowserWindow, session, shell } from "electron"
-import { Cause, Effect } from "effect"
+import { Cause, Effect, Fiber } from "effect"
+import { stopsEnded } from "@runbooks/platform-node/layers/ChildProcessSpawner"
 import { appEngine } from "./engine.ts"
 import { makeIpcServerProtocol, servePage } from "./ipcServer.ts"
 
@@ -73,13 +80,45 @@ app.on("select-client-certificate", (event, _contents, _url, _certificates, call
 
 app.on("window-all-closed", () => app.quit())
 
+/**
+ * How long a quit waits for the engine to stop and its scripts' grace (the
+ * spawner's 5 seconds) before the app exits anyway.
+ */
+const QUIT_DEADLINE = "10 seconds"
+
+/** The engine's fiber, from when the app is ready. */
+let engine: Fiber.Fiber<void> | undefined
+let quitting: "no" | "stopping the engine" | "stopped" = "no"
+
+app.on("will-quit", (event) => {
+  if (engine === undefined || quitting === "stopped") return
+  event.preventDefault()
+  if (quitting === "stopping the engine") return
+  quitting = "stopping the engine"
+  Effect.runFork(
+    Fiber.interrupt(engine).pipe(
+      Effect.andThen(stopsEnded),
+      Effect.timeoutOption(QUIT_DEADLINE),
+      Effect.ensuring(
+        Effect.sync(() => {
+          quitting = "stopped"
+          // On a later turn: an engine with nothing to stop is done before
+          // will-quit's handlers return, and Electron drops a quit made
+          // while they run.
+          setImmediate(() => app.quit())
+        }),
+      ),
+    ),
+  )
+})
+
 app
   .whenReady()
   .then(() => {
     const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
     const page = devServerUrl === undefined ? pathToFileURL(RENDERER_PAGE) : new URL(devServerUrl)
     const appWindow = openWindow(devServerUrl !== undefined)
-    Effect.runFork(
+    engine = Effect.runFork(
       Effect.gen(function* () {
         // Listening before the page loads, so its first message is heard.
         const protocol = yield* makeIpcServerProtocol({

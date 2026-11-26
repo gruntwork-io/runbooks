@@ -1,11 +1,15 @@
 /**
  * The spawner against real processes: how a signal reads as an exit code,
- * and that a reader slower than its child gets every line.
+ * that a reader slower than its child gets every line, and that a stopped
+ * script's grace can be waited for.
  */
 import { describe, expect, it } from "bun:test"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { Effect, Stream } from "effect"
 import { collectOutput, ProcessSpawner } from "@runbooks/core/services/ProcessSpawner"
-import { ChildProcessSpawnerLive } from "../../layers/ChildProcessSpawner.ts"
+import { ChildProcessSpawnerLive, stopsEnded } from "../../layers/ChildProcessSpawner.ts"
 import { MAX_LINE_LENGTH } from "../../layers/lineSplitter.ts"
 
 /** Runs `script` under /bin/sh, reading its output with `each`, and gives its exit code. */
@@ -21,6 +25,34 @@ function run(script: string, each: (line: string) => Effect.Effect<void> = () =>
 }
 
 describe("the spawner, on real processes", () => {
+  it("has stopsEnded wait for a killed script's grace, which it uses to clean up", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "spawner-stops-"))
+    try {
+      const done = path.join(dir, "cleaned-up")
+      const waited = await Effect.runPromise(
+        Effect.gen(function* () {
+          const spawner = yield* ProcessSpawner
+          const proc = yield* spawner.spawn("/bin/bash", [
+            "-c",
+            `trap 'sleep 0.5; touch "${done}"; exit 0' TERM; echo ready; while :; do sleep 0.1; done`,
+          ])
+          yield* Stream.runHead(proc.output)
+          yield* proc.kill
+          const before = existsSync(done)
+          yield* stopsEnded
+          return { before, after: existsSync(done) }
+        }).pipe(Effect.provide(ChildProcessSpawnerLive)),
+      )
+      expect(waited).toEqual({ before: false, after: true })
+      // Nothing is stopping now, so it waits for nothing.
+      expect(await Effect.runPromise(stopsEnded.pipe(Effect.timeoutOption("50 millis")))).toEqual(
+        expect.objectContaining({ _tag: "Some" }),
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("gives a child killed by a signal 128 plus the signal's number, as a shell does", async () => {
     expect(await run("kill -KILL $$")).toBe(137)
     expect(await run("kill -TERM $$")).toBe(143)
