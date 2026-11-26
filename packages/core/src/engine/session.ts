@@ -840,6 +840,26 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   /** The blocks `isDone` is deciding, so a loop of forms that wait for each other ends. */
   const deciding = new Set<number>()
 
+  /**
+   * The statuses decided so far in the current synchronous pass. A block's
+   * status asks for the status of each block it waits for, so without them a
+   * ladder of blocks that each wait for the two before costs about 1.5 times
+   * more per block. Nothing a status reads changes within a pass.
+   */
+  let passStatuses: Map<number, BlockStatus | undefined> | undefined
+
+  /** Runs `work` in the current pass, or in a new one that ends with it. */
+  const inOnePass = <A>(work: (decided: Map<number, BlockStatus | undefined>) => A): A => {
+    if (passStatuses !== undefined) return work(passStatuses)
+    const decided = new Map<number, BlockStatus | undefined>()
+    passStatuses = decided
+    try {
+      return work(decided)
+    } finally {
+      passStatuses = undefined
+    }
+  }
+
   /** A form's doneness depends on what it waits for, so it is asked of `statusOf`. */
   const isDone = (index: number): boolean => {
     const slot = slotAt.get(index)
@@ -947,7 +967,15 @@ export const makeSession = Effect.fnUntraced(function* (options: {
    * or a submitted form, shows what blocks it or its fields that need input;
    * `runBlock` still refuses a block that has run while either holds.
    */
-  const statusOf = (slot: Slot): BlockStatus | undefined => {
+  const statusOf = (slot: Slot): BlockStatus | undefined =>
+    inOnePass((decided) => {
+      if (decided.has(slot.index)) return decided.get(slot.index)
+      const status = decideStatus(slot)
+      decided.set(slot.index, status)
+      return status
+    })
+
+  const decideStatus = (slot: Slot): BlockStatus | undefined => {
     switch (slot.node.class) {
       case "display":
         return undefined
@@ -1047,7 +1075,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         const emit = (event: EngineEvent) => events.push(event)
         const result = change(emit)
         const started = credentials.enter(startable, emit)
-        events.push(...derivedOutputChanges(), ...statusChanges())
+        events.push(...inOnePass(() => [...derivedOutputChanges(), ...statusChanges()]))
         if (closed) return { result, logged: false, started }
         const at = DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())
         const first = log.end()
@@ -1515,7 +1543,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       path: document.file,
       ...(title === undefined ? {} : { title }),
       trust: { trusted: trust._tag === "Trusted", hash: document.hash.combined },
-      blocks: slots.map(summaryOf),
+      blocks: inOnePass(() => slots.map(summaryOf)),
       warnings: document.warnings,
       ...(resume === undefined ? {} : { resumed: resume.resumed }),
     }),
