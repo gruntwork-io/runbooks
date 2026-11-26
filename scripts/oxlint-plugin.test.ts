@@ -19,6 +19,7 @@ const RULES = [
   "no-node-in-block-ts",
   "block-name-outside-its-folder",
   "plugin-binary-outside-owner",
+  "no-computed-import",
 ]
 
 interface Finding {
@@ -379,6 +380,46 @@ describe("plugin-binary-outside-owner", () => {
     expect(exitCode).toBe(1)
     expect(output).toContain(
       "packages/core/src/plugin/transport.ts declares no `export const PluginKind = Schema.Literals([...])`",
+    )
+  })
+})
+
+describe("no-computed-import", () => {
+  it("reports an import() that names its module with a template literal, in any package", () => {
+    const found = lint({
+      "blocks/command/block.ts": "export const a = () => import(`react`)\n",
+      "packages/cli/src/main.ts":
+        "export const b = () => import(`../../core/src/engine/protocol.ts`)\n",
+      "packages/platform-node/src/wasm.ts":
+        'const dir = "/opt"\nexport const c = () => import(`${dir}/wasm_exec.js`)\n',
+      "scripts/x.ts": "export const d = () => import(`./y.ts`)\n",
+    })
+    expect(brief(found)).toEqual([
+      "no-computed-import blocks/command/block.ts:1",
+      "no-computed-import packages/cli/src/main.ts:1",
+      "no-computed-import packages/platform-node/src/wasm.ts:2",
+    ])
+    expect(found[0]?.message).toBe(
+      'import() names its module with a template literal, which no import rule reads. Write it as a plain string: import("./x.ts").',
+    )
+  })
+
+  it("reports any other module chosen at run time in the core and the blocks, and not in the layers", () => {
+    const load = "export const load = (name: string) => import(name)\n"
+    const found = lint({
+      "blocks/core/load.ts": load,
+      "blocks/command/block.ts": 'export const load = (name: string) => import("./" + name)\n',
+      "packages/core/src/load.ts": load,
+      "packages/core/src/view.ts": 'export const view = () => import("./x.ts")\n',
+      "packages/platform-node/src/load.ts": load,
+    })
+    expect(brief(found)).toEqual([
+      "no-computed-import blocks/command/block.ts:1",
+      "no-computed-import blocks/core/load.ts:1",
+      "no-computed-import packages/core/src/load.ts:1",
+    ])
+    expect(found[1]?.message).toBe(
+      'blocks/core does no I/O, so it loads no module chosen at run time: name the module with a plain string, import("./x.ts"), which the import rules read.',
     )
   })
 })
