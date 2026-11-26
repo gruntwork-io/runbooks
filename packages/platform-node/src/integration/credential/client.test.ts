@@ -154,6 +154,40 @@ describe("a plugin-backed provider, as a process", () => {
     expect(result.afterwards).toBe("notSignedIn")
   })
 
+  // What the engine relies on to find a block's login again (runbooks-reviewer's
+  // review of rebuild/main, group 4): after the process is killed, the call
+  // it was to answer fails, a fresh process has no login, and detecting from
+  // the values `env` gave before signs it in again.
+  it("finds its login again in the values env gave, after its process was killed", async () => {
+    const result = await withFake((provider) =>
+      Effect.gen(function* () {
+        yield* Stream.runDrain(signIn(provider, "token", { token: TOKEN }))
+        const before = yield* provider.env
+        const first = started()[0] ?? 0
+        process.kill(first, "SIGKILL")
+        while (isRunning(first)) yield* Effect.sleep(10)
+        const onTheDead = yield* failure(provider.env)
+        const onTheFresh = yield* failure(provider.env)
+        const values = Object.fromEntries(before.values.map(({ name, value }) => [name, value]))
+        const found = yield* provider.detect([{ kind: "values", values, from: "cloud" }], NONE)
+        const after = yield* provider.env
+        const token = (env: typeof before) =>
+          env.values.filter(({ value }) => Redacted.value(value) === TOKEN).length
+        return {
+          kinds: [onTheDead.kind, onTheFresh.kind],
+          found: Option.map(found, ({ source }) => source),
+          tokens: [token(before), token(after)],
+        }
+      }),
+    )
+    expect(result).toEqual({
+      kinds: ["providerFailed", "notSignedIn"],
+      found: Option.some("cloud"),
+      tokens: [1, 1],
+    })
+    expect(started()).toHaveLength(2)
+  })
+
   it("refuses a credentials file that others can read, or one outside the state folder", async () => {
     const errors = await Promise.all(
       (["fileReadableByOthers", "fileOutsideStateDir"] as const).map((fault) =>

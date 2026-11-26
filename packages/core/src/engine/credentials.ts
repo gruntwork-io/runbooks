@@ -158,9 +158,11 @@ type ChoosingTarget = Extract<CredentialState, { readonly _tag: "ChoosingTarget"
  * goes on to, which no view shows.
  */
 type Move =
-  | (Ready & { readonly env: CredentialEnv })
+  | ToReady
   | (ChoosingTarget & { readonly toward: Choosing })
   | Exclude<CredentialState, Ready | ChoosingTarget>
+
+type ToReady = Ready & { readonly env: CredentialEnv }
 
 interface Opened {
   readonly provider: CredentialProvider
@@ -741,14 +743,44 @@ export function makeCredentials(
   const resuming = new Map(host.resuming)
 
   /**
-   * The block's saved login, Ready, if its provider still finds a login in
-   * the values its `env` gave before, under the names it gave them, and
-   * the targets chosen then, the block's pins and the expiry still hold.
-   * Any other answer, or an error, leaves the block to detect as it would.
-   * A block that names another provider now does not try it.
+   * The block's login found again: Ready, if its provider still finds a
+   * login in `values`, the ones the block's `env` gave, under the names it
+   * gave them, and the source and targets it had then, the block's pins and
+   * the expiry still hold. Any other answer, or an error, is none.
+   */
+  const foundAgain = (
+    credential: Credential,
+    opened: Opened,
+    values: { readonly [name: string]: Redacted.Redacted<string> },
+    source: string,
+    targets: Chosen,
+  ): Effect.Effect<Option.Option<ToReady>> => {
+    const { id, request } = credential.slot
+    return bounded(
+      opened.provider.detect([{ kind: "values", values, from: id }], constraintsOf(request)),
+    ).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.succeed(Option.none<ToReady>()),
+          onSome: ({ identity }) =>
+            Effect.map(
+              accept(credential, opened, identity, source, targets),
+              (next): Option.Option<ToReady> =>
+                next._tag === "Ready" ? Option.some(next) : Option.none(),
+            ),
+        }),
+      ),
+      Effect.orElseSucceed(() => Option.none<ToReady>()),
+    )
+  }
+
+  /**
+   * The block's saved login, found again. A block that names another
+   * provider now does not try it, and one not found leaves the block to
+   * detect as it would.
    */
   const resumed = (credential: Credential, opened: Opened): Effect.Effect<Option.Option<Move>> => {
-    const { id, block, request } = credential.slot
+    const { id, block } = credential.slot
     const saved = resuming.get(id)
     resuming.delete(id)
     if (saved === undefined || saved.provider !== block.provider)
@@ -756,23 +788,58 @@ export function makeCredentials(
     const values = Object.fromEntries(
       Object.entries(saved.values).map(([name, value]) => [name, Redacted.make(value)]),
     )
-    return bounded(
-      opened.provider.detect([{ kind: "values", values, from: id }], constraintsOf(request)),
-    ).pipe(
-      Effect.flatMap(
-        Option.match({
-          onNone: () => Effect.succeed(Option.none<Move>()),
-          onSome: ({ identity }) =>
-            Effect.map(
-              accept(credential, opened, identity, saved.source, saved.targets),
-              (next): Option.Option<Move> =>
-                next._tag === "Ready" ? Option.some(next) : Option.none(),
-            ),
-        }),
-      ),
-      Effect.orElseSucceed(() => Option.none<Move>()),
-    )
+    return foundAgain(credential, opened, values, saved.source, saved.targets)
   }
+
+  /**
+   * After the provider lost a Ready block's login, as a plugin that started
+   * again has, or as one whose login ended does: the login found again in
+   * the values the block's `env` last gave, which the block is Ready with
+   * now. Otherwise the block moves to Expired, for an `expired` error, or
+   * to SignedOut, which withdraws its outputs and makes the blocks that
+   * need it wait, and the run fails with `lost`.
+   */
+  const loginLost = (
+    credential: Credential,
+    opened: Opened,
+    ready: Ready,
+    turn: number,
+    lost: CredentialError,
+  ): Effect.Effect<CredentialEnv, CredentialError> =>
+    Effect.gen(function* () {
+      const last = host.store.get(credential.slot.id)
+      const again =
+        last === undefined
+          ? Option.none<ToReady>()
+          : yield* foundAgain(
+              credential,
+              opened,
+              Object.fromEntries(last.values.map(({ name, value }) => [name, value])),
+              ready.source,
+              ready.identity.targets,
+            )
+      const outcome = yield* host.update((emit): Option.Option<CredentialEnv> | "gone" => {
+        const current = credential.state
+        if (credential.turn !== turn || current?._tag !== "Ready") return "gone"
+        // Another run found the login again, or refreshed it, meanwhile.
+        if (current !== ready) return Option.fromUndefinedOr(host.store.get(credential.slot.id))
+        if (Option.isSome(again)) {
+          move(credential, again.value, emit)
+          return Option.some(again.value.env)
+        }
+        move(
+          credential,
+          lost.kind === "expired"
+            ? { _tag: "Expired", identity: current.identity }
+            : signedOut(credential, opened, lost),
+          emit,
+        )
+        return Option.none()
+      })
+      if (outcome === "gone") return yield* noLongerReady(credential)
+      if (Option.isSome(outcome)) return outcome.value
+      return yield* lost
+    })
 
   const detect = (credential: Credential, open: OpenProvider) =>
     start(credential, () =>
@@ -1101,7 +1168,12 @@ export function makeCredentials(
           if (state?._tag !== "Ready" || Option.isNone(opened))
             return Effect.fail(noLongerReady(credential))
           return Effect.gen(function* () {
-            const env = yield* bounded(opened.value.provider.env)
+            const env = yield* bounded(opened.value.provider.env).pipe(
+              Effect.catchIf(
+                (error) => error.kind === "notSignedIn" || error.kind === "expired",
+                (lost) => loginLost(credential, opened.value, state, turn, lost),
+              ),
+            )
             const now = yield* Clock.currentTimeMillis
             const given = yield* host.update((emit) => {
               const current = credential.state
