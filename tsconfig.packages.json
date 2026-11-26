@@ -31,6 +31,7 @@
       "@runbooks/core/handlers": ["./packages/core/src/engine/handlers.ts"],
       "@runbooks/core/inProcess": ["./packages/core/src/engine/inProcess.ts"],
       "@runbooks/core/path-validation": ["./packages/core/src/path-validation.ts"],
+      "@runbooks/core/plugin/*": ["./packages/core/src/plugin/*.ts"],
       "@runbooks/core/protocol": ["./packages/core/src/engine/protocol.ts"],
       "@runbooks/core/remote-source": ["./packages/core/src/remote-source.ts"],
       "@runbooks/core/settings": ["./packages/core/src/engine/settings.ts"],
