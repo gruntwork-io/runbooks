@@ -123,13 +123,31 @@ export type ScriptSource<P> =
 // What a block declares
 // ---------------------------------------------------------------------------
 
+/** An output of a task or credential block, which its run or provider gives. */
 export interface OutputDecl {
   /** A sensitive value is redacted in every event, log and saved session. */
   readonly sensitive: boolean
 }
 
-/** The output keys a block may publish, by key. */
+/** The output keys a task or credential block may publish, by key. */
 export type OutputDecls<K extends string> = { readonly [Key in K]: OutputDecl }
+
+/**
+ * An output of a form block: the value of one of its fields, as a task's
+ * template reads that field (an empty one is `""`, `[]` or `{}`). It is
+ * sensitive exactly when its field is, since the field already says whether
+ * the value is a secret: DirPicker's `PATH` is its `path` field.
+ */
+export interface FormOutputDecl {
+  /**
+   * The field the output carries. A form whose `fields` lack it is a
+   * configuration error in the block, found when the session opens.
+   */
+  readonly field: string
+}
+
+/** A form block's outputs, by output name. Several may carry one field. */
+export type FormOutputDecls = { readonly [output: string]: FormOutputDecl }
 
 /**
  * How a block reads its MDX children. `yaml` names the prop that receives
@@ -367,12 +385,17 @@ export interface DisplayBlock<P> extends BlockBase<P> {
  * Gives the runbook values. Edited by the person; done when submitted and
  * valid. It may not declare a machine effect, and may read a driver plugin
  * only at `read`.
+ *
+ * Every value it holds is a field, and every output is one of its fields
+ * (`FormOutputDecl`), published while it is done. A value that comes from
+ * elsewhere, such as an Iframe page's, still goes in a field: a client sets
+ * it with `SetValues` on the page's behalf.
  */
 export interface FormBlock<P> extends BlockBase<P> {
   readonly class: "form"
   readonly provides: readonly ["values"]
   readonly effects: readonly []
-  readonly outputs: (p: P) => OutputDecls<string>
+  readonly outputs: (p: P) => FormOutputDecls
   /** Read when the runbook opens, before trust: from the props and the files the block names. */
   readonly fields: (p: P, files: RunbookTexts) => Effect.Effect<FormSpec, PropError>
   readonly plugins: ReadonlyArray<PluginUse<"read">>

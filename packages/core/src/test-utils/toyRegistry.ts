@@ -94,7 +94,7 @@ export const toyFormSpec = (fields: ReadonlyArray<typeof ToyField.Type>): FormSp
   sections: [],
 })
 
-/** Form whose fields come from fenced YAML children. */
+/** Form whose fields come from fenced YAML children. Each field is also an output of its name. */
 const form = defineForm({
   name: "Form",
   since: "0.1.0",
@@ -105,7 +105,7 @@ const form = defineForm({
   runbookFiles: () => [],
   provides: ["values"],
   effects: [],
-  outputs: (p) => Object.fromEntries(p.variables.map((v) => [v.name, { sensitive: false }])),
+  outputs: (p) => Object.fromEntries(p.variables.map((v) => [v.name, { field: v.name }])),
   fields: (p) => Effect.succeed(toyFormSpec(p.variables)),
   plugins: [],
 })

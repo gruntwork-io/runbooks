@@ -1249,7 +1249,7 @@ describe("Engine values", () => {
         yield* rb.wait("deploy")
         // The task that reads the form gets the value itself.
         expect(seen.map((values) => values.token)).toEqual(["typed-s3cret@example.com"])
-        // The form declares the field as an output that is not sensitive; the field still is.
+        // The form's output carries the field, so it is sensitive as the field is.
         yield* rb.run("config")
         expect((yield* rb.outputs).config?.token).toEqual({ _tag: "Hidden" })
 

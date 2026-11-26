@@ -45,6 +45,7 @@ import type {
   BlockId,
   BlockOutputs,
   CredentialBlock,
+  FormOutputDecls,
   OutputDecls,
   PathOutsideRoot,
   PropError,
@@ -249,7 +250,7 @@ interface Slot {
   readonly readsOutputs: ReadonlyArray<OutputsRead>
   readonly runnable: Option.Option<Runnable>
   /** A form's declared outputs, published while it is done. None for another block. */
-  readonly formOutputs: OutputDecls<string>
+  readonly formOutputs: FormOutputDecls
 }
 
 type RunState =
@@ -547,7 +548,7 @@ function credentialSlotsOf(
   })
 }
 
-function formOutputsOf(node: BlockNode, registry: Registry): OutputDecls<string> {
+function formOutputsOf(node: BlockNode, registry: Registry): FormOutputDecls {
   if (node.class !== "form" || node.errors.length > 0) return {}
   const block: AnyBlock | undefined = resolveTag(registry, node.tag)?.block
   // The parser resolved this tag against the same registry, so it resolves here.

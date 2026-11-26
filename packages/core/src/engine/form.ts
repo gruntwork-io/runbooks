@@ -6,7 +6,7 @@
  * changes it, as it would in the window.
  */
 import { Redacted, Schema } from "effect"
-import type { OutputDecls, TaskValues } from "@runbooks/blocks-core/contract"
+import type { FormOutputDecls, TaskValues } from "@runbooks/blocks-core/contract"
 import { type Field, FieldValue, type FormSpec, templateText } from "@runbooks/blocks-core/form"
 import { nearest } from "../document/nearest.ts"
 import { hiddenVariables } from "../domain/boilerplate/showWhen.ts"
@@ -275,11 +275,11 @@ export const valuesOf = (form: Form): TaskValues =>
 
 /**
  * A submitted form's outputs: each declared output is the field of the same
- * name, as text, sensitive if either the declaration or the field is.
+ * name, as text, sensitive if the field is.
  */
 export function outputsOf(
   form: Form,
-  declared: OutputDecls<string>,
+  declared: FormOutputDecls,
 ): ReadonlyMap<string, Held<string>> {
   const values = valuesOf(form)
   return new Map(
@@ -287,9 +287,7 @@ export function outputsOf(
       const decl = Object.hasOwn(declared, field.name) ? declared[field.name] : undefined
       const value = values.get(field.name)
       if (decl === undefined || value === undefined) return []
-      return [
-        [field.name, hold(decl.sensitive || field.sensitive, templateText(Redacted.value(value)))],
-      ]
+      return [[field.name, hold(field.sensitive, templateText(Redacted.value(value)))]]
     }),
   )
 }
