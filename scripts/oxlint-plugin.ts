@@ -16,11 +16,14 @@
  * no-react-in-block-ts: a block's `block.ts` imports no React and no `.tsx`
  * file, so the engine and the CLI load it without a view. The `blocks/**`
  * override already keeps Electron, Node I/O and SDKs out of every block file.
+ * Only `block.ts`'s own imports are checked: scripts/import-graph.test.ts
+ * follows the rest, through the packages' aliases.
  *
  * no-node-in-block-ts: a block's `block.ts` imports no Node built-in, not even
  * `node:path`, so every client loads it, the renderer included. It reaches
  * the OS through the services its run gets, and pure helpers it needs live
- * in `packages/core`. Only `block.ts`'s own imports are checked.
+ * in `packages/core`. Only `block.ts`'s own imports are checked, as for
+ * no-react-in-block-ts.
  *
  * block-name-outside-its-folder: no file in the packages names a block
  * outside the block's folder and its lines in the registry files, so adding
@@ -38,11 +41,21 @@
  * or ends in `runbooks-` for a kind to follow, as `"runbooks-" + kind` and
  * `` `runbooks-${kind}-` `` do. Command's and git's spawns name no plugin,
  * and comments are not checked.
+ *
+ * no-computed-import: an `import()` in the packages names its module with a
+ * plain string, which every import rule reads, and not a template literal,
+ * which none does. The core and the blocks do no I/O, so their `import()`
+ * names no module chosen at run time either; the layers may, to load a file
+ * they found.
+ *
+ * blocks-core-imports-only-effect: blocks/core, the block contract, imports
+ * `effect` and its own files and nothing else, types included, so every
+ * block and every client can load it. Its tests also import `bun:test`.
  */
 import { existsSync, readFileSync } from "node:fs"
 import { builtinModules } from "node:module"
 import path from "node:path"
-import { packageOf } from "./packages.ts"
+import { PACKAGES, packageOf, type PackageName } from "./packages.ts"
 
 const REPO = path.resolve(import.meta.dirname, "..")
 
@@ -53,8 +66,12 @@ const REGISTRY_FILES: ReadonlySet<string> = new Set([REGISTRY, "blocks/views.ts"
 /** The blocks the frozen baseline holds, by tag. */
 const BASELINE_BLOCKS = "baseline/props.json"
 
-/** One registry line, `export { command as Command } from "./command/block.ts"`. */
-const REGISTRY_LINE = /^export \{ (\w+) as (\w+) \} from "\.\/([\w-]+)\/[\w./-]+"$/
+/**
+ * One registry line, `export { command as Command } from "./command/block.ts"`.
+ * It names the block's block.ts, the file the engine and the CLI load through
+ * the registry: a line naming the view would load React into them.
+ */
+const REGISTRY_LINE = /^export \{ (\w+) as (\w+) \} from "\.\/([\w-]+)\/block\.ts"$/
 
 interface Position {
   readonly line: number
@@ -285,7 +302,7 @@ const blockNameOutsideItsFolder = {
       unregistered:
         "{{tag}} is a block the rebuild carries ({{baseline}}). Only its folder and its registry lines may name it: elsewhere, ask the registry, or key on a class or capability.",
       notALine:
-        'blocks/index.ts holds one line per block or alias, `export { command as Command } from "./command/block.ts"`, and nothing else.',
+        'blocks/index.ts holds one line per block or alias, naming the block\'s block.ts, `export { command as Command } from "./command/block.ts"`, and nothing else.',
     },
     schema: ROOT_OPTION,
   },
@@ -404,6 +421,67 @@ const pluginBinaryOutsideOwner = {
   },
 }
 
+/**
+ * The packages that do no I/O of their own (the I/O rules in .oxlintrc.json),
+ * so load no module chosen at run time.
+ */
+const NO_IO: ReadonlySet<PackageName> = new Set(["blocks-core", "core", "blocks"])
+
+const noComputedImport = {
+  meta: {
+    type: "problem",
+    docs: { description: "An import() names its module with a plain string" },
+    messages: {
+      template:
+        'import() names its module with a template literal, which no import rule reads. Write it as a plain string: import("./x.ts").',
+      computed:
+        '{{dir}} does no I/O, so it loads no module chosen at run time: name the module with a plain string, import("./x.ts"), which the import rules read.',
+    },
+    schema: ROOT_OPTION,
+  },
+  create(context: Context) {
+    const pkg = packageOf(fileOf(context).file)
+    if (pkg === undefined) return {}
+    return {
+      ImportExpression: (node: Node) => {
+        const source = node.source
+        if (source?.type === "Literal" && typeof source.value === "string") return
+        if (source?.type === "TemplateLiteral") {
+          context.report({ node: source, messageId: "template" })
+        } else if (NO_IO.has(pkg)) {
+          context.report({ node: source, messageId: "computed", data: { dir: PACKAGES[pkg].dir } })
+        }
+      },
+    }
+  },
+}
+
+const EFFECT = /^effect(\/|$)/
+
+const blocksCoreImportsOnlyEffect = {
+  meta: {
+    type: "problem",
+    docs: { description: "blocks/core imports only effect and its own files" },
+    messages: {
+      other:
+        "blocks/core imports {{spec}}. The block contract imports only effect, so every block and every client can load it: write what it needs with effect, or keep it out of the contract.",
+    },
+    schema: ROOT_OPTION,
+  },
+  create(context: Context) {
+    const { file } = fileOf(context)
+    if (packageOf(file) !== "blocks-core") return {}
+    const test = file.endsWith(".test.ts")
+    return imports((node) => {
+      const spec = specOf(node)
+      if (spec === undefined || EFFECT.test(spec) || spec.startsWith("./")) return
+      // A relative import out of blocks/core is no-relative-import-across-packages'.
+      if (spec.startsWith("../") || (test && spec === "bun:test")) return
+      context.report({ node: node.source, messageId: "other", data: { spec } })
+    })
+  },
+}
+
 /** Reports each statement in the registry that is not one registry line. `export {}` keeps an empty registry a module. */
 function registryLines(program: Node, context: Context): void {
   for (const node of program.body ?? []) {
@@ -424,5 +502,7 @@ export default {
     "no-node-in-block-ts": noNodeInBlockTs,
     "block-name-outside-its-folder": blockNameOutsideItsFolder,
     "plugin-binary-outside-owner": pluginBinaryOutsideOwner,
+    "no-computed-import": noComputedImport,
+    "blocks-core-imports-only-effect": blocksCoreImportsOnlyEffect,
   },
 }
