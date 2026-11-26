@@ -1067,7 +1067,9 @@ describe("GoogleAuth methods prop", () => {
 
     expect(await screen.findAllByText("Invalid Configuration:")).toHaveLength(1)
     expect(
-      screen.getAllByText('The defaultTab prop is "gcloud", which the methods prop does not list.'),
+      screen.getAllByText(
+        'The chosen GoogleAuth defaultTab must appear in the list of methods. The defaultTab is "gcloud" and methods lists: oauth.',
+      ),
     ).toHaveLength(1)
     expect(screen.queryAllByText("Sign in as yourself in your browser.")).toHaveLength(0)
     expect(detectionSources()).toEqual([])

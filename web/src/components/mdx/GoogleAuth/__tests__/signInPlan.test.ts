@@ -66,29 +66,29 @@ describe("planSignIn configuration errors", () => {
   const errorFor = (props: Parameters<typeof planSignIn>[0]) => planSignIn(props).configurationError
 
   it("rejects an empty list and a value that is not a list", () => {
-    const expected = "The methods prop must list at least one of: service_account, oauth, gcloud."
+    const expected = "GoogleAuth methods must list at least one of: service_account, oauth, gcloud."
     expect(errorFor({ methods: [] })).toBe(expected)
     expect(errorFor({ methods: "oauth" as unknown as GoogleAuthMethod[] })).toBe(expected)
   })
 
   it("rejects a method name it does not know", () => {
     expect(errorFor({ methods: ["oauth", "sso" as GoogleAuthMethod] })).toBe(
-      'The methods prop lists "sso". Use only: service_account, oauth, gcloud.',
+      'GoogleAuth methods can only list: service_account, oauth, gcloud. It lists "sso".',
     )
   })
 
   it("rejects a defaultTab the list leaves out", () => {
     expect(errorFor({ methods: ["oauth"], defaultTab: "gcloud" })).toBe(
-      'The defaultTab prop is "gcloud", which the methods prop does not list.',
+      'The chosen GoogleAuth defaultTab must appear in the list of methods. The defaultTab is "gcloud" and methods lists: oauth.',
     )
   })
 
   it("rejects a detection source that reads the gcloud login when gcloud is not listed", () => {
     expect(errorFor({ methods: ["oauth"], detectCredentials: ["env", "adc"] })).toBe(
-      "The detectCredentials prop includes 'adc', which reads the gcloud login, but the methods prop does not list gcloud.",
+      "GoogleAuth detectCredentials can include 'adc' only when methods lists gcloud, because 'adc' reads the gcloud login.",
     )
     expect(errorFor({ methods: ["oauth"], detectCredentials: ["gcloud"] })).toBe(
-      "The detectCredentials prop includes 'gcloud', which reads the gcloud login, but the methods prop does not list gcloud.",
+      "GoogleAuth detectCredentials can include 'gcloud' only when methods lists gcloud, because 'gcloud' reads the gcloud login.",
     )
   })
 

@@ -50,14 +50,14 @@ function defaultDetection(methods: GoogleAuthMethod[]): GoogleCredentialSource[]
 function findConfigurationError(props: SignInProps): string | undefined {
   const { methods, defaultTab } = props
   if (!Array.isArray(methods) || methods.length === 0) {
-    return `The methods prop must list at least one of: ${METHOD_NAMES}.`
+    return `GoogleAuth methods must list at least one of: ${METHOD_NAMES}.`
   }
   const unknown = methods.filter((method) => !AUTH_METHODS.includes(method))
   if (unknown.length > 0) {
-    return `The methods prop lists "${unknown.join('", "')}". Use only: ${METHOD_NAMES}.`
+    return `GoogleAuth methods can only list: ${METHOD_NAMES}. It lists "${unknown.join('", "')}".`
   }
   if (defaultTab && !methods.includes(defaultTab)) {
-    return `The defaultTab prop is "${defaultTab}", which the methods prop does not list.`
+    return `The chosen GoogleAuth defaultTab must appear in the list of methods. The defaultTab is "${defaultTab}" and methods lists: ${methods.join(", ")}.`
   }
   return findUnlistedGcloudLoginSource(props)
 }
@@ -67,7 +67,7 @@ function findUnlistedGcloudLoginSource(props: SignInProps): string | undefined {
   if (!Array.isArray(detectCredentials) || methods?.includes("gcloud")) return undefined
   const source = detectCredentials.find(readsGcloudLogin)
   if (!source) return undefined
-  return `The detectCredentials prop includes '${source}', which reads the gcloud login, but the methods prop does not list gcloud.`
+  return `GoogleAuth detectCredentials can include '${source}' only when methods lists gcloud, because '${source}' reads the gcloud login.`
 }
 
 function readsGcloudLogin(source: GoogleCredentialSource): source is "adc" | "gcloud" {
