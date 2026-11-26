@@ -5,7 +5,7 @@
  *
  * - `Run` (the toy registry's, labelled by `command`) writes each line in
  *   `args` to `$RUNBOOK_ENV`, a `#` in it replaced by how many times it has
- *   run.
+ *   run. It names no paths, and notes the values its `paths` was given.
  * - `Script` writes `writesOutput` to `$RUNBOOK_OUTPUT` and `writesEnv` to
  *   `$RUNBOOK_ENV`, then ends as `ends` says for that run (the first entry
  *   for its first run, and so on, the last for every run after): with an
@@ -32,6 +32,7 @@ import {
   type TaskEvent,
   type TaskInput,
   TaskFailed,
+  type TaskReads,
 } from "@runbooks/blocks-core/contract"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import type {
@@ -127,17 +128,23 @@ const declared = (names: ReadonlyArray<string> | undefined) =>
 
 interface Noted {
   readonly inputs: Map<string, TaskInput<string>>
+  /** The values each `Run`'s latest `paths` call was given. */
+  readonly pathsValues: Map<string, TaskReads["values"]>
   readonly printed: Map<string, ReadonlyArray<string>>
   /** How many times each `Script` has written its files. */
   readonly wrote: Map<string, number>
 }
 
-const envRegistry = ({ inputs, printed, wrote }: Noted) => {
+const envRegistry = ({ inputs, pathsValues, printed, wrote }: Noted) => {
   const runs = new Map<string, number>()
   return {
     ...TOY_REGISTRY,
     Run: defineTask({
       ...TOY_REGISTRY.Run,
+      paths: (p, values) => {
+        pathsValues.set(p.command ?? "", values)
+        return {}
+      },
       run: (p, input) =>
         Stream.fromEffectDrain(
           Effect.suspend(() => {
@@ -286,6 +293,8 @@ export interface EnvSession {
   /** The variables the engine set for the block's latest run: where it writes its files, and `$REPO_FILES`. */
   readonly runFilesOf: (label: string) => Record<string, string>
   readonly inputOf: (label: string) => TaskInput<string> | undefined
+  /** The values a `Run` block's latest `paths` call was given. */
+  readonly pathsValuesOf: (label: string) => TaskReads["values"] | undefined
   /** How many times a `Script` block has written its files. */
   readonly wrote: (label: string) => number
   /** What a `Shell` block's latest run printed. */
@@ -333,7 +342,12 @@ export const withEnvSession = <A>(
   },
   use: UseEnvSession<A>,
 ): Promise<A> => {
-  const noted: Noted = { inputs: new Map(), printed: new Map(), wrote: new Map() }
+  const noted: Noted = {
+    inputs: new Map(),
+    pathsValues: new Map(),
+    printed: new Map(),
+    wrote: new Map(),
+  }
   return Effect.runPromise(
     Effect.gen(function* () {
       const engine = yield* Engine
@@ -396,6 +410,7 @@ export const withEnvSession = <A>(
         runFilesOf: (label) =>
           Object.fromEntries(envGiven(label).filter(([name]) => isRunFile(name))),
         inputOf: (label) => noted.inputs.get(label),
+        pathsValuesOf: (label) => noted.pathsValues.get(label),
         printedBy: (label) => noted.printed.get(label),
         wrote: (label) => noted.wrote.get(label) ?? 0,
         view: (block) => engine.getBlock(target(block)),
