@@ -482,7 +482,7 @@ tests:
     expect(code).toBe(1)
     expect(Date.now() - started).toBeLessThan(5_000)
     expect(stderr).toContain("Press Ctrl-C again to stop at once.")
-    expect(stderr).toContain("Stopped with Ctrl-C")
+    expect(stderr).toContain("Stopped by Ctrl-C or SIGTERM")
     const report = decodeReport(JSON.parse(stdout))
     expect(report.failure).toEqual({ _tag: "Cancelled" })
     const [first, second] = report.runbooks[0]!.tests

@@ -16,7 +16,7 @@ export function describeFailure(failure: CliFailure): string {
     case "BadFlag":
       return `${failure.flag}: ${failure.message}`
     case "Cancelled":
-      return "Stopped with Ctrl-C: the running block was cancelled, and nothing after it ran."
+      return "Stopped by Ctrl-C or SIGTERM: the running block was cancelled, and nothing after it ran."
     default: {
       const unhandled: never = failure
       throw new Error(`Unhandled CLI failure: ${JSON.stringify(unhandled)}`)

@@ -42,6 +42,28 @@ const PENDING_LIMIT = 8 * 1024 * 1024
 const exitCodeOfSignal = (signal: NodeJS.Signals | null): number =>
   signal === null ? 1 : 128 + (constants.signals[signal] ?? 0)
 
+/** How long a killed child's process group has, after SIGTERM, to end before SIGKILL. */
+const STOP_GRACE_MS = 5000
+
+/** How often, during its grace, a killed child's group is checked for processes left. */
+const STOPPED_GROUP_POLL_MS = 100
+
+/**
+ * The process groups this process must not leave behind, each as the
+ * function that signals it: every running child's, and every killed one's
+ * until its grace is over. If this process exits first (on a second Ctrl-C,
+ * say), they are sent SIGKILL as it does. A child that ends by itself leaves
+ * the set, so a background job it left running survives, as `kill` lets it.
+ */
+const unfinished = new Set<(signal: NodeJS.Signals) => void>()
+
+const killUnfinished = (): void => {
+  for (const signalGroup of unfinished) signalGroup("SIGKILL")
+}
+
+/** Whether `killUnfinished` listens for this process's exit: from the first spawn on. */
+let killsOnExit = false
+
 export interface FileTail {
   /** Emit every complete line appended since the last call. */
   readonly read: () => void
@@ -159,6 +181,26 @@ const impl: ProcessSpawnerShape = {
           }
         }
 
+        // Kill the entire process group, not just the direct child. `detached`
+        // above makes `proc` a group leader, so a negative pid signals every
+        // descendant that hasn't started its own group (bash, terragrunt, tofu,
+        // providers all stay in this group).
+        const killGroup = (signal: NodeJS.Signals): void => {
+          const pid = proc.pid
+          if (pid === undefined) return
+          try {
+            process.kill(-pid, signal)
+          } catch {
+            // Group already gone, or the platform lacks group signals (Windows):
+            // fall back to the direct child. A second failure means it's dead.
+            try {
+              proc.kill(signal)
+            } catch {
+              /* already exited: nothing to do */
+            }
+          }
+        }
+
         // Lines are collected into an array and the `output` stream tails that
         // array live (see below), dropping the lines it has handed on. We
         // deliberately avoid Stream.callback: under Effect 3, ending the stream
@@ -170,6 +212,23 @@ const impl: ProcessSpawnerShape = {
         // Set when the direct child has closed (exited and its stdio ended).
         // Gates `kill` below; deliberately not set on "error".
         let exited = false
+        // Set when `kill` has sent SIGTERM: the group then stays in
+        // `unfinished` until its grace is over, however the child closes.
+        let killed = false
+        // Whether any process of the group is left: the direct child until it
+        // has closed, then any other member. Where a group can't be signalled
+        // (Windows), only the direct child counts.
+        const groupLeft = (): boolean => {
+          if (!exited) return true
+          const pid = proc.pid
+          if (pid === undefined) return false
+          try {
+            process.kill(-pid, 0)
+            return true
+          } catch {
+            return false
+          }
+        }
 
         const pipes = [proc.stdout, proc.stderr].filter((pipe) => pipe !== null)
         let pending = 0
@@ -245,6 +304,7 @@ const impl: ProcessSpawnerShape = {
           }
           proc.on("close", (code, signal) => {
             exited = true
+            if (!killed) unfinished.delete(killGroup)
             finish(code ?? exitCodeOfSignal(signal))
           })
           proc.on("error", () => finish(1))
@@ -289,26 +349,6 @@ const impl: ProcessSpawnerShape = {
           catch: () => new SpawnError({ command, cause: new Error("Process failed") }),
         }) as unknown as Effect.Effect<number>
 
-        // Kill the entire process group, not just the direct child. `detached`
-        // above makes `proc` a group leader, so a negative pid signals every
-        // descendant that hasn't started its own group (bash, terragrunt, tofu,
-        // providers all stay in this group).
-        const killGroup = (signal: NodeJS.Signals): void => {
-          const pid = proc.pid
-          if (pid === undefined) return
-          try {
-            process.kill(-pid, signal)
-          } catch {
-            // Group already gone, or the platform lacks group signals (Windows):
-            // fall back to the direct child. A second failure means it's dead.
-            try {
-              proc.kill(signal)
-            } catch {
-              /* already exited — nothing to do */
-            }
-          }
-        }
-
         const kill: Effect.Effect<void> = Effect.sync(() => {
           // Only a live run is killed (cancel or timeout). Once the direct child
           // has closed, anything left in the group is a background job the
@@ -318,18 +358,35 @@ const impl: ProcessSpawnerShape = {
           // still reap it.
           if (exited) return
           // Ask politely first so the tree can clean up (e.g. tofu releases its
-          // state lock), then force-kill whatever is still alive a few seconds
-          // later. The escalation timer is best-effort and unref'd so it can
-          // never, on its own, keep the parent process alive.
+          // state lock), then force-kill whatever is still alive when the
+          // grace is over. The watch keeps this process alive until the group
+          // is empty or the grace is over, so a CLI that has finished still
+          // gives a stopped script's processes their grace, including those
+          // that outlive the direct child. If this process exits first,
+          // `killUnfinished` sends the SIGKILL then.
+          killed = true
           killGroup("SIGTERM")
-          const escalate = setTimeout(() => killGroup("SIGKILL"), 5000)
-          escalate.unref?.()
+          const graceEnds = Date.now() + STOP_GRACE_MS
+          const watch = setInterval(() => {
+            const left = groupLeft()
+            if (left && Date.now() < graceEnds) return
+            clearInterval(watch)
+            if (left) killGroup("SIGKILL")
+            unfinished.delete(killGroup)
+          }, STOPPED_GROUP_POLL_MS)
         })
 
         const spawned: SpawnedProcess = { output, exitCode, kill }
         // Whichever fires first wins; Effect.callback ignores later resumes, so a
         // post-spawn "error" event is handled by exitPromise above instead.
-        proc.once("spawn", () => resume(Effect.succeed(spawned)))
+        proc.once("spawn", () => {
+          if (!killsOnExit) {
+            process.on("exit", killUnfinished)
+            killsOnExit = true
+          }
+          unfinished.add(killGroup)
+          resume(Effect.succeed(spawned))
+        })
         proc.once("error", (err) => resume(Effect.fail(new SpawnError({ command, cause: err }))))
       } catch (err) {
         resume(Effect.fail(new SpawnError({ command, cause: err })))

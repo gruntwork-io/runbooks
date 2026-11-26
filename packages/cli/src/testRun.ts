@@ -55,7 +55,7 @@ interface RunOptions<R extends Registry> {
   readonly verbose: boolean
   /** Where streamed log lines go: stderr. */
   readonly log: (line: string) => Effect.Effect<void>
-  /** Completes when the person presses Ctrl-C. */
+  /** Completes on the first Ctrl-C or SIGTERM. */
   readonly stop: Deferred.Deferred<void>
 }
 
@@ -200,7 +200,7 @@ interface Session {
   readonly stop: Deferred.Deferred<void>
 }
 
-/** Waits for the block to stop running, up to `millis`; then, or on Ctrl-C, cancels it. */
+/** Waits for the block to stop running, up to `millis`; then, or on Ctrl-C or SIGTERM, cancels it. */
 const settle = (s: Session, block: BlockId, millis: number) =>
   Effect.gen(function* () {
     const deadline = (yield* Clock.currentTimeMillis) + millis
@@ -669,7 +669,7 @@ const runCase = <R extends Registry>(options: RunOptions<R>, loaded: Loaded, tes
       let failure: string | undefined
       for (const step of steps) {
         if (yield* Deferred.isDone(options.stop)) {
-          failure = "Stopped with Ctrl-C."
+          failure = "Stopped by Ctrl-C or SIGTERM."
           break
         }
         const report = yield* runStep(s, step, loaded.targets.get(step.block), options.verbose)
@@ -717,7 +717,7 @@ const runCase = <R extends Registry>(options: RunOptions<R>, loaded: Loaded, tes
 
 /**
  * Runs the runbook's test cases, in order, each in a fresh engine. After
- * Ctrl-C, the test cases not started are reported skipped.
+ * Ctrl-C or SIGTERM, the test cases not started are reported skipped.
  */
 export const runTests = <R extends Registry>(
   options: RunOptions<R>,
@@ -736,7 +736,7 @@ export const runTests = <R extends Registry>(
           name: test.name,
           outcome: "skipped",
           durationMillis: 0,
-          message: "Not run: stopped with Ctrl-C.",
+          message: "Not run: stopped by Ctrl-C or SIGTERM.",
           steps: [],
           assertions: [],
         })
