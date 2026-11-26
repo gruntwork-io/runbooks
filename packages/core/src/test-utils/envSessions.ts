@@ -161,6 +161,13 @@ const envRegistry = ({ inputs, printed, wrote }: Noted) => {
         writesEnv: Schema.optionalKey(Schema.Array(Schema.String)),
         /** Files to leave in `$GENERATED_FILES`, each `path=content`. */
         writesGenerated: Schema.optionalKey(Schema.Array(Schema.String)),
+        /** How many more files to leave in `$GENERATED_FILES`, `many/0` and on. */
+        leavesMany: Schema.optionalKey(Schema.Int),
+        /**
+         * Reports this many files created, `/reported/0` and on, then
+         * `/reported/0` again as modified, as a task that writes files itself does.
+         */
+        reports: Schema.optionalKey(Schema.Int),
         /** The block that makes the repository the run starts in. */
         repository: Schema.optionalKey(BlockId),
         declares: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -180,7 +187,10 @@ const envRegistry = ({ inputs, printed, wrote }: Noted) => {
             inputs.set(p.label, input)
             yield* write(input, "RUNBOOK_OUTPUT", p.writesOutput ?? [])
             yield* write(input, "RUNBOOK_ENV", p.writesEnv ?? [])
-            yield* leave(input, p.writesGenerated ?? [])
+            yield* leave(input, [
+              ...(p.writesGenerated ?? []),
+              ...Array.from({ length: p.leavesMany ?? 0 }, (_, i) => `many/${i}=${i}`),
+            ])
             const count = wrote.get(p.label) ?? 0
             wrote.set(p.label, count + 1)
             const ends = p.ends ?? [0]
@@ -191,7 +201,18 @@ const envRegistry = ({ inputs, printed, wrote }: Noted) => {
               : how === "never"
                 ? Stream.never
                 : endWithExitCode(how)
-            return end
+            const reported = Array.from({ length: p.reports ?? 0 }, (_, i) => `/reported/${i}`)
+            const reports: ReadonlyArray<TaskEvent<never>> = [
+              ...reported.map((path) => ({
+                _tag: "File" as const,
+                path,
+                change: "created" as const,
+              })),
+              ...reported
+                .slice(0, 1)
+                .map((path) => ({ _tag: "File" as const, path, change: "modified" as const })),
+            ]
+            return Stream.concat(Stream.fromIterable(reports), end)
           }),
         ),
       instruction: () => [],

@@ -26,7 +26,7 @@
  * the script left there into the session's generated folder.
  */
 import path from "node:path"
-import { Effect, Redacted, type Scope, Stream } from "effect"
+import { Data, Effect, Redacted, type Scope, Stream } from "effect"
 import { TaskFailed } from "@runbooks/blocks-core/contract"
 import { envNameProblem } from "../document/document.ts"
 import { FileSystem, type WalkEntry } from "../services/FileSystem.ts"
@@ -271,6 +271,8 @@ export const readRunFiles = (files: RunFiles): Effect.Effect<RunWrote, TaskFaile
 export interface Copied {
   /** Each file it copied, by its path in the generated folder: the first `LIMITS.maxRunFiles`. */
   readonly changes: ReadonlyArray<FileChange>
+  /** Whether it copied more files than `changes` lists. */
+  readonly truncated: boolean
   /** Each symbolic link the script left, by its path in `$GENERATED_FILES`, which it does not copy. */
   readonly links: ReadonlyArray<string>
 }
@@ -281,15 +283,20 @@ export interface Copied {
  * symbolic links. A file is `modified` if the generated folder had one at
  * its path, else `created`. A file whose place in the generated folder leads
  * out of it, through a link there, is refused, and the run fails.
+ *
+ * A copy that stops part way fails with what it had copied by then, since
+ * those files are in the generated folder.
  */
 export const copyGenerated = (
   from: string,
   generated: string,
-): Effect.Effect<Copied, TaskFailed, FileSystem> =>
+): Effect.Effect<Copied, CopyFailed, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
     const changes: FileChange[] = []
     const links: string[] = []
+    let truncated = false
+    const copied = (): Copied => ({ changes, truncated, links })
     const copy = (entry: WalkEntry) =>
       Effect.gen(function* () {
         const to = path.join(generated, entry.relativePath)
@@ -307,6 +314,7 @@ export const copyGenerated = (
         yield* fs.copyFile(entry.path, to)
         if (changes.length < LIMITS.maxRunFiles)
           changes.push({ path: to, change: existed ? "modified" : "created" })
+        else truncated = true
       }).pipe(
         Effect.catchTags({
           FileWriteError: () =>
@@ -322,6 +330,13 @@ export const copyGenerated = (
         () => new TaskFailed({ message: "Runbooks could not read $GENERATED_FILES." }),
       ),
       Stream.runForEach(copy),
+      Effect.mapError((failure) => new CopyFailed({ failure, copied: copied() })),
     )
-    return { changes, links }
+    return copied()
   })
+
+/** A copy from `$GENERATED_FILES` stopped at `failure`, having copied `copied`. */
+export class CopyFailed extends Data.TaggedError("CopyFailed")<{
+  readonly failure: TaskFailed
+  readonly copied: Copied
+}> {}

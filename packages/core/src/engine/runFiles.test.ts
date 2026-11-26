@@ -7,9 +7,10 @@
  */
 import { describe, expect, it } from "bun:test"
 import { inspect } from "node:util"
-import { Effect, Redacted, Result, Stream } from "effect"
+import { Effect, Layer, Redacted, Result, Stream } from "effect"
 import { FileSystem } from "../services/FileSystem.ts"
-import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
+import { FileWriteError } from "../errors/index.ts"
+import { makeTestFileSystem, testFileSystem } from "../test-utils/TestFileSystem.ts"
 import { LIMITS } from "./protocol.ts"
 import {
   copyGenerated,
@@ -341,7 +342,7 @@ describe("the generated files", () => {
 
   it("copies nothing and says nothing for a run that left nothing", async () => {
     const { copied, gen } = await copyFrom({ "/gen/kept.tf": "kept" })
-    expect(copied).toEqual({ changes: [], links: [] })
+    expect(copied).toEqual({ changes: [], truncated: false, links: [] })
     expect(gen).toEqual({ "kept.tf": "kept" })
   })
 
@@ -351,6 +352,27 @@ describe("the generated files", () => {
     )
     const { copied, gen } = await copyFrom(files)
     expect(copied.changes).toHaveLength(LIMITS.maxRunFiles)
+    expect(copied.truncated).toBe(true)
     expect(Object.keys(gen)).toHaveLength(LIMITS.maxRunFiles + 1)
+  })
+
+  it("fails a copy that stops part way with what it had copied, which stays copied", async () => {
+    const files: Record<string, string> = { "/run/files/a.txt": "a", "/run/files/b.txt": "b" }
+    const base = testFileSystem(files)
+    const full = Layer.succeed(FileSystem, {
+      ...base,
+      copyFile: (src: string, dest: string) =>
+        dest.endsWith("/b.txt")
+          ? Effect.fail(new FileWriteError({ path: dest, cause: "no space left" }))
+          : base.copyFile(src, dest),
+    })
+    const failed = await Effect.runPromise(
+      Effect.flip(copyGenerated("/run/files", "/gen")).pipe(Effect.provide(full)),
+    )
+    expect(failed.failure.message).toBe(
+      "Runbooks could not copy b.txt from $GENERATED_FILES into the generated folder.",
+    )
+    expect(failed.copied.changes).toEqual([{ path: "/gen/a.txt", change: "created" }])
+    expect(files["/gen/a.txt"]).toBe("a")
   })
 })

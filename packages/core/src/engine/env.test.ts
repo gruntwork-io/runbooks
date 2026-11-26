@@ -6,12 +6,14 @@
  * script environment allowlist, by name.
  */
 import { describe, expect, it } from "bun:test"
-import { Effect, Option, Redacted, Result, Schema } from "effect"
+import { Effect, Layer, Option, Redacted, Result, Schema } from "effect"
 import { BlockId, CredentialError } from "@runbooks/blocks-core/contract"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import type { CredentialEnv, CredentialValue } from "../credential/provider.ts"
 import { revealed, type UseEnvSession, withEnvSession } from "../test-utils/envSessions.ts"
-import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
+import { FileWriteError } from "../errors/index.ts"
+import { FileSystem } from "../services/FileSystem.ts"
+import { makeTestFileSystem, testFileSystem } from "../test-utils/TestFileSystem.ts"
 import { makeRecordingSpawner, type RecordedSpawn } from "../test-utils/TestSpawner.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import {
@@ -25,6 +27,7 @@ import {
   taskSource,
   withReserved,
 } from "./env.ts"
+import { type FileChange, LIMITS } from "./protocol.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
 const blockId = Schema.decodeSync(BlockId)
@@ -383,16 +386,26 @@ const build = (layers: Parameters<typeof buildRunEnv>[0]) =>
   )
 
 describe("a run's generated files", () => {
-  /** A session of `runbook` on a filesystem whose files the test can read after. */
-  const withFiles = <A>(runbook: string, use: UseEnvSession<A>) => {
+  /**
+   * A session of `runbook` on a filesystem whose files the test can read
+   * after, where copying a file named `full` fails, as on a full disk.
+   */
+  const withFiles = <A>(runbook: string, use: UseEnvSession<A>, full?: string) => {
     const files: Record<string, string> = { [RUNBOOK]: runbook }
+    const base = testFileSystem(files)
     const spawner = makeRecordingSpawner(() => ({ lines: [], exitCode: 0 }))
     return withEnvSession(
       {
         file: RUNBOOK,
         workingFolders: "/work",
         processEnvironment: {},
-        fileSystem: makeTestFileSystem(files),
+        fileSystem: Layer.succeed(FileSystem, {
+          ...base,
+          copyFile: (src: string, dest: string) =>
+            full !== undefined && dest.endsWith(`/${full}`)
+              ? Effect.fail(new FileWriteError({ path: dest, cause: "no space left" }))
+              : base.copyFile(src, dest),
+        }),
         spawner: spawner.layer,
       },
       use,
@@ -449,6 +462,61 @@ describe("a run's generated files", () => {
     )
     expect(result.status).toEqual({ _tag: "Done", outcome: "warning" })
     expect(result.files?.map(({ change }) => change)).toEqual(["created"])
+  })
+
+  it("lists what a copy that stopped part way had copied, and fails the run", async () => {
+    const { result } = await withFiles(
+      '<Script id="s" label="s" writesGenerated={["a.txt=a", "b.txt=b"]} />',
+      (rb) =>
+        Effect.gen(function* () {
+          const status = yield* rb.run("s")
+          const generated = rb.inputOf("s")?.roots.generated ?? ""
+          const view = yield* rb.view("s")
+          return { status, generated, view, events: yield* rb.close }
+        }),
+      "b.txt",
+    )
+    const { status, generated, view, events } = result
+    expect(status?._tag === "Failed" ? status.error.message : status).toBe(
+      "Runbooks could not copy b.txt from $GENERATED_FILES into the generated folder.",
+    )
+    const listed: ReadonlyArray<FileChange> = [{ path: `${generated}/a.txt`, change: "created" }]
+    expect(view.files).toEqual(listed)
+    expect(
+      events.flatMap(({ event }) => (event._tag === "FilesChanged" ? [event.files] : [])),
+    ).toEqual([listed])
+  })
+
+  it("keeps the first paths at the limit, says so, and still takes a later change to one", async () => {
+    const { result: view } = await withFiles(
+      `<Script id="s" label="s" reports={${LIMITS.maxRunFiles + 1}} />`,
+      (rb) => Effect.andThen(rb.run("s"), rb.view("s")),
+    )
+    expect(view.files).toHaveLength(LIMITS.maxRunFiles)
+    expect(view.files?.[0]).toEqual({ path: "/reported/0", change: "modified" })
+    expect(view.files?.at(-1)).toEqual({
+      path: `/reported/${LIMITS.maxRunFiles - 1}`,
+      change: "created",
+    })
+    expect(view.filesTruncated).toBe(true)
+  })
+
+  it("says so when it copied more files than it lists", async () => {
+    const { result: view } = await withFiles(
+      `<Script id="s" label="s" leavesMany={${LIMITS.maxRunFiles + 1}} />`,
+      (rb) => Effect.andThen(rb.run("s"), rb.view("s")),
+    )
+    expect(view.files).toHaveLength(LIMITS.maxRunFiles)
+    expect(view.filesTruncated).toBe(true)
+  })
+
+  it("does not say a list at the limit was cut when it was not", async () => {
+    const { result: view } = await withFiles(
+      `<Script id="s" label="s" reports={${LIMITS.maxRunFiles}} />`,
+      (rb) => Effect.andThen(rb.run("s"), rb.view("s")),
+    )
+    expect(view.files).toHaveLength(LIMITS.maxRunFiles)
+    expect(view.filesTruncated).toBeUndefined()
   })
 
   it("$REPO_FILES is the repository a task names, and is unset for a task that names none", async () => {

@@ -122,7 +122,7 @@ import {
   withReserved,
 } from "./env.ts"
 import { type Held, hold, redacted, reveal, visible } from "./held.ts"
-import type { Copied, RunFiles, RunWrote } from "./runFiles.ts"
+import type { Copied, CopyFailed, RunFiles, RunWrote } from "./runFiles.ts"
 import type { RunRoots } from "./roots.ts"
 import {
   fileHashesOf,
@@ -167,7 +167,7 @@ export interface Runner {
   /** Reads, within bounds, what the script wrote to them. */
   readonly readRunFiles: (files: RunFiles) => Effect.Effect<RunWrote, TaskFailed>
   /** Copies what the script left in `$GENERATED_FILES` (`from`) into the generated folder (`to`). */
-  readonly copyGenerated: (from: string, to: string) => Effect.Effect<Copied, TaskFailed>
+  readonly copyGenerated: (from: string, to: string) => Effect.Effect<Copied, CopyFailed>
   /** Opens a credential block's provider by its registry name, in the scope it is given. */
   readonly openProvider: OpenProvider
 }
@@ -286,6 +286,8 @@ interface Run {
    * change, in the order first touched: the first `LIMITS.maxRunFiles`.
    */
   readonly files: Map<string, FileChange["change"]>
+  /** Whether the run touched more paths than `files` holds. */
+  filesTruncated: boolean
 }
 
 const sameStatus = Schema.toEquivalence(BlockStatus)
@@ -536,6 +538,7 @@ function restoredRun(slot: Slot, saved: SavedRun): Run | undefined {
       flushed: log.start(),
       state,
       files: new Map(),
+      filesTruncated: false,
     }
   }
   switch (saved._tag) {
@@ -1162,7 +1165,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     emit: (event: EngineEvent) => void,
   ) => {
     const listed = changes.filter(({ path: file, change }) => {
-      if (!run.files.has(file) && run.files.size >= LIMITS.maxRunFiles) return false
+      if (!run.files.has(file) && run.files.size >= LIMITS.maxRunFiles) {
+        run.filesTruncated = true
+        return false
+      }
       run.files.set(file, change)
       return true
     })
@@ -1171,9 +1177,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   }
 
   /** Records what a run copied from `$GENERATED_FILES`, and logs each link it did not copy. */
-  const recordCopied = (run: Run, { changes, links }: Copied) =>
+  const recordCopied = (run: Run, { changes, truncated, links }: Copied) =>
     update((emit) => {
       if (run.state._tag !== "Running") return
+      if (truncated) run.filesTruncated = true
       run.log.push(
         links.map((link) => ({
           stream: "stderr" as const,
@@ -1321,7 +1328,14 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         )
         if (files !== undefined) {
           const wrote = yield* runner.readRunFiles(files)
-          const copied = yield* runner.copyGenerated(files.GENERATED_FILES, at.roots.generated)
+          // What a copy that stopped part way copied is in the generated folder, so it is listed.
+          const copied = yield* runner
+            .copyGenerated(files.GENERATED_FILES, at.roots.generated)
+            .pipe(
+              Effect.catchTag("CopyFailed", ({ failure, copied: some }) =>
+                Effect.andThen(recordCopied(run, some), Effect.fail(failure)),
+              ),
+            )
           yield* recordWrote(run, runnable, wrote)
           yield* recordCopied(run, copied)
         }
@@ -1477,6 +1491,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       ...(run === undefined || run.files.size === 0
         ? {}
         : { files: Array.from(run.files, ([file, change]) => ({ path: file, change })) }),
+      ...(run?.filesTruncated === true ? { filesTruncated: true as const } : {}),
     }
   }
 
@@ -1564,6 +1579,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
             log: makeWindow(MAX_RUN_LOG_LINES),
             flushed: 0,
             files: new Map(),
+            filesTruncated: false,
             state: {
               _tag: "Running",
               scope: runScope,

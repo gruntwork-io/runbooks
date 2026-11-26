@@ -191,9 +191,9 @@ describe("what a real script writes", () => {
 })
 
 describe("the generated files, on a real filesystem", () => {
-  it("copies what a real script left in $GENERATED_FILES, and logs each link it does not copy", async () => {
+  it("copies what a real script left in $GENERATED_FILES, an empty folder too, and logs each link it does not copy", async () => {
     const script = [
-      'mkdir -p "$GENERATED_FILES/vpc"',
+      'mkdir -p "$GENERATED_FILES/vpc" "$GENERATED_FILES/empty"',
       'echo main > "$GENERATED_FILES/main.tf"',
       'echo vpc > "$GENERATED_FILES/vpc/vpc.tf"',
       'ln -s /etc/hosts "$GENERATED_FILES/hosts"',
@@ -207,6 +207,8 @@ describe("the generated files, on a real filesystem", () => {
     expect(nodeFs.readFileSync(nodePath.join(generated, "main.tf"), "utf8")).toBe("main\n")
     expect(nodeFs.readFileSync(nodePath.join(generated, "vpc", "vpc.tf"), "utf8")).toBe("vpc\n")
     expect(nodeFs.existsSync(nodePath.join(generated, "hosts"))).toBe(false)
+    // An empty folder the script left is made too, as today, though only files are listed.
+    expect(nodeFs.statSync(nodePath.join(generated, "empty")).isDirectory()).toBe(true)
     expect([...(view.files ?? [])].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
       { path: nodePath.join(generated, "main.tf"), change: "created" },
       { path: nodePath.join(generated, "vpc", "vpc.tf"), change: "created" },
