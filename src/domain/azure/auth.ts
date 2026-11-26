@@ -147,6 +147,17 @@ export const setSubscription = (ctx: AzContext, subscriptionId: string) =>
     display: "az account set",
   }).pipe(Effect.asVoid)
 
+/**
+ * Fetch the account's subscriptions again (`az account list --refresh`), so a
+ * config dir copied from the user's az login lists subscriptions created
+ * since that login. az keeps the default subscription while it is still
+ * listed.
+ */
+export const refreshSubscriptions = (ctx: AzContext) =>
+  runAz(ctx, ["account", "list", "--refresh", "-o", "none"], {
+    display: "az account list --refresh",
+  }).pipe(Effect.asVoid)
+
 export function interactiveLoginArgs(deviceCode: boolean, tenantId?: string): string[] {
   const args = ["login", "--allow-no-subscriptions", "--only-show-errors", "-o", "none"]
   if (deviceCode) args.push("--use-device-code")

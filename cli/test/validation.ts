@@ -19,6 +19,7 @@ import {
   parseShowWhenBlock,
   type ShowWhenBlock,
 } from "../../src/domain/exec/showWhenBlock.ts"
+import { parseShowWhenOutput, type ShowWhenOutput } from "../../src/domain/exec/showWhenOutput.ts"
 import { validateVariableValue } from "../../src/domain/boilerplate/validators.ts"
 import { findComponents, type ParsedComponent } from "../../src/domain/registry/executable.ts"
 import { parseMdx, stringProp, type MdxElement, type Props } from "../../src/mdx.ts"
@@ -496,6 +497,44 @@ export function parseShowWhenBlocks(runbookPath: string): Map<string, ShowWhenBl
   }
 
   return conditions
+}
+
+/** A <ShowWhen> block: its condition, and the span of the runbook it holds. */
+export interface ShowWhenSpan {
+  condition: ShowWhenOutput
+  /** The offset of its opening tag. */
+  start: number
+  /** The offset just past its closing tag. */
+  end: number
+}
+
+/**
+ * The <ShowWhen> blocks with valid props, and the configuration errors of the
+ * rest, as the app reports them: props it can't read, or an output of a block
+ * no block on the page has.
+ */
+export function parseShowWhens(runbookPath: string): { spans: ShowWhenSpan[]; errors: string[] } {
+  const elements = readRunbookElements(runbookPath)
+  const ids = new Set(
+    elements.map((element) => normalizeId(stringProp(element.props, "id"))).filter(Boolean),
+  )
+  const spans: ShowWhenSpan[] = []
+  const errors: string[] = []
+  for (const element of elements) {
+    if (element.name !== "ShowWhen") continue
+    const parsed = parseShowWhenOutput(element.props)
+    if (!parsed.ok) {
+      errors.push(parsed.error)
+    } else if (!ids.has(normalizeId(parsed.condition.blockId))) {
+      const { blockId, output } = parsed.condition
+      errors.push(
+        `<ShowWhen> reads the output "${output}" of block "${blockId}", but no block has that id.`,
+      )
+    } else {
+      spans.push({ condition: parsed.condition, start: element.index, end: element.end })
+    }
+  }
+  return { spans, errors }
 }
 
 // ---------------------------------------------------------------------------

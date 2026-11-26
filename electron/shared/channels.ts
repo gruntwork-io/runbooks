@@ -947,12 +947,33 @@ export interface IpcChannelMap {
       host?: string
     } & VcsDetectionMeta
   }
+  // Re-read glab's token for the session's glab OAuth sign-in and swap a
+  // fresher one into the session env. Metadata only: no token crosses IPC.
+  // `not-glab` means the session credential is not one this applies to.
+  "gitlab:refresh-cli-credential": {
+    params: { host?: string; instanceUrl?: string }
+    result: GitLabCliRefreshResult
+  }
   // `host` is the GitLab instance host the repo lives on (self-hosted or
   // gitlab.com), derived by the renderer from the repo's remote URL.
   "gitlab:labels": {
     params: { owner: string; repo: string; host?: string }
     result: { labels?: string[] }
   }
+  // Repository browser queries. They use the session's GitLab token, sent
+  // only to the instance it is bound to; `host` (bare host, port kept) names
+  // that instance and defaults to it. A failure rejects.
+  "gitlab:namespaces": { params: { host?: string }; result: GitLabNamespace[] }
+  "gitlab:projects": {
+    params: {
+      namespace: { id: number; kind: GitLabNamespace["kind"] }
+      search?: string
+      host?: string
+    }
+    result: { projects: GitLabProject[]; truncated: boolean }
+  }
+  // `project` is the project's full path, such as `group/subgroup/project`.
+  "gitlab:refs": { params: { project: string; host?: string }; result: GitLabRef[] }
 
   // Git Operations
   /** A clone that fails rejects. */
@@ -1000,6 +1021,11 @@ export interface IpcChannelMap {
     result: { url: string; number: number } | { error: string }
   }
   "git:delete-branch": { params: { worktreePath: string; branch: string }; result: { ok: true } }
+  /** Commits HEAD has that origin's copy of `baseBranch` (else the local one) doesn't. */
+  "git:commits-ahead": {
+    params: { worktreePath: string; baseBranch: string }
+    result: { count: number }
+  }
 
   // Workspace
   /** The tree of `worktreePath`, a repo or one of its folders, as getWorkspaceTree builds it. */
@@ -1201,6 +1227,13 @@ export interface IpcEventMap {
   // first block's credential — its AuthSuccess card renders a stale-session
   // warning off this event instead of implying its credential is still active.
   "vcs:session-changed": { provider: "github" | "gitlab"; host: string; source?: string }
+  // Main swapped a fresher glab token into the session (gitlab-cli-refresh.ts).
+  "gitlab:cli-credential-refreshed": {
+    host: string
+    user: GitHubUser
+    scopes?: string[]
+    expiresAt?: string
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1328,6 +1361,18 @@ export type VcsAuthOutcome = "valid" | "invalid" | "unreachable" | "absent"
 /** Transport-failure classification, mirrored from src/errors VcsTransportErrorKind. */
 export type VcsErrorKind = "tls" | "server-cert" | "network"
 
+export type GitLabCliRefreshResult =
+  | { outcome: "not-glab" }
+  | {
+      outcome: "refreshed" | "unchanged"
+      host: string
+      user: GitHubUser
+      scopes?: string[] | undefined
+      expiresAt?: string | undefined
+    }
+  | { outcome: "unreachable"; host: string; errorKind: VcsErrorKind; error?: string | undefined }
+  | { outcome: "failed"; host: string; error: string }
+
 /** Tri-state metadata carried by detection/validation results. */
 export interface VcsDetectionMeta {
   outcome?: VcsAuthOutcome
@@ -1394,6 +1439,27 @@ export interface GitHubRepo {
 }
 
 export interface GitHubRef {
+  ref: string
+  type: "branch" | "tag"
+}
+
+export interface GitLabNamespace {
+  id: number
+  kind: "group" | "user"
+  /** `group/subgroup`, or the username for a personal namespace. */
+  fullPath: string
+}
+
+export interface GitLabProject {
+  id: number
+  name: string
+  pathWithNamespace: string
+  httpUrlToRepo: string
+  defaultBranch?: string
+  visibility: string
+}
+
+export interface GitLabRef {
   ref: string
   type: "branch" | "tag"
 }

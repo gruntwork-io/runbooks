@@ -36,6 +36,8 @@ By default, Runbooks detects and uses credentials from, in order:
 1. The `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN` or `OAUTH_TOKEN` environment variable, checked in that order
 2. The GitLab CLI (`glab config get token --host <host>`). When `glab` isn't installed, Runbooks reads the token from glab's `config.yml` instead, where `glab auth login` stores it unless glab keeps it in the system keyring.
 
+When `glab auth login` signs in through the browser, glab stores a GitLab OAuth token, which lasts two hours. Runbooks keeps a sign-in detected from it fresh: as the token nears expiry, Runbooks reads glab's token again and asks glab to refresh it. See [Expiring tokens](/authoring/blocks/gitauth/#expiring-tokens).
+
 If no credentials are detected, the user authenticates manually with a Personal Access Token. Set `detectCredentials={false}` to always require one, even when the user is logged in with `glab`. See [Disabling detection](/authoring/blocks/gitauth/#disabling-detection).
 
 Runbooks sends an environment token, prefixed or not, only over HTTPS. A `glab` token goes only to the host glab stored it for, and only over HTTPS unless glab itself uses HTTP for that host (`api_protocol: http`). For a plain `http://` instance the environment token is skipped, and so is the `glab` token unless glab uses HTTP for that host. The user then pastes a Personal Access Token.

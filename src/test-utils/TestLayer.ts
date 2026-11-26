@@ -122,6 +122,18 @@ const makeStubGitLabClient = (overrides: Partial<GitLabClientShape> = {}): GitLa
     Effect.fail(
       new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "listLabels") }),
     ),
+  listNamespaces: (_token) =>
+    Effect.fail(
+      new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "listNamespaces") }),
+    ),
+  listProjects: (_token, _namespace) =>
+    Effect.fail(
+      new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "listProjects") }),
+    ),
+  listRefs: (_token, _projectPath) =>
+    Effect.fail(
+      new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "listRefs") }),
+    ),
   ...overrides,
 })
 
@@ -199,6 +211,14 @@ const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientSh
       new GitError({
         command: "rev-list",
         stderr: notConfigured("GitClient", "hasCommitsNotIn"),
+        exitCode: 1,
+      }),
+    ),
+  countCommitsNotIn: (_repoPath, _ref) =>
+    Effect.fail(
+      new GitError({
+        command: "rev-list",
+        stderr: notConfigured("GitClient", "countCommitsNotIn"),
         exitCode: 1,
       }),
     ),

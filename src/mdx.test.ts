@@ -160,6 +160,15 @@ describe("parseMdx", () => {
     ])
   })
 
+  it("records where each element ends, so a nested element falls inside its parent", () => {
+    const mdx =
+      '<ShowWhen output="a.b" equals="x">\n\n<Check id="c" command="echo c" />\n\n</ShowWhen>\n'
+    const [outer, inner] = elementsOf(mdx)
+    expect(outer?.end).toBe(mdx.indexOf("</ShowWhen>") + "</ShowWhen>".length)
+    expect(inner?.end).toBe(mdx.indexOf("/>") + 2)
+    expect(inner!.index > outer!.index && inner!.end < outer!.end).toBe(true)
+  })
+
   it("skips front matter, which isn't MDX", () => {
     const mdx = '---\ntitle: Deploy\ntags: {a: b}\n---\n<Command id="c" command="x" />\n'
     expect(elementsOf(mdx).map((e) => e.props.id)).toEqual(["c"])

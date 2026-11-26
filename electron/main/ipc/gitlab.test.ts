@@ -452,3 +452,110 @@ describe("a sign-in that finishes after another runbook opened", () => {
     expect(vcsSessionMeta.get("gitlab")).toBeUndefined()
   })
 })
+
+describe("gitlab:namespaces, gitlab:projects, gitlab:refs — the repository browser", () => {
+  const SECRET = "glpat-SECRETTOKEN"
+
+  beforeEach(async () => {
+    await Effect.runPromise(
+      sessionManager.appendToEnv({ GITLAB_TOKEN: SECRET, GITLAB_HOST: "gitlab.corp:8443" }),
+    )
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = fetchUrl(input)
+      const headers = (init?.headers ?? {}) as Record<string, string>
+      fetchCalls.push({ url, authorization: headers.Authorization ?? headers["PRIVATE-TOKEN"] })
+      const { pathname } = new URL(url)
+      if (pathname === "/api/v4/user") return Promise.resolve(json({ id: 7, username: "tanuki" }))
+      if (pathname === "/api/v4/groups")
+        return Promise.resolve(json([{ id: 10, full_path: "acme" }]))
+      if (pathname === "/api/v4/groups/10/projects") {
+        return Promise.resolve(
+          json([
+            {
+              id: 1,
+              name: "infra",
+              path_with_namespace: "acme/infra",
+              http_url_to_repo: "https://gitlab.corp:8443/acme/infra.git",
+              default_branch: "main",
+              visibility: "internal",
+            },
+          ]),
+        )
+      }
+      if (pathname.endsWith("/repository/branches"))
+        return Promise.resolve(json([{ name: "main" }]))
+      if (pathname.endsWith("/repository/tags")) return Promise.resolve(json([]))
+      return Promise.resolve(new Response("not found", { status: 404 }))
+    }) as typeof fetch
+  })
+
+  it("answers from the instance the session token is bound to, with the token kept in main", async () => {
+    const host = "gitlab.corp:8443"
+
+    const namespaces = await invoke("gitlab:namespaces", { host })
+    const projects = await invoke("gitlab:projects", {
+      namespace: { id: 10, kind: "group" },
+      host,
+    })
+    const refs = await invoke("gitlab:refs", { project: "acme/infra", host })
+
+    expect(namespaces).toEqual([
+      { id: 7, kind: "user", fullPath: "tanuki" },
+      { id: 10, kind: "group", fullPath: "acme" },
+    ])
+    expect(projects.projects.map((p: { httpUrlToRepo: string }) => p.httpUrlToRepo)).toEqual([
+      "https://gitlab.corp:8443/acme/infra.git",
+    ])
+    expect(refs).toEqual([{ ref: "main", type: "branch" }])
+    expect(JSON.stringify([namespaces, projects, refs])).not.toContain(SECRET)
+    expect(fetchCalls.length).toBeGreaterThan(0)
+    expect(
+      fetchCalls.every(
+        (c) =>
+          c.url.startsWith("https://gitlab.corp:8443/") && c.authorization === `Bearer ${SECRET}`,
+      ),
+    ).toBe(true)
+  })
+
+  it("falls back to the bound instance when the renderer names none", async () => {
+    await invoke("gitlab:namespaces", {})
+
+    expect(fetchCalls.length).toBeGreaterThan(0)
+    expect(fetchCalls.every((c) => c.url.startsWith("https://gitlab.corp:8443/"))).toBe(true)
+  })
+
+  it.each(["gitlab.com", "gitlab.corp", "http://gitlab.corp:8443", "ho%st"])(
+    "rejects without any request for a host the token is not bound to (%s)",
+    async (host) => {
+      await expect(invoke("gitlab:namespaces", { host })).rejects.toThrow()
+      await expect(
+        invoke("gitlab:projects", { namespace: { id: 10, kind: "group" }, host }),
+      ).rejects.toThrow()
+      await expect(invoke("gitlab:refs", { project: "acme/infra", host })).rejects.toThrow()
+      expect(fetchCalls).toEqual([])
+    },
+  )
+})
+
+describe("gitlab:refresh-cli-credential", () => {
+  it("leaves a pasted token alone: no request, no session change", async () => {
+    await invoke("gitlab:validate", {
+      token: "glpat-manual",
+      host: "gitlab.com",
+      registerSession: true,
+    })
+    fetchCalls = []
+
+    expect(await invoke("gitlab:refresh-cli-credential", { host: "gitlab.com" })).toEqual({
+      outcome: "not-glab",
+    })
+    expect(fetchCalls).toEqual([])
+    expect((await sessionEnv()).GITLAB_TOKEN).toBe("glpat-manual")
+  })
+
+  it("answers not-glab for an unparseable host", async () => {
+    expect(await invoke("gitlab:refresh-cli-credential", { host: "ho%st" })).toEqual({
+      outcome: "not-glab",
+    })
+  })
+})

@@ -20,6 +20,7 @@ import {
   missingRolesMessage,
   parseDeviceCodePrompt,
   principalFor,
+  refreshSubscriptions,
   resolveContextOptions,
   setSubscription,
   showAccount,
@@ -31,6 +32,7 @@ import { azureSessionEnv, type AzureAuthType } from "../../../src/domain/azure/e
 import { ENV_PREFIX_PATTERN } from "../../../src/domain/env-prefix.ts"
 import { redactSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
+import { makeLogger } from "../logger.ts"
 import type { SpawnedProcess } from "../../../src/services/ProcessSpawner.ts"
 import type {
   AzureDetectionSourceIpc,
@@ -39,6 +41,8 @@ import type {
 } from "../../shared/channels.ts"
 
 type Result = AzureSignInResultIpc
+
+const log = makeLogger("ipc:azure")
 
 const toErrorMessage = (err: unknown): string => redactSecrets(errorMessage(err))
 
@@ -291,6 +295,21 @@ export async function handleDetect(params: {
   return { found: false, ...(lastError ? { error: lastError } : {}) }
 }
 
+/**
+ * The copy of the user's az login lists the subscriptions az saw when it last
+ * fetched them, which leaves out any created since. Fetch them again; when
+ * that fails, sign in with the list as it is.
+ */
+async function refreshCopiedSubscriptions(ctx: AzContext): Promise<void> {
+  try {
+    await runtime.runPromise(refreshSubscriptions(ctx))
+  } catch (err) {
+    log.warn(
+      `Couldn't refresh the Azure subscriptions in ${ctx.configDir}; using the list copied from the az login: ${toErrorMessage(err)}`,
+    )
+  }
+}
+
 export async function handleConfirmDetected(
   params: AzureSignInPinsIpc & {
     blockId: string
@@ -310,7 +329,10 @@ export async function handleConfirmDetected(
       return failed(err)
     }
     const ctx: AzContext = { configDir: dir, extensionDir: userAzureExtensionDir() }
-    return signInOrRelease(at, dir, () => finishSignIn(at, { ctx, authType: "cli" }, params))
+    return signInOrRelease(at, dir, async () => {
+      await refreshCopiedSubscriptions(ctx)
+      return finishSignIn(at, { ctx, authType: "cli" }, params)
+    })
   }
 
   const sp = await runtime

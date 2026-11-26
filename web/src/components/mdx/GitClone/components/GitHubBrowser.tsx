@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react"
-import { Check, ChevronsUpDown, ChevronDown, ChevronUp, Lock, GitBranch, Tag } from "lucide-react"
+import { Check, ChevronsUpDown, ChevronDown, ChevronUp, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { GitHubIcon } from "@/components/icons/GitHubIcon"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import type { GitHubOrg, GitHubRepo, GitHubRef } from "../types"
+import { RefSelect } from "./RefSelect"
 import { DEFAULT_GITHUB_HOST, githubWebBase } from "@/components/mdx/_shared/lib/githubHost"
 
 interface GitHubBrowserProps {
@@ -72,7 +73,6 @@ export function GitHubBrowser({
   const [selectedRef, setSelectedRef] = useState("")
   const [orgOpen, setOrgOpen] = useState(false)
   const [repoOpen, setRepoOpen] = useState(false)
-  const [refOpen, setRefOpen] = useState(false)
   const [loadingOrgs, setLoadingOrgs] = useState(false)
   const [orgsError, setOrgsError] = useState<string | null>(null)
   // Latest repos and refs responses, each tagged with the selection it
@@ -82,10 +82,8 @@ export function GitHubBrowser({
   const [refsResult, setRefsResult] = useState<FetchResult<GitHubRef> | null>(null)
   const [orgSearch, setOrgSearch] = useState("")
   const [repoSearch, setRepoSearch] = useState("")
-  const [refSearch, setRefSearch] = useState("")
   const orgListRef = useRef<HTMLDivElement>(null)
   const repoListRef = useRef<HTMLDivElement>(null)
-  const refListRef = useRef<HTMLDivElement>(null)
   const hasLoadedOrgs = useRef(false)
 
   const refsKey = selectedOrg && selectedRepo ? `${selectedOrg}/${selectedRepo}` : ""
@@ -98,9 +96,6 @@ export function GitHubBrowser({
   const loadingRepos = !!selectedOrg && !currentRepos
   const loadingRefs = !!refsKey && !currentRefs
 
-  // Split refs into branches and tags for grouped display
-  const branchRefs = useMemo(() => refs.filter((r) => r.type === "branch"), [refs])
-  const tagRefs = useMemo(() => refs.filter((r) => r.type === "tag"), [refs])
   const defaultBranch = useMemo(
     () => repos.find((r) => r.name === selectedRepo)?.defaultBranch,
     [repos, selectedRepo],
@@ -203,12 +198,6 @@ export function GitHubBrowser({
     }
   }, [repoOpen, repoSearch])
 
-  useEffect(() => {
-    if (refOpen && refListRef.current) {
-      refListRef.current.scrollTo({ top: 0 })
-    }
-  }, [refOpen, refSearch])
-
   const handleOrgSelect = (org: string) => {
     setSelectedOrg(org)
     setSelectedRepo("")
@@ -235,18 +224,8 @@ export function GitHubBrowser({
 
   const handleRefSelect = (ref: string) => {
     setSelectedRef(ref)
-    setRefOpen(false)
-    setRefSearch("")
     onRefSelected(ref)
   }
-
-  // Determine the icon for the currently selected ref
-  const selectedRefObj = useMemo(
-    () => refs.find((r) => r.name === selectedRef),
-    [refs, selectedRef],
-  )
-  const isDefaultBranch = (ref: GitHubRef | undefined) =>
-    ref?.type === "branch" && ref.name === defaultBranch
 
   return (
     <div className="mt-1.5">
@@ -412,116 +391,15 @@ export function GitHubBrowser({
 
           {/* Ref (branch/tag) selector — only shown after a repo is selected */}
           {selectedRepo && (
-            <div>
-              <label className="text-sm font-medium text-foreground mb-1 block">Ref</label>
-              <Popover
-                open={refOpen}
-                onOpenChange={(open) => {
-                  setRefOpen(open)
-                  if (!open) setRefSearch("")
-                }}
-              >
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={refOpen}
-                    className="w-full justify-between font-normal bg-card border-input hover:bg-accent"
-                    disabled={disabled || loadingRefs}
-                  >
-                    {loadingRefs ? (
-                      <span className="text-muted-foreground">Loading refs...</span>
-                    ) : selectedRef ? (
-                      <span className="flex items-center gap-2 truncate">
-                        {selectedRefObj?.type === "tag" ? (
-                          <Tag className="size-3 text-muted-foreground" />
-                        ) : (
-                          <GitBranch className="size-3 text-muted-foreground" />
-                        )}
-                        <span className="text-foreground">{selectedRef}</span>
-                        {isDefaultBranch(selectedRefObj) && (
-                          <span className="text-[10px] font-medium bg-info-muted text-info px-1.5 py-0.5 rounded-full leading-none">
-                            default
-                          </span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">Select ref...</span>
-                    )}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-[350px] p-0"
-                  align="start"
-                  side="bottom"
-                  avoidCollisions={false}
-                >
-                  <Command>
-                    <CommandInput
-                      placeholder="Search branches and tags..."
-                      value={refSearch}
-                      onValueChange={setRefSearch}
-                    />
-                    <CommandList ref={refListRef} className="max-h-[300px]">
-                      <CommandEmpty>No branches or tags found.</CommandEmpty>
-
-                      {/* Branches group */}
-                      {branchRefs.length > 0 && (
-                        <CommandGroup heading="Branches">
-                          {branchRefs.map((ref) => (
-                            <CommandItem
-                              key={`branch-${ref.name}`}
-                              value={ref.name}
-                              onSelect={() => handleRefSelect(ref.name)}
-                              className="flex items-center gap-2"
-                            >
-                              <Check
-                                className={cn(
-                                  "h-4 w-4 shrink-0",
-                                  selectedRef === ref.name ? "opacity-100" : "opacity-0",
-                                )}
-                              />
-                              <GitBranch className="size-3 text-muted-foreground shrink-0" />
-                              <span className="text-foreground truncate">{ref.name}</span>
-                              {isDefaultBranch(ref) && (
-                                <span className="text-[10px] font-medium bg-info-muted text-info px-1.5 py-0.5 rounded-full leading-none ml-auto shrink-0">
-                                  default
-                                </span>
-                              )}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      )}
-
-                      {/* Tags group */}
-                      {tagRefs.length > 0 && (
-                        <CommandGroup heading="Tags">
-                          {tagRefs.map((ref) => (
-                            <CommandItem
-                              key={`tag-${ref.name}`}
-                              value={ref.name}
-                              onSelect={() => handleRefSelect(ref.name)}
-                              className="flex items-center gap-2"
-                            >
-                              <Check
-                                className={cn(
-                                  "h-4 w-4 shrink-0",
-                                  selectedRef === ref.name ? "opacity-100" : "opacity-0",
-                                )}
-                              />
-                              <Tag className="size-3 text-muted-foreground shrink-0" />
-                              <span className="text-foreground truncate">{ref.name}</span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      )}
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-              {refsError && <p className="mt-1 text-xs text-destructive">{refsError}</p>}
-            </div>
+            <RefSelect
+              refs={refs}
+              selectedRef={selectedRef}
+              defaultBranch={defaultBranch}
+              loading={loadingRefs}
+              error={refsError}
+              disabled={disabled}
+              onSelect={handleRefSelect}
+            />
           )}
         </div>
       )}

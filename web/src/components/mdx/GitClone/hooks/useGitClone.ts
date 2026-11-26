@@ -10,6 +10,7 @@ import {
   DEFAULT_GITHUB_HOST,
   tryNormalizeGitHubHost,
 } from "@/components/mdx/_shared/lib/githubHost"
+import { normalizeInstanceBaseUrl } from "@/components/mdx/GitAuth/utils"
 import type { LogEntry } from "@/hooks/useApiExec"
 import type {
   GitCloneStatus,
@@ -17,6 +18,9 @@ import type {
   GitHubOrg,
   GitHubRepo,
   GitHubRef,
+  GitLabNamespace,
+  GitLabProjectList,
+  GitLabRef,
   LocalRepoInfo,
 } from "../types"
 import type { GitCloneRequest } from "../../../../../../electron/shared/channels.ts"
@@ -27,6 +31,8 @@ const CloneLogEventSchema = z.object({
   replace: z.boolean().optional(),
   cloneId: z.string().optional(),
 })
+
+const DEFAULT_GITLAB_HOST = "gitlab.com"
 
 function createLogEntry(line: string, timestamp?: string): LogEntry {
   return {
@@ -209,6 +215,19 @@ export function useGitClone({
     return DEFAULT_GITHUB_HOST
   }, [gitAuthId, githubAuthId, allOutputs])
 
+  // The GitLab instance of the linked auth block (its GITLAB_HOST output,
+  // host and port only). Defaults to gitlab.com.
+  const gitlabHost = useMemo((): string => {
+    for (const authId of [gitAuthId, githubAuthId]) {
+      if (!authId) continue
+      const origin = normalizeInstanceBaseUrl(
+        revealOutput(allOutputs[normalizeBlockId(authId)]?.values?.GITLAB_HOST),
+      )
+      if (origin) return new URL(origin).host
+    }
+    return DEFAULT_GITLAB_HOST
+  }, [gitAuthId, githubAuthId, allOutputs])
+
   // Fetch session working directory for path preview
   const fetchWorkingDir = useCallback(async () => {
     try {
@@ -259,6 +278,31 @@ export function useGitClone({
       return refs.map((r) => ({ name: r.ref, type: r.type }))
     },
     [api, githubHost],
+  )
+
+  // The GitLab browser fetchers, against the linked block's instance. They
+  // reject on failure, like the GitHub ones.
+  const fetchGitLabNamespaces = useCallback(async (): Promise<GitLabNamespace[]> => {
+    return api.invoke("gitlab:namespaces", { host: gitlabHost })
+  }, [api, gitlabHost])
+
+  const fetchGitLabProjects = useCallback(
+    async (namespace: GitLabNamespace, search?: string): Promise<GitLabProjectList> => {
+      return api.invoke("gitlab:projects", {
+        namespace: { id: namespace.id, kind: namespace.kind },
+        ...(search ? { search } : {}),
+        host: gitlabHost,
+      })
+    },
+    [api, gitlabHost],
+  )
+
+  const fetchGitLabRefs = useCallback(
+    async (projectPath: string): Promise<GitLabRef[]> => {
+      const refs = await api.invoke("gitlab:refs", { project: projectPath, host: gitlabHost })
+      return refs.map((r) => ({ name: r.ref, type: r.type }))
+    },
+    [api, gitlabHost],
   )
 
   // Execute the clone operation. Returns 'directory_exists' if the destination
@@ -589,6 +633,8 @@ export function useGitClone({
     tokenChecked,
     gitHubAuthMet,
     githubHost,
+    gitlabHost,
+    authProvider,
     workingDir,
     localPreview,
     localPreviewStatus,
@@ -609,5 +655,8 @@ export function useGitClone({
     fetchOrgs,
     fetchRepos,
     fetchRefs,
+    fetchGitLabNamespaces,
+    fetchGitLabProjects,
+    fetchGitLabRefs,
   }
 }

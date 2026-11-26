@@ -22,6 +22,10 @@ import type {
   GitLabTokenValidation,
   CreateMRParams,
   MergeRequestResult,
+  GitLabNamespace,
+  GitLabProject,
+  GitLabProjectList,
+  GitLabRef,
 } from "../services/GitLabClient.ts"
 import { GitLabApiError } from "../errors/index.ts"
 import { errorMessage } from "../errors/message.ts"
@@ -169,29 +173,92 @@ async function gitlabFetch(url: string, token: string, init: RequestInit = {}): 
   return resp
 }
 
+// Requests in flight at once when the page count is known up front.
+const PAGE_CONCURRENCY = 5
+
 /**
- * Fetch every page of a GitLab list endpoint, following the `x-next-page`
- * header. GitLab omits total-count headers for result sets over 10,000 records,
- * so we drive the loop off `x-next-page` (and a short final page) rather than
- * `x-total-pages`. Mirrors GitHubHttpClient.paginateAll.
+ * Up to `maxPages` pages of a GitLab list endpoint, fetched concurrently when
+ * GitLab sends `x-total-pages`. It omits that for sets over 10,000 records
+ * (GitLab pagination docs), so then the loop follows `x-next-page`.
  */
-async function paginateAll<T>(url: string, token: string, perPage = 100): Promise<T[]> {
-  const results: T[] = []
-  let page = 1
-  while (true) {
-    const sep = url.includes("?") ? "&" : "?"
+async function paginate<T>(
+  url: string,
+  token: string,
+  maxPages = Number.POSITIVE_INFINITY,
+  perPage = 100,
+): Promise<{ items: T[]; truncated: boolean }> {
+  const sep = url.includes("?") ? "&" : "?"
+  const fetchPage = async (page: number) => {
     const resp = await gitlabFetch(`${url}${sep}per_page=${perPage}&page=${page}`, token)
     await assertOk(resp)
-    const items = (await resp.json()) as T[]
-    results.push(...items)
-    const next = resp.headers.get("x-next-page")
-    if (!next || items.length < perPage) break
-    const nextPage = Number(next)
-    if (!Number.isFinite(nextPage) || nextPage <= page) break
-    page = nextPage
+    return { resp, items: (await resp.json()) as T[] }
   }
-  return results
+
+  const first = await fetchPage(1)
+  const results: T[] = [...first.items]
+  const totalPages = Number(first.resp.headers.get("x-total-pages") ?? Number.NaN)
+  if (Number.isInteger(totalPages) && totalPages >= 1) {
+    const last = Math.min(totalPages, maxPages)
+    for (let start = 2; start <= last; start += PAGE_CONCURRENCY) {
+      const batch = []
+      for (let page = start; page <= Math.min(last, start + PAGE_CONCURRENCY - 1); page++) {
+        batch.push(fetchPage(page))
+      }
+      for (const { items } of await Promise.all(batch)) results.push(...items)
+    }
+    return { items: results, truncated: totalPages > maxPages }
+  }
+
+  let page = 1
+  let current = first
+  while (true) {
+    const next = current.resp.headers.get("x-next-page")
+    if (!next || current.items.length < perPage) return { items: results, truncated: false }
+    const nextPage = Number(next)
+    if (!Number.isFinite(nextPage) || nextPage <= page) return { items: results, truncated: false }
+    if (nextPage > maxPages) return { items: results, truncated: true }
+    page = nextPage
+    current = await fetchPage(page)
+    results.push(...current.items)
+  }
 }
+
+/** Every page of a GitLab list endpoint. */
+async function paginateAll<T>(url: string, token: string): Promise<T[]> {
+  return (await paginate<T>(url, token)).items
+}
+
+// A namespace lists at most this many pages of projects (100 each), most
+// recently active first; past that the browser searches on the server.
+const MAX_PROJECT_PAGES = 5
+
+type RawProject = {
+  id: number
+  name: string
+  path_with_namespace: string
+  http_url_to_repo: string
+  default_branch?: string | null
+  visibility?: string
+}
+
+const toProject = (p: RawProject): GitLabProject => ({
+  id: p.id,
+  name: p.name,
+  pathWithNamespace: p.path_with_namespace,
+  httpUrlToRepo: p.http_url_to_repo,
+  defaultBranch: p.default_branch ?? undefined,
+  visibility: p.visibility ?? "private",
+})
+
+/** A numeric id for a URL path segment; anything else fails the call. */
+function numericId(id: unknown, what: string): number {
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 0) {
+    throw new GitLabApiError({ status: 400, message: `invalid GitLab ${what} id: ${String(id)}` })
+  }
+  return id
+}
+
+const byPath = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" })
 
 async function validateUserToken(token: string, baseUrl: string): Promise<GitLabTokenValidation> {
   const apiBase = gitlabApiBase(baseUrl)
@@ -281,6 +348,88 @@ const impl: GitLabClientShape = {
           token,
         )
         return labels.map((l) => l.name)
+      },
+      catch: toGitLabApiError,
+    }),
+
+  listNamespaces: (token: string, baseUrl?: string) =>
+    Effect.tryPromise({
+      try: async (): Promise<GitLabNamespace[]> => {
+        const apiBase = gitlabApiBase(resolveBaseUrl(baseUrl))
+        const fetchUser = async () => {
+          const resp = await gitlabFetch(`${apiBase}/user`, token)
+          await assertOk(resp)
+          return (await resp.json()) as { id: number; username: string }
+        }
+        // min_access_level=10 (Guest) keeps groups the user is a member of,
+        // directly or through a parent group; all_available=false drops the
+        // public groups they merely can see.
+        const [user, groups] = await Promise.all([
+          fetchUser(),
+          paginateAll<{ id: number; full_path: string; marked_for_deletion_on?: string | null }>(
+            `${apiBase}/groups?min_access_level=10&all_available=false`,
+            token,
+          ),
+        ])
+        return [
+          { id: user.id, kind: "user" as const, fullPath: user.username },
+          ...groups
+            .filter((g) => !g.marked_for_deletion_on)
+            .map((g) => ({ id: g.id, kind: "group" as const, fullPath: g.full_path }))
+            .sort((a, b) => byPath(a.fullPath, b.fullPath)),
+        ]
+      },
+      catch: toGitLabApiError,
+    }),
+
+  listProjects: (
+    token: string,
+    namespace: Pick<GitLabNamespace, "id" | "kind">,
+    search?: string,
+    baseUrl?: string,
+  ) =>
+    Effect.tryPromise({
+      try: async (): Promise<GitLabProjectList> => {
+        const apiBase = gitlabApiBase(resolveBaseUrl(baseUrl))
+        const params = new URLSearchParams({ simple: "true", order_by: "last_activity_at" })
+        if (namespace.kind === "group") {
+          // with_shared=false keeps projects from other namespaces that are
+          // only shared with the group out of its tree.
+          params.set("include_subgroups", "true")
+          params.set("with_shared", "false")
+        }
+        const query = search?.trim()
+        if (query) params.set("search", query)
+        const base =
+          namespace.kind === "group"
+            ? `${apiBase}/groups/${numericId(namespace.id, "group")}/projects`
+            : `${apiBase}/users/${numericId(namespace.id, "user")}/projects`
+        const { items, truncated } = await paginate<RawProject>(
+          `${base}?${params.toString()}`,
+          token,
+          MAX_PROJECT_PAGES,
+        )
+        const projects = items
+          .map(toProject)
+          .sort((a, b) => byPath(a.pathWithNamespace, b.pathWithNamespace))
+        return { projects, truncated }
+      },
+      catch: toGitLabApiError,
+    }),
+
+  listRefs: (token: string, projectPath: string, baseUrl?: string) =>
+    Effect.tryPromise({
+      try: async (): Promise<GitLabRef[]> => {
+        const projectId = encodeURIComponent(projectPath)
+        const repoBase = `${gitlabApiBase(resolveBaseUrl(baseUrl))}/projects/${projectId}/repository`
+        const [branches, tags] = await Promise.all([
+          paginateAll<{ name: string }>(`${repoBase}/branches`, token),
+          paginateAll<{ name: string }>(`${repoBase}/tags`, token),
+        ])
+        return [
+          ...branches.map((b) => ({ ref: b.name, type: "branch" as const })),
+          ...tags.map((t) => ({ ref: t.name, type: "tag" as const })),
+        ]
       },
       catch: toGitLabApiError,
     }),

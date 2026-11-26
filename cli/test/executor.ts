@@ -94,6 +94,8 @@ import {
   parseAuthDependencies,
   parseRunDependencies,
   parseShowWhenBlocks,
+  parseShowWhens,
+  type ShowWhenSpan,
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
   lowercaseFirst,
@@ -112,6 +114,10 @@ import {
   showWhenBlockHolds,
   type ShowWhenBlock,
 } from "../../src/domain/exec/showWhenBlock.ts"
+import {
+  describeShowWhenOutput,
+  showWhenOutputHolds,
+} from "../../src/domain/exec/showWhenOutput.ts"
 
 // ---------------------------------------------------------------------------
 // Block types & states
@@ -337,6 +343,10 @@ export class TestExecutor {
   private runDeps!: Map<string, string[]>
   // Each Check, Command and Finish block's `showWhenBlock` condition, by block ID
   private showWhenBlocks!: Map<string, ShowWhenBlock>
+  // The <ShowWhen> blocks, whose content shows only while an output has a value
+  private showWhens!: ShowWhenSpan[]
+  // What's wrong with the <ShowWhen> blocks the app shows a configuration error for
+  private showWhenErrors!: string[]
   // The blocks each block reads `.inputs` from, by block ID (inputsIdsOf)
   private inputsIds!: Map<string, string[]>
 
@@ -399,6 +409,9 @@ export class TestExecutor {
     this.authDeps = parseAuthDependencies(this.runbookPath)
     this.runDeps = parseRunDependencies(this.runbookPath)
     this.showWhenBlocks = parseShowWhenBlocks(this.runbookPath)
+    const showWhens = parseShowWhens(this.runbookPath)
+    this.showWhens = showWhens.spans
+    this.showWhenErrors = showWhens.errors
     this.inputsIds = new Map(
       this.validator.getComponents().map((block) => [block.id, inputsIdsOf(block)]),
     )
@@ -505,6 +518,12 @@ export class TestExecutor {
     if (unknown.length > 0) {
       result.status = "failed"
       result.error = unknownBlocksError(unknown)
+      result.duration = Date.now() - start
+      return result
+    }
+    if (this.showWhenErrors.length > 0) {
+      result.status = "failed"
+      result.error = this.showWhenErrors.join(" ")
       result.duration = Date.now() - start
       return result
     }
@@ -1074,8 +1093,9 @@ export class TestExecutor {
   }
 
   /**
-   * The step's result when `showWhenBlock` decides it: the block is hidden,
-   * or the step expects it to be and it isn't. Null when the block runs.
+   * The step's result when `showWhenBlock` or a <ShowWhen> around the block
+   * decides it: the block is hidden, or the step expects it to be and it
+   * isn't. Null when the block runs.
    */
   private showWhenBlockResult(
     block: ParsedComponent,
@@ -1086,10 +1106,12 @@ export class TestExecutor {
     if (step.expect === "skip") return null
     const condition = this.showWhenBlocks.get(block.id) ?? null
     const latest = condition ? this.scriptResults.get(normalizeBlockId(condition.id)) : undefined
-    const shown = showWhenBlockHolds(condition, latest)
+    const why =
+      condition && !showWhenBlockHolds(condition, latest)
+        ? `it shows only when ${describeShowWhenBlock(condition)}, and "${condition.id}" ${latest ? `ended in ${latest}` : "hasn't run"}`
+        : this.hiddenByShowWhen(block)
 
-    if (!shown && condition) {
-      const why = `it shows only when ${describeShowWhenBlock(condition)}, and "${condition.id}" ${latest ? `ended in ${latest}` : "hasn't run"}`
+    if (why) {
       result.actualStatus = "hidden"
       result.passed = implicit || step.expect === "hidden"
       if (!result.passed) result.error = `Block is hidden: ${why}`
@@ -1104,8 +1126,34 @@ export class TestExecutor {
       result.passed = false
       result.error = condition
         ? `Expected block to be hidden, but "${condition.id}" ended in ${latest}`
-        : "Expected block to be hidden, but it has no showWhenBlock"
+        : this.showWhensAround(block).length > 0
+          ? "Expected block to be hidden, but every <ShowWhen> around it shows it"
+          : "Expected block to be hidden, but it has no showWhenBlock and is in no <ShowWhen>"
       return result
+    }
+    return null
+  }
+
+  /** The <ShowWhen> blocks the block is in, outermost first. */
+  private showWhensAround(block: ParsedComponent): ShowWhenSpan[] {
+    return this.showWhens.filter((span) => span.start < block.index && block.index < span.end)
+  }
+
+  /** Why a <ShowWhen> around the block hides it, or null while every one shows it. */
+  private hiddenByShowWhen(block: ParsedComponent): string | null {
+    const around = this.showWhensAround(block)
+    if (around.length === 0) return null
+    const outputs = this.templateOutputs()
+    const shownOutputs = this.templateOutputs(maskOutputs)
+    for (const { condition } of around) {
+      const key = normalizeBlockId(condition.blockId)
+      const value = outputs[key]?.[condition.output]
+      if (showWhenOutputHolds(condition, value)) continue
+      const actual =
+        value === undefined
+          ? `${condition.blockId} hasn't output ${condition.output}`
+          : `it is "${shownOutputs[key]?.[condition.output]}"`
+      return `it is in a <ShowWhen> that shows only when ${describeShowWhenOutput(condition)}, and ${actual}`
     }
     return null
   }

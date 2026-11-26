@@ -10,6 +10,7 @@ import {
   missingRolesMessage,
   parseDeviceCodePrompt,
   principalFor,
+  refreshSubscriptions,
   resolveContextOptions,
   resolveRoleScope,
   showAccount,
@@ -83,6 +84,20 @@ describe("showAccount", () => {
       stderr("SyntaxWarning: invalid escape\nERROR: the network is down"),
     )
     expect(failureMessage(exit)).toContain("the network is down")
+  })
+
+  it("shows the first error of a wrapper such as a mise shim, not its closing hint", () => {
+    const { exit } = run(showAccount(CTX), () =>
+      stderr(
+        [
+          "mise ERROR No version is set for shim: az",
+          "Set a global default version with one of the following:",
+          "mise use -g azure-cli@2.85.0",
+          "mise ERROR Run with --verbose or MISE_VERBOSE=1 for more information",
+        ].join("\n"),
+      ),
+    )
+    expect(failureMessage(exit)).toContain("mise ERROR No version is set for shim: az")
   })
 })
 
@@ -426,5 +441,20 @@ describe("azCommand", () => {
       args: ["/d", "/s", "/c", '""az" "login" "--certificate" "C:\\My Keys\\a""b.pem""'],
       windowsVerbatimArguments: true,
     })
+  })
+})
+
+describe("refreshSubscriptions", () => {
+  it("refreshes the subscriptions in the block's config dir", () => {
+    const { exit, calls } = run(refreshSubscriptions(CTX), () => stdout(""))
+    value(exit)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.args).toEqual(["account", "list", "--refresh", "-o", "none"])
+    expect(calls[0]!.env!.AZURE_CONFIG_DIR).toBe(CTX.configDir)
+  })
+
+  it("fails when az does", () => {
+    const { exit } = run(refreshSubscriptions(CTX), () => stderr("ERROR: network unreachable"))
+    expect(failureMessage(exit)).toContain("network unreachable")
   })
 })

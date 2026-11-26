@@ -99,3 +99,35 @@ export interface GitHubRef {
   name: string
   type: "branch" | "tag"
 }
+
+/** A GitLab group the token's user belongs to, or their personal namespace */
+export interface GitLabNamespace {
+  id: number
+  kind: "group" | "user"
+  /** `group/subgroup`, or the username for a personal namespace */
+  fullPath: string
+}
+
+/** A GitLab project */
+export interface GitLabProject {
+  id: number
+  name: string
+  /** `group/subgroup/project` */
+  pathWithNamespace: string
+  /** HTTPS clone URL as the instance reports it */
+  httpUrlToRepo: string
+  defaultBranch?: string | undefined
+  visibility: string
+}
+
+/** Projects in a namespace; `truncated` when it has more than were listed */
+export interface GitLabProjectList {
+  projects: GitLabProject[]
+  truncated: boolean
+}
+
+/** A GitLab ref (branch or tag) */
+export interface GitLabRef {
+  name: string
+  type: "branch" | "tag"
+}

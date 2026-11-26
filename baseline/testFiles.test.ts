@@ -1,7 +1,7 @@
 /**
  * Every fixture's `runbook_test.yml` against the `runbook_test.yml` schema
  * (work product 2.11), bound to its runbook through a registry with today's
- * 21 tags. The real registry has no blocks until phase 3, so this one stands
+ * 22 tags. The real registry has no blocks until phase 3, so this one stands
  * in: each tag's class and effects as the plan gives them ("The classes" and
  * "Effects and capabilities"), its props as `props.json` lists them, taken
  * as written, since the stand-in checks what a step may say about a block,
@@ -114,13 +114,16 @@ const alias = (name: string, of: string, locked: AnyProps): Alias<AnyProps> => (
 })
 
 /**
- * Today's 21 tags. The plan: GitClone declares `push`, for an empty remote,
+ * Today's 22 tags. The plan: GitClone declares `push`, for an empty remote,
  * and GitPullRequest for its branch; Template has a form of its own, the
- * template's variables.
+ * template's variables. ShowWhen came from main after the plan (#564): it
+ * shows its content by another block's output and does nothing itself, so
+ * it stands in as a display block.
  */
 const STAND_IN: Registry = {
   Admonition: display("Admonition"),
   Chapter: display("Chapter"),
+  ShowWhen: display("ShowWhen"),
   Inputs: form("Inputs"),
   DirPicker: form("DirPicker"),
   Iframe: form("Iframe"),
@@ -179,10 +182,10 @@ function problems(fixture: string): string | undefined {
 }
 
 describe("the runbook_test.yml schema, against the fixtures", () => {
-  it("stands in a block or alias for each of today's 21 tags", () => {
+  it("stands in a block or alias for each of today's 22 tags", () => {
     expect(Object.keys(STAND_IN).sort()).toEqual(Object.keys(PROPS).sort())
     const blocks = Object.values(STAND_IN).filter((e): e is AnyBlock => "class" in e)
-    expect(blocks).toHaveLength(17)
+    expect(blocks).toHaveLength(18)
   })
 
   it("decodes every fixture but those it names, each for the reason it gives", () => {
