@@ -7,7 +7,13 @@
  */
 import { Schema } from "effect"
 import type { OutputDecls } from "@runbooks/blocks-core/contract"
-import { type Field, FieldValue, type FormSpec, type FormValues } from "@runbooks/blocks-core/form"
+import {
+  type Field,
+  FieldValue,
+  type FormSpec,
+  type FormValues,
+  templateText,
+} from "@runbooks/blocks-core/form"
 import { nearest } from "../document/nearest.ts"
 import { hiddenVariables } from "../domain/boilerplate/showWhen.ts"
 import { validateVariableValue } from "../domain/boilerplate/validators.ts"
@@ -269,13 +275,6 @@ export const valuesOf = (form: Form): FormValues =>
     ]),
   )
 
-/** A value as a template prints it: a list or map as JSON. */
-function text(value: FieldValue): string {
-  if (typeof value === "string") return value
-  if (typeof value === "number" || typeof value === "boolean") return String(value)
-  return JSON.stringify(value)
-}
-
 /**
  * A submitted form's outputs: each declared output is the field of the same
  * name, as text, sensitive if either the declaration or the field is.
@@ -290,7 +289,7 @@ export function outputsOf(
       const decl = Object.hasOwn(declared, field.name) ? declared[field.name] : undefined
       const value = values[field.name]
       if (decl === undefined || value === undefined) return []
-      return [[field.name, hold(decl.sensitive || field.sensitive, text(value))]]
+      return [[field.name, hold(decl.sensitive || field.sensitive, templateText(value))]]
     }),
   )
 }
