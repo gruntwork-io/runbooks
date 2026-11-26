@@ -1,6 +1,6 @@
 /**
- * Builds the rebuilt app, packages/app-main and packages/app-renderer, into
- * app-out/. The old app builds from electron.vite.config.ts into dist/, and
+ * Builds the rebuilt app, packages/app-main (main and the window's preload)
+ * and packages/app-renderer, into app-out/. The old app builds from electron.vite.config.ts into dist/, and
  * neither build reads the other's files. `just app-build` and `just app-dev`
  * run this config.
  */
@@ -30,6 +30,23 @@ export default defineConfig({
       outDir: path.join(OUT, "main"),
       rolldownOptions: {
         input: { index: path.join(ROOT, "packages/app-main/src/main.ts") },
+      },
+    },
+  },
+  preload: {
+    build: {
+      outDir: path.join(OUT, "preload"),
+      rolldownOptions: {
+        input: { index: path.join(ROOT, "packages/app-main/src/preload.ts") },
+        // A sandboxed preload is a script that may require only electron:
+        // CommonJS, with bridge.ts bundled in.
+        output: {
+          format: "cjs",
+          entryFileNames: "[name].cjs",
+          // Rolldown only keeps the sources' own "use strict" directives, and
+          // these ES module sources have none, so ask for it as Rollup did.
+          strict: true,
+        },
       },
     },
   },

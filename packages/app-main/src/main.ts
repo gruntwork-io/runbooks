@@ -2,8 +2,9 @@
  * The rebuilt app's Electron main process. It opens one window, secure by
  * default:
  *
- * - The window is sandboxed and context-isolated, runs no Node and no
- *   preload, and keeps web security on.
+ * - The window is sandboxed and context-isolated, runs no Node, and keeps
+ *   web security on. Its preload gives the page the engine bridge and
+ *   nothing else (`preload.ts`).
  * - Its session is a partition kept in memory, so the window writes no
  *   storage, cookies or cache to disk. The session denies every permission.
  * - Its page gets a Content-Security-Policy response header from here, where
@@ -49,8 +50,11 @@ const PARTITION = "window"
 const CONTENT_SECURITY_POLICY =
   "default-src 'none'; script-src 'self'; base-uri 'none'; form-action 'none'"
 
-/** The renderer's page in a build: electron-vite writes main/ and renderer/ side by side. */
+/** The renderer's page in a build: electron-vite writes main/, preload/ and renderer/ side by side. */
 const RENDERER_PAGE = path.join(import.meta.dirname, "../renderer/index.html")
+
+/** The window's preload, built as CommonJS for the sandbox. */
+const PRELOAD = path.join(import.meta.dirname, "../preload/index.cjs")
 
 if (!app.commandLine.hasSwitch("user-data-dir")) {
   app.setPath("userData", path.join(app.getPath("appData"), USER_DATA))
@@ -131,6 +135,7 @@ function openWindow(devServer: boolean): BrowserWindow {
     height: 900,
     webPreferences: {
       session: windowSession,
+      preload: PRELOAD,
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
