@@ -4,7 +4,7 @@
  * outlive each start, as the app's do.
  */
 import { describe, expect, it } from "bun:test"
-import { Duration, Effect, Fiber, Layer, Option, Redacted, Schema, Stream } from "effect"
+import { Deferred, Duration, Effect, Fiber, Layer, Option, Redacted, Schema, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import {
   BlockId,
@@ -33,6 +33,7 @@ import {
 import { testFileSystem } from "../test-utils/TestFileSystem.ts"
 import { type TestCipherOptions, testCiphertext } from "../test-utils/TestSessionCipher.ts"
 import {
+  makeHold,
   type MemorySessionDatabase,
   memorySessionDatabase,
 } from "../test-utils/TestSessionDatabase.ts"
@@ -523,6 +524,61 @@ describe("resuming a session", () => {
     expect(ids.b.resumed).toBeUndefined()
     expect(ids.c.session).toBe(ids.a.session)
     expect(ids.c.resumed).toBeDefined()
+  })
+
+  it("resumes a saved session once when two opens of its runbook come at once: the other starts a session of its own", async () => {
+    const on = machine(FORM_AND_DEPLOY)
+    await start(
+      on,
+      Effect.andThen(open, (rb) => rb.close),
+    )
+    const first = makeHold()
+    const second = makeHold()
+    const opened = await start(
+      on,
+      Effect.gen(function* () {
+        const engine = yield* Engine
+        // Each open has chosen what to resume when it saves the session's row: both wait there.
+        on.database.holding.set("putSession", first)
+        const a = yield* Effect.forkChild(open, { startImmediately: true })
+        yield* Deferred.await(first.reached)
+        on.database.holding.set("putSession", second)
+        const b = yield* Effect.forkChild(open, { startImmediately: true })
+        yield* Deferred.await(second.reached)
+        on.database.holding.delete("putSession")
+        yield* Deferred.succeed(first.release, undefined)
+        yield* Deferred.succeed(second.release, undefined)
+        const views = [(yield* Fiber.join(a)).view, (yield* Fiber.join(b)).view]
+        return { views, listed: (yield* engine.listSessions).map((s) => s.session) }
+      }),
+    )
+    const [a, b] = opened.views
+    expect(a!.resumed).toBeDefined()
+    expect(b!.resumed).toBeUndefined()
+    expect(b!.session).not.toBe(a!.session)
+    expect(new Set(opened.listed)).toEqual(new Set([a!.session, b!.session]))
+  })
+
+  it("leaves a saved session to the next open when the open resuming it is cancelled", async () => {
+    const on = machine(FORM_AND_DEPLOY)
+    const saved = await start(
+      on,
+      Effect.andThen(open, (rb) => Effect.as(rb.close, rb.view.session)),
+    )
+    const saving = makeHold()
+    const reopened = await start(
+      on,
+      Effect.gen(function* () {
+        on.database.holding.set("putSession", saving)
+        const cancelled = yield* Effect.forkChild(open, { startImmediately: true })
+        yield* Deferred.await(saving.reached)
+        on.database.holding.delete("putSession")
+        yield* Fiber.interrupt(cancelled)
+        return (yield* open).view
+      }),
+    )
+    expect(reopened.session).toBe(saved)
+    expect(reopened.resumed).toBeDefined()
   })
 
   it("goes on when the database refuses every save", async () => {
