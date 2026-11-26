@@ -12,8 +12,12 @@
  * - A link is clickable only to an http, https or mailto URL, or to a `#`
  *   fragment in the document (`linkTarget`). Any other shows its text and
  *   its URL.
- * - An image, and an `<img>`, `<video>`, `<audio>` or `<source>`, shows its
- *   alt text and URL as text, and loads nothing.
+ * - An image, and an `<img>`, `<video>`, `<audio>` or `<source>`, whose URL
+ *   names a file in the runbook's assets/ folder (`assetUrl`) is created with
+ *   that file's `runbook-asset:` URL, which main serves through its path
+ *   guard, and only the props `MEDIA_PROPS` names. Any other shows its alt
+ *   text and URL as text, and loads nothing: a remote URL, a path outside
+ *   assets/, a `data:` or `file:` URL.
  * - A node of a type the walk doesn't know, or an element it doesn't create,
  *   shows its children, or its text value; `unknownParts` counts them for
  *   the page to say so.
@@ -101,13 +105,85 @@ const ELEMENTS: ReadonlySet<string> = new Set(
 /** Elements that take no children. */
 const VOID: ReadonlySet<string> = new Set(["br", "hr"])
 
-/** Elements that would load a file: shown as their URL. */
+/** Elements that load a file: created for a runbook asset, else shown as their kind and URL. */
 const MEDIA: ReadonlyMap<string, string> = new Map([
   ["img", "Image"],
   ["video", "Video"],
   ["audio", "Audio"],
   ["source", "Media"],
 ])
+
+/**
+ * The props a media element keeps besides its `src`, by the name as written,
+ * lowercased, to the name React takes. A video's `poster` is kept when it
+ * names an asset too. No element keeps `autoplay`, a handler or a style.
+ */
+const MEDIA_PROPS: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map([
+  [
+    "img",
+    new Map([
+      ["alt", "alt"],
+      ["width", "width"],
+      ["height", "height"],
+    ]),
+  ],
+  [
+    "video",
+    new Map([
+      ["controls", "controls"],
+      ["preload", "preload"],
+      ["muted", "muted"],
+      ["loop", "loop"],
+      ["width", "width"],
+      ["height", "height"],
+    ]),
+  ],
+  [
+    "audio",
+    new Map([
+      ["controls", "controls"],
+      ["preload", "preload"],
+      ["muted", "muted"],
+      ["loop", "loop"],
+    ]),
+  ],
+  ["source", new Map()],
+])
+
+/** The scheme main serves the open runbook's assets/ from (packages/app-main/src/runbookAssets.ts). */
+const ASSET_SCHEME = "runbook-asset"
+
+/** How a URL that names a file in the runbook's assets/ folder starts. */
+const IN_ASSETS = /^(?:\.\/)?assets\//
+
+/**
+ * The `runbook-asset:` URL of the file `url` names in the assets/ folder of
+ * the runbook that `session` has open, or undefined when it names none.
+ * `./assets/a.png` and `assets/a.png` name assets/a.png. A path that,
+ * percent-decoded, has an empty, `.` or `..` part or a backslash names
+ * none, and so does one the URL parser would read as another path (it
+ * drops a tab or a newline, and trailing spaces), so the URL names the file
+ * as written. Its host is the session's id, and its query or fragment is
+ * kept.
+ */
+export function assetUrl(url: string, session: string): string | undefined {
+  const prefix = IN_ASSETS.exec(url)
+  if (prefix === null) return undefined
+  const rest = url.slice(prefix[0].length)
+  const asset = `${ASSET_SCHEME}://${session}/${rest}`
+  let decoded: string
+  let parsed: string
+  try {
+    decoded = decodeURIComponent(rest.split(/[?#]/, 1)[0] ?? "")
+    parsed = decodeURIComponent(URL.parse(asset)?.pathname ?? "")
+  } catch {
+    return undefined
+  }
+  if (decoded.includes("\\") || parsed !== `/${decoded}`) return undefined
+  if (decoded.split("/").some((part) => part === "" || part === "." || part === ".."))
+    return undefined
+  return asset
+}
 
 /** The elements the walk shows as more than their children. */
 const KNOWN_ELEMENTS: ReadonlySet<string> = new Set([...ELEMENTS, ...MEDIA.keys(), "a"])
@@ -191,6 +267,8 @@ interface Walk {
   readonly definitions: ReadonlyMap<string, Definition>
   /** The runbook file, which a block's errors are located in. */
   readonly runbook: string
+  /** The id of the session that has the runbook open: the host of its assets' URLs. */
+  readonly session: string
 }
 
 function definitionsIn(tree: TreeNode): Walk["definitions"] {
@@ -208,12 +286,20 @@ function definitionsIn(tree: TreeNode): Walk["definitions"] {
 export function Markdown({
   document,
   runbook,
+  session,
 }: {
   readonly document: Pick<DocumentView, "tree" | "blocks">
   /** The runbook file. */
   readonly runbook: string
+  /** The id of the session that has it open. */
+  readonly session: string
 }) {
-  const walk: Walk = { blocks: document.blocks, definitions: definitionsIn(document.tree), runbook }
+  const walk: Walk = {
+    blocks: document.blocks,
+    definitions: definitionsIn(document.tree),
+    runbook,
+    session,
+  }
   return render(document.tree, 0, walk)
 }
 
@@ -272,9 +358,9 @@ function render(tree: TreeNode, key: number, walk: Walk): ReactNode {
       )
     }
     case "image":
-      return media("Image", part.alt, part.url, key)
+      return image(part.alt, part.url, key, walk)
     case "imageReference":
-      return media("Image", part.alt, walk.definitions.get(part.identifier)?.url ?? "", key)
+      return image(part.alt, walk.definitions.get(part.identifier)?.url ?? "", key, walk)
     case "definition":
       return null
     case "footnoteReference":
@@ -445,6 +531,74 @@ function media(kind: string, alt: string | null | undefined, url: string, key: n
   )
 }
 
+/** An image the markdown names: created from its asset URL, or else its alt text and URL. */
+function image(alt: string | null | undefined, url: string, key: number, walk: Walk): ReactNode {
+  const src = assetUrl(url, walk.session)
+  if (src === undefined) return media("Image", alt, url, key)
+  return <img key={key} src={src} alt={alt ?? undefined} />
+}
+
+/** Whether `tree` is a `<source>` whose `src` names an asset. */
+function isAssetSource(tree: TreeNode, walk: Walk): boolean {
+  const part = read(tree)
+  if (part.type !== "mdxJsxFlowElement" && part.type !== "mdxJsxTextElement") return false
+  const src = part.name === "source" ? stringProp(part.props, "src") : undefined
+  return src !== undefined && assetUrl(src, walk.session) !== undefined
+}
+
+/**
+ * An `<img>`, `<video>`, `<audio>` or `<source>` the author wrote. It is
+ * created when its `src` names an asset, or for a video or audio with no
+ * `src` that holds a `<source>` that does, with only the props
+ * `MEDIA_PROPS` names; else it is its kind, alt text and URL, then its
+ * children.
+ */
+function mediaElement(
+  tree: TreeNode,
+  name: string,
+  kind: string,
+  props: Readonly<Record<string, unknown>>,
+  key: number,
+  walk: Walk,
+): ReactNode {
+  const written = stringProp(props, "src")
+  const src = written === undefined ? undefined : assetUrl(written, walk.session)
+  const fromSources =
+    written === undefined &&
+    (name === "video" || name === "audio") &&
+    (tree.children ?? []).some((child) => isAssetSource(child, walk))
+  if (src === undefined && !fromSources)
+    return (
+      <Fragment key={key}>
+        {media(kind, stringProp(props, "alt") ?? stringProp(props, "title"), written ?? "", 0)}
+        {children(tree, walk)}
+      </Fragment>
+    )
+  const kept: Record<string, unknown> = { src }
+  const allowed = MEDIA_PROPS.get(name)
+  for (const [writtenName, value] of Object.entries(props)) {
+    const lower = writtenName.toLowerCase()
+    if (name === "video" && lower === "poster") {
+      const poster = typeof value === "string" ? assetUrl(value, walk.session) : undefined
+      if (poster !== undefined) kept["poster"] = poster
+      continue
+    }
+    const prop = allowed?.get(lower)
+    if (prop === undefined) continue
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+      kept[prop] = value
+  }
+  if (name === "video" || name === "audio")
+    return createElement(name, { key, ...kept }, children(tree, walk))
+  // An <img> or <source> takes no children: any the author wrote follow it.
+  return (
+    <Fragment key={key}>
+      {createElement(name, kept)}
+      {children(tree, walk)}
+    </Fragment>
+  )
+}
+
 /** The string value of `name` in `props`, matched without case, as the DOM matches attributes. */
 function stringProp(props: Readonly<Record<string, unknown>>, name: string): string | undefined {
   for (const [written, value] of Object.entries(props))
@@ -468,18 +622,7 @@ function element(
       key,
     )
   const kind = MEDIA.get(name)
-  if (kind !== undefined)
-    return (
-      <Fragment key={key}>
-        {media(
-          kind,
-          stringProp(props, "alt") ?? stringProp(props, "title"),
-          stringProp(props, "src") ?? "",
-          0,
-        )}
-        {children(tree, walk)}
-      </Fragment>
-    )
+  if (kind !== undefined) return mediaElement(tree, name, kind, props, key, walk)
   const kept: Record<string, unknown> = { key }
   const own = ELEMENT_PROPS.get(name)
   for (const [written, value] of Object.entries(props)) {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { Schema } from "effect"
 import { renderToStaticMarkup } from "react-dom/server"
 import { DocumentBlock, type DocumentView } from "@runbooks/core/protocol"
-import { linkTarget, Markdown, unknownParts } from "./markdown.tsx"
+import { assetUrl, linkTarget, Markdown, unknownParts } from "./markdown.tsx"
 
 // The walk over trees shaped as the engine's parser makes them (mdast, with
 // `block` nodes and HTML elements as `{ name, props }`), rendered to the
@@ -33,9 +33,16 @@ const block = (fields: Record<string, unknown>): DocumentBlock =>
   })
 
 const RUNBOOK = "/work/demo/runbook.mdx"
+/** The id of the session that has RUNBOOK open: the host of its assets' URLs. */
+const SESSION = "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"
+const ASSETS = `runbook-asset://${SESSION}`
 
 const html = (tree: TreeNode, blocks: ReadonlyArray<DocumentBlock> = []) =>
-  renderToStaticMarkup(<Markdown document={{ tree, blocks }} runbook={RUNBOOK} />)
+  renderToStaticMarkup(<Markdown document={{ tree, blocks }} runbook={RUNBOOK} session={SESSION} />)
+
+/** `markup` less the preload hint React's server renderer adds for each image; the window's client render adds none. */
+const withoutImagePreloads = (markup: string) =>
+  markup.replaceAll(/<link rel="preload" as="image" href="[^"]*"\/>/g, "")
 
 const configError = (file: string, line: number, message: string) => ({
   _tag: "ConfigError",
@@ -164,18 +171,80 @@ describe("the walk", () => {
     expect(shown).toBe('<p><a href="https://example.com/docs">the docs</a></p>')
   })
 
-  it("shows an image's alt text and URL, and loads nothing", () => {
+  it("renders an image in the runbook's assets/ folder from its runbook-asset URL", () => {
     const shown = html(
       root(
         p({ type: "image", url: "./assets/diagram.png", alt: "The diagram" }),
-        el("img", { src: "https://example.com/pixel.gif", alt: "A pixel", onError: "x" }),
-        el("video", { src: "./assets/demo.mp4", controls: true }),
+        p({ type: "imageReference", identifier: "icon", alt: "An icon" }),
+        { type: "definition", identifier: "icon", url: "assets/icons/tiny pixel.png", title: null },
+        el("img", {
+          src: "./assets/pixel.png",
+          alt: "A pixel",
+          width: "40",
+          height: 20,
+          title: "dropped",
+          style: { position: "fixed" },
+          onError: "x",
+        }),
       ),
     )
-    expect(shown).not.toMatch(/<(img|video)/)
-    expect(shown).toContain("Image: The diagram (./assets/diagram.png)")
+    expect(withoutImagePreloads(shown)).toBe(
+      `<p><img src="${ASSETS}/diagram.png" alt="The diagram"/></p>` +
+        `<p><img src="${ASSETS}/icons/tiny pixel.png" alt="An icon"/></p>` +
+        `<img src="${ASSETS}/pixel.png" alt="A pixel" width="40" height="20"/>`,
+    )
+  })
+
+  it("renders audio and video in assets/ with their controls, and no other prop", () => {
+    const shown = html(
+      root(
+        el("audio", { src: "assets/tone.wav", controls: true, preload: "auto", loop: true }),
+        el("video", {
+          src: "./assets/demo.webm",
+          poster: "./assets/poster.png",
+          controls: true,
+          width: 320,
+          autoPlay: true,
+          onPlay: "x",
+        }),
+        el(
+          "video",
+          { controls: true },
+          el("source", { src: "./assets/a.webm", type: "video/webm" }),
+        ),
+        el("video", { src: "./assets/b.webm", poster: "https://example.com/poster.png" }),
+      ),
+    )
+    expect(shown).toBe(
+      `<audio src="${ASSETS}/tone.wav" controls="" preload="auto" loop=""></audio>` +
+        `<video src="${ASSETS}/demo.webm" poster="${ASSETS}/poster.png" controls="" width="320"></video>` +
+        `<video controls=""><source src="${ASSETS}/a.webm"/></video>` +
+        `<video src="${ASSETS}/b.webm"></video>`,
+    )
+  })
+
+  it("shows an image or media outside assets/ as its alt text and URL, and loads nothing", () => {
+    const shown = html(
+      root(
+        p({ type: "image", url: "https://example.com/pixel.gif", alt: "A pixel" }),
+        p({ type: "image", url: "./diagram.png", alt: "Beside the runbook" }),
+        p({ type: "image", url: "data:image/png;base64,iVBORw0KGgo=", alt: "Data" }),
+        p({ type: "imageReference", identifier: "none", alt: "Undefined" }),
+        el("img", { src: "file:///etc/passwd", alt: "A file", onError: "x" }),
+        el("video", { src: "../assets/demo.mp4", controls: true }),
+        el("audio", { src: "https://example.com/tone.wav" }),
+        el("video", {}, el("source", { src: "https://example.com/a.webm" })),
+      ),
+    )
+    expect(shown).not.toMatch(/<(img|video|audio|source)/)
     expect(shown).toContain("Image: A pixel (https://example.com/pixel.gif)")
-    expect(shown).toContain("Video (./assets/demo.mp4)")
+    expect(shown).toContain("Image: Beside the runbook (./diagram.png)")
+    expect(shown).toContain("Image: Data (data:image/png;base64,iVBORw0KGgo=)")
+    expect(shown).toContain("Image: Undefined")
+    expect(shown).toContain("Image: A file (file:///etc/passwd)")
+    expect(shown).toContain("Video (../assets/demo.mp4)")
+    expect(shown).toContain("Audio (https://example.com/tone.wav)")
+    expect(shown).toContain("Media (https://example.com/a.webm)")
   })
 
   it("renders footnotes, linked by an id apart from the app's", () => {
@@ -290,6 +359,40 @@ describe("the walk", () => {
     expect(shown).toContain("Line 7: set `command`, the script itself, or `path`")
     expect(shown).toContain("scripts/setup.yml, line 2: the YAML does not parse")
     expect(shown).not.toContain("Runs the setup.")
+  })
+})
+
+describe("assetUrl", () => {
+  it.each([
+    ["./assets/a.png", `${ASSETS}/a.png`],
+    ["assets/a.png", `${ASSETS}/a.png`],
+    ["./assets/icons/tiny pixel.png", `${ASSETS}/icons/tiny pixel.png`],
+    ["assets/my%20image.png", `${ASSETS}/my%20image.png`],
+    ["./assets/clip.webm#t=2", `${ASSETS}/clip.webm#t=2`],
+    ["https://example.com/assets/a.png", undefined],
+    ["//example.com/assets/a.png", undefined],
+    ["/assets/a.png", undefined],
+    ["../assets/a.png", undefined],
+    ["./a.png", undefined],
+    ["data:image/png;base64,iVBORw0KGgo=", undefined],
+    ["file:///work/demo/assets/a.png", undefined],
+    ["runbook-asset://other/a.png", undefined],
+    ["./ASSETS/a.png", undefined],
+    ["assets/", undefined],
+    ["assets/../runbook.mdx", undefined],
+    ["assets/./a.png", undefined],
+    ["assets//a.png", undefined],
+    ["assets/%2e%2E/runbook.mdx", undefined],
+    ["assets/a%2F..%2F..%2Frunbook.mdx", undefined],
+    ["assets/..%5Crunbook.mdx", undefined],
+    ["assets\\..\\runbook.mdx", undefined],
+    ["assets/%E0%A4%A.png", undefined],
+    ["assets/.\t./runbook.mdx", undefined],
+    ["assets/a.png\n", undefined],
+    ["assets/a.png ", undefined],
+    ["", undefined],
+  ])("takes %j to %j", (url, asset) => {
+    expect(assetUrl(url, SESSION)).toBe(asset)
   })
 })
 

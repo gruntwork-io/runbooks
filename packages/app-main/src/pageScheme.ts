@@ -20,9 +20,7 @@
 import { Effect } from "effect"
 import type { FileSystem } from "@runbooks/core/services/FileSystem"
 import { servedFile } from "./pathGuard.ts"
-
-/** The scheme main serves the renderer's build from. */
-export const PAGE_SCHEME = "runbooks-app"
+import { PAGE_SCHEME } from "./schemes.ts"
 
 /** The scheme's one host. */
 const PAGE_HOST = "window"

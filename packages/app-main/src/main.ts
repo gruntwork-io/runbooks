@@ -52,9 +52,10 @@ import { contentSecurityPolicy } from "./contentSecurityPolicy.ts"
 import { appEngine } from "./engine.ts"
 import { makeIpcServerProtocol } from "./ipcServer.ts"
 import { type Launch, launchArgument, serveLaunch } from "./launch.ts"
-import { APP_PAGE, PAGE_SCHEME, pageFile } from "./pageScheme.ts"
+import { APP_PAGE, pageFile } from "./pageScheme.ts"
 import { notFound } from "./pathGuard.ts"
-import { ASSET_SCHEME, serveRunbookAsset, sessionRunbook } from "./runbookAssets.ts"
+import { serveRunbookAsset, sessionRunbook } from "./runbookAssets.ts"
+import { ASSET_SCHEME, PAGE_SCHEME } from "./schemes.ts"
 
 /** The repository's version, set by the build (electron.vite.app.config.ts). */
 declare const __RUNBOOKS_VERSION__: string

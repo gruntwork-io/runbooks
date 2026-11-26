@@ -22,9 +22,7 @@ import { getContentType } from "@runbooks/core/domain/workspace/file"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
 import { fileResponse } from "./byteRange.ts"
 import { notFound, servedFile } from "./pathGuard.ts"
-
-/** The scheme main serves a runbook's assets from. */
-export const ASSET_SCHEME = "runbook-asset"
+import { ASSET_SCHEME } from "./schemes.ts"
 
 /** The folder beside a runbook file that its assets are in. */
 const ASSETS_FOLDER = "assets"
