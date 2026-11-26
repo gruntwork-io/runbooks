@@ -972,6 +972,30 @@ describe("Engine values", () => {
     )
   })
 
+  it("shows each field's section and option labels, and none for a field without them", async () => {
+    const fields = await withEngine(
+      withFields('<Form id="config">', [
+        "- name: region",
+        "  type: enum",
+        "  options: [us-east-1, eu-west-1]",
+        "  optionLabels: { us-east-1: N. Virginia, eu-west-1: Ireland }",
+        "  section: Where",
+        "- name: count",
+        "  type: int",
+      ]),
+      {},
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        return yield* rb.fields("config")
+      }),
+    )
+    const [region, count] = fields ?? []
+    expect(region?.section).toBe("Where")
+    expect(region?.optionLabels).toEqual({ "us-east-1": "N. Virginia", "eu-west-1": "Ireland" })
+    expect(count).not.toHaveProperty("section")
+    expect(count).not.toHaveProperty("optionLabels")
+  })
+
   it("marks a value reviewed once an agent sets or confirms it, and logs each change once", async () => {
     await withEngine(
       CONFIG,
