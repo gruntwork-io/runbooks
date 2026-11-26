@@ -90,6 +90,8 @@ interface Node {
   readonly declaration?: Node | null
   readonly body?: ReadonlyArray<Node>
   readonly property?: Node
+  readonly imported?: Node
+  readonly properties?: ReadonlyArray<Node>
 }
 
 interface Context {
@@ -483,6 +485,14 @@ const blocksCoreImportsOnlyEffect = {
   },
 }
 
+/** An identifier's name, or a string literal's value: how an import or a key names a member. */
+const nameOf = (node: Node | undefined): string | undefined =>
+  node?.type === "Identifier"
+    ? node.name
+    : node?.type === "Literal" && typeof node.value === "string"
+      ? node.value
+      : undefined
+
 /**
  * Members whose call throws on a bad value or a failure: Schema's `*Sync`
  * decoders and encoders, `Effect.runSync`, `Option.getOrThrow` and kin.
@@ -505,12 +515,20 @@ const noThrowInBlocks = {
     const pkg = packageOf(file)
     if ((pkg !== "blocks" && pkg !== "blocks-core") || !file.endsWith(".ts")) return {}
     if (file.endsWith(".test.ts")) return {}
+    // A throwing member reaches block code as `Schema.x`, as an imported
+    // name (`import { x } from "effect/Schema"`) or as a destructured key.
+    const report = (node: Node | undefined, name: string | undefined) => {
+      if (node !== undefined && name !== undefined && THROWS.test(name))
+        context.report({ node, messageId: "call", data: { name } })
+    }
     return {
       ThrowStatement: (node: Node) => context.report({ node, messageId: "throw" }),
-      MemberExpression: (node: Node) => {
-        const name = node.computed === true ? undefined : node.property?.name
-        if (name === undefined || !THROWS.test(name)) return
-        context.report({ node: node.property, messageId: "call", data: { name } })
+      MemberExpression: (node: Node) =>
+        report(node.property, node.computed === true ? undefined : node.property?.name),
+      ImportSpecifier: (node: Node) => report(node.imported, nameOf(node.imported)),
+      ObjectPattern: (node: Node) => {
+        for (const property of node.properties ?? [])
+          if (property.computed !== true) report(property.key, nameOf(property.key))
       },
     }
   },
