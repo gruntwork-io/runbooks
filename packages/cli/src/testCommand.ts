@@ -8,8 +8,9 @@
  * settings say `parallelizable: false` runs alone, after the others. The
  * report keeps the runbooks in path order, however they ran.
  *
- * Ctrl-C (`stop`) cancels the running block of each runbook, starts nothing
- * more, and ends with the report so far, the failure `Cancelled` and exit 1.
+ * Ctrl-C or SIGTERM (`stop`) cancels the running block of each runbook,
+ * starts nothing more, and ends with the report so far, the failure
+ * `Cancelled` and exit 1.
  */
 import path from "node:path"
 import { Clock, Console, Deferred, Effect, Result, type Scope } from "effect"
@@ -39,7 +40,7 @@ interface TestOptions<R extends Registry> {
   readonly cwd: string
   /** The environment each test case's blocks start from. */
   readonly env: Readonly<Record<string, string>>
-  /** Completes when the person presses Ctrl-C. */
+  /** Completes on the first Ctrl-C or SIGTERM. */
   readonly stop: Deferred.Deferred<void>
 }
 

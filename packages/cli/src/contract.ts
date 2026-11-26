@@ -25,7 +25,14 @@ import { OutputView } from "@runbooks/core/protocol"
 export const CLI_NAME = "runbooks"
 export const CLI_ALIASES = ["runbooks-test"] as const
 
-/** Documented. A script may rely on them. */
+/**
+ * Documented. A script may rely on them.
+ *
+ * A second Ctrl-C or SIGTERM during `runbooks test`'s stop ends it at once,
+ * and kills the processes its scripts started. It exits with the code below
+ * if the report was written; if not, with 128 plus the signal's number (130
+ * for Ctrl-C, 143 for SIGTERM) and no report.
+ */
 export const EXIT = {
   /** Every test passed; every runbook is valid; the app opened. */
   success: 0,
@@ -218,7 +225,7 @@ export const CliFailure = Schema.Union([
   Schema.TaggedStruct("TooManyFiles", { path: Schema.String, limit: Schema.Int }),
   Schema.TaggedStruct("TestCaseNotFound", { name: Schema.String, runbooks: Schema.Int }),
   Schema.TaggedStruct("BadFlag", { flag: Schema.String, message: Schema.String }),
-  /** Ctrl-C stopped `runbooks test`: the block running then was cancelled, and nothing after it ran. */
+  /** Ctrl-C or SIGTERM stopped `runbooks test`: the block running then was cancelled, and nothing after it ran. */
   Schema.TaggedStruct("Cancelled", {}),
 ])
 export type CliFailure = typeof CliFailure.Type

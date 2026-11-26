@@ -38,9 +38,9 @@ export interface CliOptions<R extends Registry = Registry> {
   /** The process's environment. The `RUNBOOKS_` variables are read from it. */
   readonly env: Readonly<Record<string, string>>
   /**
-   * Completes when the person presses Ctrl-C. `runbooks test` then cancels
-   * what is running and ends with its report. The entry point listens once,
-   * so a second Ctrl-C stops the process at once.
+   * Completes on the first Ctrl-C or SIGTERM. `runbooks test` then cancels
+   * what is running and ends with its report. The entry point stops the
+   * process at once on the next one.
    */
   readonly interrupted: Effect.Effect<void>
 }
@@ -118,7 +118,7 @@ const refusedReport = (command: "test" | "validate", failure: CliFailure): unkno
         failure,
       })
 
-/** `runbooks test`, stopped by the first Ctrl-C. */
+/** `runbooks test`, stopped by the first Ctrl-C or SIGTERM. */
 const testUntilInterrupted = <R extends Registry>(
   args: Parameters<typeof test>[0],
   options: CliOptions<R>,
