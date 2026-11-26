@@ -27,7 +27,10 @@
  * It hosts the engine (`engine.ts`), which keeps its files in the user data
  * folder, and reads the process's environment once, here, for its runs. The
  * engine serves the window's page over IPC (`ipcServer.ts`), and only it.
- * A runbook given on the command line is opened first (`launch.ts`).
+ * A runbook given on the command line is opened first (`launch.ts`). One a
+ * URL names is cloned into the clones folder in the user data folder
+ * (`remoteRunbook.ts`), which main empties when the app starts and when it
+ * quits.
  *
  * A second launch on the same user data folder quits at once, and the first
  * focuses its window.
@@ -46,14 +49,23 @@ import type { Rpc } from "effect/rpc"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
 import type { EngineCommand } from "@runbooks/core/protocol"
 import type { FileSystem } from "@runbooks/core/services/FileSystem"
-import { stopsEnded } from "@runbooks/platform-node/layers/ChildProcessSpawner"
+import {
+  ChildProcessSpawnerLive,
+  stopsEnded,
+} from "@runbooks/platform-node/layers/ChildProcessSpawner"
+import { GitCliClientLive } from "@runbooks/platform-node/layers/GitCliClient"
+import { GitHubHttpClientLive } from "@runbooks/platform-node/layers/GitHubHttpClient"
+import { GitLabHttpClientLive } from "@runbooks/platform-node/layers/GitLabHttpClient"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
+import { ProcessEnvironmentLive } from "@runbooks/platform-node/layers/ProcessEnvironment"
+import { VcsCredentialsLive } from "@runbooks/platform-node/layers/VcsCredentialsLive"
 import { contentSecurityPolicy } from "./contentSecurityPolicy.ts"
 import { appEngine } from "./engine.ts"
 import { makeIpcServerProtocol } from "./ipcServer.ts"
 import { type Launch, launchArgument, serveLaunch } from "./launch.ts"
 import { APP_PAGE, pageFile } from "./pageScheme.ts"
 import { notFound } from "./pathGuard.ts"
+import { clonesFolder, removeClones } from "./remoteRunbook.ts"
 import { serveRunbookAsset, sessionRunbook } from "./runbookAssets.ts"
 import { ASSET_SCHEME, PAGE_SCHEME } from "./schemes.ts"
 
@@ -80,6 +92,43 @@ const PRELOAD = path.join(import.meta.dirname, "../preload/index.cjs")
 if (!app.commandLine.hasSwitch("user-data-dir")) {
   app.setPath("userData", path.join(app.getPath("appData"), USER_DATA))
 }
+
+/** Where main clones the runbooks URLs name. */
+const clones = clonesFolder(app.getPath("userData"))
+
+/**
+ * What cloning a URL's runbook takes beside the file system: git, the
+ * user's credentials for the host, and the process's environment.
+ */
+const RemoteLive = Layer.mergeAll(
+  GitCliClientLive.pipe(Layer.provide(ChildProcessSpawnerLive)),
+  ChildProcessSpawnerLive,
+  ProcessEnvironmentLive,
+  VcsCredentialsLive.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        NodeFileSystemLive,
+        ChildProcessSpawnerLive,
+        ProcessEnvironmentLive,
+        GitHubHttpClientLive,
+        GitLabHttpClientLive,
+      ),
+    ),
+  ),
+)
+
+/** Removes the clones folder, saying so on standard error when it can't. */
+const removeClonesFolder = removeClones(clones).pipe(
+  Effect.catch((failure) =>
+    Effect.sync(() =>
+      console.error(
+        `Runbooks could not remove the runbooks it cloned in ${clones}:`,
+        failure.cause,
+      ),
+    ),
+  ),
+  Effect.provide(NodeFileSystemLive),
+)
 
 // Before the app is ready, and in one call: Electron allows only one.
 //
@@ -143,6 +192,8 @@ app.on("will-quit", (event) => {
   Effect.runFork(
     Fiber.interrupt(engine).pipe(
       Effect.andThen(stopsEnded),
+      // Only once no script runs: one may still read its runbook's folder.
+      Effect.andThen(removeClonesFolder),
       Effect.timeoutOption(QUIT_DEADLINE),
       Effect.ensuring(
         Effect.sync(() => {
@@ -176,21 +227,25 @@ if (firstInstance)
           appWindow
             .loadURL(page.href)
             .catch((error: unknown) => console.error("The window could not load its page:", error))
+          // Clones an earlier run left, as a crash or a quit past its deadline
+          // does. The single-instance lock keeps every other app off them.
+          yield* removeClonesFolder
           // The page asks for an asset only once the engine has answered it,
           // and serveLaunch answers it only after the handler is in place.
           return yield* Effect.andThen(
             serveRunbookAssets(appWindow.webContents.session),
-            serveLaunch(ipcProtocol, launch, (line) => console.error(line)),
+            serveLaunch(ipcProtocol, launch, clones, (line) => console.error(line)),
           ).pipe(
             Effect.scoped,
             Effect.provide(
-              Layer.merge(
+              Layer.mergeAll(
                 appEngine({
                   userData: app.getPath("userData"),
                   appVersion: __RUNBOOKS_VERSION__,
                   processEnvironment,
                 }),
                 NodeFileSystemLive,
+                RemoteLive,
               ),
             ),
           )

@@ -6,24 +6,36 @@
  *   unpackaged run (`electron <entry> ...`) passes the app's entry first,
  *   which is not a runbook. Chromium's and Electron's switches start with
  *   `-`, as `-psn_...` does, which macOS adds to an app it starts.
- * - A relative path resolves against the folder the app was started in.
- * - A folder names the `runbook.mdx` in it.
+ * - A remote source (`isRemoteSource`: a GitHub or GitLab URL, or a
+ *   go-getter source) is cloned into the clones folder, and the runbook it
+ *   names there opens (`remoteRunbook.ts`).
+ * - Otherwise it is a path. A relative path resolves against the folder the
+ *   app was started in, and a folder names the `runbook.mdx` in it.
  * - Main opens it with a client of its own on the engine it serves the page,
  *   with a person's origin: the person launched the app with that path. Main
  *   serves the page only once that open is done. A page that asks before then
  *   waits in main's queue (`ipcServer.ts`), and `ListSessions` finds the
  *   session.
  * - What keeps it from opening goes to `log`, one line each: main's standard
- *   error. The page cannot learn of an open it did not make that failed: it
- *   finds no session, and shows the welcome screen.
+ *   error. A line shows a remote source without its credentials, and no
+ *   token (`redactSecrets`). The page cannot learn of an open it did not make
+ *   that failed: it finds no session, and shows the welcome screen.
  */
 import path from "node:path"
 import { Cause, Effect } from "effect"
 import type { Rpc, RpcClientError, RpcServer } from "effect/rpc"
+import { redactSecrets } from "@runbooks/core/domain/vcs/redact"
+import type { RemoteSourceError } from "@runbooks/core/errors"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
 import type { EngineCommand, RunbookUnreadable } from "@runbooks/core/protocol"
+import { isRemoteSource, redactSourceCredentials } from "@runbooks/core/remote-source"
+import type { Environment } from "@runbooks/core/services/Environment"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
+import type { GitClient } from "@runbooks/core/services/GitClient"
+import type { ProcessSpawner } from "@runbooks/core/services/ProcessSpawner"
+import type { VcsCredentials } from "@runbooks/core/services/VcsCredentials"
 import { servePage } from "./ipcServer.ts"
+import { resolveRemoteRunbook } from "./remoteRunbook.ts"
 
 /** The file a folder given on the command line names. */
 export const RUNBOOK_FILE = "runbook.mdx"
@@ -79,7 +91,11 @@ export interface Launch {
 }
 
 /** Why the launch's runbook did not open. */
-type LaunchFailure = LaunchProblem | RunbookUnreadable | RpcClientError.RpcClientError
+type LaunchFailure =
+  | LaunchProblem
+  | RemoteSourceError
+  | RunbookUnreadable
+  | RpcClientError.RpcClientError
 
 /** The line that says why `failure` kept the launch's runbook from opening. */
 const failureLine = (failure: LaunchFailure): string => {
@@ -90,6 +106,8 @@ const failureLine = (failure: LaunchFailure): string => {
       return `Runbooks could not open ${failure.folder}: the folder has no ${RUNBOOK_FILE}.`
     case "UnknownFolder":
       return `Runbooks could not open ${failure.argument}: the folder Runbooks was started in can't be read, so a relative path names nothing. Give the runbook's full path.`
+    case "RemoteSourceError":
+      return `Runbooks could not open ${failure.url}: ${failure.message}`
     case "RunbookUnreadable":
       return `Runbooks could not open ${failure.path}: ${failure.message}`
     case "RpcClientError":
@@ -101,53 +119,70 @@ const failureLine = (failure: LaunchFailure): string => {
   }
 }
 
-/** The line that says the engine failed opening `argument`: a defect, not an answer. */
-const defectLine = (argument: string, cause: Cause.Cause<unknown>): string => {
+/** The line that says the engine failed opening `shown`: a defect, not an answer. */
+const defectLine = (shown: string, cause: Cause.Cause<unknown>): string => {
   const defect = Cause.squash(cause)
   const reason = defect instanceof Error ? `${defect.name}: ${defect.message}` : String(defect)
-  return `Runbooks could not open ${argument}: the engine failed: ${reason}`
+  return `Runbooks could not open ${shown}: the engine failed: ${reason}`
 }
+
+/** The services cloning a remote source takes. */
+type RemoteServices = VcsCredentials | GitClient | ProcessSpawner | Environment
 
 /**
  * Opens the runbook `launch` names, as the person who launched the app, on
- * the engine in context. What kept it from opening goes to `log`: a line
- * for the runbook, then one for each error the engine found in it. When
- * the engine fails instead of answering, as a runbook nested deep enough to
- * overflow its stack makes it, that is one line too, and main still serves
- * the page.
+ * the engine in context. A remote source is cloned into `clones` first.
+ * What kept it from opening goes to `log`: a line for the runbook, then one
+ * for each error the engine found in it. When the engine fails instead of
+ * answering, as a runbook nested deep enough to overflow its stack makes it,
+ * that is one line too, and main still serves the page.
  */
 const openLaunch = (
   launch: Launch,
+  clones: string,
   log: (line: string) => void,
-): Effect.Effect<void, never, Rpc.ToHandler<EngineCommand> | FileSystem> =>
-  Effect.gen(function* () {
-    const runbook = yield* findLaunchRunbook(launch.argument, launch.startedIn)
+): Effect.Effect<void, never, Rpc.ToHandler<EngineCommand> | FileSystem | RemoteServices> => {
+  const say = (line: string) => log(redactSecrets(line))
+  // A remote source as the lines show it; undefined for a path.
+  const source = isRemoteSource(launch.argument)
+    ? redactSourceCredentials(launch.argument)
+    : undefined
+  return Effect.gen(function* () {
+    const runbook =
+      source === undefined
+        ? yield* findLaunchRunbook(launch.argument, launch.startedIn)
+        : yield* resolveRemoteRunbook(launch.argument, clones)
     const client = yield* makeInProcessClient("person")
     const result = yield* client.OpenSession({ path: runbook })
     if (result._tag === "Opened") return
-    log(`Runbooks could not open ${runbook}:`)
+    say(`Runbooks could not open ${source ?? runbook}:`)
     for (const error of result.errors) {
       const { file, span } = error.location
-      log(`  ${file}:${span.start.line}:${span.start.column}: ${error.message}`)
+      say(`  ${file}:${span.start.line}:${span.start.column}: ${error.message}`)
     }
   }).pipe(
     Effect.scoped,
-    Effect.catch((failure) => Effect.sync(() => log(failureLine(failure)))),
+    Effect.catch((failure) => Effect.sync(() => say(failureLine(failure)))),
     Effect.catchCause((cause) =>
       Cause.hasInterruptsOnly(cause)
         ? Effect.failCause(cause)
-        : Effect.sync(() => log(defectLine(launch.argument, cause))),
+        : Effect.sync(() => say(defectLine(source ?? launch.argument, cause))),
     ),
   )
+}
 
 /**
  * Opens the runbook `launch` names, if any, then serves the page over
  * `protocol` until interrupted. The page's commands wait in the protocol's
- * queue until the open is done.
+ * queue until the open is done. A remote source is cloned into `clones`.
  */
 export const serveLaunch = (
   protocol: RpcServer.Protocol["Service"],
   launch: Launch | undefined,
+  clones: string,
   log: (line: string) => void,
-): Effect.Effect<never, never, Rpc.ToHandler<EngineCommand> | FileSystem> =>
-  Effect.andThen(launch === undefined ? Effect.void : openLaunch(launch, log), servePage(protocol))
+): Effect.Effect<never, never, Rpc.ToHandler<EngineCommand> | FileSystem | RemoteServices> =>
+  Effect.andThen(
+    launch === undefined ? Effect.void : openLaunch(launch, clones, log),
+    servePage(protocol),
+  )

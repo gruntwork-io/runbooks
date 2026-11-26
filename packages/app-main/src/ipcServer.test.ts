@@ -6,7 +6,11 @@ import path from "node:path"
 import { Deferred, Effect, Fiber, Layer, Queue, type Scope, Stream } from "effect"
 import { type Rpc, RpcClient, type RpcMessage, RpcSerialization, type RpcServer } from "effect/rpc"
 import { type EngineClient, EngineProtocol } from "@runbooks/core/protocol"
+import { VcsCredentials } from "@runbooks/core/services/VcsCredentials"
+import { ChildProcessSpawnerLive } from "@runbooks/platform-node/layers/ChildProcessSpawner"
+import { GitCliClientLive } from "@runbooks/platform-node/layers/GitCliClient"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
+import { ProcessEnvironmentLive } from "@runbooks/platform-node/layers/ProcessEnvironment"
 import { FROM_PAGE, MAX_PAGE_MESSAGE, TO_PAGE } from "./bridge.ts"
 import { appEngine } from "./engine.ts"
 import { DROPPED, isAppPage, makeIpcServerProtocol, MAX_QUEUED, servePage } from "./ipcServer.ts"
@@ -528,18 +532,41 @@ describe("the engine over IPC", () => {
 })
 
 describe("a runbook the launch names", () => {
+  /** Credentials for no host. A source the parser refuses gets no further than the hosts. */
+  const unused = (name: string) => () => Effect.die(`${name} is not used by a refused source`)
+  const noCredentials = Layer.succeed(VcsCredentials, {
+    enumerateGitHubHosts: () => Effect.succeed({ configHosts: [], defaultHost: "github.com" }),
+    detectProvider: unused("detectProvider"),
+    tokenForHost: unused("tokenForHost"),
+    detectGitHubEnv: unused("detectGitHubEnv"),
+    detectGitHubCli: unused("detectGitHubCli"),
+    detectGitLabEnv: unused("detectGitLabEnv"),
+    detectGitLabCli: unused("detectGitLabCli"),
+    validateDirect: unused("validateDirect"),
+    enumerateGitLabHosts: unused("enumerateGitLabHosts"),
+    validateViaCli: unused("validateViaCli"),
+    cliStatus: unused("cliStatus"),
+    invalidateCache: unused("invalidateCache"),
+    markTransportDegraded: unused("markTransportDegraded"),
+  })
+
   /**
    * Has the page send `ListSessions` before main serves anything, then serves
    * the launch of `argument` and returns what the page heard.
    */
   const listFirst = (argument: string, openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>) => {
-    const engine = Layer.merge(
+    const userData = path.join(folder, "user data")
+    const engine = Layer.mergeAll(
       appEngine({
-        userData: path.join(folder, "user data"),
+        userData,
         appVersion: "0.31.0",
         processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
       }),
       NodeFileSystemLive,
+      GitCliClientLive.pipe(Layer.provide(ChildProcessSpawnerLive)),
+      ChildProcessSpawnerLive,
+      ProcessEnvironmentLive,
+      noCredentials,
     )
     return Effect.runPromise(
       Effect.scoped(
@@ -553,8 +580,11 @@ describe("a runbook the launch names", () => {
           const client = yield* pageClient()
           const listed = yield* Effect.forkScoped(client.ListSessions())
           yield* settle
-          yield* serveLaunch(protocol, { argument, startedIn: folder }, (line) =>
-            logged.push(line),
+          yield* serveLaunch(
+            protocol,
+            { argument, startedIn: folder },
+            path.join(userData, "v0", "clones"),
+            (line) => logged.push(line),
           ).pipe(
             // A handler given last takes the place of the engine's own.
             Effect.provide(openSession === undefined ? engine : Layer.merge(engine, openSession)),
@@ -591,6 +621,29 @@ describe("a runbook the launch names", () => {
     expect(sessions).toEqual([])
     expect(logged).toEqual([
       `Runbooks could not open ${FIXTURE}: the engine failed: RangeError: Maximum call stack size exceeded`,
+    ])
+  })
+
+  it("is not open when its URL can't be read, and main says why in one line, without the URL's credentials", async () => {
+    // Built at runtime so secret scanners don't flag the fixture.
+    const password = ["hunter", "2"].join("")
+    const sessions = await listFirst(`https://someone:${password}@bitbucket.org/o/r/src/main/rb`)
+    expect(sessions).toEqual([])
+    expect(logged).toEqual([
+      "Runbooks could not open https://bitbucket.org/o/r/src/main/rb: unsupported URL format: use a GitHub or GitLab link to a runbook directory or runbook.mdx, or a source like github.com/org/repo//path/to/runbook?ref=main",
+    ])
+  })
+
+  it("names no token the engine's failure holds", async () => {
+    // Assembled at runtime so no credential-shaped literal sits in the source.
+    const token = "ghp_" + "a".repeat(36)
+    const dies = EngineProtocol.toLayerHandler("OpenSession", () =>
+      Effect.die(new Error(`the engine read ${token}`)),
+    )
+    const sessions = await listFirst(FIXTURE, dies)
+    expect(sessions).toEqual([])
+    expect(logged).toEqual([
+      `Runbooks could not open ${FIXTURE}: the engine failed: Error: the engine read [REDACTED]`,
     ])
   })
 
