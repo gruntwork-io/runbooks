@@ -6,7 +6,8 @@ import * as nodePath from "node:path"
 import { Redacted, Result, Schema } from "effect"
 import { BlockId, type BlockOutputs } from "@runbooks/blocks-core/contract"
 import type { FormValues } from "@runbooks/blocks-core/form"
-import { insertValues, type ScriptWithValues, type ValueSources } from "./scriptValues.ts"
+import type { ValueSources } from "../../document/valueTemplate.ts"
+import { insertValues, type ScriptWithValues } from "./scriptValues.ts"
 
 const blockId = Schema.decodeSync(BlockId)
 

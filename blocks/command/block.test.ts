@@ -360,6 +360,37 @@ describe("its environment", () => {
     )
     expect(env).toMatchObject({ FROM_SOURCE: "1", MINE: "own", SHARED: "own" })
   })
+
+  it("fills in its env values' {{ }} from its form and the outputs it names, and the script is as written", async () => {
+    const spawn = await withSession(
+      [
+        [
+          '<Form id="config">',
+          "```yaml",
+          "- name: region",
+          "  type: string",
+          '  default: "us-east-1; $(touch pwned)"',
+          "```",
+          "</Form>",
+        ].join("\n"),
+        '<Command id="source" command="source" outputs={["k"]} />',
+        `<Command id="c" inputsId={["config"]} env={{ REGION: "{{ .inputs.region }}", K: "{{ .outputs.source.k }}", PORT: 8080 }} command={'echo "$REGION" "$K"'} />`,
+      ].join("\n\n"),
+      (s) =>
+        Effect.gen(function* () {
+          yield* s.run("source")
+          expect(yield* s.run("c")).toEqual(success)
+          return s.spawns[1]!
+        }),
+      { does: ({ script }) => (script.endsWith("source") ? { outputs: ["k=it's"] } : {}) },
+    )
+    expect(spawn.script).toEndWith('; echo "$REGION" "$K"')
+    expect(spawn.env).toMatchObject({
+      REGION: "us-east-1; $(touch pwned)",
+      K: "it's",
+      PORT: "8080",
+    })
+  })
 })
 
 describe("its {{ }} values", () => {

@@ -119,6 +119,7 @@ import {
   credentialSource,
   type EnvConflict,
   type EnvSource,
+  ownEnv,
   taskSource,
   withReserved,
 } from "./env.ts"
@@ -1294,13 +1295,16 @@ export const makeSession = Effect.fnUntraced(function* (options: {
    * A process task's environment, with a warning for each variable two of
    * its sources set. Any other task starts no process, so it gets none.
    */
-  const runEnv = (run: Run, runnable: Runnable, sources: ReadonlyArray<EnvSource>) =>
+  const runEnv = (
+    run: Run,
+    runnable: Runnable,
+    sources: ReadonlyArray<EnvSource>,
+    reads: TaskReads,
+  ) =>
     runnable.block.effects.includes("process")
-      ? buildRunEnv({
-          base: baseEnvironment,
-          sources,
-          own: run.slot.node.shared.env ?? {},
-        }).pipe(
+      ? Effect.flatMap(ownEnv(run.slot.node.shared.env ?? {}, reads), (own) =>
+          buildRunEnv({ base: baseEnvironment, sources, own }),
+        ).pipe(
           Effect.tap(({ conflicts }) =>
             conflicts.length === 0
               ? Effect.void
@@ -1343,7 +1347,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     return Effect.scopedWith((held) =>
       Effect.gen(function* () {
         yield* Effect.forkChild(flushEvery)
-        const env = yield* runEnv(run, runnable, sources)
+        const env = yield* runEnv(run, runnable, sources, reads)
         const named = block.paths?.(props, reads.values) ?? {}
         const paths = yield* runner.resolve(at, named, block.repository)
         if (block.repository !== undefined && run.state._tag === "Running")

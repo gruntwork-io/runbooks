@@ -3,7 +3,7 @@
  * evaluated: the renderer walks `tree`, and the engine reads `blocks` and
  * `edges`. Every client gets the same document.
  */
-import { Schema, SchemaGetter } from "effect"
+import { Result, Schema, SchemaGetter } from "effect"
 import {
   BlockClass,
   BlockId,
@@ -11,7 +11,9 @@ import {
   RunbookPath,
   type RunbookTexts,
 } from "@runbooks/blocks-core/contract"
+import { templateText } from "@runbooks/blocks-core/form"
 import { byPlace, ConfigError, ConfigWarning, Span } from "./configError.ts"
+import { parseValueTemplate } from "./valueTemplate.ts"
 
 // ---------------------------------------------------------------------------
 // Content hash
@@ -61,16 +63,27 @@ const ENV_NAME_PROBLEMS = {
   reserved: "a variable Runbooks sets for every script. Pick another name",
 } as const
 
+/** An `env` value: text, or a number or boolean, which is its text as a template prints it. */
+const EnvValue = Schema.Union([Schema.String, Schema.Number, Schema.Boolean]).pipe(
+  Schema.decodeTo(Schema.String, {
+    decode: SchemaGetter.transform(templateText),
+    encode: SchemaGetter.transform((text) => text),
+  }),
+)
+
 /**
- * A block's `env`: variables by name. Each name is checked here, on the
- * whole record, because a record's key schema drops a key it refuses
+ * A block's `env`: variables by name, each value a template the engine fills
+ * in when a run starts (`./valueTemplate.ts`). Each name is checked here, on
+ * the whole record, because a record's key schema drops a key it refuses
  * rather than failing, which would leave the variable silently unset.
  */
-const EnvProp = Schema.Record(Schema.String, Schema.String).check(
+const EnvProp = Schema.Record(Schema.String, EnvValue).check(
   Schema.makeFilter((env: { readonly [name: string]: string }) =>
-    Object.keys(env).flatMap((name) => {
+    Object.entries(env).flatMap(([name, value]) => {
       const problem = envNameProblem(name)
-      return problem === undefined ? [] : [{ path: [name], issue: ENV_NAME_PROBLEMS[problem] }]
+      if (problem !== undefined) return [{ path: [name], issue: ENV_NAME_PROBLEMS[problem] }]
+      const template = parseValueTemplate(value)
+      return Result.isFailure(template) ? [{ path: [name], issue: template.failure.message }] : []
     }),
   ),
 )
@@ -107,7 +120,7 @@ export const SharedProps = Schema.Struct({
   dependsOn: Schema.optionalKey(OneOrMoreIds),
   /** Task with the `process` effect: environment sources, in order, later winning (capability `env`). */
   envFrom: Schema.optionalKey(OneOrMoreIds),
-  /** Task with the `process` effect: variables set last, before the reserved `RUNBOOK_*` ones. Values may hold template references. */
+  /** Task with the `process` effect: variables set last, before the reserved `RUNBOOK_*` ones. Each value's `{{ }}` is filled in when a run starts. */
   env: Schema.optionalKey(EnvProp),
 })
 export type SharedProps = typeof SharedProps.Type

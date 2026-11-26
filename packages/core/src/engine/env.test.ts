@@ -347,6 +347,140 @@ describe("a run's environment", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Its own env's values
+// ---------------------------------------------------------------------------
+
+/** A form whose region would run a command if a shell read it as code. */
+const CONFIG = [
+  '<Form id="config">',
+  "```yaml",
+  "- name: region",
+  "  type: string",
+  '  default: "us-east-1; $(touch pwned)"',
+  "- name: count",
+  "  type: int",
+  "  default: 3",
+  "- name: tags",
+  "  type: map",
+  "  default: { env: prod }",
+  "```",
+  "</Form>",
+].join("\n")
+
+describe("a run's env values", () => {
+  it("fill in each {{ }} from the forms the block reads and the outputs it names", async () => {
+    const runbook = [
+      CONFIG,
+      `<Script id="s" label="s" writesOutput={["k=it's"]} declares={["k"]} />`,
+      [
+        '<Run id="c" command="c" inputsId={["config"]} env={{',
+        '  REGION: "{{ .inputs.region }}",',
+        '  COUNT: "{{ .inputs.count }}",',
+        '  ENV: "{{ .inputs.tags.env }}",',
+        '  URL: "s3://{{ .outputs.s.k }}/logs",',
+        "  FORMAT: '{{ \"{{\" }}.Names}}',",
+        '  TRIMMED: "a  {{- .inputs.count -}}  b",',
+        "}} />",
+      ].join("\n"),
+    ].join("\n\n")
+    await withSession(runbook, {}, (rb) =>
+      Effect.gen(function* () {
+        yield* rb.run("s")
+        expect(yield* rb.run("c")).toEqual(done)
+        expect(rb.envOf("c")).toEqual({
+          REGION: "us-east-1; $(touch pwned)",
+          COUNT: "3",
+          ENV: "prod",
+          URL: "s3://it's/logs",
+          FORMAT: "{{.Names}}",
+          TRIMMED: "a3b",
+        })
+      }),
+    )
+  })
+
+  it("take a number or boolean as its text", async () => {
+    await withSession('<Run id="c" command="c" env={{ PORT: 8080, DEBUG: true }} />', {}, (rb) =>
+      Effect.gen(function* () {
+        expect(yield* rb.run("c")).toEqual(done)
+        expect(rb.envOf("c")).toEqual({ PORT: "8080", DEBUG: "true" })
+      }),
+    )
+  })
+
+  it("make the block wait for each output they read, as a reference in its script did", async () => {
+    const runbook = [
+      '<Script id="s" label="s" writesOutput={["k=v"]} declares={["k"]} />',
+      '<Run id="c" command="c" env={{ K: "{{ .outputs.s.k }}" }} />',
+    ].join("\n\n")
+    await withSession(runbook, {}, (rb) =>
+      Effect.gen(function* () {
+        expect(yield* rb.status("c")).toEqual({
+          _tag: "Blocked",
+          by: [{ _tag: "WaitingFor", block: blockId("s"), capability: "run" }],
+        })
+        yield* rb.run("s")
+        expect(yield* rb.run("c")).toEqual(done)
+        expect(rb.envOf("c")).toEqual({ K: "v" })
+      }),
+    )
+  })
+
+  it("fail the run before it starts when a field or output is not there, naming each variable and no value", async () => {
+    const runbook = [
+      CONFIG,
+      '<Script id="s" label="s" writesOutput={["secret_k=hunter2"]} declares={["secret_k", "never"]} />',
+      [
+        '<Run id="c" command="c" inputsId={["config"]} env={{',
+        '  TOKEN: "{{ .outputs.s.secret_k }}",',
+        '  NOPE: "{{ .inputs.nope }}",',
+        '  REGION: "{{ .inputs.region }}",',
+        '  LATER: "{{ .outputs.s.never }}",',
+        "}} />",
+      ].join("\n"),
+    ].join("\n\n")
+    await withSession(runbook, {}, (rb) =>
+      Effect.gen(function* () {
+        yield* rb.run("s")
+        const status = yield* rb.run("c")
+        expect(status).toMatchObject({ _tag: "Failed", error: { _tag: "TaskFailed" } })
+        const message =
+          status?._tag === "Failed" ? (status.error as { message: string }).message : ""
+        expect(message).toContain(
+          "NOPE in env: `{{ .inputs.nope }}` names no field of the forms this block reads",
+        )
+        expect(message).toContain(
+          "LATER in env: `{{ .outputs.s.never }}` names an output block s has not given.",
+        )
+        expect(rb.inputOf("c")).toBeUndefined()
+        const events = yield* rb.close
+        expect(JSON.stringify([status, events])).not.toContain("hunter2")
+        expect(message).not.toContain("touch pwned")
+      }),
+    )
+  })
+
+  it("give the process a sensitive output it reads, and keep it out of every view and event", async () => {
+    const runbook = [
+      '<Script id="s" label="s" writesOutput={["secret_token=hunter2"]} declares={["secret_token"]} />',
+      '<Shell id="c" label="c" script="true" env={{ AUTH: "Bearer {{ .outputs.s.secret_token }}" }} />',
+    ].join("\n\n")
+    await withSession(runbook, {}, (rb) =>
+      Effect.gen(function* () {
+        yield* rb.run("s")
+        expect(yield* rb.run("c")).toEqual(done)
+        expect(spawns.map(({ env }) => env?.["AUTH"])).toEqual(["Bearer hunter2"])
+        const given = rb.inputOf("c")?.env["AUTH"]
+        expect(given !== undefined && Redacted.isRedacted(given)).toBe(true)
+        const views = [yield* rb.view("s"), yield* rb.view("c")]
+        const events = yield* rb.close
+        expect(JSON.stringify([views, events])).not.toContain("hunter2")
+      }),
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
 // The layers, and a credential source through its seam
 // ---------------------------------------------------------------------------
 
@@ -647,7 +781,7 @@ describe("the layers", () => {
         gitLogin([value("GITHUB_TOKEN", "ghp_auth")]),
         taskSource(blockId("task"), new Map([["BUCKET", Redacted.make("task-bucket")]])),
       ],
-      own: { BUCKET: "block-bucket", GITHUB_TOKEN: "ghp_own" },
+      own: { BUCKET: Redacted.make("block-bucket"), GITHUB_TOKEN: Redacted.make("ghp_own") },
     })
     expect(Result.isSuccess(result) && result.success).toEqual({
       env: { PATH: "/usr/bin", BUCKET: "block-bucket", GITHUB_TOKEN: "ghp_own" },
@@ -699,7 +833,7 @@ describe("the layers", () => {
           ]),
         ),
       ],
-      own: { X: "own" },
+      own: { X: Redacted.make("own") },
     })
     expect(Result.isSuccess(result) && result.success).toEqual({
       env: { X: "own", GITHUB_TOKEN: "u" },
