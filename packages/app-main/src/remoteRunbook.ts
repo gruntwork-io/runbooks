@@ -162,12 +162,22 @@ export function classifyCloneError(opts: {
   }
   // Before the auth check: after any ssh failure, a DNS error or a refused
   // connection included, git adds "fatal: Could not read from remote
-  // repository.", which isAuthError counts.
+  // repository.", which isAuthError counts. A stall is gitSpawnEnv's bound.
+  const stalled = /transferred the last (\d+) seconds|timeout, server \S+ not responding/.exec(
+    lower,
+  )
+  if (stalled !== null) {
+    return {
+      kind: "network",
+      hint: `${host} ${stalled[1] === undefined ? "stopped answering" : `sent nothing for ${stalled[1]} seconds`}, so Runbooks gave up. Check your internet connection or proxy.`,
+    }
+  }
   if (
     lower.includes("could not resolve host") ||
     lower.includes("connection refused") ||
     lower.includes("connection timed out") ||
     lower.includes("connect to host") ||
+    lower.includes("couldn't connect to server") ||
     lower.includes("network is unreachable")
   ) {
     return {

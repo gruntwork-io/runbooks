@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { execFileSync } from "node:child_process"
 import * as nodeFs from "node:fs"
+import * as nodeNet from "node:net"
 import * as os from "node:os"
 import * as nodePath from "node:path"
 import { Effect, Layer } from "effect"
@@ -179,6 +180,49 @@ describe("classifyCloneError (golang parity)", () => {
       repo: "r",
       stderr:
         "fatal: unable to access 'https://github.com/o/r': Could not resolve host: github.com",
+      hadToken: false,
+    })
+    expect(result.kind).toBe("network")
+  })
+
+  it("names the host and the seconds when an http transfer stalls", () => {
+    const result = classifyCloneError({
+      host: "github.com",
+      owner: "o",
+      repo: "r",
+      stderr:
+        "fatal: unable to access 'https://github.com/o/r/': Operation too slow. Less than 1 bytes/sec transferred the last 30 seconds",
+      hadToken: true,
+    })
+    expect(result).toEqual({
+      kind: "network",
+      hint: "github.com sent nothing for 30 seconds, so Runbooks gave up. Check your internet connection or proxy.",
+    })
+  })
+
+  it("names the host when an ssh connection stops answering", () => {
+    const result = classifyCloneError({
+      host: "github.com",
+      owner: "o",
+      repo: "r",
+      stderr:
+        "Timeout, server github.com not responding.\nfatal: Could not read from remote repository.",
+      hadToken: false,
+      transport: "ssh",
+    })
+    expect(result).toEqual({
+      kind: "network",
+      hint: "github.com stopped answering, so Runbooks gave up. Check your internet connection or proxy.",
+    })
+  })
+
+  it("classifies curl's failure to connect as network", () => {
+    const result = classifyCloneError({
+      host: "github.com",
+      owner: "o",
+      repo: "r",
+      stderr:
+        "fatal: unable to access 'https://github.com/o/r/': Failed to connect to github.com port 443 after 75001 ms: Couldn't connect to server",
       hadToken: false,
     })
     expect(result.kind).toBe("network")
@@ -756,10 +800,10 @@ describe("resolveRemoteRunbook (real git)", () => {
     const sshCommandOf = (subcommand: string) =>
       spawns.find((s) => s.args[0] === subcommand)?.env?.GIT_SSH_COMMAND
     expect(sshCommandOf("ls-remote")).toBe(
-      "ssh -i /keys/id_work -o BatchMode=yes -o StrictHostKeyChecking=yes",
+      "ssh -i /keys/id_work -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=2",
     )
     expect(sshCommandOf("clone")).toBe(
-      "ssh -i /keys/id_work -o BatchMode=yes -o StrictHostKeyChecking=yes",
+      "ssh -i /keys/id_work -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=2",
     )
   }, 30_000)
 
@@ -861,6 +905,61 @@ describe("resolveRemoteRunbook (real git)", () => {
     expect(spawns.some((s) => s.args[0] === "ls-remote")).toBe(true)
     expect(spawns.some((s) => s.args[0] === "clone")).toBe(false)
   }, 30_000)
+
+  describe("a server that takes the connection and never answers", () => {
+    // stall.example.com goes to it. git gives up after 2 seconds without a
+    // byte, as the app's environment says; gitSpawnEnv sets the rest.
+    const held = new Set<nodeNet.Socket>()
+    const server = nodeNet.createServer((socket) => void held.add(socket))
+    const STALL = { GIT_ALLOW_PROTOCOL: "file:ssh:http", GIT_HTTP_LOW_SPEED_TIME: "2" }
+    const outer: Record<string, string | undefined> = {}
+
+    beforeAll(async () => {
+      await new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", resolve)
+      })
+      const address = server.address()
+      if (address === null || typeof address === "string") throw new Error("no port")
+      nodeFs.appendFileSync(
+        nodePath.join(root, "gitconfig"),
+        `[url "http://127.0.0.1:${address.port}/"]\n\tinsteadOf = https://stall.example.com/\n`,
+      )
+      for (const [key, value] of Object.entries(STALL)) {
+        outer[key] = process.env[key]
+        process.env[key] = value
+      }
+    })
+
+    afterAll(() => {
+      for (const [key, value] of Object.entries(outer)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      for (const socket of held) socket.destroy()
+      server.close()
+    })
+
+    const STALLED =
+      "stall.example.com sent nothing for 2 seconds, so Runbooks gave up. Check your internet connection or proxy."
+
+    it("gives up on the ref lookup, naming the host and the seconds", async () => {
+      const started = Date.now()
+      const err = await openError("https://stall.example.com/org/repo/tree/main/runbooks/vpc")
+      expect(err.message).toBe(STALLED)
+      expect(Date.now() - started).toBeLessThan(10_000)
+      expect(spawns.some((s) => s.args[0] === "clone")).toBe(false)
+    }, 20_000)
+
+    it("gives up on the clone, and leaves nothing in the clones folder", async () => {
+      const folder = nodePath.join(root, "stalled clones")
+      const started = Date.now()
+      const err = await openErrorIn(folder, "git::https://stall.example.com/org/repo.git")
+      expect(err.message).toBe(STALLED)
+      expect(Date.now() - started).toBeLessThan(10_000)
+      expect(spawns.some((s) => s.args[0] === "clone")).toBe(true)
+      expect(nodeFs.readdirSync(folder)).toEqual([])
+    }, 20_000)
+  })
 
   it("a path that isn't in the repo is reported as not found at its ref", async () => {
     const err = await openError(
