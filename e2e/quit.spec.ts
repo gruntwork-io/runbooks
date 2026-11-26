@@ -6,7 +6,6 @@
  * Runs against the build in app-out/: `just app-test-e2e` builds it first.
  */
 import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "./fixtures.ts"
@@ -46,8 +45,9 @@ while :; do sleep 0.2; done
 `
 
 let folder: string
-test.beforeEach(() => {
-  folder = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-app-quit-")))
+test.beforeEach(({}, testInfo) => {
+  folder = testInfo.outputPath("quit")
+  fs.mkdirSync(folder, { recursive: true })
 })
 test.afterEach(() => fs.rmSync(folder, { recursive: true, force: true }))
 

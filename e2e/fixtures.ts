@@ -6,7 +6,6 @@
  * as it does for a user.
  */
 import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import {
@@ -45,14 +44,20 @@ export interface LaunchOptions {
 }
 
 export const test = base.extend<{
-  /** A user data folder of the test's own, removed after it. */
+  /**
+   * A user data folder of the test's own, in its output folder, removed
+   * after it. A worker killed mid-test (a teardown past its timeout) leaves
+   * it to the next run, which empties the output folder.
+   */
   userDataDir: string
   /** Launches the app, on `userDataDir` unless told otherwise, and waits for its page. Each app still open is closed after the test. */
   launch: (options?: LaunchOptions) => Promise<Launched>
 }>({
-  userDataDir: async ({}, use) => {
-    // Electron reports the folder with symlinks resolved, and macOS's /var is /private/var.
-    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-app-e2e-")))
+  userDataDir: async ({}, use, testInfo) => {
+    const made = testInfo.outputPath("user-data")
+    fs.mkdirSync(made, { recursive: true })
+    // Electron reports the folder with symlinks resolved.
+    const dir = fs.realpathSync(made)
     await use(dir)
     fs.rmSync(dir, { recursive: true, force: true })
   },
