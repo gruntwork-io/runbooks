@@ -1714,6 +1714,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       name,
       path: document.file,
       ...(title === undefined ? {} : { title }),
+      // Read in the same step as the statuses: a change logs its events as it makes them.
+      ...(log.end() === 0 ? {} : { sequence: log.end() - 1 }),
       trust: { trusted: trust._tag === "Trusted", hash: document.hash.combined },
       blocks: inOnePass(() => slots.map(summaryOf)),
       warnings: document.warnings,

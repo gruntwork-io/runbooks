@@ -274,6 +274,13 @@ export type Resumed = typeof Resumed.Type
 
 export const SessionView = Schema.Struct({
   ...SessionSummary.fields,
+  /**
+   * The last event this view reflects, for a client to pass `Events` as
+   * `after`: it then gets every change after the view and none it holds.
+   * Absent while neither the session nor one it resumes has logged an
+   * event, so `Events` starts at the first.
+   */
+  sequence: Schema.optionalKey(Sequence),
   trust: TrustState,
   blocks: Schema.Array(BlockSummary),
   warnings: Schema.Array(ConfigWarning),

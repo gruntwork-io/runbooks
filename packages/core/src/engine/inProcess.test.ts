@@ -1080,3 +1080,49 @@ describe("a block's instruction", () => {
     )
   })
 })
+
+describe("a client following a session", () => {
+  it("starts its events where the session's view ends: every change after it, and none before", async () => {
+    await withClients({ runbook: RUNBOOK_TEXT, scripts: { greet } }, ({ person }) =>
+      Effect.gen(function* () {
+        const opening = yield* opened(person)
+        yield* person.TrustSession({ session: opening.session, hash: opening.trust.hash })
+        const view = yield* person.GetSession({ session: opening.session })
+        expect(view.sequence).toBeNumber()
+        const after = view.sequence ?? -1
+        const following = yield* Effect.forkChild(
+          Stream.runCollect(
+            person
+              .Events({ session: view.session, after })
+              .pipe(
+                Stream.takeUntil(
+                  ({ event }) =>
+                    event._tag === "BlockStatusChanged" && event.status._tag === "Done",
+                ),
+              ),
+          ),
+        )
+        expect(
+          (yield* person.RunBlock({ session: view.session, block: blockId("greet") }))._tag,
+        ).toBe("Started")
+        const events = yield* Fiber.join(following)
+        expect(events[0]?.sequence).toBe(after + 1)
+        expect(events.map(({ event }) => event._tag)).not.toContain("TrustChanged")
+      }),
+    )
+  })
+
+  it("gives no sequence for a session that has logged nothing, as one with no block that has a status", async () => {
+    await withClients(
+      { runbook: '<Note title="Heads up">\n\nRead this.\n\n</Note>' },
+      ({ person }) =>
+        Effect.gen(function* () {
+          const opening = yield* opened(person)
+          expect(opening).not.toHaveProperty("sequence")
+          expect(yield* person.GetSession({ session: opening.session })).not.toHaveProperty(
+            "sequence",
+          )
+        }),
+    )
+  })
+})
