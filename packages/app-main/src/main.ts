@@ -21,6 +21,9 @@
  * engine serves the window's page over IPC (`ipcServer.ts`), and only it.
  * A runbook given on the command line is opened first (`launch.ts`).
  *
+ * A second launch on the same user data folder quits at once, and the first
+ * focuses its window.
+ *
  * Quitting stops the engine first: its sessions close, and a script still
  * running is sent SIGTERM. The app exits once each such script has ended
  * or had its grace (`stopsEnded`), and at most `QUIT_DEADLINE` after the
@@ -70,6 +73,21 @@ if (!app.commandLine.hasSwitch("user-data-dir")) {
   app.setPath("userData", path.join(app.getPath("appData"), USER_DATA))
 }
 
+/**
+ * One app per user data folder, whose lock Chromium keeps in it. A second
+ * launch on the folder hands its arguments to the first and quits. The
+ * first focuses its window and opens nothing.
+ */
+const firstInstance = app.requestSingleInstanceLock()
+if (!firstInstance) app.quit()
+
+app.on("second-instance", () => {
+  const [appWindow] = BrowserWindow.getAllWindows()
+  if (appWindow === undefined) return
+  if (appWindow.isMinimized()) appWindow.restore()
+  appWindow.focus()
+})
+
 /** The runbook the command line names, if any. */
 const launch = launched(process.argv)
 
@@ -118,49 +136,50 @@ app.on("will-quit", (event) => {
   )
 })
 
-app
-  .whenReady()
-  .then(() => {
-    const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
-    const page = devServerUrl === undefined ? pathToFileURL(RENDERER_PAGE) : new URL(devServerUrl)
-    const appWindow = openWindow(devServerUrl !== undefined)
-    engine = Effect.runFork(
-      Effect.gen(function* () {
-        // Listening before the page loads, so its first message is heard.
-        const protocol = yield* makeIpcServerProtocol({
-          contents: appWindow.webContents,
-          page,
-          log: (line) => console.warn(line),
-        })
-        appWindow
-          .loadURL(page.href)
-          .catch((error: unknown) => console.error("The window could not load its page:", error))
-        return yield* serveLaunch(protocol, launch, (line) => console.error(line)).pipe(
-          Effect.provide(
-            Layer.merge(
-              appEngine({
-                userData: app.getPath("userData"),
-                appVersion: __RUNBOOKS_VERSION__,
-                processEnvironment,
-              }),
-              NodeFileSystemLive,
+if (firstInstance)
+  app
+    .whenReady()
+    .then(() => {
+      const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
+      const page = devServerUrl === undefined ? pathToFileURL(RENDERER_PAGE) : new URL(devServerUrl)
+      const appWindow = openWindow(devServerUrl !== undefined)
+      engine = Effect.runFork(
+        Effect.gen(function* () {
+          // Listening before the page loads, so its first message is heard.
+          const protocol = yield* makeIpcServerProtocol({
+            contents: appWindow.webContents,
+            page,
+            log: (line) => console.warn(line),
+          })
+          appWindow
+            .loadURL(page.href)
+            .catch((error: unknown) => console.error("The window could not load its page:", error))
+          return yield* serveLaunch(protocol, launch, (line) => console.error(line)).pipe(
+            Effect.provide(
+              Layer.merge(
+                appEngine({
+                  userData: app.getPath("userData"),
+                  appVersion: __RUNBOOKS_VERSION__,
+                  processEnvironment,
+                }),
+                NodeFileSystemLive,
+              ),
             ),
+          )
+        }).pipe(
+          Effect.scoped,
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.void
+              : Effect.sync(() => console.error("The engine stopped:", Cause.pretty(cause))),
           ),
-        )
-      }).pipe(
-        Effect.scoped,
-        Effect.catchCause((cause) =>
-          Cause.hasInterruptsOnly(cause)
-            ? Effect.void
-            : Effect.sync(() => console.error("The engine stopped:", Cause.pretty(cause))),
         ),
-      ),
-    )
-  })
-  .catch((error: unknown) => {
-    console.error("The app could not open its window:", error)
-    app.exit(1)
-  })
+      )
+    })
+    .catch((error: unknown) => {
+      console.error("The app could not open its window:", error)
+      app.exit(1)
+    })
 
 /**
  * The runbook `argv` names, with the folder the app was started in, which
