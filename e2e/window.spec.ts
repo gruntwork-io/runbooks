@@ -123,17 +123,31 @@ test.describe("the rebuilt app's window", () => {
     expect(shown).toEqual([PAGE, "Runbooks"])
   })
 
-  test("opens no other window, and opens only an http or https URL in the browser", async ({
+  test("opens no other window, and opens only an http, https or mailto URL outside the app", async ({
     launch,
   }) => {
     const { app, page } = await launch()
     const opened = await recordBrowserOpens(app)
     const windows = await page.evaluate(() =>
-      ["file:///etc/hosts", "https://example.invalid/new"].map((url) => window.open(url)),
+      ["file:///etc/hosts", "https://example.invalid/new", "mailto:ops@example.invalid"].map(
+        (url) => window.open(url),
+      ),
     )
-    expect(windows).toEqual([null, null])
-    await expect.poll(opened).toEqual(["https://example.invalid/new"])
+    expect(windows).toEqual([null, null, null])
+    await expect.poll(opened).toEqual(["https://example.invalid/new", "mailto:ops@example.invalid"])
     expect(app.windows()).toHaveLength(1)
+  })
+
+  test("opens a mailto link it follows in the mail app, and stays on its page", async ({
+    launch,
+  }) => {
+    const { app, page } = await launch()
+    const opened = await recordBrowserOpens(app)
+    await page.evaluate(() => {
+      location.href = "mailto:ops@example.invalid?subject=Runbook"
+    })
+    await expect.poll(opened).toEqual(["mailto:ops@example.invalid?subject=Runbook"])
+    expect(await page.evaluate(() => location.href)).toBe(PAGE)
   })
 
   test("denies the page every permission it asks for", async ({ launch }) => {

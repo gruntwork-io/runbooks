@@ -10,7 +10,8 @@
  * - Its page gets a Content-Security-Policy response header from here, where
  *   the page can't loosen it: no 'unsafe-eval', and no inline script or style.
  * - It never navigates away from its page and opens no other window. A link
- *   to an http or https page opens in the browser instead.
+ *   to an http or https page opens in the browser instead, and a mailto link
+ *   in the mail app: the links the window's walk makes clickable.
  *
  * Unpackaged, with ELECTRON_RENDERER_URL set (`electron-vite dev`), it loads
  * that dev server's page and sets no CSP: Vite's React refresh runs an inline
@@ -243,11 +244,14 @@ function openWindow(devServer: boolean): BrowserWindow {
   return appWindow
 }
 
-/** Opens an http or https URL in the browser, and does nothing with any other. */
+/** The schemes the OS may open for the window: the browser's, and the mail app's. */
+const EXTERNAL_SCHEMES: ReadonlySet<string> = new Set(["http:", "https:", "mailto:"])
+
+/** Opens an http, https or mailto URL in the app the OS has for it, and does nothing with any other. */
 function openInBrowser(url: string): void {
   const parsed = URL.parse(url)
-  if (parsed?.protocol !== "http:" && parsed?.protocol !== "https:") return
+  if (parsed === null || !EXTERNAL_SCHEMES.has(parsed.protocol)) return
   shell
     .openExternal(parsed.href)
-    .catch((error: unknown) => console.error("A link could not open in the browser:", error))
+    .catch((error: unknown) => console.error("A link could not open outside the app:", error))
 }
