@@ -47,6 +47,13 @@ export const RunbookErrorCode = Schema.Literals([
   "unknownBlock",
   /** The front matter's `runbooks:` range excludes this app's version. */
   "versionRequired",
+  /**
+   * Blocks, elements, quotes or lists nested inside one another past the
+   * depth the parser allows. Nested deeper, the engine and the window run out
+   * of stack showing the runbook, so the parser refuses it before either
+   * walks it.
+   */
+  "tooDeep",
 ])
 export type RunbookErrorCode = typeof RunbookErrorCode.Type
 

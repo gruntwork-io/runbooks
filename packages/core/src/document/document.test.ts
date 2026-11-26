@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "bun:test"
 import { Schema } from "effect"
-import { ConfigError } from "./configError.ts"
+import { ConfigError, refusesRunbook } from "./configError.ts"
 import { ContentHash, type ParseResult, RunbookDocument } from "./document.ts"
 
 const hash = (c: string) => `sha256:${c.repeat(64)}`
@@ -114,6 +114,17 @@ describe("ConfigError", () => {
         },
       }),
     ).toThrow()
+  })
+
+  it("has a code for a runbook nested too deep to show, which refuses the runbook", () => {
+    const error = Schema.decodeUnknownSync(Schema.toEncoded(ConfigError))({
+      _tag: "ConfigError",
+      code: "tooDeep",
+      message: "Nested more than 100 levels deep.",
+      location: { file: "runbook.mdx", span },
+    })
+    expect(error.code).toBe("tooDeep")
+    expect(refusesRunbook(error.code)).toBe(true)
   })
 })
 
