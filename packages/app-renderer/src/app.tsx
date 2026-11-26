@@ -4,7 +4,7 @@
  * command line names before it answers the page
  * (packages/app-main/src/launch.ts), so `ListSessions` finds it.
  */
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import { useEffect, useState } from "react"
 import type { DocumentView, EngineClient, SessionSummary } from "@runbooks/core/protocol"
 import { Runbook } from "./runbook.tsx"
@@ -16,8 +16,18 @@ type Shown =
   | { readonly _tag: "Runbook"; readonly session: SessionSummary; readonly document: DocumentView }
   | { readonly _tag: "Failed"; readonly message: string }
 
-/** What the engine has open, as the window shows it. */
-const ask = (engine: EngineClient): Effect.Effect<Shown> =>
+/** What a defect the engine sent says, as its message when it has one. */
+const defectText = (cause: Cause.Cause<unknown>): string => {
+  const defect = Cause.squash(cause)
+  return defect instanceof Error ? defect.message : String(defect)
+}
+
+/**
+ * What the engine has open, as the window shows it. When the engine fails
+ * instead of answering, as a runbook nested deep enough to overflow its
+ * stack makes it, the window says so rather than asking forever.
+ */
+export const ask = (engine: EngineClient): Effect.Effect<Shown> =>
   Effect.gen(function* () {
     const [session] = yield* engine.ListSessions()
     if (session === undefined) return { _tag: "Welcome" } as const
@@ -36,6 +46,14 @@ const ask = (engine: EngineClient): Effect.Effect<Shown> =>
           message: "The runbook's session closed before the window could show it.",
         }),
     }),
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.failCause(cause)
+        : Effect.succeed<Shown>({
+            _tag: "Failed",
+            message: `The engine failed showing the runbook: ${defectText(cause)}`,
+          }),
+    ),
   )
 
 export function App({ engine }: { readonly engine: EngineClient }) {
