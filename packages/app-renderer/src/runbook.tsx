@@ -1,6 +1,14 @@
 /**
  * An open runbook: its title, the warnings the engine found in it, and its
  * markdown, walked (`markdown.tsx`).
+ *
+ * The markdown sits in the body's box, which has `contain: paint`: nothing
+ * the author styles inside it paints or takes a click outside it, not even
+ * an element with `position: fixed` and a high z-index, since the box is the
+ * containing block of its fixed elements and a stacking context of its own.
+ * The app's header, the title, the warnings, and the trust prompt (row 3i)
+ * stay outside it. The containment is a style prop, set through the CSSOM,
+ * so it holds whether or not the stylesheet loads.
  */
 import type { DocumentView, SessionSummary } from "@runbooks/core/protocol"
 import { Markdown, unknownParts } from "./markdown.tsx"
@@ -30,7 +38,7 @@ export function Runbook({
           {`This window can't show ${hidden === 1 ? "1 part" : `${hidden} parts`} of the runbook yet, so it shows their text: ${unknown.map(([label, count]) => `${label} (${count})`).join(", ")}.`}
         </p>
       )}
-      <div className="runbook-body">
+      <div className="runbook-body" style={{ contain: "paint" }}>
         <Markdown document={document} runbook={session.path} />
       </div>
     </article>

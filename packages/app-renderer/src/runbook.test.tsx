@@ -33,7 +33,12 @@ describe("the runbook page", () => {
   it("is headed by the front matter's title, and holds the walked body", () => {
     const shown = page({ title: "Deploy the VPC" })
     expect(shown).toContain("<h1>Deploy the VPC</h1>")
-    expect(shown).toContain('<div class="runbook-body"><p>Body.</p></div>')
+    expect(shown).toContain('<div class="runbook-body" style="contain:paint"><p>Body.</p></div>')
+  })
+
+  it("keeps its title and warnings outside the body's box", () => {
+    const shown = page({ title: "Deploy the VPC" })
+    expect(shown.indexOf("<h1>")).toBeLessThan(shown.indexOf('class="runbook-body"'))
   })
 
   it("is headed by the session's name when the front matter has no title", () => {
