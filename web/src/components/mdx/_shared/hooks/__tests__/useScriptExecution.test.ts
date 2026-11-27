@@ -231,6 +231,52 @@ describe("useScriptExecution — execute", () => {
     )
   })
 
+  it("passes the vars of both githubAuthId and gitAuthId blocks", () => {
+    const { result } = renderWithOutputs(
+      { command: "gh repo list && glab repo list", githubAuthId: "gh", gitAuthId: "gl" },
+      {
+        gh: { GITHUB_TOKEN: "fake-gh-token", GITHUB_USER: "octocat" },
+        gl: { GITLAB_TOKEN: "fake-gl-token", GITLAB_USER: "tanuki" },
+      },
+    )
+
+    act(() => result.current.exec.execute())
+
+    expect(testApi.invoke).toHaveBeenCalledWith(
+      "exec:run",
+      expect.objectContaining({
+        envVarsOverride: expect.objectContaining({
+          GITHUB_TOKEN: "fake-gh-token",
+          GITHUB_USER: "octocat",
+          GITLAB_TOKEN: "fake-gl-token",
+          GITLAB_USER: "tanuki",
+        }),
+      }),
+    )
+  })
+
+  it("passes the gitAuthId block's GitHub vars where the githubAuthId block sets them too", () => {
+    const { result } = renderWithOutputs(
+      { command: "gh repo list", githubAuthId: "old", gitAuthId: "new" },
+      {
+        old: { GITHUB_TOKEN: "fake-old-token", GITHUB_USER: "old-user" },
+        new: { GITHUB_TOKEN: "fake-new-token", GITHUB_USER: "new-user" },
+      },
+    )
+
+    act(() => result.current.exec.execute())
+
+    expect(testApi.invoke).toHaveBeenCalledWith(
+      "exec:run",
+      expect.objectContaining({
+        envVarsOverride: expect.objectContaining({
+          GITHUB_TOKEN: "fake-new-token",
+          GITHUB_USER: "new-user",
+        }),
+      }),
+    )
+  })
+
   it("passes the real value of a credential the referenced block marked sensitive", () => {
     const { result } = renderWithOutputs(
       { command: "aws sts get-caller-identity", awsAuthId: "mint" },
