@@ -181,8 +181,15 @@ describe("a block's frame, as the engine has the block", () => {
     [{ _tag: "Done", outcome: "success" }, "Done"],
     [{ _tag: "Done", outcome: "warning" }, "Done, with warnings"],
     [
-      { _tag: "Failed", error: { _tag: "TaskFailed", message: "tofu exited", exitCode: 1 } },
-      "Failed: tofu exited (exit code 1)",
+      {
+        _tag: "Failed",
+        error: { _tag: "TaskFailed", message: "The script exited with code 3.", exitCode: 3 },
+      },
+      "Failed: The script exited with code 3.",
+    ],
+    [
+      { _tag: "Failed", error: { _tag: "TaskFailed", message: "tofu was not found" } },
+      "Failed: tofu was not found",
     ],
     [{ _tag: "Failed", error: { _tag: "TaskCancelled" } }, "Cancelled"],
     [
@@ -362,6 +369,24 @@ describe("a task's default view", () => {
     expect(log(300, 500, ["three hundred and one"])).toContain(
       '<p class="block-log-part">Lines 301 to 301 of 500.</p>',
     )
+  })
+
+  it("shows the outputs its latest run gave, each as text, and a hidden one as hidden", () => {
+    const shown = (outputs: Record<string, unknown>) =>
+      page(
+        followingViews(view("setup", { _tag: "Done", outcome: "success" }, { outputs })),
+        placed({ id: "setup" }),
+      )
+    expect(
+      shown({
+        region: { _tag: "Shown", value: "us-east-1" },
+        banner: { _tag: "Shown", value: "<b>bold</b>" },
+        token: { _tag: "Hidden" },
+      }),
+    ).toContain(
+      '<dl class="block-outputs" aria-label="Outputs"><dt>region</dt><dd>us-east-1</dd><dt>banner</dt><dd>&lt;b&gt;bold&lt;/b&gt;</dd><dt>token</dt><dd class="block-output-hidden">Hidden: it is sensitive.</dd></dl>',
+    )
+    expect(shown({})).not.toContain("Outputs")
   })
 
   it("draws a block's own view, with its props and status, in place of its class's", () => {

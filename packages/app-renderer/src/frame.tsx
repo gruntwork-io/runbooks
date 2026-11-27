@@ -15,8 +15,9 @@
  * - the body: the block's own view, when the view map has a line for it
  *   (`@runbooks/blocks/views`), or its class's default. A task's default
  *   offers the actions the engine says it takes now (`BlockView.actions`)
- *   and shows its latest run's log; a form's and a credential block's
- *   defaults are not written yet, and a display block always has a view.
+ *   and shows its latest run's log and outputs, as text; a form's and a
+ *   credential block's defaults are not written yet, and a display block
+ *   always has a view.
  *
  * A view asks the engine through `act`, which the frame sends for its
  * session and block, and it shows what the engine answered.
@@ -33,7 +34,7 @@
  * one names every member, so a new one fails the build here.
  */
 import { Effect, type Schema } from "effect"
-import { createContext, type ReactNode, useContext, useState } from "react"
+import { createContext, Fragment, type ReactNode, useContext, useState } from "react"
 import { type View, type ViewRequest, views } from "@runbooks/blocks/views"
 import type {
   BlockAction,
@@ -41,6 +42,7 @@ import type {
   DocumentBlock,
   Instruction,
   LogPage,
+  OutputView,
 } from "@runbooks/core/protocol"
 import { FollowingContext, useBlockView, useInstructionMode } from "./following.ts"
 import { linkTarget } from "./markdown.tsx"
@@ -271,10 +273,11 @@ function Status({
 /** Why a block did not finish, in words. */
 function failure(error: Failure): string {
   switch (error._tag) {
+    // A TaskFailed message says its exit code, when it has one.
     case "TaskFailed":
-      return error.exitCode === undefined
-        ? `Failed: ${error.message}`
-        : `Failed: ${error.message} (exit code ${error.exitCode})`
+    case "PathOutsideRoot":
+    case "CredentialError":
+      return `Failed: ${error.message}`
     case "TaskCancelled":
       return "Cancelled"
     case "TaskTimedOut":
@@ -283,9 +286,6 @@ function failure(error: Failure): string {
       return `Failed: \`${error.prop}\` ${error.message}`
     case "TaskBlocked":
       return `Failed: it was blocked by ${error.by.join(", ")}`
-    case "PathOutsideRoot":
-    case "CredentialError":
-      return `Failed: ${error.message}`
     default: {
       const unhandled: never = error
       throw new Error(`The frame has no words for the failure ${JSON.stringify(unhandled)}.`)
@@ -458,7 +458,7 @@ export function buttonsFor(actions: ReadonlyArray<BlockAction>): ReadonlyArray<B
   })
 }
 
-/** A task's default view: the actions it takes now, and its latest run's log. */
+/** A task's default view: the actions it takes now, and its latest run's log and outputs. */
 function TaskView({
   view,
   act,
@@ -479,8 +479,38 @@ function TaskView({
         </div>
       )}
       {view?.log === undefined ? null : <Log page={view.log} />}
+      {view === undefined ? null : <Outputs outputs={view.outputs} />}
     </>
   )
+}
+
+/** The outputs a task's latest run gave, by name: each value as text, or that it is hidden. */
+function Outputs({ outputs }: { readonly outputs: BlockView["outputs"] }) {
+  const named = Object.entries(outputs)
+  if (named.length === 0) return null
+  return (
+    <dl className="block-outputs" aria-label="Outputs">
+      {named.map(([name, output]) => (
+        <Fragment key={name}>
+          <dt>{name}</dt>
+          <OutputValue output={output} />
+        </Fragment>
+      ))}
+    </dl>
+  )
+}
+
+function OutputValue({ output }: { readonly output: OutputView }) {
+  switch (output._tag) {
+    case "Shown":
+      return <dd>{output.value}</dd>
+    case "Hidden":
+      return <dd className="block-output-hidden">Hidden: it is sensitive.</dd>
+    default: {
+      const unhandled: never = output
+      throw new Error(`The frame has no words for the output ${JSON.stringify(unhandled)}.`)
+    }
+  }
 }
 
 /** One page of a run's log, which says which lines it holds when they are not all of them. */

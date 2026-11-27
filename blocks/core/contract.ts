@@ -208,6 +208,7 @@ export class TaskBlocked extends Schema.TaggedError<TaskBlocked>()("TaskBlocked"
 }) {}
 
 export class TaskFailed extends Schema.TaggedError<TaskFailed>()("TaskFailed", {
+  /** Why, for a person to read: it says the exit code, when there is one. */
   message: Schema.String,
   /** The script's exit code, when a process ran. */
   exitCode: Schema.optionalKey(Schema.Int),
