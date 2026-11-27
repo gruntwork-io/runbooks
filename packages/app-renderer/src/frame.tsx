@@ -25,8 +25,9 @@
  * block shows its instruction (`BlockView.instruction`) in place of its view
  * and its status: each text step as text, each command to select and copy,
  * each link as a link the walk would make. The frame then sends nothing a
- * view asks for, whatever its class. A form still shows its view: it is how
- * the person gives the values an instruction reads.
+ * view asks for but a form's values (`SetValues`), whatever its class. A
+ * form still shows its view: it is how the person gives the values an
+ * instruction reads.
  *
  * Classes, statuses, blockers and errors are closed sets: each switch over
  * one names every member, so a new one fails the build here.
@@ -107,6 +108,26 @@ function foldsWhenDone(kind: DocumentBlock["class"]): boolean {
   }
 }
 
+/**
+ * Whether instruction mode sends `request`. It runs nothing, so only a
+ * form's values go through: an instruction reads them.
+ */
+function takenInInstructionMode(request: ViewRequest): boolean {
+  switch (request._tag) {
+    case "SetValues":
+      return true
+    case "RunBlock":
+    case "CancelBlock":
+    case "ResetBlock":
+    case "ActOnCredential":
+      return false
+    default: {
+      const unhandled: never = request
+      return unhandled
+    }
+  }
+}
+
 export function BlockFrame({
   block,
   runbook,
@@ -128,8 +149,7 @@ export function BlockFrame({
   const instructed = instructionMode && instructedIn(block.class)
   const [said, setSaid] = useState<string>()
   const act = (request: ViewRequest) => {
-    // Instruction mode runs nothing.
-    if (block.id === undefined || instructionMode) return
+    if (block.id === undefined || (instructionMode && !takenInInstructionMode(request))) return
     Effect.runFork(
       Effect.flatMap(following.act(block.id, request), (line) => Effect.sync(() => setSaid(line))),
     )

@@ -655,6 +655,40 @@ describe("instruction mode", () => {
     expect(asked).toEqual(["RunBlock deploy"])
   })
 
+  it("takes a form's values, which its instruction reads, while it runs nothing", () => {
+    const asked: string[] = []
+    const Enters: View<Schema.Json> = ({ act }) => {
+      act({ _tag: "SetValues", values: { region: "us-east-1" } })
+      act({ _tag: "ResetBlock" })
+      return <p>A form.</p>
+    }
+    renderToStaticMarkup(
+      <ViewsContext value={{ Example: Enters }}>
+        <FollowingContext
+          value={{
+            ...inInstructionMode(
+              followingViews(view("deploy", { _tag: "Idle" }, { class: "form", actions: [] })),
+            ),
+            act: (block, request) => {
+              asked.push(`${request._tag} ${block}`)
+              return Effect.never
+            },
+          }}
+        >
+          <Markdown
+            document={{
+              tree: { type: "root", children: [{ type: "block", index: 0, children: [] }] },
+              blocks: [placed({ id: "deploy", class: "form", step: true, props: {} })],
+            }}
+            runbook={RUNBOOK}
+            session={SESSION}
+          />
+        </FollowingContext>
+      </ViewsContext>,
+    )
+    expect(asked).toEqual(["SetValues deploy"])
+  })
+
   it("keeps following the session when watching the settings fails", async () => {
     let deploy: Record<string, unknown> = {
       block: "deploy",
