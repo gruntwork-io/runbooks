@@ -21,14 +21,14 @@ export function GcloudConfigurationList(props: GcloudConfigurationListProps) {
   const matching = props.configurations.filter((configuration) =>
     matchesSearch(configuration, props.search),
   )
+  const isLongList = props.configurations.length > MOST_CONFIGURATIONS_WITHOUT_SEARCH
+  const isFiltered = props.search !== ""
   return (
     <div>
       <div className="block text-sm font-medium text-foreground mb-2">
         Take the project, region and zone from
       </div>
-      {props.configurations.length > MOST_CONFIGURATIONS_WITHOUT_SEARCH && (
-        <ConfigurationSearch {...props} />
-      )}
+      {(isLongList || isFiltered) && <ConfigurationSearch {...props} />}
       <ConfigurationRows {...props} matching={matching} />
     </div>
   )

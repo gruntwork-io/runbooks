@@ -43,7 +43,10 @@ import {
   resolveOAuthClient,
 } from "../../../src/domain/google/auth.ts"
 import { credentialTypeFromDocumentType } from "../../../src/domain/google/gcloud-config.ts"
-import { namesAnotherAccount } from "../../../src/domain/google/account-mismatch.ts"
+import {
+  differsFromConfirmedPrincipal,
+  namesAnotherAccount,
+} from "../../../src/domain/google/account-mismatch.ts"
 import {
   evaluateRequiredGoogleScopes,
   insufficientScopesErrorMessage,
@@ -575,6 +578,19 @@ function describeAccountMismatch(
   )
 }
 
+function refuseChangedAccount(
+  confirmedPrincipal: string | undefined,
+  signedIn: Pick<GoogleIdentity, "email">,
+): { valid: false; error: string } | undefined {
+  if (!differsFromConfirmedPrincipal(confirmedPrincipal, signedIn)) return undefined
+  return {
+    valid: false,
+    error:
+      `The signed-in account is now ${signedIn.email}, not ${confirmedPrincipal}. ` +
+      `Check the account, then try again.`,
+  }
+}
+
 function resolveDetectionSource(
   source: DetectionSource,
   prefix: string | undefined,
@@ -927,6 +943,7 @@ export function registerGoogleHandlers(): void {
       params: {
         blockId?: string
         configuration?: string
+        confirmedPrincipal?: string
         projectId?: string
         region?: string
         zone?: string
@@ -958,6 +975,8 @@ export function registerGoogleHandlers(): void {
         const zone = params.zone ?? configuration?.zone
         const documentJson = await runtime.runPromise(readCredentialFileContents(adc.path))
         const identity = await validateCredentialDocument(documentJson, projectId)
+        const changedAccount = refuseChangedAccount(params.confirmedPrincipal, identity)
+        if (changedAccount) return changedAccount
         if (configuration && namesAnotherAccount(configuration.account, identity)) {
           return { valid: false, error: describeAccountMismatch(configuration, identity) }
         }
@@ -1112,6 +1131,7 @@ export function registerGoogleHandlers(): void {
         prefix?: string
         source?: DetectionSource
         configuration?: string
+        confirmedPrincipal?: string
         projectId?: string
         region?: string
         zone?: string
@@ -1139,6 +1159,8 @@ export function registerGoogleHandlers(): void {
         }
 
         const identity = await validateResolvedCredential(resolved)
+        const changedAccount = refuseChangedAccount(params.confirmedPrincipal, identity)
+        if (changedAccount) return changedAccount
         if (namesAnotherAccount(resolved.configurationAccount, identity)) {
           return {
             valid: false,
