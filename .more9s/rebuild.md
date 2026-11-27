@@ -242,7 +242,7 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 
 | WP | Item | PR | State |
 |---|---|---|---|
-| 0.1 | Rulings on the 18 open decisions | none | 17 ruled (2026-11-26: 9 as written in its row, the rest as recommended); 15 open (Windows supported, or instruction mode only) |
+| 0.1 | Rulings on the 18 open decisions | none | done: all 18 ruled (2026-11-26: 9 as written in its row, 15 as Windows supported, the rest as recommended) |
 | 0.2 | `blocks/core/contract.ts` | #496 | merged |
 | 0.3 | Engine protocol | #502 | merged |
 | 0.4 | Document type | #497 | merged |
@@ -292,7 +292,7 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 
 ## The 18 decisions
 
-On 2026-11-26 the human ruled every one but 15 as the plan recommends ("let's roll with these recommendations"), after reviewing this table. 9 was ruled earlier, as written below. 15's recommendation is itself to decide whether Windows is supported or instruction mode only, so 15 is still open: the stack leaves Windows as it is until then. 4 (the API audit's renames left out of the rebuild) and 14 (fix today's four behaviour bugs on `main` as four small PRs) need no row of their own above; 14's PRs are queued after row 3h.
+On 2026-11-26 the human ruled every one but 15 as the plan recommends ("let's roll with these recommendations"), after reviewing this table. 9 was ruled earlier, as written below. 15's recommendation was itself to decide whether Windows is supported or instruction mode only; asked, the human chose **supported**. 4 (the API audit's renames left out of the rebuild) and 14 (fix today's four behaviour bugs on `main` as four small PRs) need no row of their own above; 14's PRs are queued after row 3h.
 
 Each row names the PR whose description carries the Decisions entry.
 
@@ -313,7 +313,7 @@ Each row names the PR whose description carries the Decisions entry.
 | 5 | `*AuthId` aliases kept with a warning, no removal date; fixtures keep them | #510 |
 | 17 | Finish needs a clean success; gh and az still read their own config | #510 |
 | 9 | Ruled by the human (2026-11-26): env only, and then no `{{ }}` checks in scripts ("we only have a few runbooks in public and we manage them. We can retire the old logic entirely and rely on env vars"). A script runs as written: Runbooks neither fills in nor checks a `{{ }}` in it, and a script makes no edges. A value reaches a script only through `env`, whose values are templates | #588 built the old recommendation; #598 closed; #621 to #623 build the ruling |
-| 15 | **Open.** The plan recommends deciding whether Windows is supported or instruction mode only. Until then it is left as it is: environment names compare case-sensitively | #539 |
+| 15 | Ruled 2026-11-26: **Windows is supported**, so blocks run there. That needs Windows CI for the engine and blocks, scripts that run on Windows, and a signed Windows build (follow-up row below). Until those land, environment names compare case-sensitively, as #539 built | #539 |
 | 6 | Saved sessions keep form values and credentials, drop run history from older versions | #544 |
 | 16 | One repo, one version for all binaries, hashes checked against the release's `SHA256SUMS` | #656 |
 
@@ -479,6 +479,7 @@ Choices of my own that need a ruling (not among the 18):
 | The page's queue is bounded in messages (1024 of up to 1 MiB), not in characters; nothing checks at the type level that `EngineBridge` matches the preload's bridge (#649 review) | if it matters |
 | A launch that can't open its runbook says so only on main's stderr, and the window shows the welcome screen; a second launch focuses the first window and doesn't open its runbook (#650) | a protocol change that tells the window; the second launch is row 3g3 |
 | A second launch's runbook that fails to open is reported only on the first app's stderr; the second exits 0. After a second launch the window can't return to the earlier session, which stays open in the engine. While it clones, the window says "Asking the engine.", not "Cloning…". Connecting over http waits on the system's connect timeout (75 s on macOS); plink gets no stall options (#660). A reload during the page's first load may log `ERR_ABORTED` (#660) | the window's session switcher, with the launch-failure protocol change |
+| Decision 15 ruled Windows supported (2026-11-26): a Windows CI job for the engine, the blocks and the e2e; how a script runs on Windows (bash from Git for Windows, or PowerShell, per block); case-insensitive environment names; a signed Windows build; the plugin binaries already ship windows-amd64 | phases 4 to 6 |
 | No CI job runs the credential contract suite against the released plugin binaries; it was run on darwin-arm64 by hand (#656). No release builds a Linux arm64 app for the `linux-arm64` pins | track A |
 | The welcome screen names a `runbooks` command, which doesn't launch the rebuilt app; task-list checkboxes show their state and aren't saved; light theme only; dev mode logs "reading 'onMessage'" once, unexplained (#650) | the packaging row; if it matters; row 3h |
 | A link swapped in between the path guard's check and the read is followed, as in the old app; each asset answer holds its file open until read or cancelled, and nothing caps how many; `<source type>` is dropped; on macOS `./ASSETS/` names the folder but stays text (#651) | if it matters |
