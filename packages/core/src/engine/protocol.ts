@@ -320,6 +320,9 @@ export const TrustState = Schema.Struct({
    * The hash trust is, or would be, granted for: that of the document the
    * session holds now (`DocumentView.hash`). A reload keeps the session's
    * trust, granted now for the new hash, which `TrustChanged` carries.
+   * Only a hash a person trusted (`TrustSession`) or chose (`ReloadFiles`)
+   * is saved as trusted: opening the runbook again after the watcher
+   * reloaded it asks again.
    */
   hash: ContentHash,
 })
@@ -588,7 +591,8 @@ export const ReloadFilesResult = Schema.Union([
    * The block took the files at the hash it showed: it runs them from now
    * on, starting over if it had run. `DocumentChanged` says the session's
    * document took them. A trusted session stays trusted, now for the new
-   * hash, which `TrustChanged` carries.
+   * hash, which `TrustChanged` carries, and is saved trusted for it: the
+   * person chose it.
    */
   Schema.TaggedStruct("Reloaded", {}),
   /**
@@ -795,6 +799,11 @@ export const EngineEvent = Schema.Union([
    *   block its login, as in a resumed session.
    * - A trusted session stays trusted, now for the new hash, which
    *   `TrustChanged` carries. An untrusted one stays untrusted.
+   * - The new hash is saved as trusted only when a person chose it
+   *   (`ReloadFiles`). After the watcher reloads, the session stays
+   *   trusted while it is open, and what is saved keeps the hash the
+   *   person trusted: opening the runbook again asks again, as
+   *   `RunbookChanged`. What blocks keep is saved against the new hash.
    */
   Schema.TaggedStruct("DocumentChanged", { hash: ContentHash }),
   /** `SessionView.reloadHeld` changed: `held` is what it is now, absent when no reload is held. */
@@ -859,8 +868,9 @@ const block = { session: SessionId, block: BlockId }
  *   runbook names again too (`--watch`).
  *
  * `runbook` and `runbookAndFiles` reload the session's runbook, and a
- * reload keeps its trust (`DocumentChanged`), so only a person chooses
- * one: an agent's `OpenSession` that names one is `Forbidden`.
+ * reload keeps its trust while the session is open (`DocumentChanged`),
+ * so only a person chooses one: an agent's `OpenSession` that names one
+ * is `Forbidden`.
  */
 export const WatchMode = Schema.Literals(["off", "notice", "runbook", "runbookAndFiles"])
 export type WatchMode = typeof WatchMode.Type
@@ -978,7 +988,8 @@ export class ResetBlock extends Rpc.make("ResetBlock", {
  * `hash` its `filesOnDisk` shows: the "Reload script" a person chooses
  * after reading how they changed. The session takes them as it takes a
  * reloaded runbook (`DocumentChanged`), keeping its trust for the new
- * hash, so an agent, which may have written them, cannot.
+ * hash, and saves that hash as trusted, so an agent, which may have
+ * written them, cannot.
  */
 export class ReloadFiles extends Rpc.make("ReloadFiles", {
   payload: { ...block, hash: ContentHash },
