@@ -16,6 +16,7 @@ import { type Following, FollowingContext, followingOf } from "./following.ts"
 import { follow, type Live, makeLiveStore } from "./live.ts"
 import { Markdown } from "./markdown.tsx"
 import { makeSettingsStore } from "./settings.ts"
+import { makeTrustingStore } from "./trust.ts"
 
 // The frame the walk draws each block in, over document blocks as the
 // engine sends them, rendered to the markup the page would hold.
@@ -145,7 +146,13 @@ const view = (
 const followingViews = (...views: BlockView[]): Following => {
   const live = makeLiveStore()
   live.set({ blocks: new Map(views.map((shown) => [shown.block, shown])) })
-  return { live, settings: makeSettingsStore(undefined), act: () => Effect.succeed(undefined) }
+  return {
+    live,
+    settings: makeSettingsStore(undefined),
+    trusting: makeTrustingStore(),
+    act: () => Effect.succeed(undefined),
+    trust: () => Effect.void,
+  }
 }
 
 /** The page with `blocks` in it, in order, the window following `following`. */
@@ -489,7 +496,13 @@ describe("a block's frame, following the engine", () => {
       const store = makeLiveStore()
       store.set(live)
       return page(
-        { live: store, settings: makeSettingsStore(undefined), act: () => Effect.never },
+        {
+          live: store,
+          settings: makeSettingsStore(undefined),
+          trusting: makeTrustingStore(),
+          act: () => Effect.never,
+          trust: () => Effect.void,
+        },
         placed({ id: "greet" }),
       )
     }

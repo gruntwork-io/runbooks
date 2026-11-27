@@ -7,13 +7,15 @@
  * an element with `position: fixed` and a high z-index, since the box is the
  * containing block of its fixed elements and a stacking context of its own.
  * The app's header, the title, the warnings, the instruction mode banner
- * and the trust prompt (row 3i) stay outside it. The containment is a style prop, set through the CSSOM,
- * so it holds whether or not the stylesheet loads.
+ * and the trust prompt (`trustPrompt.tsx`) stay outside it, so the author
+ * can't cover or imitate them. The containment is a style prop, set
+ * through the CSSOM, so it holds whether or not the stylesheet loads.
  */
 import type { DocumentView, SessionSummary } from "@runbooks/core/protocol"
 import { useEnded, useInstructionMode } from "./following.ts"
 import { Markdown, unknownParts } from "./markdown.tsx"
 import { place } from "./place.ts"
+import { TrustPrompt } from "./trustPrompt.tsx"
 
 export function Runbook({
   session,
@@ -37,6 +39,7 @@ export function Runbook({
           copy and run yourself.
         </p>
       ) : null}
+      <TrustPrompt blocks={document.blocks} />
       {document.warnings.length === 0 ? null : (
         <ul className="warnings" aria-label="Warnings">
           {document.warnings.map((warning, index) => (

@@ -165,6 +165,25 @@ describe("the window following a session", () => {
     )
   })
 
+  it("shows the session's trust as its view gives it, then as each TrustChanged says", async () => {
+    const untrusted = { _tag: "Blocked", by: [{ _tag: "Untrusted" }] }
+    const engine: Engine = { greet: task("greet", { status: untrusted, actions: [] }) }
+    const main = fakeMain(answering(engine, { trust: { trusted: false, hash: HASH } }))
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        expect<unknown>((yield* next).trust).toEqual({ trusted: false, hash: HASH })
+        engine.greet = task("greet")
+        main.stream("Events", [
+          event({ _tag: "TrustChanged", trust: { trusted: true, hash: HASH } }),
+          event({ _tag: "BlockStatusChanged", block: "greet", status: { _tag: "Idle" } }),
+        ])
+        const trusted = yield* next
+        expect<unknown>(trusted.trust).toEqual({ trusted: true, hash: HASH })
+        expect(statusOf(trusted, "greet")).toBe("Idle")
+      }),
+    )
+  })
+
   it("re-reads a block whose log grows, and shows the last page of a long log", async () => {
     const lines = (count: number) =>
       Array.from({ length: count }, (_, n) => ({

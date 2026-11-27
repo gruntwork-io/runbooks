@@ -5,8 +5,8 @@
  * settings file, a task's command to copy in place of its view.
  *
  * Runs against the build in app-out/: `just app-test-e2e` builds it first.
- * The window has no trust prompt yet (row 3i), so every session here is
- * untrusted.
+ * No test here trusts its runbook, so every session is untrusted
+ * (trust.spec.ts trusts one).
  */
 import path from "node:path"
 import { expect, test } from "./fixtures.ts"
