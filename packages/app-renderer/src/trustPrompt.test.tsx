@@ -167,6 +167,24 @@ describe("the trust prompt", () => {
     expect(shown).toContain(">I trust this runbook</button>")
   })
 
+  // A runbook whose only lifecycle blocks are sign-ins could otherwise never be trusted, and they would wait forever.
+  it.each([
+    ["task", COMMAND, ["<Shell> setup (Set up) may run commands and scripts on this computer."]],
+    ["form", FORM, []],
+    [
+      "credential",
+      SIGN_IN,
+      ["<CloudAuth> cloud may connect over the network and open your web browser."],
+    ],
+  ] as const)(
+    "is shown when the only block that waits for trust is a %s block",
+    (_, block, listed) => {
+      const shown = page([NOTE, block])
+      expect(shown).toContain('aria-label="Trust this runbook"')
+      expect(listedIn(shown)).toEqual(listed)
+    },
+  )
+
   it("sits above the runbook's box, so nothing the author styles covers it", () => {
     const shown = page([COMMAND])
     const prompt = shown.indexOf('aria-label="Trust this runbook"')
