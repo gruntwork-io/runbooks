@@ -322,6 +322,30 @@ describe("a session's watcher", () => {
     expect(watching.runbookReads).toBe(1)
   })
 
+  it("in `notice`, holds no notice back for saves of the runbook, which it doesn't reload", async () => {
+    const { result } = await withWatch(
+      Effect.gen(function* () {
+        const rb = yield* opened("notice")
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        // The runbook saved every 200 ms from then on.
+        yield* tick(200)
+        yield* rb.write(RUNBOOK, `${RUNBOOK_TEXT}\n\nSaved at 200.`)
+        yield* tick(DEBOUNCE - 200 - 1)
+        const early = (yield* rb.block("deploy")).filesOnDisk
+        yield* tick(1)
+        const shown = (yield* rb.block("deploy")).filesOnDisk
+        for (const at of [400, 600, 800]) {
+          yield* tick(at === 400 ? 100 : 200)
+          yield* rb.write(RUNBOOK, `${RUNBOOK_TEXT}\n\nSaved at ${at}.`)
+        }
+        yield* tick(DEBOUNCE)
+        return { early, shown }
+      }),
+    )
+    expect(result.early).toBeUndefined()
+    expect(result.shown?.files).toMatchObject([{ path: "deploy.sh", change: "modified" }])
+  })
+
   it("holds no notice back for a save in a watched folder of a file the runbook doesn't name", async () => {
     const { result } = await withWatch(
       Effect.gen(function* () {
