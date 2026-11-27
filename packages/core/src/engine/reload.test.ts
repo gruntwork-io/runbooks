@@ -570,6 +570,31 @@ describe("reloading a session's runbook", () => {
       { scripts: SCRIPTS, database },
     )
   })
+
+  it("saves the reloaded runbook's hash as trusted once a person trusts it again, though it stayed trusted", async () => {
+    const database = memorySessionDatabase()
+    const saved = `${BEFORE}\n\nSaved.`
+    await withEngine(
+      BEFORE,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.save(saved)
+        yield* rb.trust
+        yield* rb.close
+      }),
+      { scripts: SCRIPTS, database },
+    )
+    await withEngine(
+      saved,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        expect(rb.view.trust.trusted).toBe(true)
+        expect(rb.view.resumed?.problems).toEqual([])
+      }),
+      { scripts: SCRIPTS, database },
+    )
+  })
 })
 
 /** Outputs the text of `path` as the session gave it to the run. */
@@ -632,6 +657,38 @@ describe("a block's files on disk", () => {
       }),
       { scripts: FILE_SCRIPTS, files: FILES },
     ))
+
+  it("saves no trust for files a person takes over a runbook the watcher reloaded: opening it again asks for trust", async () => {
+    const database = memorySessionDatabase()
+    const edited = `${FILES_RUNBOOK}\n\nEdited.`
+    await withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        // An edit the person never reads: the watcher takes it.
+        yield* rb.save(edited)
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        const shown = (yield* rb.block("deploy")).filesOnDisk
+        if (shown === undefined) throw new Error("deploy shows no files on disk")
+        expect(yield* rb.reloadFiles("deploy", shown.hash)).toEqual({ _tag: "Reloaded" })
+        const { hash } = yield* rb.document
+        expect((yield* rb.session).trust).toEqual({ trusted: true, hash })
+        yield* rb.close
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES, database },
+    )
+    await withEngine(
+      edited,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        expect(rb.view.trust.trusted).toBe(false)
+        expect(rb.view.resumed?.problems).toEqual([{ _tag: "RunbookChanged", blocks: [] }])
+      }),
+      { scripts: FILE_SCRIPTS, files: { ...FILES, "/rb/deploy.sh": "echo deploy v2\n" }, database },
+    )
+  })
 
   it("saves the hash a person chose with ReloadFiles as trusted: opening the runbook again resumes it trusted, with its runs", async () => {
     const database = memorySessionDatabase()

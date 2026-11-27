@@ -876,7 +876,8 @@ export interface Session {
    * unless a block runs or it is the document the session holds. Only the
    * session's watcher calls it, and `reloadFiles` takes files so: a reload
    * keeps trust while the session is open. Only `reloadFiles`, a person's
-   * choice, saves it for the new hash.
+   * choice, saves it for the new hash, over a document a person trusted or
+   * chose.
    */
   readonly reload: (next: ParsedRunbook) => Effect.Effect<ReloadResult, UnknownSession>
   /**
@@ -1012,9 +1013,14 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     }
   >()
   /**
-   * Whether the trust a person gave is saved. A reload leaves it: the hash
-   * saved as trusted is the one the person trusted, not the reloaded one.
+   * Whether a person trusted the document the session holds
+   * (`TrustSession`, or the trust a resumed session gets back), or chose
+   * it with `ReloadFiles` over one they had. Only such a document's hash is
+   * saved as trusted. A watcher's reload clears it: the person has not read
+   * the runbook it took. Set only as trust is, so it implies trust.
    */
+  let chosen = false
+  /** Whether trust is saved for the document the session holds. */
   let savedTrust = false
   /** The runbook hash the saver records: the one the session opened with, until it reloads. */
   let savedRunbook = document.hash.runbook
@@ -1070,7 +1076,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           savedRunbook = document.hash.runbook
           writes.push(saver.runbookChanged(savedRunbook))
         }
-        if (trust._tag === "Trusted" && !savedTrust) {
+        if (chosen && !savedTrust) {
           savedTrust = true
           writes.push(saver.trust(document.hash.combined))
         }
@@ -1956,7 +1962,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
    * wait for one that starts over keep their own runs, and wait for it
    * again, as after a reset. Trust stays as it was, for the new hash, while
    * the session is open. What is saved keeps the hash the person trusted,
-   * unless `by` is the person: they chose the new hash (`ReloadFiles`).
+   * unless `by` is the person, choosing the new hash (`ReloadFiles`) over a
+   * document they trusted or chose (`chosen`).
    */
   const takeDocument = (
     next: ParsedRunbook,
@@ -2037,10 +2044,12 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           moveTo(published, before, nextSlots, () => true)
           moveTo(statuses, before, nextSlots, () => true)
           // What blocks hold is saved again, against the new runbook and its
-          // files. Trust is only when the person chose this hash: after the
-          // watcher reloads, the hash saved is the one the person trusted.
+          // files. Trust is only when a person chose this hash over one they
+          // trusted or chose: after the watcher reloads, the hash saved stays
+          // the one the person trusted, until they trust the session again.
           saved.clear()
-          if (by === "person") savedTrust = false
+          savedTrust = false
+          chosen = chosen && by === "person"
           const stopped = credentials.reload(nextCredentialSlots, kept)
           store.useBlocks(nextCredentialSlots.map((slot) => slot.id))
           document = read.document
@@ -2122,6 +2131,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           trust = { _tag: "Trusted", runner }
           emit({ _tag: "TrustChanged", trust: { trusted: true, hash: current } })
         }
+        // A session trusted through a watcher's reload is trusted for this hash by the person now.
+        chosen = true
         return { _tag: "Trusted" }
       }),
 
