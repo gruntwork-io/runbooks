@@ -787,11 +787,12 @@ export const EngineEvent = Schema.Union([
    * script" reload a session. `GetDocument` and `GetSession` give it as it
    * is now; `hash` is the new document's.
    *
-   * - A block whose id, block, props and files' hashes are as they were
-   *   keeps its run or submit, with its log and outputs. Any other block
-   *   starts over, and a block the runbook no longer has goes. A form keeps
-   *   the values of the fields it still has, and a credential block its
-   *   login, as in a resumed session.
+   * - A block whose id, block, props (shared ones included, apart from
+   *   those only shown: `title`, `description`) and files' hashes are as
+   *   they were keeps its run or submit, with its log and outputs. Any
+   *   other block starts over, and a block the runbook no longer has goes.
+   *   A form keeps the values of the fields it still has, and a credential
+   *   block its login, as in a resumed session.
    * - A trusted session stays trusted, now for the new hash, which
    *   `TrustChanged` carries. An untrusted one stays untrusted.
    */
