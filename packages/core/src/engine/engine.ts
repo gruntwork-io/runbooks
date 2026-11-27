@@ -31,6 +31,7 @@ import {
   type ConfirmValues,
   type ListSessions,
   type OpenSession,
+  type ReloadFiles,
   type ResetBlock,
   type ResolveApproval,
   type RunBlock,
@@ -81,6 +82,8 @@ export interface EngineShape {
   readonly runBlock: Command<typeof RunBlock, Caller>
   readonly cancelBlock: Command<typeof CancelBlock>
   readonly resetBlock: Command<typeof ResetBlock>
+  /** Person only: a reload keeps the session's trust. */
+  readonly reloadFiles: Command<typeof ReloadFiles, Caller>
   readonly waitForBlock: Command<typeof WaitForBlock>
   readonly getOutputs: Command<typeof GetOutputs>
   /** Confirm a detected login, sign in, choose a target, sign out. Refused in a state that does not take it. */
@@ -391,6 +394,12 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
 
           resetBlock: Effect.fn("Engine.resetBlock")(function* ({ session, block }) {
             return yield* (yield* lookup(session)).resetBlock(block)
+          }),
+
+          reloadFiles: Effect.fn("Engine.reloadFiles")(function* ({ session, block, hash }) {
+            const { origin } = yield* Caller
+            if (origin !== "person") return yield* new Forbidden({ command: "ReloadFiles", origin })
+            return yield* (yield* lookup(session)).reloadFiles(block, hash)
           }),
 
           waitForBlock: Effect.fn("Engine.waitForBlock")(function* (payload) {

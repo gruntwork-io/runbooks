@@ -89,6 +89,7 @@ import {
   type OutputView,
   type Refusal,
   RunId,
+  type ReloadFilesResult,
   type RunResult,
   type SessionId,
   type SessionSummary,
@@ -828,6 +829,11 @@ export interface Session {
   readonly resetBlock: (
     block: BlockId,
   ) => Effect.Effect<void, UnknownSession | UnknownBlock | WrongClass>
+  /** Takes the files `block` names as they are on disk, if its view shows them at `hash`. */
+  readonly reloadFiles: (
+    block: BlockId,
+    hash: ContentHash,
+  ) => Effect.Effect<ReloadFilesResult, UnknownBlock>
   /** The block once it is not running, or as it is after `timeoutMillis`. */
   readonly waitForBlock: (
     block: BlockId,
@@ -1873,6 +1879,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
 
     getBlock: (block, logOffset, logLimit) =>
       Effect.map(byId(block), (slot) => viewOf(slot, logOffset, logLimit)),
+
+    // No block shows `filesOnDisk` until the session watches its files (a later commit).
+    reloadFiles: (block) => Effect.as(byId(block), { _tag: "NotShown" } as const),
 
     runBlock: (block, origin) =>
       lock.withPermit(

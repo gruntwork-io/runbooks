@@ -26,6 +26,8 @@ import {
   LIMITS,
   OpenSession,
   type Origin,
+  ReloadFiles,
+  ReloadFilesResult,
   RunBlock,
   RunId,
   RunResult,
@@ -96,6 +98,7 @@ const Handlers = EngineProtocol.toLayer({
       : Effect.fail(new UnknownSession({ session: id })),
   CancelBlock: unused,
   ResetBlock: unused,
+  ReloadFiles: unused,
   WaitForBlock: unused,
   GetOutputs: unused,
   ActOnCredential: unused,
@@ -476,6 +479,36 @@ describe("engine protocol", () => {
       hunks: [],
     }))
     expect(() => decode(onDisk(deleted))).toThrow(/at \["filesOnDisk"\]/)
+  })
+
+  it("reloads a block's files by the hash its view shows, and answers each outcome through JSON", () => {
+    const payload = Schema.decodeUnknownSync(Schema.toCodecJson(ReloadFiles.payloadSchema))
+    const sent = { session: "s1", block: "greet", hash: `sha256:${"a".repeat(64)}` }
+    expect(payload(sent)).toEqual({ session, block: greet, hash })
+    const { hash: _, ...unhashed } = sent
+    expect(() => payload(unhashed)).toThrow(/at \["hash"\]/)
+
+    const json = Schema.toCodecJson(ReloadFilesResult)
+    for (const result of [
+      { _tag: "Reloaded" },
+      { _tag: "NotShown" },
+      { _tag: "Running", blocks: ["greet"] },
+    ]) {
+      const decoded = Schema.decodeUnknownSync(json)(result)
+      expect(JSON.parse(JSON.stringify(Schema.encodeSync(json)(decoded)))).toEqual(result)
+    }
+    expect(() => Schema.decodeUnknownSync(json)({ _tag: "Running", blocks: [] })).toThrow(
+      /at \["blocks"\]/,
+    )
+
+    // Person only, as TrustSession is.
+    const errors = Schema.toCodecJson(ReloadFiles.errorSchema)
+    const refused = { _tag: "Forbidden", command: "ReloadFiles", origin: "agent" }
+    expect(
+      JSON.parse(
+        JSON.stringify(Schema.encodeSync(errors)(Schema.decodeUnknownSync(errors)(refused))),
+      ),
+    ).toEqual(refused)
   })
 
   it("says what a resumed session did not restore, and carries it through JSON", () => {

@@ -33,6 +33,7 @@ export const EngineHandlers: Layer.Layer<
       RunBlock: engine.runBlock,
       CancelBlock: engine.cancelBlock,
       ResetBlock: engine.resetBlock,
+      ReloadFiles: engine.reloadFiles,
       WaitForBlock: engine.waitForBlock,
       GetOutputs: engine.getOutputs,
       ActOnCredential: engine.actOnCredential,

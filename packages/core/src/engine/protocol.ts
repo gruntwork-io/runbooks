@@ -583,6 +583,25 @@ export type SetValuesResult = typeof SetValuesResult.Type
 
 export const CancelResult = Schema.Literals(["cancelled", "notRunning"])
 
+export const ReloadFilesResult = Schema.Union([
+  /**
+   * The block took the files at the hash it showed: it runs them from now
+   * on, starting over if it had run. `DocumentChanged` says the session's
+   * document took them. A trusted session stays trusted, now for the new
+   * hash, which `TrustChanged` carries.
+   */
+  Schema.TaggedStruct("Reloaded", {}),
+  /**
+   * The block shows no `filesOnDisk`, or shows them at another hash: the
+   * files changed again since the client read the block. Nothing changed;
+   * reading the block again shows what is on disk now.
+   */
+  Schema.TaggedStruct("NotShown", {}),
+  /** Nothing reloads while a block runs: these are running. Nothing changed. */
+  Schema.TaggedStruct("Running", { blocks: Schema.NonEmptyArray(BlockId) }),
+])
+export type ReloadFilesResult = typeof ReloadFilesResult.Type
+
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
@@ -953,6 +972,19 @@ export class ResetBlock extends Rpc.make("ResetBlock", {
   error: ClassError,
 }) {}
 
+/**
+ * Person only. Takes the files a block names as they are on disk, at the
+ * `hash` its `filesOnDisk` shows: the "Reload script" a person chooses
+ * after reading how they changed. The session takes them as it takes a
+ * reloaded runbook (`DocumentChanged`), keeping its trust for the new
+ * hash, so an agent, which may have written them, cannot.
+ */
+export class ReloadFiles extends Rpc.make("ReloadFiles", {
+  payload: { ...block, hash: ContentHash },
+  success: ReloadFilesResult,
+  error: Schema.Union([UnknownSession, UnknownBlock, Forbidden]),
+}) {}
+
 /** Returns once the block is not running or awaiting approval, or after `timeoutMillis`. */
 export class WaitForBlock extends Rpc.make("WaitForBlock", {
   payload: {
@@ -1027,6 +1059,7 @@ export const EngineProtocol = RpcGroup.make(
   RunBlock,
   CancelBlock,
   ResetBlock,
+  ReloadFiles,
   WaitForBlock,
   GetOutputs,
   ActOnCredential,

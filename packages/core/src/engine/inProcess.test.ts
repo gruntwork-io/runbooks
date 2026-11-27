@@ -383,6 +383,42 @@ describe("the in-process transport", () => {
     )
   })
 
+  it("reloads no files of a block that shows none changed on disk, and names a block the session lacks", async () => {
+    await withClients({ runbook: RUNBOOK_TEXT }, ({ person }) =>
+      Effect.gen(function* () {
+        const view = yield* opened(person)
+        const { session } = view
+        const { hash } = yield* person.GetDocument({ session })
+        expect(yield* person.ReloadFiles({ session, block: blockId("greet"), hash })).toEqual({
+          _tag: "NotShown",
+        })
+        const gone = yield* Effect.flip(
+          person.ReloadFiles({ session, block: blockId("gone"), hash }),
+        )
+        expect(gone).toMatchObject({ _tag: "UnknownBlock", session, block: "gone" })
+        expect(yield* person.GetSession({ session })).toEqual(view)
+      }),
+    )
+  })
+
+  // A reload keeps the session's trust, so an agent that wrote a script could reload it trusted.
+  it("refuses an agent's reload of a block's files, which only a person chooses", async () => {
+    await withClients({ runbook: RUNBOOK_TEXT }, ({ person, agent }) =>
+      Effect.gen(function* () {
+        const view = yield* opened(person)
+        const { session } = view
+        const { hash } = yield* person.GetDocument({ session })
+        for (const block of [blockId("greet"), blockId("gone")])
+          expect(yield* Effect.flip(agent.ReloadFiles({ session, block, hash }))).toMatchObject({
+            _tag: "Forbidden",
+            command: "ReloadFiles",
+            origin: "agent",
+          })
+        expect(yield* person.GetSession({ session })).toEqual(view)
+      }),
+    )
+  })
+
   it("answers a runbook it refuses with its errors, as a result", async () => {
     await withClients({ runbook: "<Nope />" }, ({ person }) =>
       Effect.gen(function* () {
@@ -984,6 +1020,7 @@ const UNUSED = {
   RunBlock: unused,
   CancelBlock: unused,
   ResetBlock: unused,
+  ReloadFiles: unused,
   WaitForBlock: unused,
   GetOutputs: unused,
   ActOnCredential: unused,
