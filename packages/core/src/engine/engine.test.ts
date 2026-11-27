@@ -57,7 +57,7 @@ const registryWith = (scripts: Readonly<Record<string, Script>>) => ({
       ),
     run: (p, input) => scripts[p.command ?? ""]?.(input) ?? Stream.empty,
   }),
-  /** A task with a form of its own, from its YAML children. */
+  /** A task with a form of its own, from its YAML children, that runs commands, so it takes `env`. */
   Ask: defineTask({
     name: "Ask",
     since: "0.1.0",
@@ -67,7 +67,7 @@ const registryWith = (scripts: Readonly<Record<string, Script>>) => ({
     references: {},
     runbookFiles: () => [],
     provides: ["run"],
-    effects: [],
+    effects: ["process"],
     outputs: (): OutputDecls<string> => ({}),
     fields: (p) => Effect.succeed(toyFormSpec(p.variables)),
     run: (p, input) => scripts[p.command]?.(input) ?? Stream.empty,
@@ -1865,6 +1865,31 @@ describe("Engine values", () => {
         yield* rb.run("deploy")
         yield* rb.wait("deploy")
         expect(envs.map(({ ID }) => ID)).toEqual(["from-first"])
+      }),
+    )
+  })
+
+  it("waits for each input its env reads in its own form, naming itself", async () => {
+    const { script, envs } = envRecorder()
+    const ask = withFields(
+      '<Ask id="ask" command="record" env={{ TARGET: "{{ .inputs.target }}" }}>',
+      ["- name: target", "  type: string"],
+      "</Ask>",
+    )
+    await withEngine(
+      ask,
+      { record: script },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        expect(yield* rb.status("ask")).toEqual({
+          _tag: "Blocked",
+          by: [emptyInput("ask", "target")],
+        })
+        yield* rb.set("ask", { target: "prod" })
+        yield* rb.run("ask")
+        yield* rb.wait("ask")
+        expect(envs.map(({ TARGET }) => TARGET)).toEqual(["prod"])
       }),
     )
   })
