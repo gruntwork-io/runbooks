@@ -2180,10 +2180,14 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           const next = startParse(source, registry, { file: document.file, appVersion }).finish(
             files,
           )
-          // Only a runbook's text refuses it (`refusesRunbook`), and this text parsed before.
+          // Unreachable: only a runbook's own text refuses it (`refusesRunbook`), and
+          // this text parsed when the session took it. A file a block names stops
+          // that block alone (`badFile`).
           if (next._tag === "Invalid")
             return yield* Effect.die(
-              new Error(`The runbook no longer parses with its files: ${next.errors[0].message}`),
+              new Error(
+                `This is a bug in Runbooks, not in the runbook: the runbook parsed when the session took it, but not with the files a block showed on disk (${next.errors[0].message}).`,
+              ),
             )
           const taken = yield* takeDocument(next, "person")
           // Unreachable: the block showed files that differ from the session's, and took them.
