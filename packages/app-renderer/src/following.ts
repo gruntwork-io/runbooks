@@ -19,11 +19,12 @@ import type {
   SessionId,
   Settings,
   SetValuesResult,
+  TrustState,
 } from "@runbooks/core/protocol"
 import { clientErrorText, defectText } from "./defect.ts"
 import { follow, type LiveStore, makeLiveStore } from "./live.ts"
 import { followSettings, makeSettingsStore, type SettingsStore } from "./settings.ts"
-import { askToTrust, makeTrustingStore, type TrustingStore } from "./trust.ts"
+import { askToTrust, makeTrustingStore, type Trusting, type TrustingStore } from "./trust.ts"
 
 export interface Following {
   readonly live: LiveStore
@@ -71,6 +72,19 @@ export function useEnded(): string | undefined {
   const { live } = useContext(FollowingContext)
   const select = () => live.get().ended
   return useSyncExternalStore(live.subscribe, select, select)
+}
+
+/** The session's trust, once the window has read it. */
+export function useTrust(): TrustState | undefined {
+  const { live } = useContext(FollowingContext)
+  const select = () => live.get().trust
+  return useSyncExternalStore(live.subscribe, select, select)
+}
+
+/** What came of the last ask to trust the session. */
+export function useTrusting(): Trusting {
+  const { trusting } = useContext(FollowingContext)
+  return useSyncExternalStore(trusting.subscribe, trusting.get, trusting.get)
 }
 
 /**

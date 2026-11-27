@@ -31,7 +31,11 @@ test.describe("a runbook given on the command line", () => {
     const { page } = await launch({ args: [runbook("walk")] })
     await expect(page.getByRole("heading", { level: 1, name: "Walk the document" })).toBeVisible()
     await expect(page.getByRole("heading", { name: "Set up the network" })).toBeVisible()
-    await expect(page.getByRole("listitem")).toHaveText(["Create the VPC", "Add the subnets"])
+    // The body's list: the trust prompt above it lists the Command.
+    await expect(page.locator(".runbook-body").getByRole("listitem")).toHaveText([
+      "Create the VPC",
+      "Add the subnets",
+    ])
     await expect(page.locator("pre code")).toHaveText("tofu apply -auto-approve")
     await expect(page.getByRole("link", { name: "the OpenTofu docs" })).toHaveAttribute(
       "href",
