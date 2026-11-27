@@ -272,6 +272,53 @@ describe("a block's frame, as the engine has the block", () => {
     )
   })
 
+  it("names each input it waits for a value of, with a link to the form that holds it", () => {
+    const shown = page(
+      followingViews(
+        view("deploy", {
+          _tag: "Blocked",
+          by: [
+            { _tag: "EmptyInput", block: "config", input: "id" },
+            { _tag: "EmptyInput", block: "config", input: "tags.env" },
+          ],
+        }),
+      ),
+      placed({ id: "deploy" }),
+      placed({ id: "config", class: "form" }),
+    )
+    expect(shown).toContain("Waiting for:")
+    expect(shown).toContain(
+      '<a href="#runbook-block-config" class="block-link">config</a> to have a value for <code>id</code>',
+    )
+    expect(shown).toContain(
+      '<a href="#runbook-block-config" class="block-link">config</a> to have a value for <code>tags.env</code>',
+    )
+  })
+
+  it("names each running block it waits for, and says which of the two runs alone", () => {
+    const shown = page(
+      followingViews(
+        view("deploy", {
+          _tag: "Blocked",
+          by: [
+            { _tag: "Exclusive", block: "migrate", runsAlone: "running" },
+            { _tag: "Exclusive", block: "build", runsAlone: "waiting" },
+          ],
+        }),
+      ),
+      placed({ id: "deploy" }),
+      placed({ id: "migrate" }),
+      placed({ id: "build" }),
+    )
+    expect(shown).toContain("Waiting for:")
+    expect(shown).toContain(
+      '<a href="#runbook-block-migrate" class="block-link">migrate</a> to finish: it runs alone',
+    )
+    expect(shown).toContain(
+      '<a href="#runbook-block-build" class="block-link">build</a> to finish: this block runs alone',
+    )
+  })
+
   it("names a block it waits for as text when the page draws no frame for it", () => {
     const shown = page(
       followingViews(

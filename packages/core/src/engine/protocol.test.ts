@@ -197,6 +197,63 @@ describe("engine protocol", () => {
     expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
   })
 
+  it("says which input a blocked block waits for a value of, and the form that holds it, through JSON", () => {
+    const json = Schema.toCodecJson(EventEnvelope)
+    const envelope: EventEnvelope = {
+      session,
+      sequence: 5,
+      at,
+      event: {
+        _tag: "BlockStatusChanged",
+        block: greet,
+        status: { _tag: "Blocked", by: [{ _tag: "EmptyInput", block: config, input: "tags.env" }] },
+      },
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(envelope)))
+    expect(wire.event.status.by).toEqual([
+      { _tag: "EmptyInput", block: "config", input: "tags.env" },
+    ])
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
+  })
+
+  it("says which running block a blocked block waits for, and which of the two runs alone, through JSON", () => {
+    const json = Schema.toCodecJson(EventEnvelope)
+    const envelope: EventEnvelope = {
+      session,
+      sequence: 6,
+      at,
+      event: {
+        _tag: "BlockStatusChanged",
+        block: greet,
+        status: {
+          _tag: "Blocked",
+          by: [
+            { _tag: "Exclusive", block: config, runsAlone: "running" },
+            { _tag: "Exclusive", block: config, runsAlone: "waiting" },
+          ],
+        },
+      },
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(envelope)))
+    expect(wire.event.status.by).toEqual([
+      { _tag: "Exclusive", block: "config", runsAlone: "running" },
+      { _tag: "Exclusive", block: "config", runsAlone: "waiting" },
+    ])
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
+    expect(() =>
+      Schema.decodeUnknownSync(json)({
+        ...wire,
+        event: {
+          ...wire.event,
+          status: {
+            _tag: "Blocked",
+            by: [{ _tag: "Exclusive", block: "config", runsAlone: "both" }],
+          },
+        },
+      }),
+    ).toThrow(/at \["event"\]\["status"\]\["by"\]\[0\]/)
+  })
+
   it("holds a log line to 16384 characters, in an event and in a block's log page", () => {
     const json = Schema.toCodecJson(EventEnvelope)
     const run = Schema.decodeUnknownSync(RunId)("r1")

@@ -312,7 +312,28 @@ function need(capability: Capability): string {
   }
 }
 
-/** What a blocked block waits for: trust, and each block it reads, as a link to it. */
+/** Which of two blocks that may not run at once runs alone, before "runs alone". */
+function alone(runsAlone: Extract<Blocker, { readonly _tag: "Exclusive" }>["runsAlone"]): string {
+  switch (runsAlone) {
+    case "running":
+      return "it"
+    case "waiting":
+      return "this block"
+    default: {
+      const unhandled: never = runsAlone
+      throw new Error(`The frame has no words for ${String(unhandled)} running alone.`)
+    }
+  }
+}
+
+/** A block a blocked block waits for, and what it waits for that block to do. */
+interface Waiting {
+  readonly key: string
+  readonly block: string
+  readonly reason: ReactNode
+}
+
+/** What a blocked block waits for: trust, and each block it waits for, as a link to it. */
 function Blockers({
   by,
   onPage,
@@ -321,15 +342,39 @@ function Blockers({
   readonly onPage: ReadonlySet<string>
 }) {
   let untrusted = false
-  const waiting: Array<Extract<Blocker, { readonly _tag: "WaitingFor" }>> = []
+  const waiting: Waiting[] = []
   for (const blocker of by)
     switch (blocker._tag) {
       case "Untrusted":
         untrusted = true
         break
-      case "WaitingFor":
-        waiting.push(blocker)
+      case "WaitingFor": {
+        const { block, capability } = blocker
+        waiting.push({ key: `${block} ${capability}`, block, reason: need(capability) })
         break
+      }
+      case "EmptyInput": {
+        const { block, input } = blocker
+        waiting.push({
+          key: `${block} input ${input}`,
+          block,
+          reason: (
+            <>
+              to have a value for <code>{input}</code>
+            </>
+          ),
+        })
+        break
+      }
+      case "Exclusive": {
+        const { block, runsAlone } = blocker
+        waiting.push({
+          key: `${block} running`,
+          block,
+          reason: `to finish: ${alone(runsAlone)} runs alone`,
+        })
+        break
+      }
       default: {
         const unhandled: never = blocker
         throw new Error(`The frame has no words for the blocker ${JSON.stringify(unhandled)}.`)
@@ -342,9 +387,9 @@ function Blockers({
         <>
           <p>Waiting for:</p>
           <ul>
-            {waiting.map(({ block, capability }) => (
-              <li key={`${block} ${capability}`}>
-                <BlockLink block={block} onPage={onPage} /> {need(capability)}
+            {waiting.map(({ key, block, reason }) => (
+              <li key={key}>
+                <BlockLink block={block} onPage={onPage} /> {reason}
               </li>
             ))}
           </ul>
