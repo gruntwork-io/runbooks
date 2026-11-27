@@ -640,37 +640,66 @@ describe("TestExecutor — explicit steps", () => {
     ])
   })
 
-  it("gives a block the credentials of every auth block it references", async () => {
-    // gh-b runs last, so the session's GITHUB_TOKEN is its token; the block
-    // names gh-a, and gets gh-a's.
+  it("gives a block the credentials of every auth block it references, not only the last", async () => {
+    // gh-b and gl-b run last, so the session's GITHUB_TOKEN and GITLAB_TOKEN
+    // are theirs; the block names gh-a and gl-a, and gets both of theirs.
+    const report = ["github_token=$GITHUB_TOKEN", "gitlab_token=$GITLAB_TOKEN"]
+      .map((line) => `echo "${line}" >> "$RUNBOOK_OUTPUT"`)
+      .join("; ")
     const executor = await makeExecutor(
       [
         "# Auth",
         "",
-        `<AwsAuth id="aws" />`,
-        "",
         `<GitHubAuth id="gh-a" />`,
+        "",
+        `<GitLabAuth id="gl-a" />`,
         "",
         `<GitHubAuth id="gh-b" />`,
         "",
-        `<Command id="report" awsAuthId="aws" gitAuthId="gh-a" command='echo "github_token=$GITHUB_TOKEN" >> "$RUNBOOK_OUTPUT"' />`,
+        `<GitLabAuth id="gl-b" />`,
+        "",
+        `<Command id="report" githubAuthId="gh-a" gitAuthId="gl-a" command='${report}' />`,
         "",
       ].join("\n"),
     )
 
     const result = executor.runTest({
-      name: "two-github-sign-ins",
-      env: { ...AWS_ENV, A_GITHUB_TOKEN: "fake-token-a", B_GITHUB_TOKEN: "fake-token-b" },
+      name: "two-sign-ins-each",
+      env: {
+        GITLAB_TOKEN: "",
+        GITLAB_ACCESS_TOKEN: "",
+        OAUTH_TOKEN: "",
+        GITLAB_HOST: "",
+        GITLAB_URI: "",
+        GL_HOST: "",
+        A_GITHUB_TOKEN: "fake-github-a",
+        B_GITHUB_TOKEN: "fake-github-b",
+        A_GITLAB_TOKEN: "fake-gitlab-a",
+        B_GITLAB_TOKEN: "fake-gitlab-b",
+      },
       steps: [
-        { block: "aws", expect: "success" },
         { block: "gh-a", expect: "success", env_prefix: "A_" },
+        { block: "gl-a", expect: "success", env_prefix: "A_" },
         { block: "gh-b", expect: "success", env_prefix: "B_" },
+        { block: "gl-b", expect: "success", env_prefix: "B_" },
         { block: "report", expect: "success" },
       ],
     })
 
     expect(result.error).toBeUndefined()
-    expect(result.stepResults[3]?.outputs).toMatchObject({ github_token: "fake-token-a" })
+    expect(result.stepResults[4]?.outputs).toMatchObject({
+      github_token: "fake-github-a",
+      gitlab_token: "fake-gitlab-a",
+    })
+  })
+
+  it("lists a block among the dependents of each auth block it references", async () => {
+    const executor = await makeExecutor(
+      `# Auth\n\n<AwsAuth id="aws" />\n\n<GitAuth id="git" />\n\n<Command id="deploy" awsAuthId="aws" gitAuthId="git" command="echo deploy" />\n`,
+    )
+
+    expect(executor.dependentsOf("aws")).toEqual([{ block: "deploy", authBlock: true }])
+    expect(executor.dependentsOf("git")).toEqual([{ block: "deploy", authBlock: true }])
   })
 
   it("gives the gitAuthId block's GITHUB_TOKEN over the githubAuthId block's, as the app does", async () => {
