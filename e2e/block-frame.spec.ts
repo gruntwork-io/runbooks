@@ -1,0 +1,39 @@
+/**
+ * A block's frame as the window draws it from the engine: its step mark,
+ * its status as the engine has it, and what it waits for, each block it
+ * waits for a link that scrolls to it.
+ *
+ * Runs against the build in app-out/: `just app-test-e2e` builds it first.
+ * The window has no trust prompt yet (row 3i), so every session here is
+ * untrusted.
+ */
+import path from "node:path"
+import { expect, test } from "./fixtures.ts"
+
+const runbook = (name: string) => path.join(import.meta.dirname, "runbooks", name)
+
+test.describe("a block's frame", () => {
+  test("shows a Command's step mark, and that it waits for trust, with no Run", async ({
+    launch,
+  }) => {
+    const { page } = await launch({ args: [runbook("walk")] })
+    const block = page.getByRole("region", { name: "<Command> block" })
+    await expect(block.getByRole("img", { name: "Step: not done" })).toBeVisible()
+    await expect(block.getByText("Waiting for you to trust this runbook.")).toBeVisible()
+    await expect(block.getByRole("button", { name: "Run" })).toHaveCount(0)
+  })
+
+  test("says which block a Command waits for, and its link scrolls to that block", async ({
+    launch,
+  }) => {
+    const { page } = await launch({ args: [runbook("waiting")] })
+    const deploy = page.locator("#runbook-block-deploy")
+    const build = page.locator("#runbook-block-build")
+    const link = deploy.getByRole("link", { name: "build" })
+    await expect(deploy.getByText("Waiting for:")).toBeVisible()
+    await expect(link).toHaveAttribute("href", "#runbook-block-build")
+    await expect(build).not.toBeInViewport()
+    await link.click()
+    await expect(build).toBeInViewport()
+  })
+})

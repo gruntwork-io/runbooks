@@ -1,6 +1,6 @@
 /**
  * A runbook given on the command line, as the window shows it: its markdown
- * walked, its blocks as placeholders, a misconfigured block's errors, the
+ * walked, each block in its frame, a misconfigured block's errors, the
  * author's markup as data, its body in a box its styles can't escape, and
  * one nested as deep as a runbook may be, or deeper.
  *
@@ -25,7 +25,7 @@ const MAX_NESTING = 100
 const quoted = (quotes: number, text: string) => `${"> ".repeat(quotes)}${text}\n`
 
 test.describe("a runbook given on the command line", () => {
-  test("shows its title, headings, a list, a code block, a link and a block placeholder", async ({
+  test("shows its title, headings, a list, a code block, a link and a block's frame", async ({
     launch,
   }) => {
     const { page } = await launch({ args: [runbook("walk")] })
