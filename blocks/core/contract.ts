@@ -325,7 +325,18 @@ export interface TaskInput<N extends string = never> extends TaskReads {
  * which the engine reads once the run ends well.
  */
 export type TaskEvent<K extends string> =
-  | { readonly _tag: "Log"; readonly stream: "stdout" | "stderr"; readonly line: string }
+  /**
+   * A line of the run's log. `cut` is how many characters of it the run
+   * left out after `line`, as a run that keeps no more of a line than the
+   * engine's log holds does; the engine cuts a longer `line` itself, and
+   * says in the log how much of a line was cut.
+   */
+  | {
+      readonly _tag: "Log"
+      readonly stream: "stdout" | "stderr"
+      readonly line: string
+      readonly cut?: number
+    }
   | { readonly _tag: "Output"; readonly key: K; readonly value: string }
   /**
    * The run wrote, changed or removed the file at `path`, an absolute path.

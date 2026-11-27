@@ -67,7 +67,8 @@ const SCRIPTS: Readonly<Record<string, Stream.Stream<TaskEvent<string>, TaskErro
     { _tag: "Output", key: "secretToken", value: "tok-SECRET" },
   ),
   noisy: Stream.fromIterable(Array.from({ length: 600 }, (_, n) => line(`line ${n}`))),
-  wide: Stream.fromIterable(["a", "b", "c"].map((c) => line(c.repeat(40_000)))),
+  // Five lines as long as a log line may be: 81,920 characters.
+  wide: Stream.fromIterable(["a", "b", "c", "d", "e"].map((c) => line(c.repeat(16_384)))),
   hang: Stream.never,
 }
 
@@ -476,9 +477,9 @@ describe("resuming a session", () => {
       ),
     )
     expect(resumed.wide).toEqual({
-      offset: 2,
-      total: 3,
-      lines: [{ stream: "stdout", text: "c".repeat(40_000) }],
+      offset: 1,
+      total: 5,
+      lines: ["b", "c", "d", "e"].map((c) => ({ stream: "stdout", text: c.repeat(16_384) })),
     })
   })
 

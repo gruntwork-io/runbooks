@@ -56,6 +56,12 @@ export const LIMITS = {
   /** Log lines a read returns when it does not say. */
   defaultLogLimit: 200,
   maxLogLimit: 5000,
+  /**
+   * The characters a log line holds. The engine cuts a longer line where it
+   * enters the run's log: it keeps the line's start, and ends it saying how
+   * many characters it cut, so a client shows a cut line as it shows any.
+   */
+  maxLogLineLength: 16_384,
   /** `WaitForBlock` waits at most this long in one call, inside MCP clients' tool timeouts. */
   maxWaitMillis: 120_000,
   defaultWaitMillis: 30_000,
@@ -133,7 +139,8 @@ export type FieldView = typeof FieldView.Type
 
 export const LogLine = Schema.Struct({
   stream: Schema.Literals(["stdout", "stderr"]),
-  text: Schema.String,
+  /** At most `LIMITS.maxLogLineLength` characters: a longer line is cut. */
+  text: Schema.String.check(Schema.isMaxLength(LIMITS.maxLogLineLength)),
 })
 export type LogLine = typeof LogLine.Type
 

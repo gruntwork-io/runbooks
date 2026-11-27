@@ -26,6 +26,7 @@ import {
   OpenSession,
   type Origin,
   RunBlock,
+  RunId,
   RunResult,
   SessionId,
   SessionView,
@@ -194,6 +195,38 @@ describe("engine protocol", () => {
     expect(wire.at).toBe("2026-11-24T12:00:00.000Z")
     expect(wire.event.outputs.token).toEqual({ _tag: "Hidden" })
     expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
+  })
+
+  it("holds a log line to 16384 characters, in an event and in a block's log page", () => {
+    const json = Schema.toCodecJson(EventEnvelope)
+    const run = Schema.decodeUnknownSync(RunId)("r1")
+    const logged = (text: string): EventEnvelope => ({
+      session,
+      sequence: 4,
+      at,
+      event: {
+        _tag: "LogLines",
+        block: greet,
+        run,
+        offset: 0,
+        lines: [{ stream: "stdout", text }],
+      },
+    })
+    const longest = logged("x".repeat(16_384))
+    expect(Schema.decodeUnknownSync(json)(Schema.encodeSync(json)(longest))).toEqual(longest)
+    expect(() => Schema.encodeSync(json)(logged("x".repeat(16_385)))).toThrow(
+      /at \["event"\]\["lines"\]\[0\]\["text"\]/,
+    )
+    const view = Schema.decodeUnknownSync(BlockView)
+    const base = { block: greet, tag: "Run", class: "task", actions: [], outputs: {} }
+    const page = (text: string) => ({ offset: 0, total: 1, lines: [{ stream: "stderr", text }] })
+    expect(view({ ...base, log: page("x".repeat(16_384)) }).log?.lines[0]?.text).toHaveLength(
+      16_384,
+    )
+    expect(() => view({ ...base, log: page("x".repeat(16_385)) })).toThrow(
+      /at \["log"\]\["lines"\]\[0\]\["text"\]/,
+    )
+    expect(LIMITS.maxLogLineLength).toBe(16_384)
   })
 
   it("carries Events' refusal of a sequence not logged through JSON, as the typed error", () => {
