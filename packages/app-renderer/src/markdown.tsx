@@ -293,7 +293,7 @@ function definitionsIn(tree: TreeNode): Walk["definitions"] {
  * The ids of the blocks the walk draws a frame for: each block that is not
  * inside a misconfigured one, whose children it draws none of.
  */
-function framedIn(tree: TreeNode, blocks: DocumentView["blocks"]): ReadonlySet<string> {
+export function framedIn(tree: TreeNode, blocks: DocumentView["blocks"]): ReadonlySet<string> {
   const found = new Set<string>()
   const visit = (node: TreeNode) => {
     const part = read(node)

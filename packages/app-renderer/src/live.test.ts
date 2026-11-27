@@ -380,6 +380,52 @@ describe("the window following a session", () => {
     )
   })
 
+  it("shows why the session holds back a reload as its view gives it, then as each ReloadHeldChanged says, until one clears it", async () => {
+    const running = { _tag: "Running", blocks: ["greet"] }
+    const main = fakeMain(answering({ greet: task("greet") }, { reloadHeld: running }))
+    const unreadable = {
+      _tag: "Unreadable",
+      message: "There is no file at /runbooks/deploy/runbook.mdx.",
+    }
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        expect<unknown>((yield* next).reloadHeld).toEqual(running)
+        main.stream("Events", [event({ _tag: "ReloadHeldChanged", held: unreadable })])
+        expect<unknown>((yield* next).reloadHeld).toEqual(unreadable)
+        // An event that says nothing of it keeps it.
+        main.stream("Events", [
+          event({ _tag: "TrustChanged", trust: { trusted: true, hash: HASH } }),
+        ])
+        expect<unknown>((yield* next).reloadHeld).toEqual(unreadable)
+        main.stream("Events", [event({ _tag: "ReloadHeldChanged" })])
+        expect((yield* next).reloadHeld).toBeUndefined()
+      }),
+    )
+  })
+
+  it("shows that the session stopped watching, as its view or an Unwatched says", async () => {
+    const message =
+      "Runbooks could not watch /runbooks/deploy/runbook.mdx, or the files it names, for changes."
+    const fromView = fakeMain(answering({ greet: task("greet") }, { unwatched: { message } }))
+    await following(fromView, (next) =>
+      Effect.gen(function* () {
+        expect((yield* next).unwatched).toEqual({ message })
+      }),
+    )
+    const fromEvent = fakeMain(answering({ greet: task("greet") }))
+    await following(fromEvent, (next) =>
+      Effect.gen(function* () {
+        expect((yield* next).unwatched).toBeUndefined()
+        fromEvent.stream("Events", [event({ _tag: "Unwatched", message })])
+        expect((yield* next).unwatched).toEqual({ message })
+        fromEvent.stream("Events", [
+          event({ _tag: "TrustChanged", trust: { trusted: true, hash: HASH } }),
+        ])
+        expect((yield* next).unwatched).toEqual({ message })
+      }),
+    )
+  })
+
   it("says when the session closes", async () => {
     const main = fakeMain(answering({ greet: task("greet") }))
     await following(main, (next) =>

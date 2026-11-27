@@ -7,9 +7,10 @@
  * the author styles inside it paints or takes a click outside it, not even
  * an element with `position: fixed` and a high z-index, since the box is the
  * containing block of its fixed elements and a stacking context of its own.
- * The app's header, the title, the warnings, the instruction mode banner
- * and the trust prompt (`trustPrompt.tsx`) stay outside it, so the author
- * can't cover or imitate them. The containment is a style prop, set
+ * The app's header, the title, the warnings, the instruction mode banner,
+ * what the page says of the runbook on disk (`watchNotes.tsx`) and the
+ * trust prompt (`trustPrompt.tsx`) stay outside it, so the author can't
+ * cover or imitate them. The containment is a style prop, set
  * through the CSSOM, so it holds whether or not the stylesheet loads.
  */
 import type { DocumentView, SessionSummary } from "@runbooks/core/protocol"
@@ -17,6 +18,7 @@ import { useDocument, useEnded, useInstructionMode } from "./following.ts"
 import { Markdown, unknownParts } from "./markdown.tsx"
 import { place } from "./place.ts"
 import { TrustPrompt } from "./trustPrompt.tsx"
+import { WatchNotes } from "./watchNotes.tsx"
 
 export function Runbook({
   session,
@@ -42,6 +44,7 @@ export function Runbook({
           copy and run yourself.
         </p>
       ) : null}
+      <WatchNotes document={document} runbook={session.path} />
       <TrustPrompt document={document} />
       {document.warnings.length === 0 ? null : (
         <ul className="warnings" aria-label="Warnings">

@@ -16,11 +16,13 @@ import type {
   DocumentView,
   EngineClient,
   Refusal,
+  ReloadHeld,
   RunResult,
   SessionId,
   Settings,
   SetValuesResult,
   TrustState,
+  Unwatched,
 } from "@runbooks/core/protocol"
 import { clientErrorText, defectText } from "./defect.ts"
 import { follow, type LiveStore, makeLiveStore } from "./live.ts"
@@ -79,6 +81,20 @@ export function useInstructionMode(): boolean {
 export function useDocument(): DocumentView | undefined {
   const { live } = useContext(FollowingContext)
   const select = () => live.get().document
+  return useSyncExternalStore(live.subscribe, select, select)
+}
+
+/** Why the session holds back a reload of its runbook, while it does. */
+export function useReloadHeld(): ReloadHeld | undefined {
+  const { live } = useContext(FollowingContext)
+  const select = () => live.get().reloadHeld
+  return useSyncExternalStore(live.subscribe, select, select)
+}
+
+/** Why the session watches nothing, once it stopped. */
+export function useUnwatched(): Unwatched | undefined {
+  const { live } = useContext(FollowingContext)
+  const select = () => live.get().unwatched
   return useSyncExternalStore(live.subscribe, select, select)
 }
 

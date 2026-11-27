@@ -400,7 +400,7 @@ function Blockers({
 }
 
 /** A block's id: a link that scrolls to its frame, or its text when the page draws none. */
-function BlockLink({
+export function BlockLink({
   block,
   onPage,
 }: {

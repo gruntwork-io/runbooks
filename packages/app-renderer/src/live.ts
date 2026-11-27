@@ -15,6 +15,10 @@
  *   an instruction again.
  * - A block's log is its latest run's last page: a log longer than one
  *   page is read again from `total - defaultLogLimit`.
+ * - Why the session holds back a reload is its view's `reloadHeld`, then
+ *   each `ReloadHeldChanged`'s, which clears it when it has no `held`.
+ *   That the session stopped watching is its view's `unwatched`, or the
+ *   `Unwatched` event's, and nothing clears it.
  * - The session's trust is its view's, then each `TrustChanged`'s. Each
  *   block whose status trust changes has a `BlockStatusChanged` of its own,
  *   which reads it again.
@@ -42,9 +46,11 @@ import {
   type EngineClient,
   type EngineEvent,
   LIMITS,
+  type ReloadHeld,
   type SessionId,
   type SessionView,
   type TrustState,
+  type Unwatched,
 } from "@runbooks/core/protocol"
 import { clientErrorText, defectText } from "./defect.ts"
 
@@ -62,6 +68,10 @@ export interface Live {
   readonly document?: DocumentView
   /** The session's trust, as the engine had it after the last batch. Absent until the session is read. */
   readonly trust?: TrustState
+  /** Why the session holds back a reload of its runbook, while it does. */
+  readonly reloadHeld?: ReloadHeld
+  /** Why the session watches nothing, once it stopped. */
+  readonly unwatched?: Unwatched
   /** Why the window no longer follows the session, when it doesn't. */
   readonly ended?: string
 }
@@ -75,6 +85,10 @@ interface Stale {
   trust: TrustState | undefined
   /** The session reloaded its runbook, so every block may have changed. */
   document: boolean
+  /** What the batch's last `ReloadHeldChanged` gives, if one does: `now` absent clears it. */
+  held: { readonly now: ReloadHeld | undefined } | undefined
+  /** What the batch's `Unwatched` gives, if one does. */
+  unwatched: Unwatched | undefined
   closed: boolean
 }
 
@@ -119,10 +133,14 @@ function mark(
     case "DocumentChanged":
       stale.document = true
       return
-    // The session's warnings are not drawn yet, nor is a reload held back, or a failed watch.
-    case "Warning":
     case "ReloadHeldChanged":
+      stale.held = { now: event.held }
+      return
     case "Unwatched":
+      stale.unwatched = { message: event.message }
+      return
+    // The session's warnings are not drawn yet.
+    case "Warning":
       return
     default: {
       const unhandled: never = event
@@ -173,16 +191,22 @@ export const follow = (
     [...blocks.values()].find((view) => view.approval?.approval === approval)?.block
   let trust: TrustState | undefined
   let document = opened
+  let held: ReloadHeld | undefined
+  let unwatched: Unwatched | undefined
   const show = (ended?: string) =>
     publish({
       blocks: new Map(blocks),
       document,
       ...(trust === undefined ? {} : { trust }),
+      ...(held === undefined ? {} : { reloadHeld: held }),
+      ...(unwatched === undefined ? {} : { unwatched }),
       ...(ended === undefined ? {} : { ended }),
     })
   return Effect.gen(function* () {
     const view = yield* engine.GetSession({ session })
     trust = view.trust
+    held = view.reloadHeld
+    unwatched = view.unwatched
     if (view.trust.hash !== document.hash) document = yield* engine.GetDocument({ session })
     yield* read(withLifecycle(view))
     show()
@@ -196,6 +220,8 @@ export const follow = (
             readers: false,
             trust: undefined,
             document: false,
+            held: undefined,
+            unwatched: undefined,
             closed: false,
           }
           for (const { event } of batch) mark(event, stale, approvalFor)
@@ -211,6 +237,8 @@ export const follow = (
             yield* read(stale.blocks)
           }
           trust = stale.trust ?? trust
+          if (stale.held !== undefined) held = stale.held.now
+          unwatched = stale.unwatched ?? unwatched
           closed = stale.closed
           show(closed ? CLOSED : undefined)
         }),
