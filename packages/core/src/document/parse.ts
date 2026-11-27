@@ -950,6 +950,7 @@ class Parse {
    * A task reads the first form in its own markdown children, as today's
    * Command and Check do, after the forms its `inputsId` names: its values
    * win. A form inside another block nested in the task is that block's.
+   * The form is the task's own (`nestedIn`).
    */
   private withNestedForm(
     index: number,
@@ -960,6 +961,7 @@ class Parse {
     if (block.class !== "task") return shared
     const form = this.firstForm(children)
     if (form?.id === undefined) return shared
+    this.blocks[form.index] = { ...form, nestedIn: index }
     const named = shared.inputsId ?? []
     if (!named.includes(form.id))
       this.references.push({

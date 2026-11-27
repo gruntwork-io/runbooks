@@ -14,7 +14,13 @@ import {
   defineTask,
   RunbookPath,
 } from "@runbooks/blocks-core/contract"
-import { FieldType, FieldValue, type FormSpec, Validation } from "@runbooks/blocks-core/form"
+import {
+  FieldType,
+  FieldValue,
+  type FormSpec,
+  OptionsSource,
+  Validation,
+} from "@runbooks/blocks-core/form"
 import type { Registry } from "@runbooks/blocks-core/registry"
 
 /** Display, markdown children, its own `title` and `description`, which are shared props too. */
@@ -74,6 +80,7 @@ export const ToyField = Schema.Struct({
   required: Schema.optionalKey(Schema.Boolean),
   options: Schema.optionalKey(Schema.Array(Schema.String)),
   optionLabels: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  optionsFrom: Schema.optionalKey(OptionsSource),
   schema: Schema.optionalKey(Schema.Record(Schema.String, FieldType)),
   schemaInstanceLabel: Schema.optionalKey(Schema.String),
   section: Schema.optionalKey(Schema.String),

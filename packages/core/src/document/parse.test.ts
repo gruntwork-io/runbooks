@@ -152,6 +152,39 @@ describe("parseRunbook", () => {
       const doc = parsed(['<Note title="Outer">', form("here"), "</Note>"].join("\n"))
       expect(doc.blocks[0]?.shared.inputsId).toBeUndefined()
     })
+
+    it("says which task it is the own form of, and no other form does", () => {
+      const doc = parsed(
+        [
+          form("config"),
+          "",
+          '<Run id="deploy" command="ls" inputsId="config">',
+          "<div>",
+          form("first"),
+          "</div>",
+          form("second"),
+          '<Note title="Inner">',
+          form("in-note"),
+          "</Note>",
+          "</Run>",
+          "",
+          '<Note title="Outer">',
+          form("in-outer"),
+          "</Note>",
+        ].join("\n"),
+      )
+      expect(doc.blocks.map((b) => [b.tag, b.id, b.nestedIn])).toEqual([
+        ["Form", "config", undefined],
+        ["Run", "deploy", undefined],
+        ["Form", "first", 1],
+        ["Form", "second", undefined],
+        ["Note", undefined, undefined],
+        ["Form", "in_note", undefined],
+        ["Note", undefined, undefined],
+        ["Form", "in_outer", undefined],
+      ])
+      expect(doc.blocks.filter((b) => "nestedIn" in b).map((b) => b.idAsWritten)).toEqual(["first"])
+    })
   })
 
   it("leaves a block in a code fence or inline code as text", () => {
