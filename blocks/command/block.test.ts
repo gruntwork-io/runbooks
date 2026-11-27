@@ -554,6 +554,65 @@ describe("stopping it", () => {
   })
 })
 
+describe("running alone", () => {
+  const exclusive = (block: string, runsAlone: "running" | "waiting") =>
+    ({ _tag: "Blocked", by: [{ _tag: "Exclusive", block: blockId(block), runsAlone }] }) as const
+  const idle = { _tag: "Idle" } as const
+
+  it("with `exclusive`, holds every other command while it runs, naming it, and waits for one that is running", async () => {
+    const seen = await withSession(
+      [
+        '<Command id="migrate" exclusive command="migrate" />',
+        '<Command id="build" command="build" />',
+        '<Command id="lint" exclusive={false} command="lint" />',
+      ].join("\n\n"),
+      (s) =>
+        Effect.gen(function* () {
+          const target = (block: string) => ({ session: s.session, block: blockId(block) })
+          const spawned = (count: number) =>
+            Effect.gen(function* () {
+              while (s.spawns.length < count) yield* Effect.sleep(5)
+            })
+          const stop = (block: string) =>
+            Effect.andThen(
+              s.client.CancelBlock(target(block)),
+              s.client.WaitForBlock({ ...target(block), timeoutMillis: 10_000 }),
+            )
+          yield* s.start("migrate")
+          yield* spawned(1)
+          expect({
+            build: yield* s.status("build"),
+            lint: yield* s.status("lint"),
+            run: yield* s.client.RunBlock(target("build")),
+          }).toEqual({
+            build: exclusive("migrate", "running"),
+            lint: exclusive("migrate", "running"),
+            run: { _tag: "Refused", reason: exclusive("migrate", "running") },
+          })
+          yield* stop("migrate")
+          const afterMigrating = yield* s.status("build")
+
+          yield* s.start("build")
+          yield* spawned(2)
+          const whileBuilding = yield* s.client.RunBlock(target("migrate"))
+          // `exclusive={false}` runs beside another command.
+          yield* s.start("lint")
+          yield* spawned(3)
+          yield* stop("build")
+          return {
+            afterMigrating,
+            whileBuilding,
+            ran: s.spawns.map(({ script }) => script.split("; ").at(-1)),
+          }
+        }),
+      { does: ({ script }) => (script.endsWith("lint") ? {} : { exit: "never" }) },
+    )
+    expect(seen.afterMigrating).toEqual(idle)
+    expect(seen.whileBuilding).toEqual({ _tag: "Refused", reason: exclusive("build", "waiting") })
+    expect(seen.ran).toEqual(["migrate", "build", "lint"])
+  })
+})
+
 describe("a command that cannot run", () => {
   const MISCONFIGURED = [
     '<Command id="both" command="x" path="a.sh" />',
@@ -561,6 +620,7 @@ describe("a command that cannot run", () => {
     '<Command id="named" command="x" outputs={["1st"]} />',
     '<Command id="slow" command="x" timeoutMs={0} />',
     '<Command id="empty" path="" />',
+    '<Command id="alone" command="x" exclusive="yes" />',
   ].join("\n\n")
 
   it("is a configuration error, saying what to change", () => {
@@ -574,6 +634,7 @@ describe("a command that cannot run", () => {
       expect.stringContaining("an output's name is letters, digits and `_`"),
       expect.stringContaining("the `timeoutMs` prop of <Command>"),
       expect.stringContaining("the `path` prop of <Command>"),
+      expect.stringContaining("the `exclusive` prop of <Command>"),
     ])
   })
 
