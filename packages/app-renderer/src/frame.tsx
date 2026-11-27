@@ -273,10 +273,11 @@ function Status({
 /** Why a block did not finish, in words. */
 function failure(error: Failure): string {
   switch (error._tag) {
+    // A TaskFailed message says its exit code, when it has one.
     case "TaskFailed":
-      return error.exitCode === undefined
-        ? `Failed: ${error.message}`
-        : `Failed: ${error.message} (exit code ${error.exitCode})`
+    case "PathOutsideRoot":
+    case "CredentialError":
+      return `Failed: ${error.message}`
     case "TaskCancelled":
       return "Cancelled"
     case "TaskTimedOut":
@@ -285,9 +286,6 @@ function failure(error: Failure): string {
       return `Failed: \`${error.prop}\` ${error.message}`
     case "TaskBlocked":
       return `Failed: it was blocked by ${error.by.join(", ")}`
-    case "PathOutsideRoot":
-    case "CredentialError":
-      return `Failed: ${error.message}`
     default: {
       const unhandled: never = error
       throw new Error(`The frame has no words for the failure ${JSON.stringify(unhandled)}.`)

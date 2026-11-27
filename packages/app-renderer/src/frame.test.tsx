@@ -181,8 +181,15 @@ describe("a block's frame, as the engine has the block", () => {
     [{ _tag: "Done", outcome: "success" }, "Done"],
     [{ _tag: "Done", outcome: "warning" }, "Done, with warnings"],
     [
-      { _tag: "Failed", error: { _tag: "TaskFailed", message: "tofu exited", exitCode: 1 } },
-      "Failed: tofu exited (exit code 1)",
+      {
+        _tag: "Failed",
+        error: { _tag: "TaskFailed", message: "The script exited with code 3.", exitCode: 3 },
+      },
+      "Failed: The script exited with code 3.",
+    ],
+    [
+      { _tag: "Failed", error: { _tag: "TaskFailed", message: "tofu was not found" } },
+      "Failed: tofu was not found",
     ],
     [{ _tag: "Failed", error: { _tag: "TaskCancelled" } }, "Cancelled"],
     [
