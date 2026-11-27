@@ -268,7 +268,7 @@ const diffChars = (files: ReadonlyArray<FileOnDisk>): number =>
 
 /** How the files a block names differ on disk from the text the session holds, and runs. */
 export const FilesOnDisk = Schema.Struct({
-  /** Over what is on disk at each path the block names: what `ReloadFiles` takes. */
+  /** Over what the session read on disk at each path the block names: what `ReloadFiles` takes. */
   hash: ContentHash,
   /** Each file that differs, in path order. */
   files: Schema.NonEmptyArray(FileOnDisk),
@@ -984,12 +984,14 @@ export class ResetBlock extends Rpc.make("ResetBlock", {
 }) {}
 
 /**
- * Person only. Takes the files a block names as they are on disk, at the
- * `hash` its `filesOnDisk` shows: the "Reload script" a person chooses
- * after reading how they changed. The session takes them as it takes a
- * reloaded runbook (`DocumentChanged`), keeping its trust for the new
- * hash, and saves that hash as trusted, so an agent, which may have
- * written them, cannot.
+ * Person only. Takes the files a block names as its `filesOnDisk` shows
+ * them at `hash`: the "Reload script" a person chooses after reading how
+ * they changed. It takes the bytes the block showed, as the session read
+ * them, and never reads them again: a file saved since is not taken, and
+ * the block shows it, at another hash, once the session reads it. The
+ * session takes them as it takes a reloaded runbook (`DocumentChanged`),
+ * keeping its trust for the new hash, and saves that hash as trusted, so
+ * an agent, which may have written them, cannot.
  */
 export class ReloadFiles extends Rpc.make("ReloadFiles", {
   payload: { ...block, hash: ContentHash },
