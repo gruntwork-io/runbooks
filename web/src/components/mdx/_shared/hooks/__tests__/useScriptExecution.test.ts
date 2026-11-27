@@ -183,6 +183,28 @@ describe("useScriptExecution — auth gates", () => {
     expect(result.current.exec.hasGitHubAuthDependency).toBe(true)
   })
 
+  it.each([
+    ["githubAuthId", { gh: {}, gl: { GITLAB_TOKEN: "fake-gl-token" } }, "gh"],
+    ["gitAuthId", { gh: { GITHUB_TOKEN: "fake-gh-token" }, gl: {} }, "gl"],
+  ])(
+    "with both githubAuthId and gitAuthId, stays gated until the %s block has signed in too",
+    (_prop, outputs, unmet) => {
+      const { result } = renderWithOutputs(
+        { command: "gh repo list && glab repo list", githubAuthId: "gh", gitAuthId: "gl" },
+        outputs,
+      )
+      expect(result.current.exec.unmetGitHubAuthDependency).toEqual({ blockId: unmet })
+    },
+  )
+
+  it("with both githubAuthId and gitAuthId, is not gated once both blocks have signed in", () => {
+    const { result } = renderWithOutputs(
+      { command: "gh repo list && glab repo list", githubAuthId: "gh", gitAuthId: "gl" },
+      { gh: { GITHUB_TOKEN: "fake-gh-token" }, gl: { GITLAB_TOKEN: "fake-gl-token" } },
+    )
+    expect(result.current.exec.unmetGitHubAuthDependency).toBeNull()
+  })
+
   it("gates a gitAuthId block whose referenced block has no token", () => {
     const { result } = renderWithOutputs(
       { command: "glab repo list", gitAuthId: "git" },
