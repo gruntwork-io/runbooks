@@ -465,7 +465,7 @@ A block finishes once its script has exited and no process it started still has 
 nohup kubectl port-forward svc/web 8080:80 > /tmp/port-forward.log 2>&1 &
 ```
 
-Without the redirect, the block keeps waiting on the background process until `timeoutMs` stops it. Stopping a running block, or letting it hit `timeoutMs`, terminates the script together with every process it started. Quitting Runbooks while a block is running sends them the same termination signal.
+Without the redirect, the block keeps waiting on the background process until `timeoutMs` stops it. Stopping a running block, or letting it hit `timeoutMs`, terminates the script together with every process it started. They have 5 seconds to end, which a `trap` can use to clean up, with the logging functions and `$RUNBOOK_OUTPUT` still working; then Runbooks kills whatever is left. Quitting Runbooks while a block is running sends them the same termination signal.
 
 ### Examples
 

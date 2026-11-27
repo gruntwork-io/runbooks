@@ -230,31 +230,35 @@ describe("stopping runbooks test", () => {
 
   it("ends the grace on a second Ctrl-C after the script has ended, killing the processes that outlived it", async () => {
     const r = await start("outlived")
+    const stopped = Date.now()
     r.cli.kill("SIGINT")
-    await eventually("the report", 30_000, () => reported(r))
     const script = r.pids()[0]!
     await eventually("the script to end", 10_000, () => !alive(script))
-    const signalled = Date.now()
     r.cli.kill("SIGINT")
-    const { exitedAt, survivors } = await finish(r)
-    expect(exitedAt - signalled).toBeLessThan(STOP_GRACE_MILLIS)
+    const { code, exitedAt, survivors } = await finish(r)
+    expect(exitedAt - stopped).toBeLessThan(STOP_GRACE_MILLIS)
     expect(survivors).toEqual([])
+    // The report comes once the stop has ended, so there is none.
+    expect(reported(r)).toBe(false)
+    expect(code).toBe(130)
   }, 60_000)
 
-  for (const second of ["SIGINT", "SIGTERM"] as const)
-    it(`ends the grace on ${second} during the stop: kills the script's processes at once, then exits`, async () => {
+  for (const [second, code] of [
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ] as const)
+    it(`ends the grace on ${second} during the stop: kills the script's processes at once, and exits ${code} with no report`, async () => {
       const r = await start("ignored")
+      const stopped = Date.now()
       r.cli.kill("SIGINT")
-      // The stop has been handled and its report written; the CLI now waits
-      // out the grace of a script that ignores it.
-      await eventually("the report", 30_000, () => reported(r))
-      const signalled = Date.now()
+      // The CLI waits out the grace of a script that ignores the stop.
+      await eventually("the stop", 30_000, () => r.stderr().includes("Stopping:"))
       r.cli.kill(second)
-      const { code, exitedAt, survivors } = await finish(r)
-      expect(survivors).toEqual([])
-      expect(exitedAt - signalled).toBeLessThan(STOP_GRACE_MILLIS)
+      const ended = await finish(r)
+      expect(ended.survivors).toEqual([])
+      expect(ended.exitedAt - stopped).toBeLessThan(STOP_GRACE_MILLIS)
       expect(r.stderr()).toContain("Stopped at once")
-      // The report was written before the second signal: its exit code stands.
-      expect(code).toBe(1)
+      expect(r.stdout()).toBe("")
+      expect(ended.code).toBe(code)
     }, 60_000)
 })

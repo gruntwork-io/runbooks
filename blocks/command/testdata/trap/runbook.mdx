@@ -1,0 +1,5 @@
+# A stopped script's cleanup
+
+`packages/app-main/src/engine.test.ts` stops this runbook's block while its script runs, and checks that the script's `TERM` trap can still use the block's files, which go once it has ended.
+
+<Command id="cleanup" path="scripts/cleanup.sh" />

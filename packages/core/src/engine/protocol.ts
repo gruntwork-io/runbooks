@@ -778,6 +778,7 @@ export class RunBlock extends Rpc.make("RunBlock", {
   error: ClassError,
 }) {}
 
+/** Stops a task's run, and answers once what it started has ended or had its grace. */
 export class CancelBlock extends Rpc.make("CancelBlock", {
   payload: block,
   success: CancelResult,

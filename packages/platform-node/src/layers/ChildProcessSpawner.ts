@@ -361,14 +361,9 @@ const impl: ProcessSpawnerShape = {
           catch: () => new SpawnError({ command, cause: new Error("Process failed") }),
         }) as unknown as Effect.Effect<number>
 
-        const kill: Effect.Effect<void> = Effect.sync(() => {
-          // Only a live run is killed (cancel or timeout). Once the direct child
-          // has closed, anything left in the group is a background job the
-          // script deliberately left running with its stdio redirected (a
-          // port-forward, a dev server), and it must survive. A grandchild that
-          // still holds stdout keeps "close" from firing, so cancel and timeout
-          // still reap it.
-          if (exited) return
+        /** The stop the first `kill` started: done once the group is empty or SIGKILLed. */
+        let stop: Promise<void> | undefined
+        const startStop = (): Promise<void> => {
           // Ask politely first so the tree can clean up (e.g. tofu releases its
           // state lock), then force-kill whatever is still alive when the
           // grace is over. The watch keeps this process alive until the group
@@ -393,6 +388,20 @@ const impl: ProcessSpawnerShape = {
             stopping.delete(stopped)
             ended()
           }, STOPPED_GROUP_POLL_MS)
+          return stopped
+        }
+        // Ends when the stop does, so what the caller releases after it (a
+        // script's folder) outlasts every process the stop is for.
+        const kill: Effect.Effect<void> = Effect.suspend(() => {
+          // Only a live run is killed (cancel or timeout). Once the direct child
+          // has closed, anything left in the group is a background job the
+          // script deliberately left running with its stdio redirected (a
+          // port-forward, a dev server), and it must survive. A grandchild that
+          // still holds stdout keeps "close" from firing, so cancel and timeout
+          // still reap it.
+          if (stop === undefined && exited) return Effect.void
+          const started = (stop ??= startStop())
+          return Effect.promise(() => started)
         })
 
         const spawned: SpawnedProcess = { output, exitCode, kill }
