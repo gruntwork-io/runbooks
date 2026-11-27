@@ -19,6 +19,15 @@ export class FileWatchError extends Data.TaggedError("FileWatchError")<{
   readonly cause: unknown
 }> {}
 
+/**
+ * A watch the OS refused because it reached its limit on file watches, as
+ * Linux does past `fs.inotify.max_user_watches`. Any other watch that fails
+ * is a `FileWatchError`.
+ */
+export class FileWatchLimitError extends Data.TaggedError("FileWatchLimitError")<{
+  readonly cause: unknown
+}> {}
+
 // Process
 export class SpawnError extends Data.TaggedError("SpawnError")<{
   readonly command: string

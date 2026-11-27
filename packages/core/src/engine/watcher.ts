@@ -20,7 +20,7 @@ import path from "node:path"
 import { Duration, Effect, Option, Stream } from "effect"
 import type { RunbookPath } from "@runbooks/blocks-core/contract"
 import type { FileFact } from "../document/files.ts"
-import type { FileWatchError } from "../errors/index.ts"
+import type { FileWatchError, FileWatchLimitError } from "../errors/index.ts"
 import { isContainedIn } from "../path-validation.ts"
 import { type FileChangeEvent, FileSystem } from "../services/FileSystem.ts"
 import type { EventEnvelope, UnknownSequence, UnknownSession, WatchMode } from "./protocol.ts"
@@ -101,15 +101,15 @@ const touched = (
 }
 
 /**
- * Why a session watches nothing once a watch failed with `cause`, and what
- * to do. A watch fails with ENOSPC only past Linux's limit on file watches,
- * which the person can raise; for any other failure, opening the runbook
- * again watches it again.
+ * Why a session watches nothing once a watch failed with `error`, and what
+ * to do. Only Linux reports its limit on file watches
+ * (`FileWatchLimitError`), which the person can raise; for any other
+ * failure, opening the runbook again watches it again.
  */
-const unwatchedMessage = (runbook: string, cause: unknown): string => {
-  const reason = cause instanceof Error ? cause.message : String(cause)
+const unwatchedMessage = (runbook: string, error: FileWatchError | FileWatchLimitError): string => {
+  const reason = error.cause instanceof Error ? error.cause.message : String(error.cause)
   const failed = `Runbooks could not watch ${runbook}, or the files it names, for changes (${reason}), so saving them shows nothing here.`
-  return reason.includes("ENOSPC")
+  return error._tag === "FileWatchLimitError"
     ? `${failed} Linux's limit on file watches was reached: raise fs.inotify.max_user_watches, then open the runbook again.`
     : `${failed} Open the runbook again to watch it.`
 }
@@ -188,13 +188,13 @@ export const watchSession = (
 
     const watchFrom: Effect.Effect<
       void,
-      FileWatchError | UnknownSession | UnknownSequence,
+      FileWatchError | FileWatchLimitError | UnknownSession | UnknownSequence,
       FileSystem
     > = Effect.flatMap(watchOnce, (again) => (again ? watchFrom : Effect.void))
     yield* watchFrom
   }).pipe(
-    Effect.catchTag("FileWatchError", ({ cause }) => {
-      const message = unwatchedMessage(watched.runbook, cause)
+    Effect.catchTag(["FileWatchError", "FileWatchLimitError"], (error) => {
+      const message = unwatchedMessage(watched.runbook, error)
       return Effect.andThen(Effect.logWarning(message), watched.unwatched(message))
     }),
     // The session is closing.

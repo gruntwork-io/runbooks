@@ -5,7 +5,7 @@ import { constants as fsConstants, createReadStream } from "node:fs"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
-import { Cause, Effect, Layer, Option, Queue, Stream } from "effect"
+import { Cause, Effect, Layer, Option, Predicate, Queue, Stream } from "effect"
 import { watch as chokidarWatch } from "chokidar"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
 import type {
@@ -20,6 +20,7 @@ import {
   FileReadError,
   FileWriteError,
   FileWatchError,
+  FileWatchLimitError,
 } from "@runbooks/core/errors"
 import { isContainedInReal } from "../path-validation.ts"
 
@@ -37,6 +38,16 @@ function mapReadError(err: unknown, filePath: string): FileNotFoundError | FileR
   }
   return new FileReadError({ path: filePath, cause: err })
 }
+
+/**
+ * What a watch that failed with `err` fails with: one past the OS's limit on
+ * file watches, by its code (ENOSPC, past Linux's `fs.inotify.max_user_watches`),
+ * or any other.
+ */
+export const watchErrorOf = (err: unknown): FileWatchError | FileWatchLimitError =>
+  Predicate.hasProperty(err, "code") && err.code === "ENOSPC"
+    ? new FileWatchLimitError({ cause: err })
+    : new FileWatchError({ cause: err })
 
 const impl: FileSystemShape = {
   readFile: (filePath: string) =>
@@ -224,11 +235,10 @@ const impl: FileSystemShape = {
     ),
 
   watch: (paths: string[], options?: WatchOptions) =>
-    Stream.callback<FileChangeEvent, FileWatchError>((queue) =>
+    Stream.callback<FileChangeEvent, FileWatchError | FileWatchLimitError>((queue) =>
       Effect.acquireRelease(
         Effect.sync(() => {
-          const fail = (err: unknown) =>
-            Queue.failCauseUnsafe(queue, Cause.fail(new FileWatchError({ cause: err })))
+          const fail = (err: unknown) => Queue.failCauseUnsafe(queue, Cause.fail(watchErrorOf(err)))
           let watcher: ReturnType<typeof chokidarWatch> | null = null
           try {
             watcher = chokidarWatch(paths, {

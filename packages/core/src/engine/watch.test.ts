@@ -5,7 +5,7 @@
  */
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
-import { Deferred, Duration, Effect, Fiber, Layer, Logger, Schema, Stream } from "effect"
+import { Deferred, Duration, Effect, Fiber, Layer, Schema, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import {
   BlockId,
@@ -14,7 +14,7 @@ import {
   type TaskEvent,
   type TaskInput,
 } from "@runbooks/blocks-core/contract"
-import { FileWatchError } from "../errors/index.ts"
+import { FileWatchError, FileWatchLimitError } from "../errors/index.ts"
 import { FileSystem, type FileSystemShape } from "../services/FileSystem.ts"
 import { testCredentialProviders } from "../test-utils/TestCredentialProviders.ts"
 import { testFileSystem } from "../test-utils/TestFileSystem.ts"
@@ -86,8 +86,8 @@ interface Watching {
 interface Options {
   readonly watch?: WatchMode
   readonly origin?: Origin
-  /** Each watch fails with this cause as it starts, as one past the OS's limit on watches does. */
-  readonly watchFailsWith?: unknown
+  /** Each watch fails with this as it starts, as one past the OS's limit on watches does. */
+  readonly watchFailsWith?: FileWatchError | FileWatchLimitError
   /** Each event names its file as a file system that ignores case spells it on disk. */
   readonly onDiskCase?: boolean
   /** The runbook, and the files in its folder, in place of `RUNBOOK_TEXT` and `FILES`. */
@@ -113,7 +113,6 @@ const withWatch = async <A, E>(
 ) => {
   const inner = testFileSystem({ [RUNBOOK]: runbook, ...initial }, FOLDERS)
   const watching: Watching = { calls: [], open: 0, runbookReads: 0, reads: [] }
-  const warnings: string[] = []
   const files: FileSystemShape = {
     ...inner,
     readFile: (file) => {
@@ -132,8 +131,7 @@ const withWatch = async <A, E>(
         paths: [...paths],
         ...(options?.depth === undefined ? {} : { depth: options.depth }),
       })
-      if (watchFailsWith !== undefined)
-        return Stream.fail(new FileWatchError({ cause: watchFailsWith }))
+      if (watchFailsWith !== undefined) return Stream.fail(watchFailsWith)
       return Stream.unwrap(
         Effect.sync(() => {
           watching.open += 1
@@ -155,10 +153,6 @@ const withWatch = async <A, E>(
       )
     },
   }
-  const logger = Logger.make(({ logLevel, message }) => {
-    if (logLevel === "Warn")
-      warnings.push(Array.isArray(message) ? message.join(" ") : String(message))
-  })
   const result = await Effect.runPromise(
     (typeof program === "function" ? program(watching) : program).pipe(
       Effect.provide(
@@ -175,11 +169,10 @@ const withWatch = async <A, E>(
       Effect.provide(testSessionStore()),
       Effect.provide(Layer.succeed(FileSystem, files)),
       Effect.provideService(Caller, { origin }),
-      Effect.provide(Logger.layer([logger])),
       Effect.provide(TestClock.layer()),
     ),
   )
-  return { result, watching, warnings }
+  return { result, watching }
 }
 
 /** Lets every fiber the last step woke run until it waits. */
@@ -237,10 +230,9 @@ const ranWith = (view: { readonly outputs: Readonly<Record<string, unknown>> }) 
 const DEBOUNCE = 300
 
 /** What a watch fails with on Linux past `fs.inotify.max_user_watches`. */
-const ENOSPC = Object.assign(
-  new Error("ENOSPC: System limit for number of file watchers reached, watch '/rb'"),
-  { code: "ENOSPC" },
-)
+const PAST_LIMIT = new FileWatchLimitError({
+  cause: new Error("System limit for number of file watchers reached"),
+})
 
 describe("a session's watcher", () => {
   it("waits the old app's 300 ms for a burst of saves to end", () => {
@@ -681,7 +673,7 @@ describe("a session's watcher", () => {
   })
 
   it("says a watch past Linux's limit failed, and how to raise the limit, and holds nothing back", async () => {
-    const { result, warnings } = await withWatch(
+    const { result } = await withWatch(
       Effect.gen(function* () {
         const rb = yield* opened("runbookAndFiles")
         yield* rb.write(RUNBOOK, `${RUNBOOK_TEXT}\n\nSaved.`)
@@ -695,22 +687,33 @@ describe("a session's watcher", () => {
           logged: yield* rb.logged,
         }
       }),
-      { watchFailsWith: ENOSPC },
+      { watchFailsWith: PAST_LIMIT },
     )
     expect([result.reloadHeld, result.reloaded]).toEqual([undefined, false])
-    const message = `Runbooks could not watch ${RUNBOOK}, or the files it names, for changes (${ENOSPC.message}), so saving them shows nothing here. Linux's limit on file watches was reached: raise fs.inotify.max_user_watches, then open the runbook again.`
+    const message = `Runbooks could not watch ${RUNBOOK}, or the files it names, for changes (System limit for number of file watchers reached), so saving them shows nothing here. Linux's limit on file watches was reached: raise fs.inotify.max_user_watches, then open the runbook again.`
     expect(result.unwatched).toEqual({ message })
     expect(result.logged.filter((tag) => tag === "Unwatched")).toEqual(["Unwatched"])
-    expect(warnings).toEqual([message])
   })
 
   it("says any other watch that fails, and to open the runbook again, in `notice` too", async () => {
     const { result } = await withWatch(
       Effect.flatMap(opened("notice"), (rb) => rb.session),
-      { watchFailsWith: "EACCES: permission denied, watch '/rb/scripts'" },
+      {
+        watchFailsWith: new FileWatchError({
+          cause: new Error("EACCES: permission denied, watch '/rb/scripts'"),
+        }),
+      },
     )
     expect(result.unwatched).toEqual({
       message: `Runbooks could not watch ${RUNBOOK}, or the files it names, for changes (EACCES: permission denied, watch '/rb/scripts'), so saving them shows nothing here. Open the runbook again to watch it.`,
     })
+  })
+
+  it("gives the limit's advice for the limit's error alone, not for a failure that names ENOSPC", async () => {
+    const { result } = await withWatch(
+      Effect.flatMap(opened("runbook"), (rb) => rb.session),
+      { watchFailsWith: new FileWatchError({ cause: new Error("ENOSPC in a message") }) },
+    )
+    expect(result.unwatched?.message).toEndWith("Open the runbook again to watch it.")
   })
 })
