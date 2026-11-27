@@ -17,7 +17,7 @@
  */
 import { Context, Schema, Struct } from "effect"
 import { Rpc, type RpcClient, type RpcClientError, RpcGroup, RpcMiddleware } from "effect/rpc"
-import { BlockClass, BlockId, MachineEffect } from "@runbooks/blocks-core/contract"
+import { BlockClass, BlockId, MachineEffect, RunbookPath } from "@runbooks/blocks-core/contract"
 import { Field, FieldType, FieldValue, Validation } from "@runbooks/blocks-core/form"
 import { Blocker, BlockStatus } from "@runbooks/blocks-core/status"
 import { CredentialAction, CredentialState } from "../credential/lifecycle.ts"
@@ -69,6 +69,13 @@ export const LIMITS = {
   maxRunFiles: 10_000,
   /** The events a session keeps for `Events` to replay. Older ones are dropped. */
   keptEvents: 10_000,
+  /**
+   * The characters a block's `filesOnDisk` holds: each file's path and
+   * reason, and each line's text and its line ending, so a diff of empty
+   * lines or of files with no lines is bounded too. The engine leaves out
+   * every line and file past it, and says it did.
+   */
+  maxDiffChars: 65_536,
 } as const
 
 const LogLimit = Schema.Int.check(
@@ -205,6 +212,77 @@ export const InstructionStep = Schema.Union([
 export const Instruction = Schema.Array(InstructionStep)
 export type Instruction = typeof Instruction.Type
 
+/** One line of a file, without its line ending, in a diff of the text the session holds against the text on disk. */
+export const DiffLine = Schema.Struct({
+  kind: Schema.Literals(["context", "deletion", "addition"]),
+  text: Schema.String,
+})
+export type DiffLine = typeof DiffLine.Type
+
+const LineNumber = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
+
+/** Changed lines, with a few lines of context around them. */
+export const DiffHunk = Schema.Struct({
+  /** The line, from 1, the hunk starts at in the text the session holds. */
+  heldLine: LineNumber,
+  /** The line, from 1, the hunk starts at in the text on disk. */
+  diskLine: LineNumber,
+  lines: Schema.NonEmptyArray(DiffLine),
+})
+export type DiffHunk = typeof DiffHunk.Type
+
+/** A file a block names, or one in a folder it names, whose text on disk is not the text the session holds. */
+export const FileOnDisk = Schema.Union([
+  /**
+   * Its text differs. `created`: the session holds none, as for a file new
+   * in a folder; `deleted`: there is none on disk; `modified`: both, apart.
+   * `hunks` is empty when only line endings or a final newline differ, or
+   * when `FilesOnDisk.truncated` left out all of them.
+   */
+  Schema.TaggedStruct("Changed", {
+    path: RunbookPath,
+    change: FileChange.fields.change,
+    hunks: Schema.Array(DiffHunk),
+  }),
+  /**
+   * The session could not take it as it is: over a limit, outside the
+   * runbook's folder, not a file, or not readable, as `reason` says.
+   * Taking it gives the block the configuration error opening would.
+   */
+  Schema.TaggedStruct("Unreadable", { path: RunbookPath, reason: Schema.String }),
+])
+export type FileOnDisk = typeof FileOnDisk.Type
+
+/** What `LIMITS.maxDiffChars` counts. */
+const diffChars = (files: ReadonlyArray<FileOnDisk>): number =>
+  files.reduce(
+    (total, file) =>
+      file._tag === "Changed"
+        ? file.hunks.reduce(
+            (sum, hunk) => hunk.lines.reduce((chars, line) => chars + line.text.length + 1, sum),
+            total + file.path.length,
+          )
+        : total + file.path.length + file.reason.length,
+    0,
+  )
+
+/** How the files a block names differ on disk from the text the session holds, and runs. */
+export const FilesOnDisk = Schema.Struct({
+  /** Over what is on disk at each path the block names: what `ReloadFiles` takes. */
+  hash: ContentHash,
+  /** Each file that differs, in path order. */
+  files: Schema.NonEmptyArray(FileOnDisk),
+  /** Present when the diff passed `LIMITS.maxDiffChars`: the lines and files after it are left out. */
+  truncated: Schema.optionalKey(Schema.Literal(true)),
+}).check(
+  Schema.makeFilter((onDisk: { readonly files: ReadonlyArray<FileOnDisk> }) =>
+    diffChars(onDisk.files) <= LIMITS.maxDiffChars
+      ? undefined
+      : `Expected at most ${LIMITS.maxDiffChars} characters of paths, reasons and lines.`,
+  ),
+)
+export type FilesOnDisk = typeof FilesOnDisk.Type
+
 export const BlockView = Schema.Struct({
   ...BlockSummary.fields,
   /**
@@ -227,6 +305,12 @@ export const BlockView = Schema.Struct({
   files: Schema.optionalKey(Schema.Array(FileChange).check(Schema.isMaxLength(LIMITS.maxRunFiles))),
   /** Present when the run touched more paths than `files` lists. */
   filesTruncated: Schema.optionalKey(Schema.Literal(true)),
+  /**
+   * Present while a file the block names differs on disk from the text the
+   * session holds, in a session that watches them (`WatchMode`): the block
+   * runs the text the session holds until `ReloadFiles` takes them.
+   */
+  filesOnDisk: Schema.optionalKey(FilesOnDisk),
 })
 export type BlockView = typeof BlockView.Type
 
@@ -711,6 +795,8 @@ export const EngineEvent = Schema.Union([
   Schema.TaggedStruct("FieldsChanged", { block: BlockId, fields: Schema.Array(FieldView) }),
   /** What a run just touched. The block's view keeps the run's list. */
   Schema.TaggedStruct("FilesChanged", { block: BlockId, files: Schema.Array(FileChange) }),
+  /** The block's `filesOnDisk` changed, came or went: its view has it. */
+  Schema.TaggedStruct("FilesOnDiskChanged", { block: BlockId }),
   Schema.TaggedStruct("CredentialChanged", { block: BlockId, state: CredentialState }),
   Schema.TaggedStruct("ApprovalRequested", { approval: Approval }),
   Schema.TaggedStruct("ApprovalResolved", { approval: ApprovalId, approved: Schema.Boolean }),

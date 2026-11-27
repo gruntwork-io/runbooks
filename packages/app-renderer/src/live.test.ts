@@ -217,6 +217,47 @@ describe("the window following a session", () => {
     )
   })
 
+  it("re-reads a block whose files changed on disk, and shows what its view says of them", async () => {
+    const engine: Engine = { greet: task("greet"), other: task("other") }
+    const main = fakeMain(answering(engine))
+    const onDisk = {
+      hash: HASH,
+      files: [
+        {
+          _tag: "Changed",
+          path: "greet.sh",
+          change: "modified",
+          hunks: [
+            {
+              heldLine: 2,
+              diskLine: 2,
+              lines: [
+                { kind: "deletion", text: "echo script-before" },
+                { kind: "addition", text: "echo script-after" },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        expect((yield* next).blocks.get("greet")?.filesOnDisk).toBeUndefined()
+        engine.greet = task("greet", { filesOnDisk: onDisk })
+        main.stream("Events", [event({ _tag: "FilesOnDiskChanged", block: "greet" })])
+        const changed = yield* next
+        expect(changed.ended).toBeUndefined()
+        expect<unknown>(changed.blocks.get("greet")?.filesOnDisk).toEqual(onDisk)
+        const reads = main.asked.filter(({ tag }) => tag === "GetBlock")
+        expect(reads.map(({ payload }) => (payload as { block: string }).block)).toEqual([
+          "greet",
+          "other",
+          "greet",
+        ])
+      }),
+    )
+  })
+
   it("re-reads every block's instruction when a value it may read changes", async () => {
     const engine: Engine = {
       deploy: task("deploy", {

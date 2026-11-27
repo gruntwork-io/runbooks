@@ -346,6 +346,138 @@ describe("engine protocol", () => {
     expect(() => view({ ...base, files: many })).toThrow(/at \["files"\]/)
   })
 
+  it("says how the files a block names changed on disk, within a limit it says it reached, through JSON", () => {
+    const json = Schema.toCodecJson(BlockView)
+    const base = { block: "greet", tag: "Run", class: "task", actions: [], outputs: {} }
+    const line = (kind: string, text: string) => ({ kind, text })
+    const onDisk = {
+      hash: `sha256:${"a".repeat(64)}`,
+      files: [
+        {
+          _tag: "Changed",
+          path: "greet.sh",
+          change: "modified",
+          hunks: [
+            {
+              heldLine: 1,
+              diskLine: 1,
+              lines: [
+                line("context", "#!/bin/bash"),
+                line("deletion", "echo script-before"),
+                line("addition", "echo script-after"),
+              ],
+            },
+          ],
+        },
+        {
+          _tag: "Changed",
+          path: "templates/main.tf",
+          change: "created",
+          hunks: [{ heldLine: 1, diskLine: 1, lines: [line("addition", 'resource "x" {}')] }],
+        },
+        { _tag: "Changed", path: "templates/old.tf", change: "deleted", hunks: [] },
+        { _tag: "Unreadable", path: "templates/big.bin", reason: "It is over 1048576 bytes." },
+      ],
+    }
+    const view = Schema.decodeUnknownSync(json)({ ...base, filesOnDisk: onDisk })
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(view)))
+    expect(wire.filesOnDisk).toEqual(onDisk)
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(view)
+
+    const shown = (fields: Record<string, unknown>) => ({
+      ...base,
+      filesOnDisk: { ...onDisk, ...fields },
+    })
+    expect(Schema.decodeUnknownSync(json)(shown({ truncated: true })).filesOnDisk?.truncated).toBe(
+      true,
+    )
+    expect(() => Schema.decodeUnknownSync(json)(shown({ truncated: false }))).toThrow(
+      /at \["filesOnDisk"\]\["truncated"\]/,
+    )
+    expect(() => Schema.decodeUnknownSync(json)(shown({ files: [] }))).toThrow(
+      /at \["filesOnDisk"\]\["files"\]/,
+    )
+    const ofLength = (length: number) =>
+      shown({
+        files: [
+          {
+            _tag: "Changed",
+            path: "greet.sh",
+            change: "modified",
+            hunks: [
+              {
+                heldLine: 1,
+                diskLine: 1,
+                // 8 for the path, 2 for the "y" line, and 1 for this line's ending.
+                lines: [line("deletion", "x".repeat(length - 11)), line("addition", "y")],
+              },
+            ],
+          },
+        ],
+      })
+    expect(LIMITS.maxDiffChars).toBe(65_536)
+    expect(Schema.decodeUnknownSync(json)(ofLength(65_536)).filesOnDisk?.files[0]?._tag).toBe(
+      "Changed",
+    )
+    expect(() => Schema.decodeUnknownSync(json)(ofLength(65_537))).toThrow(/at \["filesOnDisk"\]/)
+
+    const events = Schema.toCodecJson(EventEnvelope)
+    const changed: EventEnvelope = {
+      session,
+      sequence: 7,
+      at,
+      event: { _tag: "FilesOnDiskChanged", block: greet },
+    }
+    expect(
+      Schema.decodeUnknownSync(events)(
+        JSON.parse(JSON.stringify(Schema.encodeSync(events)(changed))),
+      ),
+    ).toEqual(changed)
+  })
+
+  it("counts every file and every line of a block's files on disk toward its limit, empty or not", () => {
+    const decode = Schema.decodeUnknownSync(Schema.toCodecJson(BlockView))
+    const onDisk = (files: ReadonlyArray<Record<string, unknown>>) => ({
+      block: "greet",
+      tag: "Run",
+      class: "task",
+      actions: [],
+      outputs: {},
+      filesOnDisk: { hash: `sha256:${"a".repeat(64)}`, files },
+    })
+    const blankLines = (count: number) => [
+      {
+        _tag: "Changed",
+        path: "greet.sh",
+        change: "modified",
+        hunks: [
+          {
+            heldLine: 1,
+            diskLine: 1,
+            lines: Array.from({ length: count }, () => ({ kind: "addition", text: "" })),
+          },
+        ],
+      },
+    ]
+    // 8 for the path, and 1 for each line's ending.
+    expect(decode(onDisk(blankLines(65_528))).filesOnDisk?.files).toHaveLength(1)
+    expect(() => decode(onDisk(blankLines(65_529)))).toThrow(/at \["filesOnDisk"\]/)
+
+    const unreadable = Array.from({ length: 2_000 }, (_, index) => ({
+      _tag: "Unreadable",
+      path: `big/${String(index).padStart(4, "0")}.bin`,
+      reason: "It is over 1048576 bytes.",
+    }))
+    expect(() => decode(onDisk(unreadable))).toThrow(/at \["filesOnDisk"\]/)
+    const deleted = Array.from({ length: 6_000 }, (_, index) => ({
+      _tag: "Changed",
+      path: `old/${String(index).padStart(4, "0")}.tf`,
+      change: "deleted",
+      hunks: [],
+    }))
+    expect(() => decode(onDisk(deleted))).toThrow(/at \["filesOnDisk"\]/)
+  })
+
   it("says what a resumed session did not restore, and carries it through JSON", () => {
     const json = Schema.toCodecJson(SessionView)
     const view: SessionView = {

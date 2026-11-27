@@ -69,6 +69,7 @@ function mark(
     case "BlockStatusChanged":
     case "LogLines":
     case "FilesChanged":
+    case "FilesOnDiskChanged":
     case "CredentialChanged":
       stale.blocks.add(event.block)
       return
