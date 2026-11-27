@@ -1340,9 +1340,18 @@ describe("git handler error text", () => {
     )
   })
 
+  it("git:init-default-branch never returns { error: '' }, and sends no events", async () => {
+    const result = await handlers.get("git:init-default-branch")!(recordingEvent, {
+      worktreePath: "/tmp/repo",
+      branch: "main",
+    })
+
+    expect(result).toEqual({ error: "SessionNotFoundError" })
+    expect(sent).toEqual([])
+  })
+
   it.each([
     ["git:push", { worktreePath: "/tmp/repo", branchName: "feature" }],
-    ["git:init-default-branch", { worktreePath: "/tmp/repo", branch: "main" }],
     ["git:pull-request", prParams],
     ["git:merge-request", prParams],
   ])(
@@ -1410,9 +1419,18 @@ describe("git handler error text", () => {
       expect(message).toMatch(/^The "path" (argument|property) must be of type string/)
     })
 
+    it("git:init-default-branch returns the defect's message with no stack frames", async () => {
+      const result = (await handlers.get("git:init-default-branch")!(recordingEvent, {
+        worktreePath: 42,
+        branch: "main",
+      })) as { error?: string }
+
+      expectNoFrames(result.error)
+      expect(sent).toEqual([])
+    })
+
     it.each([
       ["git:push", { worktreePath: 42, branchName: "feature" }],
-      ["git:init-default-branch", { worktreePath: 42, branch: "main" }],
       ["git:pull-request", { ...prParams, worktreePath: 42 }],
       ["git:merge-request", { ...prParams, worktreePath: 42 }],
     ])(
