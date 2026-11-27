@@ -496,7 +496,7 @@ describe("reloading a session's runbook", () => {
       },
     ))
 
-  it("saves what it holds against the new runbook, so opening the runbook again resumes it trusted", async () => {
+  it("saves what its blocks hold against the new runbook, and not trust: opening the runbook again resumes the runs, and asks for trust", async () => {
     const database = memorySessionDatabase()
     // `kept` stays first, so the session's place for it is the same in both.
     const opening = runbookOf(
@@ -515,6 +515,8 @@ describe("reloading a session's runbook", () => {
         yield* rb.run("kept")
         yield* rb.run("removed")
         yield* rb.save(saved)
+        // Trusted while the session is open.
+        expect((yield* rb.session).trust.trusted).toBe(true)
         yield* rb.close
       }),
       { scripts: SCRIPTS, database },
@@ -525,8 +527,34 @@ describe("reloading a session's runbook", () => {
       saved,
       Effect.gen(function* () {
         const rb = yield* opened
-        expect(rb.view.trust.trusted).toBe(true)
+        expect(rb.view.trust.trusted).toBe(false)
+        // The trust prompt says why it asks again; the run kept is not a block that changed.
+        expect(rb.view.resumed?.problems).toEqual([{ _tag: "RunbookChanged", blocks: [] }])
         expect((yield* rb.block("kept")).status).toEqual(DONE)
+      }),
+      { scripts: SCRIPTS, database },
+    )
+  })
+
+  it("saves the reloaded runbook's hash as trusted once a person trusts it", async () => {
+    const database = memorySessionDatabase()
+    const saved = `${BEFORE}\n\nSaved.`
+    await withEngine(
+      BEFORE,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.save(saved)
+        yield* rb.trust
+        yield* rb.close
+      }),
+      { scripts: SCRIPTS, database },
+    )
+    await withEngine(
+      saved,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        expect(rb.view.trust.trusted).toBe(true)
+        expect(rb.view.resumed?.problems).toEqual([])
       }),
       { scripts: SCRIPTS, database },
     )

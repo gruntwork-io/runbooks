@@ -870,7 +870,8 @@ export interface Session {
   /**
    * Takes `next` as the session's document, as `DocumentChanged` says,
    * unless a block runs or it is the document the session holds. Only the
-   * session's watcher and `reloadFiles` call it: a reload keeps trust.
+   * session's watcher and `reloadFiles` call it: a reload keeps trust
+   * while the session is open, and saves none for the new hash.
    */
   readonly reload: (next: ParsedRunbook) => Effect.Effect<ReloadResult, UnknownSession>
   /** Takes the files `block` names as they are on disk, if its view shows them at `hash`. */
@@ -980,6 +981,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       readonly env: CredentialEnv | undefined
     }
   >()
+  /**
+   * Whether the trust a person gave is saved. A reload leaves it: the hash
+   * saved as trusted is the one the person trusted, not the reloaded one.
+   */
   let savedTrust = false
   /** The runbook hash the saver records: the one the session opened with, until it reloads. */
   let savedRunbook = document.hash.runbook
@@ -1891,7 +1896,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
    * still has, unreviewed, as a resumed session's form does. A block the
    * runbook no longer has goes, with what was saved of it. The blocks that
    * wait for one that starts over keep their own runs, and wait for it
-   * again, as after a reset. Trust stays as it was, for the new hash.
+   * again, as after a reset. Trust stays as it was, for the new hash, while
+   * the session is open; what is saved keeps the hash the person trusted.
    */
   const takeDocument = (next: ParsedRunbook): Effect.Effect<ReloadResult> =>
     Effect.uninterruptible(
@@ -1964,9 +1970,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           // Moved for every block the document still has, so the derived changes compare against them.
           moveTo(published, before, nextSlots, () => true)
           moveTo(statuses, before, nextSlots, () => true)
-          // Everything is saved again, against the new runbook and its files.
+          // What blocks hold is saved again, against the new runbook and its
+          // files. Trust is not: the person trusted the hash saved, not this one.
           saved.clear()
-          savedTrust = false
           const stopped = credentials.reload(nextCredentialSlots, kept)
           store.useBlocks(nextCredentialSlots.map((slot) => slot.id))
           document = read.document
