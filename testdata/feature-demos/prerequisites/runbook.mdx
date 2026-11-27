@@ -64,6 +64,7 @@ The path of an `anyOf` list's tool that isn't installed is empty, so a block can
 
 <Command
     id="pick-git-cli"
+    outputs={["cli"]}
     title="Use the Git host CLI that's installed"
     env={{ GH_CLI_PATH: "{{ .outputs.tools.runbooks_demo_gh_path }}" }}
     command={`if [ -n "$GH_CLI_PATH" ]; then cli=gh; else cli=glab; fi

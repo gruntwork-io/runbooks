@@ -274,6 +274,7 @@ The output's key is still `api_token`, so a downstream block reads it as `{{ .ou
 
 <Command
   id="use-api-token"
+  outputs={["token_length"]}
   path="scripts/use-api-token.sh"
   env={{
     TOKEN: "{{ .outputs.fetch_api_token.api_token }}",

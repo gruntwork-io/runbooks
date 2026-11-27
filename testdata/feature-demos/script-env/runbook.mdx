@@ -20,6 +20,7 @@ variables:
 
 <Command
   id="plan-bucket"
+  outputs={["bucket"]}
   title="Plan the bucket"
   inputsId="bucket"
   env={{ BUCKET: "{{ .inputs.BucketName }}", COPIES: "{{ .inputs.Copies }}", DRY_RUN: true }}

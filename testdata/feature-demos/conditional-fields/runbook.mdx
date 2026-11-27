@@ -39,6 +39,7 @@ variables:
 
 <Command
   id="show-contact"
+  outputs={["contact"]}
   inputsId="contact"
   title="Show the contact"
   env={{ METHOD: "{{ .inputs.ContactMethod }}", EMAIL: "{{ .inputs.EmailAddress }}", CHANNEL: "{{ .inputs.SlackChannel }}" }}

@@ -185,6 +185,38 @@ function problems(fixture: string): string | undefined {
   return result._tag === "Failure" ? result.failure.message : undefined
 }
 
+/**
+ * Each output an assertion in `fixture` reads from a block the real registry
+ * has, and that the block does not declare. The new tree keeps only a
+ * block's declared outputs (decision 8), so the assertion would fail.
+ */
+function undeclaredAssertedOutputs(fixture: string): string[] {
+  const runbook = path.join(ROOT, path.dirname(fixture), "runbook.mdx")
+  const parsed = parseRunbook(readFileSync(runbook, "utf8"), BLOCKS, {
+    file: runbook,
+    appVersion: RUNBOOKS_VERSION,
+  })
+  // A runbook that does not parse is the decode test's to report.
+  if (parsed._tag === "Invalid") return []
+  const targets = targetsOf(parsed.document, BLOCKS)
+  const file = Effect.runSync(
+    parseTestFile(fixture, readFileSync(path.join(ROOT, fixture), "utf8")),
+  )
+  return file.tests
+    .flatMap((test) => [
+      ...(test.steps ?? []).flatMap((step) => step.assertions ?? []),
+      ...(test.assertions ?? []),
+    ])
+    .flatMap((assertion) => {
+      if (!("output" in assertion)) return []
+      const target = targets.get(assertion.block)
+      if (target?.outputs === undefined || !(target.tag in registry)) return []
+      return target.outputs.includes(assertion.output)
+        ? []
+        : [`${fixture}: ${assertion.type} reads ${assertion.block}.${assertion.output}`]
+    })
+}
+
 describe("the runbook_test.yml schema, against the fixtures", () => {
   it("stands in a block or alias for each of today's 22 tags", () => {
     expect(Object.keys(STAND_IN).sort()).toEqual(Object.keys(PROPS).sort())
@@ -206,5 +238,9 @@ describe("the runbook_test.yml schema, against the fixtures", () => {
     expect(Object.keys(found).sort()).toEqual(Object.keys(DOES_NOT_DECODE).sort())
     for (const [fixture, reason] of Object.entries(DOES_NOT_DECODE))
       expect(found[fixture]).toContain(reason)
+  })
+
+  it("asserts only on outputs their blocks declare, for each block the registry has", () => {
+    expect(FIXTURES.flatMap(undeclaredAssertedOutputs)).toEqual([])
   })
 })
