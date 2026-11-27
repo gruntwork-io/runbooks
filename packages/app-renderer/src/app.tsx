@@ -9,6 +9,7 @@ import { Cause, Effect } from "effect"
 import { useEffect, useState } from "react"
 import type { DocumentView, EngineClient, SessionSummary } from "@runbooks/core/protocol"
 import { FollowingContext, followingOf } from "./following.ts"
+import { clientErrorText, defectText } from "./defect.ts"
 import { Runbook } from "./runbook.tsx"
 import { Welcome } from "./welcome.tsx"
 
@@ -19,11 +20,6 @@ type Shown =
   | { readonly _tag: "Failed"; readonly message: string }
 
 /** What a defect the engine sent says, as its message when it has one. */
-const defectText = (cause: Cause.Cause<unknown>): string => {
-  const defect = Cause.squash(cause)
-  return defect instanceof Error ? defect.message : String(defect)
-}
-
 /**
  * What the engine has open, as the window shows it: the session it opened
  * last, which `ListSessions` lists last. When the engine fails instead of
@@ -41,7 +37,7 @@ export const ask = (engine: EngineClient): Effect.Effect<Shown> =>
       RpcClientError: (error) =>
         Effect.succeed<Shown>({
           _tag: "Failed",
-          message: `The engine did not answer: ${error.message}`,
+          message: `The engine did not answer: ${clientErrorText(error)}`,
         }),
       UnknownSession: () =>
         Effect.succeed<Shown>({

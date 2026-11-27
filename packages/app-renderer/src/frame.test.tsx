@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import type { View, ViewRequest } from "@runbooks/blocks/views"
 import { BlockView, DocumentBlock, type DocumentView, SessionId } from "@runbooks/core/protocol"
 import { makeEngineClient } from "./engine.ts"
-import { fails, fakeMain } from "./fakeMain.ts"
+import { dies, fails, fakeMain } from "./fakeMain.ts"
 import { buttonsFor, scrollToBlock, ViewsContext } from "./frame.tsx"
 import { type Following, FollowingContext, followingOf } from "./following.ts"
 import { follow, type Live, makeLiveStore } from "./live.ts"
@@ -409,6 +409,21 @@ describe("the window asking the engine for a block", () => {
     ["notRunning", { _tag: "CancelBlock" }, "It wasn't running, so nothing was cancelled."],
   ] as const)("says what the engine answered %j", async (answer, request, line) => {
     expect((await asking(answer, request)).said).toBe(line)
+  })
+
+  it("says the engine failed when the call dies, rather than saying nothing", async () => {
+    const main = fakeMain(() => dies({ name: "Error", message: "the block's run threw" }))
+    const said = await Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(makeEngineClient(main.bridge), (engine) =>
+          followingOf(engine, Schema.decodeSync(SessionId)(SESSION)).act(
+            Schema.decodeSync(BlockView.fields.block)("setup"),
+            { _tag: "RunBlock" },
+          ),
+        ),
+      ).pipe(Effect.timeout("2 seconds")),
+    )
+    expect(said).toBe("The engine failed: the block's run threw")
   })
 
   it("says what failed when the engine refuses the call", async () => {

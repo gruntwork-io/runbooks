@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { Effect, Fiber, Queue, Schema } from "effect"
 import { SessionId } from "@runbooks/core/protocol"
 import { makeEngineClient } from "./engine.ts"
-import { type FakeMain, fails, fakeMain } from "./fakeMain.ts"
+import { dies, type FakeMain, fails, fakeMain } from "./fakeMain.ts"
 import { follow, type Live } from "./live.ts"
 
 // The window following a session, against a main that answers the engine's
@@ -229,6 +229,83 @@ describe("the window following a session", () => {
         main.stream("Events", [event({ _tag: "SessionClosed" })])
         expect((yield* next).ended).toBe(
           "This runbook's session closed, so the window shows it as it was left.",
+        )
+      }),
+    )
+  })
+
+  it("says the session ended when its events end, though no event said it closed", async () => {
+    const main = fakeMain(answering({ greet: task("greet") }))
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        expect((yield* next).ended).toBeUndefined()
+        main.end("Events")
+        expect((yield* next).ended).toBe(
+          "This runbook's session closed, so the window shows it as it was left.",
+        )
+      }),
+    )
+  })
+
+  it("says the engine failed when a read dies, rather than showing the session stale", async () => {
+    const main = fakeMain((tag, payload) =>
+      tag === "GetBlock"
+        ? dies({ name: "RangeError", message: "Maximum call stack size exceeded" })
+        : answering({ greet: task("greet") })(tag, payload),
+    )
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        expect((yield* next).ended).toBe(
+          "The engine failed, so the window stopped following this runbook: Maximum call stack size exceeded",
+        )
+      }),
+    )
+  })
+
+  it("says the engine has no block, when a read names one it lacks", async () => {
+    const main = fakeMain((tag, payload) =>
+      tag === "GetBlock"
+        ? fails({ _tag: "UnknownBlock", session: SESSION, block: "greet" })
+        : answering({ greet: task("greet") })(tag, payload),
+    )
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        expect((yield* next).ended).toBe(
+          "The engine has no block greet in this runbook's session, so the window stopped following it.",
+        )
+      }),
+    )
+  })
+
+  it("says the engine has logged no such event, when it can't start after the view's", async () => {
+    const main = fakeMain(answering({ greet: task("greet") }))
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        expect((yield* next).ended).toBeUndefined()
+        main.end("Events", fails({ _tag: "UnknownSequence", session: SESSION, after: 4, next: 2 }))
+        expect((yield* next).ended).toBe(
+          "The engine has logged no event 4 in this runbook's session, so the window stopped following it.",
+        )
+      }),
+    )
+  })
+
+  it("says the engine did not answer when the bridge refuses a read", async () => {
+    const main = fakeMain(answering({ greet: task("greet") }))
+    const refusing: FakeMain = {
+      ...main,
+      bridge: {
+        ...main.bridge,
+        send: (text) => {
+          if (text.includes('"tag":"GetBlock"')) throw new Error("over the bridge's cap")
+          main.bridge.send(text)
+        },
+      },
+    }
+    await following(refusing, (next) =>
+      Effect.gen(function* () {
+        expect((yield* next).ended).toBe(
+          "The engine did not answer, so the window stopped following this runbook: The engine bridge refused the message.",
         )
       }),
     )

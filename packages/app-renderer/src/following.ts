@@ -4,7 +4,7 @@
  * The app provides it (`app.tsx`). With none, as a page rendered on its own,
  * no block has a view and nothing is asked.
  */
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import { createContext, useContext, useSyncExternalStore } from "react"
 import type { ViewRequest } from "@runbooks/blocks/views"
 import type {
@@ -16,6 +16,7 @@ import type {
   SessionId,
   SetValuesResult,
 } from "@runbooks/core/protocol"
+import { clientErrorText, defectText } from "./defect.ts"
 import { follow, type LiveStore, makeLiveStore } from "./live.ts"
 
 export interface Following {
@@ -101,8 +102,14 @@ const ask = (
         Effect.succeed(`The engine has no block ${block} in this runbook's session.`),
       WrongClass: (error) =>
         Effect.succeed(`The engine doesn't take that for a ${error.class} block.`),
-      RpcClientError: (error) => Effect.succeed(`The engine did not answer: ${error.message}`),
+      RpcClientError: (error) =>
+        Effect.succeed(`The engine did not answer: ${clientErrorText(error)}`),
     }),
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.failCause(cause)
+        : Effect.succeed(`The engine failed: ${defectText(cause)}`),
+    ),
   )
 }
 

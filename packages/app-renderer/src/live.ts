@@ -14,12 +14,12 @@
  *   an instruction again.
  * - A block's log is its latest run's last page: a log longer than one
  *   page is read again from `total - defaultLogLimit`.
- * - When the session closes, or the engine fails a read, the window says
- *   so (`ended`) and stops following.
+ * - When the session closes, its events end, or the engine fails a read or
+ *   can't be reached, the window says so (`ended`) and stops following.
  *
  * Reads run in turn, a few at a time, and the next batch waits for them.
  */
-import { Effect, Stream } from "effect"
+import { Cause, Effect, Stream } from "effect"
 import {
   type BlockView,
   type EngineClient,
@@ -27,6 +27,7 @@ import {
   LIMITS,
   type SessionId,
 } from "@runbooks/core/protocol"
+import { clientErrorText, defectText } from "./defect.ts"
 
 type BlockId = BlockView["block"]
 
@@ -161,10 +162,21 @@ export const follow = (
         Effect.sync(() =>
           publish({
             blocks: new Map(blocks),
-            ended: `The engine did not answer, so the window stopped following this runbook: ${error.message}`,
+            ended: `The engine did not answer, so the window stopped following this runbook: ${clientErrorText(error)}`,
           }),
         ),
     }),
+    // A defect, as a block's instruction throwing makes in every read. Unmounting interrupts.
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.failCause(cause)
+        : Effect.sync(() =>
+            publish({
+              blocks: new Map(blocks),
+              ended: `The engine failed, so the window stopped following this runbook: ${defectText(cause)}`,
+            }),
+          ),
+    ),
   )
 }
 

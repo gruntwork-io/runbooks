@@ -14,12 +14,24 @@ export interface Asked {
 
 const FAILURE: unique symbol = Symbol("failure")
 
-/** An answer that fails its command with `error`, encoded. */
-export const fails = (error: unknown) => ({ [FAILURE]: error })
+/** A cause as main encodes it: a failure with a typed error, or a defect. */
+type EncodedCause = ReadonlyArray<
+  | { readonly _tag: "Fail"; readonly error: unknown }
+  | { readonly _tag: "Die"; readonly defect: unknown }
+>
 
-const failureOf = (value: unknown): { readonly error: unknown } | undefined =>
+const failing = (cause: EncodedCause) => ({ [FAILURE]: cause })
+
+/** An answer that fails its command with `error`, encoded. */
+export const fails = (error: unknown) => failing([{ _tag: "Fail", error }])
+
+/** An answer that fails its command with a defect, as main sends one: `{ name, message }`. */
+export const dies = (defect: { readonly name: string; readonly message: string }) =>
+  failing([{ _tag: "Die", defect }])
+
+const failureOf = (value: unknown): { readonly cause: unknown } | undefined =>
   typeof value === "object" && value !== null && FAILURE in value
-    ? { error: value[FAILURE] }
+    ? { cause: value[FAILURE] }
     : undefined
 
 /** What a stream command opened: its request, to send chunks down. */
@@ -34,6 +46,8 @@ export interface FakeMain {
   readonly asked: ReadonlyArray<Asked>
   /** Sends `values`, encoded, as one chunk down each open stream of `tag`. */
   readonly stream: (tag: string, values: ReadonlyArray<unknown>) => void
+  /** Ends each open stream of `tag`: done, or failed with `failure` (`fails`, `dies`). */
+  readonly end: (tag: string, failure?: unknown) => void
 }
 
 /**
@@ -75,7 +89,7 @@ export function fakeMain(
           exit:
             failure === undefined
               ? { _tag: "Success", value }
-              : { _tag: "Failure", cause: [{ _tag: "Fail", error: failure.error }] },
+              : { _tag: "Failure", cause: failure.cause },
         })
       },
       onMessage: (listener) => {
@@ -86,6 +100,19 @@ export function fakeMain(
     stream: (tag, values) => {
       for (const open of opened)
         if (open.tag === tag) reply({ _tag: "Chunk", requestId: open.requestId, values })
+    },
+    end: (tag, failure) => {
+      const failed = failureOf(failure)
+      for (const open of opened)
+        if (open.tag === tag)
+          reply({
+            _tag: "Exit",
+            requestId: open.requestId,
+            exit:
+              failed === undefined
+                ? { _tag: "Success", value: null }
+                : { _tag: "Failure", cause: failed.cause },
+          })
     },
   }
 }
