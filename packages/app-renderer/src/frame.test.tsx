@@ -364,6 +364,24 @@ describe("a task's default view", () => {
     )
   })
 
+  it("shows the outputs its latest run gave, each as text, and a hidden one as hidden", () => {
+    const shown = (outputs: Record<string, unknown>) =>
+      page(
+        followingViews(view("setup", { _tag: "Done", outcome: "success" }, { outputs })),
+        placed({ id: "setup" }),
+      )
+    expect(
+      shown({
+        region: { _tag: "Shown", value: "us-east-1" },
+        banner: { _tag: "Shown", value: "<b>bold</b>" },
+        token: { _tag: "Hidden" },
+      }),
+    ).toContain(
+      '<dl class="block-outputs" aria-label="Outputs"><dt>region</dt><dd>us-east-1</dd><dt>banner</dt><dd>&lt;b&gt;bold&lt;/b&gt;</dd><dt>token</dt><dd class="block-output-hidden">Hidden: it is sensitive.</dd></dl>',
+    )
+    expect(shown({})).not.toContain("Outputs")
+  })
+
   it("draws a block's own view, with its props and status, in place of its class's", () => {
     const Toy: View<Schema.Json> = ({ props, status, children }) => (
       <div className="toy">

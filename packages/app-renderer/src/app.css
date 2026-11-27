@@ -258,6 +258,25 @@
   .block-log .log-stderr {
     color: var(--color-red-700);
   }
+  .block-outputs {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: calc(var(--spacing) * 1) calc(var(--spacing) * 3);
+    margin-top: calc(var(--spacing) * 2);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  .block-outputs dt {
+    color: var(--color-zinc-500);
+  }
+  .block-outputs dd {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .block-output-hidden {
+    color: var(--color-zinc-500);
+    font-style: italic;
+  }
   .block-instruction {
     margin-top: calc(var(--spacing) * 2);
   }
