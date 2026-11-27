@@ -14,6 +14,9 @@
  *   an instruction again.
  * - A block's log is its latest run's last page: a log longer than one
  *   page is read again from `total - defaultLogLimit`.
+ * - The session's trust is its view's, then each `TrustChanged`'s. Each
+ *   block whose status trust changes has a `BlockStatusChanged` of its own,
+ *   which reads it again.
  * - When the session closes, its events end, or the engine fails a read or
  *   can't be reached, the window says so (`ended`) and stops following.
  *
@@ -26,6 +29,7 @@ import {
   type EngineEvent,
   LIMITS,
   type SessionId,
+  type TrustState,
 } from "@runbooks/core/protocol"
 import { clientErrorText, defectText } from "./defect.ts"
 
@@ -35,6 +39,8 @@ type BlockId = BlockView["block"]
 export interface Live {
   /** Each block with a lifecycle, by id, as the engine had it after the last batch. */
   readonly blocks: ReadonlyMap<string, BlockView>
+  /** The session's trust, as the engine had it after the last batch. Absent until the session is read. */
+  readonly trust?: TrustState
   /** Why the window no longer follows the session, when it doesn't. */
   readonly ended?: string
 }
@@ -44,6 +50,8 @@ interface Stale {
   readonly blocks: Set<BlockId>
   /** A value or an output changed, so every block's instruction may have. */
   readers: boolean
+  /** The trust the batch's last `TrustChanged` gives, if one does. */
+  trust: TrustState | undefined
   closed: boolean
 }
 
@@ -81,8 +89,9 @@ function mark(
     case "SessionClosed":
       stale.closed = true
       return
-    // Each block whose status trust changes has a `BlockStatusChanged` of its own.
     case "TrustChanged":
+      stale.trust = event.trust
+      return
     // The session's warnings are not drawn yet.
     case "Warning":
       return
@@ -121,49 +130,60 @@ export const follow = (
     )
   const approvalFor = (approval: string) =>
     [...blocks.values()].find((view) => view.approval?.approval === approval)?.block
+  let trust: TrustState | undefined
+  const show = (ended?: string) =>
+    publish({
+      blocks: new Map(blocks),
+      ...(trust === undefined ? {} : { trust }),
+      ...(ended === undefined ? {} : { ended }),
+    })
   return Effect.gen(function* () {
     const view = yield* engine.GetSession({ session })
+    trust = view.trust
     yield* read(view.blocks.flatMap((block) => (block.status === undefined ? [] : [block.block])))
-    publish({ blocks: new Map(blocks) })
+    show()
     let closed = false
     yield* Stream.runForEachArray(
       engine.Events({ session, ...(view.sequence === undefined ? {} : { after: view.sequence }) }),
       (batch) =>
         Effect.gen(function* () {
-          const stale: Stale = { blocks: new Set(), readers: false, closed: false }
+          const stale: Stale = {
+            blocks: new Set(),
+            readers: false,
+            trust: undefined,
+            closed: false,
+          }
           for (const { event } of batch) mark(event, stale, approvalFor)
           if (stale.readers)
             for (const [, known] of blocks)
               if (known.instruction !== undefined) stale.blocks.add(known.block)
           yield* read(stale.blocks)
+          trust = stale.trust ?? trust
           closed = stale.closed
-          publish({ blocks: new Map(blocks), ...(closed ? { ended: CLOSED } : {}) })
+          show(closed ? CLOSED : undefined)
         }),
     )
-    if (!closed) publish({ blocks: new Map(blocks), ended: CLOSED })
+    if (!closed) show(CLOSED)
   }).pipe(
     Effect.catchTags({
-      UnknownSession: () => Effect.sync(() => publish({ blocks: new Map(blocks), ended: CLOSED })),
+      UnknownSession: () => Effect.sync(() => show(CLOSED)),
       UnknownBlock: (error) =>
         Effect.sync(() =>
-          publish({
-            blocks: new Map(blocks),
-            ended: `The engine has no block ${error.block} in this runbook's session, so the window stopped following it.`,
-          }),
+          show(
+            `The engine has no block ${error.block} in this runbook's session, so the window stopped following it.`,
+          ),
         ),
       UnknownSequence: (error) =>
         Effect.sync(() =>
-          publish({
-            blocks: new Map(blocks),
-            ended: `The engine has logged no event ${error.after} in this runbook's session, so the window stopped following it.`,
-          }),
+          show(
+            `The engine has logged no event ${error.after} in this runbook's session, so the window stopped following it.`,
+          ),
         ),
       RpcClientError: (error) =>
         Effect.sync(() =>
-          publish({
-            blocks: new Map(blocks),
-            ended: `The engine did not answer, so the window stopped following this runbook: ${clientErrorText(error)}`,
-          }),
+          show(
+            `The engine did not answer, so the window stopped following this runbook: ${clientErrorText(error)}`,
+          ),
         ),
     }),
     // A defect, as a block's instruction throwing makes in every read. Unmounting interrupts.
@@ -171,10 +191,9 @@ export const follow = (
       Cause.hasInterruptsOnly(cause)
         ? Effect.failCause(cause)
         : Effect.sync(() =>
-            publish({
-              blocks: new Map(blocks),
-              ended: `The engine failed, so the window stopped following this runbook: ${defectText(cause)}`,
-            }),
+            show(
+              `The engine failed, so the window stopped following this runbook: ${defectText(cause)}`,
+            ),
           ),
     ),
   )
