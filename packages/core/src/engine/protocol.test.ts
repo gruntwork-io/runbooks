@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "bun:test"
 import { Cause, Context, DateTime, Effect, Exit, Layer, Option, Schema, Stream } from "effect"
 import { Rpc, type RpcClient, RpcTest } from "effect/rpc"
 import { BlockId, type Instruction as ContractInstruction } from "@runbooks/blocks-core/contract"
+import { MAX_VALUE_DEPTH } from "@runbooks/blocks-core/form"
 import { type CredentialStateTag, TRANSITIONS } from "../credential/lifecycle.ts"
 import { ConfigError } from "../document/configError.ts"
 import { ContentHash } from "../document/document.ts"
@@ -36,6 +37,7 @@ import {
   ScriptFiles,
   SessionId,
   SessionView,
+  SetValues,
   Settings,
   SettingsView,
   UnknownSequence,
@@ -140,6 +142,24 @@ describe("engine protocol", () => {
         timeoutMillis: 600_000,
       }),
     ).toThrow(/at \["timeoutMillis"\]/)
+  })
+
+  it("refuses a SetValues value nested deeper than a form's values may be, as a malformed command, not a defect", () => {
+    // An untyped caller's JSON, as the server decodes it: MCP sends what an agent wrote.
+    const set = Schema.decodeUnknownExit(Schema.toCodecJson(SetValues.payloadSchema))
+    let deep: unknown = "x"
+    for (let level = 0; level < 10_000; level++) deep = [deep]
+    const exit = set({ session: "s1", block: "config", values: { regions: deep } })
+    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(false)
+    expect(Exit.isFailure(exit) && String(Cause.squash(exit.cause))).toContain(
+      `Expected a value nested at most ${MAX_VALUE_DEPTH} levels deep`,
+    )
+    expect(Exit.isFailure(exit) && String(Cause.squash(exit.cause))).toContain(
+      'at ["values"]["regions"]',
+    )
+    const atBound: { regions: unknown } = { regions: "x" }
+    for (let level = 0; level < MAX_VALUE_DEPTH; level++) atBound.regions = [atBound.regions]
+    expect(Exit.isSuccess(set({ session: "s1", block: "config", values: atBound }))).toBe(true)
   })
 
   it("takes a runbook only by an absolute path, since its folder is a root", () => {

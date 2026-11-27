@@ -40,7 +40,8 @@ const REASONS: { readonly [Code in ErrorCode]: string } = {
   MULTIPLE_DOCS: "it holds more than one YAML document",
   MULTIPLE_TAGS: "a node has more than one tag",
   NON_STRING_KEY: "a key isn't text",
-  RESOURCE_EXHAUSTION: "it would take too much to read",
+  // The library says so for a stack overflow while it builds a list or map, which only nesting causes.
+  RESOURCE_EXHAUSTION: "its lists and maps are nested too deep to read",
   TAB_AS_INDENT: "a tab indents a line; YAML indents with spaces only",
   TAG_RESOLVE_FAILED: "a `!` tag isn't one YAML knows",
   UNEXPECTED_TOKEN:

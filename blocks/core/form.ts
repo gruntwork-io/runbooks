@@ -31,7 +31,7 @@ export const Validation = Schema.Struct({
 })
 export type Validation = typeof Validation.Type
 
-/** A form value. Lists and maps nest. */
+/** A form value. Lists and maps nest, at most `MAX_VALUE_DEPTH` levels deep. */
 export type FieldValue =
   | string
   | number
@@ -39,16 +39,55 @@ export type FieldValue =
   | ReadonlyArray<FieldValue>
   | { readonly [key: string]: FieldValue }
 
-export const FieldValue: Schema.Codec<FieldValue> = Schema.Union([
+/**
+ * The most lists and maps a form value may nest, one inside another: `"x"`
+ * nests none, `["x"]` one. A form's own values nest three at most (a map
+ * of entries, each a map of values), so this leaves room for any value an
+ * author or agent means, and refuses one built to exhaust a reader: the
+ * value's decode recurses, and overflows the stack at about 10,000 levels.
+ */
+export const MAX_VALUE_DEPTH = 32
+
+/**
+ * Whether `value` nests more lists or maps than `MAX_VALUE_DEPTH`. It keeps
+ * its own stack and stops past the bound, so no value is too deep for it,
+ * one that holds itself included.
+ */
+function nestsTooDeep(value: unknown): boolean {
+  const pending: Array<readonly [unknown, number]> = [[value, 0]]
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const [part, outside] = next
+    if (typeof part !== "object" || part === null) continue
+    if (outside === MAX_VALUE_DEPTH) return true
+    for (const inside of Object.values(part)) pending.push([inside, outside + 1])
+  }
+  return false
+}
+
+/** A value's shape, checked part by part. Only `FieldValue` uses it, once it has checked the depth. */
+const Shape: Schema.Codec<FieldValue> = Schema.Union([
   Schema.String,
   Schema.Number,
   Schema.Boolean,
-  Schema.Array(Schema.suspend((): Schema.Codec<FieldValue> => FieldValue)),
+  Schema.Array(Schema.suspend((): Schema.Codec<FieldValue> => Shape)),
   Schema.Record(
     Schema.String,
-    Schema.suspend((): Schema.Codec<FieldValue> => FieldValue),
+    Schema.suspend((): Schema.Codec<FieldValue> => Shape),
   ),
 ])
+
+/**
+ * A form value from anywhere: a default in YAML or a prop, `SetValues`, a
+ * saved session, a test's inputs. Its depth is checked first, by a walk,
+ * since the shape's decode recurses: a value nested too deep is a schema
+ * error at its path, never a stack overflow. Only then is its shape
+ * checked. Neither error quotes the value, which may be a secret.
+ */
+export const FieldValue: Schema.Codec<FieldValue> = Schema.declare(
+  // The walk checks only the depth; `Shape` checks the rest.
+  (value: unknown): value is FieldValue => !nestsTooDeep(value),
+  { expected: `a value nested at most ${MAX_VALUE_DEPTH} levels deep` },
+).pipe(Schema.decodeTo(Shape))
 
 /** A field's choices come from another block's output, read when the form is drawn. */
 export const OptionsSource = Schema.Struct({
