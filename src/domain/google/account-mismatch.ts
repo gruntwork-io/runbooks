@@ -13,3 +13,11 @@ export function namesAnotherAccount(
   if (!configurationAccount || !signedIn.email) return false
   return configurationAccount.toLowerCase() !== signedIn.email.toLowerCase()
 }
+
+export function differsFromConfirmedPrincipal(
+  confirmedPrincipal: string | undefined,
+  signedIn: Pick<GoogleIdentity, "email">,
+): boolean {
+  if (!confirmedPrincipal || !signedIn.email) return false
+  return confirmedPrincipal.toLowerCase() !== signedIn.email.toLowerCase()
+}

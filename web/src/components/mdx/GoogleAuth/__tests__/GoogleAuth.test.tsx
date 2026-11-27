@@ -562,7 +562,12 @@ describe("GoogleAuth — gcloud tab", () => {
 
     expect(await screen.findByText("✓ Authenticated to Google Cloud")).toBeInTheDocument()
     expect(callsTo("google:gcloud-auth")).toEqual([
-      { blockId: "gcp", configuration: "default", projectId: "proj-a" },
+      {
+        blockId: "gcp",
+        configuration: "default",
+        confirmedPrincipal: "dev@example.com",
+        projectId: "proj-a",
+      },
     ])
   })
 
@@ -604,7 +609,36 @@ describe("GoogleAuth — gcloud tab", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Continue as dev@example.com" }))
 
-    await waitFor(() => expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp" }]))
+    await waitFor(() =>
+      expect(callsTo("google:gcloud-auth")).toEqual([
+        { blockId: "gcp", confirmedPrincipal: "dev@example.com" },
+      ]),
+    )
+  })
+
+  it("keeps the search box while a search is typed, after a reload shortens the list", async () => {
+    const named = (name: string) => ({ name, isActive: false, authType: "config-only" as const })
+    const sevenMore = ["one", "two", "three", "four", "five", "six", "seven"].map(named)
+    let configurations = [...listing.configurations, ...sevenMore]
+    installApi({
+      ...SIGNED_IN,
+      "google:gcloud-configurations": () => ({ ...listing, configurations }),
+    })
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
+    await openGcloudTab()
+    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    fireEvent.change(screen.getByPlaceholderText("Search configurations..."), {
+      target: { value: "stag" },
+    })
+
+    configurations = listing.configurations
+    fireEvent.click(screen.getAllByRole("button", { name: "Reload" })[0]!)
+    await waitFor(() => expect(callsTo("google:gcloud-configurations")).toHaveLength(2))
+    fireEvent.click(await screen.findByRole("button", { name: "Change" }))
+
+    expect(screen.getAllByPlaceholderText("Search configurations...")).toHaveLength(1)
+    expect(screen.getByPlaceholderText("Search configurations...")).toHaveValue("stag")
   })
 
   it("lets the reader choose no configuration under Change", async () => {
@@ -628,7 +662,11 @@ describe("GoogleAuth — gcloud tab", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Continue as dev@example.com" }))
 
-    await waitFor(() => expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp" }]))
+    await waitFor(() =>
+      expect(callsTo("google:gcloud-auth")).toEqual([
+        { blockId: "gcp", confirmedPrincipal: "dev@example.com" },
+      ]),
+    )
   })
 
   it("shows the project the runbook pins, over the configuration's", async () => {
@@ -754,6 +792,7 @@ describe("GoogleAuth — credential detection", () => {
     expect(invoke).toHaveBeenCalledWith("google:env-credentials-confirm", {
       blockId: "gcp",
       source: "env",
+      confirmedPrincipal: "dev@example.com",
       projectId: "proj-a",
     })
   })

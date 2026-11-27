@@ -336,6 +336,47 @@ describe("the region/zone a sign-in writes is the one it returns", () => {
     expect(env.CLOUDSDK_ACTIVE_CONFIG_NAME).toBeUndefined()
   })
 
+  describe("when the account changed after the block showed it", () => {
+    const SHOWN = "ana@example.org"
+    const CHANGED = `The signed-in account is now ${USER.email}, not ${SHOWN}. Check the account, then try again.`
+
+    it("google:gcloud-auth with no configuration refuses it and writes nothing to the session", async () => {
+      const result = await invoke("google:gcloud-auth", {
+        blockId: "gcp",
+        confirmedPrincipal: SHOWN,
+      })
+
+      expect(result).toEqual({ valid: false, error: CHANGED })
+      expect((await sessionEnv()).GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined()
+    })
+
+    it("google:env-credentials-confirm refuses it and writes nothing to the session", async () => {
+      google = {
+        ...google,
+        readApplicationDefaultCredentials: () =>
+          Effect.succeed({ path: ADC_PATH, type: "authorized_user" as const }),
+      }
+
+      const result = await invoke("google:env-credentials-confirm", {
+        blockId: "gcp",
+        source: "adc",
+        confirmedPrincipal: SHOWN,
+      })
+
+      expect(result).toEqual({ valid: false, error: CHANGED })
+      expect((await sessionEnv()).GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined()
+    })
+
+    it("google:gcloud-auth signs in when the account is the one the block showed", async () => {
+      const result = await invoke("google:gcloud-auth", {
+        blockId: "gcp",
+        confirmedPrincipal: USER.email,
+      })
+
+      expect(result).toMatchObject({ valid: true, credentialsPath: ADC_PATH })
+    })
+  })
+
   describe("when the configuration is set up for another account", () => {
     const OTHER_ACCOUNT = "someone-else@example.org"
     const MISMATCH =
