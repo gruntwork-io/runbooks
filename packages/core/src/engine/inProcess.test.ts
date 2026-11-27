@@ -678,6 +678,7 @@ describe("the session's document", () => {
           description: "Greets the world",
           autoCollapse: true,
           step: true,
+          effects: ["process"],
           props: { command: "echo hi", shell: "bash" },
         })
         // The parser's error, on the node.
@@ -741,6 +742,37 @@ describe("the session's document", () => {
           ["CloudLogin", true],
           ["Run", "Misconfigured"],
         ])
+      }),
+    )
+  })
+
+  it("says what each configured block may do to the machine, an alias what its block may", async () => {
+    const runbook = [
+      '<Note title="Heads up">\n\nRead this.\n\n</Note>',
+      FORM,
+      '<Bash id="greet" command="echo hi" />',
+      '<Clone id="infra" url="https://example.com/infra.git" />',
+      '<CloudLogin id="cloud" detect={false} />',
+      '<Run id="broken" args="not-a-list" />',
+    ].join("\n\n")
+    await withClients({ runbook }, ({ person }) =>
+      Effect.gen(function* () {
+        const { blocks } = yield* person.GetDocument({ session: (yield* opened(person)).session })
+        expect(
+          blocks.map((block) => [
+            block.tag,
+            block._tag === "Configured" ? block.effects : block._tag,
+          ]),
+        ).toEqual([
+          ["Note", []],
+          ["Form", []],
+          ["Bash", ["process"]],
+          ["Clone", ["network"]],
+          ["CloudLogin", ["network", "browser"]],
+          ["Run", "Misconfigured"],
+        ])
+        // A misconfigured block never runs, so trusting the session lets it do nothing.
+        expect(blocks[5]).not.toHaveProperty("effects")
       }),
     )
   })

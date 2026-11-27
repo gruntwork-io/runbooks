@@ -51,6 +51,7 @@ const placed = (fields: Record<string, unknown>): DocumentBlock =>
     class: "task",
     span: SPAN,
     step: true,
+    effects: [],
     ...fields,
   })
 

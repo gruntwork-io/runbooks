@@ -483,13 +483,17 @@ const openError = (
     ...(suggestion === undefined ? {} : { suggestion }),
   })
 
-/** Whether a block with no configuration errors is a progress step. */
-function isStep(node: BlockNode, registry: Registry): boolean {
+/** The registry block a node's tag resolves to. */
+function blockOf(node: BlockNode, registry: Registry): AnyBlock {
   const block: AnyBlock | undefined = resolveTag(registry, node.tag)?.block
-  switch (block?.class) {
-    // The parser resolved this tag against the same registry, so it resolves here.
-    case undefined:
-      throw new Error(`<${node.tag}> does not resolve to a block`)
+  // The parser resolved this tag against the same registry, so it resolves here.
+  if (block === undefined) throw new Error(`<${node.tag}> does not resolve to a block`)
+  return block
+}
+
+/** Whether `node`, which has no configuration errors, is a progress step: `block` is its registry block. */
+function isStep(node: BlockNode, block: AnyBlock): boolean {
+  switch (block.class) {
     case "display":
       return false
     case "credential":
@@ -526,10 +530,12 @@ function documentViewOf(
       const [first, ...rest] = node.errors
       if (first !== undefined) return { _tag: "Misconfigured", ...placed, errors: [first, ...rest] }
       const sent = props.get(node.index)
+      const block = blockOf(node, registry)
       return {
         _tag: "Configured",
         ...placed,
-        step: isStep(node, registry),
+        step: isStep(node, block),
+        effects: block.effects,
         ...(sent === undefined ? {} : { props: sent }),
       }
     }),
