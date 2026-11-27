@@ -57,8 +57,6 @@ export function makeTrustingStore(): TrustingStore & {
   }
 }
 
-const failed = (line: string): Effect.Effect<Trusting> => Effect.succeed({ failed: line })
-
 /** What the window keeps of `result`, reading what the runbook holds now when it changed. */
 const answered = (engine: EngineClient, session: SessionId, result: TrustResult) => {
   switch (result._tag) {
@@ -78,15 +76,19 @@ const answered = (engine: EngineClient, session: SessionId, result: TrustResult)
 
 /**
  * Asks the engine to trust `session` for `hash`, the one the person was
- * shown, and gives what the window keeps of the answer. Every failure, the
- * read after a change included, is a line that says nothing was trusted.
+ * shown, and gives what the window keeps of the answer, `before` being
+ * what it kept of the last. Every failure, the read after a change
+ * included, is a line that says nothing was trusted, and keeps what the
+ * runbook was last said to hold, so the prompt still shows it.
  */
 export const askToTrust = (
   engine: EngineClient,
   session: SessionId,
   hash: TrustState["hash"],
-): Effect.Effect<Trusting> =>
-  engine.TrustSession({ session, hash }).pipe(
+  before: Trusting,
+): Effect.Effect<Trusting> => {
+  const failed = (line: string) => Effect.succeed<Trusting>({ ...before, failed: line })
+  return engine.TrustSession({ session, hash }).pipe(
     Effect.flatMap((result) => answered(engine, session, result)),
     Effect.catchTags({
       UnknownSession: () => failed("This runbook's session closed, so nothing was trusted."),
@@ -101,3 +103,4 @@ export const askToTrust = (
         : failed(`The engine failed, so nothing was trusted: ${defectText(cause)}`),
     ),
   )
+}

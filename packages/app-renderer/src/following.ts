@@ -106,10 +106,11 @@ export function followingOf(
     trusting,
     act: (block, request) => ask(engine, session, block, request),
     trust: () => {
-      const hash = trusting.get().changed?.hash ?? live.get().trust?.hash
+      const before = trusting.get()
+      const hash = before.changed?.hash ?? live.get().trust?.hash
       return hash === undefined
         ? Effect.void
-        : Effect.flatMap(askToTrust(engine, session, hash), (next) =>
+        : Effect.flatMap(askToTrust(engine, session, hash, before), (next) =>
             Effect.sync(() => trusting.set(next)),
           )
     },

@@ -140,6 +140,28 @@ describe("the window asking the engine to trust the session", () => {
     expect(kept[1]).toEqual({})
   })
 
+  it("keeps what the runbook holds now, to trust it, when a later ask fails", async () => {
+    let answers = 0
+    const { kept, sent } = await asking(
+      untrusted((tag) => {
+        switch (tag) {
+          case "TrustSession":
+            return answers++ === 0
+              ? { _tag: "HashChanged", current: NOW }
+              : fails({ _tag: "UnknownSession", session: SESSION })
+          case "GetDocument":
+            return { tree: { type: "root", children: [] }, blocks: [ADDED], warnings: [] }
+          default:
+            return undefined
+        }
+      }),
+      3,
+    )
+    expect(sent.map((payload) => (payload as { hash: string }).hash)).toEqual([SHOWN, NOW, NOW])
+    expect<unknown>(kept[1]?.changed?.hash).toBe(NOW)
+    expect(kept[1]?.failed).toBe("This runbook's session closed, so nothing was trusted.")
+  })
+
   it("says nothing was trusted when the runbook changed and what it holds now can't be read", async () => {
     const { kept } = await asking(
       untrusted((tag) =>
