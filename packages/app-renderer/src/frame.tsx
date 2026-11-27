@@ -4,6 +4,9 @@
  *
  * - the header: the progress step mark, the tag, the id and the title, and
  *   the description under it;
+ * - the "Script changed" notice, while files the block names differ on disk
+ *   from the text the session holds (`scriptChange.tsx`), whatever the
+ *   block's class or configuration;
  * - a misconfigured block's errors, each with its line, in place of its
  *   view;
  * - its status, as the engine has it (`following.ts`), and what it waits
@@ -48,6 +51,7 @@ import { BlockLink, frameId } from "./blockLink.tsx"
 import { FollowingContext, useBlockView, useInstructionMode } from "./following.ts"
 import { linkTarget } from "./markdown.tsx"
 import { place } from "./place.ts"
+import { ScriptChange } from "./scriptChange.tsx"
 
 type Configured = Extract<DocumentBlock, { readonly _tag: "Configured" }>
 type BlockStatus = NonNullable<BlockView["status"]>
@@ -181,6 +185,7 @@ export function BlockFrame({
           {block.description === undefined ? null : (
             <p className="block-description">{block.description}</p>
           )}
+          {view?.filesOnDisk === undefined ? null : <ScriptChange onDisk={view.filesOnDisk} />}
           {block._tag === "Misconfigured" ? (
             <ul className="block-errors" aria-label="Configuration errors">
               {block.errors.map((error, index) => (
