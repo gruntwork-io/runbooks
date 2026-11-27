@@ -272,6 +272,29 @@ describe("a block's frame, as the engine has the block", () => {
     )
   })
 
+  it("names each input it waits for a value of, with a link to the form that holds it", () => {
+    const shown = page(
+      followingViews(
+        view("deploy", {
+          _tag: "Blocked",
+          by: [
+            { _tag: "EmptyInput", block: "config", input: "id" },
+            { _tag: "EmptyInput", block: "config", input: "tags.env" },
+          ],
+        }),
+      ),
+      placed({ id: "deploy" }),
+      placed({ id: "config", class: "form" }),
+    )
+    expect(shown).toContain("Waiting for:")
+    expect(shown).toContain(
+      '<a href="#runbook-block-config" class="block-link">config</a> to have a value for <code>id</code>',
+    )
+    expect(shown).toContain(
+      '<a href="#runbook-block-config" class="block-link">config</a> to have a value for <code>tags.env</code>',
+    )
+  })
+
   it("names a block it waits for as text when the page draws no frame for it", () => {
     const shown = page(
       followingViews(

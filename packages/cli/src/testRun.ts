@@ -142,6 +142,24 @@ interface Ended {
   readonly view?: BlockView
 }
 
+type Blocker = Extract<NonNullable<BlockView["status"]>, { readonly _tag: "Blocked" }>["by"][number]
+
+/** What a blocked block waits for, after "Waiting for". */
+function waitingFor(blocker: Blocker): string {
+  switch (blocker._tag) {
+    case "Untrusted":
+      return "trust"
+    case "WaitingFor":
+      return blocker.block
+    case "EmptyInput":
+      return `a value for ${blocker.input} in ${blocker.block}`
+    default: {
+      const unhandled: never = blocker
+      throw new Error(`runbooks test has no words for the blocker ${JSON.stringify(unhandled)}.`)
+    }
+  }
+}
+
 /** What a block's status says it did, as a step's `actual`. */
 function endedAs(view: BlockView, node: BlockNode | undefined): Ended {
   const { status } = view
@@ -157,7 +175,7 @@ function endedAs(view: BlockView, node: BlockNode | undefined): Ended {
     case "Blocked":
       return {
         actual: "blocked",
-        message: `Waiting for ${status.by.map((b) => (b._tag === "WaitingFor" ? b.block : "trust")).join(", ")}`,
+        message: `Waiting for ${status.by.map(waitingFor).join(", ")}`,
         view,
       }
     case "NeedsInput":

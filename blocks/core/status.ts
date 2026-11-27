@@ -13,6 +13,13 @@ export const Blocker = Schema.Union([
   Schema.TaggedStruct("WaitingFor", { block: BlockId, capability: Capability }),
   /** The session is not trusted, so nothing runs. */
   Schema.TaggedStruct("Untrusted", {}),
+  /**
+   * A field the block's templates read (`{{ .inputs.<input> }}`), in the
+   * form `block`, is empty, and has no default that lets it stay empty.
+   * `input` is the reference's path: the field's name, or a map field's
+   * name and key (`tags.env`).
+   */
+  Schema.TaggedStruct("EmptyInput", { block: BlockId, input: Schema.String }),
 ])
 export type Blocker = typeof Blocker.Type
 
