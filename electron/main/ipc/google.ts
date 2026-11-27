@@ -583,12 +583,12 @@ function refuseChangedAccount(
   signedIn: Pick<GoogleIdentity, "email">,
 ): { valid: false; error: string } | undefined {
   if (!differsFromConfirmedPrincipal(confirmedPrincipal, signedIn)) return undefined
-  return {
-    valid: false,
-    error:
-      `The signed-in account is now ${signedIn.email}, not ${confirmedPrincipal}. ` +
-      `Check the account, then try again.`,
-  }
+  const error = signedIn.email
+    ? `The signed-in account is now ${signedIn.email}, not ${confirmedPrincipal}. ` +
+      `Check the account, then try again.`
+    : `These credentials do not say which account they sign in as, ` +
+      `so they cannot be matched to ${confirmedPrincipal}. Sign in another way.`
+  return { valid: false, error }
 }
 
 function resolveDetectionSource(

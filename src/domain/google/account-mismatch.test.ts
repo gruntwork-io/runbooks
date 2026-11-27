@@ -52,7 +52,7 @@ describe("differsFromConfirmedPrincipal", () => {
     expect(differsFromConfirmedPrincipal(undefined, { email: "ana@example.com" })).toBe(false)
   })
 
-  it("is false when Google did not report the credential's email", () => {
-    expect(differsFromConfirmedPrincipal("ana@example.com", { email: "" })).toBe(false)
+  it("is true when Google did not report the credential's email, so it cannot be matched", () => {
+    expect(differsFromConfirmedPrincipal("ana@example.com", { email: "" })).toBe(true)
   })
 })

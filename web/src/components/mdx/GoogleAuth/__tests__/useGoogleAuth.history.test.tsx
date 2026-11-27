@@ -282,6 +282,7 @@ describe("useGoogleAuth in a session — resuming", () => {
       expect(invoke).toHaveBeenCalledWith("google:gcloud-auth", {
         blockId: "gcp",
         configuration: "prod",
+        confirmedPrincipal: "ops@example.com",
         ...PLACEMENT,
       }),
     )
@@ -328,6 +329,7 @@ describe("useGoogleAuth in a session — resuming", () => {
       blockId: "gcp",
       source: "env",
       prefix: "PROD_",
+      confirmedPrincipal: "ops@example.com",
       ...PLACEMENT,
     })
     expect(authenticatedPublishes()[0]![1]).toMatchObject({
@@ -417,7 +419,9 @@ describe("useGoogleAuth in a session — resuming", () => {
     renderGoogleAuth({}, saved({ kind: "gcloud" }))
 
     await waitFor(() =>
-      expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp", ...PLACEMENT }]),
+      expect(callsTo("google:gcloud-auth")).toEqual([
+        { blockId: "gcp", confirmedPrincipal: "ops@example.com", ...PLACEMENT },
+      ]),
     )
     expect(callsTo("google:env-credentials")).toEqual([{ source: "adc" }])
   })
@@ -494,6 +498,7 @@ describe("useGoogleAuth in a session — resuming", () => {
         source: "gcloud",
         prefix: "PROD_",
         configuration: "prod",
+        confirmedPrincipal: "ops@example.com",
         ...PLACEMENT,
         scopes,
       },

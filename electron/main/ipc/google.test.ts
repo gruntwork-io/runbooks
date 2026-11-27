@@ -367,6 +367,21 @@ describe("the region/zone a sign-in writes is the one it returns", () => {
       expect((await sessionEnv()).GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined()
     })
 
+    it("google:gcloud-auth refuses credentials that do not say which account they sign in as", async () => {
+      google = { ...google, validateAdcDocument: () => Effect.succeed({ ...USER, email: "" }) }
+
+      const result = await invoke("google:gcloud-auth", {
+        blockId: "gcp",
+        confirmedPrincipal: SHOWN,
+      })
+
+      expect(result).toEqual({
+        valid: false,
+        error: `These credentials do not say which account they sign in as, so they cannot be matched to ${SHOWN}. Sign in another way.`,
+      })
+      expect((await sessionEnv()).GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined()
+    })
+
     it("google:gcloud-auth signs in when the account is the one the block showed", async () => {
       const result = await invoke("google:gcloud-auth", {
         blockId: "gcp",

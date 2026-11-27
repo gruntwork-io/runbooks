@@ -2157,6 +2157,8 @@ export function useGoogleAuth({
       }
     }
 
+    const savedPrincipal = restoredAtMount.account.principal
+    const savedAccount = savedPrincipal ? { confirmedPrincipal: savedPrincipal } : {}
     const signInAgain = async (): Promise<ReplayResult | string> => {
       switch (signIn.kind) {
         case "detected":
@@ -2165,6 +2167,7 @@ export function useGoogleAuth({
             source: signIn.source,
             ...(signIn.prefix ? { prefix: signIn.prefix } : {}),
             ...(signIn.configuration ? { configuration: signIn.configuration } : {}),
+            ...savedAccount,
             ...placement,
             ...scopeParams,
           })
@@ -2172,6 +2175,7 @@ export function useGoogleAuth({
           return api.invoke("google:gcloud-auth", {
             blockId: id,
             ...(signIn.configuration ? { configuration: signIn.configuration } : {}),
+            ...savedAccount,
             ...placement,
             ...scopeParams,
           })
@@ -2196,7 +2200,6 @@ export function useGoogleAuth({
       }
     }
 
-    const savedPrincipal = restoredAtMount.account.principal
     void (async () => {
       const checked = await check()
       if (!current()) return
