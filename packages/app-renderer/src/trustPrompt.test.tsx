@@ -107,6 +107,7 @@ const page = (blocks: ReadonlyArray<Record<string, unknown>>, shown: Shown = {})
     trust: () => Effect.void,
   }
   const document = Schema.decodeUnknownSync(DocumentView)({
+    hash: HASH,
     tree: {
       type: "root",
       children: blocks.map((_, index) => ({ type: "block", index, children: [] })),
@@ -210,6 +211,7 @@ describe("the trust prompt", () => {
       <Runbook
         session={session}
         document={Schema.decodeUnknownSync(DocumentView)({
+          hash: HASH,
           tree: { type: "root", children: [{ type: "block", index: 0, children: [] }] },
           blocks: [placed(COMMAND)],
           warnings: [],

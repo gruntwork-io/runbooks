@@ -232,7 +232,11 @@ export type BlockView = typeof BlockView.Type
 
 export const TrustState = Schema.Struct({
   trusted: Schema.Boolean,
-  /** The hash trust is, or would be, granted for. */
+  /**
+   * The hash trust is, or would be, granted for: that of the document the
+   * session holds now (`DocumentView.hash`). A reload keeps the session's
+   * trust, granted now for the new hash, which `TrustChanged` carries.
+   */
   hash: ContentHash,
 })
 export type TrustState = typeof TrustState.Type
@@ -279,6 +283,25 @@ export const Resumed = Schema.Struct({
 })
 export type Resumed = typeof Resumed.Type
 
+/**
+ * Why a session that reloads its runbook when it is saved holds the
+ * runbook it had, not the one on disk. Each clears when the session takes
+ * the runbook on disk (`DocumentChanged`), or the runbook on disk is the
+ * one it holds again.
+ */
+export const ReloadHeld = Schema.Union([
+  /** Nothing reloads while a block runs: these are running. It reloads once none is. */
+  Schema.TaggedStruct("Running", { blocks: Schema.NonEmptyArray(BlockId) }),
+  /** The runbook on disk has an error that refuses it, as `OpenResult.Invalid` says. */
+  Schema.TaggedStruct("Invalid", {
+    errors: Schema.NonEmptyArray(ConfigError),
+    warnings: Schema.Array(ConfigWarning),
+  }),
+  /** The runbook on disk could not be read, as `RunbookUnreadable` says. */
+  Schema.TaggedStruct("Unreadable", { message: Schema.String }),
+])
+export type ReloadHeld = typeof ReloadHeld.Type
+
 export const SessionView = Schema.Struct({
   ...SessionSummary.fields,
   /**
@@ -293,6 +316,8 @@ export const SessionView = Schema.Struct({
   warnings: Schema.Array(ConfigWarning),
   /** Present when the engine resumed the runbook's saved session. */
   resumed: Schema.optionalKey(Resumed),
+  /** Present while the session holds back a reload of its runbook: why. */
+  reloadHeld: Schema.optionalKey(ReloadHeld),
 })
 export type SessionView = typeof SessionView.Type
 
@@ -352,8 +377,16 @@ export const DocumentBlock = Schema.Union([
 ])
 export type DocumentBlock = typeof DocumentBlock.Type
 
-/** The session's runbook as a window renders it. Nothing in it changes while the session is open. */
+/**
+ * The session's runbook as a window renders it. It changes only when the
+ * session reloads the runbook (`DocumentChanged`).
+ */
 export const DocumentView = Schema.Struct({
+  /**
+   * The hash of what it holds: the runbook, and each file a block names.
+   * The one a window that draws it sends `TrustSession`.
+   */
+  hash: ContentHash,
   /** The front matter's title. */
   title: Schema.optionalKey(Schema.String),
   /**
@@ -642,7 +675,26 @@ const ClassError = Schema.Union([UnknownSession, UnknownBlock, WrongClass])
 // ---------------------------------------------------------------------------
 
 export const EngineEvent = Schema.Union([
+  /** The session's trust, or the hash it is for, changed. */
   Schema.TaggedStruct("TrustChanged", { trust: TrustState }),
+  /**
+   * The session took its runbook as it is on disk now: watch mode reloaded
+   * it, or `ReloadFiles` took files a block names. Only the watcher, in a
+   * watch mode the person chose at open, and a person choosing "Reload
+   * script" reload a session. `GetDocument` and `GetSession` give it as it
+   * is now; `hash` is the new document's.
+   *
+   * - A block whose id, block, props and files' hashes are as they were
+   *   keeps its run or submit, with its log and outputs. Any other block
+   *   starts over, and a block the runbook no longer has goes. A form keeps
+   *   the values of the fields it still has, and a credential block its
+   *   login, as in a resumed session.
+   * - A trusted session stays trusted, now for the new hash, which
+   *   `TrustChanged` carries. An untrusted one stays untrusted.
+   */
+  Schema.TaggedStruct("DocumentChanged", { hash: ContentHash }),
+  /** `SessionView.reloadHeld` changed: `held` is what it is now, absent when no reload is held. */
+  Schema.TaggedStruct("ReloadHeldChanged", { held: Schema.optionalKey(ReloadHeld) }),
   Schema.TaggedStruct("BlockStatusChanged", { block: BlockId, status: BlockStatus }),
   /** Batched: the engine sends lines as they arrive, at most a few batches a second. */
   Schema.TaggedStruct("LogLines", {
@@ -717,8 +769,9 @@ export class GetSession extends Rpc.make("GetSession", {
 /**
  * The session's runbook as a window renders it: its markdown, and each
  * block's place, props and configuration errors. It is as large as the
- * runbook and does not change while the session is open, so a client asks
- * once, where `GetSession` is asked after every change.
+ * runbook and changes only when the session reloads it, so a client asks
+ * again only after `DocumentChanged`, where `GetSession` is asked after
+ * every change.
  */
 export class GetDocument extends Rpc.make("GetDocument", {
   payload: session,
@@ -726,7 +779,7 @@ export class GetDocument extends Rpc.make("GetDocument", {
   error: SessionError,
 }) {}
 
-/** Person only. `hash` is the one the person was shown. */
+/** Person only. `hash` is the one the person was shown: the `DocumentView.hash` of what the window draws. */
 export class TrustSession extends Rpc.make("TrustSession", {
   payload: { ...session, hash: ContentHash },
   success: TrustResult,

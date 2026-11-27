@@ -539,6 +539,7 @@ function documentViewOf(
 ): DocumentView {
   const { frontMatter } = document
   return {
+    hash: document.hash.combined,
     ...(frontMatter.title === undefined ? {} : { title: frontMatter.title }),
     tree: document.tree,
     blocks: document.blocks.map((node): DocumentBlock => {

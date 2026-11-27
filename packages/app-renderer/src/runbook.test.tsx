@@ -21,6 +21,7 @@ const session = Schema.decodeUnknownSync(SessionSummary)({
 
 const document = (fields: Record<string, unknown>) =>
   Schema.decodeUnknownSync(DocumentView)({
+    hash: `sha256:${"0".repeat(64)}`,
     tree: {
       type: "root",
       children: [{ type: "paragraph", children: [{ type: "text", value: "Body." }] }],

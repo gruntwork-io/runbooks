@@ -15,6 +15,7 @@ import {
   type DocumentBlock,
   DocumentView,
   type EngineCommand,
+  type EngineEvent,
   EngineProtocol,
   EventEnvelope,
   Events,
@@ -502,6 +503,7 @@ describe("engine protocol", () => {
       ],
     }
     const document: DocumentView = {
+      hash,
       title: "Deploy",
       tree: {
         type: "root",
@@ -530,6 +532,69 @@ describe("engine protocol", () => {
         blocks: [wire.blocks[0], { ...wireMisconfigured, errors: [] }],
       }),
     ).toThrow(/at \["blocks"\]\[1\]/)
+  })
+
+  it("carries the hash of what a document holds, and refuses one without it", () => {
+    const json = Schema.toCodecJson(DocumentView)
+    const document: DocumentView = {
+      hash,
+      tree: { type: "root", children: [] },
+      blocks: [],
+      warnings: [],
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(document)))
+    expect(wire.hash).toBe(`sha256:${"a".repeat(64)}`)
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(document)
+    const { hash: _, ...unhashed } = wire
+    expect(() => Schema.decodeUnknownSync(json)(unhashed)).toThrow(/at \["hash"\]/)
+  })
+
+  it("says the session reloaded its runbook, or why it holds a reload back, through JSON", () => {
+    const json = Schema.toCodecJson(EventEnvelope)
+    const invalid = new ConfigError({
+      code: "syntax",
+      message: "Expected a closing tag for `<Run>`.",
+      location: {
+        file: "/rb/runbook.mdx",
+        span: { start: { line: 3, column: 1 }, end: { line: 3, column: 6 } },
+      },
+    })
+    const events: ReadonlyArray<EngineEvent> = [
+      { _tag: "DocumentChanged", hash },
+      { _tag: "ReloadHeldChanged", held: { _tag: "Running", blocks: [greet] } },
+      { _tag: "ReloadHeldChanged", held: { _tag: "Invalid", errors: [invalid], warnings: [] } },
+      {
+        _tag: "ReloadHeldChanged",
+        held: { _tag: "Unreadable", message: "There is no file at /rb/runbook.mdx." },
+      },
+      { _tag: "ReloadHeldChanged" },
+    ]
+    for (const [sequence, event] of events.entries()) {
+      const envelope: EventEnvelope = { session, sequence, at, event }
+      const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(envelope)))
+      expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
+    }
+    const running = { session, sequence: 0, at: "2026-11-24T12:00:00.000Z" }
+    expect(() =>
+      Schema.decodeUnknownSync(json)({
+        ...running,
+        event: { _tag: "ReloadHeldChanged", held: { _tag: "Running", blocks: [] } },
+      }),
+    ).toThrow(/at \["event"\]\["held"\]\["blocks"\]/)
+
+    const view = Schema.toCodecJson(SessionView)
+    const held: SessionView = {
+      session,
+      name: "rb",
+      path: "/rb/runbook.mdx",
+      blocks: [],
+      trust: { trusted: true, hash },
+      warnings: [],
+      reloadHeld: { _tag: "Running", blocks: [greet] },
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(view)(held)))
+    expect(wire.reloadHeld).toEqual({ _tag: "Running", blocks: ["greet"] })
+    expect(Schema.decodeUnknownSync(view)(wire)).toEqual(held)
   })
 
   it("serves every baseline MCP tool with a command (decision 12)", () => {

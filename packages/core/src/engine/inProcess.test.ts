@@ -815,6 +815,19 @@ describe("the session's document", () => {
     )
   })
 
+  it("carries the hash of what it holds: the session's trust hash, which TrustSession takes", async () => {
+    await withClients({ runbook: DOCUMENT }, ({ person }) =>
+      Effect.gen(function* () {
+        const view = yield* opened(person)
+        const document = yield* person.GetDocument({ session: view.session })
+        expect(document.hash).toBe(view.trust.hash)
+        expect(yield* person.TrustSession({ session: view.session, hash: document.hash })).toEqual({
+          _tag: "Trusted",
+        })
+      }),
+    )
+  })
+
   it("crosses JSON as a transport carries it, and back", async () => {
     const document = await withClients({ runbook: DOCUMENT }, ({ person }) =>
       Effect.flatMap(opened(person), ({ session }) => person.GetDocument({ session })),
