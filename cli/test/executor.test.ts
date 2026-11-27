@@ -673,6 +673,35 @@ describe("TestExecutor — explicit steps", () => {
     expect(result.stepResults[3]?.outputs).toMatchObject({ github_token: "fake-token-a" })
   })
 
+  it("gives the gitAuthId block's GITHUB_TOKEN over the githubAuthId block's, as the app does", async () => {
+    // gh-old runs last, so the session's GITHUB_TOKEN is its token.
+    const executor = await makeExecutor(
+      [
+        "# Auth",
+        "",
+        `<GitHubAuth id="gh-new" />`,
+        "",
+        `<GitHubAuth id="gh-old" />`,
+        "",
+        `<Command id="report" githubAuthId="gh-old" gitAuthId="gh-new" command='echo "github_token=$GITHUB_TOKEN" >> "$RUNBOOK_OUTPUT"' />`,
+        "",
+      ].join("\n"),
+    )
+
+    const result = executor.runTest({
+      name: "both-git-refs",
+      env: { NEW_GITHUB_TOKEN: "fake-token-new", OLD_GITHUB_TOKEN: "fake-token-old" },
+      steps: [
+        { block: "gh-new", expect: "success", env_prefix: "NEW_" },
+        { block: "gh-old", expect: "success", env_prefix: "OLD_" },
+        { block: "report", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults[2]?.outputs).toMatchObject({ github_token: "fake-token-new" })
+  })
+
   const DEPENDS_ON_RUNBOOK = [
     "# Depends on",
     "",

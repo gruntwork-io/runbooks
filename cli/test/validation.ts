@@ -68,24 +68,35 @@ const KNOWN_BLOCK_TYPES = new Set<string>(BLOCK_TYPES)
 // Auth block dependency types
 // ---------------------------------------------------------------------------
 
-const AUTH_DEPENDENT_TYPES = ["Check", "Command", "Finish", "GitClone", ...PR_BLOCK_TYPES] as const
+/**
+ * The props a Check, Command or Finish names its auth blocks with, in the
+ * order the app merges their env vars (useScriptExecution). Where two set the
+ * same var, the later one wins, so gitAuthId's GITHUB_TOKEN beats
+ * githubAuthId's.
+ */
+const SCRIPT_AUTH_PROPS = [
+  "awsAuthId",
+  "githubAuthId",
+  "gitAuthId",
+  "googleAuthId",
+  "azureAuthId",
+] as const
 
-const AUTH_PROP_NAME_OVERRIDES: Record<string, string> = {
-  GitHubAuth: "githubAuthId",
-  // GitAuth (generic) and GitLabAuth are referenced by the provider-agnostic
-  // `gitAuthId`. GitAuth's computed default is already `gitAuthId`; GitLabAuth's
-  // would be `gitLabAuthId`, so it needs an explicit override.
-  GitLabAuth: "gitAuthId",
-}
+const SCRIPT_BLOCK_TYPES = ["Check", "Command", "Finish"] as const
 
-function authBlockRefPropName(blockType: string): string {
-  return AUTH_PROP_NAME_OVERRIDES[blockType] ?? lowercaseFirst(blockType) + "Id"
-}
+/**
+ * A GitClone or pull request block signs in with one auth block: the one
+ * gitAuthId names, or githubAuthId, its older name, when gitAuthId is unset.
+ */
+const GIT_AUTH_PROPS = ["gitAuthId", "githubAuthId"] as const
+
+const GIT_BLOCK_TYPES = ["GitClone", ...PR_BLOCK_TYPES] as const
 
 export interface AuthDependency {
   blockId: string
   authBlockId: string
-  authBlockType: string
+  /** The prop that names the auth block. */
+  prop: (typeof SCRIPT_AUTH_PROPS)[number]
 }
 
 // ---------------------------------------------------------------------------
@@ -432,22 +443,31 @@ export class InputValidator {
 // Auth dependency parsing
 // ---------------------------------------------------------------------------
 
-export function parseAuthDependencies(runbookPath: string): Map<string, AuthDependency> {
+/**
+ * The auth blocks each block references, by block id, as the app reads them:
+ * every one a Check, Command or Finish names, in the order their env vars
+ * merge, and the one a GitClone or pull request block signs in with. A block
+ * that references none has no entry.
+ */
+export function parseAuthDependencies(runbookPath: string): Map<string, readonly AuthDependency[]> {
   const elements = readRunbookElements(runbookPath)
-  const deps = new Map<string, AuthDependency>()
+  const deps = new Map<string, readonly AuthDependency[]>()
+  const refsOf = (comp: ParsedComponent, props: readonly AuthDependency["prop"][]) =>
+    props.flatMap((prop) => {
+      const authBlockId = stringProp(comp.props, prop)
+      return authBlockId ? [{ blockId: comp.id, authBlockId, prop }] : []
+    })
 
-  for (const blockType of AUTH_DEPENDENT_TYPES) {
+  for (const blockType of SCRIPT_BLOCK_TYPES) {
     for (const comp of findComponents(elements, blockType)) {
-      if (!comp.hasExplicitId) continue
-
-      for (const authType of AUTH_BLOCK_TYPES) {
-        const propName = authBlockRefPropName(authType)
-        const authId = stringProp(comp.props, propName)
-        if (authId) {
-          deps.set(comp.id, { blockId: comp.id, authBlockId: authId, authBlockType: authType })
-          break
-        }
-      }
+      const refs = refsOf(comp, SCRIPT_AUTH_PROPS)
+      if (comp.hasExplicitId && refs.length > 0) deps.set(comp.id, refs)
+    }
+  }
+  for (const blockType of GIT_BLOCK_TYPES) {
+    for (const comp of findComponents(elements, blockType)) {
+      const refs = refsOf(comp, GIT_AUTH_PROPS).slice(0, 1)
+      if (comp.hasExplicitId && refs.length > 0) deps.set(comp.id, refs)
     }
   }
 

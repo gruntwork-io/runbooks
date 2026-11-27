@@ -127,7 +127,7 @@ tests:
 
 #### Test case environment
 
-Each test case starts from the environment the `test` command was started with. Within a test case, a bash block that succeeds or warns passes the variables it exports and the directory it `cd`s into on to the blocks after it, as in the app, and an auth block adds its credentials. The test case's `env` is applied on top of all of that. Blocks, `script` assertions, and cleanup actions all see this environment.
+Each test case starts from the environment the `test` command was started with. Within a test case, a bash block that succeeds or warns passes the variables it exports and the directory it `cd`s into on to the blocks after it, as in the app, and an auth block adds its credentials. The test case's `env` is applied on top of all of that. Blocks, `script` assertions, and cleanup actions all see this environment. A block that names auth blocks with `awsAuthId`, `githubAuthId`, `gitAuthId`, `googleAuthId` or `azureAuthId` also gets the credentials of each one on top, as in the app. Where two set the same variable, the `gitAuthId` block's wins over the `githubAuthId` block's.
 
 None of it carries over into the next test case. With `use_temp_working_dir`, each test case also gets its own empty working directory.
 

@@ -222,7 +222,7 @@ export function createMcpServer(): McpServer {
     {
       title: "Show a block",
       description:
-        "One block in full: status, what it depends on (inputs, auth block, dependsOn), blocked_by reasons, its last run's exit code, error and logs, its outputs, how it behaves headless, and template syntax the headless renderer won't handle.",
+        "One block in full: status, what it depends on (inputs, auth blocks, dependsOn), blocked_by reasons, its last run's exit code, error and logs, its outputs, how it behaves headless, and template syntax the headless renderer won't handle.",
       inputSchema: z.object({ session_id: sessionId, block_id: z.string(), log_chars: logChars }),
       annotations: { readOnlyHint: true },
     },

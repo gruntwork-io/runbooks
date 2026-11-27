@@ -397,7 +397,7 @@ export class RunbookSession {
   getBlock(id: string, logChars = DEFAULT_LOG_CHARS) {
     const block = this.block(id)
     const rec = this.record(id)
-    const auth = this.executor.getAuthDependency(id)
+    const auth = this.executor.getAuthDependencies(id).map((dep) => dep.authBlockId)
     const logs = tail(rec.logs, logChars)
     const configError = this.executor.getBlockConfigError(block)
     const templateWarnings = unsupportedTemplateActions(
@@ -412,7 +412,8 @@ export class RunbookSession {
       runs: rec.runs,
       depends_on: {
         inputs_from: this.executor.getInputsIds(id),
-        auth_block: auth?.authBlockId,
+        auth_block: auth[0],
+        auth_blocks: auth,
         depends_on: this.executor.getRunDependencies(id),
       },
       blocked_by: this.executor.blockedReasons(id),
