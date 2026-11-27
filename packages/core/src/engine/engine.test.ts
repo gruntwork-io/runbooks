@@ -1844,6 +1844,31 @@ describe("Engine values", () => {
     )
   })
 
+  it("waits on an earlier form it reads that has the field, past a later one that has none", async () => {
+    const { script, envs } = envRecorder()
+    const runbook = [
+      withFields('<Form id="first">', ["- name: id", "  type: string"]),
+      withFields('<Form id="second">', ["- name: other", "  type: string"]),
+      '<Run id="deploy" command="record" inputsId={["first", "second"]} env={{ ID: "{{ .inputs.id }}" }} />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { record: script },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        expect(yield* rb.status("deploy")).toEqual({
+          _tag: "Blocked",
+          by: [emptyInput("first", "id")],
+        })
+        yield* rb.set("first", { id: "from-first" })
+        yield* rb.run("deploy")
+        yield* rb.wait("deploy")
+        expect(envs.map(({ ID }) => ID)).toEqual(["from-first"])
+      }),
+    )
+  })
+
   it("never counts as done a form in a loop of forms that wait for each other", async () => {
     const reading = (id: string, targets: ReadonlyArray<string>) =>
       withFields(`<Form id="${id}">`, [
