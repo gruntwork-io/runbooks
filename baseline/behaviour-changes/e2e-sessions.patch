@@ -1,5 +1,5 @@
 diff --git a/electron/e2e/sessions.spec.ts b/electron/e2e/sessions.spec.ts
-index f34009cf..824ea941 100644
+index ebf1dad9..4165e196 100644
 --- a/electron/e2e/sessions.spec.ts
 +++ b/electron/e2e/sessions.spec.ts
 @@ -47,15 +47,16 @@ echo waiting
@@ -26,8 +26,8 @@ index f34009cf..824ea941 100644
  \`\`\`
  </Inputs>
  
--<Command id="greet" path="greet.sh" inputsId="config" />
-+<Command id="greet" path="greet.sh" inputsId="config" env={{ GREETING: "{{ .inputs.Greeting }}" }} />
+-<Command id="greet" path="greet.sh" inputsId="config" outputs={["greeting"]} />
++<Command id="greet" path="greet.sh" inputsId="config" outputs={["greeting"]} env={{ GREETING: "{{ .inputs.Greeting }}" }} />
  
 -<Command id="reply" path="reply.sh" />
 +<Command id="reply" path="reply.sh" env={{ GREETING: "{{ .outputs.greet.greeting }}" }} />

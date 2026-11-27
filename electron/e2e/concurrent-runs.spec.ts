@@ -53,7 +53,7 @@ function runbookMdx(): string {
 
 <Command id="survivor" title="Survivor" command='${waitFor("release")}' />
 
-<Command id="producer" title="Producer" command='echo "value=1" >> "$RUNBOOK_OUTPUT"; ${waitFor("produced")}' />
+<Command id="producer" title="Producer" outputs={["value"]} command='echo "value=1" >> "$RUNBOOK_OUTPUT"; ${waitFor("produced")}' />
 
 <Command id="consumer" title="Consumer" command="echo {{ .outputs.producer.value }}" />
 
