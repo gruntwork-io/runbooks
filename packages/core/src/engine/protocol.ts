@@ -739,11 +739,34 @@ export type EventEnvelope = typeof EventEnvelope.Type
 const session = { session: SessionId }
 const block = { session: SessionId, block: BlockId }
 
+/**
+ * What a session watches on disk, for its lifetime. A closed set.
+ *
+ * - `off`: nothing. `runbooks test` opens a runbook so.
+ * - `notice`: the files its blocks name. A block whose files change on disk
+ *   runs the text the session holds, and says how they changed, until
+ *   `ReloadFiles` takes them. The app opens a runbook so without `--watch`.
+ * - `runbook`: those, and the runbook. Each time the runbook is saved, the
+ *   session reloads it, and each file a block names keeps the text the
+ *   session holds (`--watch --disable-live-file-reload`).
+ * - `runbookAndFiles`: as `runbook`, but a reload reads each file the
+ *   runbook names again too (`--watch`).
+ *
+ * `runbook` and `runbookAndFiles` reload the session's runbook, and a
+ * reload keeps its trust (`DocumentChanged`), so only a person chooses
+ * one: an agent's `OpenSession` that names one is `Forbidden`.
+ */
+export const WatchMode = Schema.Literals(["off", "notice", "runbook", "runbookAndFiles"])
+export type WatchMode = typeof WatchMode.Type
+
 export class OpenSession extends Rpc.make("OpenSession", {
-  /** The runbook the person chose. Its folder is the session's `runbook` root. */
-  payload: { path: AbsolutePath },
+  /**
+   * The runbook the person chose. Its folder is the session's `runbook`
+   * root. `watch`, absent, is `off`.
+   */
+  payload: { path: AbsolutePath, watch: Schema.optionalKey(WatchMode) },
   success: OpenResult,
-  error: RunbookUnreadable,
+  error: Schema.Union([RunbookUnreadable, Forbidden]),
 }) {}
 
 export class CloseSession extends Rpc.make("CloseSession", {

@@ -14,6 +14,7 @@ import { testSettingsStore } from "../test-utils/TestSettingsFile.ts"
 import { testSessionStore } from "../test-utils/TestSessionStore.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
+import { Caller } from "./protocol.ts"
 import { Engine } from "./engine.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
@@ -76,7 +77,11 @@ describe("the roots", () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         const engine = yield* Engine
-        return yield* Effect.flip(engine.openSession({ path: "rb/runbook.mdx" }))
+        return yield* Effect.flip(
+          engine
+            .openSession({ path: "rb/runbook.mdx" })
+            .pipe(Effect.provideService(Caller, { origin: "person" })),
+        )
       }).pipe(
         Effect.provide(
           Engine.layer({

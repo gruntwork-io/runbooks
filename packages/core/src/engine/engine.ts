@@ -60,7 +60,7 @@ export interface EngineShape {
    * Resumes the runbook's most recently used saved session, unless it is
    * open already (open decision 18: one window); otherwise starts one.
    */
-  readonly openSession: Command<typeof OpenSession>
+  readonly openSession: Command<typeof OpenSession, Caller>
   /** Interrupts the session's runs and ends its event streams. */
   readonly closeSession: Command<typeof CloseSession>
   readonly listSessions: Effect.Effect<Rpc.Success<typeof ListSessions>>
@@ -291,7 +291,11 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
         )
 
         return Engine.of({
-          openSession: Effect.fn("Engine.openSession")(function* ({ path: file }) {
+          openSession: Effect.fn("Engine.openSession")(function* ({ path: file, watch }) {
+            const { origin } = yield* Caller
+            // A reload keeps the session's trust, so only a person chooses a mode that reloads.
+            if (origin !== "person" && (watch === "runbook" || watch === "runbookAndFiles"))
+              return yield* new Forbidden({ command: "OpenSession", origin })
             // A transport decodes the payload; an in-process caller may not.
             if (!isAbsolute(file))
               return yield* unreadable(file, `${file} is not an absolute path.`)

@@ -392,6 +392,25 @@ describe("the in-process transport", () => {
     )
   })
 
+  it("opens a session that reloads its runbook, keeping its trust, only for a person", async () => {
+    await withClients({ runbook: RUNBOOK_TEXT }, ({ person, agent }) =>
+      Effect.gen(function* () {
+        for (const watch of ["runbook", "runbookAndFiles"] as const)
+          expect(yield* Effect.flip(agent.OpenSession({ path: RUNBOOK, watch }))).toMatchObject({
+            _tag: "Forbidden",
+            command: "OpenSession",
+            origin: "agent",
+          })
+        expect(yield* person.ListSessions()).toEqual([])
+        for (const watch of ["off", "notice"] as const)
+          expect((yield* agent.OpenSession({ path: RUNBOOK, watch }))._tag).toBe("Opened")
+        expect((yield* person.OpenSession({ path: RUNBOOK, watch: "runbookAndFiles" }))._tag).toBe(
+          "Opened",
+        )
+      }),
+    )
+  })
+
   it("runs a block, streams its events, and pages its log", async () => {
     await withClients({ runbook: RUNBOOK_TEXT, scripts: { greet } }, ({ person }) =>
       Effect.gen(function* () {

@@ -36,6 +36,7 @@ import {
   UnknownSequence,
   UnknownSession,
   WaitForBlock,
+  type WatchMode,
 } from "./protocol.ts"
 
 const session = Schema.decodeUnknownSync(SessionId)("s1")
@@ -140,6 +141,16 @@ describe("engine protocol", () => {
       expect(open({ path })).toEqual({ path })
     for (const path of ["rb/runbook.mdx", "./runbook.mdx", "C:runbook.mdx"])
       expect(() => open({ path })).toThrow(/Expected an absolute path/)
+  })
+
+  it("opens a session watching what its mode says, one of four", () => {
+    const open = Schema.decodeUnknownSync(Schema.toCodecJson(OpenSession.payloadSchema))
+    const path = "/rb/runbook.mdx"
+    expect(open({ path })).toEqual({ path })
+    for (const watch of ["off", "notice", "runbook", "runbookAndFiles"] as const)
+      expect(open({ path, watch })).toEqual({ path, watch })
+    expect(() => open({ path, watch: "always" })).toThrow(/at \["watch"\]/)
+    expectTypeOf<WatchMode>().toEqualTypeOf<"off" | "notice" | "runbook" | "runbookAndFiles">()
   })
 
   it("answers an expected outcome in the success channel and a fault as a typed error", async () => {
