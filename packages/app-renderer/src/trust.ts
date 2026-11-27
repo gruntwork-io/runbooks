@@ -68,7 +68,11 @@ export function makeTrustingStore(): TrustingStore & {
 export const changeOver = (trusting: Trusting, drawn: DocumentView): Trusting["changed"] =>
   trusting.changed?.shown === drawn.hash ? trusting.changed : undefined
 
-/** What the window keeps of `result`, reading what the runbook holds now when it changed. */
+/**
+ * What the window keeps of `result`, reading what the runbook holds now when
+ * it changed. The hash it keeps is the read's, not the answer's, so the
+ * prompt lists and trusts one runbook when it changed again in between.
+ */
 const answered = (
   engine: EngineClient,
   session: SessionId,
@@ -80,8 +84,8 @@ const answered = (
     case "Trusted":
       return Effect.succeed<Trusting>({})
     case "HashChanged":
-      return Effect.map(engine.GetDocument({ session }), ({ blocks }): Trusting => ({
-        changed: { shown, hash: result.current, blocks },
+      return Effect.map(engine.GetDocument({ session }), ({ hash, blocks }): Trusting => ({
+        changed: { shown, hash, blocks },
       }))
     default: {
       const unhandled: never = result

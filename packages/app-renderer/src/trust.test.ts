@@ -215,6 +215,25 @@ describe("the window asking the engine to trust the session", () => {
     expect(kept[2]).toEqual({})
   })
 
+  it("lists and trusts one runbook when it changed again between the answer and the read of what it holds", async () => {
+    let asked = 0
+    const { kept, sent } = await asking(
+      untrusted((tag) =>
+        tag === "TrustSession"
+          ? asked++ === 0
+            ? { _tag: "HashChanged", current: NOW }
+            : { _tag: "Trusted" }
+          : tag === "GetDocument"
+            ? held(LATER, [ADDED])
+            : undefined,
+      ),
+      2,
+    )
+    expect<unknown>(kept[0]?.changed?.hash).toBe(LATER)
+    expect<unknown>(kept[0]?.changed?.blocks.map((block) => block.id)).toEqual(["upload"])
+    expect(sent.map((payload) => (payload as { hash: string }).hash)).toEqual([SHOWN, LATER])
+  })
+
   it("keeps what the runbook holds now, to trust it, when a later ask fails", async () => {
     let answers = 0
     const { kept, sent } = await asking(
