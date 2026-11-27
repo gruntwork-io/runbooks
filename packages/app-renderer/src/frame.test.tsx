@@ -728,6 +728,43 @@ describe("instruction mode", () => {
     expect(asked).toEqual(["SetValues deploy"])
   })
 
+  it("sends no Cancel and no credential action a view asks for", () => {
+    const asked: string[] = []
+    const Asks: View<Schema.Json> = ({ act }) => {
+      act({ _tag: "CancelBlock" })
+      act({ _tag: "ActOnCredential", action: { _tag: "Confirm" } })
+      return <p>A view that asks.</p>
+    }
+    // A display block's view draws in instruction mode, so it asks then too.
+    const drawn = (on: boolean) =>
+      renderToStaticMarkup(
+        <ViewsContext value={{ Example: Asks }}>
+          <FollowingContext
+            value={{
+              ...inInstructionMode(followingViews(), on),
+              act: (block, request) => {
+                asked.push(`${request._tag} ${block}`)
+                return Effect.never
+              },
+            }}
+          >
+            <Markdown
+              document={{
+                tree: { type: "root", children: [{ type: "block", index: 0, children: [] }] },
+                blocks: [placed({ id: "deploy", class: "display", step: false, props: {} })],
+              }}
+              runbook={RUNBOOK}
+              session={SESSION}
+            />
+          </FollowingContext>
+        </ViewsContext>,
+      )
+    expect(drawn(true)).toContain("A view that asks.")
+    expect(asked).toEqual([])
+    drawn(false)
+    expect(asked).toEqual(["CancelBlock deploy", "ActOnCredential deploy"])
+  })
+
   it("keeps following the session when watching the settings fails", async () => {
     let deploy: Record<string, unknown> = {
       block: "deploy",
