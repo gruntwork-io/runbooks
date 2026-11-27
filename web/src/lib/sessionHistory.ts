@@ -22,6 +22,13 @@ const SavedFormSchema = z.object({
   values: z.record(z.string(), z.unknown()),
   /** Whether the user had submitted the form (Inputs) or generated its files (Template) */
   submitted: z.boolean(),
+  /**
+   * The default each field had when `values` was saved. A field whose value
+   * is still its default was never changed, so it follows the runbook's
+   * default when the form is restored. Absent from forms saved before it was
+   * added: their values are restored as saved.
+   */
+  defaults: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type SavedForm = z.infer<typeof SavedFormSchema>
@@ -35,14 +42,22 @@ export function parseSavedForm(payload: unknown): SavedForm | undefined {
  * The value the saved form has for a variable, or undefined when it has none.
  * A locked variable has none: nobody could change it, so it starts from what
  * the runbook says now, which may not be what it said when the form was saved.
+ * Nor does one whose saved value was its default then: the user never changed
+ * it, so it starts from the runbook's default now.
  */
 export function savedFormValue(
   saved: SavedForm | undefined,
   variable: { name: string; locked?: boolean | undefined },
 ): unknown {
-  return saved !== undefined && !variable.locked && Object.hasOwn(saved.values, variable.name)
-    ? saved.values[variable.name]
-    : undefined
+  if (saved === undefined || variable.locked || !Object.hasOwn(saved.values, variable.name)) {
+    return undefined
+  }
+  const value = saved.values[variable.name]
+  const unchanged =
+    saved.defaults !== undefined &&
+    Object.hasOwn(saved.defaults, variable.name) &&
+    JSON.stringify(saved.defaults[variable.name]) === JSON.stringify(value)
+  return unchanged ? undefined : value
 }
 
 // ---------------------------------------------------------------------------

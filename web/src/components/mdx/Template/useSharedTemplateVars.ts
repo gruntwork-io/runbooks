@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import { savedFormValue, type SavedForm } from "@/lib/sessionHistory"
+import { untouchedValue } from "../_shared/lib/untouchedValue"
 
 /**
  * Shared-variable bookkeeping for a Template that imports values via `inputsId`.
@@ -18,6 +19,8 @@ import { savedFormValue, type SavedForm } from "@/lib/sessionHistory"
  *     overrides the imported value.
  *   - `initialData`: initial form values (imported values for shared vars; for
  *     local-only vars, what `saved` has, or else the template default).
+ *   - `defaults`: each variable's default, which the form starts from without
+ *     another value.
  *
  * @param saved - What the session's history says the form was left as. Must
  *   stay the same object for the life of the form (see `initialData` below).
@@ -79,7 +82,20 @@ export function useSharedTemplateVars(
     return values
   }, [sharedVarNames, inputValues])
 
-  return { sharedVarNames, liveVarValues, initialData }
+  // Each variable's default, as the form starts it (see useFormState), for the
+  // session's history to keep with the form's values
+  const defaults = useMemo(
+    () =>
+      Object.fromEntries(
+        (boilerplateConfig?.variables ?? []).map((variable) => [
+          variable.name,
+          variable.default ?? untouchedValue(variable),
+        ]),
+      ),
+    [boilerplateConfig],
+  )
+
+  return { sharedVarNames, liveVarValues, initialData, defaults }
 }
 
 /**

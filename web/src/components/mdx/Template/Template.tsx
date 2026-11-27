@@ -170,7 +170,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
   // Shared variables (in BOTH imported sources AND this template's boilerplate.yml),
   // their live imported values, and the form's initial data.
   // This must be before early returns to maintain hook order
-  const { sharedVarNames, liveVarValues, initialData } = useSharedTemplateVars(
+  const { sharedVarNames, liveVarValues, initialData, defaults } = useSharedTemplateVars(
     boilerplateConfig,
     inputValues,
     savedForm,
@@ -299,7 +299,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     (localVarValues: Record<string, unknown>) => {
       markStage("Template:handleAutoRender", { id })
       localVarValuesRef.current = localVarValues
-      noteValues(localOnlyValues(localVarValues, sharedVarNames), shouldRender)
+      noteValues(localOnlyValues(localVarValues, sharedVarNames), shouldRender, defaults)
 
       if (
         shouldRender &&
@@ -340,6 +340,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
       dispatchRender,
       noteValues,
       sharedVarNames,
+      defaults,
     ],
   )
 
@@ -383,7 +384,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     (localVarValues: Record<string, unknown>) => {
       // Store latest form data
       localVarValuesRef.current = localVarValues
-      noteValues(localOnlyValues(localVarValues, sharedVarNames), true)
+      noteValues(localOnlyValues(localVarValues, sharedVarNames), true, defaults)
 
       const mergedData = buildRenderVariables(
         { ...inputValues, ...localVarValues },
@@ -413,6 +414,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
       flattenedOutputs,
       noteValues,
       sharedVarNames,
+      defaults,
     ],
   )
 

@@ -326,7 +326,9 @@ describe("Template in a session", () => {
 
     fireEvent.change(field(container, "name"), { target: { value: "billing" } })
     await settle()
-    expect(recorded()).toEqual([{ values: { name: "billing" }, submitted: false }])
+    expect(recorded()).toEqual([
+      { values: { name: "billing" }, submitted: false, defaults: { name: "app" } },
+    ])
 
     setUpstreamRegion("eu-west-1")
     await settle()
@@ -334,7 +336,41 @@ describe("Template in a session", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Generate" }))
     await settle()
-    expect(recorded().at(-1)).toEqual({ values: { name: "billing" }, submitted: true })
+    expect(recorded().at(-1)).toEqual({
+      values: { name: "billing" },
+      submitted: true,
+      defaults: { name: "app" },
+    })
+  })
+
+  it("starts a value left at its default from the template's default now, and keeps one the user changed", () => {
+    // Saved when name defaulted to "web" and region to "tpl-default"; name now defaults to "app"
+    const unchanged = render(
+      <Session
+        saved={{
+          values: { region: "tpl-default", name: "web" },
+          submitted: false,
+          defaults: { region: "tpl-default", name: "web" },
+        }}
+      >
+        <Template id="vpc" path="templates/vpc" />
+      </Session>,
+    )
+    expect(field(unchanged.container, "name")).toHaveValue("app")
+    unchanged.unmount()
+
+    const changed = render(
+      <Session
+        saved={{
+          values: { region: "tpl-default", name: "billing" },
+          submitted: false,
+          defaults: { region: "tpl-default", name: "web" },
+        }}
+      >
+        <Template id="vpc" path="templates/vpc" />
+      </Session>,
+    )
+    expect(field(changed.container, "name")).toHaveValue("billing")
   })
 
   it("carries the values over a switch to instruction mode and back", async () => {
@@ -359,6 +395,7 @@ describe("Template in a session", () => {
     expect(recorded().at(-1)).toEqual({
       values: { region: "tpl-default", name: "payments" },
       submitted: false,
+      defaults: { region: "tpl-default", name: "app" },
     })
 
     mode.instruction = false

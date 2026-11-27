@@ -40,6 +40,12 @@ interface UseInputRegistrationOptions {
    * embedded Inputs), so the session's history has it as submitted throughout.
    */
   alwaysSubmitted: boolean
+  /**
+   * What each field resets to: the runbook's value for it. The session's
+   * history keeps these with the values, so a field the user never changed
+   * follows the runbook's default when the form is restored.
+   */
+  runbookDefaults: Record<string, unknown>
 }
 
 interface UseInputRegistrationReturn {
@@ -75,6 +81,7 @@ export function useInputRegistration({
   validationError,
   extraError,
   alwaysSubmitted,
+  runbookDefaults,
 }: UseInputRegistrationOptions): UseInputRegistrationReturn {
   // 1. ID registry
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
@@ -92,6 +99,11 @@ export function useInputRegistration({
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null)
   const [hasSubmitted, setHasSubmitted] = useState(saved?.submitted ?? false)
   const { registerInputs } = useRunbookContext()
+  // The latest, so the handlers below needn't change with every render
+  const runbookDefaultsRef = useRef(runbookDefaults)
+  useEffect(() => {
+    runbookDefaultsRef.current = runbookDefaults
+  })
 
   const hasSetFormState = useRef(false)
   useEffect(() => {
@@ -188,7 +200,7 @@ export function useInputRegistration({
 
   const handleAutoUpdate = useCallback(
     (formData: Record<string, unknown>) => {
-      noteValues(formData, alwaysSubmitted || hasSubmitted)
+      noteValues(formData, alwaysSubmitted || hasSubmitted, runbookDefaultsRef.current)
       if (!hasSubmitted) return
 
       if (autoUpdateTimerRef.current) {
@@ -219,7 +231,7 @@ export function useInputRegistration({
         registerInputs(id, formData, boilerplateConfig)
       }
       setHasSubmitted(true)
-      noteValues(formData, true)
+      noteValues(formData, true, runbookDefaultsRef.current)
     },
     [id, boilerplateConfig, registerInputs, noteValues],
   )

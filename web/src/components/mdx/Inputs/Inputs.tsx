@@ -152,6 +152,7 @@ function Inputs({
     validationError,
     extraError: inlineContentError,
     alwaysSubmitted: variant === "embedded",
+    runbookDefaults: defaults,
   })
 
   // For embedded variant, automatically submit when form is ready

@@ -42,7 +42,7 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
   // The form resumes from, and keeps, the same values in the session's history
   // as the interactive Template's, so a switch of mode carries them over.
   const { saved: savedForm, noteValues } = useFormHistory(id)
-  const { sharedVarNames, liveVarValues, initialData } = useSharedTemplateVars(
+  const { sharedVarNames, liveVarValues, initialData, defaults } = useSharedTemplateVars(
     config,
     inputValues,
     savedForm,
@@ -58,13 +58,23 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
       // The form reports {} before it has its initial values.
       if (Object.keys(data).length > 0) {
         // Nothing is generated in this mode, so the flag stays as it was left.
-        noteValues(localOnlyValues(data, sharedVarNames), savedForm?.submitted ?? false)
+        noteValues(localOnlyValues(data, sharedVarNames), savedForm?.submitted ?? false, defaults)
       }
       if (config) {
         registerInputs(id, { ...inputValues, ...data, ...liveVarValues }, config)
       }
     },
-    [config, id, inputValues, liveVarValues, registerInputs, noteValues, sharedVarNames, savedForm],
+    [
+      config,
+      id,
+      inputValues,
+      liveVarValues,
+      registerInputs,
+      noteValues,
+      sharedVarNames,
+      savedForm,
+      defaults,
+    ],
   )
 
   // Publish defaults/imported values, but let any value the user has already
