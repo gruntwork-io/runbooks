@@ -70,7 +70,76 @@ describe("validateVariableValue", () => {
       validations: [{ type: "digit" }, { type: "length", args: [2, 4] }],
     }
     expect(validateVariableValue(variable, 8080)).toBeUndefined()
-    expect(validateVariableValue(variable, 80800)).toBe("Must be between 2 and 4 characters")
+    expect(validateVariableValue(variable, 80800)).toBe("Must be 2 to 4 characters long")
+  })
+
+  it("says what length a length rule wants", () => {
+    const check = (min: number, max: number, value: unknown) =>
+      validateVariableValue(
+        { name: "x", validations: [{ type: "length", args: [min, max] }] },
+        value,
+      )
+    expect(check(1, 64, "a".repeat(65))).toBe("Must be 1 to 64 characters long")
+    expect(check(1, 64, "a".repeat(64))).toBeUndefined()
+    expect(check(3, 3, "ab")).toBe("Must be exactly 3 characters long")
+    expect(check(0, 256, "a".repeat(257))).toBe("Must be at most 256 characters long")
+    expect(check(1, 1, "ab")).toBe("Must be exactly 1 character long")
+    // As in Boilerplate, a bound of 0 or less sets no limit
+    expect(check(3, 0, "ab")).toBe("Must be at least 3 characters long")
+    expect(check(3, 0, "a".repeat(1000))).toBeUndefined()
+    expect(check(0, 0, "a".repeat(1000))).toBeUndefined()
+  })
+
+  it("counts length in UTF-8 bytes, as Boilerplate does", () => {
+    const variable = { name: "x", validations: [{ type: "length", args: [1, 4] }] }
+    expect(validateVariableValue(variable, "abcd")).toBeUndefined()
+    expect(validateVariableValue(variable, "abcé")).toBe("Must be 1 to 4 characters long")
+    expect(validateVariableValue(variable, "😀")).toBeUndefined()
+  })
+
+  it("counts a list's items and a map's entries for a length rule, as Boilerplate does", () => {
+    const variable = { name: "x", validations: [{ type: "length", args: [1, 2] }] }
+    expect(validateVariableValue(variable, ["a", "b"])).toBeUndefined()
+    expect(validateVariableValue(variable, ["a", "b", "c"])).toBe("Must have 1 to 2 items")
+    expect(validateVariableValue(variable, { a: 1, b: 2, c: 3 })).toBe("Must have 1 to 2 entries")
+    expect(validateVariableValue(variable, [])).toBeUndefined()
+  })
+
+  it("checks a regex rule against strings only", () => {
+    const variable = { name: "x", validations: [{ type: "regex", args: ["^[a-z]+$"] }] }
+    expect(validateVariableValue(variable, "Abc")).toBe("Must match ^[a-z]+$")
+    expect(validateVariableValue(variable, ["Abc"])).toBeUndefined()
+    expect(validateVariableValue(variable, { Abc: "Abc" })).toBeUndefined()
+  })
+
+  it("prefers a rule's own message", () => {
+    const variable = {
+      name: "x",
+      validations: [
+        { type: "length", args: [3, 24], message: "3 to 24 characters, please" },
+        { type: "regex", args: ["^[a-z0-9]+$"], message: "Lowercase letters and digits only" },
+      ],
+    }
+    expect(validateVariableValue(variable, "ab")).toBe("3 to 24 characters, please")
+    expect(validateVariableValue(variable, "abc-d")).toBe("Lowercase letters and digits only")
+  })
+
+  it("checks length(...) and regex(...) rules as parseBoilerplateConfig parses them", () => {
+    const config = Effect.runSync(
+      parseBoilerplateConfig(`
+variables:
+  - name: StorageAccount
+    validations:
+      - required
+      - length(3, 24)
+      - regex("^[a-z0-9]+$")
+`),
+    )
+    const variable = config.variables[0]!
+    expect(validateVariableValue(variable, "")).toBe("StorageAccount is required")
+    expect(validateVariableValue(variable, "ab")).toBe("Must be 3 to 24 characters long")
+    expect(validateVariableValue(variable, "My-Account")).toBe("Must match ^[a-z0-9]+$")
+    expect(validateVariableValue(variable, "myaccount01")).toBeUndefined()
   })
 
   it("ignores custom rules", () => {
@@ -101,7 +170,7 @@ variables:
     const code = config.variables[0]!
     const version = config.variables[1]!
     expect(validateVariableValue(code, "")).toBe("code is required")
-    expect(validateVariableValue(code, "abc")).toBe("Must match pattern: ^[A-Z]{3}$")
+    expect(validateVariableValue(code, "abc")).toBe("Must match ^[A-Z]{3}$")
     expect(validateVariableValue(code, "ABC")).toBeUndefined()
     expect(validateVariableValue(version, "1.2")).toBe(
       "Must be a valid semantic version (e.g., 1.2.3)",

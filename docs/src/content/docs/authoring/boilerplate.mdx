@@ -436,7 +436,19 @@ Only an `<Inputs>` block's `boilerplate.yml` can use this form. Boilerplate itse
       - length(0, 256)
 ```
 
-The form and [`runbooks test`](/authoring/testing/) don't check `length(...)` and `regex(...)` rules. Boilerplate checks them when a `<Template>` renders, so a value that breaks one fails generation there, and in an `<Inputs>` block the rules have no effect.
+The form checks these rules as you type and shows the one a value breaks on the field, with a message such as "Must be 1 to 64 characters long" or "Must match ^[a-z][a-z0-9-]+$". Generate and Submit stay blocked until the value passes. [`runbooks test`](/authoring/testing/) checks the values it sets the same way.
+
+- `length(min, max)` counts bytes, as Boilerplate does, so a character such as `é` counts as two. On a `list` it counts the items, and on a `map` the entries. A bound of `0` sets no limit.
+- `regex(...)` takes the pattern in double quotes, where `\"` is a quote and `\\` a backslash and other backslashes are kept, so `\d` works as written. In backticks, as in ``regex(`^"[a-z]+"$`)``, the pattern is taken as is. The pattern uses Go's syntax and matches anywhere in the value, so add `^` and `$` to match all of it.
+- A malformed rule, such as `length(5, 1)`, or a pattern Go can't compile, such as one with a lookahead, is reported as an error in the block.
+
+In an `<Inputs>` block, the object form can give either rule its own message:
+
+```yaml
+validations:
+  - type: regex("^[a-z0-9]{3,24}$")
+    message: Use 3 to 24 lowercase letters and digits
+```
 
 ## Template syntax
 

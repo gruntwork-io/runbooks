@@ -788,7 +788,7 @@ describe("InputValidator.validateInputValues", () => {
         regex: "^[A-Z]{3}$"`)
     const errs = v.validateInputValues({ "i1.code": "abc-lower" })
     expect(errs).toEqual([
-      { inputKey: "i1.code", message: 'Must match pattern: ^[A-Z]{3}$ (got "abc-lower")' },
+      { inputKey: "i1.code", message: 'Must match ^[A-Z]{3}$ (got "abc-lower")' },
     ])
     expect(v.validateInputValues({ "i1.code": "ABC" })).toEqual([])
   })
@@ -810,12 +810,55 @@ describe("InputValidator.validateInputValues", () => {
     expect(errs).toEqual([
       {
         inputKey: "i1.short",
-        message: 'Must be between 2 and 4 characters (got "waytoolongvalue")',
+        message: 'Must be 2 to 4 characters long (got "waytoolongvalue")',
       },
     ])
     expect(v.validateInputValues({ "i1.short": "abc" })).toEqual([])
     // The form checks the length of "42", not the number itself.
     expect(v.validateInputValues({ "i1.port": 42 })).toEqual([])
+  })
+
+  it("enforces length(min, max) and regex(...) written as Boilerplate writes them", () => {
+    const v = validatorFor(`
+  - name: storage_account
+    validations:
+      - length(3, 24)
+      - regex("^[a-z0-9]+$")
+  - name: vault
+    validations:
+      - type: regex(\`^[a-zA-Z][a-zA-Z0-9-]{1,22}[a-zA-Z0-9]$\`)
+        message: Key Vault names are 3 to 24 letters, digits and dashes`)
+    expect(v.validateInputValues({ "i1.storage_account": "ab" })).toEqual([
+      { inputKey: "i1.storage_account", message: 'Must be 3 to 24 characters long (got "ab")' },
+    ])
+    expect(v.validateInputValues({ "i1.storage_account": "My-Account" })).toEqual([
+      { inputKey: "i1.storage_account", message: 'Must match ^[a-z0-9]+$ (got "My-Account")' },
+    ])
+    expect(v.validateInputValues({ "i1.vault": "-vault" })).toEqual([
+      {
+        inputKey: "i1.vault",
+        message: 'Key Vault names are 3 to 24 letters, digits and dashes (got "-vault")',
+      },
+    ])
+    expect(
+      v.validateInputValues({ "i1.storage_account": "myaccount01", "i1.vault": "my-vault" }),
+    ).toEqual([])
+  })
+
+  it("reports a malformed length(...) or regex(...) rule as a config error", () => {
+    const p = writeRunbook(
+      `<Inputs id="i1">\n\`\`\`yaml\nvariables:\n  - name: x\n    validations:\n      - length(5, 1)\n\`\`\`\n</Inputs>\n`,
+    )
+    const v = new InputValidator(p)
+    v.init()
+    expect(v.getConfigErrors()).toEqual([
+      {
+        componentType: "Inputs",
+        componentId: "i1",
+        message:
+          'Failed to parse inline YAML: variable "x": validation length(5, 1): min is more than max.',
+      },
+    ])
   })
 
   it("enforces string shorthands such as alpha", () => {
@@ -876,7 +919,7 @@ describe("InputValidator.validateInputValues", () => {
         min: 8
         max: 64`)
     expect(v.validateInputValues({ "i1.token": "secret" })).toEqual([
-      { inputKey: "i1.token", message: "Must be between 8 and 64 characters" },
+      { inputKey: "i1.token", message: "Must be 8 to 64 characters long" },
     ])
   })
 

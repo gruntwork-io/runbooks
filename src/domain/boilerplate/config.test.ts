@@ -343,6 +343,87 @@ variables:
     expect(result.variables[0]!.validations[0]!.args).toEqual(["^custom$"])
   })
 
+  it("parses length(min, max) and regex(...) rules as Boilerplate writes them", async () => {
+    const result = await parse(`
+variables:
+  - name: x
+    validations:
+      - length(1, 64)
+      - "  length( 0 ,256 )  "
+      - length(-1,+2)
+      - regex("^[a-z0-9][a-z0-9-]{0,62}$")
+      - regex("^\\d+ \\"quoted\\" \\\\\\\\ end$")
+      - 'regex(\`^"raw" \\d$\`)'
+      - regex("(a)(b)")
+`)
+    expect(result.variables[0]!.validations).toEqual([
+      { type: "length", args: [1, 64], message: "" },
+      { type: "length", args: [0, 256], message: "" },
+      { type: "length", args: [-1, 2], message: "" },
+      { type: "regex", args: ["^[a-z0-9][a-z0-9-]{0,62}$"], message: "" },
+      { type: "regex", args: ['^\\d+ "quoted" \\\\ end$'], message: "" },
+      { type: "regex", args: ['^"raw" \\d$'], message: "" },
+      { type: "regex", args: ["(a)(b)"], message: "" },
+    ])
+  })
+
+  it("parses length(...) and regex(...) as the object form's type, with its message", async () => {
+    const result = await parse(`
+variables:
+  - name: x
+    validations:
+      - type: length(3, 24)
+        message: Storage account names are 3 to 24 characters
+      - type: regex("^[a-z0-9]+$")
+        description: Lowercase letters and digits only
+`)
+    expect(result.variables[0]!.validations).toEqual([
+      { type: "length", args: [3, 24], message: "Storage account names are 3 to 24 characters" },
+      { type: "regex", args: ["^[a-z0-9]+$"], message: "Lowercase letters and digits only" },
+    ])
+  })
+
+  it.each([
+    ["length(1)", 'variable "x": validation length(1): expected length(min, max).'],
+    ["length(1, 64", 'variable "x": validation length(1, 64: expected length(min, max).'],
+    ["length(a, 64)", 'variable "x": validation length(a, 64): min "a" isn\'t an integer.'],
+    ["length(1, 2.5)", 'variable "x": validation length(1, 2.5): max "2.5" isn\'t an integer.'],
+    ["length(5, 1)", 'variable "x": validation length(5, 1): min is more than max.'],
+    [
+      "regex(^[a-z]+$)",
+      'variable "x": validation regex(^[a-z]+$): the pattern must be quoted, as in regex("pattern") or regex(`pattern`).',
+    ],
+    [
+      'regex("a"b")',
+      'variable "x": validation regex("a"b"): the pattern has an unescaped "; write \\" for a literal quote, or quote the pattern with backticks.',
+    ],
+    [
+      'regex("(?=a)")',
+      'variable "x": validation regex("(?=a)"): can\'t check the pattern (?=a): Go doesn\'t support lookahead or lookbehind.',
+    ],
+  ])("rejects the malformed rule %s", async (rule, message) => {
+    await expect(
+      parse(`
+variables:
+  - name: x
+    validations:
+      - ${JSON.stringify(rule)}
+`),
+    ).rejects.toThrow(message)
+  })
+
+  it("rejects an object-form regex whose pattern can't be checked", async () => {
+    await expect(
+      parse(`
+variables:
+  - name: x
+    validations:
+      - type: regex
+        regex: "[a-z"
+`),
+    ).rejects.toThrow(/variable "x": validation regex: can't check the pattern \[a-z: /)
+  })
+
   it("maps unknown validation type to custom", async () => {
     const result = await parse(`
 variables:
