@@ -316,6 +316,8 @@ class Parse {
         warnings: [...this.warnings].sort(order),
       },
       texts,
+      source: this.source,
+      files,
     }
   }
 

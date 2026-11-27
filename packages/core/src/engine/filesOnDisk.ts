@@ -201,6 +201,13 @@ export function sameFact(a: FileFact | undefined, b: FileFact | undefined): bool
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
+/** Whether two sets of facts name the same paths, each with the same fact. */
+export const sameFiles = (
+  a: ReadonlyMap<RunbookPath, FileFact>,
+  b: ReadonlyMap<RunbookPath, FileFact>,
+): boolean =>
+  a.size === b.size && Array.from(a).every(([named, fact]) => sameFact(fact, b.get(named)))
+
 /** Each file's text in what is at a path, by its path. None for a path with no file. */
 const textsOf = (fact: FileFact | undefined): ReadonlyMap<string, string> =>
   new Map(fact?._tag === "Found" ? fact.texts.map(({ path, text }) => [path, text]) : [])
