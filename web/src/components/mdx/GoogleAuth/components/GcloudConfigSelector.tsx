@@ -3,6 +3,8 @@ import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AdcPrincipalCard } from "./AdcPrincipalCard"
 import { GcloudConfigurationList } from "./GcloudConfigurationList"
+import { GcloudLoginSteps } from "./GcloudLoginSteps"
+import { MethodLead, SetupGuide } from "./MethodGuide"
 import { GcloudSettingsSummary } from "./GcloudSettingsSummary"
 import { RegionPicker } from "./RegionPicker"
 import type {
@@ -13,7 +15,6 @@ import type {
   SignedInAdcPrincipal,
 } from "../types"
 import { describeGcloudSettings, isForAnotherAccount } from "../utils"
-import { formatGcloudAdcLoginCommand } from "../../../../../../src/domain/google/scopes"
 
 interface GcloudConfigSelectorProps {
   authStatus: GoogleAuthStatus
@@ -39,6 +40,7 @@ export function GcloudConfigSelector(props: GcloudConfigSelectorProps) {
   const isBusy = props.authStatus === "authenticating"
   return (
     <div className="space-y-4">
+      <MethodLead>Use your existing gcloud login on this machine.</MethodLead>
       <AdcPrincipalCard
         lookup={props.adcPrincipal}
         adcInfo={props.adcInfo}
@@ -165,13 +167,8 @@ function ContinueButton({ signedIn, isBusy, onGcloudAuth }: SignInControlsProps)
 
 function WrongAccountHelp() {
   return (
-    <details className="text-sm">
-      <summary className="text-info cursor-pointer">Not the right account?</summary>
-      <p className="mt-2 text-muted-foreground">
-        In a terminal, run{" "}
-        <code className="bg-accent px-1 rounded">{formatGcloudAdcLoginCommand([])}</code> and choose
-        the account you want in the browser. Then click <strong>Reload</strong>.
-      </p>
-    </details>
+    <SetupGuide question="Not the right account?">
+      <GcloudLoginSteps />
+    </SetupGuide>
   )
 }

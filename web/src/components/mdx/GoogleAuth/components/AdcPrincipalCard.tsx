@@ -3,6 +3,7 @@ import { AlertTriangle, Loader2, RefreshCw, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatGcloudAdcLoginCommand } from "../../../../../../src/domain/google/scopes"
 import type { AdcInfo, AdcPrincipalLookup, SignedInAdcPrincipal } from "../types"
+import { GcloudLoginSteps } from "./GcloudLoginSteps"
 
 interface AdcPrincipalCardProps {
   lookup: AdcPrincipalLookup
@@ -99,11 +100,9 @@ function NoLogin() {
   return (
     <>
       <div className="font-medium text-foreground">No gcloud login found</div>
-      <p className="text-muted-foreground">
-        In a terminal, run the command below and choose your account in the browser. Then click{" "}
-        <strong>Reload</strong>.
-      </p>
-      <CommandLine command={formatGcloudAdcLoginCommand([])} />
+      <div className="text-muted-foreground space-y-2">
+        <GcloudLoginSteps />
+      </div>
     </>
   )
 }

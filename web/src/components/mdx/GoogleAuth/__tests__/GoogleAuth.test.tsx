@@ -985,3 +985,80 @@ describe("GoogleAuth — required scopes", () => {
     expect(screen.getByRole("button", { name: "Use These Credentials" })).toBeInTheDocument()
   })
 })
+
+describe("GoogleAuth setup guidance", () => {
+  const consoleLinks = (guide: HTMLElement) =>
+    [...guide.querySelectorAll("a")].map((link) => link.getAttribute("href"))
+
+  const guideFor = (question: string) => screen.getByText(question).closest("details")!
+
+  it("explains the OAuth client to the reader, with the steps closed until asked for", async () => {
+    installApi({ ...NO_CREDENTIALS, "google:oauth-available": () => ({ available: false }) })
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={false} defaultTab="oauth" />)
+
+    expect(await screen.findAllByText("How do I create an OAuth client?")).toHaveLength(1)
+    expect(screen.getAllByText("Sign in as yourself in your browser.")).toHaveLength(1)
+    expect(screen.queryAllByText(/oauthClientFile|GOOGLE_OAUTH_CLIENT_CREDENTIALS/)).toHaveLength(0)
+    const guide = guideFor("How do I create an OAuth client?")
+    expect(guide.open).toBe(false)
+    expect(consoleLinks(guide)).toEqual([
+      "https://console.cloud.google.com/",
+      "https://console.developers.google.com/apis/api/cloudresourcemanager.googleapis.com/overview",
+      "https://console.developers.google.com/auth/branding",
+      "https://console.developers.google.com/auth/clients",
+      "https://console.developers.google.com/auth/audience",
+      "https://console.developers.google.com/auth/scopes",
+    ])
+  })
+
+  it("lists the runbook's own scopes in the OAuth client steps", async () => {
+    installApi({ ...NO_CREDENTIALS, "google:oauth-available": () => ({ available: false }) })
+    const drive = "https://www.googleapis.com/auth/drive"
+
+    renderBlock(
+      <GoogleAuth id="gcp" detectCredentials={false} defaultTab="oauth" scopes={[drive]} />,
+    )
+
+    await screen.findAllByText("How do I create an OAuth client?")
+    const scopes = [...guideFor("How do I create an OAuth client?").querySelectorAll("ul li")]
+    expect(scopes.map((scope) => scope.textContent)).toEqual([drive])
+  })
+
+  it("says how to get a service account key", async () => {
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
+
+    expect(
+      await screen.findAllByText("Sign in as a service account, using its key file."),
+    ).toHaveLength(1)
+    const guide = guideFor("How do I get a key?")
+    expect(guide.open).toBe(false)
+    expect(consoleLinks(guide)).toEqual([
+      "https://console.cloud.google.com/iam-admin/serviceaccounts",
+    ])
+    expect(guide.querySelectorAll("ol > li")).toHaveLength(5)
+  })
+
+  it("gives the same gcloud login steps when there is no login and when the account is wrong", async () => {
+    installApi({
+      "google:env-credentials": () => ({
+        found: true,
+        valid: true,
+        source: "adc",
+        account: { principal: "dev@example.com", accountType: "user" },
+      }),
+      "google:gcloud-configurations": () => ({
+        configurations: [],
+        adc: { path: "/home/u/.config/gcloud/adc.json", type: "authorized_user" },
+      }),
+    })
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={false} defaultTab="gcloud" />)
+
+    await screen.findAllByText("You will sign in as")
+    const guide = guideFor("Not the right account?")
+    expect(guide.querySelectorAll("ol > li")).toHaveLength(4)
+    expect(consoleLinks(guide)).toEqual(["https://docs.cloud.google.com/sdk/docs/install"])
+    expect(screen.getAllByText("Use your existing gcloud login on this machine.")).toHaveLength(1)
+  })
+})

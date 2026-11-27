@@ -2,7 +2,6 @@ import { useState } from "react"
 import {
   Loader2,
   XCircle,
-  AlertTriangle,
   Copy,
   Check,
   HelpCircle,
@@ -14,6 +13,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { GoogleCloudMark } from "./GoogleCloudLogo"
+import { MethodLead } from "./MethodGuide"
+import { OAuthClientSetupGuide } from "./OAuthClientSetupGuide"
 import { RegionPicker } from "./RegionPicker"
 import { DEFAULT_GOOGLE_SCOPES } from "../constants"
 import type { GoogleAuthStatus } from "../types"
@@ -90,26 +91,11 @@ export function OAuthFlow({
   if (needsClient) {
     return (
       <div className="space-y-4">
-        <div className="bg-warning-muted/50 rounded p-3 text-sm text-foreground space-y-2">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="size-4 mt-0.5 flex-shrink-0 text-warning" />
-            <div className="space-y-2">
-              <p>
-                Google Sign-In needs a <strong>Desktop app</strong> OAuth client from Google Cloud
-                Console (APIs &amp; Services → Credentials → OAuth client ID → Desktop app). That
-                download is an OAuth <em>app</em> client (
-                <code className="bg-card px-1 rounded">{`{ "installed": { "client_id", "client_secret" } }`}</code>
-                ) — not a service-account key.
-              </p>
-              <p className="text-muted-foreground">
-                Choose the JSON below, set the author prop{" "}
-                <code className="bg-card px-1 rounded">oauthClientFile</code>, or export{" "}
-                <code className="bg-card px-1 rounded">GOOGLE_OAUTH_CLIENT_CREDENTIALS</code> to the
-                same path before launching Runbooks.
-              </p>
-            </div>
-          </div>
-        </div>
+        <MethodLead>Sign in as yourself in your browser.</MethodLead>
+        <p className="text-sm text-foreground">
+          Google Sign-In needs an OAuth client file, which tells Google which app is asking for
+          access. If you have one, choose it below. If you do not, create one first.
+        </p>
 
         {onLoadOAuthClientFile && (
           <Button
@@ -122,12 +108,14 @@ export function OAuthFlow({
             Choose Desktop OAuth client JSON
           </Button>
         )}
+        <OAuthClientSetupGuide scopes={requestedScopes} />
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
+      <MethodLead>Sign in as yourself in your browser.</MethodLead>
       <div className="bg-info-muted/50 rounded p-3 text-sm text-foreground">
         {isWaitingForAuth ? (
           <>
@@ -159,11 +147,8 @@ export function OAuthFlow({
           </>
         ) : (
           <p>
-            Click the button below to sign in with Google. A browser tab opens on Google's consent
-            screen and returns here through a local callback on{" "}
-            <code className="bg-card px-1 rounded">127.0.0.1</code>. Runbooks stores the resulting
-            credentials in a private file and points{" "}
-            <code className="bg-card px-1 rounded">GOOGLE_APPLICATION_CREDENTIALS</code> at it.
+            Click <strong>Sign in with Google</strong> to continue in your browser. If Google asks
+            which permissions to allow, select all of them.
           </p>
         )}
       </div>

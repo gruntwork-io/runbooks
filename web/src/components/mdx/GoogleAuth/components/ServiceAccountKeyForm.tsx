@@ -1,7 +1,9 @@
 import { useMemo } from "react"
 import { Loader2, Eye, EyeOff, Upload, FileJson } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { MethodLead } from "./MethodGuide"
 import { RegionPicker } from "./RegionPicker"
+import { ServiceAccountKeyGuide } from "./ServiceAccountKeyGuide"
 import type { GoogleAuthStatus } from "../types"
 import { useDisplayPath } from "@/contexts/useDisplayPath"
 
@@ -96,6 +98,7 @@ export function ServiceAccountKeyForm({
 
   return (
     <div className="space-y-4">
+      <MethodLead>Sign in as a service account, using its key file.</MethodLead>
       <div>
         <div className="flex items-center justify-between mb-1 gap-2">
           <label className="block text-sm font-medium text-foreground">
@@ -236,6 +239,7 @@ export function ServiceAccountKeyForm({
           "Authenticate"
         )}
       </Button>
+      <ServiceAccountKeyGuide />
     </div>
   )
 }
