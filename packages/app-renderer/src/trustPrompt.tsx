@@ -15,13 +15,15 @@
  * - for a runbook with no block that waits for trust, as one of display
  *   blocks only.
  *
- * Once the engine said the runbook changed since the window showed it, the
- * prompt says so and lists what the runbook holds now in place of the
- * page's blocks, and its button trusts that.
+ * It lists the blocks of the runbook the page draws, and its button trusts
+ * that runbook's hash (`DocumentView.hash`). Once the engine said the
+ * runbook changed since the page drew it, the prompt says so and lists what
+ * the runbook holds now in place of the page's blocks, and its button
+ * trusts that, until the page draws another runbook (`changeOver`).
  */
 import { Effect } from "effect"
 import { useContext } from "react"
-import type { DocumentBlock } from "@runbooks/core/protocol"
+import type { DocumentBlock, DocumentView } from "@runbooks/core/protocol"
 import {
   FollowingContext,
   useEnded,
@@ -29,6 +31,7 @@ import {
   useTrust,
   useTrusting,
 } from "./following.ts"
+import { changeOver } from "./trust.ts"
 
 type Configured = Extract<DocumentBlock, { readonly _tag: "Configured" }>
 type MachineEffect = Configured["effects"][number]
@@ -77,14 +80,16 @@ function joined(phrases: ReadonlyArray<string>): string {
   return phrases.length < 2 ? last : `${phrases.slice(0, -1).join(", ")} and ${last}`
 }
 
-export function TrustPrompt({ blocks }: { readonly blocks: ReadonlyArray<DocumentBlock> }) {
+export function TrustPrompt({ document }: { readonly document: DocumentView }) {
   const trust = useTrust()
-  const { changed, failed } = useTrusting()
+  const trusting = useTrusting()
+  const changed = changeOver(trusting, document)
+  const { failed } = trusting
   const instructionMode = useInstructionMode()
   const ended = useEnded()
   const following = useContext(FollowingContext)
   if (trust === undefined || trust.trusted || instructionMode || ended !== undefined) return null
-  const configured = (changed?.blocks ?? blocks).filter(
+  const configured = (changed?.blocks ?? document.blocks).filter(
     (block): block is Configured => block._tag === "Configured",
   )
   if (!configured.some((block) => waitsForTrust(block.class))) return null

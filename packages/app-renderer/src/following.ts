@@ -25,7 +25,13 @@ import type {
 import { clientErrorText, defectText } from "./defect.ts"
 import { follow, type LiveStore, makeLiveStore } from "./live.ts"
 import { followSettings, makeSettingsStore, type SettingsStore } from "./settings.ts"
-import { askToTrust, makeTrustingStore, type Trusting, type TrustingStore } from "./trust.ts"
+import {
+  askToTrust,
+  changeOver,
+  makeTrustingStore,
+  type Trusting,
+  type TrustingStore,
+} from "./trust.ts"
 
 export interface Following {
   readonly live: LiveStore
@@ -39,9 +45,10 @@ export interface Following {
   ) => Effect.Effect<string | undefined>
   /**
    * Asks the engine to trust the session for the hash of what the prompt
-   * shows: the runbook the engine said it holds now, after it said it
-   * changed, or else the session's. It keeps what came of it in
-   * `trusting`. Nothing is asked before the session is read.
+   * shows: the runbook the page draws (`DocumentView.hash`), or what the
+   * engine said the runbook holds now, after it said it changed since the
+   * page drew it (`changeOver`). It keeps what came of it in `trusting`.
+   * Nothing is asked before the session is read.
    */
   readonly trust: () => Effect.Effect<void>
 }
@@ -115,13 +122,16 @@ export function followingOf(
     trusting,
     act: (block, request) => ask(engine, session, block, request),
     trust: () => {
+      const { document } = live.get()
+      if (document === undefined) return Effect.void
       const before = trusting.get()
-      const hash = before.changed?.hash ?? live.get().trust?.hash
-      return hash === undefined
-        ? Effect.void
-        : Effect.flatMap(askToTrust(engine, session, hash, before), (next) =>
-            Effect.sync(() => trusting.set(next)),
-          )
+      const asked = {
+        shown: document.hash,
+        hash: changeOver(before, document)?.hash ?? document.hash,
+      }
+      return Effect.flatMap(askToTrust(engine, session, asked, before), (next) =>
+        Effect.sync(() => trusting.set(next)),
+      )
     },
     start: () => {
       const fiber = Effect.runFork(

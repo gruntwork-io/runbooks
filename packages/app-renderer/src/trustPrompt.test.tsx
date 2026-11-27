@@ -225,6 +225,7 @@ describe("the trust prompt", () => {
     const shown = page([COMMAND], {
       trusting: {
         changed: {
+          shown: Schema.decodeSync(TrustState.fields.hash)(HASH),
           hash: Schema.decodeSync(TrustState.fields.hash)(`sha256:${"2".repeat(64)}`),
           blocks: [placed({ tag: "Upload", id: "upload", effects: ["push"] })],
         },
@@ -234,6 +235,22 @@ describe("the trust prompt", () => {
       "This runbook changed since the window showed it, so nothing was trusted. This is what it holds now.",
     )
     expect(listedIn(shown)).toEqual(["<Upload> upload may push changes to remote repositories."])
+  })
+
+  it("lists the page's blocks, and says nothing changed, once the page draws another runbook than the one it asked over", () => {
+    const shown = page([COMMAND], {
+      trusting: {
+        changed: {
+          shown: Schema.decodeSync(TrustState.fields.hash)(`sha256:${"1".repeat(64)}`),
+          hash: Schema.decodeSync(TrustState.fields.hash)(`sha256:${"2".repeat(64)}`),
+          blocks: [placed({ tag: "Upload", id: "upload", effects: ["push"] })],
+        },
+      },
+    })
+    expect(shown).not.toContain("This runbook changed since the window showed it")
+    expect(listedIn(shown)).toEqual([
+      "<Shell> setup (Set up) may run commands and scripts on this computer.",
+    ])
   })
 
   it("says why nothing was trusted when the ask failed", () => {

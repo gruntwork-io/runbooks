@@ -17,11 +17,14 @@ import { clientErrorText, defectText } from "./defect.ts"
 /** What came of the last ask. Empty before the first, and after one that trusted the session. */
 export interface Trusting {
   /**
-   * The runbook changed since the window showed it, so nothing was
-   * trusted: what it holds now, which the prompt shows in place of the
-   * page's, and the hash the next ask sends.
+   * The runbook changed since the page drew it, so nothing was trusted:
+   * what it holds now, which the prompt shows in place of the page's, and
+   * the hash the next ask sends, while the page still draws the runbook
+   * the ask was for (`shown`). Once the page draws another, the change no
+   * longer holds (`changeOver`).
    */
   readonly changed?: {
+    readonly shown: TrustState["hash"]
     readonly hash: TrustState["hash"]
     readonly blocks: DocumentView["blocks"]
   }
@@ -57,15 +60,28 @@ export function makeTrustingStore(): TrustingStore & {
   }
 }
 
+/**
+ * What the last ask found the runbook holds now, while the page still draws
+ * `drawn`, the runbook the ask was for. Once the page draws another, what
+ * it draws is what the prompt lists and trusts.
+ */
+export const changeOver = (trusting: Trusting, drawn: DocumentView): Trusting["changed"] =>
+  trusting.changed?.shown === drawn.hash ? trusting.changed : undefined
+
 /** What the window keeps of `result`, reading what the runbook holds now when it changed. */
-const answered = (engine: EngineClient, session: SessionId, result: TrustResult) => {
+const answered = (
+  engine: EngineClient,
+  session: SessionId,
+  shown: TrustState["hash"],
+  result: TrustResult,
+) => {
   switch (result._tag) {
     // The prompt goes once the session's events say it is trusted.
     case "Trusted":
       return Effect.succeed<Trusting>({})
     case "HashChanged":
       return Effect.map(engine.GetDocument({ session }), ({ blocks }): Trusting => ({
-        changed: { hash: result.current, blocks },
+        changed: { shown, hash: result.current, blocks },
       }))
     default: {
       const unhandled: never = result
@@ -76,20 +92,21 @@ const answered = (engine: EngineClient, session: SessionId, result: TrustResult)
 
 /**
  * Asks the engine to trust `session` for `hash`, the one the person was
- * shown, and gives what the window keeps of the answer, `before` being
- * what it kept of the last. Every failure, the read after a change
- * included, is a line that says nothing was trusted, and keeps what the
- * runbook was last said to hold, so the prompt still shows it.
+ * shown, while the page draws the runbook whose hash is `shown`, and gives
+ * what the window keeps of the answer, `before` being what it kept of the
+ * last. Every failure, the read after a change included, is a line that
+ * says nothing was trusted, and keeps what the runbook was last said to
+ * hold, so the prompt still shows it.
  */
 export const askToTrust = (
   engine: EngineClient,
   session: SessionId,
-  hash: TrustState["hash"],
+  { shown, hash }: { readonly shown: TrustState["hash"]; readonly hash: TrustState["hash"] },
   before: Trusting,
 ): Effect.Effect<Trusting> => {
   const failed = (line: string) => Effect.succeed<Trusting>({ ...before, failed: line })
   return engine.TrustSession({ session, hash }).pipe(
-    Effect.flatMap((result) => answered(engine, session, result)),
+    Effect.flatMap((result) => answered(engine, session, shown, result)),
     Effect.catchTags({
       UnknownSession: () => failed("This runbook's session closed, so nothing was trusted."),
       Forbidden: () =>

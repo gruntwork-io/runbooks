@@ -42,7 +42,7 @@ export function Runbook({
           copy and run yourself.
         </p>
       ) : null}
-      <TrustPrompt blocks={document.blocks} />
+      <TrustPrompt document={document} />
       {document.warnings.length === 0 ? null : (
         <ul className="warnings" aria-label="Warnings">
           {document.warnings.map((warning, index) => (
