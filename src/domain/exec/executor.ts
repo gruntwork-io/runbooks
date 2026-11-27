@@ -23,6 +23,8 @@ import type {
 import { prepareScript, parseBlockOutputs, parseEnvCapture, captureFilesFromDir } from "./script.ts"
 import type { ScriptSetup } from "./script.ts"
 import { LOG_CHANNELS, logChannelFiles, tagLogLine } from "./logChannels.ts"
+import { PLAN_DIR_ENV_VAR, type PlanSummary } from "./planSummary.ts"
+import { readPlanDir } from "./planDir.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -44,6 +46,7 @@ export type ExecEvent =
   | { readonly _tag: "status"; readonly event: ExecStatusEvent }
   | { readonly _tag: "outputs"; readonly event: BlockOutputsEvent }
   | { readonly _tag: "files_captured"; readonly event: FilesCapturedEvent }
+  | { readonly _tag: "plan"; readonly plan: PlanSummary }
   | { readonly _tag: "env_captured"; readonly env: Record<string, string>; readonly pwd: string }
   | { readonly _tag: "done" }
 
@@ -61,10 +64,12 @@ function setupExecEnvVars(
   filesDir: string,
   workTreePath: string,
   logFiles: ReadonlyArray<{ readonly envVar: string; readonly path: string }>,
+  planDir: string,
 ): Record<string, string> {
   const result = { ...env }
   result["RUNBOOK_OUTPUT"] = outputFile
   result["GENERATED_FILES"] = filesDir
+  result[PLAN_DIR_ENV_VAR] = planDir
   if (workTreePath) {
     result["REPO_FILES"] = workTreePath
   }
@@ -184,6 +189,13 @@ export const executeScript = (
       fs.rm(filesDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
 
+    // Where the script writes plans as JSON (RUNBOOK_PLAN_DIR), for the
+    // block's View Plan panel. See planSummary.ts.
+    const planDir = yield* fs.mkdtemp("runbook-plans-")
+    yield* Effect.addFinalizer(() =>
+      fs.rm(planDir, { recursive: true, force: true }).pipe(Effect.ignore),
+    )
+
     log.debug("step 3a: creating log channel files")
     // The script's log files: RUNBOOK_LOG, which the log_* helpers append to,
     // and one per level (RUNBOOK_INFO_LOG, ...). Anything the script runs can
@@ -249,8 +261,9 @@ export const executeScript = (
     }
 
     // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES,
-    // REPO_FILES, and the log files: RUNBOOK_LOG and RUNBOOK_<LEVEL>_LOG)
-    execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath, logFiles)
+    // REPO_FILES, RUNBOOK_PLAN_DIR, and the log files: RUNBOOK_LOG and
+    // RUNBOOK_<LEVEL>_LOG)
+    execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath, logFiles, planDir)
 
     const cmdArgs = [...scriptSetup.args, scriptSetup.scriptPath]
 
@@ -330,6 +343,11 @@ export const executeScript = (
       }
 
       events.push({ _tag: "status", event: statusEvent })
+
+      // Read whatever way the run ended: a plan that failed in some units
+      // still shows what the others will change.
+      const plan = yield* readPlanDir(planDir)
+      if (plan) events.push({ _tag: "plan", plan })
 
       if (isSuccessOrWarn) {
         const outputs = yield* parseBlockOutputs(outputFilePath)

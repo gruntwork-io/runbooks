@@ -616,6 +616,7 @@ describe("useApiExec state machine", () => {
       exitCode: 0,
       error: null,
       outputs: { url: "https://x" },
+      plan: null,
       logFilePath: null,
     }
 

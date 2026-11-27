@@ -11,6 +11,7 @@ import type { File } from "@/components/artifacts/code/FileTree"
 import type { ExecState, LogEntry } from "@/hooks/useApiExec"
 import { reviewAll, type FileChange, type ReviewedFiles } from "@/lib/fileReview"
 import { decodeOutputs, encodeOutputs } from "@/lib/outputValues"
+import { PlanSummarySchema } from "@/lib/planSummary"
 import type { TemplateOutputs } from "@/lib/templateUtils"
 import { createAppError } from "@/types/error"
 
@@ -326,6 +327,10 @@ const MAX_SAVED_LOG_CHARS = 64 * 1024
 // This leaves room for the log, whose JSON can be several times its text.
 const MAX_SAVED_OUTPUTS_CHARS = 512 * 1024
 
+// The most JSON a run's plan summary may be for its event to keep it, within
+// the same limit. A plan too large to keep is only in the run's log.
+const MAX_SAVED_PLAN_CHARS = 128 * 1024
+
 const SavedRunSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("running") }),
   z.object({
@@ -341,6 +346,8 @@ const SavedRunSchema = z.discriminatedUnion("status", [
       .nullable(),
     /** Whether the run had outputs that were too large to keep */
     outputsOmitted: z.boolean(),
+    /** What the run's plans will change. Absent from runs saved before plans were, and when too large. */
+    plan: PlanSummarySchema.optional(),
     error: z.object({ message: z.string(), details: z.string() }).nullable(),
   }),
 ])
@@ -368,6 +375,9 @@ export function runEnded(state: ExecState): SavedRun {
     logFile: state.logFilePath,
     outputs: outputsOmitted ? null : outputs,
     outputsOmitted,
+    ...(state.plan && JSON.stringify(state.plan).length <= MAX_SAVED_PLAN_CHARS
+      ? { plan: state.plan }
+      : {}),
     error: state.error,
   }
 }
@@ -388,6 +398,7 @@ export function restoreRun(payload: unknown): ExecState | undefined {
     exitCode: null,
     error: null,
     outputs: null,
+    plan: null,
     logFilePath: null,
   }
 
@@ -421,6 +432,7 @@ export function restoreRun(payload: unknown): ExecState | undefined {
     logs: [...omitted, ...run.logs],
     logFilePath: run.logFile,
     outputs: run.outputs === null ? null : decodeOutputs(run.outputs),
+    plan: run.plan ?? null,
     // Blocks that read the outputs wait for them, so say why they are missing.
     error:
       run.error ??

@@ -19,6 +19,7 @@ import { appendPathEntries, filterCapturedEnv } from "../../../src/domain/sessio
 import { renderBlockEnv, renderScriptForExec } from "../../../src/domain/exec/render.ts"
 import type { ExecRequest, ExecStatusEvent } from "../../../src/types.ts"
 import { encodeOutputs, type OutputValues } from "../../../src/domain/exec/outputValues.ts"
+import type { PlanSummary } from "../../../src/domain/exec/planSummary.ts"
 import { PathRefreshError } from "../../../src/errors/index.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 import type { IpcEventMap } from "../../shared/channels.ts"
@@ -195,6 +196,7 @@ export function registerExecHandlers(): void {
             // Phase 2: After logs drain, run completion
             let finalStatus: ExecStatusEvent | null = null
             let outputs: OutputValues = {}
+            let plan: PlanSummary | undefined
             const completionEvents = yield* completionEffect
             log.debug("Phase 2 complete, got", completionEvents.length, "events")
 
@@ -212,6 +214,9 @@ export function registerExecHandlers(): void {
                   break
                 case "files_captured":
                   send("exec:files-captured", execEvent.event)
+                  break
+                case "plan":
+                  plan = execEvent.plan
                   break
                 case "env_captured": {
                   // Applied as a delta against the env the script started
@@ -246,7 +251,11 @@ export function registerExecHandlers(): void {
             // The status and the outputs go back in one reply. Sent as
             // separate events, the renderer can see a finished run before its
             // outputs and take it for a run that published none.
-            return { status: finalStatus, outputs: encodeOutputs(outputs) }
+            return {
+              status: finalStatus,
+              outputs: encodeOutputs(outputs),
+              ...(plan ? { plan } : {}),
+            }
           }),
         ),
         { signal: abortController.signal },

@@ -18,6 +18,7 @@ import {
 } from "@/components/mdx/_shared"
 import { AutoCollapse, CollapseButton, WhenFolded } from "./AutoCollapse"
 import { DuplicateIdError } from "./DuplicateIdError"
+import { ViewPlan } from "./ViewPlan"
 import { EnvVars } from "./EnvVars"
 import { ProgressStep } from "./ProgressStep"
 import { ScriptChangeNotice } from "./ScriptChangeNotice"
@@ -232,6 +233,7 @@ export function ScriptBlock({
     execute: handleExecute,
     cancel,
     outputs,
+    plan,
     hasScriptDrift,
     scriptFileChange,
     reloadScript,
@@ -274,6 +276,7 @@ export function ScriptBlock({
         exitCode: null,
         error: null,
         outputs: null,
+        plan: null,
         logFilePath: null,
       }),
     )
@@ -1017,6 +1020,7 @@ export function ScriptBlock({
           no logs, outputs or source to show. */}
         {!scriptless && (
           <div className="mt-4 space-y-2">
+            <ViewPlan plan={plan} />
             <ViewLogs
               logs={logs}
               status={status}

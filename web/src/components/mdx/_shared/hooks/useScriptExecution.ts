@@ -36,6 +36,7 @@ import { createAppError } from "@/types/error"
 import { useScriptFileChange } from "./useScriptFileChange"
 import { useTemplateDependencies } from "./useTemplateDependencies"
 import { useOutputOverrides } from "./useOutputOverrides"
+import type { PlanSummary } from "@/lib/planSummary"
 import {
   applyOverrides,
   envValueParts,
@@ -276,6 +277,9 @@ interface UseScriptExecutionReturn {
   // Block outputs (key-value pairs produced by script via $RUNBOOK_OUTPUT).
   // Sensitive ones are Redacted, so ViewOutputs masks them.
   outputs: OutputValues | null
+
+  // What the plans the script wrote to $RUNBOOK_PLAN_DIR will change
+  plan: PlanSummary | null
 
   // Drift detection (script changed on disk since runbook was opened)
   hasScriptDrift: boolean
@@ -1079,6 +1083,9 @@ export function useScriptExecution({
 
     // Block outputs
     outputs,
+
+    // What the script's plans will change
+    plan: execState.plan,
 
     // Drift detection
     hasScriptDrift,

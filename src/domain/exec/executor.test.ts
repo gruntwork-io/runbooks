@@ -602,3 +602,72 @@ describe("executeScript — outputs", () => {
     expect(outputs?.event).toEqual({ outputs: { region: "us-west-2" } })
   })
 })
+
+// ---------------------------------------------------------------------------
+// RUNBOOK_PLAN_DIR
+// ---------------------------------------------------------------------------
+
+describe("executeScript — plans", () => {
+  /** Run a script that writes `planFiles` (by path in RUNBOOK_PLAN_DIR) and exits with `exitCode`. */
+  async function runWritingPlans(planFiles: Record<string, string>, exitCode = 0) {
+    let spawnedEnv: Record<string, string> = {}
+    const files: Record<string, string> = {}
+    const spawner = Layer.succeed(ProcessSpawner, {
+      spawn: (_command, _args, options) =>
+        Effect.sync(() => {
+          spawnedEnv = { ...(options?.env as Record<string, string>) }
+          for (const [path, content] of Object.entries(planFiles)) {
+            files[`${spawnedEnv["RUNBOOK_PLAN_DIR"]}/${path}`] = content
+          }
+          return { output: Stream.empty, exitCode: Effect.succeed(exitCode), kill: Effect.void }
+        }),
+    })
+    const layer = Layer.mergeAll(
+      makeTestFileSystem(files),
+      spawner,
+      makeTestEnvironment({ PATH: "/usr/bin" }),
+    )
+    const events = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { completionEffect } = yield* executeScript(
+            'terragrunt run --all --json-out-dir "$RUNBOOK_PLAN_DIR" -- plan',
+            "",
+            {},
+            { env: { PATH: "/usr/bin" }, workDir: "/work" },
+            "",
+            "/output",
+            "/logs/block",
+          )
+          return yield* completionEffect
+        }),
+      ).pipe(Effect.provide(layer)),
+    )
+    return { events, spawnedEnv }
+  }
+
+  const tfplan = JSON.stringify({
+    format_version: "1.2",
+    resource_changes: [
+      { address: "aws_s3_bucket.logs", change: { actions: ["delete"], before: {}, after: null } },
+    ],
+  })
+
+  it("gives the script a plan directory", async () => {
+    const { spawnedEnv } = await runWritingPlans({})
+    expect(spawnedEnv["RUNBOOK_PLAN_DIR"]).toStartWith("runbook-plans-")
+  })
+
+  it("emits no plan event when the script wrote no plan", async () => {
+    const { events } = await runWritingPlans({})
+    expect(events.some((e) => e._tag === "plan")).toBe(false)
+  })
+
+  it("emits the summary of the plans the script wrote, even when it failed", async () => {
+    const { events } = await runWritingPlans({ "app/tfplan.json": tfplan }, 1)
+    const plan = events.find((e) => e._tag === "plan")
+    expect(plan?._tag === "plan" && plan.plan.units.map((u) => [u.name, u.counts.destroy])).toEqual(
+      [["app", 1]],
+    )
+  })
+})

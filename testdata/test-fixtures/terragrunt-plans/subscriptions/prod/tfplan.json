@@ -1,0 +1,654 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.12.6",
+  "variables": {
+    "client_secret": {
+      "value": "s3cr3t-prod"
+    },
+    "keep_legacy_assignment": {
+      "value": "true"
+    },
+    "location": {
+      "value": "eastus"
+    },
+    "role_actions": {
+      "value": [
+        "Microsoft.Resources/subscriptions/resourceGroups/read"
+      ]
+    },
+    "subscription": {
+      "value": "prod"
+    }
+  },
+  "planned_values": {
+    "outputs": {
+      "identity_id": {
+        "sensitive": false,
+        "type": "string",
+        "value": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290"
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "terraform_data.federated_credential",
+          "mode": "managed",
+          "type": "terraform_data",
+          "name": "federated_credential",
+          "provider_name": "terraform.io/builtin/terraform",
+          "schema_version": 0,
+          "values": {
+            "id": "bd4f171c-8d12-1cfc-4aa0-7725119f18a8",
+            "input": {
+              "identity": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+              "secret": "s3cr3t-prod"
+            },
+            "output": {
+              "identity": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+              "secret": "s3cr3t-prod"
+            },
+            "triggers_replace": null
+          },
+          "sensitive_values": {
+            "input": {
+              "secret": true
+            },
+            "output": {}
+          }
+        },
+        {
+          "address": "terraform_data.legacy_role_assignment[0]",
+          "mode": "managed",
+          "type": "terraform_data",
+          "name": "legacy_role_assignment",
+          "index": 0,
+          "provider_name": "terraform.io/builtin/terraform",
+          "schema_version": 0,
+          "values": {
+            "id": "4636f8f1-3a91-0271-1fcf-de92af5b2bff",
+            "input": {
+              "role": "Contributor",
+              "scope": "/subscriptions/prod"
+            },
+            "output": {
+              "role": "Contributor",
+              "scope": "/subscriptions/prod"
+            },
+            "triggers_replace": null
+          },
+          "sensitive_values": {
+            "input": {},
+            "output": {}
+          }
+        },
+        {
+          "address": "terraform_data.managed_identity",
+          "mode": "managed",
+          "type": "terraform_data",
+          "name": "managed_identity",
+          "provider_name": "terraform.io/builtin/terraform",
+          "schema_version": 0,
+          "values": {
+            "id": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+            "input": {
+              "location": "eastus",
+              "name": "pipelines-prod"
+            },
+            "output": {
+              "location": "eastus",
+              "name": "pipelines-prod"
+            },
+            "triggers_replace": [
+              "eastus"
+            ]
+          },
+          "sensitive_values": {
+            "input": {},
+            "output": {},
+            "triggers_replace": [
+              false
+            ]
+          }
+        },
+        {
+          "address": "terraform_data.role_definition",
+          "mode": "managed",
+          "type": "terraform_data",
+          "name": "role_definition",
+          "provider_name": "terraform.io/builtin/terraform",
+          "schema_version": 0,
+          "values": {
+            "id": "e6315c32-9453-304d-bd04-427f1f6e5991",
+            "input": {
+              "actions": [
+                "Microsoft.Resources/subscriptions/resourceGroups/read"
+              ],
+              "name": "pipelines-prod",
+              "scope": "/subscriptions/prod"
+            },
+            "output": {
+              "actions": [
+                "Microsoft.Resources/subscriptions/resourceGroups/read"
+              ],
+              "name": "pipelines-prod",
+              "scope": "/subscriptions/prod"
+            },
+            "triggers_replace": null
+          },
+          "sensitive_values": {
+            "input": {
+              "actions": [
+                false
+              ]
+            },
+            "output": {
+              "actions": [
+                false
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "terraform_data.federated_credential",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "federated_credential",
+      "provider_name": "terraform.io/builtin/terraform",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "before": {
+          "id": "bd4f171c-8d12-1cfc-4aa0-7725119f18a8",
+          "input": {
+            "identity": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+            "secret": "s3cr3t-prod"
+          },
+          "output": {
+            "identity": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+            "secret": "s3cr3t-prod"
+          },
+          "triggers_replace": null
+        },
+        "after": {
+          "id": "bd4f171c-8d12-1cfc-4aa0-7725119f18a8",
+          "input": {
+            "identity": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+            "secret": "s3cr3t-prod"
+          },
+          "output": {
+            "identity": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+            "secret": "s3cr3t-prod"
+          },
+          "triggers_replace": null
+        },
+        "after_unknown": {},
+        "before_sensitive": {
+          "input": {
+            "secret": true
+          },
+          "output": {}
+        },
+        "after_sensitive": {
+          "input": {
+            "secret": true
+          },
+          "output": {}
+        }
+      }
+    },
+    {
+      "address": "terraform_data.legacy_role_assignment[0]",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "legacy_role_assignment",
+      "index": 0,
+      "provider_name": "terraform.io/builtin/terraform",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "before": {
+          "id": "4636f8f1-3a91-0271-1fcf-de92af5b2bff",
+          "input": {
+            "role": "Contributor",
+            "scope": "/subscriptions/prod"
+          },
+          "output": {
+            "role": "Contributor",
+            "scope": "/subscriptions/prod"
+          },
+          "triggers_replace": null
+        },
+        "after": {
+          "id": "4636f8f1-3a91-0271-1fcf-de92af5b2bff",
+          "input": {
+            "role": "Contributor",
+            "scope": "/subscriptions/prod"
+          },
+          "output": {
+            "role": "Contributor",
+            "scope": "/subscriptions/prod"
+          },
+          "triggers_replace": null
+        },
+        "after_unknown": {},
+        "before_sensitive": {
+          "input": {},
+          "output": {}
+        },
+        "after_sensitive": {
+          "input": {},
+          "output": {}
+        }
+      }
+    },
+    {
+      "address": "terraform_data.managed_identity",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "managed_identity",
+      "provider_name": "terraform.io/builtin/terraform",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "before": {
+          "id": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+          "input": {
+            "location": "eastus",
+            "name": "pipelines-prod"
+          },
+          "output": {
+            "location": "eastus",
+            "name": "pipelines-prod"
+          },
+          "triggers_replace": [
+            "eastus"
+          ]
+        },
+        "after": {
+          "id": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+          "input": {
+            "location": "eastus",
+            "name": "pipelines-prod"
+          },
+          "output": {
+            "location": "eastus",
+            "name": "pipelines-prod"
+          },
+          "triggers_replace": [
+            "eastus"
+          ]
+        },
+        "after_unknown": {},
+        "before_sensitive": {
+          "input": {},
+          "output": {},
+          "triggers_replace": [
+            false
+          ]
+        },
+        "after_sensitive": {
+          "input": {},
+          "output": {},
+          "triggers_replace": [
+            false
+          ]
+        }
+      }
+    },
+    {
+      "address": "terraform_data.role_definition",
+      "mode": "managed",
+      "type": "terraform_data",
+      "name": "role_definition",
+      "provider_name": "terraform.io/builtin/terraform",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "before": {
+          "id": "e6315c32-9453-304d-bd04-427f1f6e5991",
+          "input": {
+            "actions": [
+              "Microsoft.Resources/subscriptions/resourceGroups/read"
+            ],
+            "name": "pipelines-prod",
+            "scope": "/subscriptions/prod"
+          },
+          "output": {
+            "actions": [
+              "Microsoft.Resources/subscriptions/resourceGroups/read"
+            ],
+            "name": "pipelines-prod",
+            "scope": "/subscriptions/prod"
+          },
+          "triggers_replace": null
+        },
+        "after": {
+          "id": "e6315c32-9453-304d-bd04-427f1f6e5991",
+          "input": {
+            "actions": [
+              "Microsoft.Resources/subscriptions/resourceGroups/read"
+            ],
+            "name": "pipelines-prod",
+            "scope": "/subscriptions/prod"
+          },
+          "output": {
+            "actions": [
+              "Microsoft.Resources/subscriptions/resourceGroups/read"
+            ],
+            "name": "pipelines-prod",
+            "scope": "/subscriptions/prod"
+          },
+          "triggers_replace": null
+        },
+        "after_unknown": {},
+        "before_sensitive": {
+          "input": {
+            "actions": [
+              false
+            ]
+          },
+          "output": {
+            "actions": [
+              false
+            ]
+          }
+        },
+        "after_sensitive": {
+          "input": {
+            "actions": [
+              false
+            ]
+          },
+          "output": {
+            "actions": [
+              false
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "output_changes": {
+    "identity_id": {
+      "actions": [
+        "no-op"
+      ],
+      "before": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+      "after": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+      "after_unknown": false,
+      "before_sensitive": false,
+      "after_sensitive": false
+    }
+  },
+  "prior_state": {
+    "format_version": "1.0",
+    "terraform_version": "1.12.6",
+    "values": {
+      "outputs": {
+        "identity_id": {
+          "sensitive": false,
+          "value": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+          "type": "string"
+        }
+      },
+      "root_module": {
+        "resources": [
+          {
+            "address": "terraform_data.federated_credential",
+            "mode": "managed",
+            "type": "terraform_data",
+            "name": "federated_credential",
+            "provider_name": "terraform.io/builtin/terraform",
+            "schema_version": 0,
+            "values": {
+              "id": "bd4f171c-8d12-1cfc-4aa0-7725119f18a8",
+              "input": {
+                "identity": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+                "secret": "s3cr3t-prod"
+              },
+              "output": {
+                "identity": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+                "secret": "s3cr3t-prod"
+              },
+              "triggers_replace": null
+            },
+            "sensitive_values": {
+              "input": {
+                "secret": true
+              },
+              "output": {}
+            },
+            "depends_on": [
+              "terraform_data.managed_identity"
+            ]
+          },
+          {
+            "address": "terraform_data.legacy_role_assignment[0]",
+            "mode": "managed",
+            "type": "terraform_data",
+            "name": "legacy_role_assignment",
+            "index": 0,
+            "provider_name": "terraform.io/builtin/terraform",
+            "schema_version": 0,
+            "values": {
+              "id": "4636f8f1-3a91-0271-1fcf-de92af5b2bff",
+              "input": {
+                "role": "Contributor",
+                "scope": "/subscriptions/prod"
+              },
+              "output": {
+                "role": "Contributor",
+                "scope": "/subscriptions/prod"
+              },
+              "triggers_replace": null
+            },
+            "sensitive_values": {
+              "input": {},
+              "output": {}
+            }
+          },
+          {
+            "address": "terraform_data.managed_identity",
+            "mode": "managed",
+            "type": "terraform_data",
+            "name": "managed_identity",
+            "provider_name": "terraform.io/builtin/terraform",
+            "schema_version": 0,
+            "values": {
+              "id": "3ac26a1c-3cdf-63f8-507d-dcf3751c0290",
+              "input": {
+                "location": "eastus",
+                "name": "pipelines-prod"
+              },
+              "output": {
+                "location": "eastus",
+                "name": "pipelines-prod"
+              },
+              "triggers_replace": [
+                "eastus"
+              ]
+            },
+            "sensitive_values": {
+              "input": {},
+              "output": {},
+              "triggers_replace": [
+                false
+              ]
+            }
+          },
+          {
+            "address": "terraform_data.role_definition",
+            "mode": "managed",
+            "type": "terraform_data",
+            "name": "role_definition",
+            "provider_name": "terraform.io/builtin/terraform",
+            "schema_version": 0,
+            "values": {
+              "id": "e6315c32-9453-304d-bd04-427f1f6e5991",
+              "input": {
+                "actions": [
+                  "Microsoft.Resources/subscriptions/resourceGroups/read"
+                ],
+                "name": "pipelines-prod",
+                "scope": "/subscriptions/prod"
+              },
+              "output": {
+                "actions": [
+                  "Microsoft.Resources/subscriptions/resourceGroups/read"
+                ],
+                "name": "pipelines-prod",
+                "scope": "/subscriptions/prod"
+              },
+              "triggers_replace": null
+            },
+            "sensitive_values": {
+              "input": {
+                "actions": [
+                  false
+                ]
+              },
+              "output": {
+                "actions": [
+                  false
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "configuration": {
+    "provider_config": {
+      "terraform": {
+        "name": "terraform",
+        "full_name": "terraform.io/builtin/terraform"
+      }
+    },
+    "root_module": {
+      "outputs": {
+        "identity_id": {
+          "expression": {
+            "references": [
+              "terraform_data.managed_identity.id",
+              "terraform_data.managed_identity"
+            ]
+          }
+        }
+      },
+      "resources": [
+        {
+          "address": "terraform_data.federated_credential",
+          "mode": "managed",
+          "type": "terraform_data",
+          "name": "federated_credential",
+          "provider_config_key": "terraform",
+          "expressions": {
+            "input": {
+              "references": [
+                "terraform_data.managed_identity.id",
+                "terraform_data.managed_identity",
+                "var.client_secret"
+              ]
+            }
+          },
+          "schema_version": 0
+        },
+        {
+          "address": "terraform_data.legacy_role_assignment",
+          "mode": "managed",
+          "type": "terraform_data",
+          "name": "legacy_role_assignment",
+          "provider_config_key": "terraform",
+          "expressions": {
+            "input": {
+              "references": [
+                "var.subscription"
+              ]
+            }
+          },
+          "schema_version": 0,
+          "count_expression": {
+            "references": [
+              "var.keep_legacy_assignment"
+            ]
+          }
+        },
+        {
+          "address": "terraform_data.managed_identity",
+          "mode": "managed",
+          "type": "terraform_data",
+          "name": "managed_identity",
+          "provider_config_key": "terraform",
+          "expressions": {
+            "input": {
+              "references": [
+                "var.subscription",
+                "var.location"
+              ]
+            },
+            "triggers_replace": {
+              "references": [
+                "var.location"
+              ]
+            }
+          },
+          "schema_version": 0
+        },
+        {
+          "address": "terraform_data.role_definition",
+          "mode": "managed",
+          "type": "terraform_data",
+          "name": "role_definition",
+          "provider_config_key": "terraform",
+          "expressions": {
+            "input": {
+              "references": [
+                "var.subscription",
+                "var.subscription",
+                "var.role_actions"
+              ]
+            }
+          },
+          "schema_version": 0
+        }
+      ],
+      "variables": {
+        "client_secret": {
+          "type": "string",
+          "required": true,
+          "sensitive": true
+        },
+        "keep_legacy_assignment": {
+          "type": "bool",
+          "required": true
+        },
+        "location": {
+          "type": "string",
+          "required": true
+        },
+        "role_actions": {
+          "type": [
+            "list",
+            "string"
+          ],
+          "required": true
+        },
+        "subscription": {
+          "type": "string",
+          "required": true
+        }
+      }
+    }
+  },
+  "timestamp": "2026-11-24T22:55:11Z",
+  "errored": false
+}
