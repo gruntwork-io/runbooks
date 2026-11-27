@@ -1136,23 +1136,37 @@ describe("a client following a session", () => {
         const view = yield* person.GetSession({ session: opening.session })
         expect(view.sequence).toBeNumber()
         const after = view.sequence ?? -1
-        const following = yield* Effect.forkChild(
-          Stream.runCollect(
-            person
-              .Events({ session: view.session, after })
-              .pipe(
-                Stream.takeUntil(
-                  ({ event }) =>
-                    event._tag === "BlockStatusChanged" && event.status._tag === "Done",
+        const untilDone = (from: { readonly after?: number }) =>
+          Effect.forkChild(
+            Stream.runCollect(
+              person
+                .Events({ session: view.session, ...from })
+                .pipe(
+                  Stream.takeUntil(
+                    ({ event }) =>
+                      event._tag === "BlockStatusChanged" && event.status._tag === "Done",
+                  ),
                 ),
-              ),
-          ),
-        )
+            ),
+          )
+        const following = yield* untilDone({ after })
+        // Every event the session keeps, to compare with what the client following the view gets.
+        const everything = yield* untilDone({})
         expect(
           (yield* person.RunBlock({ session: view.session, block: blockId("greet") }))._tag,
         ).toBe("Started")
         const events = yield* Fiber.join(following)
-        expect(events[0]?.sequence).toBe(after + 1)
+        const all = yield* Fiber.join(everything)
+        // The first change after the view is the run starting.
+        expect(events[0]).toMatchObject({
+          sequence: after + 1,
+          event: {
+            _tag: "BlockStatusChanged",
+            block: blockId("greet"),
+            status: { _tag: "Running" },
+          },
+        })
+        expect(events).toEqual(all.filter(({ sequence }) => sequence > after))
         expect(events.map(({ event }) => event._tag)).not.toContain("TrustChanged")
       }),
     )
