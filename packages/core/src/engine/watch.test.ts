@@ -86,8 +86,8 @@ interface Watching {
 interface Options {
   readonly watch?: WatchMode
   readonly origin?: Origin
-  /** Each watch fails as it starts, as one past the OS's limit on watches does. */
-  readonly watchFails?: boolean
+  /** Each watch fails with this cause as it starts, as one past the OS's limit on watches does. */
+  readonly watchFailsWith?: unknown
   /** Each event names its file as a file system that ignores case spells it on disk. */
   readonly onDiskCase?: boolean
   /** The runbook, and the files in its folder, in place of `RUNBOOK_TEXT` and `FILES`. */
@@ -103,7 +103,7 @@ const withWatch = async <A, E>(
     | Effect.Effect<A, E, Engine | Caller | FileSystem>
     | ((watching: Watching) => Effect.Effect<A, E, Engine | Caller | FileSystem>),
   {
-    watchFails = false,
+    watchFailsWith,
     onDiskCase = false,
     origin = "person",
     runbook = RUNBOOK_TEXT,
@@ -132,7 +132,8 @@ const withWatch = async <A, E>(
         paths: [...paths],
         ...(options?.depth === undefined ? {} : { depth: options.depth }),
       })
-      if (watchFails) return Stream.fail(new FileWatchError({ cause: "ENOSPC" }))
+      if (watchFailsWith !== undefined)
+        return Stream.fail(new FileWatchError({ cause: watchFailsWith }))
       return Stream.unwrap(
         Effect.sync(() => {
           watching.open += 1
@@ -234,6 +235,12 @@ const ranWith = (view: { readonly outputs: Readonly<Record<string, unknown>> }) 
   view.outputs["out"]
 
 const DEBOUNCE = 300
+
+/** What a watch fails with on Linux past `fs.inotify.max_user_watches`. */
+const ENOSPC = Object.assign(
+  new Error("ENOSPC: System limit for number of file watchers reached, watch '/rb'"),
+  { code: "ENOSPC" },
+)
 
 describe("a session's watcher", () => {
   it("waits the old app's 300 ms for a burst of saves to end", () => {
@@ -673,19 +680,37 @@ describe("a session's watcher", () => {
     expect(watching.calls).toHaveLength(2)
   })
 
-  it("logs a watch that fails, and holds nothing back", async () => {
+  it("says a watch past Linux's limit failed, and how to raise the limit, and holds nothing back", async () => {
     const { result, warnings } = await withWatch(
       Effect.gen(function* () {
         const rb = yield* opened("runbookAndFiles")
         yield* rb.write(RUNBOOK, `${RUNBOOK_TEXT}\n\nSaved.`)
         yield* tick(DEBOUNCE)
         const view = yield* rb.session
-        return { reloadHeld: view.reloadHeld, reloaded: view.trust.hash !== rb.view.trust.hash }
+        yield* rb.close
+        return {
+          reloadHeld: view.reloadHeld,
+          reloaded: view.trust.hash !== rb.view.trust.hash,
+          unwatched: view.unwatched,
+          logged: yield* rb.logged,
+        }
       }),
-      { watchFails: true },
+      { watchFailsWith: ENOSPC },
     )
-    expect(result).toEqual({ reloadHeld: undefined, reloaded: false })
-    expect(warnings).toEqual([expect.stringContaining("could not watch")])
-    expect(warnings[0]).toContain(RUNBOOK)
+    expect([result.reloadHeld, result.reloaded]).toEqual([undefined, false])
+    const message = `Runbooks could not watch ${RUNBOOK}, or the files it names, for changes (${ENOSPC.message}), so saving them shows nothing here. Linux's limit on file watches was reached: raise fs.inotify.max_user_watches, then open the runbook again.`
+    expect(result.unwatched).toEqual({ message })
+    expect(result.logged.filter((tag) => tag === "Unwatched")).toEqual(["Unwatched"])
+    expect(warnings).toEqual([message])
+  })
+
+  it("says any other watch that fails, and to open the runbook again, in `notice` too", async () => {
+    const { result } = await withWatch(
+      Effect.flatMap(opened("notice"), (rb) => rb.session),
+      { watchFailsWith: "EACCES: permission denied, watch '/rb/scripts'" },
+    )
+    expect(result.unwatched).toEqual({
+      message: `Runbooks could not watch ${RUNBOOK}, or the files it names, for changes (EACCES: permission denied, watch '/rb/scripts'), so saving them shows nothing here. Open the runbook again to watch it.`,
+    })
   })
 })

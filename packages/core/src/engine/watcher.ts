@@ -13,7 +13,8 @@
  * batch at a time, so a reload's reads come after every read before them.
  * It watches through the `FileSystem` service, in the session's scope, and
  * watches again what a reload names, however the reload came: from a save,
- * or held back until a run ended.
+ * or held back until a run ended. A watch the system refuses ends the
+ * watching, and the session says why and what to do (`Session.unwatched`).
  */
 import path from "node:path"
 import { Duration, Effect, Option, Stream } from "effect"
@@ -41,6 +42,8 @@ export interface Watched {
   readonly filesChanged: (paths: ReadonlyArray<RunbookPath>) => Effect.Effect<void, UnknownSession>
   /** Reads the runbook from disk and reloads the session with it (`Engine.reloadRunbook`). */
   readonly reload: (from: ReloadFilesFrom) => Effect.Effect<unknown, UnknownSession>
+  /** Tells the session it watches nothing from now on, and why (`Session.unwatched`). */
+  readonly unwatched: (message: string) => Effect.Effect<void, UnknownSession>
 }
 
 /** What a watcher watches: folders at depth 0, and folders whole. */
@@ -98,9 +101,24 @@ const touched = (
 }
 
 /**
+ * Why a session watches nothing once a watch failed with `cause`, and what
+ * to do. A watch fails with ENOSPC only past Linux's limit on file watches,
+ * which the person can raise; for any other failure, opening the runbook
+ * again watches it again.
+ */
+const unwatchedMessage = (runbook: string, cause: unknown): string => {
+  const reason = cause instanceof Error ? cause.message : String(cause)
+  const failed = `Runbooks could not watch ${runbook}, or the files it names, for changes (${reason}), so saving them shows nothing here.`
+  return reason.includes("ENOSPC")
+    ? `${failed} Linux's limit on file watches was reached: raise fs.inotify.max_user_watches, then open the runbook again.`
+    : `${failed} Open the runbook again to watch it.`
+}
+
+/**
  * Watches the session's runbook and the files it names in `mode` for the
- * session's lifetime. A watch that fails is logged, and nothing more is
- * watched: the session holds nothing back for it.
+ * session's lifetime. A watch that fails ends the watching: it is logged,
+ * and the session says so (`unwatched`). The session holds nothing back for
+ * it.
  */
 export const watchSession = (
   mode: Exclude<WatchMode, "off">,
@@ -175,11 +193,10 @@ export const watchSession = (
     > = Effect.flatMap(watchOnce, (again) => (again ? watchFrom : Effect.void))
     yield* watchFrom
   }).pipe(
-    Effect.catchTag("FileWatchError", ({ cause }) =>
-      Effect.logWarning(
-        `Runbooks could not watch ${watched.runbook}, or the files it names, for changes (${String(cause)}). Saving them shows nothing until the runbook is opened again.`,
-      ),
-    ),
+    Effect.catchTag("FileWatchError", ({ cause }) => {
+      const message = unwatchedMessage(watched.runbook, cause)
+      return Effect.andThen(Effect.logWarning(message), watched.unwatched(message))
+    }),
     // The session is closing.
     Effect.catchTags({ UnknownSession: () => Effect.void, UnknownSequence: () => Effect.void }),
   )
