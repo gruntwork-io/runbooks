@@ -24,6 +24,7 @@ This block writes an output, `workspace`, that a block in the next chapter reads
 
 <Command
     id="prepare"
+    outputs={["workspace"]}
     title="Prepare a workspace"
     env={{ APP_NAME: "{{ .inputs.AppName }}" }}
     command='echo "workspace=/tmp/$APP_NAME" >> "$RUNBOOK_OUTPUT" && echo "Workspace ready."'
@@ -41,6 +42,7 @@ Chapters only change what's on screen. A block can use the inputs and outputs of
 
 <Command
     id="deploy"
+    outputs={["source"]}
     title="Deploy the app"
     env={{ APP_NAME: "{{ .inputs.AppName }}", WORKSPACE: "{{ .outputs.prepare.workspace }}" }}
     command='echo "Deploying $APP_NAME from $WORKSPACE" && echo "source=$WORKSPACE" >> "$RUNBOOK_OUTPUT"'

@@ -8,6 +8,7 @@ Command and Check blocks can run at the same time. This runbook shows the three 
 
 <Command
   id="build"
+  outputs={["tag"]}
   title="Build"
   command='sleep 5; echo "tag=v1.2.3" >> "$RUNBOOK_OUTPUT"'
 />

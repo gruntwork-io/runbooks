@@ -172,6 +172,7 @@ This is useful for cross-account access via `sts assume-role`, or any scenario w
 
 <Command
   id="assume-cross-account-role"
+  outputs={["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]}
   path="scripts/assume-role.sh"
   env={{
     TARGET_ACCOUNT_ID: "{{ .inputs.TargetAccountId }}",

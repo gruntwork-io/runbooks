@@ -73,7 +73,7 @@ variables:
 \`\`\`
 </Inputs>
 
-<Command id="greet" path="greet.sh" inputsId="config" />
+<Command id="greet" path="greet.sh" inputsId="config" outputs={["greeting"]} />
 
 <Command id="reply" path="reply.sh" />
 `

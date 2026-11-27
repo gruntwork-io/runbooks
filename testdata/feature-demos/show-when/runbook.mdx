@@ -26,6 +26,7 @@ variables:
 
 <Command
   id="pick-provider"
+  outputs={["GIT_PROVIDER"]}
   inputsId="provider"
   title="Use this provider"
   env={{ PROVIDER: "{{ .inputs.Provider }}" }}

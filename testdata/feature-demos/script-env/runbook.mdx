@@ -20,6 +20,7 @@ variables:
 
 <Command
   id="plan-bucket"
+  outputs={["bucket"]}
   title="Plan the bucket"
   inputsId="bucket"
   env={{ BUCKET: "{{ .inputs.BucketName }}", COPIES: "{{ .inputs.Copies }}", DRY_RUN: true }}
@@ -33,6 +34,7 @@ echo "bucket=$BUCKET" >> "$RUNBOOK_OUTPUT"`}
 
 <Command
   id="fetch-title"
+  outputs={["title"]}
   title="Fetch a pull request title"
   path="scripts/fetch-title.sh"
 />
