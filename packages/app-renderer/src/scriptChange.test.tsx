@@ -6,6 +6,7 @@ import { type Following, FollowingContext } from "./following.ts"
 import { makeLiveStore } from "./live.ts"
 import { Markdown } from "./markdown.tsx"
 import { makeReloadingStore, type Reloading } from "./reload.ts"
+import { NO_SCRIPT_FILES } from "./scriptFiles.ts"
 import { makeSettingsStore } from "./settings.ts"
 import { makeTrustingStore } from "./trust.ts"
 
@@ -121,6 +122,7 @@ const page = (
     ),
     trusting: makeTrustingStore(),
     reloading,
+    scriptFiles: NO_SCRIPT_FILES,
     act: () => Effect.succeed(undefined),
     trust: () => Effect.void,
     reload: () => Effect.void,

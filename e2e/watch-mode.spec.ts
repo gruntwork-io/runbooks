@@ -12,10 +12,11 @@
  * runs: the runbook it reloaded, or a script file's text as the session
  * held it until it was reloaded from the block's "Script changed" notice.
  *
- * The old spec's 2nd test runs here without its "View Source Code" steps,
- * which land with the window's source view. Two tests the old spec lacks
- * pin what a launch must not reload: a plain launch reloads no runbook
- * save, and `--disable-live-file-reload` reads no script file again.
+ * The old spec's 2nd test reads the script through the block's source view,
+ * "View Source Code", before the edit and after the save. Two tests the old
+ * spec lacks pin what a launch must not reload: a plain launch reloads no
+ * runbook save, and `--disable-live-file-reload` reads no script file
+ * again.
  *
  * Runs against the build in app-out/: `just app-test-e2e` builds it first.
  */
@@ -160,7 +161,7 @@ test.describe("Watch mode", () => {
     await expect(block.getByLabel("Log")).toHaveText(printed("watch-before"))
   })
 
-  test("saving runbook.mdx unchanged after a script edit runs the edited script", async ({
+  test("saving runbook.mdx unchanged after a script edit shows and runs the edited script", async ({
     launch,
   }, testInfo) => {
     const folder = runbookFolder(testInfo, {
@@ -169,11 +170,19 @@ test.describe("Watch mode", () => {
     })
     const page = await launchOn(launch, ["--watch"], folder)
     const block = page.locator("#runbook-block-greet")
+    // The block's source view, closed at first, shows the script once opened.
+    const source = block.getByRole("region", { name: "Source of greet.sh" })
+    await source.getByRole("button", { name: "View Source Code" }).click()
+    const code = source.getByLabel("Source code")
+    await expect(code).toHaveText("#!/bin/bash\necho script-before\n")
     await editScript(block, path.join(folder, "greet.sh"), "script-after")
+    // The session still holds the script it read, which the view shows.
+    await expect(code).toHaveText("#!/bin/bash\necho script-before\n")
 
     const file = path.join(folder, "runbook.mdx")
     fs.writeFileSync(file, fs.readFileSync(file))
     await expect(block.getByRole("region", { name: "Script changed" })).toHaveCount(0)
+    await expect(code).toHaveText("#!/bin/bash\necho script-after\n")
     await runGreet(page)
     await expect(block.getByLabel("Log")).toHaveText(printed("script-after"))
   })

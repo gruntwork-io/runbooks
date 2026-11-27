@@ -355,4 +355,57 @@
     padding-left: 1.5em;
     list-style: disc;
   }
+
+  /* A block's source view (sourceView.tsx): a toggle with the file's path, then its facts and text. */
+  .source-view {
+    margin-top: calc(var(--spacing) * 2);
+    border: 1px solid var(--color-zinc-200);
+    border-radius: var(--radius-md);
+  }
+  .source-view-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing) * 3);
+    align-items: baseline;
+    padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+  }
+  .source-view-head button {
+    color: var(--color-blue-700);
+    cursor: pointer;
+  }
+  .source-view-head button:hover {
+    text-decoration: underline;
+  }
+  .source-view-path,
+  .source-view-note,
+  .source-view-facts {
+    color: var(--color-zinc-600);
+    font-size: var(--text-sm);
+  }
+  .source-view-note,
+  .source-view-facts {
+    padding: 0 calc(var(--spacing) * 3) calc(var(--spacing) * 2);
+  }
+  .source-view-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing) * 1) calc(var(--spacing) * 2);
+  }
+  .source-view-facts dt {
+    font-weight: var(--font-weight-semibold);
+  }
+  .source-view-facts dd + dt {
+    margin-left: calc(var(--spacing) * 2);
+  }
+  .source-view-code {
+    max-height: 24rem;
+    overflow: auto;
+    margin: 0;
+    padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+    border-top: 1px solid var(--color-zinc-200);
+    background: var(--color-zinc-100);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    white-space: pre;
+  }
 }

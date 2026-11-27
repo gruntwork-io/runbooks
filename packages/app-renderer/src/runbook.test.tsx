@@ -5,6 +5,7 @@ import { DocumentView, SessionSummary, Settings } from "@runbooks/core/protocol"
 import { type Following, FollowingContext } from "./following.ts"
 import { type Live, makeLiveStore } from "./live.ts"
 import { makeReloadingStore } from "./reload.ts"
+import { NO_SCRIPT_FILES } from "./scriptFiles.ts"
 import { Runbook } from "./runbook.tsx"
 import { makeSettingsStore } from "./settings.ts"
 import { makeTrustingStore } from "./trust.ts"
@@ -57,6 +58,7 @@ const followingWith = (live: Live): Following => {
     settings: makeSettingsStore(undefined),
     trusting: makeTrustingStore(),
     reloading: makeReloadingStore(),
+    scriptFiles: NO_SCRIPT_FILES,
     act: () => Effect.succeed(undefined),
     trust: () => Effect.void,
     reload: () => Effect.void,
@@ -183,6 +185,7 @@ describe("the runbook page", () => {
             ),
             trusting: makeTrustingStore(),
             reloading: makeReloadingStore(),
+            scriptFiles: NO_SCRIPT_FILES,
             act: () => Effect.succeed(undefined),
             trust: () => Effect.void,
             reload: () => Effect.void,

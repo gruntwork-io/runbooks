@@ -20,7 +20,10 @@
  *   offers the actions the engine says it takes now (`BlockView.actions`)
  *   and shows its latest run's log and outputs, as text; a form's and a
  *   credential block's defaults are not written yet, and a display block
- *   always has a view.
+ *   always has a view;
+ * - under the body, a source view ("View Source Code") for each script file
+ *   the block names (`DocumentBlock.scriptFiles`), closed at first
+ *   (`sourceView.tsx`).
  *
  * A view asks the engine through `act`, which the frame sends for its
  * session and block, and it shows what the engine answered.
@@ -52,6 +55,7 @@ import { FollowingContext, useBlockView, useInstructionMode } from "./following.
 import { linkTarget } from "./markdown.tsx"
 import { place } from "./place.ts"
 import { ScriptChange } from "./scriptChange.tsx"
+import { SourceView } from "./sourceView.tsx"
 
 type Configured = Extract<DocumentBlock, { readonly _tag: "Configured" }>
 type BlockStatus = NonNullable<BlockView["status"]>
@@ -203,9 +207,12 @@ export function BlockFrame({
               {instructed ? (
                 <InstructionBody instruction={view?.instruction}>{children}</InstructionBody>
               ) : (
-                <Body block={block} view={view} act={act}>
-                  {children}
-                </Body>
+                <>
+                  <Body block={block} view={view} act={act}>
+                    {children}
+                  </Body>
+                  <SourceViews block={block} />
+                </>
               )}
             </>
           )}
@@ -390,6 +397,16 @@ function Blockers({
       )}
     </div>
   )
+}
+
+/**
+ * A source view for each script file the block names. Instruction mode
+ * shows the script in the instruction, so the frame draws none there.
+ */
+function SourceViews({ block }: { readonly block: Configured }) {
+  const { id, scriptFiles } = block
+  if (id === undefined || scriptFiles === undefined) return null
+  return scriptFiles.map((path) => <SourceView key={path} block={id} path={path} />)
 }
 
 /** The block's own view, or its class's default. Form and credential blocks get theirs with their first blocks. */

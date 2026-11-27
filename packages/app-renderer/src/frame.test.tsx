@@ -17,6 +17,7 @@ import { type Following, FollowingContext, followingOf } from "./following.ts"
 import { follow, type Live, makeLiveStore } from "./live.ts"
 import { Markdown } from "./markdown.tsx"
 import { makeReloadingStore } from "./reload.ts"
+import { NO_SCRIPT_FILES } from "./scriptFiles.ts"
 import { makeSettingsStore } from "./settings.ts"
 import { makeTrustingStore } from "./trust.ts"
 
@@ -129,6 +130,22 @@ describe("a block's frame", () => {
     expect(credential).toContain("The window can&#x27;t show this sign-in yet.")
   })
 
+  it("draws a closed source view under a task's body for each script file it names, and none for a block that names none", () => {
+    const shown = framed(
+      placed({ id: "greet", scriptFiles: ["greet.sh", "lib/util.sh"] }),
+      text("Greets."),
+    )
+    expect(shown).toContain(
+      '<div class="block-body"><p>Greets.</p></div><section class="source-view" aria-label="Source of greet.sh">',
+    )
+    expect(shown).toContain('<section class="source-view" aria-label="Source of lib/util.sh">')
+    expect(shown.match(/class="source-view"/g)).toHaveLength(2)
+    expect(shown.match(/aria-expanded="false">View Source Code/g)).toHaveLength(2)
+    // An inline script is in the block's props, and has no source view.
+    const inline = framed(placed({ id: "greet", props: { command: "echo hi" } }))
+    expect(inline).not.toContain("source-view")
+  })
+
   it("draws a display block's markdown, with no status and no step", () => {
     const shown = framed(placed({ class: "display", step: false }), text("Read this first."))
     expect(shown).toContain("Read this first.")
@@ -161,6 +178,7 @@ const followingViews = (...views: BlockView[]): Following => {
     settings: makeSettingsStore(undefined),
     trusting: makeTrustingStore(),
     reloading: makeReloadingStore(),
+    scriptFiles: NO_SCRIPT_FILES,
     act: () => Effect.succeed(undefined),
     trust: () => Effect.void,
     reload: () => Effect.void,
@@ -583,6 +601,7 @@ describe("a block's frame, following the engine", () => {
           settings: makeSettingsStore(undefined),
           trusting: makeTrustingStore(),
           reloading: makeReloadingStore(),
+          scriptFiles: NO_SCRIPT_FILES,
           act: () => Effect.never,
           trust: () => Effect.void,
           reload: () => Effect.void,
@@ -670,6 +689,17 @@ describe("instruction mode", () => {
     )
     expect(shown).not.toContain(">Run</button>")
     expect(shown).not.toContain("block-status")
+  })
+
+  it("draws no source view, since the instruction shows the script", () => {
+    const deploy = placed({ id: "deploy", scriptFiles: ["deploy.sh"] })
+    const following = (on: boolean) =>
+      inInstructionMode(
+        followingViews(view("deploy", { _tag: "Idle" }, { actions: ["run"], instruction: DEPLOY })),
+        on,
+      )
+    expect(page(following(true), deploy)).not.toContain("source-view")
+    expect(page(following(false), deploy)).toContain('aria-label="Source of deploy.sh"')
   })
 
   it("shows the view as usual when it is off", () => {
