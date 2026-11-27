@@ -43,56 +43,63 @@ const blockId = Schema.decodeSync(BlockId)
 type Script = (input: TaskInput) => Stream.Stream<TaskEvent<string>, TaskError>
 
 /**
- * The toy registry, with `<Run>` and `<Ask>` running the script their
- * `command` names (nothing, for a command with no script). An output whose
- * key starts with `secret` is sensitive.
+ * The toy registry, with `<Run>`, `<Solo>`, `<Quiet>` and `<Ask>` running the script
+ * their `command` names (nothing, for a command with no script). An output
+ * whose key starts with `secret` is sensitive.
  */
-const registryWith = (scripts: Readonly<Record<string, Script>>) => ({
-  ...TOY_REGISTRY,
-  Run: defineTask({
+const registryWith = (scripts: Readonly<Record<string, Script>>) => {
+  const scripted = defineTask({
     ...TOY_REGISTRY.Run,
     outputs: (p) =>
       Object.fromEntries(
         (p.outputs ?? []).map((key) => [key, { sensitive: key.startsWith("secret") }]),
       ),
     run: (p, input) => scripts[p.command ?? ""]?.(input) ?? Stream.empty,
-  }),
-  /** A task with a form of its own, from its YAML children, that runs commands, so it takes `env`. */
-  Ask: defineTask({
-    name: "Ask",
-    since: "0.1.0",
-    class: "task",
-    props: Schema.Struct({ command: Schema.String, variables: Schema.Array(ToyField) }),
-    children: { kind: "yaml", prop: "variables" },
-    references: {},
-    runbookFiles: () => [],
-    provides: ["run"],
-    effects: ["process"],
-    outputs: (): OutputDecls<string> => ({}),
-    fields: (p) => Effect.succeed(toyFormSpec(p.variables)),
-    run: (p, input) => scripts[p.command]?.(input) ?? Stream.empty,
-    instruction: () => [],
-    plugins: [],
-  }),
-  /** A form whose fields cannot be read, as a template whose `boilerplate.yml` is missing. */
-  BadForm: defineForm({
-    name: "BadForm",
-    since: "0.1.0",
-    class: "form",
-    props: Schema.Struct({}),
-    children: { kind: "none" },
-    references: {},
-    runbookFiles: () => [],
-    provides: ["values"],
-    effects: [],
-    outputs: () => ({}),
-    fields: () =>
-      Effect.fail(
-        new PropError({ prop: "path", message: "There is no boilerplate.yml at ./gone." }),
-      ),
-    plugins: [],
-  }),
-})
+  })
+  return {
+    ...TOY_REGISTRY,
+    Run: scripted,
+    /** A `<Run>` that runs alone (`TaskBlock.exclusive`), unless its `shell` is `beside`. */
+    Solo: defineTask({ ...scripted, name: "Solo", exclusive: (p) => p.shell !== "beside" }),
+    /** A `<Run>` that runs no commands: it declares no `process` effect. */
+    Quiet: defineTask({ ...scripted, name: "Quiet", effects: [] }),
+    /** A task with a form of its own, from its YAML children, that runs commands, so it takes `env`. */
+    Ask: defineTask({
+      name: "Ask",
+      since: "0.1.0",
+      class: "task",
+      props: Schema.Struct({ command: Schema.String, variables: Schema.Array(ToyField) }),
+      children: { kind: "yaml", prop: "variables" },
+      references: {},
+      runbookFiles: () => [],
+      provides: ["run"],
+      effects: ["process"],
+      outputs: (): OutputDecls<string> => ({}),
+      fields: (p) => Effect.succeed(toyFormSpec(p.variables)),
+      run: (p, input) => scripts[p.command]?.(input) ?? Stream.empty,
+      instruction: () => [],
+      plugins: [],
+    }),
+    /** A form whose fields cannot be read, as a template whose `boilerplate.yml` is missing. */
+    BadForm: defineForm({
+      name: "BadForm",
+      since: "0.1.0",
+      class: "form",
+      props: Schema.Struct({}),
+      children: { kind: "none" },
+      references: {},
+      runbookFiles: () => [],
+      provides: ["values"],
+      effects: [],
+      outputs: () => ({}),
+      fields: () =>
+        Effect.fail(
+          new PropError({ prop: "path", message: "There is no boilerplate.yml at ./gone." }),
+        ),
+      plugins: [],
+    }),
+  }
+}
 
 /** Runs `program` against an engine for a folder that holds `runbook` at `/rb/runbook.mdx`. */
 const withEngine = <A, E>(
@@ -1024,6 +1031,134 @@ describe("Engine", () => {
         const engine = yield* Engine
         expect((yield* engine.openSession({ path: RUNBOOK }))._tag).toBe("Invalid")
         expect(yield* engine.listSessions).toEqual([])
+      }),
+    )
+  })
+})
+
+describe("Engine exclusive runs", () => {
+  const exclusive = (block: string, runsAlone: "running" | "waiting") =>
+    ({ _tag: "Blocked", by: [{ _tag: "Exclusive", block: blockId(block), runsAlone }] }) as const
+  const idle = { _tag: "Idle" } as const
+
+  it("holds every task that runs commands while one that runs alone runs, naming it, and lets the others run", async () => {
+    const gate = makeGate()
+    const runbook = [
+      '<Solo id="migrate" command="migrate" />',
+      '<Run id="build" command="ok" />',
+      '<Solo id="seed" command="ok" />',
+      '<Solo id="beside" shell="beside" command="ok" />',
+      '<Quiet id="note" command="ok" />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { migrate: gated(gate), ok },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        const recording = yield* rb.record
+        yield* rb.trust
+        expect((yield* rb.run("migrate"))._tag).toBe("Started")
+        yield* Deferred.await(gate.taken)
+        expect(yield* rb.status("migrate")).toEqual({ _tag: "Running" })
+        for (const held of ["build", "seed", "beside"]) {
+          expect(yield* rb.status(held)).toEqual(exclusive("migrate", "running"))
+          expect(yield* rb.run(held)).toEqual({
+            _tag: "Refused",
+            reason: exclusive("migrate", "running"),
+          })
+        }
+        // A task that runs no commands runs beside it.
+        expect(yield* rb.status("note")).toEqual(idle)
+        expect((yield* rb.run("note"))._tag).toBe("Started")
+        yield* rb.wait("note")
+
+        yield* Deferred.succeed(gate.open, undefined)
+        yield* rb.wait("migrate")
+        for (const freed of ["build", "seed", "beside"])
+          expect(yield* rb.status(freed)).toEqual(idle)
+        yield* rb.close
+        const events = yield* Fiber.join(recording)
+        expect(statusesOf(events, "build")).toEqual([
+          { _tag: "Blocked", by: [untrusted] },
+          idle,
+          exclusive("migrate", "running"),
+          idle,
+        ])
+      }),
+    )
+  })
+
+  it("holds a task that runs alone while tasks that run commands run, naming each, but not while one that runs none does", async () => {
+    const build = makeGate()
+    const lint = makeGate()
+    const note = makeGate()
+    const runbook = [
+      '<Run id="build" command="build" />',
+      '<Run id="lint" command="lint" />',
+      '<Solo id="migrate" command="ok" />',
+      '<Solo id="beside" shell="beside" command="ok" />',
+      '<Quiet id="note" command="note" />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { build: gated(build), lint: gated(lint), note: gated(note), ok },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        yield* rb.run("build")
+        yield* Deferred.await(build.taken)
+        expect((yield* rb.run("lint"))._tag).toBe("Started")
+        yield* Deferred.await(lint.taken)
+        // Each running block that holds it, in the runbook's order.
+        const both = {
+          _tag: "Blocked",
+          by: [
+            { _tag: "Exclusive", block: blockId("build"), runsAlone: "waiting" },
+            { _tag: "Exclusive", block: blockId("lint"), runsAlone: "waiting" },
+          ],
+        } as const
+        expect(yield* rb.status("migrate")).toEqual(both)
+        expect(yield* rb.run("migrate")).toEqual({ _tag: "Refused", reason: both })
+        expect(yield* rb.status("beside")).toEqual(idle)
+
+        yield* Deferred.succeed(build.open, undefined)
+        yield* rb.wait("build")
+        expect(yield* rb.status("migrate")).toEqual(exclusive("lint", "waiting"))
+        yield* rb.cancel("lint")
+        // A task that runs no commands does not hold it.
+        yield* rb.run("note")
+        yield* Deferred.await(note.taken)
+        expect(yield* rb.status("migrate")).toEqual(idle)
+        expect((yield* rb.run("migrate"))._tag).toBe("Started")
+        yield* rb.wait("migrate")
+        yield* Deferred.succeed(note.open, undefined)
+        yield* rb.wait("note")
+      }),
+    )
+  })
+
+  it("holds a done task that runs commands from running again while one that runs alone runs, and offers it no run", async () => {
+    const gate = makeGate()
+    await withEngine(
+      ['<Run id="build" command="ok" />', '<Solo id="migrate" command="migrate" />'].join("\n\n"),
+      { migrate: gated(gate), ok },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        yield* rb.run("build")
+        yield* rb.wait("build")
+        yield* rb.run("migrate")
+        yield* Deferred.await(gate.taken)
+        expect(yield* rb.status("build")).toEqual({ _tag: "Done", outcome: "success" })
+        expect((yield* rb.block("build")).actions).toEqual(["reset"])
+        expect(yield* rb.run("build")).toEqual({
+          _tag: "Refused",
+          reason: exclusive("migrate", "running"),
+        })
+        yield* Deferred.succeed(gate.open, undefined)
+        yield* rb.wait("migrate")
+        expect((yield* rb.block("build")).actions).toEqual(["run", "reset"])
+        expect((yield* rb.run("build"))._tag).toBe("Started")
       }),
     )
   })
