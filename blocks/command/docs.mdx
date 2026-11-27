@@ -391,7 +391,8 @@ The `env` prop sets environment variables for the script, by name. A value can r
 
 Runbooks gives the script the values as data. The shell never runs anything in them, so a value can hold quotes, `$(...)` or backticks, as a PR title or an API response can. Quote each variable where you use it, as above, so a value with spaces stays in one piece.
 
-- **The block waits for them.** A block whose `env` reads an output can't run until the block that gives it is done, as with [`dependsOn`](#run-order). An input comes from the blocks `inputsId` names, or an `<Inputs>` nested in the Command.
+- **The block waits for them.** A block whose `env` reads an output can't run until the block that gives it is done, as with [`dependsOn`](#run-order). An input comes from the blocks `inputsId` names, or an `<Inputs>` nested in the Command, and the block can't run until each input it reads has a value. An empty field counts as no value, and the block names the field it waits for. An input that only its `title` or `description` reads doesn't hold it, since those are only shown.
+- **A field can stay empty if it has a default.** To let the block run with an empty field, give the field's variable a `default`, such as `default: ""`, and leave it out of `required`. The block then runs with an empty string. A default doesn't cover a key of a map field, such as `{{ .inputs.tags.env }}`: the block waits until the map has the key, with a value. A field its form hides with `x-show-when` doesn't hold the block either: it gives its default, or an empty string.
 - **A value that isn't there fails the run.** A field no form the block reads has, or an output its block didn't write, fails the run before the script starts. The error names the variable.
 - **A sensitive value stays hidden.** Runbooks gives the script a value that reads a [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs), and keeps it out of the block's view and the saved session. What the script prints shows in its log, so don't print it.
 - **They override other variables.** A variable in `env` replaces one of the same name from Runbooks' own environment or from an [`envFrom`](#variables-from-other-blocks) source, so `env={{ AWS_REGION: "us-west-2" }}` picks the region for a block that names an AwsAuth block in `envFrom`.
@@ -443,7 +444,7 @@ Command and Check blocks can run at the same time. A block's Run button is disab
 
 - **It uses another block's outputs.** A block that references `{{ .outputs.build.tag }}` can't run until `build` is done, and can't run while `build` is running again.
 - **It names another block in `dependsOn` or `envFrom`.** The block can't run until every block it names is done: for a Command, its script exited 0 or 2. If one of them later fails or is stopped, the block waits again. Use `dependsOn` when a script needs something an earlier script did that isn't an output or a variable, such as a resource it created.
-- **It reads an Inputs block.** The block can't run until the values it reads are filled in and valid.
+- **It reads an Inputs block.** The block can't run until the Inputs block's values are valid and each input its `env` reads has a value. See [Setting variables with env](#setting-variables-with-env).
 
 ```mdx
 <Command id="login" command='echo "API_TOKEN=$(vault read -field=token secret/api)" >> "$RUNBOOK_ENV"' />

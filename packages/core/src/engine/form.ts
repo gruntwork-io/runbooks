@@ -9,6 +9,7 @@ import { Redacted, Schema } from "effect"
 import type { FormOutputDecls, TaskValues } from "@runbooks/blocks-core/contract"
 import { type Field, FieldValue, type FormSpec, templateText } from "@runbooks/blocks-core/form"
 import { nearest } from "../document/nearest.ts"
+import { valueAt } from "../document/valueTemplate.ts"
 import { hiddenVariables } from "../domain/boilerplate/showWhen.ts"
 import { validateVariableValue } from "../domain/boilerplate/validators.ts"
 import { type Held, hold, reveal, visible } from "./held.ts"
@@ -229,6 +230,28 @@ export const confirm = (form: Form): Form =>
 /** Each field's error, by name, in the form's order. */
 export const fieldErrors = (form: Form): ReadonlyArray<readonly [string, string]> =>
   check(form).flatMap(({ field, error }) => (error === undefined ? [] : [[field.name, error]]))
+
+/**
+ * What a block that reads `{{ .inputs.<input> }}` finds in the form, by the
+ * field the input names (the part before its first `.`): `absent` for a
+ * form without that field; `empty` while the field is asked for, has no
+ * error, and gives a task nothing at `input`, so the block waits for a
+ * value (#489); otherwise `ready`. Nothing is `""`, or no entry at a map's
+ * key. A default, `""` included, lets the field itself stay `""`, as
+ * today's app has it, but not a key in it. A field with an error holds the
+ * block already, as the form's own check (`fieldErrors`), and a field its
+ * `showWhen` hides is not asked for: it gives its default.
+ */
+export function inputIn(form: Form, input: string): "absent" | "empty" | "ready" {
+  const [name, ...keys] = input.split(".")
+  const checked = check(form).find(({ field }) => field.name === name)
+  if (checked === undefined) return "absent"
+  const { asked, error, field } = checked
+  if (!asked || error !== undefined) return "ready"
+  const value = valueAt(revealed(checked) ?? emptyOf(field), keys)
+  const mayBeEmpty = keys.length === 0 && field.default !== undefined
+  return value === undefined || (value === "" && !mayBeEmpty) ? "empty" : "ready"
+}
 
 /** The fields a client is shown that nobody has set or confirmed. A locked field has nothing to review. */
 export const unreviewedOf = (form: Form): ReadonlyArray<string> =>
