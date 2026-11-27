@@ -393,6 +393,7 @@ export function useGoogleAuth({
   const [gcloudConfigs, setGcloudConfigs] = useState<GcloudConfigInfo[]>([])
   const [selectedConfig, setSelectedConfig] = useState<GcloudConfigInfo | null>(null)
   const choseNoConfigurationRef = useRef(false)
+  const gcloudLoadInFlightRef = useRef<Promise<void> | null>(null)
   const [loadingConfigs, setLoadingConfigs] = useState(false)
   const [configSearch, setConfigSearch] = useState("")
   const [adcInfo, setAdcInfo] = useState<AdcInfo | null>(null)
@@ -1145,6 +1146,9 @@ export function useGoogleAuth({
           ...(detectedCredentials.configuration
             ? { configuration: detectedCredentials.configuration }
             : {}),
+          ...(detectedCredentials.principal
+            ? { confirmedPrincipal: detectedCredentials.principal }
+            : {}),
           ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
           ...(effectiveRegion ? { region: effectiveRegion } : {}),
           ...(effectiveZone ? { zone: effectiveZone } : {}),
@@ -1814,10 +1818,9 @@ export function useGoogleAuth({
   }, [api, requiredScopesKey])
 
   const showGcloudListing = useCallback(
-    async (list: GcloudConfigInfo[], adc: AdcInfo | null) => {
+    (list: GcloudConfigInfo[], adc: AdcInfo | null, lookup: AdcPrincipalLookup) => {
       setGcloudConfigs(list)
       setAdcInfo(adc)
-      const lookup: AdcPrincipalLookup = adc ? await lookUpAdcPrincipal() : { status: "missing" }
       setAdcPrincipal(lookup)
       const usable = configurationsUsableWith(list, lookup)
       setSelectedConfig((previous) =>
@@ -1826,7 +1829,7 @@ export function useGoogleAuth({
           : chooseConfiguration(usable, previous?.name, gcloudConfiguration),
       )
     },
-    [gcloudConfiguration, lookUpAdcPrincipal],
+    [gcloudConfiguration],
   )
 
   const selectConfiguration = useCallback((configuration: GcloudConfigInfo | null) => {
@@ -1841,19 +1844,28 @@ export function useGoogleAuth({
     setAdcPrincipal({ status: "unusable", reason: describeFailure(error) })
   }, [])
 
-  const loadGcloudConfigs = useCallback(async () => {
+  const readAndShowGcloudListing = useCallback(async () => {
     setLoadingConfigs(true)
     setAdcPrincipal({ status: "checking" })
     try {
       const data = await api.invoke("google:gcloud-configurations", {})
       const list = (data.configurations ?? []) as GcloudConfigInfo[]
-      await showGcloudListing(list, (data.adc as AdcInfo | undefined) ?? null)
+      const adc = (data.adc as AdcInfo | undefined) ?? null
+      const lookup: AdcPrincipalLookup = adc ? await lookUpAdcPrincipal() : { status: "missing" }
+      showGcloudListing(list, adc, lookup)
     } catch (error) {
       showGcloudListingFailure(error)
     } finally {
       setLoadingConfigs(false)
     }
-  }, [api, showGcloudListing, showGcloudListingFailure])
+  }, [api, lookUpAdcPrincipal, showGcloudListing, showGcloudListingFailure])
+
+  const loadGcloudConfigs = useCallback(() => {
+    gcloudLoadInFlightRef.current ??= readAndShowGcloudListing().finally(() => {
+      gcloudLoadInFlightRef.current = null
+    })
+    return gcloudLoadInFlightRef.current
+  }, [readAndShowGcloudListing])
 
   const handleGcloudAuth = useCallback(async () => {
     if (adcPrincipal.status !== "signed-in") {
@@ -1880,6 +1892,7 @@ export function useGoogleAuth({
       const data = await api.invoke("google:gcloud-auth", {
         blockId: id,
         ...configuration,
+        ...(adcPrincipal.principal ? { confirmedPrincipal: adcPrincipal.principal } : {}),
         ...(requestedProject ? { projectId: requestedProject } : {}),
         ...(effectiveRegion ? { region: effectiveRegion } : {}),
         ...(effectiveZone ? { zone: effectiveZone } : {}),
@@ -1902,7 +1915,7 @@ export function useGoogleAuth({
       const identity: PendingAccount = {
         ...(data.account?.principal ? { principal: data.account.principal } : {}),
         ...(data.account?.accountType ? { accountType: data.account.accountType } : {}),
-        credentialType: adcInfo?.type === "service_account" ? "service_account" : "authorized_user",
+        credentialType: adcInfo?.type ?? "authorized_user",
         ...(data.account?.scopes ? { scopes: data.account.scopes } : {}),
         ...(data.account?.expiresAt ? { expiresAt: data.account.expiresAt } : {}),
         ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),

@@ -153,7 +153,9 @@ describe("useGoogleAuth in a session — recording", () => {
     await act(() => result.current.handleGcloudAuth())
 
     await waitFor(() => expect(signIns()).toEqual([{ kind: "gcloud" }]))
-    expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp" }])
+    expect(callsTo("google:gcloud-auth")).toEqual([
+      { blockId: "gcp", confirmedPrincipal: "ops@example.com" },
+    ])
   })
 
   it("records a confirmed detection with its source", async () => {

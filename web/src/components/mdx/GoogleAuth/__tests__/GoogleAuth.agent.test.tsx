@@ -85,4 +85,47 @@ describe("GoogleAuth agent adapter", () => {
     )
     expect(await screen.findByText("✓ Authenticated to Google Cloud")).toBeInTheDocument()
   })
+
+  it("signs in with the gcloud login when the agent names no configuration", async () => {
+    const credentialsPath = "/home/u/.config/gcloud/application_default_credentials.json"
+    const account = { principal: "dev@example.com", accountType: "user" }
+    const api = renderWithAgent(<GoogleAuth id="gcp" detectCredentials={false} />, {
+      "google:oauth-available": (() => ({ available: true })) as never,
+      "google:credential-committed": (() => ({ ok: true })) as never,
+      "google:gcloud-configurations": (() => ({
+        configurations: [],
+        configRoot: "/home/u/.config/gcloud",
+        adc: { path: credentialsPath, type: "authorized_user" },
+      })) as never,
+      "google:env-credentials": (() => ({
+        found: true,
+        valid: true,
+        source: "adc",
+        credentialType: "authorized_user",
+        account,
+      })) as never,
+      "google:gcloud-auth": (() => ({
+        valid: true,
+        account,
+        projectId: "proj-a",
+        credentialsPath,
+      })) as never,
+      "google:check-project": (() => ({ enabled: true })) as never,
+    })
+
+    await askAgent(api, {
+      op: "act_on_block",
+      blockId: "gcp",
+      action: "sign_in_with_gcloud",
+      params: {},
+    })
+
+    await vi.waitFor(() =>
+      expect(api.callsTo("google:gcloud-auth")).toEqual([
+        { blockId: "gcp", confirmedPrincipal: "dev@example.com" },
+      ]),
+    )
+    expect(await screen.findByText("✓ Authenticated to Google Cloud")).toBeInTheDocument()
+    expect(api.callsTo("google:gcloud-configurations")).toHaveLength(1)
+  })
 })

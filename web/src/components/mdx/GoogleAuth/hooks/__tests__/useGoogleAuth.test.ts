@@ -260,7 +260,12 @@ describe("useGoogleAuth — detection", () => {
         envVar: "GOOGLE_APPLICATION_CREDENTIALS",
       }),
       "google:env-credentials-confirm": (params) => {
-        expect(params).toEqual({ blockId: "gcp", source: "env", projectId: "proj-a" })
+        expect(params).toEqual({
+          blockId: "gcp",
+          source: "env",
+          confirmedPrincipal: "dev@example.com",
+          projectId: "proj-a",
+        })
         return {
           valid: true,
           account: { principal: "dev@example.com", accountType: "user" },
@@ -345,6 +350,7 @@ describe("useGoogleAuth — detection", () => {
       blockId: "gcp",
       source: "gcloud",
       configuration: "default",
+      confirmedPrincipal: "dev@example.com",
       projectId: "proj-a",
     })
     expect(result.current.authStatus).toBe("authenticated")
@@ -1581,6 +1587,7 @@ describe("useGoogleAuth — gcloud tab", () => {
     expect(invoke).toHaveBeenCalledWith("google:gcloud-auth", {
       blockId: "gcp",
       configuration: "prod",
+      confirmedPrincipal: "ops@example.com",
       projectId: "proj-p",
     })
     expect(result.current.authStatus).toBe("authenticated")
@@ -1663,7 +1670,9 @@ describe("useGoogleAuth — gcloud tab", () => {
     // The listing's stale region is sent to neither: MAIN's fresh read of the
     // configuration decides, and survives the picker detour on the block's
     // credential in MAIN.
-    expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp", configuration: "scratch" }])
+    expect(callsTo("google:gcloud-auth")).toEqual([
+      { blockId: "gcp", configuration: "scratch", confirmedPrincipal: "dev@example.com" },
+    ])
     expect(callsTo("google:set-project")).toEqual([{ blockId: "gcp", projectId: "proj-two" }])
     expect(result.current.authStatus).toBe("authenticated")
     expect(registerOutputs).toHaveBeenLastCalledWith(
@@ -1771,7 +1780,9 @@ describe("useGoogleAuth — gcloud tab", () => {
       await result.current.handleGcloudAuth()
     })
 
-    expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp", configuration: "scratch" }])
+    expect(callsTo("google:gcloud-auth")).toEqual([
+      { blockId: "gcp", configuration: "scratch", confirmedPrincipal: "dev@example.com" },
+    ])
     expect(callsTo("google:set-project")).toEqual([{ blockId: "gcp", projectId: "proj-solo" }])
     expect(result.current.authStatus).toBe("authenticated")
     expect(registerOutputs).toHaveBeenLastCalledWith(
@@ -1861,6 +1872,58 @@ describe("useGoogleAuth — gcloud tab", () => {
     expect(invoke).not.toHaveBeenCalledWith("google:gcloud-auth", expect.anything())
   })
 
+  it("reads the gcloud login once when two loads start together", async () => {
+    installApi({ ...ADC_SIGNED_IN, "google:gcloud-configurations": () => GCLOUD_LISTING })
+
+    const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
+
+    await act(async () => {
+      await Promise.all([result.current.loadGcloudConfigs(), result.current.loadGcloudConfigs()])
+    })
+
+    expect(callsTo("google:gcloud-configurations")).toHaveLength(1)
+    expect(callsTo("google:env-credentials")).toHaveLength(1)
+    expect(result.current.adcPrincipal).toMatchObject({
+      status: "signed-in",
+      principal: "dev@example.com",
+    })
+  })
+
+  it("records the credential type of an impersonated gcloud login", async () => {
+    const impersonated = "impersonated_service_account" as const
+    installApi({
+      "google:env-credentials": () => ({
+        found: true,
+        valid: true,
+        source: "adc",
+        credentialType: impersonated,
+        account: { principal: "deployer@proj.iam.gserviceaccount.com", accountType: "user" },
+      }),
+      "google:gcloud-configurations": () => ({
+        ...GCLOUD_LISTING,
+        adc: { ...GCLOUD_LISTING.adc!, type: impersonated },
+      }),
+      "google:gcloud-auth": () => ({
+        valid: true,
+        account: { principal: "deployer@proj.iam.gserviceaccount.com", accountType: "user" },
+        projectId: "proj-a",
+        credentialsPath: "/home/u/.config/gcloud/application_default_credentials.json",
+      }),
+      "google:check-project": () => ({ enabled: true }),
+    })
+
+    const { result } = renderGoogleAuth({ id: "gcp", detectCredentials: false })
+    await act(async () => {
+      await result.current.loadGcloudConfigs()
+    })
+    await act(async () => {
+      await result.current.handleGcloudAuth()
+    })
+
+    expect(result.current.authStatus).toBe("authenticated")
+    expect(result.current.accountInfo?.credentialType).toBe(impersonated)
+  })
+
   it("keeps the choice of no configuration across a refresh, and sends none", async () => {
     installApi({
       ...ADC_SIGNED_IN,
@@ -1889,7 +1952,9 @@ describe("useGoogleAuth — gcloud tab", () => {
     await act(async () => {
       await result.current.handleGcloudAuth()
     })
-    expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp" }])
+    expect(callsTo("google:gcloud-auth")).toEqual([
+      { blockId: "gcp", confirmedPrincipal: "dev@example.com" },
+    ])
   })
 
   it("reports why the Application Default Credentials cannot be used", async () => {
@@ -1957,7 +2022,9 @@ describe("useGoogleAuth — gcloud tab", () => {
         await result.current.handleGcloudAuth()
       })
 
-      expect(callsTo("google:gcloud-auth")).toEqual([{ blockId: "gcp" }])
+      expect(callsTo("google:gcloud-auth")).toEqual([
+        { blockId: "gcp", confirmedPrincipal: "dev@example.com" },
+      ])
       expect(invoke).not.toHaveBeenCalledWith(
         "google:gcloud-auth",
         expect.objectContaining({ projectId: "other-org-proj" }),
@@ -2044,7 +2111,12 @@ describe("useGoogleAuth — gcloud tab", () => {
     // Not the cleared prop: no region is sent, so MAIN applies the `default`
     // configuration's compute/region, and the block publishes it.
     expect(callsTo("google:gcloud-auth")).toEqual([
-      { blockId: "gcp", configuration: "default", projectId: "proj-a" },
+      {
+        blockId: "gcp",
+        configuration: "default",
+        confirmedPrincipal: "dev@example.com",
+        projectId: "proj-a",
+      },
     ])
     expect(registerOutputs).toHaveBeenLastCalledWith(
       "gcp",
@@ -2100,6 +2172,7 @@ describe("useGoogleAuth — gcloud tab", () => {
     expect(invoke).toHaveBeenCalledWith("google:gcloud-auth", {
       blockId: "gcp",
       configuration: "default",
+      confirmedPrincipal: "dev@example.com",
       projectId: "proj-a",
     })
     expect(result.current.authStatus).toBe("authenticated")
@@ -2159,6 +2232,7 @@ describe("useGoogleAuth — gcloud tab", () => {
       {
         blockId: "gcp",
         configuration: "default",
+        confirmedPrincipal: "dev@example.com",
         projectId: "proj-a",
         region: "europe-west4",
         zone: "europe-west4-a",

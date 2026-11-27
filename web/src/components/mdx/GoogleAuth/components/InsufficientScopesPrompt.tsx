@@ -133,7 +133,7 @@ function AddScopesInTerminal(props: {
 function AddScopesInstructions() {
   return (
     <p className="text-sm text-muted-foreground">
-      To add the missing scopes to these credentials, run this command in a terminal. Then click{" "}
+      To ask Google for the missing scopes, run this command in a terminal. Then click{" "}
       <strong>Check again</strong>.
     </p>
   )
