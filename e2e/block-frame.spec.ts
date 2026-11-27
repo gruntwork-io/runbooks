@@ -1,7 +1,8 @@
 /**
  * A block's frame as the window draws it from the engine: its step mark,
  * its status as the engine has it, and what it waits for, each block it
- * waits for a link that scrolls to it.
+ * waits for a link that scrolls to it. In instruction mode, set in the
+ * settings file, a task's command to copy in place of its view.
  *
  * Runs against the build in app-out/: `just app-test-e2e` builds it first.
  * The window has no trust prompt yet (row 3i), so every session here is
@@ -35,5 +36,22 @@ test.describe("a block's frame", () => {
     await expect(build).not.toBeInViewport()
     await link.click()
     await expect(build).toBeInViewport()
+  })
+
+  test("shows a Command's command to copy in instruction mode, says the mode is on, and offers no Run", async ({
+    launch,
+  }) => {
+    const { page } = await launch({ args: [runbook("walk")], settings: { instructionMode: true } })
+    await expect(
+      page.getByText(
+        "Instruction mode: nothing here runs automatically. Each step shows the exact command to copy and run yourself.",
+      ),
+    ).toBeVisible()
+    const block = page.getByRole("region", { name: "<Command> block" })
+    await expect(block.getByText("Run this command:")).toBeVisible()
+    await expect(block.locator(".block-command code")).toHaveText("touch ran-on-open")
+    await expect(block.locator(".block-command")).toHaveCSS("user-select", "all")
+    await expect(block.getByText("Waiting for you to trust this runbook.")).toHaveCount(0)
+    await expect(block.getByRole("button", { name: "Run" })).toHaveCount(0)
   })
 })

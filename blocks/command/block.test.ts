@@ -561,7 +561,7 @@ describe("a command that cannot run", () => {
 })
 
 describe("in instruction mode", () => {
-  it("shows the script as the runbook was trusted with it, and no value it reads", () => {
+  it("says to run the script as the runbook was trusted with it, and shows no value it reads", () => {
     const path = Schema.decodeSync(RunbookPath)("a.sh")
     const reads = {
       values: new Map([["token", Redacted.make<FieldValue>("fake-secret-7f3a")]]),
@@ -569,9 +569,11 @@ describe("in instruction mode", () => {
       files: new Map([["a.sh", "#!/usr/bin/env python3\nprint(1)"]]),
     }
     expect(command.instruction({ path }, reads)).toEqual([
+      { kind: "text", markdown: "Run this script:" },
       { kind: "code", language: "python3", code: "#!/usr/bin/env python3\nprint(1)" },
     ])
     expect(command.instruction({ command: "echo hi" }, reads)).toEqual([
+      { kind: "text", markdown: "Run this command:" },
       { kind: "code", language: "bash", code: "echo hi" },
     ])
   })

@@ -2,13 +2,20 @@ import { describe, expect, it } from "bun:test"
 import { Effect, Queue, Schema } from "effect"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { View, ViewRequest } from "@runbooks/blocks/views"
-import { BlockView, DocumentBlock, type DocumentView, SessionId } from "@runbooks/core/protocol"
+import {
+  BlockView,
+  DocumentBlock,
+  type DocumentView,
+  SessionId,
+  Settings,
+} from "@runbooks/core/protocol"
 import { makeEngineClient } from "./engine.ts"
 import { dies, fails, fakeMain } from "./fakeMain.ts"
 import { buttonsFor, scrollToBlock, ViewsContext } from "./frame.tsx"
 import { type Following, FollowingContext, followingOf } from "./following.ts"
 import { follow, type Live, makeLiveStore } from "./live.ts"
 import { Markdown } from "./markdown.tsx"
+import { makeSettingsStore } from "./settings.ts"
 
 // The frame the walk draws each block in, over document blocks as the
 // engine sends them, rendered to the markup the page would hold.
@@ -18,6 +25,22 @@ type TreeNode = DocumentView["tree"]
 const RUNBOOK = "/work/demo/runbook.mdx"
 const SESSION = "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"
 const SPAN = { start: { line: 3, column: 1 }, end: { line: 5, column: 3 } }
+
+/** The settings as the engine sends them, instruction mode off. */
+const SETTINGS = {
+  theme: "system",
+  instructionMode: false,
+  runbookWidth: null,
+  askAboutGeneratedFiles: true,
+  caBundleFile: null,
+  proxy: null,
+  agentAccess: false,
+  confirmAgentRuns: true,
+  recentGitHubHosts: [],
+  lastSelectedGitHubHost: null,
+  recentGitLabHosts: [],
+  lastSelectedGitLabHost: null,
+}
 
 const placed = (fields: Record<string, unknown>): DocumentBlock =>
   Schema.decodeUnknownSync(DocumentBlock)({
@@ -121,7 +144,7 @@ const view = (
 const followingViews = (...views: BlockView[]): Following => {
   const live = makeLiveStore()
   live.set({ blocks: new Map(views.map((shown) => [shown.block, shown])) })
-  return { live, act: () => Effect.succeed(undefined) }
+  return { live, settings: makeSettingsStore(undefined), act: () => Effect.succeed(undefined) }
 }
 
 /** The page with `blocks` in it, in order, the window following `following`. */
@@ -374,10 +397,11 @@ describe("the window asking the engine for a block", () => {
     const said = await Effect.runPromise(
       Effect.scoped(
         Effect.flatMap(makeEngineClient(main.bridge), (engine) =>
-          followingOf(engine, Schema.decodeSync(SessionId)(SESSION)).act(
-            Schema.decodeSync(BlockView.fields.block)("setup"),
-            request,
-          ),
+          followingOf(
+            engine,
+            Schema.decodeSync(SessionId)(SESSION),
+            Schema.decodeUnknownSync(Settings)(SETTINGS),
+          ).act(Schema.decodeSync(BlockView.fields.block)("setup"), request),
         ),
       ).pipe(Effect.timeout("2 seconds")),
     )
@@ -412,17 +436,9 @@ describe("the window asking the engine for a block", () => {
   })
 
   it("says the engine failed when the call dies, rather than saying nothing", async () => {
-    const main = fakeMain(() => dies({ name: "Error", message: "the block's run threw" }))
-    const said = await Effect.runPromise(
-      Effect.scoped(
-        Effect.flatMap(makeEngineClient(main.bridge), (engine) =>
-          followingOf(engine, Schema.decodeSync(SessionId)(SESSION)).act(
-            Schema.decodeSync(BlockView.fields.block)("setup"),
-            { _tag: "RunBlock" },
-          ),
-        ),
-      ).pipe(Effect.timeout("2 seconds")),
-    )
+    const { said } = await asking(dies({ name: "Error", message: "the block's run threw" }), {
+      _tag: "RunBlock",
+    })
     expect(said).toBe("The engine failed: the block's run threw")
   })
 
@@ -431,10 +447,11 @@ describe("the window asking the engine for a block", () => {
     const said = await Effect.runPromise(
       Effect.scoped(
         Effect.flatMap(makeEngineClient(main.bridge), (engine) =>
-          followingOf(engine, Schema.decodeSync(SessionId)(SESSION)).act(
-            Schema.decodeSync(BlockView.fields.block)("setup"),
-            { _tag: "ResetBlock" },
-          ),
+          followingOf(
+            engine,
+            Schema.decodeSync(SessionId)(SESSION),
+            Schema.decodeUnknownSync(Settings)(SETTINGS),
+          ).act(Schema.decodeSync(BlockView.fields.block)("setup"), { _tag: "ResetBlock" }),
         ),
       ).pipe(Effect.timeout("2 seconds")),
     )
@@ -470,7 +487,10 @@ describe("a block's frame, following the engine", () => {
     const shownAfter = (live: Live) => {
       const store = makeLiveStore()
       store.set(live)
-      return page({ live: store, act: () => Effect.never }, placed({ id: "greet" }))
+      return page(
+        { live: store, settings: makeSettingsStore(undefined), act: () => Effect.never },
+        placed({ id: "greet" }),
+      )
     }
     const seen: string[] = []
     await Effect.runPromise(
@@ -522,5 +542,277 @@ describe("a block's frame, following the engine", () => {
     expect(running).toContain(">Cancel</button>")
     expect(done).toContain('<p class="block-status">Done</p>')
     expect(done).toContain('aria-label="Step: done"')
+  })
+})
+
+/** `following`, with instruction mode `on`. */
+const inInstructionMode = (following: Following, on = true): Following => ({
+  ...following,
+  settings: makeSettingsStore(
+    Schema.decodeUnknownSync(Settings)({ ...SETTINGS, instructionMode: on }),
+  ),
+})
+
+const DEPLOY = [
+  { kind: "text", markdown: "Run this command:" },
+  { kind: "code", language: "bash", code: "tofu apply" },
+]
+
+describe("instruction mode", () => {
+  it("shows a task's instruction in place of its view, each command to copy, and offers no Run", () => {
+    const shown = page(
+      inInstructionMode(
+        followingViews(view("deploy", { _tag: "Idle" }, { actions: ["run"], instruction: DEPLOY })),
+      ),
+      placed({ id: "deploy" }),
+    )
+    expect(shown).toContain("<p>Run this command:</p>")
+    expect(shown).toContain(
+      '<pre class="block-command"><code class="language-bash">tofu apply</code></pre>',
+    )
+    expect(shown).not.toContain(">Run</button>")
+    expect(shown).not.toContain("block-status")
+  })
+
+  it("shows the view as usual when it is off", () => {
+    const shown = page(
+      inInstructionMode(
+        followingViews(view("deploy", { _tag: "Idle" }, { actions: ["run"], instruction: DEPLOY })),
+        false,
+      ),
+      placed({ id: "deploy" }),
+    )
+    expect(shown).toContain(">Run</button>")
+    expect(shown).not.toContain("tofu apply")
+  })
+
+  it("shows a credential block's instruction, its links as links, and a form as it is", () => {
+    const shown = page(
+      inInstructionMode(
+        followingViews(
+          view(
+            "cloud",
+            { _tag: "Idle" },
+            {
+              class: "credential",
+              instruction: [
+                { kind: "text", markdown: "Sign in to the account you use." },
+                { kind: "link", label: "The cloud's console", url: "https://console.example.com/" },
+                { kind: "link", label: "A local file", url: "file:///etc/passwd" },
+              ],
+            },
+          ),
+          view("config", { _tag: "Idle" }, { class: "form" }),
+        ),
+      ),
+      placed({ id: "cloud", class: "credential" }),
+      placed({ id: "config", class: "form" }),
+    )
+    expect(shown).toContain("<p>Sign in to the account you use.</p>")
+    expect(shown).toContain('<a href="https://console.example.com/">The cloud&#x27;s console</a>')
+    expect(shown).toContain("A local file (file:///etc/passwd)")
+    expect(shown).not.toContain("this sign-in yet")
+    expect(shown).toContain("The window can&#x27;t show this form&#x27;s fields yet.")
+  })
+
+  it("runs nothing, even when a view asks as it draws", () => {
+    const asked: string[] = []
+    const Asks: View<Schema.Json> = ({ act }) => {
+      act({ _tag: "RunBlock" })
+      return <p>A view that asks.</p>
+    }
+    const following = (on: boolean): Following => ({
+      ...inInstructionMode(
+        followingViews(view("deploy", { _tag: "Idle" }, { actions: ["run"], instruction: DEPLOY })),
+        on,
+      ),
+      act: (block, request) => {
+        asked.push(`${request._tag} ${block}`)
+        return Effect.never
+      },
+    })
+    const drawn = (on: boolean, block: DocumentBlock) =>
+      renderToStaticMarkup(
+        <ViewsContext value={{ Example: Asks }}>
+          <FollowingContext value={following(on)}>
+            <Markdown
+              document={{
+                tree: { type: "root", children: [{ type: "block", index: 0, children: [] }] },
+                blocks: [block],
+              }}
+              runbook={RUNBOOK}
+              session={SESSION}
+            />
+          </FollowingContext>
+        </ViewsContext>,
+      )
+    expect(drawn(true, placed({ id: "deploy", props: {} }))).not.toContain("A view that asks.")
+    expect(
+      drawn(true, placed({ id: "deploy", class: "display", step: false, props: {} })),
+    ).toContain("A view that asks.")
+    expect(asked).toEqual([])
+    drawn(false, placed({ id: "deploy", props: {} }))
+    expect(asked).toEqual(["RunBlock deploy"])
+  })
+
+  it("takes a form's values, which its instruction reads, while it runs nothing", () => {
+    const asked: string[] = []
+    const Enters: View<Schema.Json> = ({ act }) => {
+      act({ _tag: "SetValues", values: { region: "us-east-1" } })
+      act({ _tag: "ResetBlock" })
+      return <p>A form.</p>
+    }
+    renderToStaticMarkup(
+      <ViewsContext value={{ Example: Enters }}>
+        <FollowingContext
+          value={{
+            ...inInstructionMode(
+              followingViews(view("deploy", { _tag: "Idle" }, { class: "form", actions: [] })),
+            ),
+            act: (block, request) => {
+              asked.push(`${request._tag} ${block}`)
+              return Effect.never
+            },
+          }}
+        >
+          <Markdown
+            document={{
+              tree: { type: "root", children: [{ type: "block", index: 0, children: [] }] },
+              blocks: [placed({ id: "deploy", class: "form", step: true, props: {} })],
+            }}
+            runbook={RUNBOOK}
+            session={SESSION}
+          />
+        </FollowingContext>
+      </ViewsContext>,
+    )
+    expect(asked).toEqual(["SetValues deploy"])
+  })
+
+  it("keeps following the session when watching the settings fails", async () => {
+    let deploy: Record<string, unknown> = {
+      block: "deploy",
+      tag: "Example",
+      class: "task",
+      status: { _tag: "Idle" },
+      actions: ["run"],
+      outputs: {},
+      instruction: DEPLOY,
+    }
+    const main = fakeMain((tag) =>
+      tag === "GetSession"
+        ? {
+            session: SESSION,
+            name: "deploy",
+            path: RUNBOOK,
+            sequence: 2,
+            trust: { trusted: true, hash: `sha256:${"0".repeat(64)}` },
+            blocks: [deploy],
+            warnings: [],
+          }
+        : tag === "GetBlock"
+          ? deploy
+          : undefined,
+    )
+    const statuses: Array<string | undefined> = []
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const engine = yield* makeEngineClient(main.bridge)
+          const following = followingOf(
+            engine,
+            Schema.decodeSync(SessionId)(SESSION),
+            Schema.decodeUnknownSync(Settings)(SETTINGS),
+          )
+          const changes = yield* Queue.unbounded<void>()
+          following.live.subscribe(() => Queue.offerUnsafe(changes, undefined))
+          yield* Effect.acquireRelease(Effect.sync(following.start), (stop) => Effect.sync(stop))
+          yield* Queue.take(changes)
+          const statusNow = () => following.live.get().blocks.get("deploy")?.status?._tag
+          statuses.push(statusNow())
+          main.end("WatchSettings", dies({ name: "Error", message: "the settings file vanished" }))
+          // The watch's defect arrives before the run starts.
+          yield* Effect.sleep("50 millis")
+          deploy = { ...deploy, status: { _tag: "Running" }, actions: ["cancel"] }
+          main.stream("Events", [
+            {
+              session: SESSION,
+              sequence: 3,
+              at: "2026-11-26T12:00:00.000Z",
+              event: { _tag: "BlockStatusChanged", block: "deploy", status: { _tag: "Running" } },
+            },
+          ])
+          yield* Queue.take(changes)
+          statuses.push(statusNow())
+          expect(following.live.get().ended).toBeUndefined()
+          expect(following.settings.get()?.instructionMode).toBe(false)
+        }),
+      ).pipe(Effect.timeout("2 seconds")),
+    )
+    expect(statuses).toEqual(["Idle", "Running"])
+  })
+
+  it("shows a change of the setting as the engine streams it, without a reload", async () => {
+    const deploy = {
+      block: "deploy",
+      tag: "Example",
+      class: "task",
+      status: { _tag: "Idle" },
+      actions: ["run"],
+      outputs: {},
+      instruction: DEPLOY,
+    }
+    const main = fakeMain((tag) =>
+      tag === "GetSession"
+        ? {
+            session: SESSION,
+            name: "deploy",
+            path: RUNBOOK,
+            trust: { trusted: true, hash: `sha256:${"0".repeat(64)}` },
+            blocks: [deploy],
+            warnings: [],
+          }
+        : tag === "GetBlock"
+          ? deploy
+          : undefined,
+    )
+    const shown: string[] = []
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const engine = yield* makeEngineClient(main.bridge)
+          const following = followingOf(
+            engine,
+            Schema.decodeSync(SessionId)(SESSION),
+            Schema.decodeUnknownSync(Settings)(SETTINGS),
+          )
+          const changes = yield* Queue.unbounded<void>()
+          following.live.subscribe(() => Queue.offerUnsafe(changes, undefined))
+          following.settings.subscribe(() => Queue.offerUnsafe(changes, undefined))
+          yield* Effect.acquireRelease(Effect.sync(following.start), (stop) => Effect.sync(stop))
+          yield* Queue.take(changes)
+          shown.push(page(following, placed({ id: "deploy" })))
+          main.stream("WatchSettings", [
+            {
+              settings: { ...SETTINGS, instructionMode: true },
+              file: "/data/settings.json",
+              problems: [],
+            },
+          ])
+          yield* Queue.take(changes)
+          shown.push(page(following, placed({ id: "deploy" })))
+          main.stream("WatchSettings", [
+            { settings: SETTINGS, file: "/data/settings.json", problems: [] },
+          ])
+          yield* Queue.take(changes)
+          shown.push(page(following, placed({ id: "deploy" })))
+        }),
+      ).pipe(Effect.timeout("2 seconds")),
+    )
+    const [off, on, offAgain] = shown
+    expect(off).toContain(">Run</button>")
+    expect(on).toContain('<code class="language-bash">tofu apply</code>')
+    expect(on).not.toContain(">Run</button>")
+    expect(offAgain).toContain(">Run</button>")
   })
 })

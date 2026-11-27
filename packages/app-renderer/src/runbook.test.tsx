@@ -1,8 +1,11 @@
 import { describe, expect, it } from "bun:test"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 import { renderToStaticMarkup } from "react-dom/server"
-import { DocumentView, SessionSummary } from "@runbooks/core/protocol"
+import { DocumentView, SessionSummary, Settings } from "@runbooks/core/protocol"
+import { FollowingContext } from "./following.ts"
+import { makeLiveStore } from "./live.ts"
 import { Runbook } from "./runbook.tsx"
+import { makeSettingsStore } from "./settings.ts"
 
 // The runbook page over a document and session as the engine sends them.
 
@@ -79,5 +82,41 @@ describe("the runbook page", () => {
 
   it("says nothing of such parts when there are none", () => {
     expect(page()).not.toContain("can&#x27;t show")
+  })
+
+  it("says when it is in instruction mode, above the runbook's box, and not when it isn't", () => {
+    const inMode = (instructionMode: boolean) =>
+      renderToStaticMarkup(
+        <FollowingContext
+          value={{
+            live: makeLiveStore(),
+            settings: makeSettingsStore(
+              Schema.decodeUnknownSync(Settings)({
+                theme: "system",
+                instructionMode,
+                runbookWidth: null,
+                askAboutGeneratedFiles: true,
+                caBundleFile: null,
+                proxy: null,
+                agentAccess: false,
+                confirmAgentRuns: true,
+                recentGitHubHosts: [],
+                lastSelectedGitHubHost: null,
+                recentGitLabHosts: [],
+                lastSelectedGitLabHost: null,
+              }),
+            ),
+            act: () => Effect.succeed(undefined),
+          }}
+        >
+          <Runbook session={session} document={document({})} />
+        </FollowingContext>,
+      )
+    const banner =
+      "Instruction mode: nothing here runs automatically. Each step shows the exact command to copy and run yourself."
+    const shown = inMode(true)
+    expect(shown).toContain(banner)
+    expect(shown.indexOf(banner)).toBeLessThan(shown.indexOf('class="runbook-body"'))
+    expect(inMode(false)).not.toContain(banner)
   })
 })

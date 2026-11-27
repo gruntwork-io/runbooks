@@ -1,8 +1,9 @@
 /**
  * The session the window follows, as each block's frame reads it: the
- * block's view now (`live.ts`), and a way to ask the engine to act on it.
- * The app provides it (`app.tsx`). With none, as a page rendered on its own,
- * no block has a view and nothing is asked.
+ * block's view now (`live.ts`), the settings now (`settings.ts`), and a way
+ * to ask the engine to act on a block. The app provides it (`app.tsx`).
+ * With none, as a page rendered on its own, no block has a view, no setting
+ * is read, and nothing is asked.
  */
 import { Cause, Effect } from "effect"
 import { createContext, useContext, useSyncExternalStore } from "react"
@@ -14,13 +15,16 @@ import type {
   Refusal,
   RunResult,
   SessionId,
+  Settings,
   SetValuesResult,
 } from "@runbooks/core/protocol"
 import { clientErrorText, defectText } from "./defect.ts"
 import { follow, type LiveStore, makeLiveStore } from "./live.ts"
+import { followSettings, makeSettingsStore, type SettingsStore } from "./settings.ts"
 
 export interface Following {
   readonly live: LiveStore
+  readonly settings: SettingsStore
   /** Asks the engine for `request` on `block`. It gives what to tell the person about the answer, if anything. */
   readonly act: (
     block: BlockView["block"],
@@ -30,6 +34,7 @@ export interface Following {
 
 export const FollowingContext = createContext<Following>({
   live: makeLiveStore(),
+  settings: makeSettingsStore(undefined),
   act: () => Effect.succeed(undefined),
 })
 
@@ -40,6 +45,13 @@ export function useBlockView(block: string | undefined): BlockView | undefined {
   return useSyncExternalStore(live.subscribe, select, select)
 }
 
+/** Whether the window shows instructions in place of running blocks. Off until the settings are read. */
+export function useInstructionMode(): boolean {
+  const { settings } = useContext(FollowingContext)
+  const select = () => settings.get()?.instructionMode === true
+  return useSyncExternalStore(settings.subscribe, select, select)
+}
+
 /** Why the window no longer follows the session, when it doesn't. */
 export function useEnded(): string | undefined {
   const { live } = useContext(FollowingContext)
@@ -48,19 +60,28 @@ export function useEnded(): string | undefined {
 }
 
 /**
- * The window following `session` in `engine`. `start` follows it until the
- * function it returns is called, which a component calls from its effect.
+ * The window following `session` in `engine`, from `settings` as it read
+ * them. `start` follows the session and the settings until the function it
+ * returns is called, which a component calls from its effect.
  */
 export function followingOf(
   engine: EngineClient,
   session: SessionId,
+  settings: Settings,
 ): Following & { readonly start: () => () => void } {
   const live = makeLiveStore()
+  const settingsNow = makeSettingsStore(settings)
   return {
     live,
+    settings: settingsNow,
     act: (block, request) => ask(engine, session, block, request),
     start: () => {
-      const fiber = Effect.runFork(follow(engine, session, live.set))
+      const fiber = Effect.runFork(
+        Effect.all([follow(engine, session, live.set), followSettings(engine, settingsNow.set)], {
+          concurrency: "unbounded",
+          discard: true,
+        }),
+      )
       return () => fiber.interruptUnsafe()
     },
   }

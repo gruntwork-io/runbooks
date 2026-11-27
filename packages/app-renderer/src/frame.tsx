@@ -21,14 +21,29 @@
  * A view asks the engine through `act`, which the frame sends for its
  * session and block, and it shows what the engine answered.
  *
+ * In instruction mode (`Settings.instructionMode`) a task or credential
+ * block shows its instruction (`BlockView.instruction`) in place of its view
+ * and its status: each text step as text, each command to select and copy,
+ * each link as a link the walk would make. The frame then sends nothing a
+ * view asks for but a form's values (`SetValues`), whatever its class. A
+ * form still shows its view: it is how the person gives the values an
+ * instruction reads.
+ *
  * Classes, statuses, blockers and errors are closed sets: each switch over
  * one names every member, so a new one fails the build here.
  */
 import { Effect, type Schema } from "effect"
 import { createContext, type ReactNode, useContext, useState } from "react"
 import { type View, type ViewRequest, views } from "@runbooks/blocks/views"
-import type { BlockAction, BlockView, DocumentBlock, LogPage } from "@runbooks/core/protocol"
-import { FollowingContext, useBlockView } from "./following.ts"
+import type {
+  BlockAction,
+  BlockView,
+  DocumentBlock,
+  Instruction,
+  LogPage,
+} from "@runbooks/core/protocol"
+import { FollowingContext, useBlockView, useInstructionMode } from "./following.ts"
+import { linkTarget } from "./markdown.tsx"
 import { place } from "./place.ts"
 
 type Configured = Extract<DocumentBlock, { readonly _tag: "Configured" }>
@@ -59,6 +74,22 @@ export function scrollToBlock(
   document.getElementById(frameId(block))?.scrollIntoView({ behavior: "smooth", block: "center" })
 }
 
+/** Whether instruction mode shows a block of `kind` as its instruction. */
+function instructedIn(kind: DocumentBlock["class"]): boolean {
+  switch (kind) {
+    case "task":
+    case "credential":
+      return true
+    case "form":
+    case "display":
+      return false
+    default: {
+      const unhandled: never = kind
+      throw new Error(`The frame has no instruction mode for the class ${String(unhandled)}.`)
+    }
+  }
+}
+
 /** Whether a block of `kind` folds once done, when it asks to. */
 function foldsWhenDone(kind: DocumentBlock["class"]): boolean {
   switch (kind) {
@@ -73,6 +104,26 @@ function foldsWhenDone(kind: DocumentBlock["class"]): boolean {
     default: {
       const unhandled: never = kind
       throw new Error(`The frame has no folding for the class ${String(unhandled)}.`)
+    }
+  }
+}
+
+/**
+ * Whether instruction mode sends `request`. It runs nothing, so only a
+ * form's values go through: an instruction reads them.
+ */
+function takenInInstructionMode(request: ViewRequest): boolean {
+  switch (request._tag) {
+    case "SetValues":
+      return true
+    case "RunBlock":
+    case "CancelBlock":
+    case "ResetBlock":
+    case "ActOnCredential":
+      return false
+    default: {
+      const unhandled: never = request
+      return unhandled
     }
   }
 }
@@ -94,9 +145,11 @@ export function BlockFrame({
   const view = useBlockView(block.id)
   const status = view?.status
   const following = useContext(FollowingContext)
+  const instructionMode = useInstructionMode()
+  const instructed = instructionMode && instructedIn(block.class)
   const [said, setSaid] = useState<string>()
   const act = (request: ViewRequest) => {
-    if (block.id === undefined) return
+    if (block.id === undefined || (instructionMode && !takenInInstructionMode(request))) return
     Effect.runFork(
       Effect.flatMap(following.act(block.id, request), (line) => Effect.sync(() => setSaid(line))),
     )
@@ -148,11 +201,17 @@ export function BlockFrame({
             </ul>
           ) : (
             <>
-              {status === undefined ? null : <Status status={status} onPage={onPage} />}
+              {status === undefined || instructed ? null : (
+                <Status status={status} onPage={onPage} />
+              )}
               {said === undefined ? null : <p className="block-said">{said}</p>}
-              <Body block={block} view={view} act={act}>
-                {children}
-              </Body>
+              {instructed ? (
+                <InstructionBody instruction={view?.instruction}>{children}</InstructionBody>
+              ) : (
+                <Body block={block} view={view} act={act}>
+                  {children}
+                </Body>
+              )}
             </>
           )}
         </>
@@ -443,4 +502,54 @@ function Log({ page }: { readonly page: LogPage }) {
       </pre>
     </>
   )
+}
+
+/** A block in instruction mode: its markdown, then its instruction, once the engine sent it. */
+function InstructionBody({
+  instruction,
+  children,
+}: {
+  readonly instruction: Instruction | undefined
+  readonly children: ReactNode
+}) {
+  return (
+    <div className="block-body">
+      {children}
+      {instruction === undefined ? null : (
+        <div className="block-instruction">
+          {instruction.map((step, index) => (
+            <InstructionStep key={index} step={step} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function InstructionStep({ step }: { readonly step: Instruction[number] }) {
+  switch (step.kind) {
+    case "text":
+      return <p>{step.markdown}</p>
+    case "code":
+      // One click selects the whole command, to copy with the keyboard (app.css).
+      return (
+        <pre className="block-command">
+          <code className={`language-${step.language}`}>{step.code}</code>
+        </pre>
+      )
+    case "link": {
+      const target = linkTarget(step.url)
+      return target === undefined ? (
+        <p>{`${step.label} (${step.url})`}</p>
+      ) : (
+        <p>
+          <a href={target}>{step.label}</a>
+        </p>
+      )
+    }
+    default: {
+      const unhandled: never = step
+      throw new Error(`The frame has no view of the step ${JSON.stringify(unhandled)}.`)
+    }
+  }
 }
