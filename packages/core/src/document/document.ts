@@ -183,9 +183,11 @@ export const BlockNode = Schema.Struct({
   props: Schema.Unknown,
   shared: SharedProps,
   /**
-   * The inputs its props' templates read (`{{ .inputs.<path> }}`), each
-   * once, in the order written: a field's name, or a map field's name and
-   * key (`tags.env`). A script is not a template (`ScriptSource`).
+   * The inputs its run is given that its templates read
+   * (`{{ .inputs.<path> }}`), each once, in the order written: a field's
+   * name, or a map field's name and key (`tags.env`). They come from its own
+   * props and `env`, not from a script (`ScriptSource`) and not from a
+   * `title` or `description`, which are shown, not given to the run.
    */
   inputs: Schema.Array(Schema.String),
   span: Span,

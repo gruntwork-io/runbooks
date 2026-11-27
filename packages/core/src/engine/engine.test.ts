@@ -1894,6 +1894,41 @@ describe("Engine values", () => {
     )
   })
 
+  // A title or a description is shown, not given to a run: an empty value in it is empty text.
+  it("lets a form whose title reads its own field be submitted with the field empty", async () => {
+    const config = withFields('<Form id="config" title="Settings for {{ .inputs.id }}">', [
+      "- name: id",
+      "  type: string",
+    ])
+    await withEngine(
+      config,
+      {},
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        expect(yield* rb.status("config")).toEqual({ _tag: "Idle" })
+        expect(yield* rb.run("config")).toEqual({ _tag: "Submitted" })
+        expect(yield* rb.status("config")).toEqual({ _tag: "Done", outcome: "success" })
+      }),
+    )
+  })
+
+  it("runs a task whose title and description alone read an empty input", async () => {
+    const runbook = [
+      withFields('<Form id="config">', ["- name: id", "  type: string"]),
+      '<Run id="deploy" command="ok" inputsId="config" title="Deploy {{ .inputs.id }}" description="To {{ .inputs.id }}" />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { ok },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        expect((yield* rb.run("deploy"))._tag).toBe("Started")
+      }),
+    )
+  })
+
   it("never counts as done a form in a loop of forms that wait for each other", async () => {
     const reading = (id: string, targets: ReadonlyArray<string>) =>
       withFields(`<Form id="${id}">`, [

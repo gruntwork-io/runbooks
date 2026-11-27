@@ -123,6 +123,15 @@ type SharedKey = keyof typeof SharedProps.fields
 const SHARED_KEYS: ReadonlySet<string> = new Set(Object.keys(SharedProps.fields))
 const isShared = (key: string): key is SharedKey => SHARED_KEYS.has(key)
 
+/**
+ * The shared props a block shows, not gives to its run. An empty value in
+ * one is empty text, so an input it reads holds nothing.
+ */
+const SHOWN_SHARED_PROPS: ReadonlySet<string> = new Set([
+  "title",
+  "description",
+] satisfies ReadonlyArray<SharedKey>)
+
 /** The shared props that name other blocks, each with the capability its targets must provide. */
 const SHARED_REFERENCES = [
   ["inputsId", "values"],
@@ -675,12 +684,20 @@ class Parse {
     // A task whose props were refused cannot say which are its scripts, so none of its own props is read.
     const ownRead =
       block.class === "task" && block.scripts !== undefined && Result.isFailure(props) ? {} : input
+    // The inputs its run is given, from its own props and the shared ones it doesn't only show.
     const inputs = new Set<string>()
-    for (const [prop, value] of [...Object.entries(ownRead), ...Object.entries(shared)]) {
-      if (scriptProps.has(prop)) continue
-      for (const read of this.templateReads(index, prop, value, written.get(prop)?.span ?? span))
-        inputs.add(read)
+    const readFrom = (
+      values: Readonly<Record<string, unknown>>,
+      given: (prop: string) => boolean,
+    ) => {
+      for (const [prop, value] of Object.entries(values)) {
+        if (scriptProps.has(prop)) continue
+        const reads = this.templateReads(index, prop, value, written.get(prop)?.span ?? span)
+        if (given(prop)) for (const path of reads) inputs.add(path)
+      }
     }
+    readFrom(ownRead, () => true)
+    readFrom(shared, (prop) => !SHOWN_SHARED_PROPS.has(prop))
 
     this.blocks[index] = {
       index,

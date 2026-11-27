@@ -608,9 +608,9 @@ describe("parseRunbook", () => {
       expect(edgesFrom(result)).toEqual([1])
     })
 
-    it("keeps each input a block's props read once, in the order written, and none a script reads", () => {
+    it("keeps each input a block's props read once, in the order written, and none a script, a title or a description reads", () => {
       const result = withScripts(
-        `<Sh id="gen" shell="{{ .inputs.shell }}" env={{ A: "{{ .inputs.tags.env }}", B: "{{ .inputs.shell }}" }} command='echo {{ .inputs.region }}' />`,
+        `<Sh id="gen" title="{{ .inputs.name }}" description="{{ .inputs.note }}" shell="{{ .inputs.shell }}" env={{ A: "{{ .inputs.tags.env }}", B: "{{ .inputs.shell }}" }} command='echo {{ .inputs.region }}' />`,
       )
       expect(configErrors(result)).toEqual([])
       expect(result._tag === "Parsed" && result.document.blocks[0]!.inputs).toEqual([
