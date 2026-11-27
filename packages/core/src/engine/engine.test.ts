@@ -826,6 +826,72 @@ describe("Engine", () => {
     )
   })
 
+  it("cuts a line longer than 16384 characters where it enters the run's log, and says how much it cut", async () => {
+    const grin = "😀"
+    const long: Script = () =>
+      Stream.make(
+        { _tag: "Log", stream: "stdout", line: "x".repeat(100_000) },
+        { _tag: "Log", stream: "stdout", line: "short" },
+        // A run that kept the start of a line and left 500 characters out.
+        { _tag: "Log", stream: "stderr", line: "kept", cut: 500 },
+        // Characters of two code units, from an even place and from an odd
+        // one, so whichever place a cut is at, it splits one of them.
+        { _tag: "Log", stream: "stdout", line: grin.repeat(9_000) },
+        { _tag: "Log", stream: "stdout", line: `a${grin.repeat(9_000)}` },
+        { _tag: "Warning", message: "w".repeat(20_000) },
+      )
+    await withEngine(
+      '<Run id="a" command="long" />',
+      { long },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        const recording = yield* rb.record
+        yield* rb.trust
+        yield* rb.run("a")
+        yield* rb.wait("a")
+        const lines = (yield* rb.block("a")).log?.lines ?? []
+        expect(lines.map((line) => line.stream)).toEqual([
+          "stdout",
+          "stdout",
+          "stderr",
+          "stdout",
+          "stdout",
+          "stderr",
+        ])
+        expect(lines[1]?.text).toBe("short")
+        /** How many characters of `text` are its line's, before the note, and the note. */
+        const cutAt = (text: string, of: string) => {
+          const kept = text.length - text.replace(new RegExp(`^(?:${of})*`), "").length
+          return { kept, note: text.slice(kept) }
+        }
+        for (const [index, of, length] of [
+          [0, "x", 100_000],
+          [3, grin, 18_000],
+          [4, `a|${grin}`, 18_001],
+          [5, "w", 20_000],
+        ] as const) {
+          const text = lines[index]?.text ?? ""
+          expect(text.length).toBeLessThanOrEqual(16_384)
+          // Half a character, a lone surrogate, is refused here.
+          expect(() => encodeURIComponent(text)).not.toThrow()
+          const { kept, note } = cutAt(text, of)
+          expect(kept).toBeGreaterThan(16_000)
+          expect(note).toContain("cut")
+          expect(note).toContain(`${length - kept} characters`)
+        }
+        expect(lines[2]?.text).toStartWith("kept")
+        expect(lines[2]?.text).toContain("cut")
+        expect(lines[2]?.text).toContain("500 characters")
+
+        yield* rb.close
+        const logged = (yield* Fiber.join(recording)).flatMap(({ event }) =>
+          event._tag === "LogLines" ? event.lines : [],
+        )
+        expect(logged).toEqual([...lines])
+      }),
+    )
+  })
+
   it("refuses events after a sequence the session has not logged, rather than waiting for it", async () => {
     await withEngine(
       '<Run id="a" command="ok" />',

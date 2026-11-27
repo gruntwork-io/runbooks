@@ -156,6 +156,8 @@ A script that runs past `timeoutMs` fails too.
 
 Runbooks sources a set of logging functions, the same as its [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh), into every script that runs with bash or sh. Using them lets the Runbooks UI parse log levels for filtering and export.
 
+A line longer than 16,384 characters is cut: the block's logs keep its start, and end it with how many characters Runbooks cut. To keep a long value whole, such as a JSON document, write it to a file.
+
 #### Log levels
 
 | Function | Output | Description |

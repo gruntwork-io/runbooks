@@ -144,6 +144,28 @@ import {
 
 /** Lines of a run's log the session keeps. Older lines are dropped; a log page says where it starts. */
 const MAX_RUN_LOG_LINES = 10_000
+
+/** What a cut line ends with: how many characters of it were cut. */
+const cutNote = (cut: number): string =>
+  ` … [Runbooks cut the rest of this line: ${cut} characters]`
+
+/** The characters of its own a cut line keeps, with room for the longest note. */
+const CUT_LINE_KEEPS = LIMITS.maxLogLineLength - cutNote(Number.MAX_SAFE_INTEGER).length
+
+/**
+ * A line as a run's log holds it, in at most `LIMITS.maxLogLineLength`
+ * characters: `text` as it is, or, when it is longer or the run cut it
+ * already (`cut` characters left out), its start and a note of how many
+ * characters were cut. A start never ends in half a character.
+ */
+function logLine(stream: LogLine["stream"], text: string, cut = 0): LogLine {
+  if (cut === 0 && text.length <= LIMITS.maxLogLineLength) return { stream, text }
+  let start = text.slice(0, CUT_LINE_KEEPS)
+  const last = start.charCodeAt(start.length - 1)
+  // A high surrogate: the other half of its character was cut.
+  if (last >= 0xd800 && last <= 0xdbff) start = start.slice(0, -1)
+  return { stream, text: start + cutNote(cut + text.length - start.length) }
+}
 /** How often a run's new log lines go out, as one `LogLines` event. */
 const LOG_FLUSH_INTERVAL: Duration.Input = "250 millis"
 
@@ -1329,10 +1351,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   ) => {
     const decl = Object.hasOwn(runnable.outputs, key) ? runnable.outputs[key] : undefined
     if (decl === undefined)
-      lines.push({
-        stream: "stderr",
-        text: `Output "${key}" was dropped: the block does not declare it.`,
-      })
+      lines.push(logLine("stderr", `Output "${key}" was dropped: the block does not declare it.`))
     else state.outputs.set(key, hold(decl.sensitive || marked, value))
   }
 
@@ -1357,7 +1376,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       for (const event of batch) {
         switch (event._tag) {
           case "Log":
-            lines.push({ stream: event.stream, text: event.line })
+            lines.push(logLine(event.stream, event.line, event.cut))
             break
           case "Output":
             holdOutput(state, runnable, event.key, event.value, false, lines)
@@ -1367,7 +1386,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
             break
           case "Warning":
             state.warned = true
-            lines.push({ stream: "stderr", text: event.message })
+            lines.push(logLine("stderr", event.message))
             break
         }
       }
@@ -1399,10 +1418,12 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       if (run.state._tag !== "Running") return
       if (truncated) run.filesTruncated = true
       run.log.push(
-        links.map((link) => ({
-          stream: "stderr" as const,
-          text: `Runbooks did not copy ${link} from $GENERATED_FILES: it is a symbolic link.`,
-        })),
+        links.map((link) =>
+          logLine(
+            "stderr",
+            `Runbooks did not copy ${link} from $GENERATED_FILES: it is a symbolic link.`,
+          ),
+        ),
       )
       touched(run, changes, emit)
     })

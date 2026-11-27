@@ -16,8 +16,12 @@ const folder = nodeFs.realpathSync(
 )
 afterAll(() => nodeFs.rmSync(folder, { recursive: true, force: true }))
 
-/** `runbooks test` on a runbook folder holding `files`. */
-const runbooksTest = (name: string, files: Record<string, string>) => {
+/** `runbooks test` on a runbook folder holding `files`, with `flags`. */
+const runbooksTest = (
+  name: string,
+  files: Record<string, string>,
+  flags: ReadonlyArray<string> = [],
+) => {
   const runbook = nodePath.join(folder, name)
   for (const [file, text] of Object.entries(files)) {
     nodeFs.mkdirSync(nodePath.dirname(nodePath.join(runbook, file)), { recursive: true })
@@ -29,12 +33,13 @@ const runbooksTest = (name: string, files: Record<string, string>) => {
     "/bin/bash",
     [
       "-c",
-      'exec env -i PATH="$PATH" HOME="$1" TMPDIR="$4" BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun "$2" test "$3"',
+      'exec env -i PATH="$PATH" HOME="$1" TMPDIR="$4" BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun "$2" test "${@:5}" "$3"',
       "-",
       home,
       MAIN,
       runbook,
       tmp,
+      ...flags,
     ],
     { encoding: "utf8", timeout: 60_000 },
   )
@@ -92,6 +97,25 @@ describe("runbooks test, on a runbook of commands", () => {
     expect(code).toBe(0)
     expect(nodeFs.readdirSync(home)).toEqual([])
   })
+
+  it("shows a 100 MB line with no newline as its start, and says how much of it was cut", () => {
+    // --verbose prints each log line as it comes.
+    const { code, out } = runbooksTest(
+      "long-line",
+      {
+        "runbook.mdx": `<Command id="long" command="head -c 104857600 /dev/zero | tr '\\0' x" />`,
+        "runbook_test.yml":
+          "version: 1\ntests:\n  - name: long\n    steps:\n      - block: long\n        expect: success\n",
+      },
+      ["--verbose"],
+    )
+    expect(out.length).toBeLessThan(100_000)
+    const kept = /\| (x+)/.exec(out)?.[1]?.length ?? 0
+    expect(kept).toBeGreaterThan(16_000)
+    expect(out).toContain(`cut the rest of this line: ${104_857_600 - kept} characters`)
+    expect(out).toContain("Results: 1 passed, 0 failed")
+    expect(code).toBe(0)
+  }, 60_000)
 
   it("fails a step whose script does not end as expected", () => {
     const { code, out } = runbooksTest("failing", {

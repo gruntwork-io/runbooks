@@ -290,16 +290,10 @@ describe("a run's saved log", () => {
   })
 
   it(`keeps no more than ${MAX_SAVED_LOG_CHARS} characters, whole lines from the end`, () => {
-    const saved = savedLogOf([out("a".repeat(40_000)), out("b".repeat(30_000)), out("c")], 3)
-    expect(saved).toEqual({ omitted: 1, lines: [out("b".repeat(30_000)), out("c")] })
-  })
-
-  it("keeps the end of a last line longer than that, as today's app does", () => {
-    const long = `${"x".repeat(10)}${"y".repeat(MAX_SAVED_LOG_CHARS)}`
-    expect(savedLogOf([out("before"), out(long)], 2)).toEqual({
-      omitted: 1,
-      lines: [out("y".repeat(MAX_SAVED_LOG_CHARS))],
-    })
+    // Five lines as long as a log line may be, then one character.
+    const wide = ["a", "b", "c", "d", "e"].map((c) => out(c.repeat(16_384)))
+    const saved = savedLogOf([...wide, out("f")], 6)
+    expect(saved).toEqual({ omitted: 2, lines: [...wide.slice(2), out("f")] })
   })
 })
 
