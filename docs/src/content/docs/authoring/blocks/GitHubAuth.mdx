@@ -423,7 +423,7 @@ When detecting credentials from GitHub CLI, Runbooks checks whether the token ha
 When you authenticate via OAuth:
 
 1. Runbooks, running on your machine, requests a device code from GitHub
-2. You open `https://<host>/login/device` (github.com/login/device by default) and enter the code. GitHub keeps the code valid for 15 minutes by default, and Runbooks keeps checking for your approval until it expires. If it expires before you approve, start the sign-in again.
+2. You open `https://<host>/login/device` (github.com/login/device by default) and enter the code. GitHub keeps the code valid for 15 minutes by default, and Runbooks keeps checking for your approval until it expires. If it expires before you approve, the block says the request expired; start the sign-in again. If you decline, the block says authorization was denied. Any other failure, such as a network or certificate error, shows its own message.
 3. You see "Gruntwork Runbooks wants to access your account" (or the name of your enterprise's OAuth app) and approve
 4. GitHub sends the token to the Runbooks app on your machine
 

@@ -285,6 +285,58 @@ describe("github:oauth-poll", () => {
     expect(env.GITHUB_HOST).toBe(GHES)
     expect(env.GH_ENTERPRISE_TOKEN).toBe("gho_ghes_oauth")
   })
+
+  /** Answers the token endpoint with `answer`, and the rest as GitHub does. */
+  const tokenEndpointAnswers = (answer: () => Response | Promise<Response>) => {
+    globalThis.fetch = ((input: string | URL | Request) => {
+      const url = fetchUrl(input)
+      return url.endsWith("/login/oauth/access_token")
+        ? Promise.resolve().then(answer)
+        : Promise.resolve(githubResponder(url))
+    }) as typeof fetch
+  }
+
+  const poll = () => invoke("github:oauth-poll", { deviceCode: "dc" })
+
+  it("reports expired_token as an expired code", async () => {
+    tokenEndpointAnswers(() => json({ error: "expired_token" }))
+    expect((await poll()).status).toBe("expired")
+  })
+
+  it("reports access_denied as a denied sign-in", async () => {
+    tokenEndpointAnswers(() => json({ error: "access_denied" }))
+    expect(await poll()).toEqual({ status: "failed", error: "Authorization was denied" })
+  })
+
+  it("reports an answer with neither an error code nor a token as a failure", async () => {
+    tokenEndpointAnswers(() => json({}))
+    expect(await poll()).toEqual({ status: "failed", error: "No access token returned" })
+  })
+
+  it("reports another OAuth error code as a failure that names it", async () => {
+    tokenEndpointAnswers(() => json({ error: "incorrect_device_code" }))
+    const result = await poll()
+    expect(result.status).toBe("failed")
+    expect(result.error).toContain("incorrect_device_code")
+  })
+
+  it.each([
+    [
+      "a TLS error",
+      () => {
+        throw Object.assign(new Error("certificate has expired"), { code: "CERT_HAS_EXPIRED" })
+      },
+    ],
+    [
+      "a proxy's error page",
+      () => new Response("upstream certificate has expired", { status: 502 }),
+    ],
+  ])("reports %s that says 'expired' as a failure, not an expired code", async (_name, answer) => {
+    tokenEndpointAnswers(answer)
+    const result = await poll()
+    expect(result.status).toBe("failed")
+    expect(result.error).toContain("certificate has expired")
+  })
 })
 
 describe("github:validate", () => {

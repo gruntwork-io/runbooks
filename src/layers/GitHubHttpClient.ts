@@ -234,18 +234,24 @@ const impl: GitHubClientShape = {
           error?: string
           interval?: number
         }
-        if (data.error === "authorization_pending") {
-          return { pending: true }
+        switch (data.error) {
+          case undefined:
+            break
+          case "authorization_pending":
+            return { status: "pending" }
+          case "slow_down":
+            return { status: "slowDown", interval: data.interval }
+          case "expired_token":
+            return { status: "expired" }
+          case "access_denied":
+            return { status: "denied" }
+          default:
+            return { status: "refused", code: data.error }
         }
-        // Still pending, but the client must back off; GitHub sends the new
-        // minimum interval with it.
-        if (data.error === "slow_down") {
-          return { pending: true, slowDown: true, interval: data.interval }
+        if (!data.access_token) {
+          throw new GitHubApiError({ status: resp.status, message: "No access token returned" })
         }
-        if (data.error) {
-          throw new GitHubApiError({ status: 400, message: data.error })
-        }
-        return { token: data.access_token }
+        return { status: "complete", token: data.access_token }
       },
       catch: toGitHubApiError,
     }),
