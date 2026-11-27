@@ -108,7 +108,12 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     return Promise.resolve(handler(event, { worktreePath, branchName })) as Promise<PushResult>
   }
 
+  // HOME and the git config variables keep the machine's git config out of
+  // every git these tests run, the handlers' and the helper's alike.
   const ENV_KEYS = [
+    "HOME",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
     "PATH",
     "FAKE_SSH_LOG",
     "FAKE_SSH_MODE",
@@ -123,15 +128,22 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
   let serveRoot = ""
   let sshLog = ""
 
+  // `env: process.env` because bun otherwise gives the child the environment
+  // the test process started with, not the sandboxed HOME set below.
   const git = (cwd: string, ...args: string[]) =>
     execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
       cwd,
       stdio: "pipe",
+      env: process.env,
     })
 
   beforeEach(async () => {
     for (const key of ENV_KEYS) savedEnv[key] = process.env[key]
     tmp = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-git-ipc-")))
+    process.env.HOME = nodePath.join(tmp, "home")
+    fs.mkdirSync(process.env.HOME)
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null"
 
     // "Server": acme/infra.git under the directory the fake ssh serves from.
     const seed = nodePath.join(tmp, "seed")
