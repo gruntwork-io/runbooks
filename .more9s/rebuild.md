@@ -21,6 +21,7 @@ The running index of the rebuild stack. Update it whenever the stack changes.
 - At 20:10 UTC the human merged #655 (`rebuild/main` 4b613f21), and GitHub rebased #656 to #660 onto `rebuild/main`, patch for patch. #656 to #659 passed runbooks-reviewer and are ready. #660's review found that a ref lookup or clone whose server never answers hung forever; d0b32d65 bounds every git's wait in `gitSpawnEnv`. The reviewer's notes on #656 and #657 (no check that a pin is the release's, on platforms CI doesn't fetch) became #662, on top. At 21:02 UTC the human merged #656 to #659 (`rebuild/main` 8d560225); GitHub rebased #660 and #662 patch for patch, and the reviewer confirmed both passes for the new heads, so both are ready. Row 3h is three PRs above #662: #663 (contract), #664 (`BlockFrame`), #665 (instruction mode).
 - On 2026-11-27 the index's own commits had left #660 behind `rebuild/main`, so #660 and #662 to #665 were restacked, patch for patch, and runbooks-reviewer passed their new heads. Row 3i landed as #670 (contract: `DocumentBlock.Configured.effects`) and #671 (the trust prompt); #671 failed review once (a credential block waiting for trust was untested, 425ca0e7). Row 3j's first part is #672 to #676; its other two parts are rows 3je and 3jf. The follow-up "a run gets the hashed script texts" is closed: #587 gave a task its files through `TaskReads`, which instruction mode builds with no I/O.
 - At 06:17 UTC on 2026-11-27 the human merged #660, #662 to #665 and #670 to #676 the same way (`rebuild/main` e232dcf9, whose tree equals #676's head), and GitHub rebased #677 to #679 onto it, patch for patch. Row 3je landed as #677 to #679. #678's review found that a form whose title read its own optional field couldn't be submitted with it empty, so a title or a description now holds nothing (d873a09d), and the block's own form got its test (406dc08d); #679 then took a `Quiet` task for its no-commands cases. Row 3jf landed as #680.
+- Later on 2026-11-27 the human merged #677 to #682 the same way (`rebuild/main` 12f13baa, whose tree equals #682's head 610466c8), ruled three watch-mode questions (Other rulings, below) and ruled work product 0.13 done. GitHub rebased #684 and #685 onto it. Row 3j2's engine work landed as #684 (the reload) and #685 (files on disk, `ReloadFiles`). #685 passed runbooks-reviewer and was marked ready; #684's review found that a watcher reload saved trust for the new hash, which the human then ruled out. Both are reworked, #685 goes back to draft, and both return to runbooks-reviewer with row 3j2e (the watcher). All 85 choices of my own built so far are on one page for the human, each with a suggestion (Choices of my own, below).
 - **Keep it stacked.** The open PRs are GitHub stack #628, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/628`); #519 holds #496 to #598, and #614 holds #599 to #625. `.more9s/stack.sh` keeps it that way:
   - `add <branch> <title> <body-file>` opens each new PR as a draft on the top of the stack, links it into #628, and waits until GitHub lists it on top (two adds in a row once based the second on the PR below the first). Once it is green, send it to runbooks-reviewer, and mark it ready with `gh pr ready` only when the review passes. Don't open a rebuild PR with `gh pr create` alone.
   - `restack` (`--dry-run` first, in a linked worktree) is needed after any commit to `rebuild/main`, such as an index update, or to a lower branch. It rebases each branch onto the one below and force-pushes it with a lease. CI then reruns on every PR above the change, so batch index updates.
@@ -214,11 +215,19 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 3jc | #674 | 3 | `rebuild/p3-stop-waits` | 3jb | merged | a stopped script's folders go once its processes have ended: the spawner's `kill` waits for the stop (5 s grace); `CancelBlock` answers then |
 | 3j | #675 | 3 | `rebuild/p3-command-app` | 3jc | merged | 3.8 (Command, in the app): the task view lists outputs; the failure line gives the exit code once; `e2e/command.spec.ts` runs Command's test runbooks in place |
 | 3jd | #676 | 3 | `rebuild/p3-instruction-guard-test` | 3j | merged | test: instruction mode sends no `CancelBlock` and no `ActOnCredential` (3h re-review); `app.tsx`'s leftover comment |
-| 3jea | #677 | 3 | `rebuild/p3-gates-contract` | `rebuild/main` | ready (runbooks-reviewer passed) | contract change: `Blocker` gains `EmptyInput {block, input}` and `Exclusive {block, runsAlone}`; `TaskBlock.exclusive(props)`, decided before trust |
-| 3jeb | #678 | 3 | `rebuild/p3-input-wait` | 3jea | ready (runbooks-reviewer passed) | 3.8 (Command): a block waits for each input its run is given (its own props and `env`, not `title` or `description`) to have a value, by #489's rule; the last form with the field is the one named |
-| 3je | #679 | 3 | `rebuild/p3-exclusive` | 3jeb | ready (runbooks-reviewer passed) | 3.8 (Command): `exclusive`; the engine holds a task that runs commands (the `process` effect) while one that runs alone runs, and the other way round |
-| 3jf | #680 | 3 | `rebuild/p3-decision-8-testdata` | 3je | draft | decision 8: testdata's Commands declare every output their scripts write, in place, since the old tree ignores `outputs` (`validate` gave 18 undeclared reads in 4 runbooks; the 21 in 9 counted here before wasn't reproducible); baseline checks for reads, assertions and writes |
-| 3j2 | none | 3 | `rebuild/p3-watch-mode` | 3jf | planned | 3.1 (part): watch mode, reloading a session's document as its files change, against the trust prompt; `watch-mode.spec.ts` ported. The hash travels with `DocumentView`, so the window trusts the hash of what it draws, and the page body redraws on a change (#671 Gaps) |
+| 3jea | #677 | 3 | `rebuild/p3-gates-contract` | `rebuild/main` | merged | contract change: `Blocker` gains `EmptyInput {block, input}` and `Exclusive {block, runsAlone}`; `TaskBlock.exclusive(props)`, decided before trust |
+| 3jeb | #678 | 3 | `rebuild/p3-input-wait` | 3jea | merged | 3.8 (Command): a block waits for each input its run is given (its own props and `env`, not `title` or `description`) to have a value, by #489's rule; the last form with the field is the one named |
+| 3je | #679 | 3 | `rebuild/p3-exclusive` | 3jeb | merged | 3.8 (Command): `exclusive`; the engine holds a task that runs commands (the `process` effect) while one that runs alone runs, and the other way round |
+| 3jf | #680 | 3 | `rebuild/p3-decision-8-testdata` | 3je | merged | decision 8: testdata's Commands declare every output their scripts write, in place, since the old tree ignores `outputs` (`validate` gave 18 undeclared reads in 4 runbooks; the 21 in 9 counted here before wasn't reproducible); baseline checks for reads, assertions and writes |
+| 3j2a | #681 | 3 | `rebuild/p3-watch-contract` | 3jf | merged | contract change: watch mode. `DocumentView.hash`; `OpenSession.watch` (`WatchMode`: off, notice, runbook, runbookAndFiles; the reloading modes are person only); `BlockView.filesOnDisk`, bounded by `LIMITS.maxDiffChars`; `ReloadFiles`, person only, at the hash shown; `SessionView.reloadHeld`; `DocumentChanged`, `ReloadHeldChanged`, `FilesOnDiskChanged` |
+| 3j2b | #682 | 3 | `rebuild/p3-live-reload-change` | 3j2a | merged | behaviour change (ruled): `--disable-live-file-reload` reloads inline commands too, and only named script files keep their text (`CHANGES.inlineCommandReloads`; `watch-mode.spec.ts`'s 4th test patched) |
+| 3j2c | #684 | 3 | `rebuild/p3-watch-reload` | `rebuild/main` | draft (reworked for the saved-trust ruling; back to runbooks-reviewer) | 3.1 (watch mode): a session reloads its document, keeping each block whose props (shared ones included, apart from `title` and `description`) and file hashes are as they were; trust is kept while the session is open and saved only for a hash a person trusted or chose |
+| 3j2d | #685 | 3 | `rebuild/p3-files-on-disk` | 3j2c | draft (was ready at cf3c07ff; reworked for the same ruling; back to runbooks-reviewer) | 3.1 (watch mode): the core Myers line diff; `BlockView.filesOnDisk` from what the watcher read; `ReloadFiles` takes the bytes shown, and saves trust only when the document it replaces was trusted or chosen by a person |
+| 3j2e | none | 3 | `rebuild/p3-watch-mode` | 3j2d | planned (written; in review) | 3.1 (watch mode): the engine's watcher per session through `FileSystem.watch`, debounced 300 ms, one queue per session; reloads held while blocks run, refused or unread (`reloadHeld`) |
+| 3j2f | none | 3 | `rebuild/p3-watch-window` | 3j2e | planned | 3.1 (watch mode): the window redraws on `DocumentChanged`, and the trust prompt sends `document.hash` (#671 Gaps) |
+| 3j2g | none | 3 | `rebuild/p3-watch-notice` | 3j2f | planned | 3.1 (watch mode): the frame's "Script changed" notice (`script-change-diff`, "Reload script"), with a note beside it when the diff is truncated |
+| 3j2h | none | 3 | `rebuild/p3-watch-flags` | 3j2g | planned | 3.1 (watch mode): app-main maps its flags: none to `notice`, `--watch` to `runbookAndFiles`, `--watch --disable-live-file-reload` to `runbook` |
+| 3j2 | none | 3 | `rebuild/p3-watch-e2e` | 3j2h | planned | 3.1 (watch mode): `watch-mode.spec.ts` ported, with only its 4th test patched (3j2b) |
 | 3k | none | 3 | `rebuild/p3-inputs` | 3j2 | planned | 3.8 (Inputs). Also: the window reads every task again on each value or output change, for its instruction, with instruction mode off too (#664); gate that on instruction mode, or a keystroke rereads every task |
 | 3l | none | 3 | `rebuild/p3-admonition` | 3k | planned | 3.8 (Admonition) |
 | 3m | none | 3 | `rebuild/p3-aws-auth` | 3l | planned | 3.4 and 3.8 (AwsAuth): the common auth view; AwsAuth against the fake; dev mode wired to `fakeCredentialProviders`. Also: instruction mode draws a text step's markdown as plain text (#665), which a credential's instruction would show with `**` and backticks |
@@ -267,7 +276,7 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 | 0.10 | System integration e2e spec | #508 | merged |
 | 0.11 | Security regression tests by name | #504 | merged |
 | 0.12 | Renderer bundle carries Effect Schema | #505 | merged |
-| 0.13 | Throwaway prototype | none | not done: phases 2 and 3 build the same path for real (#510 Gaps) |
+| 0.13 | Throwaway prototype | none | done: the human ruled it done on 2026-11-27, since phases 2 and 3 built its path for real (Command through the engine from the app, #675, and from the CLI) |
 | 1.1 | Workspace packages with declared exports | #511 | merged; `app-main`, `app-renderer` and `blocks` get their tsconfig when they get code |
 | 1.2 | Services, layers, shared domain code copied | #512 | merged |
 | 1.3 | Registry and typed view map | #513 | merged |
@@ -288,14 +297,14 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 | 2.11 | The `runbook_test.yml` schema | #569 | merged |
 | 2.12 | The plugin transport owner, tests against a stub binary | #571, #572, #573 | merged |
 | 2.13 | The credential client, the fake provider, the contract suite | #574 to #581 (#582 a contract addendum) | merged |
-| 3.1 | The app frame: window, IPC transport, CSP without `'unsafe-eval'`, asset serving, path guard | #648 (the window, the CSP); #649 (the IPC transport); #650 (open from the command line); #651 (assets, path guard, the page's own scheme); #660 (URL, a second launch); row 3j2 (watch mode) | #648 to #651, #660 merged; 3j2 planned |
+| 3.1 | The app frame: window, IPC transport, CSP without `'unsafe-eval'`, asset serving, path guard | #648 (the window, the CSP); #649 (the IPC transport); #650 (open from the command line); #651 (assets, path guard, the page's own scheme); #660 (URL, a second launch); row 3j2 (watch mode) | #648 to #651, #660, #681, #682 merged; #684, #685 in review; rows 3j2e to 3j2 planned |
 | 3.2 | The renderer that walks the document | #646 (`GetDocument`); #650 (the walk); #653, #655 (a runbook's nesting bounded) | #646, #650, #653, #655 merged |
 | 3.3 | `BlockFrame` and the default view for each class | #663, #664, #665 (the form and credential views land with rows 3k and 3m) | #663 to #665 merged; 3k, 3m planned |
 | 3.4 | The common auth view | row 3m | planned |
 | 3.5 | The trust prompt, listing each block's declared effects | #670 (the effects in the document), #671 (the prompt) | merged |
 | 3.6 | The MCP tools generated from the protocol, on both transports | row 3p | planned |
 | 3.7 | Agent run confirmation in the engine | row 3o | planned |
-| 3.8 | Command, AwsAuth, Inputs and Admonition, end to end | #645 (values redacted), #647 (form outputs); #672 to #676 (Command in the app); #677 to #679 (the input wait, `exclusive`); #680 (decision 8 in testdata); rows 3k, 3l, 3m, 3q | #645, #647, #672 to #676 merged; #677 to #679 ready; #680 draft; the rest planned |
+| 3.8 | Command, AwsAuth, Inputs and Admonition, end to end | #645 (values redacted), #647 (form outputs); #672 to #676 (Command in the app); #677 to #679 (the input wait, `exclusive`); #680 (decision 8 in testdata); rows 3k, 3l, 3m, 3q | #645, #647, #672 to #680 merged; the rest planned |
 | A.1 | The binaries' repo, with its build, signing and release | runbooks-plugins | done (that session) |
 | A.2 | The AWS binary | runbooks-plugins | released v0.1.0 |
 | A.3 | The Google binary | runbooks-plugins | released v0.1.0 |
@@ -330,7 +339,18 @@ Each row names the PR whose description carries the Decisions entry.
 | 6 | Saved sessions keep form values and credentials, drop run history from older versions | #544 |
 | 16 | One repo, one version for all binaries, hashes checked against the release's `SHA256SUMS` | #656 |
 
-Choices of my own that need a ruling (not among the 18):
+Other rulings, not among the 18:
+
+| Ruled | What | Where |
+|---|---|---|
+| 2026-11-26 | `<style>`, `<meta>`, `<base>` and `<link>` in a runbook are refused ("refuse it") | #640 |
+| 2026-11-26 | The plugin protocol stays at version "1" | #641, #663, #670 |
+| 2026-11-27 | A reload keeps the session's trust while it is open, for the new hash ("Keep trust in watch mode"), and `ReloadFiles` is person only | #681, #684 |
+| 2026-11-27 | `--disable-live-file-reload` keeps only named script files at their text; inline commands reload ("Only script files") | #682 |
+| 2026-11-27 | Saved trust after a watcher reload: "This session only". Only a hash a person trusted (`TrustSession`) or chose (`ReloadFiles`) is saved as trusted, so reopening a runbook the watcher reloaded asks again | #684, #685 |
+| 2026-11-27 | Work product 0.13, the prototype, is done ("you finished the final result") | Work products |
+
+Choices of my own that need a ruling (not among the 18). All 85 built so far, each with the decision, a suggestion, what it means and the suggestion's impact, are on the page https://claude.ai/artifact/JEuPt5qqeeB22XVE6c8SpL (2026-11-27), numbered 1 to 85; the human rules by those numbers, and an entry not ruled stays as built. The rows below are this index's list; the page's entries it lacked are added at the end as "Page n".
 
 | Choice | PR |
 |---|---|
@@ -392,13 +412,51 @@ Choices of my own that need a ruling (not among the 18):
 | `block.ts` may import no Node built-in, pure ones included | #597 |
 | Command keeps no per-run log file; a declared output never written fails its consumer; an inline command's template error says "The command, line N" | #597 |
 | The Azure plugin fails `detect` when `az account list --refresh` fails (today warns and goes on) | runbooks-plugins, for #520 |
+| Page 16: Files are read once, at open | #587 |
+| Page 17: A task gets only the outputs it names | #587 |
+| Page 22: Copies into `$GENERATED_FILES` | #603 |
+| Page 23: `$REPO_FILES` and where a Command starts | #603, #605 |
+| Page 25: Any nested form feeds its task | #599 |
+| Page 26: A block's file list | #602, #604 |
+| Page 28: Environment size limits | #644 |
+| Page 29: Cancel waits for the script to stop | #674 |
+| Page 30: Long log lines are cut | #672, #673 |
+| Page 31: What an `env` value may hold | #621 |
+| Page 32: What `exclusive` holds | #679 |
+| Page 33: testdata declares its outputs in place | #680 |
+| Page 35: An empty optional field still gives its output | #647 |
+| Page 36: Which reads hold a block | #678 |
+| Page 42: `envFrom` takes one id or a list | #592 |
+| Page 43: Ids that differ only in case | #591 |
+| Page 44: YAML aliases | #593 |
+| Page 46: SIGTERM and forced stops | #643 |
+| Page 47: `validate --output junit` | #627 |
+| Page 49: Where the rebuilt app keeps its data | #648 |
+| Page 50: Permissions and outside links | #648, #650 |
+| Page 53: A second launch | #660 |
+| Page 54: Opening a runbook from a URL | #660 |
+| Page 55: Images and media | #651 |
+| Page 56: Author styles and unknown elements | #650 |
+| Page 57: Which blocks send props to their views | #646 |
+| Page 58: The trust prompt's words | #671 |
+| Page 59: Where outputs show | #675 |
+| Page 60: Quitting waits for scripts | #649 |
+| Page 62: A lost login | #609 |
+| Page 67: Running a copy of the plugin binary | #635 |
+| Page 71: The engine watches and diffs | #681 |
+| Page 72: A reload keeps unchanged blocks | #681, #684 |
+| Page 73: Agents can't reload | #681 |
+| Page 74: Reload takes the bytes the diff showed | #685 |
+| Page 75: A changed form's values need review | #684 |
+| Page 76: Two opens of one runbook | #615 |
+| Page 77: A damaged sessions database | #624 |
+| Page 78: Settings are imported once | #619 |
 
 ## Waiting on the human
 
 | What | Options | Where it shows |
 |---|---|---|
 | GitClone declares `push` for an empty remote, and a block that declares `push` may only `expect: skip`, but file-workspace, git-clone and inputs-and-outputs expect GitClone to succeed | GitClone declares its push apart from its clone (recommended), or the three steps skip (a tenth behaviour change) | `baseline/testFiles.test.ts` pins the three (#569) |
-| Work product 0.13, the throwaway prototype, is not done: phases 2 and 3 build its path for real. Command runs through the engine from the app (#675) and the CLI; the credential half from the app lands with row 3m | mark it superseded (phase 0 complete, 40 of 57), or keep it open until 3m | Work products |
 | `ShowWhen` is kept in the baseline as a display stand-in (#585) | keep it, or drop it from the baseline | the baseline list |
 | The Azure plugin fails `detect` when its refresh fails (#520); today warns and goes on | keep failing (built), or warn and go on | runbooks-plugins |
 | The master plan's line 218 shows `instruction(TaskInput)`; #587 made it `TaskReads` | update the plan | the master plan |
@@ -510,3 +568,9 @@ Choices of my own that need a ruling (not among the 18):
 | The trust prompt's button stays enabled while it asks: an `asking` flag in `Trusting` should disable it; a block's title, author text, should be quoted in the prompt (#671 review) | with the next trust change |
 | A stop holds the session lock for up to its 5 s grace: RunBlock, SetValues, ConfirmValues and ActOnCredential wait; the block shows Running and offers Cancel, and a second Cancel says "It wasn't running, so nothing was cancelled." A "Stopping" state, with the lock released during the stop (#674) | before MCP (row 3p) |
 | The window doesn't draw `BlockView.files`; Command's docs.mdx says "click **View Outputs**", the old app's words (#675) | row 3q; phase 6 docs |
+| In watch mode an edit on disk that a reload takes runs without a new look while the session is open (ruled: trust kept for the session). Writes outside the protocol, such as an agent's file edits, are then guarded only by agent run confirmation | row 3o |
+| Row 3j2's gaps: a named folder that grows past 2000 entries after open stays watched whole; a failed watch is only logged (`ConfigWarningCode` is closed); a save between a reload's read and the new watch is missed; a named file that becomes a folder isn't watched inside until a reload; approvals will count as `Running`; a credential block whose props changed shows Idle, Running, Done across two updates; hunk line numbers start at 1 on an empty side; the fake watch matches chokidar's `depth` and `ignoreInitial` by assertion, with no test against chokidar | rows 3j2e to 3j2; phase 6 |
+| Resume keeps runs only when the whole runbook hash matches, while a reload keeps them per block (#684): align resume with the reload's keep rule | phase 3 or 4 |
+| `docs/src/content/docs/security/execution-model.md` describes the old app's watch mode | row 3j2 or phase 6 docs |
+| Invariant `Effect.die`s in session.ts (`envFrom`, ready while untrusted) and four in credentials.ts don't say they are bugs in Runbooks, as `parseHeld`'s does (#685) | phase 6 |
+| The CLI and MCP open sessions with watch `off`; neither has a flag for a watch mode | row 3p |
