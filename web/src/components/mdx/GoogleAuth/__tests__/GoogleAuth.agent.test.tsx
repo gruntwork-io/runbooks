@@ -42,6 +42,26 @@ describe("GoogleAuth agent adapter", () => {
     expect(offered).toContain("retry_detection")
   })
 
+  it("refuses to sign in while the methods configuration is wrong", async () => {
+    const api = renderWithAgent(<GoogleAuth id="gcp" methods={["oauth"]} defaultTab="gcloud" />, {
+      "google:oauth-available": (() => ({ available: true })) as never,
+    })
+    const offered = availableActions(await askAgent(api, { op: "get_block", blockId: "gcp" }))
+    expect(offered).not.toContain("sign_in_with_gcloud")
+    expect(offered).not.toContain("start_browser_sign_in")
+
+    for (const action of ["sign_in_with_gcloud", "start_browser_sign_in"]) {
+      const answer = await askAgent(api, { op: "act_on_block", blockId: "gcp", action, params: {} })
+      expect(answer).toEqual({
+        ok: false,
+        reason:
+          'The chosen GoogleAuth defaultTab must appear in the list of methods. The defaultTab is "gcloud" and methods lists: oauth.',
+      })
+    }
+    expect(api.callsTo("google:gcloud-configurations")).toHaveLength(0)
+    expect(api.callsTo("google:oauth-start")).toHaveLength(0)
+  })
+
   it("picks the project from the block's picker", async () => {
     const api = renderWithAgent(<GoogleAuth id="gcp" />, {
       "google:oauth-available": (() => ({ available: true })) as never,

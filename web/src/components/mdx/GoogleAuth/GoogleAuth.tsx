@@ -207,6 +207,7 @@ function GoogleAuthInteractive({
   const signedIn = auth.authStatus === "authenticated"
   const signingIn = auth.authStatus === "authenticating"
   const busyReason = signedIn || signingIn ? "Already signed in or signing in." : undefined
+  const signInRefusal = busyReason ?? plan.configurationError
   const detectedPending = auth.detectionStatus === "detected" && auth.detectedCredentials !== null
   useAgentBlock(id, {
     type: "GoogleAuth",
@@ -288,7 +289,7 @@ function GoogleAuthInteractive({
           },
         },
         changes: true,
-        ...unavailableWhen(busyReason ?? (offersGcloud ? undefined : METHOD_NOT_OFFERED)),
+        ...unavailableWhen(signInRefusal ?? (offersGcloud ? undefined : METHOD_NOT_OFFERED)),
       },
       {
         name: "start_browser_sign_in",
@@ -296,7 +297,7 @@ function GoogleAuthInteractive({
           "Start the block's Google sign-in in the browser. The person at the window has to finish it (see needsHuman).",
         changes: true,
         ...unavailableWhen(
-          busyReason ??
+          signInRefusal ??
             (auth.oauthUnavailable || !offersOAuth ? BROWSER_SIGN_IN_UNAVAILABLE : undefined),
         ),
       },
