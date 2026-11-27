@@ -11,7 +11,8 @@ import { ChildProcessSpawnerLive } from "../../../layers/ChildProcessSpawner.ts"
 import { ProcessEnvironmentLive } from "../../../layers/ProcessEnvironment.ts"
 import { makeControlledSpawner } from "@runbooks/core/test-utils/TestSpawner"
 
-const BATCH_OPTIONS = "-o BatchMode=yes -o StrictHostKeyChecking=yes"
+const SSH_OPTIONS =
+  "-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=2"
 
 /**
  * Clear `keys` from process.env for each test and put the originals back
@@ -73,6 +74,28 @@ describe("gitSpawnEnv", () => {
     expect(env.GIT_SSH_COMMAND).toContain("StrictHostKeyChecking=yes")
   })
 
+  it("has git give up on an http transfer that sends nothing for 30 seconds", () => {
+    const env = gitSpawnEnv(process.env)
+    expect(env.GIT_HTTP_LOW_SPEED_LIMIT).toBe("1")
+    expect(env.GIT_HTTP_LOW_SPEED_TIME).toBe("30")
+  })
+
+  it("keeps a stall bound the app's environment sets", () => {
+    process.env.GIT_HTTP_LOW_SPEED_LIMIT = "1000"
+    process.env.GIT_HTTP_LOW_SPEED_TIME = "120"
+    const env = gitSpawnEnv(process.env)
+    delete process.env.GIT_HTTP_LOW_SPEED_LIMIT
+    delete process.env.GIT_HTTP_LOW_SPEED_TIME
+    expect(env.GIT_HTTP_LOW_SPEED_LIMIT).toBe("1000")
+    expect(env.GIT_HTTP_LOW_SPEED_TIME).toBe("120")
+  })
+
+  it("has ssh give up on a host that doesn't connect, or stops answering, within 30 seconds", () => {
+    const env = gitSpawnEnv(process.env)
+    expect(env.GIT_SSH_COMMAND).toContain("-o ConnectTimeout=30")
+    expect(env.GIT_SSH_COMMAND).toContain("-o ServerAliveInterval=15 -o ServerAliveCountMax=2")
+  })
+
   it("disables git's own interactive credential prompt", () => {
     expect(gitSpawnEnv(process.env).GIT_TERMINAL_PROMPT).toBe("0")
   })
@@ -96,33 +119,33 @@ describe("gitSpawnEnv", () => {
 
   describe("wraps the ssh client the user's git would run", () => {
     it("runs plain ssh when nothing else is configured", () => {
-      expect(gitSpawnEnv(process.env).GIT_SSH_COMMAND).toBe(`ssh ${BATCH_OPTIONS}`)
+      expect(gitSpawnEnv(process.env).GIT_SSH_COMMAND).toBe(`ssh ${SSH_OPTIONS}`)
     })
 
     it("keeps an inherited GIT_SSH_COMMAND and appends the batch flags", () => {
       // The user's own flags come first, and ssh keeps the first value it sees
       // for an option, so anything they set explicitly still wins.
       process.env.GIT_SSH_COMMAND = "ssh -i /keys/id_work"
-      expect(gitSpawnEnv(process.env).GIT_SSH_COMMAND).toBe(`ssh -i /keys/id_work ${BATCH_OPTIONS}`)
+      expect(gitSpawnEnv(process.env).GIT_SSH_COMMAND).toBe(`ssh -i /keys/id_work ${SSH_OPTIONS}`)
     })
 
     it("wraps the core.sshCommand it is given", () => {
       expect(gitSpawnEnv(process.env, "ssh -i /keys/id_work").GIT_SSH_COMMAND).toBe(
-        `ssh -i /keys/id_work ${BATCH_OPTIONS}`,
+        `ssh -i /keys/id_work ${SSH_OPTIONS}`,
       )
     })
 
     it("ranks an inherited GIT_SSH_COMMAND over core.sshCommand, as git does", () => {
       process.env.GIT_SSH_COMMAND = "ssh -i /keys/from-env"
       expect(gitSpawnEnv(process.env, "ssh -i /keys/from-config").GIT_SSH_COMMAND).toBe(
-        `ssh -i /keys/from-env ${BATCH_OPTIONS}`,
+        `ssh -i /keys/from-env ${SSH_OPTIONS}`,
       )
     })
 
     it("ranks core.sshCommand over GIT_SSH, as git does", () => {
       process.env.GIT_SSH = "/opt/putty/plink"
       expect(gitSpawnEnv(process.env, "ssh -i /keys/id_work").GIT_SSH_COMMAND).toBe(
-        `ssh -i /keys/id_work ${BATCH_OPTIONS}`,
+        `ssh -i /keys/id_work ${SSH_OPTIONS}`,
       )
     })
 
@@ -141,9 +164,7 @@ describe("gitSpawnEnv", () => {
 
     it("quotes a GIT_SSH path containing a single quote", () => {
       process.env.GIT_SSH = "/opt/o'brien/ssh"
-      expect(gitSpawnEnv(process.env).GIT_SSH_COMMAND).toBe(
-        `'/opt/o'\\''brien/ssh' ${BATCH_OPTIONS}`,
-      )
+      expect(gitSpawnEnv(process.env).GIT_SSH_COMMAND).toBe(`'/opt/o'\\''brien/ssh' ${SSH_OPTIONS}`)
     })
 
     it.each([
@@ -383,7 +404,7 @@ describe("remote-source resolveRef ssh command (real git)", () => {
     )
 
     const args = fs.readFileSync(fakeSsh.log, "utf8")
-    expect(args).toContain(`-i /keys/id_work ${BATCH_OPTIONS}`)
+    expect(args).toContain(`-i /keys/id_work ${SSH_OPTIONS}`)
     expect(args).toContain("git-upload-pack")
     // Real git and ssh processes: like the other real-git tests, more than
     // bun's 5 s default, which a loaded full-suite run can exceed.

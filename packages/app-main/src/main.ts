@@ -27,10 +27,15 @@
  * It hosts the engine (`engine.ts`), which keeps its files in the user data
  * folder, and reads the process's environment once, here, for its runs. The
  * engine serves the window's page over IPC (`ipcServer.ts`), and only it.
- * A runbook given on the command line is opened first (`launch.ts`).
+ * A runbook given on the command line is opened first (`launch.ts`). One a
+ * URL names is cloned into the clones folder in the user data folder
+ * (`remoteRunbook.ts`), which main empties when the app starts and when it
+ * quits.
  *
- * A second launch on the same user data folder quits at once, and the first
- * focuses its window.
+ * A second launch on the same user data folder quits at once. The first
+ * focuses its window, and opens the runbook the second names, if any, from
+ * the folder the second started in. Once it is open, main reloads the page,
+ * which shows the session the engine opened last.
  *
  * Quitting stops the engine first: its sessions close, and a script still
  * running is sent SIGTERM. The app exits once each such script has ended
@@ -46,14 +51,29 @@ import type { Rpc } from "effect/rpc"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
 import type { EngineCommand } from "@runbooks/core/protocol"
 import type { FileSystem } from "@runbooks/core/services/FileSystem"
-import { stopsEnded } from "@runbooks/platform-node/layers/ChildProcessSpawner"
+import {
+  ChildProcessSpawnerLive,
+  stopsEnded,
+} from "@runbooks/platform-node/layers/ChildProcessSpawner"
+import { GitCliClientLive } from "@runbooks/platform-node/layers/GitCliClient"
+import { GitHubHttpClientLive } from "@runbooks/platform-node/layers/GitHubHttpClient"
+import { GitLabHttpClientLive } from "@runbooks/platform-node/layers/GitLabHttpClient"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
+import { ProcessEnvironmentLive } from "@runbooks/platform-node/layers/ProcessEnvironment"
+import { VcsCredentialsLive } from "@runbooks/platform-node/layers/VcsCredentialsLive"
 import { contentSecurityPolicy } from "./contentSecurityPolicy.ts"
 import { appEngine } from "./engine.ts"
 import { makeIpcServerProtocol } from "./ipcServer.ts"
-import { type Launch, launchArgument, serveLaunch } from "./launch.ts"
+import {
+  type Launch,
+  launchArgument,
+  makeLaterLaunches,
+  serveLaunch,
+  waitToOpen,
+} from "./launch.ts"
 import { APP_PAGE, pageFile } from "./pageScheme.ts"
 import { notFound } from "./pathGuard.ts"
+import { clonesFolder, removeClones } from "./remoteRunbook.ts"
 import { serveRunbookAsset, sessionRunbook } from "./runbookAssets.ts"
 import { ASSET_SCHEME, PAGE_SCHEME } from "./schemes.ts"
 
@@ -81,6 +101,43 @@ if (!app.commandLine.hasSwitch("user-data-dir")) {
   app.setPath("userData", path.join(app.getPath("appData"), USER_DATA))
 }
 
+/** Where main clones the runbooks URLs name. */
+const clones = clonesFolder(app.getPath("userData"))
+
+/**
+ * What cloning a URL's runbook takes beside the file system: git, the
+ * user's credentials for the host, and the process's environment.
+ */
+const RemoteLive = Layer.mergeAll(
+  GitCliClientLive.pipe(Layer.provide(ChildProcessSpawnerLive)),
+  ChildProcessSpawnerLive,
+  ProcessEnvironmentLive,
+  VcsCredentialsLive.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        NodeFileSystemLive,
+        ChildProcessSpawnerLive,
+        ProcessEnvironmentLive,
+        GitHubHttpClientLive,
+        GitLabHttpClientLive,
+      ),
+    ),
+  ),
+)
+
+/** Removes the clones folder, saying so on standard error when it can't. */
+const removeClonesFolder = removeClones(clones).pipe(
+  Effect.catch((failure) =>
+    Effect.sync(() =>
+      console.error(
+        `Runbooks could not remove the runbooks it cloned in ${clones}:`,
+        failure.cause,
+      ),
+    ),
+  ),
+  Effect.provide(NodeFileSystemLive),
+)
+
 // Before the app is ready, and in one call: Electron allows only one.
 //
 // A runbook's assets are standard, so a <video> or <audio> can seek: a seek
@@ -96,21 +153,30 @@ protocol.registerSchemesAsPrivileged([
 
 /**
  * One app per user data folder, whose lock Chromium keeps in it. A second
- * launch on the folder hands its arguments to the first and quits. The
- * first focuses its window and opens nothing.
+ * launch on the folder hands its arguments and folder to the first and
+ * quits. The first focuses its window, and puts the runbook they name, if
+ * any, in line to open (`launch.ts`).
  */
 const firstInstance = app.requestSingleInstanceLock()
 if (!firstInstance) app.quit()
 
-app.on("second-instance", () => {
-  const [appWindow] = BrowserWindow.getAllWindows()
-  if (appWindow === undefined) return
-  if (appWindow.isMinimized()) appWindow.restore()
-  appWindow.focus()
-})
-
 /** The runbook the command line names, if any. */
-const launch = launched(process.argv)
+const launch = launched(process.argv, startedIn())
+
+/** The runbooks later launches name, waiting to open. */
+const laterLaunches = Effect.runSync(makeLaterLaunches())
+
+app.on("second-instance", (_event, argv, workingDirectory) => {
+  const [appWindow] = BrowserWindow.getAllWindows()
+  if (appWindow !== undefined) {
+    if (appWindow.isMinimized()) appWindow.restore()
+    appWindow.focus()
+  }
+  // A folder that is not absolute names nothing: a relative argument then
+  // names nothing, rather than a runbook in this app's folder.
+  const later = launched(argv, path.isAbsolute(workingDirectory) ? workingDirectory : undefined)
+  if (later !== undefined) waitToOpen(laterLaunches, later, (line) => console.error(line))
+})
 
 const processEnvironment: Record<string, string> = {}
 for (const [name, value] of Object.entries(process.env))
@@ -143,6 +209,8 @@ app.on("will-quit", (event) => {
   Effect.runFork(
     Fiber.interrupt(engine).pipe(
       Effect.andThen(stopsEnded),
+      // Only once no script runs: one may still read its runbook's folder.
+      Effect.andThen(removeClonesFolder),
       Effect.timeoutOption(QUIT_DEADLINE),
       Effect.ensuring(
         Effect.sync(() => {
@@ -176,21 +244,34 @@ if (firstInstance)
           appWindow
             .loadURL(page.href)
             .catch((error: unknown) => console.error("The window could not load its page:", error))
+          // Clones an earlier run left, as a crash or a quit past its deadline
+          // does. The single-instance lock keeps every other app off them.
+          yield* removeClonesFolder
           // The page asks for an asset only once the engine has answered it,
           // and serveLaunch answers it only after the handler is in place.
           return yield* Effect.andThen(
             serveRunbookAssets(appWindow.webContents.session),
-            serveLaunch(ipcProtocol, launch, (line) => console.error(line)),
+            serveLaunch(ipcProtocol, {
+              first: launch,
+              later: laterLaunches,
+              clones,
+              log: (line) => console.error(line),
+              // The page shows the session the engine opened last.
+              show: () => {
+                if (!appWindow.isDestroyed()) appWindow.webContents.reload()
+              },
+            }),
           ).pipe(
             Effect.scoped,
             Effect.provide(
-              Layer.merge(
+              Layer.mergeAll(
                 appEngine({
                   userData: app.getPath("userData"),
                   appVersion: __RUNBOOKS_VERSION__,
                   processEnvironment,
                 }),
                 NodeFileSystemLive,
+                RemoteLive,
               ),
             ),
           )
@@ -209,20 +290,19 @@ if (firstInstance)
       app.exit(1)
     })
 
-/**
- * The runbook `argv` names, with the folder the app was started in, which
- * `process.cwd()` can't read once that folder is deleted.
- */
-function launched(argv: ReadonlyArray<string>): Launch | undefined {
+/** The runbook `argv` names, if any, with the folder its launch started in. */
+function launched(argv: ReadonlyArray<string>, folder: string | undefined): Launch | undefined {
   const argument = launchArgument(argv, process.defaultApp === true)
-  if (argument === undefined) return undefined
-  let startedIn: string | undefined
+  return argument === undefined ? undefined : { argument, startedIn: folder }
+}
+
+/** The folder the app was started in, which `process.cwd()` can't read once it is deleted. */
+function startedIn(): string | undefined {
   try {
-    startedIn = process.cwd()
+    return process.cwd()
   } catch {
-    startedIn = undefined
+    return undefined
   }
-  return { argument, startedIn }
 }
 
 /** Opens the window, which loads no page yet, for the build's page or the dev server's at `devServer`. */

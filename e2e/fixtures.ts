@@ -68,11 +68,12 @@ export const test = base.extend<{
   /** Launches the app, on `userDataDir` unless told otherwise, and waits for its page. Each app still open is closed after the test. */
   launch: (options?: LaunchOptions) => Promise<Launched>
   /**
-   * Launches the app again on `userDataDir` with `args`, as a person would
-   * while it runs, and waits for that launch to end. It opens no window, so
+   * Launches the app again on `userDataDir` with `args`, from `cwd` (this
+   * process's folder unless told otherwise), as a person would while it
+   * runs, and waits for that launch to end. It opens no window, so
    * Playwright does not drive it.
    */
-  launchAgain: (args: ReadonlyArray<string>) => Promise<Ended>
+  launchAgain: (args: ReadonlyArray<string>, options?: { readonly cwd?: string }) => Promise<Ended>
 }>({
   userDataDir: async ({}, use, testInfo) => {
     const made = testInfo.outputPath("user-data")
@@ -110,11 +111,13 @@ export const test = base.extend<{
   },
   launchAgain: async ({ userDataDir }, use) => {
     await use(
-      (args) =>
+      (args, options = {}) =>
         new Promise((resolve, reject) => {
           // Chromium's sandbox stays on: nothing here passes --no-sandbox.
           const child = spawn(electronBinary(), [MAIN, `--user-data-dir=${userDataDir}`, ...args], {
             stdio: ["ignore", "pipe", "pipe"],
+            env: definedEnvironment(),
+            ...(options.cwd !== undefined && { cwd: options.cwd }),
           })
           let output = ""
           child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()))

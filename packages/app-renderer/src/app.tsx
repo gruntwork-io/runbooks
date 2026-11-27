@@ -1,8 +1,9 @@
 /**
- * The window: the app's header, and the runbook of the engine's open
- * session, or a welcome screen when none is open. Main opens a runbook the
- * command line names before it answers the page
- * (packages/app-main/src/launch.ts), so `ListSessions` finds it.
+ * The window: the app's header, and the runbook of the session the engine
+ * opened last, or a welcome screen when none is open. Main opens a runbook
+ * the command line names before it answers the page
+ * (packages/app-main/src/launch.ts), so `ListSessions` finds it. A later
+ * launch's runbook opens while the page is up, and main then reloads it.
  */
 import { Cause, Effect } from "effect"
 import { useEffect, useState } from "react"
@@ -23,13 +24,14 @@ const defectText = (cause: Cause.Cause<unknown>): string => {
 }
 
 /**
- * What the engine has open, as the window shows it. When the engine fails
- * instead of answering, as a runbook nested deep enough to overflow its
- * stack makes it, the window says so rather than asking forever.
+ * What the engine has open, as the window shows it: the session it opened
+ * last, which `ListSessions` lists last. When the engine fails instead of
+ * answering, as a runbook nested deep enough to overflow its stack makes
+ * it, the window says so rather than asking forever.
  */
 export const ask = (engine: EngineClient): Effect.Effect<Shown> =>
   Effect.gen(function* () {
-    const [session] = yield* engine.ListSessions()
+    const session = (yield* engine.ListSessions()).at(-1)
     if (session === undefined) return { _tag: "Welcome" } as const
     const document = yield* engine.GetDocument({ session: session.session })
     return { _tag: "Runbook", session, document } as const

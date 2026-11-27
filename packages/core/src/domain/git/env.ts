@@ -43,8 +43,25 @@ export const MIN_UNTRUSTED_REPO_GIT_VERSION = "2.31"
  */
 export const SAFE_BARE_REPOSITORY_GIT_VERSION = "2.38"
 
-/** ssh options that make it fail instead of prompting (see gitSpawnEnv). */
-const SSH_BATCH_OPTIONS = "-o BatchMode=yes -o StrictHostKeyChecking=yes"
+/**
+ * How long a git that reaches a remote waits on it without receiving a byte
+ * before it gives up (see gitSpawnEnv). A stall bound, not a cap on the whole
+ * command, so a large clone that keeps receiving finishes however long it takes.
+ */
+const STALL_SECONDS = 30
+
+/**
+ * ssh options that make it fail instead of prompting (see gitSpawnEnv), or
+ * instead of waiting on a host that doesn't connect, or stops answering, for
+ * STALL_SECONDS.
+ */
+const SSH_OPTIONS = [
+  "-o BatchMode=yes",
+  "-o StrictHostKeyChecking=yes",
+  `-o ConnectTimeout=${STALL_SECONDS}`,
+  `-o ServerAliveInterval=${STALL_SECONDS / 2}`,
+  "-o ServerAliveCountMax=2",
+].join(" ")
 
 /**
  * Lower-cased basename of a program path, without `.exe` — the name git
@@ -71,17 +88,18 @@ const gitSshCommand = (program: string) =>
   ["ssh", "plink"].includes(programName(program)) ? shellQuote(program) : undefined
 
 /**
- * `command` with the no-prompt flags its ssh client understands appended.
- * TortoisePlink gets nothing: git already passes it `-batch` on its own.
+ * `command` with the no-prompt flags its ssh client understands appended:
+ * for plink only `-batch`, which has no stall options. TortoisePlink gets
+ * nothing: git already passes it `-batch` on its own.
  */
-const withBatchMode = (command: string) => {
+const withSshOptions = (command: string) => {
   switch (programName(commandProgram(command))) {
     case "plink":
       return `${command} -batch`
     case "tortoiseplink":
       return command
     default:
-      return `${command} ${SSH_BATCH_OPTIONS}`
+      return `${command} ${SSH_OPTIONS}`
   }
 }
 
@@ -92,6 +110,9 @@ const withBatchMode = (command: string) => {
  *
  * Without these, a clone/push/ls-remote can hang forever:
  *
+ *  - A remote that takes the connection and never answers, or stops
+ *    answering mid-transfer: a dropped network, or a proxy that holds the
+ *    connection.
  *  - SSH host-key verification. The first time we connect to a host that isn't
  *    in known_hosts, ssh asks "Are you sure you want to continue connecting?"
  *    and reads the answer from the controlling terminal — which a spawned git
@@ -127,6 +148,13 @@ const withBatchMode = (command: string) => {
  * GIT_TERMINAL_PROMPT=0 makes git itself fail instead of prompting for
  * credentials on the terminal (the HTTPS equivalent of the SSH hang).
  *
+ * GIT_HTTP_LOW_SPEED_LIMIT=1 and GIT_HTTP_LOW_SPEED_TIME=STALL_SECONDS make
+ * an http(s) transfer that receives nothing for STALL_SECONDS fail with
+ * "Operation too slow", unless the app's environment sets its own. ssh gets
+ * ConnectTimeout and ServerAlive options for the same bound. Connecting over
+ * http waits as long as the system lets it (75 seconds on macOS): git has no
+ * setting for curl's connect timeout.
+ *
  * It also sets UNTRUSTED_REPO_CONFIG, so no git spawned here runs a command
  * that a repository's own config names.
  *
@@ -140,9 +168,11 @@ export const gitSpawnEnv = (
   sshCommand?: string,
 ): Record<string, string | undefined> => {
   const env: Record<string, string | undefined> = { ...inherited, GIT_TERMINAL_PROMPT: "0" }
+  env.GIT_HTTP_LOW_SPEED_LIMIT ||= "1"
+  env.GIT_HTTP_LOW_SPEED_TIME ||= String(STALL_SECONDS)
   const { GIT_SSH_COMMAND, GIT_SSH } = env
   const command = GIT_SSH_COMMAND || sshCommand || (GIT_SSH ? gitSshCommand(GIT_SSH) : "ssh")
-  if (command) env.GIT_SSH_COMMAND = withBatchMode(command)
+  if (command) env.GIT_SSH_COMMAND = withSshOptions(command)
   else delete env.GIT_SSH_COMMAND
   return withGitConfig(env, UNTRUSTED_REPO_CONFIG)
 }

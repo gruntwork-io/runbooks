@@ -834,7 +834,8 @@ describe("GitCliClientLive ssh command (real git)", () => {
   // Push and clone must run the ssh the user's git would (core.sshCommand),
   // wrapped in the no-prompt flags, rather than replacing it with plain ssh.
   const ENV_KEYS = ["GIT_SSH_COMMAND", "GIT_SSH", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"]
-  const BATCH_OPTIONS = "-o BatchMode=yes -o StrictHostKeyChecking=yes"
+  const SSH_OPTIONS =
+    "-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=2"
   const saved = new Map<string, string | undefined>()
   let tmp: string
   let sshLog: string
@@ -882,7 +883,7 @@ describe("GitCliClientLive ssh command (real git)", () => {
 
     expect(result._tag).toBe("Failure")
     const args = fs.readFileSync(sshLog, "utf8")
-    expect(args).toContain(`-i /keys/id_work ${BATCH_OPTIONS}`)
+    expect(args).toContain(`-i /keys/id_work ${SSH_OPTIONS}`)
     expect(args).toContain("git-receive-pack")
   })
 
@@ -906,7 +907,7 @@ describe("GitCliClientLive ssh command (real git)", () => {
 
     expect(result._tag).toBe("Failure")
     const args = fs.readFileSync(sshLog, "utf8")
-    expect(args).toContain(`-i /keys/id_work ${BATCH_OPTIONS}`)
+    expect(args).toContain(`-i /keys/id_work ${SSH_OPTIONS}`)
     expect(args).toContain("git-upload-pack")
   })
 })

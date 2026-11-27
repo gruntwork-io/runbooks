@@ -485,7 +485,8 @@ export const resolveRef = (
     // Fetch all remote refs. gitSpawnEnv keeps ssh non-interactive so an
     // ls-remote against an unknown SSH host fails fast instead of hanging on
     // the host-key prompt, while still running the user's core.sshCommand.
-    // A caller-supplied env must be built the same way (see electron/main/remote.ts).
+    // A caller-supplied env must be built the same way (see
+    // packages/app-main/src/remoteRunbook.ts).
     // `--` so a URL starting with `-` can never read as an option.
     const proc = yield* spawner.spawn("git", ["ls-remote", "--refs", "--", cloneURL], {
       env: env ?? gitSpawnEnv(app, yield* resolveSshCommand(app)),
