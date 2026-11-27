@@ -963,6 +963,15 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   readonly saver: SessionSaver
   /** The sequence of the session's first event: where a resumed session's earlier one ended. */
   readonly firstSequence: number
+  /**
+   * What watches the runbook and the files it names on disk, given the
+   * session and what it holds at each named path now. It runs in the
+   * session's scope: closing the session ends it.
+   */
+  readonly watch?: (
+    session: Session,
+    files: () => ReadonlyMap<RunbookPath, FileFact>,
+  ) => Effect.Effect<void>
 }) {
   const { id, roots, baseEnvironment, saver, registry, appVersion } = options
   const resume = Option.getOrUndefined(options.resume)
@@ -2532,5 +2541,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   // for. Subscribed now, so no change made before the loop first runs is missed.
   const wake = yield* Scope.provide(scope)(PubSub.subscribe(changed))
   yield* Effect.forkIn(Effect.forever(Effect.andThen(PubSub.take(wake), letThrough)), scope)
+  if (options.watch !== undefined)
+    yield* Effect.forkIn(
+      options.watch(session, () => heldFiles),
+      scope,
+    )
   return session
 })
