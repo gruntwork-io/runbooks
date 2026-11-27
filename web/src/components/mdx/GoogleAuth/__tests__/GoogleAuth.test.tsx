@@ -997,7 +997,8 @@ describe("GoogleAuth setup guidance", () => {
 
     renderBlock(<GoogleAuth id="gcp" detectCredentials={false} defaultTab="oauth" />)
 
-    expect(await screen.findAllByText("Sign in as yourself in your browser.")).toHaveLength(1)
+    expect(await screen.findAllByText("How do I create an OAuth client?")).toHaveLength(1)
+    expect(screen.getAllByText("Sign in as yourself in your browser.")).toHaveLength(1)
     expect(screen.queryAllByText(/oauthClientFile|GOOGLE_OAUTH_CLIENT_CREDENTIALS/)).toHaveLength(0)
     const guide = guideFor("How do I create an OAuth client?")
     expect(guide.open).toBe(false)
@@ -1019,7 +1020,7 @@ describe("GoogleAuth setup guidance", () => {
       <GoogleAuth id="gcp" detectCredentials={false} defaultTab="oauth" scopes={[drive]} />,
     )
 
-    await screen.findAllByText("Sign in as yourself in your browser.")
+    await screen.findAllByText("How do I create an OAuth client?")
     const scopes = [...guideFor("How do I create an OAuth client?").querySelectorAll("ul li")]
     expect(scopes.map((scope) => scope.textContent)).toEqual([drive])
   })
