@@ -1,11 +1,15 @@
 import { CheckCircle, XCircle, Loader2, KeyRound, FolderOpen } from "lucide-react"
 import type {
+  AdcPrincipalLookup,
+  GcloudConfigInfo,
   GoogleAuthMethod,
   GoogleAuthStatus,
   GoogleCredentialType,
   GoogleDetectionSource,
+  SignedInAdcPrincipal,
 } from "./types"
 import { makeStatusStyles } from "../_shared/lib/statusStyles"
+import { namesAnotherAccount } from "../../../../../src/domain/google/account-mismatch"
 
 // Status-based styling for the container, icon, and icon color. Maps are
 // GoogleAuth-specific: the accent is `info` (blue) for the pending,
@@ -73,6 +77,138 @@ const CREDENTIAL_TYPE_LABELS: Record<GoogleCredentialType, string> = {
 // value like 'toString' must not resolve to an Object.prototype member.
 export function getCredentialTypeLabel(type: GoogleCredentialType | undefined): string | null {
   return type && Object.hasOwn(CREDENTIAL_TYPE_LABELS, type) ? CREDENTIAL_TYPE_LABELS[type] : null
+}
+
+const UNREADABLE_ADC = "Google could not confirm who this login belongs to"
+
+interface AdcDetection {
+  found: boolean
+  valid?: boolean
+  account?: { principal?: string }
+  credentialType?: GoogleCredentialType
+  missingScopes?: string[]
+  warning?: string
+  error?: string
+}
+
+export function toAdcPrincipalLookup(detection: AdcDetection): AdcPrincipalLookup {
+  const reason = detection.warning ?? detection.error
+  const principal = detection.account?.principal ?? ""
+  if (!detection.found) return reason ? { status: "unusable", reason } : { status: "missing" }
+  if (detection.missingScopes?.length) {
+    return { status: "missing-scopes", principal, missingScopes: detection.missingScopes }
+  }
+  if (!detection.valid) return { status: "unusable", reason: reason ?? UNREADABLE_ADC }
+  return {
+    status: "signed-in",
+    principal,
+    ...(detection.credentialType ? { credentialType: detection.credentialType } : {}),
+  }
+}
+
+export function isForAnotherAccount(
+  configuration: GcloudConfigInfo,
+  signedIn: SignedInAdcPrincipal,
+): boolean {
+  if (!signedIn.credentialType) return false
+  const identity = { email: signedIn.principal, credentialType: signedIn.credentialType }
+  return namesAnotherAccount(configuration.account, identity)
+}
+
+function hasCredentials(configuration: GcloudConfigInfo): boolean {
+  return configuration.authType !== "config-only" && configuration.authType !== "unsupported"
+}
+
+export function isUsableWith(
+  configuration: GcloudConfigInfo,
+  signedIn: SignedInAdcPrincipal,
+): boolean {
+  return hasCredentials(configuration) && !isForAnotherAccount(configuration, signedIn)
+}
+
+export function configurationsUsableWith(
+  configurations: GcloudConfigInfo[],
+  lookup: AdcPrincipalLookup,
+): GcloudConfigInfo[] {
+  if (lookup.status !== "signed-in") return []
+  return configurations.filter((configuration) => isUsableWith(configuration, lookup))
+}
+
+export function chooseConfiguration(
+  usable: GcloudConfigInfo[],
+  previousName: string | undefined,
+  pinnedName: string | undefined,
+): GcloudConfigInfo | null {
+  return (
+    usable.find((configuration) => configuration.name === previousName) ??
+    usable.find((configuration) => configuration.name === pinnedName) ??
+    usable.find((configuration) => configuration.isActive) ??
+    usable[0] ??
+    null
+  )
+}
+
+export interface GcloudSetting {
+  label: "Project" | "Region" | "Zone"
+  value: string
+  source?: string
+}
+
+export interface GcloudSettingSources {
+  configuration: GcloudConfigInfo | null
+  pinnedProject: string | undefined
+  quotaProject: string | undefined
+  pickedRegion: string
+  defaultRegion: string | undefined
+  defaultZone: string | undefined
+}
+
+const SET_BY_RUNBOOK = "set by this runbook"
+
+function fromConfiguration(configuration: GcloudConfigInfo): string {
+  return `from your gcloud configuration ${configuration.name}`
+}
+
+function describeProject(sources: GcloudSettingSources): GcloudSetting {
+  const { configuration, pinnedProject, quotaProject } = sources
+  if (pinnedProject) return { label: "Project", value: pinnedProject, source: SET_BY_RUNBOOK }
+  if (configuration?.project) {
+    return {
+      label: "Project",
+      value: configuration.project,
+      source: fromConfiguration(configuration),
+    }
+  }
+  if (quotaProject)
+    return { label: "Project", value: quotaProject, source: "from your gcloud login" }
+  return { label: "Project", value: "Chosen after sign-in" }
+}
+
+function describeRegion(sources: GcloudSettingSources): GcloudSetting {
+  const { configuration, pickedRegion, defaultRegion } = sources
+  if (pickedRegion) {
+    const source = pickedRegion === defaultRegion ? SET_BY_RUNBOOK : "your choice"
+    return { label: "Region", value: pickedRegion, source }
+  }
+  if (configuration?.region) {
+    return {
+      label: "Region",
+      value: configuration.region,
+      source: fromConfiguration(configuration),
+    }
+  }
+  return { label: "Region", value: "Not set" }
+}
+
+function describeZone(sources: GcloudSettingSources): GcloudSetting[] {
+  const { configuration, defaultZone } = sources
+  if (defaultZone) return [{ label: "Zone", value: defaultZone, source: SET_BY_RUNBOOK }]
+  if (!configuration?.zone) return []
+  return [{ label: "Zone", value: configuration.zone, source: fromConfiguration(configuration) }]
+}
+
+export function describeGcloudSettings(sources: GcloudSettingSources): GcloudSetting[] {
+  return [describeProject(sources), describeRegion(sources), ...describeZone(sources)]
 }
 
 // The tab the block opens on when the author sets no `defaultTab`.

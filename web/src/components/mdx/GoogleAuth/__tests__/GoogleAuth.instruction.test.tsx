@@ -31,11 +31,7 @@ describe("GoogleAuth — instruction mode", () => {
     expect(screen.getByTestId("instruction-gcp")).toBeInTheDocument()
     expect(screen.getByText("Log into Google Cloud")).toBeInTheDocument()
     // The by-hand equivalent of every tab, and the scopes it would request.
-    expect(
-      screen.getByText(
-        'gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS"',
-      ),
-    ).toBeInTheDocument()
+    expect(screen.getByText("gcloud auth application-default login")).toBeInTheDocument()
     expect(screen.getByText(DEFAULT_SCOPES)).toBeInTheDocument()
 
     // No credential capture UI of any kind.
@@ -72,9 +68,37 @@ describe("GoogleAuth — instruction mode", () => {
     expect(screen.queryByText(DEFAULT_SCOPES)).toBeNull()
     expect(
       screen.getByText(
-        'gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=https://www.googleapis.com/auth/cloud-platform',
+        "gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform",
       ),
     ).toBeInTheDocument()
     expect(useGoogleAuthSpy).not.toHaveBeenCalled()
+  })
+
+  it("puts the author's OAuth client file on the command", () => {
+    render(
+      <TestWrapper>
+        <GoogleAuth id="gcp" oauthClientFile="~/.config/gcloud/client.json" />
+      </TestWrapper>,
+    )
+
+    expect(
+      screen.getAllByText(
+        "gcloud auth application-default login --client-id-file ~/.config/gcloud/client.json",
+      ),
+    ).toHaveLength(1)
+  })
+
+  it("quotes a client file path the shell would otherwise split or expand", () => {
+    render(
+      <TestWrapper>
+        <GoogleAuth id="gcp" oauthClientFile="/Users/o'brien/My Keys/client $1.json" />
+      </TestWrapper>,
+    )
+
+    expect(
+      screen.getAllByText(
+        `gcloud auth application-default login --client-id-file '/Users/o'\\''brien/My Keys/client $1.json'`,
+      ),
+    ).toHaveLength(1)
   })
 })

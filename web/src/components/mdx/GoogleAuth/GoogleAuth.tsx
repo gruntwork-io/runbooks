@@ -178,6 +178,17 @@ function GoogleAuthInteractive({
   // browser sign-in and project picker.
   const latestAuth = useLatest(auth)
   const defer = useAgentDeferred()
+  const signInWithGcloud = async (configurationName: string | undefined) => {
+    if (latestAuth.current.gcloudConfigs.length === 0) await latestAuth.current.loadGcloudConfigs()
+    defer(() => {
+      const configuration = configurationName
+        ? latestAuth.current.gcloudConfigs.find((listed) => listed.name === configurationName)
+        : null
+      if (configuration === undefined) return
+      latestAuth.current.setSelectedConfig(configuration)
+      defer(() => void latestAuth.current.handleGcloudAuth())
+    })
+  }
   const signedIn = auth.authStatus === "authenticated"
   const signingIn = auth.authStatus === "authenticating"
   const detectedPending = auth.detectionStatus === "detected" && auth.detectedCredentials !== null
@@ -251,12 +262,13 @@ function GoogleAuthInteractive({
       },
       {
         name: "sign_in_with_gcloud",
-        description: "Sign in with a gcloud configuration, as the block's gcloud tab does.",
+        description:
+          "Sign in with the gcloud login, as the block's gcloud tab does. Pass config to take the project, region and zone from a gcloud configuration.",
         params: {
           config: {
             type: "string",
-            description: "A configuration name (state.gcloudConfigs; loaded on first use)",
-            required: true,
+            description:
+              "A configuration name (state.gcloudConfigs; loaded on first use). Leave it out to sign in without a configuration.",
           },
         },
         changes: true,
@@ -315,16 +327,8 @@ function GoogleAuthInteractive({
           auth.handleRetryDetection()
           return { ok: true }
         case "sign_in_with_gcloud": {
-          const name = stringParam(params, "config")
-          if (!name) return { ok: false, reason: "config is required" }
           auth.setAuthMethod("gcloud")
-          if (auth.gcloudConfigs.length === 0) await auth.loadGcloudConfigs()
-          defer(() => {
-            const config = latestAuth.current.gcloudConfigs.find((c) => c.name === name)
-            if (!config) return
-            latestAuth.current.setSelectedConfig(config)
-            defer(() => void latestAuth.current.handleGcloudAuth())
-          })
+          defer(() => void signInWithGcloud(stringParam(params, "config")))
           return {
             ok: true,
             note: "Signing in; get_block shows the result, or state.error if there is no such configuration.",
@@ -621,7 +625,11 @@ function GoogleAuthInteractive({
                     configSearch={auth.configSearch}
                     setConfigSearch={auth.setConfigSearch}
                     adcInfo={auth.adcInfo}
-                    configRoot={auth.gcloudConfigRoot}
+                    adcPrincipal={auth.adcPrincipal}
+                    requiredScopes={scopes ?? []}
+                    pinnedProject={resolvedProject}
+                    defaultRegion={defaultRegion}
+                    defaultZone={defaultZone}
                     selectedRegion={auth.selectedRegion}
                     setSelectedRegion={auth.setSelectedRegion}
                     onGcloudAuth={auth.handleGcloudAuth}

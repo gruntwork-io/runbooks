@@ -3,7 +3,8 @@ import { LogIn } from "lucide-react"
 import { Instruction } from "@/components/mdx/_shared"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
-import { DEFAULT_GOOGLE_SCOPES, formatGcloudAdcLoginCommand } from "./constants"
+import { formatGcloudAdcLoginCommand } from "../../../../../src/domain/google/scopes"
+import { DEFAULT_GOOGLE_SCOPES } from "./constants"
 import type { GoogleAuthProps } from "./types"
 
 /**
@@ -22,6 +23,7 @@ export function GoogleAuthInstruction({
   description,
   project,
   scopes,
+  oauthClientFile,
   defaultRegion,
   gcloudConfiguration,
   inputsId,
@@ -43,6 +45,10 @@ export function GoogleAuthInstruction({
     [gcloudConfiguration, templateCtx],
   )
 
+  const resolvedOauthClientFile = oauthClientFile
+    ? resolveTemplateReferences(oauthClientFile, templateCtx)
+    : undefined
+
   const heading = resolvedProject
     ? `Log into Google Cloud in the \`${resolvedProject}\` project`
     : "Log into Google Cloud"
@@ -57,10 +63,8 @@ export function GoogleAuthInstruction({
   hints.push({ label: "Scopes", value: effectiveScopes.join(", ") })
   // Only append --scopes when the author set them; defaults are Sign-In request
   // scopes, not a hard ADC requirement in the by-hand recovery path.
-  hints.push({
-    label: "Command",
-    value: formatGcloudAdcLoginCommand(scopes && scopes.length > 0 ? scopes : []),
-  })
+  const login = formatGcloudAdcLoginCommand(scopes && scopes.length > 0 ? scopes : [])
+  hints.push({ label: "Command", value: withClientFile(login, resolvedOauthClientFile) })
 
   return (
     <Instruction
@@ -80,4 +84,16 @@ export function GoogleAuthInstruction({
       }
     />
   )
+}
+
+// A separate word, not `--client-id-file=`: a shell expands a leading `~` only
+// at the start of a word, and gcloud does not expand it.
+function withClientFile(login: string, clientFile: string | undefined): string {
+  return clientFile ? `${login} --client-id-file ${quoteForShell(clientFile)}` : login
+}
+
+const NEEDS_NO_QUOTING = /^[\w@%+=:,./~][\w@%+=:,./~-]*$/
+
+function quoteForShell(value: string): string {
+  return NEEDS_NO_QUOTING.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
 }

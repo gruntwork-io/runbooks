@@ -1,7 +1,7 @@
 import { AlertTriangle, Copy, Loader2, LogIn } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { formatGcloudAdcLoginCommand } from "../constants"
+import { formatGcloudAdcLoginCommand } from "../../../../../../src/domain/google/scopes"
 import type { DetectedGoogleCredentials } from "../types"
 import { getSourceLabel } from "../utils"
 
@@ -29,19 +29,7 @@ export function InsufficientScopesPrompt({
   onReject,
   onRetryDetection,
 }: InsufficientScopesPromptProps) {
-  const [copied, setCopied] = useState(false)
   const missing = credentials.missingScopes ?? []
-  const command = formatGcloudAdcLoginCommand(requiredScopes)
-
-  const copyCommand = async () => {
-    try {
-      await navigator.clipboard.writeText(command)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard may be denied; the command is still selectable in the UI.
-    }
-  }
 
   return (
     <div className="mb-4">
@@ -99,32 +87,85 @@ export function InsufficientScopesPrompt({
             </Button>
           </div>
         ) : (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Google Sign-In is unavailable in this build. Run the command below as the same
-              principal, then check again — or authenticate manually with a credential that already
-              carries these scopes.
-            </p>
-            <div className="flex items-start gap-2">
-              <code className="flex-1 bg-card border border-warning/30 rounded px-2 py-1.5 text-xs font-mono break-all">
-                {command}
-              </code>
-              <Button type="button" variant="outline" size="sm" onClick={() => void copyCommand()}>
-                <Copy className="size-3.5 mr-1" />
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <Button onClick={onRetryDetection} disabled={recovering} size="sm">
-                Check again
-              </Button>
-              <Button onClick={onReject} disabled={recovering} variant="outline" size="sm">
-                Use Different Credentials
-              </Button>
-            </div>
+          <div className="space-y-4">
+            <AddScopesInTerminal
+              command={formatGcloudAdcLoginCommand(requiredScopes)}
+              onRetryDetection={onRetryDetection}
+              disabled={recovering}
+            />
+            <SignInAnotherWay onReject={onReject} disabled={recovering} />
           </div>
         )}
       </div>
     </div>
+  )
+}
+
+function SignInAnotherWay({ onReject, disabled }: { onReject: () => void; disabled: boolean }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        Alternatively, or if Google shows "This app is blocked", sign in with another method.
+      </p>
+      <Button onClick={onReject} disabled={disabled} variant="outline" size="sm">
+        Use Different Credentials
+      </Button>
+    </div>
+  )
+}
+
+function AddScopesInTerminal(props: {
+  command: string
+  onRetryDetection: () => void
+  disabled: boolean
+}) {
+  return (
+    <div className="space-y-2">
+      <AddScopesInstructions />
+      <CopyableCommand command={props.command} />
+      <Button onClick={props.onRetryDetection} disabled={props.disabled} size="sm">
+        Check again
+      </Button>
+    </div>
+  )
+}
+
+function AddScopesInstructions() {
+  return (
+    <p className="text-sm text-muted-foreground">
+      To ask Google for the missing scopes, run this command in a terminal. Then click{" "}
+      <strong>Check again</strong>.
+    </p>
+  )
+}
+
+function CopyableCommand({ command }: { command: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <code className="flex-1 bg-card border border-warning/30 rounded px-2 py-1.5 text-xs font-mono break-all">
+        {command}
+      </code>
+      <CopyButton text={command} />
+    </div>
+  )
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const copyText = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard may be denied; the command is still selectable in the UI.
+    }
+  }
+
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={() => void copyText()}>
+      <Copy className="size-3.5 mr-1" />
+      {copied ? "Copied" : "Copy"}
+    </Button>
   )
 }

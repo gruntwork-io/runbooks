@@ -229,7 +229,9 @@ describe("resolveOAuthClient", () => {
     )
 
     expect(error._tag).toBe("GoogleOAuthError")
-    expect(error.message).toBe("OAuth login is not configured for this build")
+    expect(error.message).toBe(
+      "Google Sign-In is not configured yet. It needs the JSON file of a Desktop OAuth client.",
+    )
   })
 
   it("surfaces a missing client file as an OAuth error", async () => {

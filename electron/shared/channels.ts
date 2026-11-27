@@ -543,7 +543,9 @@ export interface IpcChannelMap {
   "google:gcloud-auth": {
     params: {
       blockId?: string
-      configuration: string
+      configuration?: string
+      /** The account the block showed. MAIN refuses to sign in as a different one. */
+      confirmedPrincipal?: string
       projectId?: string
       region?: string
       zone?: string
@@ -614,6 +616,8 @@ export interface IpcChannelMap {
       /** Which detection source is being confirmed. */
       source?: "env" | "adc" | "gcloud"
       configuration?: string
+      /** The account the block showed. MAIN refuses to sign in as a different one. */
+      confirmedPrincipal?: string
       projectId?: string
       region?: string
       zone?: string

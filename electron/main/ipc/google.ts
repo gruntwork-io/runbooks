@@ -44,6 +44,10 @@ import {
 } from "../../../src/domain/google/auth.ts"
 import { credentialTypeFromDocumentType } from "../../../src/domain/google/gcloud-config.ts"
 import {
+  differsFromConfirmedPrincipal,
+  namesAnotherAccount,
+} from "../../../src/domain/google/account-mismatch.ts"
+import {
   evaluateRequiredGoogleScopes,
   insufficientScopesErrorMessage,
 } from "../../../src/domain/google/scopes.ts"
@@ -443,6 +447,7 @@ interface ResolvedCredential {
   readonly zone?: string
   readonly envVar?: string
   readonly configuration?: string
+  readonly configurationAccount?: string
   readonly quotaProjectId?: string
 }
 
@@ -549,7 +554,41 @@ async function resolveGcloudSource(
     ...(configuration.zone ? { zone: configuration.zone } : {}),
     ...(adc.quotaProjectId ? { quotaProjectId: adc.quotaProjectId } : {}),
     configuration: configuration.name,
+    ...(configuration.account ? { configurationAccount: configuration.account } : {}),
   }
+}
+
+async function resolveApplicationDefaultCredentials(): Promise<GcloudResolution> {
+  const listing = await runtime.runPromise(listGcloudConfigurations())
+  return { ...(listing.adc ? { adc: listing.adc } : {}), configRoot: listing.configRoot }
+}
+
+function extractConfiguration(resolved: ResolvedCredential) {
+  return { name: resolved.configuration, account: resolved.configurationAccount }
+}
+
+function describeAccountMismatch(
+  configuration: { readonly name?: string | undefined; readonly account?: string | undefined },
+  signedIn: Pick<GoogleIdentity, "email">,
+): string {
+  return (
+    `gcloud configuration "${configuration.name}" is set up for ${configuration.account}, ` +
+    `but your Application Default Credentials sign in as ${signedIn.email}. ` +
+    `Choose a configuration set up for ${signedIn.email}, or sign in without one.`
+  )
+}
+
+function refuseChangedAccount(
+  confirmedPrincipal: string | undefined,
+  signedIn: Pick<GoogleIdentity, "email">,
+): { valid: false; error: string } | undefined {
+  if (!differsFromConfirmedPrincipal(confirmedPrincipal, signedIn)) return undefined
+  const error = signedIn.email
+    ? `The signed-in account is now ${signedIn.email}, not ${confirmedPrincipal}. ` +
+      `Check the account, then try again.`
+    : `These credentials do not say which account they sign in as, ` +
+      `so they cannot be matched to ${confirmedPrincipal}. Sign in another way.`
+  return { valid: false, error }
 }
 
 function resolveDetectionSource(
@@ -903,7 +942,8 @@ export function registerGoogleHandlers(): void {
       _event,
       params: {
         blockId?: string
-        configuration: string
+        configuration?: string
+        confirmedPrincipal?: string
         projectId?: string
         region?: string
         zone?: string
@@ -912,8 +952,10 @@ export function registerGoogleHandlers(): void {
     ) => {
       const generation = sessionManager.getGeneration()
       try {
-        const resolved = await resolveGcloudConfiguration(params.configuration)
-        if (!resolved.configuration) {
+        const resolved = params.configuration
+          ? await resolveGcloudConfiguration(params.configuration)
+          : await resolveApplicationDefaultCredentials()
+        if (params.configuration && !resolved.configuration) {
           return {
             valid: false,
             error: `gcloud configuration "${params.configuration}" was not found in ${resolved.configRoot}`,
@@ -922,16 +964,22 @@ export function registerGoogleHandlers(): void {
         if (!resolved.adc) {
           return {
             valid: false,
-            error: `Configuration "${params.configuration}" has no Application Default Credentials — run \`gcloud auth application-default login\`.`,
+            error:
+              "No Application Default Credentials found. Run `gcloud auth application-default login`.",
           }
         }
 
         const { configuration, adc } = resolved
-        const projectId = params.projectId ?? configuration.project
-        const region = params.region ?? configuration.region
-        const zone = params.zone ?? configuration.zone
+        const projectId = params.projectId ?? configuration?.project
+        const region = params.region ?? configuration?.region
+        const zone = params.zone ?? configuration?.zone
         const documentJson = await runtime.runPromise(readCredentialFileContents(adc.path))
         const identity = await validateCredentialDocument(documentJson, projectId)
+        const changedAccount = refuseChangedAccount(params.confirmedPrincipal, identity)
+        if (changedAccount) return changedAccount
+        if (configuration && namesAnotherAccount(configuration.account, identity)) {
+          return { valid: false, error: describeAccountMismatch(configuration, identity) }
+        }
 
         const scopeFailure = scopeCheckFailure(identity, params.scopes)
         if (scopeFailure) {
@@ -952,7 +1000,7 @@ export function registerGoogleHandlers(): void {
             ...(projectId ? { projectId } : {}),
             ...(region ? { region } : {}),
             ...(zone ? { zone } : {}),
-            configuration: configuration.name,
+            ...(configuration ? { configuration: configuration.name } : {}),
           },
           generation,
         )
@@ -1029,6 +1077,13 @@ export function registerGoogleHandlers(): void {
 
         try {
           const identity = await validateResolvedCredential(resolved)
+          if (namesAnotherAccount(resolved.configurationAccount, identity)) {
+            return {
+              found: false,
+              source,
+              error: describeAccountMismatch(extractConfiguration(resolved), identity),
+            }
+          }
           const projectId = resolved.projectId ?? identity.projectId
           const scopeFailure = scopeCheckFailure(identity, params.scopes)
           if (scopeFailure) {
@@ -1076,6 +1131,7 @@ export function registerGoogleHandlers(): void {
         prefix?: string
         source?: DetectionSource
         configuration?: string
+        confirmedPrincipal?: string
         projectId?: string
         region?: string
         zone?: string
@@ -1103,6 +1159,14 @@ export function registerGoogleHandlers(): void {
         }
 
         const identity = await validateResolvedCredential(resolved)
+        const changedAccount = refuseChangedAccount(params.confirmedPrincipal, identity)
+        if (changedAccount) return changedAccount
+        if (namesAnotherAccount(resolved.configurationAccount, identity)) {
+          return {
+            valid: false,
+            error: describeAccountMismatch(extractConfiguration(resolved), identity),
+          }
+        }
         const scopeFailure = scopeCheckFailure(identity, params.scopes)
         if (scopeFailure) {
           return {
