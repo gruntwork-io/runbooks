@@ -123,7 +123,12 @@ describe("the window asking the engine to trust the session", () => {
           case "TrustSession":
             return answers++ === 0 ? { _tag: "HashChanged", current: NOW } : { _tag: "Trusted" }
           case "GetDocument":
-            return { tree: { type: "root", children: [] }, blocks: [ADDED], warnings: [] }
+            return {
+              hash: NOW,
+              tree: { type: "root", children: [] },
+              blocks: [ADDED],
+              warnings: [],
+            }
           default:
             return undefined
         }
@@ -150,7 +155,12 @@ describe("the window asking the engine to trust the session", () => {
               ? { _tag: "HashChanged", current: NOW }
               : fails({ _tag: "UnknownSession", session: SESSION })
           case "GetDocument":
-            return { tree: { type: "root", children: [] }, blocks: [ADDED], warnings: [] }
+            return {
+              hash: NOW,
+              tree: { type: "root", children: [] },
+              blocks: [ADDED],
+              warnings: [],
+            }
           default:
             return undefined
         }

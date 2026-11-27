@@ -106,7 +106,12 @@ describe("what the window shows", () => {
             requestId,
             exit: {
               _tag: "Success",
-              value: { tree: { type: "root", children: [] }, blocks: [], warnings: [] },
+              value: {
+                hash: `sha256:${"0".repeat(64)}`,
+                tree: { type: "root", children: [] },
+                blocks: [],
+                warnings: [],
+              },
             },
           }),
           GetSettings: (requestId) => ({

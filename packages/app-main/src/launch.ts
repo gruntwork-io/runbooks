@@ -32,7 +32,7 @@ import type { Rpc, RpcClientError, RpcServer } from "effect/rpc"
 import { redactSecrets } from "@runbooks/core/domain/vcs/redact"
 import type { RemoteSourceError } from "@runbooks/core/errors"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
-import type { EngineCommand, RunbookUnreadable } from "@runbooks/core/protocol"
+import type { EngineCommand, Forbidden, RunbookUnreadable } from "@runbooks/core/protocol"
 import { isRemoteSource, redactSourceCredentials } from "@runbooks/core/remote-source"
 import type { Environment } from "@runbooks/core/services/Environment"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
@@ -128,6 +128,7 @@ type LaunchFailure =
   | LaunchProblem
   | RemoteSourceError
   | RunbookUnreadable
+  | Forbidden
   | RpcClientError.RpcClientError
 
 /** The line that says why `failure` kept the launch's runbook from opening. */
@@ -143,6 +144,9 @@ const failureLine = (failure: LaunchFailure): string => {
       return `Runbooks could not open ${failure.url}: ${failure.message}`
     case "RunbookUnreadable":
       return `Runbooks could not open ${failure.path}: ${failure.message}`
+    // Main opens as a person, whom the engine refuses nothing; this says so if it ever does.
+    case "Forbidden":
+      return `Runbooks could not open the runbook: the engine refused ${failure.command} from its caller (${failure.origin}).`
     case "RpcClientError":
       return `Runbooks could not open the runbook: the engine failed: ${failure.message}`
     default: {

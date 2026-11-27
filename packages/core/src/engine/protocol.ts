@@ -17,7 +17,7 @@
  */
 import { Context, Schema, Struct } from "effect"
 import { Rpc, type RpcClient, type RpcClientError, RpcGroup, RpcMiddleware } from "effect/rpc"
-import { BlockClass, BlockId, MachineEffect } from "@runbooks/blocks-core/contract"
+import { BlockClass, BlockId, MachineEffect, RunbookPath } from "@runbooks/blocks-core/contract"
 import { Field, FieldType, FieldValue, Validation } from "@runbooks/blocks-core/form"
 import { Blocker, BlockStatus } from "@runbooks/blocks-core/status"
 import { CredentialAction, CredentialState } from "../credential/lifecycle.ts"
@@ -69,6 +69,13 @@ export const LIMITS = {
   maxRunFiles: 10_000,
   /** The events a session keeps for `Events` to replay. Older ones are dropped. */
   keptEvents: 10_000,
+  /**
+   * The characters a block's `filesOnDisk` holds: each file's path and
+   * reason, and each line's text and its line ending, so a diff of empty
+   * lines or of files with no lines is bounded too. The engine leaves out
+   * every line and file past it, and says it did.
+   */
+  maxDiffChars: 65_536,
 } as const
 
 const LogLimit = Schema.Int.check(
@@ -205,6 +212,77 @@ export const InstructionStep = Schema.Union([
 export const Instruction = Schema.Array(InstructionStep)
 export type Instruction = typeof Instruction.Type
 
+/** One line of a file, without its line ending, in a diff of the text the session holds against the text on disk. */
+export const DiffLine = Schema.Struct({
+  kind: Schema.Literals(["context", "deletion", "addition"]),
+  text: Schema.String,
+})
+export type DiffLine = typeof DiffLine.Type
+
+const LineNumber = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
+
+/** Changed lines, with a few lines of context around them. */
+export const DiffHunk = Schema.Struct({
+  /** The line, from 1, the hunk starts at in the text the session holds. */
+  heldLine: LineNumber,
+  /** The line, from 1, the hunk starts at in the text on disk. */
+  diskLine: LineNumber,
+  lines: Schema.NonEmptyArray(DiffLine),
+})
+export type DiffHunk = typeof DiffHunk.Type
+
+/** A file a block names, or one in a folder it names, whose text on disk is not the text the session holds. */
+export const FileOnDisk = Schema.Union([
+  /**
+   * Its text differs. `created`: the session holds none, as for a file new
+   * in a folder; `deleted`: there is none on disk; `modified`: both, apart.
+   * `hunks` is empty when only line endings or a final newline differ, or
+   * when `FilesOnDisk.truncated` left out all of them.
+   */
+  Schema.TaggedStruct("Changed", {
+    path: RunbookPath,
+    change: FileChange.fields.change,
+    hunks: Schema.Array(DiffHunk),
+  }),
+  /**
+   * The session could not take it as it is: over a limit, outside the
+   * runbook's folder, not a file, or not readable, as `reason` says.
+   * Taking it gives the block the configuration error opening would.
+   */
+  Schema.TaggedStruct("Unreadable", { path: RunbookPath, reason: Schema.String }),
+])
+export type FileOnDisk = typeof FileOnDisk.Type
+
+/** What `LIMITS.maxDiffChars` counts. */
+const diffChars = (files: ReadonlyArray<FileOnDisk>): number =>
+  files.reduce(
+    (total, file) =>
+      file._tag === "Changed"
+        ? file.hunks.reduce(
+            (sum, hunk) => hunk.lines.reduce((chars, line) => chars + line.text.length + 1, sum),
+            total + file.path.length,
+          )
+        : total + file.path.length + file.reason.length,
+    0,
+  )
+
+/** How the files a block names differ on disk from the text the session holds, and runs. */
+export const FilesOnDisk = Schema.Struct({
+  /** Over what is on disk at each path the block names: what `ReloadFiles` takes. */
+  hash: ContentHash,
+  /** Each file that differs, in path order. */
+  files: Schema.NonEmptyArray(FileOnDisk),
+  /** Present when the diff passed `LIMITS.maxDiffChars`: the lines and files after it are left out. */
+  truncated: Schema.optionalKey(Schema.Literal(true)),
+}).check(
+  Schema.makeFilter((onDisk: { readonly files: ReadonlyArray<FileOnDisk> }) =>
+    diffChars(onDisk.files) <= LIMITS.maxDiffChars
+      ? undefined
+      : `Expected at most ${LIMITS.maxDiffChars} characters of paths, reasons and lines.`,
+  ),
+)
+export type FilesOnDisk = typeof FilesOnDisk.Type
+
 export const BlockView = Schema.Struct({
   ...BlockSummary.fields,
   /**
@@ -227,12 +305,22 @@ export const BlockView = Schema.Struct({
   files: Schema.optionalKey(Schema.Array(FileChange).check(Schema.isMaxLength(LIMITS.maxRunFiles))),
   /** Present when the run touched more paths than `files` lists. */
   filesTruncated: Schema.optionalKey(Schema.Literal(true)),
+  /**
+   * Present while a file the block names differs on disk from the text the
+   * session holds, in a session that watches them (`WatchMode`): the block
+   * runs the text the session holds until `ReloadFiles` takes them.
+   */
+  filesOnDisk: Schema.optionalKey(FilesOnDisk),
 })
 export type BlockView = typeof BlockView.Type
 
 export const TrustState = Schema.Struct({
   trusted: Schema.Boolean,
-  /** The hash trust is, or would be, granted for. */
+  /**
+   * The hash trust is, or would be, granted for: that of the document the
+   * session holds now (`DocumentView.hash`). A reload keeps the session's
+   * trust, granted now for the new hash, which `TrustChanged` carries.
+   */
   hash: ContentHash,
 })
 export type TrustState = typeof TrustState.Type
@@ -279,6 +367,25 @@ export const Resumed = Schema.Struct({
 })
 export type Resumed = typeof Resumed.Type
 
+/**
+ * Why a session that reloads its runbook when it is saved holds the
+ * runbook it had, not the one on disk. Each clears when the session takes
+ * the runbook on disk (`DocumentChanged`), or the runbook on disk is the
+ * one it holds again.
+ */
+export const ReloadHeld = Schema.Union([
+  /** Nothing reloads while a block runs: these are running. It reloads once none is. */
+  Schema.TaggedStruct("Running", { blocks: Schema.NonEmptyArray(BlockId) }),
+  /** The runbook on disk has an error that refuses it, as `OpenResult.Invalid` says. */
+  Schema.TaggedStruct("Invalid", {
+    errors: Schema.NonEmptyArray(ConfigError),
+    warnings: Schema.Array(ConfigWarning),
+  }),
+  /** The runbook on disk could not be read, as `RunbookUnreadable` says. */
+  Schema.TaggedStruct("Unreadable", { message: Schema.String }),
+])
+export type ReloadHeld = typeof ReloadHeld.Type
+
 export const SessionView = Schema.Struct({
   ...SessionSummary.fields,
   /**
@@ -293,6 +400,8 @@ export const SessionView = Schema.Struct({
   warnings: Schema.Array(ConfigWarning),
   /** Present when the engine resumed the runbook's saved session. */
   resumed: Schema.optionalKey(Resumed),
+  /** Present while the session holds back a reload of its runbook: why. */
+  reloadHeld: Schema.optionalKey(ReloadHeld),
 })
 export type SessionView = typeof SessionView.Type
 
@@ -352,8 +461,16 @@ export const DocumentBlock = Schema.Union([
 ])
 export type DocumentBlock = typeof DocumentBlock.Type
 
-/** The session's runbook as a window renders it. Nothing in it changes while the session is open. */
+/**
+ * The session's runbook as a window renders it. It changes only when the
+ * session reloads the runbook (`DocumentChanged`).
+ */
 export const DocumentView = Schema.Struct({
+  /**
+   * The hash of what it holds: the runbook, and each file a block names.
+   * The one a window that draws it sends `TrustSession`.
+   */
+  hash: ContentHash,
   /** The front matter's title. */
   title: Schema.optionalKey(Schema.String),
   /**
@@ -465,6 +582,25 @@ export const SetValuesResult = Schema.Struct({
 export type SetValuesResult = typeof SetValuesResult.Type
 
 export const CancelResult = Schema.Literals(["cancelled", "notRunning"])
+
+export const ReloadFilesResult = Schema.Union([
+  /**
+   * The block took the files at the hash it showed: it runs them from now
+   * on, starting over if it had run. `DocumentChanged` says the session's
+   * document took them. A trusted session stays trusted, now for the new
+   * hash, which `TrustChanged` carries.
+   */
+  Schema.TaggedStruct("Reloaded", {}),
+  /**
+   * The block shows no `filesOnDisk`, or shows them at another hash: the
+   * files changed again since the client read the block. Nothing changed;
+   * reading the block again shows what is on disk now.
+   */
+  Schema.TaggedStruct("NotShown", {}),
+  /** Nothing reloads while a block runs: these are running. Nothing changed. */
+  Schema.TaggedStruct("Running", { blocks: Schema.NonEmptyArray(BlockId) }),
+])
+export type ReloadFilesResult = typeof ReloadFilesResult.Type
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -642,7 +778,26 @@ const ClassError = Schema.Union([UnknownSession, UnknownBlock, WrongClass])
 // ---------------------------------------------------------------------------
 
 export const EngineEvent = Schema.Union([
+  /** The session's trust, or the hash it is for, changed. */
   Schema.TaggedStruct("TrustChanged", { trust: TrustState }),
+  /**
+   * The session took its runbook as it is on disk now: watch mode reloaded
+   * it, or `ReloadFiles` took files a block names. Only the watcher, in a
+   * watch mode the person chose at open, and a person choosing "Reload
+   * script" reload a session. `GetDocument` and `GetSession` give it as it
+   * is now; `hash` is the new document's.
+   *
+   * - A block whose id, block, props and files' hashes are as they were
+   *   keeps its run or submit, with its log and outputs. Any other block
+   *   starts over, and a block the runbook no longer has goes. A form keeps
+   *   the values of the fields it still has, and a credential block its
+   *   login, as in a resumed session.
+   * - A trusted session stays trusted, now for the new hash, which
+   *   `TrustChanged` carries. An untrusted one stays untrusted.
+   */
+  Schema.TaggedStruct("DocumentChanged", { hash: ContentHash }),
+  /** `SessionView.reloadHeld` changed: `held` is what it is now, absent when no reload is held. */
+  Schema.TaggedStruct("ReloadHeldChanged", { held: Schema.optionalKey(ReloadHeld) }),
   Schema.TaggedStruct("BlockStatusChanged", { block: BlockId, status: BlockStatus }),
   /** Batched: the engine sends lines as they arrive, at most a few batches a second. */
   Schema.TaggedStruct("LogLines", {
@@ -659,6 +814,8 @@ export const EngineEvent = Schema.Union([
   Schema.TaggedStruct("FieldsChanged", { block: BlockId, fields: Schema.Array(FieldView) }),
   /** What a run just touched. The block's view keeps the run's list. */
   Schema.TaggedStruct("FilesChanged", { block: BlockId, files: Schema.Array(FileChange) }),
+  /** The block's `filesOnDisk` changed, came or went: its view has it. */
+  Schema.TaggedStruct("FilesOnDiskChanged", { block: BlockId }),
   Schema.TaggedStruct("CredentialChanged", { block: BlockId, state: CredentialState }),
   Schema.TaggedStruct("ApprovalRequested", { approval: Approval }),
   Schema.TaggedStruct("ApprovalResolved", { approval: ApprovalId, approved: Schema.Boolean }),
@@ -687,11 +844,34 @@ export type EventEnvelope = typeof EventEnvelope.Type
 const session = { session: SessionId }
 const block = { session: SessionId, block: BlockId }
 
+/**
+ * What a session watches on disk, for its lifetime. A closed set.
+ *
+ * - `off`: nothing. `runbooks test` opens a runbook so.
+ * - `notice`: the files its blocks name. A block whose files change on disk
+ *   runs the text the session holds, and says how they changed, until
+ *   `ReloadFiles` takes them. The app opens a runbook so without `--watch`.
+ * - `runbook`: those, and the runbook. Each time the runbook is saved, the
+ *   session reloads it, and each file a block names keeps the text the
+ *   session holds (`--watch --disable-live-file-reload`).
+ * - `runbookAndFiles`: as `runbook`, but a reload reads each file the
+ *   runbook names again too (`--watch`).
+ *
+ * `runbook` and `runbookAndFiles` reload the session's runbook, and a
+ * reload keeps its trust (`DocumentChanged`), so only a person chooses
+ * one: an agent's `OpenSession` that names one is `Forbidden`.
+ */
+export const WatchMode = Schema.Literals(["off", "notice", "runbook", "runbookAndFiles"])
+export type WatchMode = typeof WatchMode.Type
+
 export class OpenSession extends Rpc.make("OpenSession", {
-  /** The runbook the person chose. Its folder is the session's `runbook` root. */
-  payload: { path: AbsolutePath },
+  /**
+   * The runbook the person chose. Its folder is the session's `runbook`
+   * root. `watch`, absent, is `off`.
+   */
+  payload: { path: AbsolutePath, watch: Schema.optionalKey(WatchMode) },
   success: OpenResult,
-  error: RunbookUnreadable,
+  error: Schema.Union([RunbookUnreadable, Forbidden]),
 }) {}
 
 export class CloseSession extends Rpc.make("CloseSession", {
@@ -717,8 +897,9 @@ export class GetSession extends Rpc.make("GetSession", {
 /**
  * The session's runbook as a window renders it: its markdown, and each
  * block's place, props and configuration errors. It is as large as the
- * runbook and does not change while the session is open, so a client asks
- * once, where `GetSession` is asked after every change.
+ * runbook and changes only when the session reloads it, so a client asks
+ * again only after `DocumentChanged`, where `GetSession` is asked after
+ * every change.
  */
 export class GetDocument extends Rpc.make("GetDocument", {
   payload: session,
@@ -726,7 +907,7 @@ export class GetDocument extends Rpc.make("GetDocument", {
   error: SessionError,
 }) {}
 
-/** Person only. `hash` is the one the person was shown. */
+/** Person only. `hash` is the one the person was shown: the `DocumentView.hash` of what the window draws. */
 export class TrustSession extends Rpc.make("TrustSession", {
   payload: { ...session, hash: ContentHash },
   success: TrustResult,
@@ -789,6 +970,19 @@ export class CancelBlock extends Rpc.make("CancelBlock", {
 export class ResetBlock extends Rpc.make("ResetBlock", {
   payload: block,
   error: ClassError,
+}) {}
+
+/**
+ * Person only. Takes the files a block names as they are on disk, at the
+ * `hash` its `filesOnDisk` shows: the "Reload script" a person chooses
+ * after reading how they changed. The session takes them as it takes a
+ * reloaded runbook (`DocumentChanged`), keeping its trust for the new
+ * hash, so an agent, which may have written them, cannot.
+ */
+export class ReloadFiles extends Rpc.make("ReloadFiles", {
+  payload: { ...block, hash: ContentHash },
+  success: ReloadFilesResult,
+  error: Schema.Union([UnknownSession, UnknownBlock, Forbidden]),
 }) {}
 
 /** Returns once the block is not running or awaiting approval, or after `timeoutMillis`. */
@@ -865,6 +1059,7 @@ export const EngineProtocol = RpcGroup.make(
   RunBlock,
   CancelBlock,
   ResetBlock,
+  ReloadFiles,
   WaitForBlock,
   GetOutputs,
   ActOnCredential,

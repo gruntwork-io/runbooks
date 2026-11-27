@@ -15,6 +15,7 @@ import {
   type DocumentBlock,
   DocumentView,
   type EngineCommand,
+  type EngineEvent,
   EngineProtocol,
   EventEnvelope,
   Events,
@@ -25,6 +26,8 @@ import {
   LIMITS,
   OpenSession,
   type Origin,
+  ReloadFiles,
+  ReloadFilesResult,
   RunBlock,
   RunId,
   RunResult,
@@ -35,6 +38,7 @@ import {
   UnknownSequence,
   UnknownSession,
   WaitForBlock,
+  type WatchMode,
 } from "./protocol.ts"
 
 const session = Schema.decodeUnknownSync(SessionId)("s1")
@@ -94,6 +98,7 @@ const Handlers = EngineProtocol.toLayer({
       : Effect.fail(new UnknownSession({ session: id })),
   CancelBlock: unused,
   ResetBlock: unused,
+  ReloadFiles: unused,
   WaitForBlock: unused,
   GetOutputs: unused,
   ActOnCredential: unused,
@@ -139,6 +144,16 @@ describe("engine protocol", () => {
       expect(open({ path })).toEqual({ path })
     for (const path of ["rb/runbook.mdx", "./runbook.mdx", "C:runbook.mdx"])
       expect(() => open({ path })).toThrow(/Expected an absolute path/)
+  })
+
+  it("opens a session watching what its mode says, one of four", () => {
+    const open = Schema.decodeUnknownSync(Schema.toCodecJson(OpenSession.payloadSchema))
+    const path = "/rb/runbook.mdx"
+    expect(open({ path })).toEqual({ path })
+    for (const watch of ["off", "notice", "runbook", "runbookAndFiles"] as const)
+      expect(open({ path, watch })).toEqual({ path, watch })
+    expect(() => open({ path, watch: "always" })).toThrow(/at \["watch"\]/)
+    expectTypeOf<WatchMode>().toEqualTypeOf<"off" | "notice" | "runbook" | "runbookAndFiles">()
   })
 
   it("answers an expected outcome in the success channel and a fault as a typed error", async () => {
@@ -334,6 +349,168 @@ describe("engine protocol", () => {
     expect(() => view({ ...base, files: many })).toThrow(/at \["files"\]/)
   })
 
+  it("says how the files a block names changed on disk, within a limit it says it reached, through JSON", () => {
+    const json = Schema.toCodecJson(BlockView)
+    const base = { block: "greet", tag: "Run", class: "task", actions: [], outputs: {} }
+    const line = (kind: string, text: string) => ({ kind, text })
+    const onDisk = {
+      hash: `sha256:${"a".repeat(64)}`,
+      files: [
+        {
+          _tag: "Changed",
+          path: "greet.sh",
+          change: "modified",
+          hunks: [
+            {
+              heldLine: 1,
+              diskLine: 1,
+              lines: [
+                line("context", "#!/bin/bash"),
+                line("deletion", "echo script-before"),
+                line("addition", "echo script-after"),
+              ],
+            },
+          ],
+        },
+        {
+          _tag: "Changed",
+          path: "templates/main.tf",
+          change: "created",
+          hunks: [{ heldLine: 1, diskLine: 1, lines: [line("addition", 'resource "x" {}')] }],
+        },
+        { _tag: "Changed", path: "templates/old.tf", change: "deleted", hunks: [] },
+        { _tag: "Unreadable", path: "templates/big.bin", reason: "It is over 1048576 bytes." },
+      ],
+    }
+    const view = Schema.decodeUnknownSync(json)({ ...base, filesOnDisk: onDisk })
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(view)))
+    expect(wire.filesOnDisk).toEqual(onDisk)
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(view)
+
+    const shown = (fields: Record<string, unknown>) => ({
+      ...base,
+      filesOnDisk: { ...onDisk, ...fields },
+    })
+    expect(Schema.decodeUnknownSync(json)(shown({ truncated: true })).filesOnDisk?.truncated).toBe(
+      true,
+    )
+    expect(() => Schema.decodeUnknownSync(json)(shown({ truncated: false }))).toThrow(
+      /at \["filesOnDisk"\]\["truncated"\]/,
+    )
+    expect(() => Schema.decodeUnknownSync(json)(shown({ files: [] }))).toThrow(
+      /at \["filesOnDisk"\]\["files"\]/,
+    )
+    const ofLength = (length: number) =>
+      shown({
+        files: [
+          {
+            _tag: "Changed",
+            path: "greet.sh",
+            change: "modified",
+            hunks: [
+              {
+                heldLine: 1,
+                diskLine: 1,
+                // 8 for the path, 2 for the "y" line, and 1 for this line's ending.
+                lines: [line("deletion", "x".repeat(length - 11)), line("addition", "y")],
+              },
+            ],
+          },
+        ],
+      })
+    expect(LIMITS.maxDiffChars).toBe(65_536)
+    expect(Schema.decodeUnknownSync(json)(ofLength(65_536)).filesOnDisk?.files[0]?._tag).toBe(
+      "Changed",
+    )
+    expect(() => Schema.decodeUnknownSync(json)(ofLength(65_537))).toThrow(/at \["filesOnDisk"\]/)
+
+    const events = Schema.toCodecJson(EventEnvelope)
+    const changed: EventEnvelope = {
+      session,
+      sequence: 7,
+      at,
+      event: { _tag: "FilesOnDiskChanged", block: greet },
+    }
+    expect(
+      Schema.decodeUnknownSync(events)(
+        JSON.parse(JSON.stringify(Schema.encodeSync(events)(changed))),
+      ),
+    ).toEqual(changed)
+  })
+
+  it("counts every file and every line of a block's files on disk toward its limit, empty or not", () => {
+    const decode = Schema.decodeUnknownSync(Schema.toCodecJson(BlockView))
+    const onDisk = (files: ReadonlyArray<Record<string, unknown>>) => ({
+      block: "greet",
+      tag: "Run",
+      class: "task",
+      actions: [],
+      outputs: {},
+      filesOnDisk: { hash: `sha256:${"a".repeat(64)}`, files },
+    })
+    const blankLines = (count: number) => [
+      {
+        _tag: "Changed",
+        path: "greet.sh",
+        change: "modified",
+        hunks: [
+          {
+            heldLine: 1,
+            diskLine: 1,
+            lines: Array.from({ length: count }, () => ({ kind: "addition", text: "" })),
+          },
+        ],
+      },
+    ]
+    // 8 for the path, and 1 for each line's ending.
+    expect(decode(onDisk(blankLines(65_528))).filesOnDisk?.files).toHaveLength(1)
+    expect(() => decode(onDisk(blankLines(65_529)))).toThrow(/at \["filesOnDisk"\]/)
+
+    const unreadable = Array.from({ length: 2_000 }, (_, index) => ({
+      _tag: "Unreadable",
+      path: `big/${String(index).padStart(4, "0")}.bin`,
+      reason: "It is over 1048576 bytes.",
+    }))
+    expect(() => decode(onDisk(unreadable))).toThrow(/at \["filesOnDisk"\]/)
+    const deleted = Array.from({ length: 6_000 }, (_, index) => ({
+      _tag: "Changed",
+      path: `old/${String(index).padStart(4, "0")}.tf`,
+      change: "deleted",
+      hunks: [],
+    }))
+    expect(() => decode(onDisk(deleted))).toThrow(/at \["filesOnDisk"\]/)
+  })
+
+  it("reloads a block's files by the hash its view shows, and answers each outcome through JSON", () => {
+    const payload = Schema.decodeUnknownSync(Schema.toCodecJson(ReloadFiles.payloadSchema))
+    const sent = { session: "s1", block: "greet", hash: `sha256:${"a".repeat(64)}` }
+    expect(payload(sent)).toEqual({ session, block: greet, hash })
+    const { hash: _, ...unhashed } = sent
+    expect(() => payload(unhashed)).toThrow(/at \["hash"\]/)
+
+    const json = Schema.toCodecJson(ReloadFilesResult)
+    for (const result of [
+      { _tag: "Reloaded" },
+      { _tag: "NotShown" },
+      { _tag: "Running", blocks: ["greet"] },
+    ]) {
+      const decoded = Schema.decodeUnknownSync(json)(result)
+      expect(JSON.parse(JSON.stringify(Schema.encodeSync(json)(decoded)))).toEqual(result)
+    }
+    expect(() => Schema.decodeUnknownSync(json)({ _tag: "Running", blocks: [] })).toThrow(
+      /at \["blocks"\]/,
+    )
+
+    // Person only, as TrustSession is.
+    const errors = Schema.toCodecJson(ReloadFiles.errorSchema)
+    const refused = { _tag: "Forbidden", command: "ReloadFiles", origin: "agent" }
+    expect(
+      JSON.parse(
+        JSON.stringify(Schema.encodeSync(errors)(Schema.decodeUnknownSync(errors)(refused))),
+      ),
+    ).toEqual(refused)
+  })
+
   it("says what a resumed session did not restore, and carries it through JSON", () => {
     const json = Schema.toCodecJson(SessionView)
     const view: SessionView = {
@@ -502,6 +679,7 @@ describe("engine protocol", () => {
       ],
     }
     const document: DocumentView = {
+      hash,
       title: "Deploy",
       tree: {
         type: "root",
@@ -530,6 +708,69 @@ describe("engine protocol", () => {
         blocks: [wire.blocks[0], { ...wireMisconfigured, errors: [] }],
       }),
     ).toThrow(/at \["blocks"\]\[1\]/)
+  })
+
+  it("carries the hash of what a document holds, and refuses one without it", () => {
+    const json = Schema.toCodecJson(DocumentView)
+    const document: DocumentView = {
+      hash,
+      tree: { type: "root", children: [] },
+      blocks: [],
+      warnings: [],
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(document)))
+    expect(wire.hash).toBe(`sha256:${"a".repeat(64)}`)
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(document)
+    const { hash: _, ...unhashed } = wire
+    expect(() => Schema.decodeUnknownSync(json)(unhashed)).toThrow(/at \["hash"\]/)
+  })
+
+  it("says the session reloaded its runbook, or why it holds a reload back, through JSON", () => {
+    const json = Schema.toCodecJson(EventEnvelope)
+    const invalid = new ConfigError({
+      code: "syntax",
+      message: "Expected a closing tag for `<Run>`.",
+      location: {
+        file: "/rb/runbook.mdx",
+        span: { start: { line: 3, column: 1 }, end: { line: 3, column: 6 } },
+      },
+    })
+    const events: ReadonlyArray<EngineEvent> = [
+      { _tag: "DocumentChanged", hash },
+      { _tag: "ReloadHeldChanged", held: { _tag: "Running", blocks: [greet] } },
+      { _tag: "ReloadHeldChanged", held: { _tag: "Invalid", errors: [invalid], warnings: [] } },
+      {
+        _tag: "ReloadHeldChanged",
+        held: { _tag: "Unreadable", message: "There is no file at /rb/runbook.mdx." },
+      },
+      { _tag: "ReloadHeldChanged" },
+    ]
+    for (const [sequence, event] of events.entries()) {
+      const envelope: EventEnvelope = { session, sequence, at, event }
+      const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(envelope)))
+      expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
+    }
+    const running = { session, sequence: 0, at: "2026-11-24T12:00:00.000Z" }
+    expect(() =>
+      Schema.decodeUnknownSync(json)({
+        ...running,
+        event: { _tag: "ReloadHeldChanged", held: { _tag: "Running", blocks: [] } },
+      }),
+    ).toThrow(/at \["event"\]\["held"\]\["blocks"\]/)
+
+    const view = Schema.toCodecJson(SessionView)
+    const held: SessionView = {
+      session,
+      name: "rb",
+      path: "/rb/runbook.mdx",
+      blocks: [],
+      trust: { trusted: true, hash },
+      warnings: [],
+      reloadHeld: { _tag: "Running", blocks: [greet] },
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(view)(held)))
+    expect(wire.reloadHeld).toEqual({ _tag: "Running", blocks: ["greet"] })
+    expect(Schema.decodeUnknownSync(view)(wire)).toEqual(held)
   })
 
   it("serves every baseline MCP tool with a command (decision 12)", () => {
