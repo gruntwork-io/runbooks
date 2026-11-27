@@ -168,6 +168,8 @@ Blocks can reference an auth block by ID so they wait for authentication and rec
 - `gitAuthId` references a `<GitAuth>` block of either provider and injects the token and user it produced. Use this for GitLab.
 - `githubAuthId` is GitHub only. It reads `GITHUB_TOKEN` and `GITHUB_USER`, so it cannot reference a GitLab block.
 
+A block can set both. A `<GitClone>` or pull request block signs in with one block, so it uses the `gitAuthId` block and ignores `githubAuthId`. A `<Command>`, `<Check>` or `<Finish>` waits for both blocks and gets the variables of both. Where both set `GITHUB_TOKEN` or `GITHUB_USER`, the `gitAuthId` block's value wins.
+
 <Aside type="caution">
 A GitLab `<GitAuth>` block cannot be referenced via `githubAuthId`. Use `gitAuthId`, or rely on the session environment, from which any `<Command>` or `<Check>` inherits `GITLAB_TOKEN` without an explicit reference.
 </Aside>

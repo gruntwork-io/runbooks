@@ -101,7 +101,7 @@ You can pre-fill the URL, ref, sparse checkout path, and local path fields. User
 | `description` | `string` | No | Description text below the title. Supports inline markdown. |
 | `autoCollapse` | `boolean` | No | Folds the block down to its title once the repository is cloned. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
 | `inputsId` | `string \| string[]` | No | ID of one or more [`<Inputs>`](/authoring/blocks/inputs) blocks. `title`, `description`, and the `prefilled*` props resolve `{{ .inputs.VarName }}` expressions against them. |
-| `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access and clone authentication. |
+| `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access and clone authentication. Ignored when `gitAuthId` is set. |
 | `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth), [`<GitHubAuth>`](/authoring/blocks/githubauth) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth) block, for either provider. When set, the block waits for authentication to complete and clones with that provider's session token, including from a self-managed GitLab instance. |
 | `prefilledUrl` | `string` | No | Pre-fills the Git URL input field. The user can edit this value before cloning. |
 | `prefilledRef` | `string` | No | Pre-fills the ref (branch or tag) to clone. When set, the specified ref is passed to `git clone --branch`. Defaults to the repository's default branch if empty. |
@@ -170,7 +170,7 @@ When the block links an auth block that has signed in, and the user enters an SS
 
 The GitClone block resolves GitHub credentials in this order:
 
-1. `githubAuthId`. If set, the block uses the token the referenced GitHubAuth block signed in with, for the host that block authenticated to.
+1. `gitAuthId` or `githubAuthId`. If set, the block uses the token the referenced block signed in with, for the host that block authenticated to. With both set, it uses the `gitAuthId` block.
 2. The session environment. The block looks for a GitHub token bound to the host (see [environment variables and hosts](/authoring/blocks/githubauth/#environment-variables-and-hosts)).
 3. No token. The "Browse GitHub repositories" section is hidden. The user can still clone public repos or use SSH URLs.
 

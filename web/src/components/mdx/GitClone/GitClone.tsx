@@ -18,7 +18,7 @@ import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
 import { GitLabBrowser } from "./components/GitLabBrowser"
 import { BlockLink } from "@/components/mdx/_shared/components/BlockLink"
-import { hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
+import { hostFromRepoUrl, linkedAuthId } from "@/components/mdx/_shared/lib/gitProvider"
 import { gitRemoteOwnerRepo } from "@/lib/gitRemoteUrl"
 import { isGitHubRepoHost } from "@/components/mdx/_shared/lib/githubHost"
 import { SourceSelect } from "./components/SourceSelect"
@@ -158,7 +158,7 @@ function GitCloneInteractive({
     "GitClone",
     blockRef,
   )
-  const authBlockId = githubAuthId ?? gitAuthId
+  const authBlockId = linkedAuthId({ gitAuthId, githubAuthId })
 
   const { reportError, clearError } = useErrorReporting()
 
@@ -214,8 +214,7 @@ function GitCloneInteractive({
     fetchGitLabRefs,
   } = useGitClone({
     id,
-    githubAuthId,
-    gitAuthId,
+    authId: authBlockId,
     restored: restored && { result: restored.result, outputs: restored.outputs },
     onReady: (_result, published) => setPublishedOutputs(published),
     onRestoreLost: () => {
