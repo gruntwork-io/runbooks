@@ -1706,6 +1706,144 @@ describe("Engine values", () => {
     )
   })
 
+  /** A script that notes the env each run gets, unwrapped. */
+  const envRecorder = () => {
+    const envs: Array<Record<string, string>> = []
+    const script: Script = (input) =>
+      Stream.fromEffectDrain(
+        Effect.sync(() =>
+          envs.push(
+            Object.fromEntries(
+              Object.entries(input.env).map(([name, value]) => [name, Redacted.value(value)]),
+            ),
+          ),
+        ),
+      )
+    return { script, envs }
+  }
+  const emptyInput = (block: string, input: string) =>
+    ({ _tag: "EmptyInput", block: blockId(block), input }) as const
+
+  it("waits for each input its env reads to have a value, an empty field counting as none, unless it has a default (#489)", async () => {
+    const { script, envs } = envRecorder()
+    const runbook = [
+      withFields('<Form id="config">', [
+        "- name: id",
+        "  type: string",
+        "- name: suffix",
+        "  type: string",
+        '  default: ""',
+        "- name: unread",
+        "  type: string",
+      ]),
+      '<Run id="deploy" command="record" inputsId={["config"]} env={{ ID: "{{ .inputs.id }}", SUFFIX: "{{ .inputs.suffix }}" }} />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { record: script },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        const blocked = { _tag: "Blocked", by: [emptyInput("config", "id")] } as const
+        // The form has no errors: an optional field may be empty. Its reader waits for the one it reads.
+        expect(yield* rb.status("config")).toEqual({ _tag: "Idle" })
+        expect(yield* rb.status("deploy")).toEqual(blocked)
+        expect(yield* rb.run("deploy")).toEqual({ _tag: "Refused", reason: blocked })
+
+        yield* rb.set("config", { id: "i-123" })
+        expect(yield* rb.status("deploy")).toEqual({ _tag: "Idle" })
+        expect((yield* rb.run("deploy"))._tag).toBe("Started")
+        yield* rb.wait("deploy")
+        expect(envs.map(({ ID, SUFFIX }) => ({ ID, SUFFIX }))).toEqual([
+          { ID: "i-123", SUFFIX: "" },
+        ])
+
+        // A field cleared is empty again, and its reader can't run again until it has a value.
+        yield* rb.set("config", { id: "" })
+        expect(yield* rb.status("deploy")).toEqual({ _tag: "Done", outcome: "success" })
+        expect(yield* rb.run("deploy")).toEqual({ _tag: "Refused", reason: blocked })
+      }),
+    )
+  })
+
+  it("waits for a map field's key it reads, though the map has a default, but not for a field its form hides, nor twice for a field with an error", async () => {
+    const { script, envs } = envRecorder()
+    const runbook = [
+      withFields('<Form id="config">', [
+        "- name: tags",
+        "  type: map",
+        "  default: {}",
+        "- name: method",
+        "  type: enum",
+        "  options: [email, slack]",
+        "  default: email",
+        "- name: channel",
+        "  type: string",
+        "  showWhen: { method: [slack] }",
+        "- name: region",
+        "  type: string",
+        "  required: true",
+      ]),
+      '<Run id="deploy" command="record" inputsId={["config"]} env={{ ENV: "{{ .inputs.tags.env }}", CHANNEL: "{{ .inputs.channel }}", REGION: "{{ .inputs.region }}" }} />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { record: script },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        // The empty required field holds it as the form's error, the map's missing key as an empty input.
+        expect(yield* rb.status("deploy")).toEqual({
+          _tag: "Blocked",
+          by: [waitingForValues("config"), emptyInput("config", "tags.env")],
+        })
+        yield* rb.set("config", { region: "eu-west-1", tags: { team: "infra" } })
+        const keyEmpty = { _tag: "Blocked", by: [emptyInput("config", "tags.env")] } as const
+        expect(yield* rb.status("deploy")).toEqual(keyEmpty)
+        // The map's default lets the map stay empty, not a key it holds.
+        yield* rb.set("config", { tags: { env: "" } })
+        expect(yield* rb.status("deploy")).toEqual(keyEmpty)
+        yield* rb.set("config", { tags: { env: "prod" } })
+        expect((yield* rb.run("deploy"))._tag).toBe("Started")
+        yield* rb.wait("deploy")
+        // `channel` is hidden while the method is email, so it gives its default: empty.
+        expect(envs.map(({ ENV, CHANNEL, REGION }) => ({ ENV, CHANNEL, REGION }))).toEqual([
+          { ENV: "prod", CHANNEL: "", REGION: "eu-west-1" },
+        ])
+        yield* rb.set("config", { method: "slack" })
+        expect(yield* rb.run("deploy")).toEqual({
+          _tag: "Refused",
+          reason: { _tag: "Blocked", by: [emptyInput("config", "channel")] },
+        })
+      }),
+    )
+  })
+
+  it("waits on the form that gives an input it reads: of those it reads, the last with the field", async () => {
+    const { script, envs } = envRecorder()
+    const runbook = [
+      withFields('<Form id="first">', ["- name: id", "  type: string", "  default: from-first"]),
+      withFields('<Form id="second">', ["- name: id", "  type: string"]),
+      '<Run id="deploy" command="record" inputsId={["first", "second"]} env={{ ID: "{{ .inputs.id }}" }} />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { record: script },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        expect(yield* rb.status("deploy")).toEqual({
+          _tag: "Blocked",
+          by: [emptyInput("second", "id")],
+        })
+        yield* rb.set("second", { id: "from-second" })
+        yield* rb.run("deploy")
+        yield* rb.wait("deploy")
+        expect(envs.map(({ ID }) => ID)).toEqual(["from-second"])
+      }),
+    )
+  })
+
   it("never counts as done a form in a loop of forms that wait for each other", async () => {
     const reading = (id: string, targets: ReadonlyArray<string>) =>
       withFields(`<Form id="${id}">`, [

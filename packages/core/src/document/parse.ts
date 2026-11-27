@@ -675,9 +675,11 @@ class Parse {
     // A task whose props were refused cannot say which are its scripts, so none of its own props is read.
     const ownRead =
       block.class === "task" && block.scripts !== undefined && Result.isFailure(props) ? {} : input
+    const inputs = new Set<string>()
     for (const [prop, value] of [...Object.entries(ownRead), ...Object.entries(shared)]) {
       if (scriptProps.has(prop)) continue
-      this.templateReads(index, prop, value, written.get(prop)?.span ?? span)
+      for (const read of this.templateReads(index, prop, value, written.get(prop)?.span ?? span))
+        inputs.add(read)
     }
 
     this.blocks[index] = {
@@ -688,6 +690,7 @@ class Parse {
       ...(id ? { id: id.id, idAsWritten: id.asWritten } : {}),
       props: Result.isSuccess(props) ? props.success : undefined,
       shared: decodedShared,
+      inputs: [...inputs],
       span,
       errors: [],
     }
@@ -894,11 +897,23 @@ class Parse {
     }
   }
 
-  /** Each `{{ .outputs.<id>.<key> }}` in the strings of one prop. */
-  private templateReads(from: number, prop: string, value: unknown, span: Span): void {
+  /**
+   * Each `{{ .outputs.<id>.<key> }}` in the strings of one prop, as a
+   * reference. Returns the path of each `{{ .inputs.<path> }}` in them.
+   */
+  private templateReads(
+    from: number,
+    prop: string,
+    value: unknown,
+    span: Span,
+  ): ReadonlyArray<string> {
+    const inputs: string[] = []
     for (const text of strings(value)) {
       for (const reference of templateReferences(text)) {
-        if (reference._tag !== "Output") continue
+        if (reference._tag === "Input") {
+          inputs.push(reference.path)
+          continue
+        }
         this.references.push({
           from,
           prop,
@@ -909,6 +924,7 @@ class Parse {
         })
       }
     }
+    return inputs
   }
 
   /**

@@ -427,6 +427,41 @@ describe("its environment", () => {
       PORT: "8080",
     })
   })
+
+  it("waits for each input its env reads to have a value, and runs with an empty one that has a default", async () => {
+    const env = await withSession(
+      [
+        [
+          '<Form id="config">',
+          "```yaml",
+          "- name: id",
+          "  type: string",
+          "- name: suffix",
+          "  type: string",
+          '  default: ""',
+          "```",
+          "</Form>",
+        ].join("\n"),
+        '<Command id="c" inputsId="config" env={{ ID: "{{ .inputs.id }}", SUFFIX: "{{ .inputs.suffix }}" }} command="tag" />',
+      ].join("\n\n"),
+      (s) =>
+        Effect.gen(function* () {
+          expect(yield* s.status("c")).toEqual({
+            _tag: "Blocked",
+            by: [{ _tag: "EmptyInput", block: blockId("config"), input: "id" }],
+          })
+          expect(s.spawns).toEqual([])
+          yield* s.client.SetValues({
+            session: s.session,
+            block: blockId("config"),
+            values: { id: "i-1" },
+          })
+          expect(yield* s.run("c")).toEqual(success)
+          return s.spawns[0]!.env
+        }),
+    )
+    expect(env).toMatchObject({ ID: "i-1", SUFFIX: "" })
+  })
 })
 
 describe("its script", () => {

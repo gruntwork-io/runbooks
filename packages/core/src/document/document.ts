@@ -182,6 +182,12 @@ export const BlockNode = Schema.Struct({
    */
   props: Schema.Unknown,
   shared: SharedProps,
+  /**
+   * The inputs its props' templates read (`{{ .inputs.<path> }}`), each
+   * once, in the order written: a field's name, or a map field's name and
+   * key (`tags.env`). A script is not a template (`ScriptSource`).
+   */
+  inputs: Schema.Array(Schema.String),
   span: Span,
   /**
    * The configuration errors in this block, in file order, each with a code

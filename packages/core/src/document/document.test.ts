@@ -26,6 +26,7 @@ const encoded = {
       idAsWritten: "hello",
       props: { command: "echo hi" },
       shared: { dependsOn: ["setup"], envFrom: ["aws"] },
+      inputs: [],
       span,
       errors: [],
     },

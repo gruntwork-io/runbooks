@@ -367,6 +367,28 @@ tests:
     expect(stdout).toContain("Results: 0 passed, 1 failed, 0 skipped")
   })
 
+  it("says which value a blocked step waits for, and runs it once its test gives the value", async () => {
+    const reads = [
+      "# Reads",
+      '<Form id="config">\n```yaml\n- name: id\n  type: string\n```\n</Form>',
+      '<Script id="use" inputsId="config" env={{ ID: "{{ .inputs.id }}" }} />',
+    ].join("\n\n")
+    const steps = "    steps:\n      - block: use\n"
+    runbook(reads, `version: 1\ntests:\n  - name: empty\n${steps}`)
+    const empty = await runTest(["rb"])
+    expect(empty.code).toBe(1)
+    expect(empty.stdout).toContain("Error: use: Expected success, got blocked")
+    expect(empty.stdout).toContain("Waiting for a value for id in config")
+    expect(seen.runs).toBe(0)
+
+    runbook(
+      reads,
+      `version: 1\ntests:\n  - name: given\n    inputs:\n      config.id: i-123\n${steps}`,
+    )
+    expect((await runTest(["rb"])).code).toBe(0)
+    expect(seen.runs).toBe(1)
+  })
+
   it("reports a passing step against an expect it does not meet as failed", async () => {
     runbook(
       DEPLOY,

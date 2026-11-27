@@ -106,6 +106,7 @@ import {
   fieldErrors,
   fieldViews,
   type Form,
+  inputIn,
   makeForm,
   outputsOf,
   restoreValues,
@@ -1100,9 +1101,36 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     }
   }
 
+  /**
+   * Each input the block's templates read that has no value yet (`inputIn`),
+   * with the form it waits on: of the forms it reads, in order, then its
+   * own, the last with the field, as for its values. An input that no form
+   * it reads has holds nothing: its run fails, naming it.
+   */
+  const emptyInputsOf = (slot: Slot): ReadonlyArray<Blocker> => {
+    const lastFirst = [...slot.reads, slot].reverse().flatMap((read) => {
+      const form = forms.get(read.index)
+      return form === undefined ? [] : [{ block: read.id, form }]
+    })
+    return slot.node.inputs.flatMap((input) => {
+      for (const { block, form } of lastFirst) {
+        switch (inputIn(form, input)) {
+          case "absent":
+            continue
+          case "empty":
+            return [{ _tag: "EmptyInput" as const, block, input }]
+          case "ready":
+            return []
+        }
+      }
+      return []
+    })
+  }
+
   const blockersOf = (slot: Slot): ReadonlyArray<Blocker> => [
     ...(trust._tag === "Trusted" ? [] : [{ _tag: "Untrusted" as const }]),
     ...slot.waits.filter((wait) => !isSatisfied(wait)).map((wait) => wait.blocker),
+    ...emptyInputsOf(slot),
   ]
 
   /** Why the block cannot start now, whoever asks: what blocks it, then its own form. */

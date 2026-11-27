@@ -145,6 +145,27 @@ export interface ValueSources {
   readonly outputs: BlockOutputs
 }
 
+/**
+ * What `{{ .inputs.<name>.<keys> }}` reads in a field's `value`: the value
+ * itself, or, for each key, the map's entry, as `.inputs.tags.env` reads
+ * `env`. Undefined where there is none.
+ */
+export function valueAt(
+  value: FieldValue | undefined,
+  keys: ReadonlyArray<string>,
+): FieldValue | undefined {
+  let at = value
+  for (const key of keys) {
+    at =
+      at !== undefined && typeof at === "object" && !Array.isArray(at)
+        ? Object.hasOwn(at, key)
+          ? (at as { readonly [key: string]: FieldValue })[key]
+          : undefined
+        : undefined
+  }
+  return at
+}
+
 /** The value a reference names, as text, redacted. */
 function valueOf(
   reference: ValueReference,
@@ -162,15 +183,7 @@ function valueOf(
   }
   const [name, ...keys] = source.path
   const field = sources.values.get(name!)
-  let value: FieldValue | undefined = field === undefined ? undefined : Redacted.value(field)
-  for (const key of keys) {
-    value =
-      value !== undefined && typeof value === "object" && !Array.isArray(value)
-        ? Object.hasOwn(value, key)
-          ? (value as { readonly [key: string]: FieldValue })[key]
-          : undefined
-        : undefined
-  }
+  const value = valueAt(field === undefined ? undefined : Redacted.value(field), keys)
   return value === undefined
     ? Result.fail({
         at,
