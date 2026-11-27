@@ -1,8 +1,10 @@
 /**
- * The session the window follows, as each block's frame reads it: the
- * block's view now (`live.ts`), the settings now (`settings.ts`), and a way
- * to ask the engine to act on a block. The app provides it (`app.tsx`).
- * With none, as a page rendered on its own, no block has a view, no setting
+ * The session the window follows, as each block's frame and the trust
+ * prompt read it: the block's view and the session's trust now
+ * (`live.ts`), the settings now (`settings.ts`), what came of asking to
+ * trust the session (`trust.ts`), and a way to ask the engine to act on a
+ * block or trust the session. The app provides it (`app.tsx`). With none,
+ * as a page rendered on its own, no block has a view, no trust or setting
  * is read, and nothing is asked.
  */
 import { Cause, Effect } from "effect"
@@ -21,21 +23,33 @@ import type {
 import { clientErrorText, defectText } from "./defect.ts"
 import { follow, type LiveStore, makeLiveStore } from "./live.ts"
 import { followSettings, makeSettingsStore, type SettingsStore } from "./settings.ts"
+import { askToTrust, makeTrustingStore, type TrustingStore } from "./trust.ts"
 
 export interface Following {
   readonly live: LiveStore
   readonly settings: SettingsStore
+  /** What came of the last ask to trust the session. */
+  readonly trusting: TrustingStore
   /** Asks the engine for `request` on `block`. It gives what to tell the person about the answer, if anything. */
   readonly act: (
     block: BlockView["block"],
     request: ViewRequest,
   ) => Effect.Effect<string | undefined>
+  /**
+   * Asks the engine to trust the session for the hash of what the prompt
+   * shows: the runbook the engine said it holds now, after it said it
+   * changed, or else the session's. It keeps what came of it in
+   * `trusting`. Nothing is asked before the session is read.
+   */
+  readonly trust: () => Effect.Effect<void>
 }
 
 export const FollowingContext = createContext<Following>({
   live: makeLiveStore(),
   settings: makeSettingsStore(undefined),
+  trusting: makeTrustingStore(),
   act: () => Effect.succeed(undefined),
+  trust: () => Effect.void,
 })
 
 /** The view of `block` the engine sent last, if it sent one. */
@@ -71,10 +85,20 @@ export function followingOf(
 ): Following & { readonly start: () => () => void } {
   const live = makeLiveStore()
   const settingsNow = makeSettingsStore(settings)
+  const trusting = makeTrustingStore()
   return {
     live,
     settings: settingsNow,
+    trusting,
     act: (block, request) => ask(engine, session, block, request),
+    trust: () => {
+      const hash = trusting.get().changed?.hash ?? live.get().trust?.hash
+      return hash === undefined
+        ? Effect.void
+        : Effect.flatMap(askToTrust(engine, session, hash), (next) =>
+            Effect.sync(() => trusting.set(next)),
+          )
+    },
     start: () => {
       const fiber = Effect.runFork(
         Effect.all([follow(engine, session, live.set), followSettings(engine, settingsNow.set)], {

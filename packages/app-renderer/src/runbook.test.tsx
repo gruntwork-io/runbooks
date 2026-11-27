@@ -6,6 +6,7 @@ import { FollowingContext } from "./following.ts"
 import { makeLiveStore } from "./live.ts"
 import { Runbook } from "./runbook.tsx"
 import { makeSettingsStore } from "./settings.ts"
+import { makeTrustingStore } from "./trust.ts"
 
 // The runbook page over a document and session as the engine sends them.
 
@@ -106,7 +107,9 @@ describe("the runbook page", () => {
                 lastSelectedGitLabHost: null,
               }),
             ),
+            trusting: makeTrustingStore(),
             act: () => Effect.succeed(undefined),
+            trust: () => Effect.void,
           }}
         >
           <Runbook session={session} document={document({})} />
