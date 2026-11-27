@@ -18,6 +18,6 @@ export function differsFromConfirmedPrincipal(
   confirmedPrincipal: string | undefined,
   signedIn: Pick<GoogleIdentity, "email">,
 ): boolean {
-  if (!confirmedPrincipal || !signedIn.email) return false
+  if (!confirmedPrincipal) return false
   return confirmedPrincipal.toLowerCase() !== signedIn.email.toLowerCase()
 }
