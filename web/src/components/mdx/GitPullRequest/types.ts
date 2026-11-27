@@ -24,7 +24,7 @@ export interface GitPullRequestProps {
   inputsId?: string | string[]
   /**
    * Reference to a legacy GitHubAuth block for credentials. GitHub-specific;
-   * kept for back-compat. Prefer `gitAuthId`.
+   * kept for back-compat. Prefer `gitAuthId`, which wins when both are set.
    */
   githubAuthId?: string
   /**

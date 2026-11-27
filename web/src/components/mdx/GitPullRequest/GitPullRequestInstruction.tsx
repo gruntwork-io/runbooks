@@ -7,7 +7,7 @@ import {
   buildGhPrCommand,
   buildGlabMrCommand,
 } from "@/components/mdx/_shared/lib/instructionCommands"
-import { deriveProviderFromAuth } from "@/components/mdx/_shared/lib/gitProvider"
+import { deriveProviderFromAuth, linkedAuthId } from "@/components/mdx/_shared/lib/gitProvider"
 import { PR_PROVIDERS } from "./providers"
 import { WrongProviderError } from "./components/WrongProviderError"
 import type { GitPullRequestProps } from "./types"
@@ -43,7 +43,7 @@ export function GitPullRequestInstruction({
   // interactive block) there's no worktree-host fallback: a locked wrapper sets
   // `provider`; otherwise derive from the linked auth block, defaulting to
   // github for display.
-  const authId = gitAuthId ?? githubAuthId
+  const authId = linkedAuthId({ gitAuthId, githubAuthId })
   const authDerivedProvider = deriveProviderFromAuth(authId, rawOutputs)
   const effectiveProvider = propProvider ?? authDerivedProvider ?? "github"
   const cfg = PR_PROVIDERS[effectiveProvider]

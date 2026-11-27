@@ -75,6 +75,17 @@ describe("GitPullRequest (generic block)", () => {
     expect(screen.queryByText("Wrong authentication provider")).toBeNull()
   })
 
+  it("takes the provider from the gitAuthId block when githubAuthId is set too", async () => {
+    render(
+      <TestWrapper>
+        <Seed id="gh" values={{ GIT_PROVIDER: "github", GITHUB_TOKEN: "tok" }} />
+        <Seed id="gl" values={{ GIT_PROVIDER: "gitlab", GITLAB_TOKEN: "tok" }} />
+        <GitPullRequest id="pr" gitAuthId="gl" githubAuthId="gh" />
+      </TestWrapper>,
+    )
+    expect(await screen.findByText(/Create Merge Request/)).toBeInTheDocument()
+  })
+
   it("flags a github-locked block linked to a GitLab auth block (inverse direction)", async () => {
     render(
       <TestWrapper>

@@ -76,7 +76,7 @@ interface UseGitPullRequestOptions {
   id: string
   /** Provider configuration driving channels, token var, and copy. */
   cfg: PRProviderConfig
-  /** Linked auth block id (gitAuthId ?? githubAuthId), if any. */
+  /** The linked auth block's id (see linkedAuthId), if any. */
   authId?: string | undefined
   /**
    * Provider derived from the linked auth block (auth outputs ONLY). Used to

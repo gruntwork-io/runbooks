@@ -10,7 +10,7 @@ export interface GitCloneProps {
   autoCollapse?: boolean | undefined
   /** ID or array of IDs of Inputs components to get variable values from */
   inputsId?: string | string[] | undefined
-  /** Reference to a GitHubAuth block by ID for credentials. Matches the `githubAuthId` prop used by every other block (Command, Check, GitHubPullRequest). */
+  /** Reference to a GitHubAuth block by ID for credentials. The older, GitHub-only name of `gitAuthId`, which wins when both are set. */
   githubAuthId?: string | undefined
   /** Reference to a GitAuth block by ID (GitHub or GitLab) for credentials. */
   gitAuthId?: string | undefined

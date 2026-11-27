@@ -17,6 +17,18 @@ import { isGitHubRepoHost } from "./githubHost"
 export type { GitProvider }
 
 /**
+ * The auth block a Git block (GitClone, GitPullRequest) takes its sign-in
+ * from. When both props are set, `gitAuthId` wins over `githubAuthId`, its
+ * older GitHub-only name.
+ */
+export function linkedAuthId(props: {
+  readonly gitAuthId?: string | undefined
+  readonly githubAuthId?: string | undefined
+}): string | undefined {
+  return props.gitAuthId ?? props.githubAuthId
+}
+
+/**
  * Derive the provider of a linked auth block from its registered outputs:
  *   1. the explicit `GIT_PROVIDER` output written by the GitAuth block;
  *   2. failing that, the presence of a provider token var (GITHUB_TOKEN ->

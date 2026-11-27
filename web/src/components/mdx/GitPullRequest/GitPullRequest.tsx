@@ -29,6 +29,7 @@ import {
 import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTemplateDependencies"
 import {
   deriveProviderFromAuth,
+  linkedAuthId,
   deriveProviderFromRepoUrl,
   hostFromRepoUrl,
 } from "@/components/mdx/_shared/lib/gitProvider"
@@ -135,7 +136,7 @@ function GitPullRequestInteractive({
   // derive it from the linked auth block (its GIT_PROVIDER output), then from the
   // cloned repo's host as a last resort, defaulting to github. `cfg` drives every
   // provider-specific channel, token var, logo, and label.
-  const authId = gitAuthId ?? githubAuthId
+  const authId = linkedAuthId({ gitAuthId, githubAuthId })
   const authDerivedProvider = deriveProviderFromAuth(authId, rawOutputs)
   const repoUrlDerivedProvider = deriveProviderFromRepoUrl(activeWorkTree?.gitInfo?.repoUrl)
   const effectiveProvider =

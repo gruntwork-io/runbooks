@@ -100,7 +100,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `provider` | `'github' \| 'gitlab'` | No | Locks the provider. Left unset, the provider is derived as described in [Provider detection](#provider-detection). Write the value in lowercase. Any other value, such as `"GitHub"`, makes the block fail to render. |
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). |
 | `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) block (either provider). The block waits for authentication to complete and uses its token/provider for this execution. |
-| `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. GitHub only. Prefer `gitAuthId`. |
+| `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. GitHub only. Prefer `gitAuthId`. Ignored when `gitAuthId` is set. |
 | `prefilledPullRequestTitle` | `string` | No | Pre-fills the title field. Supports template expressions. |
 | `prefilledPullRequestDescription` | `string` | No | Pre-fills the description field. Supports template expressions, markdown, and `\n` for newlines. |
 | `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |

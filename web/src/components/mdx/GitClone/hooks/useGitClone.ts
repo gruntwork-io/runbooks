@@ -49,9 +49,8 @@ interface RestoredClone {
 
 interface UseGitCloneOptions {
   id: string
-  githubAuthId?: string | undefined
-  /** Reference to a GitAuth block (GitHub or GitLab) by ID. */
-  gitAuthId?: string | undefined
+  /** The linked auth block's id (see linkedAuthId), if any. */
+  authId?: string | undefined
   /**
    * The repository to start from, from the session's history. The block shows
    * it and publishes its outputs at once, then checks that it is still a
@@ -64,14 +63,7 @@ interface UseGitCloneOptions {
   onRestoreLost?: (() => void) | undefined
 }
 
-export function useGitClone({
-  id,
-  githubAuthId,
-  gitAuthId,
-  restored,
-  onReady,
-  onRestoreLost,
-}: UseGitCloneOptions) {
+export function useGitClone({ id, authId, restored, onReady, onRestoreLost }: UseGitCloneOptions) {
   const api = useApi()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
@@ -171,62 +163,50 @@ export function useGitClone({
       .catch(() => {})
   }, [api, id, registerOutputs, restoredAtMount])
 
-  // Check if the auth dependency is met. Supports githubAuthId (GitHub) and the
-  // provider-agnostic gitAuthId (GitHub or GitLab); a referenced block is met
-  // once it has emitted a token (GITHUB_TOKEN or GITLAB_TOKEN) or the
-  // __AUTHENTICATED marker (env-prefilled credentials stored server-side).
+  // Check if the auth dependency is met. The linked block is met once it has
+  // emitted a token (GITHUB_TOKEN or GITLAB_TOKEN) or the __AUTHENTICATED
+  // marker (env-prefilled credentials stored server-side).
   const gitHubAuthMet = useMemo((): boolean => {
-    const isAuthMet = (authId: string | undefined): boolean => {
-      if (!authId) return true // No dependency
-      const outputs = allOutputs[normalizeBlockId(authId)]?.values
-      if (!outputs) return false
-      // A token counts only if it isn't empty, which needs its real value
-      const values: Partial<Record<string, string>> = revealOutputs(outputs)
-      if (values.GITHUB_TOKEN && values.GITHUB_TOKEN !== "") return true
-      if (values.GITLAB_TOKEN && values.GITLAB_TOKEN !== "") return true
-      if (values.__AUTHENTICATED === "true") return true
-      return false
-    }
-    return isAuthMet(githubAuthId) && isAuthMet(gitAuthId)
-  }, [githubAuthId, gitAuthId, allOutputs])
+    if (!authId) return true // No dependency
+    const outputs = allOutputs[normalizeBlockId(authId)]?.values
+    if (!outputs) return false
+    // A token counts only if it isn't empty, which needs its real value
+    const values: Partial<Record<string, string>> = revealOutputs(outputs)
+    if (values.GITHUB_TOKEN && values.GITHUB_TOKEN !== "") return true
+    if (values.GITLAB_TOKEN && values.GITLAB_TOKEN !== "") return true
+    if (values.__AUTHENTICATED === "true") return true
+    return false
+  }, [authId, allOutputs])
 
   // Provider of the linked auth block, derived from its outputs. Passed to the
   // clone so the backend resolves the matching session token (and oauth2 vs
   // x-access-token username) by PROVIDER rather than parsing the remote host —
   // the only thing that works for self-hosted GitHub/GitLab instances.
   const authProvider = useMemo(
-    () =>
-      deriveProviderFromAuth(gitAuthId, allOutputs) ??
-      deriveProviderFromAuth(githubAuthId, allOutputs),
-    [gitAuthId, githubAuthId, allOutputs],
+    () => deriveProviderFromAuth(authId, allOutputs),
+    [authId, allOutputs],
   )
 
   // The GitHub host of the linked auth block (its GITHUB_HOST output):
   // github.com, a *.ghe.com tenant, or a GHES host. The repo browser lists and
   // builds clone URLs against it. Defaults to github.com.
   const githubHost = useMemo((): string => {
-    for (const authId of [gitAuthId, githubAuthId]) {
-      if (!authId) continue
-      const host = tryNormalizeGitHubHost(
-        revealOutput(allOutputs[normalizeBlockId(authId)]?.values?.GITHUB_HOST),
-      )
-      if (host) return host
-    }
-    return DEFAULT_GITHUB_HOST
-  }, [gitAuthId, githubAuthId, allOutputs])
+    if (!authId) return DEFAULT_GITHUB_HOST
+    const host = tryNormalizeGitHubHost(
+      revealOutput(allOutputs[normalizeBlockId(authId)]?.values?.GITHUB_HOST),
+    )
+    return host ?? DEFAULT_GITHUB_HOST
+  }, [authId, allOutputs])
 
   // The GitLab instance of the linked auth block (its GITLAB_HOST output,
   // host and port only). Defaults to gitlab.com.
   const gitlabHost = useMemo((): string => {
-    for (const authId of [gitAuthId, githubAuthId]) {
-      if (!authId) continue
-      const origin = normalizeInstanceBaseUrl(
-        revealOutput(allOutputs[normalizeBlockId(authId)]?.values?.GITLAB_HOST),
-      )
-      if (origin) return new URL(origin).host
-    }
-    return DEFAULT_GITLAB_HOST
-  }, [gitAuthId, githubAuthId, allOutputs])
+    if (!authId) return DEFAULT_GITLAB_HOST
+    const origin = normalizeInstanceBaseUrl(
+      revealOutput(allOutputs[normalizeBlockId(authId)]?.values?.GITLAB_HOST),
+    )
+    return origin ? new URL(origin).host : DEFAULT_GITLAB_HOST
+  }, [authId, allOutputs])
 
   // Fetch session working directory for path preview
   const fetchWorkingDir = useCallback(async () => {

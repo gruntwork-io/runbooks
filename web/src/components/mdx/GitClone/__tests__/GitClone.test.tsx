@@ -72,10 +72,10 @@ describe("GitClone", () => {
     expect(block.querySelector(".bg-destructive-muted")).toBeNull()
   })
 
-  it("forwards githubAuthId to the hook", () => {
+  it("links the githubAuthId block when gitAuthId is unset", () => {
     renderGitClone({ githubAuthId: "gh-auth" })
     expect(useGitClone).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "test-clone", githubAuthId: "gh-auth" }),
+      expect.objectContaining({ id: "test-clone", authId: "gh-auth" }),
     )
   })
 })

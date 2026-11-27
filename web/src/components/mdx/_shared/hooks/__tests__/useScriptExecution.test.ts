@@ -183,6 +183,28 @@ describe("useScriptExecution — auth gates", () => {
     expect(result.current.exec.hasGitHubAuthDependency).toBe(true)
   })
 
+  it.each([
+    ["githubAuthId", { gh: {}, gl: { GITLAB_TOKEN: "fake-gl-token" } }, "gh"],
+    ["gitAuthId", { gh: { GITHUB_TOKEN: "fake-gh-token" }, gl: {} }, "gl"],
+  ])(
+    "with both githubAuthId and gitAuthId, stays gated until the %s block has signed in too",
+    (_prop, outputs, unmet) => {
+      const { result } = renderWithOutputs(
+        { command: "gh repo list && glab repo list", githubAuthId: "gh", gitAuthId: "gl" },
+        outputs,
+      )
+      expect(result.current.exec.unmetGitHubAuthDependency).toEqual({ blockId: unmet })
+    },
+  )
+
+  it("with both githubAuthId and gitAuthId, is not gated once both blocks have signed in", () => {
+    const { result } = renderWithOutputs(
+      { command: "gh repo list && glab repo list", githubAuthId: "gh", gitAuthId: "gl" },
+      { gh: { GITHUB_TOKEN: "fake-gh-token" }, gl: { GITLAB_TOKEN: "fake-gl-token" } },
+    )
+    expect(result.current.exec.unmetGitHubAuthDependency).toBeNull()
+  })
+
   it("gates a gitAuthId block whose referenced block has no token", () => {
     const { result } = renderWithOutputs(
       { command: "glab repo list", gitAuthId: "git" },
@@ -226,6 +248,52 @@ describe("useScriptExecution — execute", () => {
           AWS_SESSION_TOKEN: "",
           CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: "",
           CLOUDSDK_CORE_PROJECT: "proj",
+        }),
+      }),
+    )
+  })
+
+  it("passes the vars of both githubAuthId and gitAuthId blocks", () => {
+    const { result } = renderWithOutputs(
+      { command: "gh repo list && glab repo list", githubAuthId: "gh", gitAuthId: "gl" },
+      {
+        gh: { GITHUB_TOKEN: "fake-gh-token", GITHUB_USER: "octocat" },
+        gl: { GITLAB_TOKEN: "fake-gl-token", GITLAB_USER: "tanuki" },
+      },
+    )
+
+    act(() => result.current.exec.execute())
+
+    expect(testApi.invoke).toHaveBeenCalledWith(
+      "exec:run",
+      expect.objectContaining({
+        envVarsOverride: expect.objectContaining({
+          GITHUB_TOKEN: "fake-gh-token",
+          GITHUB_USER: "octocat",
+          GITLAB_TOKEN: "fake-gl-token",
+          GITLAB_USER: "tanuki",
+        }),
+      }),
+    )
+  })
+
+  it("passes the gitAuthId block's GitHub vars where the githubAuthId block sets them too", () => {
+    const { result } = renderWithOutputs(
+      { command: "gh repo list", githubAuthId: "old", gitAuthId: "new" },
+      {
+        old: { GITHUB_TOKEN: "fake-old-token", GITHUB_USER: "old-user" },
+        new: { GITHUB_TOKEN: "fake-new-token", GITHUB_USER: "new-user" },
+      },
+    )
+
+    act(() => result.current.exec.execute())
+
+    expect(testApi.invoke).toHaveBeenCalledWith(
+      "exec:run",
+      expect.objectContaining({
+        envVarsOverride: expect.objectContaining({
+          GITHUB_TOKEN: "fake-new-token",
+          GITHUB_USER: "new-user",
         }),
       }),
     )

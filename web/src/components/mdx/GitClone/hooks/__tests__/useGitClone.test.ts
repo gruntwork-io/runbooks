@@ -68,41 +68,41 @@ const SUCCESS: Cloned = {
   outputs: { clone_path: "/work/infra" },
 }
 
-describe("useGitClone — auth gate (gitAuthId / githubAuthId)", () => {
+describe("useGitClone — auth gate", () => {
   it("is met when there is no auth dependency", () => {
     const { result } = renderGitClone({ id: "clone" })
     expect(result.current.gitHubAuthMet).toBe(true)
   })
 
-  it("gitAuthId is met when the referenced block emitted GITLAB_TOKEN", () => {
+  it("is met when the linked block emitted GITLAB_TOKEN", () => {
     blockOutputs = { gitauth: { values: { GITLAB_TOKEN: "glpat-x", GITLAB_USER: "tanuki" } } }
-    const { result } = renderGitClone({ id: "clone", gitAuthId: "gitauth" })
+    const { result } = renderGitClone({ id: "clone", authId: "gitauth" })
     expect(result.current.gitHubAuthMet).toBe(true)
   })
 
-  it("gitAuthId is met via __AUTHENTICATED (env-detected GitLab block)", () => {
+  it("is met via __AUTHENTICATED (env-detected GitLab block)", () => {
     // env/cli detection registers only the __AUTHENTICATED marker to block
     // outputs; the token lives in session env.
     blockOutputs = { gitauth: { values: { __AUTHENTICATED: "true" } } }
-    const { result } = renderGitClone({ id: "clone", gitAuthId: "gitauth" })
+    const { result } = renderGitClone({ id: "clone", authId: "gitauth" })
     expect(result.current.gitHubAuthMet).toBe(true)
   })
 
-  it("gitAuthId is NOT met when the referenced block has no credentials yet", () => {
+  it("is NOT met when the linked block has no credentials yet", () => {
     blockOutputs = { gitauth: { values: {} } }
-    const { result } = renderGitClone({ id: "clone", gitAuthId: "gitauth" })
+    const { result } = renderGitClone({ id: "clone", authId: "gitauth" })
     expect(result.current.gitHubAuthMet).toBe(false)
   })
 
-  it("githubAuthId still gates on GITHUB_TOKEN (regression)", () => {
+  it("is met when the linked block emitted GITHUB_TOKEN", () => {
     blockOutputs = { ghauth: { values: { GITHUB_TOKEN: "ghp_x" } } }
-    const { result } = renderGitClone({ id: "clone", githubAuthId: "ghauth" })
+    const { result } = renderGitClone({ id: "clone", authId: "ghauth" })
     expect(result.current.gitHubAuthMet).toBe(true)
   })
 
-  it("githubAuthId is NOT met for an empty referenced block", () => {
+  it("is NOT met for an empty linked block", () => {
     blockOutputs = { ghauth: { values: {} } }
-    const { result } = renderGitClone({ id: "clone", githubAuthId: "ghauth" })
+    const { result } = renderGitClone({ id: "clone", authId: "ghauth" })
     expect(result.current.gitHubAuthMet).toBe(false)
   })
 })
@@ -397,7 +397,7 @@ describe("useGitClone — GitHub host of the linked auth block", () => {
     }
     testApi.handle("github:orgs", () => [])
     testApi.handle("github:repos", () => [])
-    const { result } = renderGitClone({ id: "clone", gitAuthId: "gitauth" })
+    const { result } = renderGitClone({ id: "clone", authId: "gitauth" })
     expect(result.current.githubHost).toBe("ghes.corp")
     await act(async () => {
       await result.current.checkGitHubToken()
@@ -409,7 +409,7 @@ describe("useGitClone — GitHub host of the linked auth block", () => {
 
   it("ignores an unparseable GITHUB_HOST output (falls back to github.com)", () => {
     blockOutputs = { ghauth: { values: { __AUTHENTICATED: "true", GITHUB_HOST: "ftp://nope" } } }
-    const { result } = renderGitClone({ id: "clone", githubAuthId: "ghauth" })
+    const { result } = renderGitClone({ id: "clone", authId: "ghauth" })
     expect(result.current.githubHost).toBe("github.com")
   })
 })
@@ -430,7 +430,7 @@ describe("useGitClone — GitLab host of the linked auth block", () => {
         },
       },
     }
-    const { result } = renderGitClone({ id: "clone", gitAuthId: "gitauth" })
+    const { result } = renderGitClone({ id: "clone", authId: "gitauth" })
     expect(result.current.gitlabHost).toBe("gitlab.corp:8443")
     expect(result.current.authProvider).toBe("gitlab")
   })
