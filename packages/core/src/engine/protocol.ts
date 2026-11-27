@@ -76,6 +76,13 @@ export const LIMITS = {
    * every line and file past it, and says it did.
    */
   maxDiffChars: 65_536,
+  /**
+   * The characters a script file `GetScriptFiles` gives may hold: a script
+   * file's bytes (`RUNBOOK_FILE_LIMITS.fileBytes`), which decode to no more
+   * characters than that. The engine refuses a file over that when the
+   * runbook opens, as a configuration error, and never cuts one.
+   */
+  maxScriptChars: 1_048_576,
 } as const
 
 const LogLimit = Schema.Int.check(
@@ -465,6 +472,13 @@ export const DocumentBlock = Schema.Union([
      * draws from `BlockView.fields` or `BlockView.credential` instead.
      */
     props: Schema.optionalKey(Schema.Json),
+    /**
+     * The files a task runs as scripts (the `File` sources of its block's
+     * `scripts(props)`), in its block's order: names only, never their text,
+     * which `GetScriptFiles` reads. Absent for a block with none. An inline
+     * script, such as Command's `command`, is in `props`.
+     */
+    scriptFiles: Schema.optionalKey(Schema.Array(RunbookPath)),
   }),
   /**
    * The block's configuration has errors: the parser's, then those the
@@ -974,6 +988,50 @@ export class GetBlock extends Rpc.make("GetBlock", {
   error: BlockError,
 }) {}
 
+/** A file a block runs as a script, as the session holds it. */
+export const ScriptFile = Schema.Struct({
+  path: RunbookPath,
+  /**
+   * What it is written in, as its block says (`TaskBlock.scriptLanguage`):
+   * the `language` instruction mode's `code` step gives the same script.
+   * Command's is the interpreter it runs the script with, from its shebang.
+   */
+  language: Schema.String,
+  /**
+   * The author's bytes as the session holds them: the text a run of the
+   * block runs, never rendered with values. A `{{ }}` in it is text, and a
+   * value reaches the script only through its environment. A file saved on
+   * disk since the session read it is not here; the block's `filesOnDisk`
+   * shows it, until `ReloadFiles` takes it. At most `LIMITS.maxScriptChars`.
+   */
+  text: Schema.String.check(Schema.isMaxLength(LIMITS.maxScriptChars)),
+})
+export type ScriptFile = typeof ScriptFile.Type
+
+export const ScriptFiles = Schema.Struct({
+  /**
+   * The hash of the document the files are from (`DocumentView.hash`).
+   * It covers each file a block names, so one hash holds one text of each
+   * file, and a client drops a read whose hash is not the one it draws.
+   */
+  document: ContentHash,
+  /** As `DocumentBlock.scriptFiles` names them, in its order. Empty for a block with none. */
+  files: Schema.Array(ScriptFile),
+})
+export type ScriptFiles = typeof ScriptFiles.Type
+
+/**
+ * The text of the files a block runs as scripts, as the session holds them
+ * now: what its run would run, which a window shows when the person asks
+ * to see the source. A person and an agent may both read them, as they may
+ * `GetBlock`. A misconfigured block, which never runs, has none.
+ */
+export class GetScriptFiles extends Rpc.make("GetScriptFiles", {
+  payload: block,
+  success: ScriptFiles,
+  error: BlockError,
+}) {}
+
 /** Enters values in a form, or a task's own form, as if typed. Counts as reviewed for an agent. */
 export class SetValues extends Rpc.make("SetValues", {
   payload: { ...block, values: Schema.Record(Schema.String, FieldValue) },
@@ -1094,6 +1152,7 @@ export const EngineProtocol = RpcGroup.make(
   TrustSession,
   Events,
   GetBlock,
+  GetScriptFiles,
   SetValues,
   ConfirmValues,
   RunBlock,

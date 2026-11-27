@@ -5,6 +5,7 @@ import { BlockId, type Instruction as ContractInstruction } from "@runbooks/bloc
 import { type CredentialStateTag, TRANSITIONS } from "../credential/lifecycle.ts"
 import { ConfigError } from "../document/configError.ts"
 import { ContentHash } from "../document/document.ts"
+import { RUNBOOK_FILE_LIMITS } from "../document/files.ts"
 import {
   ActResult,
   BASELINE_MCP_TOOLS,
@@ -20,6 +21,7 @@ import {
   EventEnvelope,
   Events,
   FieldView,
+  GetScriptFiles,
   type Instruction,
   type FileChange,
   Forbidden,
@@ -31,6 +33,7 @@ import {
   RunBlock,
   RunId,
   RunResult,
+  ScriptFiles,
   SessionId,
   SessionView,
   Settings,
@@ -82,6 +85,7 @@ const Handlers = EngineProtocol.toLayer({
       },
     ),
   GetBlock: unused,
+  GetScriptFiles: unused,
   SetValues: unused,
   ConfirmValues: unused,
   RunBlock: ({ session: id }) =>
@@ -509,6 +513,94 @@ describe("engine protocol", () => {
         JSON.stringify(Schema.encodeSync(errors)(Schema.decodeUnknownSync(errors)(refused))),
       ),
     ).toEqual(refused)
+  })
+
+  it("reads a block's script files by path, with the hash of the document they are from, through JSON", () => {
+    const payload = Schema.decodeUnknownSync(Schema.toCodecJson(GetScriptFiles.payloadSchema))
+    expect(payload({ session: "s1", block: "greet" })).toEqual({ session, block: greet })
+    expect(() => payload({ session: "s1" })).toThrow(/at \["block"\]/)
+
+    const json = Schema.toCodecJson(ScriptFiles)
+    const shell = { path: "greet.sh", language: "bash", text: "echo {{ .inputs.token }}\n" }
+    const python = { path: "scripts/greet.py", language: "python3", text: "" }
+    const read = { document: `sha256:${"a".repeat(64)}`, files: [shell, python] }
+    const decoded = Schema.decodeUnknownSync(json)(read)
+    expect(decoded.document).toBe(hash)
+    expect(JSON.parse(JSON.stringify(Schema.encodeSync(json)(decoded)))).toEqual(read)
+    expect(Schema.decodeUnknownSync(json)({ ...read, files: [] }).files).toEqual([])
+    const { document: _, ...undrawn } = read
+    expect(() => Schema.decodeUnknownSync(json)(undrawn)).toThrow(/at \["document"\]/)
+    expect(() =>
+      Schema.decodeUnknownSync(json)({ ...read, files: [shell, { ...python, path: "" }] }),
+    ).toThrow(/at \["files"\]\[1\]\["path"\]/)
+    const { language: _language, ...unnamed } = python
+    expect(() => Schema.decodeUnknownSync(json)({ ...read, files: [unnamed] })).toThrow(
+      /at \["files"\]\[0\]\["language"\]/,
+    )
+
+    // A person and an agent may both read them, as GetBlock.
+    const errors = Schema.toCodecJson(GetScriptFiles.errorSchema)
+    const unknown = { _tag: "UnknownBlock", session: "s1", block: "gone" }
+    expect(
+      JSON.parse(
+        JSON.stringify(Schema.encodeSync(errors)(Schema.decodeUnknownSync(errors)(unknown))),
+      ),
+    ).toEqual(unknown)
+    const refused = { _tag: "Forbidden", command: "GetScriptFiles", origin: "agent" }
+    expect(Exit.isFailure(Schema.decodeUnknownExit(errors)(refused))).toBe(true)
+  })
+
+  it("holds a script file's text to its bytes in characters, refusing one longer, never cutting it", () => {
+    expect<number>(LIMITS.maxScriptChars).toBe(RUNBOOK_FILE_LIMITS.fileBytes)
+    const json = Schema.toCodecJson(ScriptFiles)
+    const holding = (text: string) => ({
+      document: `sha256:${"a".repeat(64)}`,
+      files: [{ path: "greet.sh", language: "bash", text }],
+    })
+    const full = "x".repeat(LIMITS.maxScriptChars)
+    expect(Schema.decodeUnknownSync(json)(holding(full)).files[0]?.text).toBe(full)
+    expect(() => Schema.decodeUnknownSync(json)(holding(`${full}x`))).toThrow(
+      /at \["files"\]\[0\]\["text"\]/,
+    )
+  })
+
+  it("names a task's script files in its document, never their text", () => {
+    const json = Schema.toCodecJson(DocumentView)
+    const span = { start: { line: 3, column: 1 }, end: { line: 3, column: 30 } }
+    const configured = {
+      _tag: "Configured",
+      index: 0,
+      tag: "Run",
+      block: "Run",
+      class: "task",
+      id: "greet",
+      span,
+      step: true,
+      effects: ["process"],
+      scriptFiles: ["greet.sh", "scripts/greet.py"],
+    }
+    const wire = {
+      hash: `sha256:${"a".repeat(64)}`,
+      tree: { type: "root", children: [{ type: "block", index: 0, children: [] }] },
+      blocks: [configured],
+      warnings: [],
+    }
+    const decoded = Schema.decodeUnknownSync(json)(wire)
+    expect(JSON.parse(JSON.stringify(Schema.encodeSync(json)(decoded)))).toEqual(wire)
+    // A name is a path, never a file's text: the window never gets the text from here.
+    expect(() =>
+      Schema.decodeUnknownSync(json)({
+        ...wire,
+        blocks: [{ ...configured, scriptFiles: [{ path: "greet.sh", text: "echo hi" }] }],
+      }),
+    ).toThrow(/at \["blocks"\]\[0\]\["scriptFiles"\]\[0\]/)
+    expect(() =>
+      Schema.decodeUnknownSync(json)({ ...wire, blocks: [{ ...configured, scriptFiles: [""] }] }),
+    ).toThrow(/at \["blocks"\]\[0\]\["scriptFiles"\]\[0\]/)
+    const { scriptFiles: _, ...scriptless } = configured
+    expect(
+      Schema.decodeUnknownSync(json)({ ...wire, blocks: [scriptless] }).blocks[0],
+    ).not.toHaveProperty("scriptFiles")
   })
 
   it("says what a resumed session did not restore, and carries it through JSON", () => {

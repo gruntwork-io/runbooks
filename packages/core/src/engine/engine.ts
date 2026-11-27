@@ -29,6 +29,7 @@ import {
   type Events,
   Forbidden,
   type GetBlock,
+  type GetScriptFiles,
   type GetDocument,
   type GetOutputs,
   type GetSession,
@@ -88,6 +89,8 @@ export interface EngineShape {
     payload: Rpc.Payload<typeof Events>,
   ) => Stream.Stream<EventEnvelope, UnknownSession | UnknownSequence>
   readonly getBlock: Command<typeof GetBlock>
+  /** A person's and an agent's alike, as `getBlock`. */
+  readonly getScriptFiles: Command<typeof GetScriptFiles>
   /** Enters values as if typed. An agent's are reviewed; a value a person changes is not. */
   readonly setValues: Command<typeof SetValues, Caller>
   /** An agent's counts every field the form shows as reviewed, defaults included; a person's changes nothing. */
@@ -457,6 +460,10 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             logLimit,
           }) {
             return yield* (yield* lookup(session)).getBlock(block, logOffset, logLimit)
+          }),
+
+          getScriptFiles: Effect.fn("Engine.getScriptFiles")(function* ({ session, block }) {
+            return yield* (yield* lookup(session)).getScriptFiles(block)
           }),
 
           setValues: Effect.fn("Engine.setValues")(function* ({ session, block, values }) {

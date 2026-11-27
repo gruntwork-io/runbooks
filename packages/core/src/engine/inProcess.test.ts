@@ -401,6 +401,32 @@ describe("the in-process transport", () => {
     )
   })
 
+  it("reads a block's script files for a person and an agent alike, from the document the session holds, and names a block it lacks", async () => {
+    await withClients({ runbook: RUNBOOK_TEXT }, ({ person, agent }) =>
+      Effect.gen(function* () {
+        const view = yield* opened(person)
+        const { session } = view
+        const { hash } = yield* person.GetDocument({ session })
+        for (const client of [person, agent]) {
+          // The toy `<Run>` declares no scripts.
+          expect(yield* client.GetScriptFiles({ session, block: blockId("greet") })).toEqual({
+            document: hash,
+            files: [],
+          })
+          const gone = yield* Effect.flip(
+            client.GetScriptFiles({ session, block: blockId("gone") }),
+          )
+          expect(gone).toMatchObject({ _tag: "UnknownBlock", session, block: "gone" })
+        }
+        const closed = sessionId("closed")
+        expect(
+          yield* Effect.flip(person.GetScriptFiles({ session: closed, block: blockId("greet") })),
+        ).toMatchObject({ _tag: "UnknownSession", session: closed })
+        expect(yield* person.GetSession({ session })).toEqual(view)
+      }),
+    )
+  })
+
   // A reload keeps the session's trust, so an agent that wrote a script could reload it trusted.
   it("refuses an agent's reload of a block's files, which only a person chooses", async () => {
     await withClients({ runbook: RUNBOOK_TEXT }, ({ person, agent }) =>
@@ -1015,6 +1041,7 @@ const UNUSED = {
   TrustSession: unused,
   Events: () => Stream.die("not used in this test"),
   GetBlock: unused,
+  GetScriptFiles: unused,
   SetValues: unused,
   ConfirmValues: unused,
   RunBlock: unused,
