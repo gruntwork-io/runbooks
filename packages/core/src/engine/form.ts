@@ -5,9 +5,11 @@
  * is entered: an invalid one stays in the form, with its error, until someone
  * changes it, as it would in the window.
  */
-import { Redacted, Schema } from "effect"
+import { Redacted, Result, Schema } from "effect"
 import type { FormOutputDecls, TaskValues } from "@runbooks/blocks-core/contract"
 import { type Field, FieldValue, type FormSpec, templateText } from "@runbooks/blocks-core/form"
+import type { TreeNode } from "../document/document.ts"
+import { markdownTree } from "../document/markdown.ts"
 import { nearest } from "../document/nearest.ts"
 import { valueAt } from "../document/valueTemplate.ts"
 import { hiddenVariables } from "../domain/boilerplate/showWhen.ts"
@@ -17,6 +19,8 @@ import type { FieldView, Origin } from "./protocol.ts"
 
 interface Entry {
   readonly field: Field
+  /** The field's description as the window walks it, parsed once, when the form is made. */
+  readonly description: TreeNode
   /** Absent while the field is empty. */
   readonly value: Held<FieldValue> | undefined
   /** An agent set or confirmed it, and no person has changed it since. */
@@ -72,8 +76,23 @@ function emptyOf(field: Field): FieldValue {
 
 const sameValue = Schema.toEquivalence(Schema.UndefinedOr(FieldValue))
 
-export const makeForm = (spec: FormSpec): Form =>
-  spec.fields.map((field) => ({ field, value: fill(field, startOf(field)), reviewed: false }))
+/**
+ * A form for `spec`, from its defaults, none of them reviewed, or the names
+ * of the fields whose description nests too deep for the window to draw
+ * (`markdownTree`).
+ */
+export function makeForm(spec: FormSpec): Result.Result<Form, ReadonlyArray<string>> {
+  const entries = spec.fields.map((field) => {
+    const description = markdownTree(field.description)
+    return description === undefined
+      ? field.name
+      : { field, description, value: fill(field, startOf(field)), reviewed: false }
+  })
+  const tooDeep = entries.filter((entry) => typeof entry === "string")
+  return tooDeep.length > 0
+    ? Result.fail(tooDeep)
+    : Result.succeed(entries.filter((entry) => typeof entry !== "string"))
+}
 
 /** Why a value is not one the field's type holds. */
 function typeError(field: Field, value: FieldValue): string | undefined {
@@ -174,7 +193,7 @@ export function enter(
       if (sentValue === undefined || entry.field.locked || entry.field.hidden) return entry
       const value = fill(entry.field, sentValue)
       const changed = !sameValue(revealed(entry), value === undefined ? undefined : reveal(value))
-      return { field: entry.field, value, reviewed: reviewedAfter(entry, origin, changed) }
+      return { ...entry, value, reviewed: reviewedAfter(entry, origin, changed) }
     }),
     rejected: Object.fromEntries(rejected),
   }
@@ -207,7 +226,7 @@ export const restoreValues = (
     const { field } = entry
     const value = Object.hasOwn(saved, field.name) ? saved[field.name] : undefined
     if (value === undefined || field.locked || field.hidden) return entry
-    return { field, value: value === null ? undefined : fill(field, value), reviewed: false }
+    return { ...entry, value: value === null ? undefined : fill(field, value), reviewed: false }
   })
 
 function reviewedAfter(entry: Entry, origin: Origin, changed: boolean): boolean {
@@ -223,6 +242,7 @@ function reviewedAfter(entry: Entry, origin: Origin, changed: boolean): boolean 
 export const confirm = (form: Form): Form =>
   check(form).map((checked) => ({
     field: checked.field,
+    description: checked.description,
     value: checked.value,
     reviewed: checked.reviewed || isShown(checked),
   }))
@@ -263,15 +283,19 @@ export const unreviewedOf = (form: Form): ReadonlyArray<string> =>
 export const fieldViews = (form: Form): ReadonlyArray<FieldView> =>
   check(form)
     .filter(isShown)
-    .map(({ field, value, reviewed, error }) => ({
+    .map(({ field, description, value, reviewed, error }) => ({
       name: field.name,
       type: field.type,
-      description: field.description,
+      description,
       required: field.required,
       sensitive: field.sensitive,
       ...(field.options === undefined ? {} : { options: field.options }),
       ...(field.optionLabels === undefined ? {} : { optionLabels: field.optionLabels }),
       ...(field.section === undefined ? {} : { section: field.section }),
+      ...(field.schema === undefined ? {} : { schema: field.schema }),
+      ...(field.schemaInstanceLabel === undefined
+        ? {}
+        : { schemaInstanceLabel: field.schemaInstanceLabel }),
       ...(value === undefined ? {} : { value: visible(value) }),
       ...(field.default === undefined || field.sensitive ? {} : { default: field.default }),
       readOnly: field.locked,

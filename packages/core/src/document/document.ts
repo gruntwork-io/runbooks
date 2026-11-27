@@ -191,6 +191,12 @@ export const BlockNode = Schema.Struct({
    * `title` or `description`, which are shown, not given to the run.
    */
   inputs: Schema.Array(Schema.String),
+  /**
+   * For a form that is a task's own (a form block in the task's markdown
+   * children): the task's index. Its values are the task's, so it is no
+   * progress step and has no Submit: the task's run is what uses them.
+   */
+  nestedIn: Schema.optionalKey(Schema.Int),
   span: Span,
   /**
    * The configuration errors in this block, in file order, each with a code
@@ -219,6 +225,71 @@ export const TreeNode: Schema.Codec<TreeNode> = Schema.StructWithRest(
   }),
   [Schema.Record(Schema.String, Schema.Unknown)],
 )
+
+const Text = Schema.optionalKey(Schema.NullOr(Schema.String))
+const Flag = Schema.optionalKey(Schema.NullOr(Schema.Boolean))
+
+/**
+ * The parts of a tree the window's walk draws (`markdown.tsx` in
+ * app-renderer), and what it reads of each: its allowlist, shared with the
+ * core so that both read author markdown alike. They are mdast nodes, and
+ * the parser's elements and blocks; a part's children are the tree's own.
+ * A field's description (`markdownTree`) is built of these only.
+ */
+export const MarkdownPart = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literals([
+      "root",
+      "paragraph",
+      "blockquote",
+      "emphasis",
+      "strong",
+      "delete",
+      "thematicBreak",
+      "break",
+      "tableRow",
+      "tableCell",
+    ]),
+  }),
+  Schema.Struct({ type: Schema.Literal("heading"), depth: Schema.Literals([1, 2, 3, 4, 5, 6]) }),
+  Schema.Struct({
+    type: Schema.Literal("list"),
+    ordered: Flag,
+    start: Schema.optionalKey(Schema.NullOr(Schema.Int)),
+    spread: Flag,
+  }),
+  Schema.Struct({ type: Schema.Literal("listItem"), checked: Flag, spread: Flag }),
+  Schema.Struct({ type: Schema.Literals(["text", "inlineCode", "html"]), value: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("code"), value: Schema.String, lang: Text }),
+  Schema.Struct({ type: Schema.Literal("link"), url: Schema.String, title: Text }),
+  Schema.Struct({ type: Schema.Literal("image"), url: Schema.String, alt: Text }),
+  Schema.Struct({ type: Schema.Literal("linkReference"), identifier: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("imageReference"), identifier: Schema.String, alt: Text }),
+  Schema.Struct({
+    type: Schema.Literal("definition"),
+    identifier: Schema.String,
+    url: Schema.String,
+    title: Text,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["footnoteReference", "footnoteDefinition"]),
+    identifier: Schema.String,
+    label: Text,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("table"),
+    align: Schema.optionalKey(
+      Schema.NullOr(Schema.Array(Schema.NullOr(Schema.Literals(["left", "right", "center"])))),
+    ),
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["mdxJsxFlowElement", "mdxJsxTextElement"]),
+    name: Schema.String,
+    props: Schema.Record(Schema.String, Schema.Unknown),
+  }),
+  Schema.Struct({ type: Schema.Literal("block"), index: Schema.Int }),
+])
+export type MarkdownPart = typeof MarkdownPart.Type
 
 /** The `runbooks:` front matter and anything else the author put there. */
 export const FrontMatter = Schema.Struct({

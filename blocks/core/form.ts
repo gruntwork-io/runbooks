@@ -123,15 +123,23 @@ export const Field = Schema.Struct({
 })
 export type Field = typeof Field.Type
 
+/** A section a form's fields name (`Field.section`), which lists none of them itself. */
 export const Section = Schema.Struct({
   name: Schema.String,
-  fields: Schema.Array(Schema.String),
+  /** The section starts folded. A section holding a field with an error opens. */
+  collapsed: Schema.Boolean,
 })
 export type Section = typeof Section.Type
 
 export const FormSpec = Schema.Struct({
   fields: Schema.Array(Field),
-  /** Field order by section. Fields in no section follow, in field order. */
+  /**
+   * The sections, in the order the window draws them. Fields in no section
+   * come first, in field order; then each section's, in field order. A
+   * section a field names that this does not list follows those it lists,
+   * in the order of its first field, unfolded; a name listed twice counts
+   * once, where it is first.
+   */
   sections: Schema.Array(Section),
 })
 export type FormSpec = typeof FormSpec.Type
