@@ -520,6 +520,7 @@ function GoogleAuthInteractive({
                   credentials={auth.detectedCredentials}
                   requiredScopes={scopes}
                   oauthUnavailable={auth.oauthUnavailable || !offersOAuth}
+                  offersGcloud={offersGcloud}
                   recovering={auth.authStatus === "authenticating"}
                   onSignIn={() => {
                     void auth.handleSignInWithRequiredScopes()
@@ -719,6 +720,9 @@ function InvalidConfiguration({ id, message }: { id: string; message: string }) 
 function GoogleAuth(props: GoogleAuthProps) {
   const { enabled: instructionMode } = useInstructionMode()
   if (instructionMode) {
+    const { configurationError } = planSignIn(props)
+    if (configurationError)
+      return <InvalidConfiguration id={props.id} message={configurationError} />
     return <GoogleAuthInstruction {...props} />
   }
   return <GoogleAuthInteractive {...props} />

@@ -1087,6 +1087,32 @@ describe("GoogleAuth methods prop", () => {
     expect(tabNames()).toEqual(["Google Sign-In", "Service Account Key"])
   })
 
+  it("offers no gcloud command for missing scopes when gcloud is not listed", async () => {
+    const DIRECTORY = "https://www.googleapis.com/auth/admin.directory.rolemanagement"
+    installApi({
+      "google:env-credentials": () => ({
+        found: true,
+        valid: false,
+        insufficientScopes: true,
+        missingScopes: [DIRECTORY],
+        grantedScopes: [],
+        account: { principal: "admin@example.com", accountType: "user", scopes: [] },
+        credentialType: "authorized_user",
+        envVar: "GOOGLE_APPLICATION_CREDENTIALS",
+      }),
+    })
+
+    renderBlock(<GoogleAuth id="gcp" methods={["service_account"]} scopes={[DIRECTORY]} />)
+
+    expect(await screen.findAllByText("Credentials missing required scopes")).toHaveLength(1)
+    expect(screen.queryAllByText(/gcloud auth application-default login/)).toHaveLength(0)
+    expect(screen.queryAllByRole("button", { name: "Check again" })).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole("button", { name: "Use Different Credentials" }))
+
+    expect(await screen.findAllByLabelText("Service account key JSON")).toHaveLength(1)
+  })
+
   it("does not check the gcloud login on load when gcloud is not listed", async () => {
     renderBlock(<GoogleAuth id="gcp" methods={["oauth", "service_account"]} />)
 

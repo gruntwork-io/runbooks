@@ -100,6 +100,22 @@ describe("GoogleAuth — instruction mode", () => {
     expect(screen.queryAllByText("prod")).toHaveLength(0)
   })
 
+  it("shows the configuration error instead of sign-in hints when methods is wrong", () => {
+    render(
+      <TestWrapper>
+        <GoogleAuth id="gcp" methods={[]} />
+      </TestWrapper>,
+    )
+
+    expect(
+      screen.getAllByText(
+        "GoogleAuth methods must list at least one of: service_account, oauth, gcloud.",
+      ),
+    ).toHaveLength(1)
+    expect(screen.queryAllByText("Log into Google Cloud")).toHaveLength(0)
+    expect(screen.queryAllByText(/gcloud auth application-default login/)).toHaveLength(0)
+  })
+
   it("keeps the command when Google Sign-In is the only method", () => {
     render(
       <TestWrapper>

@@ -83,6 +83,12 @@ describe("planSignIn configuration errors", () => {
     )
   })
 
+  it("rejects an empty defaultTab instead of opening on a method the list leaves out", () => {
+    expect(errorFor({ methods: ["oauth"], defaultTab: "" as GoogleAuthMethod })).toBe(
+      'The chosen GoogleAuth defaultTab must appear in the list of methods. The defaultTab is "" and methods lists: oauth.',
+    )
+  })
+
   it("rejects a detection source that reads the gcloud login when gcloud is not listed", () => {
     expect(errorFor({ methods: ["oauth"], detectCredentials: ["env", "adc"] })).toBe(
       "GoogleAuth detectCredentials can include 'adc' only when methods lists gcloud, because 'adc' reads the gcloud login.",

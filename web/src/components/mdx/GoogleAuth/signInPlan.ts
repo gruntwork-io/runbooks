@@ -56,7 +56,7 @@ function findConfigurationError(props: SignInProps): string | undefined {
   if (unknown.length > 0) {
     return `GoogleAuth methods can only list: ${METHOD_NAMES}. It lists "${unknown.join('", "')}".`
   }
-  if (defaultTab && !methods.includes(defaultTab)) {
+  if (defaultTab !== undefined && !methods.includes(defaultTab)) {
     return `The chosen GoogleAuth defaultTab must appear in the list of methods. The defaultTab is "${defaultTab}" and methods lists: ${methods.join(", ")}.`
   }
   return findUnlistedGcloudLoginSource(props)
