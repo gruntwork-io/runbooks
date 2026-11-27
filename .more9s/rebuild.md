@@ -19,6 +19,7 @@ The running index of the rebuild stack. Update it whenever the stack changes.
 - At 19:17 UTC on 2026-11-26 the human merged #649 to #651 the same way (`rebuild/main` 83c6d949). GitHub rebased #652 onto `rebuild/main` (653e23b0) and #653 onto it (bea07178), patch for patch, so they are not force-pushed from here. Row 3g3 lost watch mode to a row of its own after 3j: its spec runs Command blocks in the window, and a reload has to meet the trust prompt.
 - At 19:35 UTC the human merged #652 and #653 (`rebuild/main` bec13f26), and GitHub rebased #655 onto `rebuild/main` (5def7eec), patch for patch. Track A's lock PRs (#656 to #658) went on #655 once plugins v0.2.1 was released, and phase 3 continues above them: #659 (a contract change the window needs) and #660 (3g3).
 - At 20:10 UTC the human merged #655 (`rebuild/main` 4b613f21), and GitHub rebased #656 to #660 onto `rebuild/main`, patch for patch. #656 to #659 passed runbooks-reviewer and are ready. #660's review found that a ref lookup or clone whose server never answers hung forever; d0b32d65 bounds every git's wait in `gitSpawnEnv`. The reviewer's notes on #656 and #657 (no check that a pin is the release's, on platforms CI doesn't fetch) became #662, on top. At 21:02 UTC the human merged #656 to #659 (`rebuild/main` 8d560225); GitHub rebased #660 and #662 patch for patch, and the reviewer confirmed both passes for the new heads, so both are ready. Row 3h is three PRs above #662: #663 (contract), #664 (`BlockFrame`), #665 (instruction mode).
+- On 2026-11-27 the index's own commits had left #660 behind `rebuild/main`, so #660 and #662 to #665 were restacked, patch for patch, and runbooks-reviewer passed their new heads. Row 3i landed as #670 (contract: `DocumentBlock.Configured.effects`) and #671 (the trust prompt); #671 failed review once (a credential block waiting for trust was untested, 425ca0e7). Row 3j's first part is #672 to #676; its other two parts are rows 3je and 3jf. The follow-up "a run gets the hashed script texts" is closed: #587 gave a task its files through `TaskReads`, which instruction mode builds with no I/O.
 - **Keep it stacked.** The open PRs are GitHub stack #628, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/628`); #519 holds #496 to #598, and #614 holds #599 to #625. `.more9s/stack.sh` keeps it that way:
   - `add <branch> <title> <body-file>` opens each new PR as a draft on the top of the stack, links it into #628, and waits until GitHub lists it on top (two adds in a row once based the second on the PR below the first). Once it is green, send it to runbooks-reviewer, and mark it ready with `gh pr ready` only when the review passes. Don't open a rebuild PR with `gh pr create` alone.
   - `restack` (`--dry-run` first, in a linked worktree) is needed after any commit to `rebuild/main`, such as an index update, or to a lower branch. It rebases each branch onto the one below and force-pushes it with a lease. CI then reruns on every PR above the change, so batch index updates.
@@ -205,9 +206,16 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 3ha | #663 | 3 | `rebuild/p3-frame-contract` | 100a | ready (runbooks-reviewer passed) | contract change: `BlockView.instruction` (built before trust, values redacted), `SessionView.sequence` (where `Events` starts), `DocumentBlock.step` |
 | 3h | #664 | 3 | `rebuild/p3-block-frame` | 3ha | ready (runbooks-reviewer passed) | 3.3: `BlockFrame` for every block by class (step mark, status, blockers as links, auto-collapse), the window following `Events`, the task default view |
 | 3hb | #665 | 3 | `rebuild/p3-instruction-mode` | 3h | ready (runbooks-reviewer passed) | 3.3: instruction mode in the frame, followed through `WatchSettings`; Command's instruction in the old app's words |
-| 3i | none | 3 | `rebuild/p3-trust-prompt` | 3hb | planned | 3.5: the trust prompt, listing each block's declared effects |
-| 3j | none | 3 | `rebuild/p3-command-app` | 3i | planned | 3.8 (Command): decision 8's `outputs` patches to testdata, waits on referenced inputs, `exclusive`, hashed script texts to a run |
-| 3j2 | none | 3 | `rebuild/p3-watch-mode` | 3j | planned | 3.1 (part): watch mode, reloading a session's document as its files change, against the trust prompt; `watch-mode.spec.ts` ported |
+| 3ia | #670 | 3 | `rebuild/p3-trust-contract` | 3hb | ready (runbooks-reviewer passed) | contract change: a configured `DocumentBlock` carries its block's declared `effects` (empty for display and form blocks), for the trust prompt; the window can't import the registry |
+| 3i | #671 | 3 | `rebuild/p3-trust-prompt` | 3ia | ready (runbooks-reviewer passed) | 3.5: the trust prompt above the runbook's box, each block's effects in plain words; the ask with each failure's line and HashChanged's re-read; `e2e/trust.spec.ts` |
+| 3ja | #672 | 3 | `rebuild/p3-log-line-contract` | 3i | draft | contract change: `LIMITS.maxLogLineLength` (16,384) on every `LogLine`; the `Log` task event's optional `cut` |
+| 3jb | #673 | 3 | `rebuild/p3-log-line-cut` | 3ja | draft | a longer line is cut where it enters the run's log, with a note of how much (`linesCut` in Command, `logLine` in the engine) |
+| 3jc | #674 | 3 | `rebuild/p3-stop-waits` | 3jb | draft | a stopped script's folders go once its processes have ended: the spawner's `kill` waits for the stop (5 s grace); `CancelBlock` answers then |
+| 3j | #675 | 3 | `rebuild/p3-command-app` | 3jc | draft | 3.8 (Command, in the app): the task view lists outputs; the failure line gives the exit code once; `e2e/command.spec.ts` runs Command's test runbooks in place |
+| 3jd | #676 | 3 | `rebuild/p3-instruction-guard-test` | 3j | draft | test: instruction mode sends no `CancelBlock` and no `ActOnCredential` (3h re-review); `app.tsx`'s leftover comment |
+| 3je | none | 3 | `rebuild/p3-command-gates` | 3jd | planned | 3.8 (Command): waits on the inputs its templates reference, an optional field with no default running empty (#489); `exclusive` with run order |
+| 3jf | none | 3 | `rebuild/p3-decision-8-testdata` | 3je | planned | decision 8: `outputs` patches to testdata (21 template reads in 9 runbooks), with the old tree's Runbook Tests job still green |
+| 3j2 | none | 3 | `rebuild/p3-watch-mode` | 3jf | planned | 3.1 (part): watch mode, reloading a session's document as its files change, against the trust prompt; `watch-mode.spec.ts` ported. The hash travels with `DocumentView`, so the window trusts the hash of what it draws, and the page body redraws on a change (#671 Gaps) |
 | 3k | none | 3 | `rebuild/p3-inputs` | 3j2 | planned | 3.8 (Inputs). Also: the window reads every task again on each value or output change, for its instruction, with instruction mode off too (#664); gate that on instruction mode, or a keystroke rereads every task |
 | 3l | none | 3 | `rebuild/p3-admonition` | 3k | planned | 3.8 (Admonition) |
 | 3m | none | 3 | `rebuild/p3-aws-auth` | 3l | planned | 3.4 and 3.8 (AwsAuth): the common auth view; AwsAuth against the fake; dev mode wired to `fakeCredentialProviders`. Also: instruction mode draws a text step's markdown as plain text (#665), which a credential's instruction would show with `**` and backticks |
@@ -279,12 +287,12 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 | 2.13 | The credential client, the fake provider, the contract suite | #574 to #581 (#582 a contract addendum) | merged |
 | 3.1 | The app frame: window, IPC transport, CSP without `'unsafe-eval'`, asset serving, path guard | #648 (the window, the CSP); #649 (the IPC transport); #650 (open from the command line); #651 (assets, path guard, the page's own scheme); #660 (URL, a second launch); row 3j2 (watch mode) | #648 to #651 merged; #660 ready; 3j2 planned |
 | 3.2 | The renderer that walks the document | #646 (`GetDocument`); #650 (the walk); #653, #655 (a runbook's nesting bounded) | #646, #650, #653, #655 merged |
-| 3.3 | `BlockFrame` and the default view for each class | #663, #664, #665 (the form and credential views land with rows 3k and 3m) | draft |
+| 3.3 | `BlockFrame` and the default view for each class | #663, #664, #665 (the form and credential views land with rows 3k and 3m) | ready |
 | 3.4 | The common auth view | row 3m | planned |
-| 3.5 | The trust prompt, listing each block's declared effects | row 3i | planned |
+| 3.5 | The trust prompt, listing each block's declared effects | #670 (the effects in the document), #671 (the prompt) | ready |
 | 3.6 | The MCP tools generated from the protocol, on both transports | row 3p | planned |
 | 3.7 | Agent run confirmation in the engine | row 3o | planned |
-| 3.8 | Command, AwsAuth, Inputs and Admonition, end to end | #645 (values redacted), #647 (form outputs); rows 3j, 3k, 3l, 3m, 3q | #645, #647 merged; the rest planned |
+| 3.8 | Command, AwsAuth, Inputs and Admonition, end to end | #645 (values redacted), #647 (form outputs); #672 to #676 (Command in the app); rows 3je, 3jf, 3k, 3l, 3m, 3q | #645, #647 merged; #672 to #676 draft; the rest planned |
 | A.1 | The binaries' repo, with its build, signing and release | runbooks-plugins | done (that session) |
 | A.2 | The AWS binary | runbooks-plugins | released v0.1.0 |
 | A.3 | The Google binary | runbooks-plugins | released v0.1.0 |
@@ -422,12 +430,11 @@ Choices of my own that need a ruling (not among the 18):
 | Iframe's outputs (#647): no field can be kept for the window to set, so an agent's `SetValues` can set an Iframe's page fields; a page posting `""` no longer counts as set; `runbooks test`'s `set_outputs` with two outputs on one field keeps the last without a word (runbooks-reviewer) | phase 4, Iframe |
 | The baseline's stand-in forms declare outputs over an empty field list (#647): opening a session on one would refuse it | when a stand-in is opened |
 | A block waits for each input its template references (today, #489); a referenced optional field with no default runs with an empty string | phase 3, Command |
-| A run gets the hashed script texts instead of re-reading them; `instruction()` input needs an I/O-free build | phase 3, Command (contract change) |
 | A plugin-backed form needs a read after trust (Layer 3 against the trust rule) | phase 4 (contract change) |
 | A person-picked checkout root, and Template targets in it | phase 4 |
 | `NodeSessionDatabase` is first wired by the app's entry point; the test CLI keeps no saved sessions (#570) | phase 3 |
 | `SetValues` payload (keys, value size) uncapped; a malformed payload from an untyped caller is untested | phase 3, MCP (the first untyped caller) |
-| A `LogLines` event holds up to 10,000 lines and no line length is capped; the transport's stream buffer counts events; #649 caps only the page's messages, so main to page is bounded by the protocol's `LIMITS` and acks alone | the engine, before Command's view (row 3j) |
+| A `LogLines` event's total size is unbounded: every line since the last 250 ms flush, up to 10,000 lines of 16,384 characters (#672); `Events` sends every pending event as one chunk. A `log_*` file line over 64 KiB shows as several lines, each cut (#673) | before MCP (row 3p) |
 | The base environment's `PATH` is not refreshed; the heredoc advice in the docs (plan item 615) | phase 5 |
 | `baseline/security-tests.ts`: two tests renamed in phase 2 | phase 6 |
 | No no-proxy list in the credential contract; the plugins take only `configure`'s `proxy` and ignore the environment's proxy variables by design (`az` inherits what the plugin passes) | the human, then a contract change |
@@ -478,7 +485,7 @@ Choices of my own that need a ruling (not among the 18):
 | Not pinned yet (#648, runbooks-reviewer): main's refusal of a client certificate | the first block that makes a network request from the window |
 | Not pinned yet (#648, runbooks-reviewer): `ELECTRON_RENDERER_URL` honoured only unpackaged | the packaging row's e2e, on a packaged build |
 | The IPC transport (#649): an error page commits no `did-navigate`, so the old connection lives until the next load; after a flood the page's client hangs until a reload, as nothing tells it the connection ended; subframe and `<webview>` senders are unit-tested only | if it matters |
-| Quitting (#649): Command deletes its temp folder right after SIGTERM, while the script's TERM handler still runs; SIGINT and SIGTERM to main are unhandled; a second quit during the wait doesn't force; the 10-second cap is untested | row 3j (the temp folder); the rest if it matters |
+| Quitting (#649): SIGINT and SIGTERM to main are unhandled; a second quit during the wait doesn't force; the 10-second cap is untested. (Command's folders now outlast a stopped script, #674.) | if it matters |
 | Session folders build up under `<userData>/v0/sessions/dirs` (#649) | row 3n's retention |
 | The renderer bundle is 1.28 MB with effect RPC and the protocol's schemas (#649), and grew with the walk and Tailwind (#650, not measured) | if it matters |
 | Two stores on one settings file, as two Runbooks, can lose one's change: each writes back what it holds (#625 Gaps) | if a second writer becomes real |
@@ -492,3 +499,6 @@ Choices of my own that need a ruling (not among the 18):
 | A link swapped in between the path guard's check and the read is followed, as in the old app; each asset answer holds its file open until read or cancelled, and nothing caps how many; `<source type>` is dropped; on macOS `./ASSETS/` names the folder but stays text (#651) | if it matters |
 | Form values nest (lists and maps, from YAML or a prop), and nothing bounds their depth as #653 bounds the tree's | row 3k, Inputs |
 | A tree too deep for the MDX parser itself (about 10000 levels under Bun) is `syntax` with RangeError's reason at 1:1, not `tooDeep` (#653) | if it matters |
+| The trust prompt's button stays enabled while it asks: an `asking` flag in `Trusting` should disable it; a block's title, author text, should be quoted in the prompt (#671 review) | with the next trust change |
+| A stop holds the session lock for up to its 5 s grace: RunBlock, SetValues, ConfirmValues and ActOnCredential wait; the block shows Running and offers Cancel, and a second Cancel says "It wasn't running, so nothing was cancelled." A "Stopping" state, with the lock released during the stop (#674) | before MCP (row 3p) |
+| The window doesn't draw `BlockView.files`; Command's docs.mdx says "click **View Outputs**", the old app's words (#675) | row 3q; phase 6 docs |
