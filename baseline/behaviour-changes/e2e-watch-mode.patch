@@ -1,0 +1,33 @@
+diff --git a/electron/e2e/watch-mode.spec.ts b/electron/e2e/watch-mode.spec.ts
+index 157d9107..61891a4b 100644
+--- a/electron/e2e/watch-mode.spec.ts
++++ b/electron/e2e/watch-mode.spec.ts
+@@ -4,8 +4,8 @@
+  *
+  * Launches the real app on a throwaway runbook, edits runbook.mdx on disk,
+  * and checks that the app reloads it. Running a block after the reload shows
+- * which executable registry the main process used: rebuilt from the edited
+- * file by default, or frozen at open with --disable-live-file-reload.
++ * it runs the edited runbook, inline commands included; with
++ * --disable-live-file-reload, the script files it names keep their text.
+  *
+  * Without --watch, editing a block's script file leaves the registry as it
+  * is until the user reloads the script from the block.
+@@ -183,14 +183,14 @@ test.describe("Watch mode", () => {
+     })
+   }
+ 
+-  test("--disable-live-file-reload reloads the view but keeps running the command approved at open", async () => {
++  test("--disable-live-file-reload reloads the runbook's inline commands too", async () => {
+     const { app, page } = await launch(["--watch", "--disable-live-file-reload"])
+     try {
+       await editRunbook(page)
+ 
+       const block = await runGreet(page)
+-      await expect(block.getByText("watch-before", { exact: true })).toBeVisible()
+-      await expect(block.getByText("Script changed")).toBeVisible()
++      await expect(block.getByText("watch-after", { exact: true })).toBeVisible()
++      await expect(block.getByText("Script changed")).toHaveCount(0)
+     } finally {
+       await app.close()
+     }

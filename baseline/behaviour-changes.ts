@@ -1,6 +1,7 @@
 /**
- * The eleven behaviour changes the rulings make (nine on 2026-11-23, open
- * decision 9's, and the refused `<style>` of 2026-11-26), applied to the
+ * The twelve behaviour changes the rulings make (nine on 2026-11-23, open
+ * decision 9's, the refused `<style>` of 2026-11-26, and watch mode's
+ * `--disable-live-file-reload` of 2026-11-27), applied to the
  * baseline fixtures and e2e specs that rely on the old behaviour. Each
  * patch in `behaviour-changes/` rewrites one fixture or spec. Today's app
  * still runs the originals, so the patches stay out of the tree until the
@@ -26,6 +27,7 @@ export type BehaviourChange =
   | "repository"
   | "scriptTemplates"
   | "metadataElements"
+  | "inlineCommandReloads"
 
 interface Change {
   readonly before: string
@@ -102,6 +104,15 @@ export const CHANGES: Record<BehaviourChange, Change> = {
     unpinned:
       "No fixture or spec's runbook has one. The only hits are pages a frame loads (testdata/feature-demos/iframe/assets, and iframe.spec.ts's LOCAL_PAGE), not runbooks. packages/core/src/document/security.test.ts tests each refusal.",
   },
+  /**
+   * Ruled 2026-11-27 ("Only script files"). A session holds one document,
+   * and the window draws it, so what a block shows is what it runs.
+   */
+  inlineCommandReloads: {
+    before:
+      "With --watch --disable-live-file-reload, a reload shows an edited inline command but runs the one opened",
+    after: "Runs the edited one; only script files keep their text until reloaded from their block",
+  },
 }
 
 /** Each patch, by file name in `behaviour-changes/`, and the changes it applies. */
@@ -120,6 +131,7 @@ export const PATCHES: Record<string, ReadonlyArray<BehaviourChange>> = {
   "e2e-sessions.patch": ["runbookEnv", "cd", "scriptTemplates"],
   "e2e-concurrent-runs.patch": ["scriptTemplates"],
   "e2e-files-panel.patch": ["generateButton", "repository"],
+  "e2e-watch-mode.patch": ["inlineCommandReloads"],
 }
 
 /** The patch files on disk. */
