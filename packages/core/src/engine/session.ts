@@ -253,6 +253,10 @@ interface Wait {
 interface Runnable {
   readonly block: TaskOf<AnyBlock>
   readonly outputs: OutputDecls<string>
+  /** It runs alone (`TaskBlock.exclusive`). */
+  readonly exclusive: boolean
+  /** It runs commands: the `process` effect. */
+  readonly runsCommands: boolean
 }
 
 /** The outputs of one block that another's templates read. */
@@ -653,7 +657,12 @@ function runnableOf(node: BlockNode, registry: Registry): Option.Option<Runnable
   const block: AnyBlock | undefined = resolveTag(registry, node.tag)?.block
   // The parser resolved this tag against the same registry, so it resolves here.
   if (block?.class !== "task") throw new Error(`<${node.tag}> does not resolve to a task block`)
-  return Option.some({ block, outputs: block.outputs(node.props) })
+  return Option.some({
+    block,
+    outputs: block.outputs(node.props),
+    exclusive: block.exclusive?.(node.props) ?? false,
+    runsCommands: block.effects.includes("process"),
+  })
 }
 
 const outputsView = (outputs: ReadonlyMap<string, Held<string>>): Record<string, OutputView> =>
@@ -1127,10 +1136,38 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     })
   }
 
+  /**
+   * Each running task this task may not run beside, in the runbook's order:
+   * one of the two runs alone and the other runs commands. None for a block
+   * that is no task. A running task is refused a run before this is asked
+   * (`AlreadyRunning`), so it never meets its own run here.
+   */
+  const exclusiveOf = (slot: Slot): ReadonlyArray<Blocker> => {
+    if (Option.isNone(slot.runnable)) return []
+    const self = slot.runnable.value
+    return Array.from(runs.values())
+      .filter((run) => run.state._tag === "Running")
+      .sort((a, b) => a.slot.index - b.slot.index)
+      .flatMap((run) => {
+        if (Option.isNone(run.slot.runnable)) return []
+        const running = run.slot.runnable.value
+        const runsAlone =
+          running.exclusive && self.runsCommands
+            ? ("running" as const)
+            : self.exclusive && running.runsCommands
+              ? ("waiting" as const)
+              : undefined
+        return runsAlone === undefined
+          ? []
+          : [{ _tag: "Exclusive" as const, block: run.slot.id, runsAlone }]
+      })
+  }
+
   const blockersOf = (slot: Slot): ReadonlyArray<Blocker> => [
     ...(trust._tag === "Trusted" ? [] : [{ _tag: "Untrusted" as const }]),
     ...slot.waits.filter((wait) => !isSatisfied(wait)).map((wait) => wait.blocker),
     ...emptyInputsOf(slot),
+    ...exclusiveOf(slot),
   ]
 
   /** Why the block cannot start now, whoever asks: what blocks it, then its own form. */

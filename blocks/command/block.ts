@@ -19,6 +19,8 @@
  * - Of a line it prints, the run keeps no more than a log line holds
  *   (`LIMITS.maxLogLineLength`), and counts the rest, which the log says
  *   was cut.
+ * - With `exclusive`, it runs alone: the engine starts no other block
+ *   that runs commands while it runs, and does not start it while one runs.
  * - It is stopped, with every process it started, when it is cancelled or
  *   runs past `timeoutMs`. Its folder (the script, the helpers, the log
  *   files) goes once they have ended, so a TERM trap can still use it.
@@ -62,6 +64,11 @@ const CommandProps = Schema.Struct({
     ),
   ),
   timeoutMs: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+  /**
+   * It runs alone (`TaskBlock.exclusive`): no other block that runs
+   * commands starts while it runs, and it does not start while one runs.
+   */
+  exclusive: Schema.optionalKey(Schema.Boolean),
   /**
    * The block that makes the repository the script starts in, and that
    * `$REPO_FILES` names. A block that works in a repository names it.
@@ -129,6 +136,7 @@ export const command = defineTask({
         ? [{ _tag: "File", path: p.path }]
         : [],
   timeLimit: (p) => p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  exclusive: (p) => p.exclusive === true,
   provides: ["run", "env"],
   effects: ["process"],
   outputs: (p) => Object.fromEntries((p.outputs ?? []).map((name) => [name, { sensitive: false }])),

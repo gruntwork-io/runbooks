@@ -43,6 +43,7 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 - `envFrom` (string | string[]): ID of a block, or an array of IDs, whose variables the script runs with: another Command's, from what its script wrote to `$RUNBOOK_ENV`, or an auth block's credentials. Later IDs override earlier ones. The block can't run until each one is done. See [Variables from other blocks](#variables-from-other-blocks).
 - `env` (object): environment variables the script runs with, by name, such as `env={{ REGION: "{{ .inputs.Region }}", DEBUG: true }}`. A value is a string, a number or a boolean, and can read inputs and block outputs. See [Setting variables with env](#setting-variables-with-env).
 - `dependsOn` (string | string[]): ID of a block, or an array of IDs, that must be done before this block can run, such as another Command or a Check. A block that ended with a warning counts, including a Command that exited 2. See [Run order](#run-order).
+- `exclusive` (boolean): whether this block runs alone. Defaults to `false`. While it runs, no other block that runs commands, such as another Command or a Check, can start, and it can't start while one is running. See [Run order](#run-order).
 - `repository` (string): ID of a block that gives a repository, such as a [GitClone](/authoring/blocks/gitclone/) block. The script starts in that repository, and `$REPO_FILES` holds its path. The block can't run until that block is done. See [Writing to repository files](#writing-to-repository-files).
 - `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is stopped, with every process it started, and the block fails. A whole number greater than 0. Defaults to `3600000` (60 minutes). Raise it for scripts that run longer, for example `timeoutMs={7200000}` for a 2-hour deployment, or lower it so a hung script fails sooner. [Runbook tests](/authoring/testing/) ignore it: the test's `timeout` setting limits every script instead.
 - `successMessage` (string): message shown when the command succeeds. Default "Success". Supports inline markdown.
@@ -445,16 +446,17 @@ Command and Check blocks can run at the same time. A block's Run button is disab
 - **It uses another block's outputs.** A block that references `{{ .outputs.build.tag }}` can't run until `build` is done, and can't run while `build` is running again.
 - **It names another block in `dependsOn` or `envFrom`.** The block can't run until every block it names is done: for a Command, its script exited 0 or 2. If one of them later fails or is stopped, the block waits again. Use `dependsOn` when a script needs something an earlier script did that isn't an output or a variable, such as a resource it created.
 - **It reads an Inputs block.** The block can't run until the Inputs block's values are valid and each input its `env` reads has a value. See [Setting variables with env](#setting-variables-with-env).
+- **It would overlap with an `exclusive` block.** While an `exclusive` block runs, no other block that runs commands, such as a Command or a Check, can start, and an `exclusive` block can't start while one is running. Use this for a script that can't share its resources, such as one that takes a state lock. A block that runs no commands, such as an Inputs block, isn't held.
 
 ```mdx
 <Command id="login" command='echo "API_TOKEN=$(vault read -field=token secret/api)" >> "$RUNBOOK_ENV"' />
 
 <Command id="deploy" envFrom="login" path="scripts/deploy.sh" />
 
-<Command id="migrate" envFrom="login" dependsOn="deploy" path="scripts/migrate.sh" />
+<Command id="migrate" envFrom="login" dependsOn="deploy" exclusive path="scripts/migrate.sh" />
 ```
 
-A block that is waiting names the blocks it is waiting for. Click a name to scroll to that block. For a block that is running, there is also a button to stop it.
+A block that is waiting names the blocks it is waiting for, and for an `exclusive` block, which of the two runs alone. Click a name to scroll to that block. For a block that is running, there is also a button to stop it.
 
 Each ID in `dependsOn`, `envFrom` and `inputsId` must name a block in the runbook that can satisfy it. An ID that no block has, a block of the wrong kind, or the block itself is a configuration error, and the error gives the line.
 
