@@ -20,6 +20,7 @@ The running index of the rebuild stack. Update it whenever the stack changes.
 - At 19:35 UTC the human merged #652 and #653 (`rebuild/main` bec13f26), and GitHub rebased #655 onto `rebuild/main` (5def7eec), patch for patch. Track A's lock PRs (#656 to #658) went on #655 once plugins v0.2.1 was released, and phase 3 continues above them: #659 (a contract change the window needs) and #660 (3g3).
 - At 20:10 UTC the human merged #655 (`rebuild/main` 4b613f21), and GitHub rebased #656 to #660 onto `rebuild/main`, patch for patch. #656 to #659 passed runbooks-reviewer and are ready. #660's review found that a ref lookup or clone whose server never answers hung forever; d0b32d65 bounds every git's wait in `gitSpawnEnv`. The reviewer's notes on #656 and #657 (no check that a pin is the release's, on platforms CI doesn't fetch) became #662, on top. At 21:02 UTC the human merged #656 to #659 (`rebuild/main` 8d560225); GitHub rebased #660 and #662 patch for patch, and the reviewer confirmed both passes for the new heads, so both are ready. Row 3h is three PRs above #662: #663 (contract), #664 (`BlockFrame`), #665 (instruction mode).
 - On 2026-11-27 the index's own commits had left #660 behind `rebuild/main`, so #660 and #662 to #665 were restacked, patch for patch, and runbooks-reviewer passed their new heads. Row 3i landed as #670 (contract: `DocumentBlock.Configured.effects`) and #671 (the trust prompt); #671 failed review once (a credential block waiting for trust was untested, 425ca0e7). Row 3j's first part is #672 to #676; its other two parts are rows 3je and 3jf. The follow-up "a run gets the hashed script texts" is closed: #587 gave a task its files through `TaskReads`, which instruction mode builds with no I/O.
+- At 06:17 UTC on 2026-11-27 the human merged #660, #662 to #665 and #670 to #676 the same way (`rebuild/main` e232dcf9, whose tree equals #676's head), and GitHub rebased #677 to #679 onto it, patch for patch. Row 3je landed as #677 to #679. #678's review found that a form whose title read its own optional field couldn't be submitted with it empty, so a title or a description now holds nothing (d873a09d), and the block's own form got its test (406dc08d); #679 then took a `Quiet` task for its no-commands cases. Row 3jf landed as #680.
 - **Keep it stacked.** The open PRs are GitHub stack #628, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/628`); #519 holds #496 to #598, and #614 holds #599 to #625. `.more9s/stack.sh` keeps it that way:
   - `add <branch> <title> <body-file>` opens each new PR as a draft on the top of the stack, links it into #628, and waits until GitHub lists it on top (two adds in a row once based the second on the PR below the first). Once it is green, send it to runbooks-reviewer, and mark it ready with `gh pr ready` only when the review passes. Don't open a rebuild PR with `gh pr create` alone.
   - `restack` (`--dry-run` first, in a linked worktree) is needed after any commit to `rebuild/main`, such as an index update, or to a lower branch. It rebases each branch onto the one below and force-pushes it with a lease. CI then reruns on every PR above the change, so batch index updates.
@@ -201,20 +202,22 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 3g2b | #653 | 3 | `rebuild/p3-nesting-bound` | 3g2a | merged | the parser refuses a runbook nested more than 100 levels (`MAX_NESTING`), before any walk that recurses; e2e against Electron's stacks |
 | 3g2c | #655 | 3 | `rebuild/p3-nesting-order` | `rebuild/main` | merged (4b613f21) | a test pins `nestedTooDeep`'s first-in-document-order report (runbooks-reviewer's note on #653) |
 | 3g3a | #659 | 3 | `rebuild/p3-list-order` | 100 | merged (8d560225) | contract change: `ListSessions` lists sessions in the order they opened, which 3g3's window relies on |
-| 3g3 | #660 | 3 | `rebuild/p3-open-url` | `rebuild/main` | ready (runbooks-reviewer passed aedaad11; green) | 3.1 (part): open a runbook from a URL on the command line (the old app's clone, in main; clones in `<userData>/v0/clones`); a second launch opens its runbook in the running app, which reloads the page |
-| 100a | #662 | A | `rebuild/pA-plugins-pins` | 3g3 | ready (runbooks-reviewer passed 44a5dd6a; green) | A.5: CI checks every lock pin against the pinned release's `SHA256SUMS`, on all five platforms (the reviewer's note on #656 and #657) |
-| 3ha | #663 | 3 | `rebuild/p3-frame-contract` | 100a | ready (runbooks-reviewer passed) | contract change: `BlockView.instruction` (built before trust, values redacted), `SessionView.sequence` (where `Events` starts), `DocumentBlock.step` |
-| 3h | #664 | 3 | `rebuild/p3-block-frame` | 3ha | ready (runbooks-reviewer passed) | 3.3: `BlockFrame` for every block by class (step mark, status, blockers as links, auto-collapse), the window following `Events`, the task default view |
-| 3hb | #665 | 3 | `rebuild/p3-instruction-mode` | 3h | ready (runbooks-reviewer passed) | 3.3: instruction mode in the frame, followed through `WatchSettings`; Command's instruction in the old app's words |
-| 3ia | #670 | 3 | `rebuild/p3-trust-contract` | 3hb | ready (runbooks-reviewer passed) | contract change: a configured `DocumentBlock` carries its block's declared `effects` (empty for display and form blocks), for the trust prompt; the window can't import the registry |
-| 3i | #671 | 3 | `rebuild/p3-trust-prompt` | 3ia | ready (runbooks-reviewer passed) | 3.5: the trust prompt above the runbook's box, each block's effects in plain words; the ask with each failure's line and HashChanged's re-read; `e2e/trust.spec.ts` |
-| 3ja | #672 | 3 | `rebuild/p3-log-line-contract` | 3i | draft | contract change: `LIMITS.maxLogLineLength` (16,384) on every `LogLine`; the `Log` task event's optional `cut` |
-| 3jb | #673 | 3 | `rebuild/p3-log-line-cut` | 3ja | draft | a longer line is cut where it enters the run's log, with a note of how much (`linesCut` in Command, `logLine` in the engine) |
-| 3jc | #674 | 3 | `rebuild/p3-stop-waits` | 3jb | draft | a stopped script's folders go once its processes have ended: the spawner's `kill` waits for the stop (5 s grace); `CancelBlock` answers then |
-| 3j | #675 | 3 | `rebuild/p3-command-app` | 3jc | draft | 3.8 (Command, in the app): the task view lists outputs; the failure line gives the exit code once; `e2e/command.spec.ts` runs Command's test runbooks in place |
-| 3jd | #676 | 3 | `rebuild/p3-instruction-guard-test` | 3j | draft | test: instruction mode sends no `CancelBlock` and no `ActOnCredential` (3h re-review); `app.tsx`'s leftover comment |
-| 3je | none | 3 | `rebuild/p3-command-gates` | 3jd | planned | 3.8 (Command): waits on the inputs its templates reference, an optional field with no default running empty (#489); `exclusive` with run order |
-| 3jf | none | 3 | `rebuild/p3-decision-8-testdata` | 3je | planned | decision 8: `outputs` patches to testdata (21 template reads in 9 runbooks), with the old tree's Runbook Tests job still green |
+| 3g3 | #660 | 3 | `rebuild/p3-open-url` | `rebuild/main` | merged | 3.1 (part): open a runbook from a URL on the command line (the old app's clone, in main; clones in `<userData>/v0/clones`); a second launch opens its runbook in the running app, which reloads the page |
+| 100a | #662 | A | `rebuild/pA-plugins-pins` | 3g3 | merged | A.5: CI checks every lock pin against the pinned release's `SHA256SUMS`, on all five platforms (the reviewer's note on #656 and #657) |
+| 3ha | #663 | 3 | `rebuild/p3-frame-contract` | 100a | merged | contract change: `BlockView.instruction` (built before trust, values redacted), `SessionView.sequence` (where `Events` starts), `DocumentBlock.step` |
+| 3h | #664 | 3 | `rebuild/p3-block-frame` | 3ha | merged | 3.3: `BlockFrame` for every block by class (step mark, status, blockers as links, auto-collapse), the window following `Events`, the task default view |
+| 3hb | #665 | 3 | `rebuild/p3-instruction-mode` | 3h | merged | 3.3: instruction mode in the frame, followed through `WatchSettings`; Command's instruction in the old app's words |
+| 3ia | #670 | 3 | `rebuild/p3-trust-contract` | 3hb | merged | contract change: a configured `DocumentBlock` carries its block's declared `effects` (empty for display and form blocks), for the trust prompt; the window can't import the registry |
+| 3i | #671 | 3 | `rebuild/p3-trust-prompt` | 3ia | merged | 3.5: the trust prompt above the runbook's box, each block's effects in plain words; the ask with each failure's line and HashChanged's re-read; `e2e/trust.spec.ts` |
+| 3ja | #672 | 3 | `rebuild/p3-log-line-contract` | 3i | merged | contract change: `LIMITS.maxLogLineLength` (16,384) on every `LogLine`; the `Log` task event's optional `cut` |
+| 3jb | #673 | 3 | `rebuild/p3-log-line-cut` | 3ja | merged | a longer line is cut where it enters the run's log, with a note of how much (`linesCut` in Command, `logLine` in the engine) |
+| 3jc | #674 | 3 | `rebuild/p3-stop-waits` | 3jb | merged | a stopped script's folders go once its processes have ended: the spawner's `kill` waits for the stop (5 s grace); `CancelBlock` answers then |
+| 3j | #675 | 3 | `rebuild/p3-command-app` | 3jc | merged | 3.8 (Command, in the app): the task view lists outputs; the failure line gives the exit code once; `e2e/command.spec.ts` runs Command's test runbooks in place |
+| 3jd | #676 | 3 | `rebuild/p3-instruction-guard-test` | 3j | merged | test: instruction mode sends no `CancelBlock` and no `ActOnCredential` (3h re-review); `app.tsx`'s leftover comment |
+| 3jea | #677 | 3 | `rebuild/p3-gates-contract` | `rebuild/main` | ready (runbooks-reviewer passed) | contract change: `Blocker` gains `EmptyInput {block, input}` and `Exclusive {block, runsAlone}`; `TaskBlock.exclusive(props)`, decided before trust |
+| 3jeb | #678 | 3 | `rebuild/p3-input-wait` | 3jea | ready (runbooks-reviewer passed) | 3.8 (Command): a block waits for each input its run is given (its own props and `env`, not `title` or `description`) to have a value, by #489's rule; the last form with the field is the one named |
+| 3je | #679 | 3 | `rebuild/p3-exclusive` | 3jeb | ready (runbooks-reviewer passed) | 3.8 (Command): `exclusive`; the engine holds a task that runs commands (the `process` effect) while one that runs alone runs, and the other way round |
+| 3jf | #680 | 3 | `rebuild/p3-decision-8-testdata` | 3je | draft | decision 8: testdata's Commands declare every output their scripts write, in place, since the old tree ignores `outputs` (`validate` gave 18 undeclared reads in 4 runbooks; the 21 in 9 counted here before wasn't reproducible); baseline checks for reads, assertions and writes |
 | 3j2 | none | 3 | `rebuild/p3-watch-mode` | 3jf | planned | 3.1 (part): watch mode, reloading a session's document as its files change, against the trust prompt; `watch-mode.spec.ts` ported. The hash travels with `DocumentView`, so the window trusts the hash of what it draws, and the page body redraws on a change (#671 Gaps) |
 | 3k | none | 3 | `rebuild/p3-inputs` | 3j2 | planned | 3.8 (Inputs). Also: the window reads every task again on each value or output change, for its instruction, with instruction mode off too (#664); gate that on instruction mode, or a keystroke rereads every task |
 | 3l | none | 3 | `rebuild/p3-admonition` | 3k | planned | 3.8 (Admonition) |
@@ -285,19 +288,19 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 | 2.11 | The `runbook_test.yml` schema | #569 | merged |
 | 2.12 | The plugin transport owner, tests against a stub binary | #571, #572, #573 | merged |
 | 2.13 | The credential client, the fake provider, the contract suite | #574 to #581 (#582 a contract addendum) | merged |
-| 3.1 | The app frame: window, IPC transport, CSP without `'unsafe-eval'`, asset serving, path guard | #648 (the window, the CSP); #649 (the IPC transport); #650 (open from the command line); #651 (assets, path guard, the page's own scheme); #660 (URL, a second launch); row 3j2 (watch mode) | #648 to #651 merged; #660 ready; 3j2 planned |
+| 3.1 | The app frame: window, IPC transport, CSP without `'unsafe-eval'`, asset serving, path guard | #648 (the window, the CSP); #649 (the IPC transport); #650 (open from the command line); #651 (assets, path guard, the page's own scheme); #660 (URL, a second launch); row 3j2 (watch mode) | #648 to #651, #660 merged; 3j2 planned |
 | 3.2 | The renderer that walks the document | #646 (`GetDocument`); #650 (the walk); #653, #655 (a runbook's nesting bounded) | #646, #650, #653, #655 merged |
-| 3.3 | `BlockFrame` and the default view for each class | #663, #664, #665 (the form and credential views land with rows 3k and 3m) | ready |
+| 3.3 | `BlockFrame` and the default view for each class | #663, #664, #665 (the form and credential views land with rows 3k and 3m) | #663 to #665 merged; 3k, 3m planned |
 | 3.4 | The common auth view | row 3m | planned |
-| 3.5 | The trust prompt, listing each block's declared effects | #670 (the effects in the document), #671 (the prompt) | ready |
+| 3.5 | The trust prompt, listing each block's declared effects | #670 (the effects in the document), #671 (the prompt) | merged |
 | 3.6 | The MCP tools generated from the protocol, on both transports | row 3p | planned |
 | 3.7 | Agent run confirmation in the engine | row 3o | planned |
-| 3.8 | Command, AwsAuth, Inputs and Admonition, end to end | #645 (values redacted), #647 (form outputs); #672 to #676 (Command in the app); rows 3je, 3jf, 3k, 3l, 3m, 3q | #645, #647 merged; #672 to #676 draft; the rest planned |
+| 3.8 | Command, AwsAuth, Inputs and Admonition, end to end | #645 (values redacted), #647 (form outputs); #672 to #676 (Command in the app); #677 to #679 (the input wait, `exclusive`); #680 (decision 8 in testdata); rows 3k, 3l, 3m, 3q | #645, #647, #672 to #676 merged; #677 to #679 ready; #680 draft; the rest planned |
 | A.1 | The binaries' repo, with its build, signing and release | runbooks-plugins | done (that session) |
 | A.2 | The AWS binary | runbooks-plugins | released v0.1.0 |
 | A.3 | The Google binary | runbooks-plugins | released v0.1.0 |
 | A.4 | The Azure binary, wrapping `az` | runbooks-plugins | released v0.1.0 |
-| A.5 | `resources/plugins.lock`, the fetch recipe and the bump recipe | #656, #657; #662 (every pin checked against the release) | #656, #657 merged; #662 ready |
+| A.5 | `resources/plugins.lock`, the fetch recipe and the bump recipe | #656, #657; #662 (every pin checked against the release) | merged |
 | A.6 | The hash check before a binary starts | #572; #658 for the packaged bytes | #572, #658 merged |
 
 ## The 18 decisions
@@ -395,6 +398,7 @@ Choices of my own that need a ruling (not among the 18):
 | What | Options | Where it shows |
 |---|---|---|
 | GitClone declares `push` for an empty remote, and a block that declares `push` may only `expect: skip`, but file-workspace, git-clone and inputs-and-outputs expect GitClone to succeed | GitClone declares its push apart from its clone (recommended), or the three steps skip (a tenth behaviour change) | `baseline/testFiles.test.ts` pins the three (#569) |
+| Work product 0.13, the throwaway prototype, is not done: phases 2 and 3 build its path for real. Command runs through the engine from the app (#675) and the CLI; the credential half from the app lands with row 3m | mark it superseded (phase 0 complete, 40 of 57), or keep it open until 3m | Work products |
 | `ShowWhen` is kept in the baseline as a display stand-in (#585) | keep it, or drop it from the baseline | the baseline list |
 | The Azure plugin fails `detect` when its refresh fails (#520); today warns and goes on | keep failing (built), or warn and go on | runbooks-plugins |
 | The master plan's line 218 shows `instruction(TaskInput)`; #587 made it `TaskReads` | update the plan | the master plan |
@@ -419,8 +423,14 @@ Choices of my own that need a ruling (not among the 18):
 | What | Where it lands |
 |---|---|
 | `src/` and its copies in `packages/` drift until the old tree goes | phase 6 |
+| Command's `successMessage`, `failMessage` and `runningMessage` aren't drawn in the window, and an input they read holds the block like any own prop (#678 decision 1). When they are drawn, the definition marks which props are only shown, so those hold nothing | with the row that draws them |
+| The input wait (#678 Gaps): inputs read in Template's files hold nothing (`fileReads` makes only output references); a path into a field that isn't a map, such as `.inputs.region.x`, waits forever (the old app did too); 15 testdata runbooks read inputs in `env`, and a test that leaves an optional field with no default empty is now held; no e2e shows the blocker. `runbooks test` never meets `Exclusive`, so its words are untested (#677) | phase 4, Template; the phase 6 gate |
+| Check and Finish run alone by declaring `exclusive` and `process`; neither prop is built. In phase 4, Prerequisites both waits for and holds an exclusive task (#679 decision 1) | phase 4 |
+| `runbook-assets.spec.ts` :175 and :197 refused the page's own first asset on CI (run 45944598540 attempt 1, job 140326306044): a possible race between the session's asset host and the first asset request (#651). A person could meet a first image or sound that doesn't load on open | investigate before row 3q |
+| The old app's `electron/e2e/sessions.spec.ts:406` (the trust button stays visible) failed on #668's first run and #676's second attempt (job 140329357032); it runs on `main` PRs too | the human decides: a row or an issue |
+| The cut note's character count is in UTF-16 code units (#673 review nit) | if it matters |
 | GitGuardian incidents 27121678, 33923057, 33923058 re-raised by the copy | the human, in the GitGuardian dashboard |
-| Decision 8 (declared outputs): 21 template reads in 9 testdata runbooks use a Command output no `outputs` prop declares, so they fail to load. They need `outputs` patches. | phase 3, with Command (Check in phase 4) |
+| Decision 8 for Check: openclaw's Template file reads `check-root-hcl.has_root_hcl`, and script-env's test asserts on `print-title.title`; both Checks write those keys (#680 Gaps). No test checks reads by blocks not yet in the registry (TemplateInline, ShowWhen), and `electron/e2e/agent-access.spec.ts`'s `greet` writes `greeting` undeclared. The authors' table and the old docs lack declared outputs | phase 4, with Check; phase 6 docs |
 | The MDXContainer security tests' rendering half (the page shows literal props) | row 3g |
 | `rebuild/main` holds `main` to d7136710 (#585, #586); a later sync repeats the merge and the port command in #586's Evidence | before phase 6 |
 | A block's errors show in place of its view (#522); #646 sends them | row 3g |
@@ -429,7 +439,6 @@ Choices of my own that need a ruling (not among the 18):
 | The block-name lint reads `baseline/props.json`; when the baseline retires, the registry alone names the blocks (#526) | phase 6 |
 | Iframe's outputs (#647): no field can be kept for the window to set, so an agent's `SetValues` can set an Iframe's page fields; a page posting `""` no longer counts as set; `runbooks test`'s `set_outputs` with two outputs on one field keeps the last without a word (runbooks-reviewer) | phase 4, Iframe |
 | The baseline's stand-in forms declare outputs over an empty field list (#647): opening a session on one would refuse it | when a stand-in is opened |
-| A block waits for each input its template references (today, #489); a referenced optional field with no default runs with an empty string | phase 3, Command |
 | A plugin-backed form needs a read after trust (Layer 3 against the trust rule) | phase 4 (contract change) |
 | A person-picked checkout root, and Template targets in it | phase 4 |
 | `NodeSessionDatabase` is first wired by the app's entry point; the test CLI keeps no saved sessions (#570) | phase 3 |
@@ -470,7 +479,6 @@ Choices of my own that need a ruling (not among the 18):
 | `DocumentView` (#646): `validate` reports only the parser's errors, not those found at open; `FieldView` has each field's section but not `FormSpec.sections`' order; `SessionView.warnings` repeats `DocumentView.warnings`; props typed `Codec<P, Schema.Json>` would move the JSON check to the build | rows 3g, 3k; the rest if it matters |
 | `boilerplate.yml` readers (`config.ts:388`, `warmEligibility.ts:95`) move to `yamlData` | phase 4, Template |
 | `openFileTail.finish()` reads what is left of a log file in one go when the child ends (#594) | before phase 6 |
-| Command has no `exclusive` prop (`validate` warns it is ignored) | phase 3, with run order |
 | No saved session keeps `BlockView.files` (#602) | phase 5, the files panel |
 | Template and TemplateInline report their files as `File` events, so `files_generated` counts them | phase 4, Template |
 | Old-tree CI flakes: `GitAuth.switch` Reload (a stale-effect race), and `SessionName.test.tsx`'s refused-name check (#603's first run; on #636, run 45791836449, `aria-invalid` true; `GitAuth.switch` again on #645, run 45820711300) | before phase 6, or with the old tree's deletion |
