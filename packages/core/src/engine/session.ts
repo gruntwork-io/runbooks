@@ -80,6 +80,7 @@ import {
   type EngineEvent,
   type EventEnvelope,
   FieldView,
+  type Instruction,
   type FileChange,
   type LogLine,
   type LogPage,
@@ -482,10 +483,28 @@ const openError = (
     ...(suggestion === undefined ? {} : { suggestion }),
   })
 
+/** Whether a block with no configuration errors is a progress step. */
+function isStep(node: BlockNode, registry: Registry): boolean {
+  const block: AnyBlock | undefined = resolveTag(registry, node.tag)?.block
+  switch (block?.class) {
+    // The parser resolved this tag against the same registry, so it resolves here.
+    case undefined:
+      throw new Error(`<${node.tag}> does not resolve to a block`)
+    case "display":
+      return false
+    case "credential":
+      return true
+    case "form":
+    case "task":
+      return block.step?.(node.props) ?? true
+  }
+}
+
 /** The session's document as a window renders it, each block's props as `readBlocks` encoded them. */
 function documentViewOf(
   document: RunbookDocument,
   props: ReadonlyMap<number, Schema.Json>,
+  registry: Registry,
 ): DocumentView {
   const { frontMatter } = document
   return {
@@ -507,7 +526,12 @@ function documentViewOf(
       const [first, ...rest] = node.errors
       if (first !== undefined) return { _tag: "Misconfigured", ...placed, errors: [first, ...rest] }
       const sent = props.get(node.index)
-      return { _tag: "Configured", ...placed, ...(sent === undefined ? {} : { props: sent }) }
+      return {
+        _tag: "Configured",
+        ...placed,
+        step: isStep(node, registry),
+        ...(sent === undefined ? {} : { props: sent }),
+      }
     }),
     warnings: document.warnings,
   }
@@ -815,7 +839,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     specs,
     props: sentProps,
   } = yield* readBlocks(options.document, options.registry, options.texts)
-  const documentView = documentViewOf(document, sentProps)
+  const documentView = documentViewOf(document, sentProps, options.registry)
   const slots = slotsOf(document, options.registry)
   const credentialSlots = credentialSlotsOf(slots, options.registry)
   const credentialSlotAt = new Map(credentialSlots.map((slot) => [slot.index, slot]))
@@ -1661,6 +1685,13 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     return { offset: from, total: run.log.end(), lines: run.log.slice(from, from + limit) }
   }
 
+  /** A task's or credential block's instruction. It gets no services, so it is built in any trust state. */
+  const instructionOf = (slot: Slot): Instruction | undefined => {
+    if (Option.isSome(slot.runnable))
+      return slot.runnable.value.block.instruction(slot.node.props, readsFor(slot))
+    return credentialSlotAt.get(slot.index)?.block.instruction(slot.node.props)
+  }
+
   const viewOf = (
     slot: Slot,
     logOffset = 0,
@@ -1672,8 +1703,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     const credential = credentialSlotAt.has(slot.index)
       ? credentials.stateOf(slot.index)
       : undefined
+    const instruction = instructionOf(slot)
     return {
       ...summaryOf(slot),
+      ...(instruction === undefined ? {} : { instruction }),
       ...(run === undefined ? {} : { log: logPage(run, logOffset, logLimit) }),
       outputs: outputs === undefined ? {} : outputsView(outputs),
       ...(form === undefined ? {} : { fields: fieldViews(form) }),
@@ -1704,6 +1737,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       name,
       path: document.file,
       ...(title === undefined ? {} : { title }),
+      // Read in the same step as the statuses: a change logs its events as it makes them.
+      ...(log.end() === 0 ? {} : { sequence: log.end() - 1 }),
       trust: { trusted: trust._tag === "Trusted", hash: document.hash.combined },
       blocks: inOnePass(() => slots.map(summaryOf)),
       warnings: document.warnings,

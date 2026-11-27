@@ -29,6 +29,7 @@ const block = (fields: Record<string, unknown>): DocumentBlock =>
     block: "Example",
     class: "task",
     span: SPAN,
+    step: true,
     ...fields,
   })
 

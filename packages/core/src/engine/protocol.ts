@@ -187,8 +187,25 @@ export const FileChange = Schema.Struct({
 })
 export type FileChange = typeof FileChange.Type
 
+/** One step of an instruction: the contract's `InstructionStep`. */
+export const InstructionStep = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("text"), markdown: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("code"), language: Schema.String, code: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("link"), label: Schema.String, url: Schema.String }),
+])
+
+/** What instruction mode shows in place of running a block: the contract's `Instruction`. */
+export const Instruction = Schema.Array(InstructionStep)
+export type Instruction = typeof Instruction.Type
+
 export const BlockView = Schema.Struct({
   ...BlockSummary.fields,
+  /**
+   * A task's or credential block's instruction, from its props and what it
+   * reads now, built before trust as the contract has it. Absent for a form
+   * or display block, and for one whose configuration has errors.
+   */
+  instruction: Schema.optionalKey(Instruction),
   log: Schema.optionalKey(LogPage),
   outputs: Schema.Record(Schema.String, OutputView),
   /** A form block's fields, or a task's own form. */
@@ -257,6 +274,13 @@ export type Resumed = typeof Resumed.Type
 
 export const SessionView = Schema.Struct({
   ...SessionSummary.fields,
+  /**
+   * The last event this view reflects, for a client to pass `Events` as
+   * `after`: it then gets every change after the view and none it holds.
+   * Absent while neither the session nor one it resumes has logged an
+   * event, so `Events` starts at the first.
+   */
+  sequence: Schema.optionalKey(Sequence),
   trust: TrustState,
   blocks: Schema.Array(BlockSummary),
   warnings: Schema.Array(ConfigWarning),
@@ -287,6 +311,12 @@ const placedBlock = {
 export const DocumentBlock = Schema.Union([
   Schema.TaggedStruct("Configured", {
     ...placedBlock,
+    /**
+     * Whether it is a progress step: a form, task or credential block, unless
+     * its block's `step(props)` says not. A display block never is, and
+     * neither is a misconfigured one.
+     */
+    step: Schema.Boolean,
     /**
      * The block's own props, encoded with its own schema after alias locks:
      * what the author wrote. Sent for a display block, and for a task with no

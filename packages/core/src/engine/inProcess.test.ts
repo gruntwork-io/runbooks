@@ -24,6 +24,7 @@ import { type Rpc, RpcClient, RpcSchema, RpcSerialization, RpcServer } from "eff
 import {
   BlockId,
   CredentialError,
+  defineCredential,
   defineDisplay,
   defineForm,
   defineTask,
@@ -72,6 +73,55 @@ const registryWith = (scripts: Readonly<Record<string, Script>>) => ({
         (p.outputs ?? []).map((key) => [key, { sensitive: key.startsWith("secret") }]),
       ),
     run: (p) => scripts[p.command ?? ""]?.() ?? Stream.empty,
+  }),
+  /** A credential block whose instruction is a line of text and a link. */
+  CloudLogin: defineCredential({
+    ...TOY_REGISTRY.CloudLogin,
+    instruction: (p) => [
+      { kind: "text", markdown: `Sign in to the account ${p.account ?? "you use"}.` },
+      { kind: "link", label: "The cloud's console", url: "https://console.example.com/" },
+    ],
+  }),
+  /** A task whose instruction prints each value it reads, as a careless block's might. */
+  Says: defineTask({
+    name: "Says",
+    since: "0.1.0",
+    class: "task",
+    props: Schema.Struct({}),
+    children: { kind: "none" },
+    references: {},
+    runbookFiles: () => [],
+    provides: ["run"],
+    effects: [],
+    outputs: (): OutputDecls<string> => ({}),
+    run: () => Stream.empty,
+    instruction: (_p, reads) => [
+      {
+        kind: "text",
+        markdown: Array.from(
+          reads.values,
+          ([name, value]) => `${name}=${JSON.stringify(value)}`,
+        ).join(" "),
+      },
+    ],
+    plugins: [],
+  }),
+  /** A task that is a progress step only when its props say it makes something, as TemplateInline is. */
+  Preview: defineTask({
+    name: "Preview",
+    since: "0.1.0",
+    class: "task",
+    props: Schema.Struct({ generates: Schema.optionalKey(Schema.Boolean) }),
+    children: { kind: "none" },
+    references: {},
+    runbookFiles: () => [],
+    provides: ["run"],
+    effects: [],
+    outputs: (): OutputDecls<string> => ({}),
+    run: () => Stream.empty,
+    instruction: () => [],
+    plugins: [],
+    step: (p) => p.generates === true,
   }),
   /** A display block whose prop is a number written as text, as a client is sent it. */
   Gauge: defineDisplay({
@@ -627,6 +677,7 @@ describe("the session's document", () => {
           title: "Say hi",
           description: "Greets the world",
           autoCollapse: true,
+          step: true,
           props: { command: "echo hi", shell: "bash" },
         })
         // The parser's error, on the node.
@@ -662,6 +713,34 @@ describe("the session's document", () => {
         expect(
           yield* Effect.flip(person.GetDocument({ session: sessionId("gone") })),
         ).toMatchObject({ _tag: "UnknownSession", session: "gone" })
+      }),
+    )
+  })
+
+  it("says which blocks are progress steps: no display block, and a task or form unless its props say not", async () => {
+    const runbook = [
+      '<Note title="Heads up">\n\nRead this.\n\n</Note>',
+      FORM,
+      '<Bash id="greet" command="echo hi" />',
+      '<Preview id="peek" />',
+      '<Preview id="made" generates={true} />',
+      '<CloudLogin id="cloud" detect={false} />',
+      '<Run id="broken" args="not-a-list" />',
+    ].join("\n\n")
+    await withClients({ runbook }, ({ person }) =>
+      Effect.gen(function* () {
+        const { blocks } = yield* person.GetDocument({ session: (yield* opened(person)).session })
+        expect(
+          blocks.map((block) => [block.tag, block._tag === "Configured" ? block.step : block._tag]),
+        ).toEqual([
+          ["Note", false],
+          ["Form", true],
+          ["Bash", true],
+          ["Preview", false],
+          ["Preview", true],
+          ["CloudLogin", true],
+          ["Run", "Misconfigured"],
+        ])
       }),
     )
   })
@@ -986,5 +1065,124 @@ describe("the in-process transport's streams", () => {
       }),
     )
     expect(Exit.isFailure(ended) && Cause.hasInterruptsOnly(ended.cause)).toBe(true)
+  })
+})
+
+describe("a block's instruction", () => {
+  const INSTRUCTED = [
+    [
+      '<Form id="config">',
+      "```yaml",
+      "- name: region",
+      "  type: string",
+      "  default: us-east-1",
+      "- name: token",
+      "  type: string",
+      "  sensitive: true",
+      `  default: ${SECRET_DEFAULT}`,
+      "```",
+      "</Form>",
+    ].join("\n"),
+    '<Bash id="deploy" command="tofu apply" />',
+    '<Says id="says" inputsId="config" />',
+    '<Run id="broken" args="not-a-list" />',
+    '<CloudLogin id="cloud" account="111" detect={false} />',
+  ].join("\n\n")
+
+  it("is in a task's and a credential block's view before the session is trusted", async () => {
+    await withClients({ runbook: INSTRUCTED }, ({ person }) =>
+      Effect.gen(function* () {
+        const view = yield* opened(person)
+        expect(view.trust.trusted).toBe(false)
+        const on = (block: string) =>
+          person.GetBlock({ session: view.session, block: blockId(block) })
+
+        expect((yield* on("deploy")).instruction).toEqual([
+          { kind: "code", language: "bash", code: "tofu apply" },
+        ])
+        expect((yield* on("cloud")).instruction).toEqual([
+          { kind: "text", markdown: "Sign in to the account 111." },
+          { kind: "link", label: "The cloud's console", url: "https://console.example.com/" },
+        ])
+        expect(yield* on("config")).not.toHaveProperty("instruction")
+        expect(yield* on("broken")).not.toHaveProperty("instruction")
+      }),
+    )
+  })
+
+  it("is built from the values the task reads, each one redacted", async () => {
+    await withClients({ runbook: INSTRUCTED }, ({ person }) =>
+      Effect.gen(function* () {
+        const view = yield* opened(person)
+        const says = yield* person.GetBlock({ session: view.session, block: blockId("says") })
+        expect(says.instruction).toEqual([
+          { kind: "text", markdown: `region="<redacted>" token="<redacted>"` },
+        ])
+        for (const text of printed(says)) {
+          expect(text).not.toContain("us-east-1")
+          expect(text).not.toContain(SECRET_DEFAULT)
+        }
+      }),
+    )
+  })
+})
+
+describe("a client following a session", () => {
+  it("starts its events where the session's view ends: every change after it, and none before", async () => {
+    await withClients({ runbook: RUNBOOK_TEXT, scripts: { greet } }, ({ person }) =>
+      Effect.gen(function* () {
+        const opening = yield* opened(person)
+        yield* person.TrustSession({ session: opening.session, hash: opening.trust.hash })
+        const view = yield* person.GetSession({ session: opening.session })
+        expect(view.sequence).toBeNumber()
+        const after = view.sequence ?? -1
+        const untilDone = (from: { readonly after?: number }) =>
+          Effect.forkChild(
+            Stream.runCollect(
+              person
+                .Events({ session: view.session, ...from })
+                .pipe(
+                  Stream.takeUntil(
+                    ({ event }) =>
+                      event._tag === "BlockStatusChanged" && event.status._tag === "Done",
+                  ),
+                ),
+            ),
+          )
+        const following = yield* untilDone({ after })
+        // Every event the session keeps, to compare with what the client following the view gets.
+        const everything = yield* untilDone({})
+        expect(
+          (yield* person.RunBlock({ session: view.session, block: blockId("greet") }))._tag,
+        ).toBe("Started")
+        const events = yield* Fiber.join(following)
+        const all = yield* Fiber.join(everything)
+        // The first change after the view is the run starting.
+        expect(events[0]).toMatchObject({
+          sequence: after + 1,
+          event: {
+            _tag: "BlockStatusChanged",
+            block: blockId("greet"),
+            status: { _tag: "Running" },
+          },
+        })
+        expect(events).toEqual(all.filter(({ sequence }) => sequence > after))
+        expect(events.map(({ event }) => event._tag)).not.toContain("TrustChanged")
+      }),
+    )
+  })
+
+  it("gives no sequence for a session that has logged nothing, as one with no block that has a status", async () => {
+    await withClients(
+      { runbook: '<Note title="Heads up">\n\nRead this.\n\n</Note>' },
+      ({ person }) =>
+        Effect.gen(function* () {
+          const opening = yield* opened(person)
+          expect(opening).not.toHaveProperty("sequence")
+          expect(yield* person.GetSession({ session: opening.session })).not.toHaveProperty(
+            "sequence",
+          )
+        }),
+    )
   })
 })
