@@ -127,7 +127,7 @@ const isShared = (key: string): key is SharedKey => SHARED_KEYS.has(key)
  * The shared props a block shows, not gives to its run. An empty value in
  * one is empty text, so an input it reads holds nothing.
  */
-const SHOWN_SHARED_PROPS: ReadonlySet<string> = new Set([
+export const SHOWN_SHARED_PROPS: ReadonlySet<string> = new Set([
   "title",
   "description",
 ] satisfies ReadonlyArray<SharedKey>)

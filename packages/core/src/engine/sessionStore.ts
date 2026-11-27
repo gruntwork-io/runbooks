@@ -232,7 +232,11 @@ export function fileHashesOf(
   )
 }
 
-const sameRecord = (a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>) => {
+/** Whether two blocks' file hashes, by path, are the same. */
+export const sameRecord = (
+  a: Readonly<Record<string, string>>,
+  b: Readonly<Record<string, string>>,
+) => {
   const keys = Object.keys(a)
   return (
     keys.length === Object.keys(b).length &&
@@ -351,6 +355,11 @@ export interface SessionSaver {
   readonly drop: (block: BlockId, kind: SavedKind) => Effect.Effect<void>
   /** Saves that the person trusted the session for `hash`. */
   readonly trust: (hash: ContentHash) => Effect.Effect<void>
+  /**
+   * The session reloaded its runbook, whose content hash is now `hash`:
+   * each state saved from now on records it.
+   */
+  readonly runbookChanged: (hash: ContentHash) => Effect.Effect<void>
   /** Marks the session used now, as it closes, and saves the sequence a later session of it starts from. */
   readonly close: (nextSequence: number) => Effect.Effect<void>
 }
@@ -366,7 +375,7 @@ export interface SessionStoreShape {
   readonly keep: (session: {
     readonly id: SessionId
     readonly runbook: string
-    /** The runbook's content hash, which each state saved records. */
+    /** The runbook's content hash, which each state saved records until `runbookChanged`. */
     readonly runbookHash: ContentHash
     readonly createdAt: number
     /** The session's first event sequence. */
@@ -468,6 +477,7 @@ const make = Effect.gen(function* () {
           return db.putSession(row)
         }).pipe(Effect.catch(warn))
       yield* saveRow(row)
+      let currentHash = runbookHash
 
       const drop = (block: BlockId, kind: SavedKind) =>
         db.deleteEvent(id, block, kind).pipe(Effect.catch(warn))
@@ -499,7 +509,7 @@ const make = Effect.gen(function* () {
               kind: saved.kind,
               version: SAVED_SESSION_VERSION,
               at: yield* Clock.currentTimeMillis,
-              runbookHash,
+              runbookHash: currentHash,
               fileHashes: files,
               payload: payload.value,
             })
@@ -510,6 +520,10 @@ const make = Effect.gen(function* () {
         put,
         drop,
         trust: (hash) => saveRow({ ...row, trusted: Option.some(hash) }),
+        runbookChanged: (hash) =>
+          Effect.sync(() => {
+            currentHash = hash
+          }),
         close: (nextSequence) =>
           Effect.flatMap(Clock.currentTimeMillis, (usedAt) =>
             saveRow({ ...row, usedAt, nextSequence }),
@@ -556,6 +570,7 @@ export const NoSavedSessions: Layer.Layer<SessionStore> = Layer.succeed(SessionS
       put: () => Effect.void,
       drop: () => Effect.void,
       trust: () => Effect.void,
+      runbookChanged: () => Effect.void,
       close: () => Effect.void,
     }),
   expired: Effect.succeed([]),

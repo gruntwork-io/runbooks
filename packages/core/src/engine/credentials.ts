@@ -181,6 +181,11 @@ type Choosing =
   | { readonly _tag: "Accept"; readonly source: string }
 
 interface Credential {
+  /**
+   * Its block as it was made. A reload keeps it only for a block whose
+   * props are as they were, so its request and outputs still hold; its
+   * index may be its old one, which nothing here reads.
+   */
   readonly slot: CredentialSlot
   /** None until its lifecycle starts. */
   state: CredentialState | undefined
@@ -415,6 +420,27 @@ const sameExpiry = (a: Identity, b: Identity): boolean =>
     ? a.expiresAt === b.expiresAt
     : DateTime.toEpochMillis(a.expiresAt) === DateTime.toEpochMillis(b.expiresAt)
 
+/**
+ * A Ready block's login as it is saved: the provider it named, where the
+ * login came from, its targets and what `env` gave. A resumed session's
+ * provider finds the login again in it (`resumed`).
+ */
+export const savedLoginOf = (
+  slot: CredentialSlot,
+  state: Ready,
+  env: CredentialEnv,
+): SavedCredential => ({
+  provider: slot.block.provider,
+  source: state.source,
+  targets: state.identity.targets,
+  values: Object.fromEntries(
+    env.values.map(({ name, value, sensitive }) => [
+      name,
+      { value: Redacted.value(value), secret: sensitive },
+    ]),
+  ),
+})
+
 const expiringError = (block: BlockId) =>
   new CredentialError({
     kind: "expired",
@@ -449,26 +475,38 @@ export interface Credentials {
   readonly handle: (index: number) => CredentialHandle
   /** The block's outputs, from the values its provider gave, while it is Ready. */
   readonly outputs: (index: number) => ReadonlyMap<string, Held<string>> | undefined
+  /**
+   * Takes `next`, the credential blocks of the document the session
+   * reloaded, in the caller's step. Each block in `kept` stays as it was,
+   * at its new place, its provider open and its login held. Every other
+   * block of the old document stops, and nothing it was doing moves it
+   * again. One the document still has starts over, with no state, and its
+   * login is tried again at its first detection, as a resumed session's is
+   * (`resumed`). Returns what closes the stopped blocks' providers, which
+   * signs nothing out, for the caller to run before any block starts again.
+   */
+  readonly reload: (
+    next: ReadonlyArray<CredentialSlot>,
+    kept: ReadonlySet<BlockId>,
+  ) => Effect.Effect<void>
 }
 
 export function makeCredentials(
-  slots: ReadonlyArray<CredentialSlot>,
+  first: ReadonlyArray<CredentialSlot>,
   host: CredentialHost,
 ): Credentials {
-  const credentials = new Map<number, Credential>(
-    slots.map((slot) => [
-      slot.index,
-      {
-        slot,
-        state: undefined,
-        opened: Option.none(),
-        call: undefined,
-        turn: 0,
-        choosing: Option.none(),
-        moved: Latch.makeUnsafe(false),
-      },
-    ]),
-  )
+  /** The session's credential blocks: its document's, until it reloads. */
+  let slots = first
+  const fresh = (slot: CredentialSlot): Credential => ({
+    slot,
+    state: undefined,
+    opened: Option.none(),
+    call: undefined,
+    turn: 0,
+    choosing: Option.none(),
+    moved: Latch.makeUnsafe(false),
+  })
+  const credentials = new Map<number, Credential>(slots.map((slot) => [slot.index, fresh(slot)]))
   const at = (index: number): Credential => {
     const credential = credentials.get(index)
     // The session asks only of the blocks it made a slot for.
@@ -1216,6 +1254,41 @@ export function makeCredentials(
           })
         }),
       }
+    },
+
+    reload: (next, kept) => {
+      const before = new Map(Array.from(credentials.values(), (c) => [c.slot.id, c] as const))
+      const still = new Set(next.map((slot) => slot.id))
+      credentials.clear()
+      for (const slot of next) {
+        const credential = before.get(slot.id)
+        if (credential === undefined || !kept.has(slot.id)) {
+          credentials.set(slot.index, fresh(slot))
+          continue
+        }
+        credentials.set(slot.index, credential)
+        before.delete(slot.id)
+      }
+      slots = next
+      // Each block left in `before` stops: no call it made records a move from now on.
+      const stopped = Array.from(before.values(), (credential) => {
+        const { slot, state, call, opened } = credential
+        const env = host.store.get(slot.id)
+        if (state?._tag === "Ready" && env !== undefined && still.has(slot.id))
+          resuming.set(slot.id, savedLoginOf(slot, state, env))
+        host.store.delete(slot.id)
+        credential.turn += 1
+        credential.call = undefined
+        credential.opened = Option.none()
+        return Effect.andThen(
+          call === undefined ? Effect.void : Fiber.interrupt(call),
+          Option.match(opened, {
+            onNone: () => Effect.void,
+            onSome: ({ scope }) => Scope.close(scope, Exit.void),
+          }),
+        )
+      })
+      return Effect.all(stopped, { discard: true })
     },
 
     outputs: (index) => {

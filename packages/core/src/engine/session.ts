@@ -68,8 +68,9 @@ import { type CredentialAction, statusOf as credentialStatus } from "../credenti
 import type { CredentialState } from "../credential/lifecycle.ts"
 import type { CredentialEnv } from "../credential/provider.ts"
 import { ConfigError, ConfigWarning } from "../document/configError.ts"
-import type { BlockNode, ContentHash, RunbookDocument } from "../document/document.ts"
+import type { BlockNode, ContentHash, ParseResult, RunbookDocument } from "../document/document.ts"
 import { nearest } from "../document/nearest.ts"
+import { SHOWN_SHARED_PROPS } from "../document/parse.ts"
 import {
   type ActResult,
   type BlockAction,
@@ -90,6 +91,7 @@ import {
   type Refusal,
   RunId,
   type ReloadFilesResult,
+  type ReloadHeld,
   type RunResult,
   type SessionId,
   type SessionSummary,
@@ -120,6 +122,7 @@ import {
   makeCredentials,
   type OpenProvider,
   type ProviderNetwork,
+  savedLoginOf,
 } from "./credentials.ts"
 import { makeCredentialStore } from "./credentialStore.ts"
 import {
@@ -138,6 +141,7 @@ import type { RunRoots } from "./roots.ts"
 import {
   fileHashesOf,
   type Resume,
+  sameRecord,
   type Saved,
   savedLogOf,
   type SavedRun,
@@ -311,6 +315,10 @@ type Running = Extract<RunState, { readonly _tag: "Running" }>
 /** A block's latest run. A block with none is idle. */
 interface Run {
   readonly id: RunId
+  /**
+   * Its block as it ran. Read only while it runs: a reload waits until no
+   * run runs, and moves a run it keeps to its block's new place in `runs`.
+   */
   readonly slot: Slot
   readonly log: Window<LogLine>
   /** Lines before this place have gone out in a `LogLines` event. */
@@ -788,6 +796,36 @@ function restoredRun(slot: Slot, saved: SavedRun): Run | undefined {
   }
 }
 
+/** A runbook the parser did not refuse: what a session opens, or reloads. */
+export type ParsedRunbook = Extract<ParseResult, { readonly _tag: "Parsed" }>
+
+/** What `Session.reload` did. */
+export type ReloadResult =
+  | { readonly _tag: "Reloaded" }
+  /** The runbook is the one the session holds: nothing changed. */
+  | { readonly _tag: "Unchanged" }
+  | Extract<ReloadHeld, { readonly _tag: "Running" }>
+
+/**
+ * What a reload compares of a block to keep it (`DocumentChanged`): its
+ * registry block, its own props as its schema encodes them, and its shared
+ * props but those only shown. None for a block with errors, or whose props
+ * do not encode as JSON: a reload never keeps it.
+ */
+function keepKeyOf(node: BlockNode, registry: Registry): string | undefined {
+  if (node.errors.length > 0) return undefined
+  const shared = Object.entries(node.shared)
+    .filter(([prop]) => !SHOWN_SHARED_PROPS.has(prop))
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+  const encoded = Result.flatMap(
+    Schema.encodeUnknownResult(blockOf(node, registry).props)(node.props),
+    (props) => Schema.decodeUnknownResult(Schema.Json)(props),
+  )
+  return Result.isSuccess(encoded)
+    ? JSON.stringify([node.block, encoded.success, shared])
+    : undefined
+}
+
 // ---------------------------------------------------------------------------
 // The session
 // ---------------------------------------------------------------------------
@@ -796,8 +834,8 @@ export interface Session {
   readonly id: SessionId
   readonly summary: () => SessionSummary
   readonly view: () => SessionView
-  /** Built when the session opens: nothing in it changes while it is open. */
-  readonly documentView: DocumentView
+  /** The document the session holds now, as a window renders it. It changes only as the session reloads. */
+  readonly documentView: () => DocumentView
   /** Trusts the session if `hash` is its document's, and takes `runner` to run its blocks with. */
   readonly trust: (hash: ContentHash, runner: Runner) => Effect.Effect<TrustResult>
   /** Every event after `after`, then each new one. Ends with `SessionClosed`. */
@@ -829,6 +867,12 @@ export interface Session {
   readonly resetBlock: (
     block: BlockId,
   ) => Effect.Effect<void, UnknownSession | UnknownBlock | WrongClass>
+  /**
+   * Takes `next` as the session's document, as `DocumentChanged` says,
+   * unless a block runs or it is the document the session holds. Only the
+   * session's watcher and `reloadFiles` call it: a reload keeps trust.
+   */
+  readonly reload: (next: ParsedRunbook) => Effect.Effect<ReloadResult, UnknownSession>
   /** Takes the files `block` names as they are on disk, if its view shows them at `hash`. */
   readonly reloadFiles: (
     block: BlockId,
@@ -877,17 +921,16 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   /** The sequence of the session's first event: where a resumed session's earlier one ended. */
   readonly firstSequence: number
 }) {
-  const { id, roots, baseEnvironment, saver } = options
+  const { id, roots, baseEnvironment, saver, registry } = options
   const resume = Option.getOrUndefined(options.resume)
-  const {
-    document,
-    specs,
-    props: sentProps,
-  } = yield* readBlocks(options.document, options.registry, options.texts)
-  const documentView = documentViewOf(document, sentProps, options.registry)
-  const slots = slotsOf(document, options.registry)
-  const credentialSlots = credentialSlotsOf(slots, options.registry)
-  const credentialSlotAt = new Map(credentialSlots.map((slot) => [slot.index, slot]))
+  const opening = yield* readBlocks(options.document, registry, options.texts)
+  // What the session holds of its runbook: what it opened, until it reloads (`reload`).
+  let document = opening.document
+  let texts = options.texts
+  let documentView = documentViewOf(document, opening.props, registry)
+  let slots = slotsOf(document, registry)
+  const credentialSlots = credentialSlotsOf(slots, registry)
+  let credentialSlotAt = new Map(credentialSlots.map((slot) => [slot.index, slot]))
   const scope = yield* Scope.make()
   const lock = yield* Semaphore.make(1)
   /** Wakes `events` and `waitForBlock` readers. Each keeps one pending wake at most. */
@@ -900,7 +943,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   let closed = false
   const runs = new Map<number, Run>()
   /** Each block's form, by block index: a form block's, or a task's own. */
-  const forms = new Map(Array.from(specs, ([index, spec]) => [index, makeForm(spec)] as const))
+  const forms = new Map(
+    Array.from(opening.specs, ([index, spec]) => [index, makeForm(spec)] as const),
+  )
   /** The form blocks submitted since they were last reset. */
   const submitted = new Set<number>()
   /** Each done form's and credential block's outputs, as last published. */
@@ -936,8 +981,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     }
   >()
   let savedTrust = false
+  /** The runbook hash the saver records: the one the session opened with, until it reloads. */
+  let savedRunbook = document.hash.runbook
   const saving = yield* Semaphore.make(1)
-  const fileHashes = fileHashesOf(document, options.registry)
+  let fileHashes = fileHashesOf(document, registry)
 
   /**
    * What saving a credential block in `state` does: a Ready login is saved
@@ -957,20 +1004,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           ? undefined
           : saver.put(
               slot.id,
-              {
-                kind: "credential",
-                payload: {
-                  provider: slot.block.provider,
-                  source: state.source,
-                  targets: state.identity.targets,
-                  values: Object.fromEntries(
-                    env.values.map(({ name, value, sensitive }) => [
-                      name,
-                      { value: Redacted.value(value), secret: sensitive },
-                    ]),
-                  ),
-                },
-              },
+              { kind: "credential", payload: savedLoginOf(slot, state, env) },
               files,
             )
       case "SignedOut":
@@ -996,6 +1030,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     saving.withPermit(
       Effect.suspend(() => {
         const writes: Array<Effect.Effect<void>> = []
+        // First, so each state saved after a reload records the runbook it was saved against.
+        if (savedRunbook !== document.hash.runbook) {
+          savedRunbook = document.hash.runbook
+          writes.push(saver.runbookChanged(savedRunbook))
+        }
         if (trust._tag === "Trusted" && !savedTrust) {
           savedTrust = true
           writes.push(saver.trust(document.hash.combined))
@@ -1064,7 +1103,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       : Effect.succeed(slot)
   }
 
-  const slotAt = new Map(slots.map((slot) => [slot.index, slot]))
+  let slotAt = new Map(slots.map((slot) => [slot.index, slot]))
   /** The blocks `isDone` is deciding, so a loop of forms that wait for each other ends. */
   const deciding = new Set<number>()
 
@@ -1242,7 +1281,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         return [read.id, new Map(named.map(([key, value]) => [key, redacted(value)]))] as const
       }),
     )
-    return { values: valuesFor(slot), outputs, files: options.texts.get(slot.index) ?? NO_FILES }
+    return { values: valuesFor(slot), outputs, files: texts.get(slot.index) ?? NO_FILES }
   }
 
   /**
@@ -1338,10 +1377,17 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       return [{ _tag: "BlockStatusChanged" as const, block: slot.id, status }]
     })
 
+  /**
+   * Set while a reload stops the credential blocks it starts over: none
+   * starts until their providers are closed, as each one's state folder is
+   * the one its block had.
+   */
+  let reloading = false
+
   /** A credential block may start its lifecycle: the session is trusted and nothing blocks it. */
   const startable = (index: number): boolean => {
     const slot = slotAt.get(index)
-    return !closing && slot !== undefined && blockersOf(slot).length === 0
+    return !closing && !reloading && slot !== undefined && blockersOf(slot).length === 0
   }
 
   /**
@@ -1817,25 +1863,168 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     }
   }
 
+  /** Moves each of `map`'s entries to the place its block has in `next`, keeping those `keep` allows. */
+  const moveTo = <V>(
+    map: Map<number, V>,
+    before: ReadonlyMap<BlockId, Slot>,
+    next: ReadonlyArray<Slot>,
+    keep: (id: BlockId) => boolean,
+  ) => {
+    const moved = next.flatMap((slot) => {
+      const was = before.get(slot.id)
+      const value = was === undefined ? undefined : map.get(was.index)
+      return value === undefined || !keep(slot.id) ? [] : [[slot.index, value] as const]
+    })
+    map.clear()
+    for (const [index, value] of moved) map.set(index, value)
+  }
+
+  /**
+   * Takes `next` as the session's document, as `DocumentChanged` says. The
+   * caller holds the lock. It runs to its end, so the session never holds
+   * half of either document.
+   *
+   * A block whose `keepKeyOf` and file hashes are as they were keeps its
+   * run or submit, its form, and its credential block's provider and login.
+   * Every other block starts over: a done task's outputs are withdrawn, as
+   * a reset withdraws them, and a form keeps the values of the fields it
+   * still has, unreviewed, as a resumed session's form does. A block the
+   * runbook no longer has goes, with what was saved of it. The blocks that
+   * wait for one that starts over keep their own runs, and wait for it
+   * again, as after a reset. Trust stays as it was, for the new hash.
+   */
+  const takeDocument = (next: ParsedRunbook): Effect.Effect<ReloadResult> =>
+    Effect.uninterruptible(
+      Effect.gen(function* () {
+        if (next.document.hash.combined === document.hash.combined)
+          return { _tag: "Unchanged" } as const
+        // Approvals are a later work product: a block awaiting one will count as running.
+        const [first, ...rest] = inOnePass(() =>
+          slots.filter((slot) => statusOf(slot)?._tag === "Running"),
+        ).map((slot) => slot.id)
+        if (first !== undefined) return { _tag: "Running", blocks: [first, ...rest] } as const
+
+        const read = yield* readBlocks(next.document, registry, next.texts)
+        const nextSlots = slotsOf(read.document, registry)
+        const nextCredentialSlots = credentialSlotsOf(nextSlots, registry)
+        const nextFileHashes = fileHashesOf(read.document, registry)
+        const before = new Map(slots.map((slot) => [slot.id, slot]))
+        const still = new Set(nextSlots.map((slot) => slot.id))
+        const removed = slots.filter((slot) => !still.has(slot.id)).map((slot) => slot.id)
+        const kept = new Set(
+          nextSlots.flatMap((slot) => {
+            const was = before.get(slot.id)
+            const key = keepKeyOf(slot.node, registry)
+            return was !== undefined &&
+              key !== undefined &&
+              key === keepKeyOf(was.node, registry) &&
+              sameRecord(fileHashes.get(slot.id) ?? {}, nextFileHashes.get(slot.id) ?? {})
+              ? [slot.id]
+              : []
+          }),
+        )
+        const isKept = (block: BlockId) => kept.has(block)
+
+        reloading = true
+        const stopping = yield* update((emit) => {
+          // What the old document's blocks published that no block keeps. A
+          // form or credential block the document still has withdraws its
+          // own as its status moves, as every update derives.
+          for (const slot of slots) {
+            if (isKept(slot.id)) continue
+            const done = runs.get(slot.index)?.state._tag === "Done"
+            if (done || (!still.has(slot.id) && published.has(slot.index)))
+              emit({ _tag: "OutputsWithdrawn", block: slot.id })
+          }
+          const nextForms = new Map<number, Form>()
+          const formsChanged: Slot[] = []
+          const nextSlotAt = new Map(nextSlots.map((slot) => [slot.index, slot]))
+          for (const [index, spec] of read.specs) {
+            const slot = nextSlotAt.get(index)
+            const was = slot === undefined ? undefined : before.get(slot.id)
+            const held = was === undefined ? undefined : forms.get(was.index)
+            const form =
+              held === undefined
+                ? makeForm(spec)
+                : slot !== undefined && isKept(slot.id)
+                  ? held
+                  : restoreValues(makeForm(spec), savedValuesOf(held))
+            nextForms.set(index, form)
+            if (slot !== undefined && form !== held) formsChanged.push(slot)
+          }
+          moveTo(runs, before, nextSlots, isKept)
+          forms.clear()
+          for (const [index, form] of nextForms) forms.set(index, form)
+          const stillSubmitted = nextSlots.filter((slot) => {
+            const was = before.get(slot.id)
+            return was !== undefined && isKept(slot.id) && submitted.has(was.index)
+          })
+          submitted.clear()
+          for (const slot of stillSubmitted) submitted.add(slot.index)
+          // Moved for every block the document still has, so the derived changes compare against them.
+          moveTo(published, before, nextSlots, () => true)
+          moveTo(statuses, before, nextSlots, () => true)
+          // Everything is saved again, against the new runbook and its files.
+          saved.clear()
+          savedTrust = false
+          const stopped = credentials.reload(nextCredentialSlots, kept)
+          store.useBlocks(nextCredentialSlots.map((slot) => slot.id))
+          document = read.document
+          texts = next.texts
+          documentView = documentViewOf(read.document, read.props, registry)
+          slots = nextSlots
+          slotAt = nextSlotAt
+          credentialSlotAt = new Map(nextCredentialSlots.map((slot) => [slot.index, slot]))
+          fileHashes = nextFileHashes
+          const hash = document.hash.combined
+          emit({ _tag: "DocumentChanged", hash })
+          emit({ _tag: "TrustChanged", trust: { trusted: trust._tag === "Trusted", hash } })
+          for (const slot of formsChanged) {
+            const form = forms.get(slot.index)
+            if (form !== undefined)
+              emit({ _tag: "FieldsChanged", block: slot.id, fields: fieldViews(form) })
+          }
+          return stopped
+        })
+        yield* stopping
+        reloading = false
+        // Starts each credential block that starts over and nothing blocks.
+        yield* update(() => undefined)
+        yield* saving.withPermit(
+          Effect.forEach(
+            removed,
+            (block) =>
+              Effect.forEach(["values", "run", "credential"] as const, (kind) =>
+                saver.drop(block, kind),
+              ),
+            { discard: true },
+          ),
+        )
+        return { _tag: "Reloaded" } as const
+      }),
+    )
+
   // The runbook's folder, until sessions get names of their own.
   const name = path.basename(path.dirname(document.file))
-  const title = document.frontMatter.title
 
   const session: Session = {
     id,
-    summary: () => ({
-      session: id,
-      name,
-      path: document.file,
-      ...(title === undefined ? {} : { title }),
-      blocks: slots.length,
-    }),
+    summary: () => {
+      const { title } = document.frontMatter
+      return {
+        session: id,
+        name,
+        path: document.file,
+        ...(title === undefined ? {} : { title }),
+        blocks: slots.length,
+      }
+    },
 
     view: () => ({
       session: id,
       name,
       path: document.file,
-      ...(title === undefined ? {} : { title }),
+      ...(document.frontMatter.title === undefined ? {} : { title: document.frontMatter.title }),
       // Read in the same step as the statuses: a change logs its events as it makes them.
       ...(log.end() === 0 ? {} : { sequence: log.end() - 1 }),
       trust: { trusted: trust._tag === "Trusted", hash: document.hash.combined },
@@ -1844,7 +2033,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       ...(resume === undefined ? {} : { resumed: resume.resumed }),
     }),
 
-    documentView,
+    documentView: () => documentView,
 
     trust: (hash, runner) =>
       update((emit): TrustResult => {
@@ -1879,6 +2068,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
 
     getBlock: (block, logOffset, logLimit) =>
       Effect.map(byId(block), (slot) => viewOf(slot, logOffset, logLimit)),
+
+    reload: (next) => lock.withPermit(Effect.andThen(notClosing, takeDocument(next))),
 
     // No block shows `filesOnDisk` until the session watches its files (a later commit).
     reloadFiles: (block) => Effect.as(byId(block), { _tag: "NotShown" } as const),
@@ -2021,7 +2212,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           }),
         )
         const outcome = yield* Effect.timeoutOption(settled, timeoutMillis)
-        return { block: viewOf(slot, logOffset, logLimit), timedOut: Option.isNone(outcome) }
+        // The block as the session holds it now: a reload may have come since it stopped running.
+        return {
+          block: viewOf(yield* byId(block), logOffset, logLimit),
+          timedOut: Option.isNone(outcome),
+        }
       }),
 
     actOnCredential: (block, action) =>
