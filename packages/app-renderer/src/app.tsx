@@ -24,7 +24,6 @@ type Shown =
     }
   | { readonly _tag: "Failed"; readonly message: string }
 
-/** What a defect the engine sent says, as its message when it has one. */
 /**
  * What the engine has open, as the window shows it: the session it opened
  * last, which `ListSessions` lists last. When the engine fails instead of
