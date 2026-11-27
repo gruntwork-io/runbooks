@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { Effect, Schema } from "effect"
@@ -15,6 +15,9 @@ import { appEngine } from "./engine.ts"
 const FIXTURE = path.resolve(import.meta.dirname, "../../../blocks/command/testdata/end-to-end")
 /** A runbook whose block's script, stopped, cleans up with the block's files. */
 const TRAP_FIXTURE = path.resolve(import.meta.dirname, "../../../blocks/command/testdata/trap")
+/** A runbook of three blocks whose scripts, stopped, take two seconds to clean up. */
+const CLOSE_FIXTURE = path.resolve(import.meta.dirname, "../../../blocks/command/testdata/close")
+const STUCK = ["one", "two", "three"].map((id) => Schema.decodeSync(BlockId)(id))
 
 let folder: string
 beforeEach(() => {
@@ -23,6 +26,29 @@ beforeEach(() => {
 afterEach(() => rmSync(folder, { recursive: true, force: true }))
 
 const userData = () => path.join(folder, "user data")
+
+/** Opens the close fixture in `client`, trusts it, and runs `blocks`, each until its script has started. */
+const runStuck = (client: EngineClient, blocks: ReadonlyArray<BlockId>) =>
+  Effect.gen(function* () {
+    const result = yield* client.OpenSession({ path: path.join(CLOSE_FIXTURE, "runbook.mdx") })
+    if (result._tag !== "Opened") throw new Error(result.errors.map((e) => e.message).join())
+    const { session, trust } = result.session
+    yield* client.TrustSession({ session, hash: trust.hash })
+    for (const block of blocks) {
+      yield* client.RunBlock({ session, block })
+      const started = Effect.map(client.GetBlock({ session, block }), (view) =>
+        (view.log?.lines ?? []).some((line) => line.text === "started"),
+      )
+      while (!(yield* started)) yield* Effect.sleep("20 millis")
+    }
+    return session
+  })
+
+/** The files the close fixture's traps wrote in `session`'s folder, one for each stopped script. */
+const stoppedIn = (session: string) =>
+  readdirSync(path.join(userData(), "v0", "sessions", "dirs", session)).filter((file) =>
+    file.startsWith("stopped-"),
+  )
 
 const withClient = <A>(
   use: (client: EngineClient) => Effect.Effect<A, unknown>,
@@ -110,4 +136,39 @@ describe("the app's engine", () => {
     for (const file of folders.trim().split("\n"))
       expect(existsSync(path.dirname(file))).toBe(false)
   })
+
+  // Each trap takes two seconds: stopped in turn, three take six.
+  it("stops a closing session's running scripts at once, each with its grace", async () => {
+    const closed = await withClient(
+      (client) =>
+        Effect.gen(function* () {
+          const session = yield* runStuck(client, STUCK)
+          const began = Date.now()
+          yield* client.CloseSession({ session })
+          return { session, took: Date.now() - began }
+        }),
+      { CLOSE_RUNS_FOR: "300" },
+    )
+    expect(stoppedIn(closed.session)).toHaveLength(3)
+    expect(closed.took).toBeLessThan(4000)
+  }, 30_000)
+
+  it("stops every session's running scripts at once when the engine closes", async () => {
+    let began = 0
+    const sessions = await withClient(
+      (client) =>
+        Effect.gen(function* () {
+          const opened = [
+            yield* runStuck(client, STUCK.slice(0, 1)),
+            yield* runStuck(client, STUCK.slice(0, 1)),
+          ]
+          began = Date.now()
+          return opened
+        }),
+      { CLOSE_RUNS_FOR: "300" },
+    )
+    const took = Date.now() - began
+    for (const session of sessions) expect(stoppedIn(session)).toHaveLength(1)
+    expect(took).toBeLessThan(3500)
+  }, 30_000)
 })

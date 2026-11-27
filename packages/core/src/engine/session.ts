@@ -1983,6 +1983,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         Effect.gen(function* () {
           if (closing) return
           closing = true
+          // Every running script is stopped at once, each with its grace. The
+          // scope's finalizers run in turn, and each run's waits for its stop.
+          yield* Effect.forEach(slots, stop, { concurrency: "unbounded", discard: true })
           yield* Scope.close(scope, Exit.void)
           yield* update((emit) => emit({ _tag: "SessionClosed" }))
           closed = true
