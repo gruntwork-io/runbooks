@@ -153,6 +153,8 @@ function waitingFor(blocker: Blocker): string {
       return blocker.block
     case "EmptyInput":
       return `a value for ${blocker.input} in ${blocker.block}`
+    case "Exclusive":
+      return `${blocker.block} to finish`
     default: {
       const unhandled: never = blocker
       throw new Error(`runbooks test has no words for the blocker ${JSON.stringify(unhandled)}.`)

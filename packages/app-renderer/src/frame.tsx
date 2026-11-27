@@ -312,6 +312,20 @@ function need(capability: Capability): string {
   }
 }
 
+/** Which of two blocks that may not run at once runs alone, before "runs alone". */
+function alone(runsAlone: Extract<Blocker, { readonly _tag: "Exclusive" }>["runsAlone"]): string {
+  switch (runsAlone) {
+    case "running":
+      return "it"
+    case "waiting":
+      return "this block"
+    default: {
+      const unhandled: never = runsAlone
+      throw new Error(`The frame has no words for ${String(unhandled)} running alone.`)
+    }
+  }
+}
+
 /** A block a blocked block waits for, and what it waits for that block to do. */
 interface Waiting {
   readonly key: string
@@ -349,6 +363,15 @@ function Blockers({
               to have a value for <code>{input}</code>
             </>
           ),
+        })
+        break
+      }
+      case "Exclusive": {
+        const { block, runsAlone } = blocker
+        waiting.push({
+          key: `${block} running`,
+          block,
+          reason: `to finish: ${alone(runsAlone)} runs alone`,
         })
         break
       }

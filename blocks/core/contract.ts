@@ -447,6 +447,14 @@ export interface TaskBlock<P, K extends string, R, N extends string = never> ext
    * Absent, or undefined for these props: no limit.
    */
   readonly timeLimit?: (p: P) => number | undefined
+  /**
+   * Whether it runs alone: it does not start while a task that runs
+   * commands (the `process` effect) is running, and no such task starts
+   * while it runs. The engine holds the one that waits with an `Exclusive`
+   * blocker naming the one running. Absent, or false for these props: it
+   * runs beside them.
+   */
+  readonly exclusive?: (p: P) => boolean
   /** The one function that gets services. The engine calls it only in a trusted session. */
   readonly run: (p: P, input: TaskInput<N>) => Stream.Stream<TaskEvent<K>, TaskError, R>
   /**
@@ -625,6 +633,7 @@ export const BEFORE_TRUST = {
   paths: true,
   scripts: true,
   timeLimit: true,
+  exclusive: true,
   step: true,
   instruction: true,
   request: true,

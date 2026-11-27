@@ -20,6 +20,16 @@ export const Blocker = Schema.Union([
    * name and key (`tags.env`).
    */
   Schema.TaggedStruct("EmptyInput", { block: BlockId, input: Schema.String }),
+  /**
+   * `block` is running, and the two may not run at once: one of them runs
+   * alone (`TaskBlock.exclusive`), the `running` one or the one `waiting`,
+   * and the other runs commands (the `process` effect). When either reading
+   * holds, `running`.
+   */
+  Schema.TaggedStruct("Exclusive", {
+    block: BlockId,
+    runsAlone: Schema.Literals(["running", "waiting"]),
+  }),
 ])
 export type Blocker = typeof Blocker.Type
 
