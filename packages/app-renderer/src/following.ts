@@ -13,6 +13,7 @@ import type { ViewRequest } from "@runbooks/blocks/views"
 import type {
   ActResult,
   BlockView,
+  DocumentView,
   EngineClient,
   Refusal,
   RunResult,
@@ -67,6 +68,13 @@ export function useInstructionMode(): boolean {
   return useSyncExternalStore(settings.subscribe, select, select)
 }
 
+/** The session's runbook as the engine holds it, once the window has read the session. */
+export function useDocument(): DocumentView | undefined {
+  const { live } = useContext(FollowingContext)
+  const select = () => live.get().document
+  return useSyncExternalStore(live.subscribe, select, select)
+}
+
 /** Why the window no longer follows the session, when it doesn't. */
 export function useEnded(): string | undefined {
   const { live } = useContext(FollowingContext)
@@ -88,17 +96,18 @@ export function useTrusting(): Trusting {
 }
 
 /**
- * The window following `session` in `engine`, from `settings` as it read
- * them. `start` follows the session and the settings until the function it
- * returns is called, which a component calls from its effect.
+ * The window following `session` in `engine`, from its runbook and the
+ * settings as the window read them (`opened`). `start` follows the session
+ * and the settings until the function it returns is called, which a
+ * component calls from its effect.
  */
 export function followingOf(
   engine: EngineClient,
   session: SessionId,
-  settings: Settings,
+  opened: { readonly document: DocumentView; readonly settings: Settings },
 ): Following & { readonly start: () => () => void } {
   const live = makeLiveStore()
-  const settingsNow = makeSettingsStore(settings)
+  const settingsNow = makeSettingsStore(opened.settings)
   const trusting = makeTrustingStore()
   return {
     live,
@@ -116,10 +125,16 @@ export function followingOf(
     },
     start: () => {
       const fiber = Effect.runFork(
-        Effect.all([follow(engine, session, live.set), followSettings(engine, settingsNow.set)], {
-          concurrency: "unbounded",
-          discard: true,
-        }),
+        Effect.all(
+          [
+            follow(engine, session, opened.document, live.set),
+            followSettings(engine, settingsNow.set),
+          ],
+          {
+            concurrency: "unbounded",
+            discard: true,
+          },
+        ),
       )
       return () => fiber.interruptUnsafe()
     },

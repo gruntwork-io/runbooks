@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { Effect, Fiber, Queue, Schema } from "effect"
-import { SessionId } from "@runbooks/core/protocol"
+import { DocumentView, SessionId } from "@runbooks/core/protocol"
 import { makeEngineClient } from "./engine.ts"
 import { dies, type FakeMain, fails, fakeMain } from "./fakeMain.ts"
 import { follow, type Live } from "./live.ts"
@@ -11,6 +11,39 @@ import { follow, type Live } from "./live.ts"
 
 const SESSION = Schema.decodeSync(SessionId)("3fa85f64-5717-4562-b3fc-2c963f66afa6")
 const HASH = `sha256:${"0".repeat(64)}`
+const RELOADED = `sha256:${"1".repeat(64)}`
+
+/** A runbook as `GetDocument` gives it: its hash, a heading, and a task block for each id. */
+const documentOf = (hash: string, heading: string, ids: ReadonlyArray<string> = []) => ({
+  hash,
+  tree: {
+    type: "root",
+    children: [
+      { type: "heading", depth: 2, children: [{ type: "text", value: heading }] },
+      ...ids.map((_, index) => ({ type: "block", index, children: [] })),
+    ],
+  },
+  blocks: ids.map((id, index) => ({
+    _tag: "Configured",
+    index,
+    tag: "Example",
+    block: "Example",
+    class: "task",
+    id,
+    span: { start: { line: index + 3, column: 1 }, end: { line: index + 3, column: 20 } },
+    step: true,
+    effects: [],
+  })),
+  warnings: [],
+})
+
+/** The runbook the window opened, whose hash the session's view has. */
+const OPENED = Schema.decodeUnknownSync(DocumentView)({
+  hash: HASH,
+  tree: { type: "root", children: [] },
+  blocks: [],
+  warnings: [],
+})
 
 /** What the engine holds of each block, which `GetBlock` answers and a test changes. */
 type Engine = Record<string, Record<string, unknown>>
@@ -86,7 +119,7 @@ const following = (main: FakeMain, test: (next: Effect.Effect<Live>) => Effect.E
         const engine = yield* makeEngineClient(main.bridge)
         const shown = yield* Queue.unbounded<Live>()
         const fiber = yield* Effect.forkScoped(
-          follow(engine, SESSION, (live) => Queue.offerUnsafe(shown, live)),
+          follow(engine, SESSION, OPENED, (live) => Queue.offerUnsafe(shown, live)),
         )
         yield* test(Queue.take(shown))
         yield* Fiber.interrupt(fiber)
@@ -277,6 +310,72 @@ describe("the window following a session", () => {
         expect((yield* next).blocks.get("deploy")?.instruction).toEqual([
           { kind: "code", language: "bash", code: "echo eu-west-1" },
         ])
+      }),
+    )
+  })
+
+  it("draws the runbook the session holds once it reloads it: a block it no longer has goes, one it added is read, and one it kept is read again", async () => {
+    const engine: Engine = {
+      greet: task("greet", { instruction: [{ kind: "code", language: "bash", code: "echo hi" }] }),
+      later: task("later"),
+    }
+    let held = documentOf(HASH, "Before", ["greet", "later"])
+    const main = fakeMain((tag, payload) =>
+      tag === "GetDocument" ? held : answering(engine)(tag, payload),
+    )
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        const before = yield* next
+        expect(before.document).toBe(OPENED)
+        expect([...before.blocks.keys()].sort()).toEqual(["greet", "later"])
+        // The reload keeps greet, whose instruction reads a prop that changed, drops later and adds added.
+        delete engine.later
+        engine.greet = task("greet", {
+          instruction: [{ kind: "code", language: "bash", code: "echo hello" }],
+        })
+        engine.added = task("added")
+        held = documentOf(RELOADED, "After", ["greet", "added"])
+        main.stream("Events", [
+          event({ _tag: "DocumentChanged", hash: RELOADED }),
+          event({ _tag: "TrustChanged", trust: { trusted: true, hash: RELOADED } }),
+          event({ _tag: "BlockStatusChanged", block: "added", status: { _tag: "Idle" } }),
+        ])
+        const after = yield* next
+        expect(after.ended).toBeUndefined()
+        expect<unknown>(after.document?.hash).toBe(RELOADED)
+        expect<unknown>(after.document?.blocks.map((block) => block.id)).toEqual(["greet", "added"])
+        expect([...after.blocks.keys()].sort()).toEqual(["added", "greet"])
+        expect(after.blocks.get("greet")?.instruction).toEqual([
+          { kind: "code", language: "bash", code: "echo hello" },
+        ])
+        expect<unknown>(after.trust).toEqual({ trusted: true, hash: RELOADED })
+      }),
+    )
+  })
+
+  it("reads the runbook again at the start when the session reloaded it after the window read it", async () => {
+    // A reload between the window's read and the session's view logs no event after the view.
+    const main = fakeMain((tag, payload) =>
+      tag === "GetDocument"
+        ? documentOf(RELOADED, "After", ["greet"])
+        : answering({ greet: task("greet") }, { trust: { trusted: false, hash: RELOADED } })(
+            tag,
+            payload,
+          ),
+    )
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        expect<unknown>((yield* next).document?.hash).toBe(RELOADED)
+      }),
+    )
+  })
+
+  it("reads the runbook only once, the window's own read, when the session still holds it", async () => {
+    const main = fakeMain(answering({ greet: task("greet") }))
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        expect((yield* next).document).toBe(OPENED)
+        expect(main.asked.filter(({ tag }) => tag === "GetDocument")).toEqual([])
       }),
     )
   })

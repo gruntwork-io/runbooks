@@ -103,7 +103,7 @@ function Content({ engine, shown }: { readonly engine: EngineClient; readonly sh
   }
 }
 
-/** The runbook, each block in it as the engine has it now. */
+/** The runbook, and each block in it, as the engine has them now. */
 function Followed({
   engine,
   session,
@@ -112,11 +112,11 @@ function Followed({
 }: {
   readonly engine: EngineClient
   readonly session: SessionSummary
-  readonly document: DocumentView
   /** As the window read them when it opened the runbook. */
+  readonly document: DocumentView
   readonly settings: Settings
 }) {
-  const [following] = useState(() => followingOf(engine, session.session, settings))
+  const [following] = useState(() => followingOf(engine, session.session, { document, settings }))
   useEffect(() => following.start(), [following])
   return (
     <FollowingContext value={following}>

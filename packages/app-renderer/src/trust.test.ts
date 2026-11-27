@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { Effect, Queue, Schema } from "effect"
-import { SessionId, Settings } from "@runbooks/core/protocol"
+import { DocumentView, SessionId, Settings } from "@runbooks/core/protocol"
 import { makeEngineClient } from "./engine.ts"
 import { dies, type FakeMain, fails, fakeMain } from "./fakeMain.ts"
 import { followingOf } from "./following.ts"
@@ -27,6 +27,14 @@ const SETTINGS = Schema.decodeUnknownSync(Settings)({
   lastSelectedGitHubHost: null,
   recentGitLabHosts: [],
   lastSelectedGitLabHost: null,
+})
+
+/** The runbook the window opened, whose hash is SHOWN. */
+const OPENED = Schema.decodeUnknownSync(DocumentView)({
+  hash: SHOWN,
+  tree: { type: "root", children: [] },
+  blocks: [],
+  warnings: [],
 })
 
 /** A block the runbook holds once it changed, as `GetDocument` gives it. */
@@ -67,7 +75,10 @@ const asking = (main: FakeMain, asks = 1) =>
     Effect.scoped(
       Effect.gen(function* () {
         const engine = yield* makeEngineClient(main.bridge)
-        const following = followingOf(engine, Schema.decodeSync(SessionId)(SESSION), SETTINGS)
+        const following = followingOf(engine, Schema.decodeSync(SessionId)(SESSION), {
+          document: OPENED,
+          settings: SETTINGS,
+        })
         const changes = yield* Queue.unbounded<void>()
         following.live.subscribe(() => Queue.offerUnsafe(changes, undefined))
         yield* Effect.acquireRelease(Effect.sync(following.start), (stop) => Effect.sync(stop))

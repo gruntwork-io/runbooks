@@ -5,7 +5,7 @@ import type { View, ViewRequest } from "@runbooks/blocks/views"
 import {
   BlockView,
   DocumentBlock,
-  type DocumentView,
+  DocumentView,
   SessionId,
   Settings,
 } from "@runbooks/core/protocol"
@@ -42,6 +42,14 @@ const SETTINGS = {
   recentGitLabHosts: [],
   lastSelectedGitLabHost: null,
 }
+
+/** The runbook the window opened, for a follower: the hash each session below has. */
+const OPENED = Schema.decodeUnknownSync(DocumentView)({
+  hash: `sha256:${"0".repeat(64)}`,
+  tree: { type: "root", children: [] },
+  blocks: [],
+  warnings: [],
+})
 
 const placed = (fields: Record<string, unknown>): DocumentBlock =>
   Schema.decodeUnknownSync(DocumentBlock)({
@@ -477,11 +485,10 @@ describe("the window asking the engine for a block", () => {
     const said = await Effect.runPromise(
       Effect.scoped(
         Effect.flatMap(makeEngineClient(main.bridge), (engine) =>
-          followingOf(
-            engine,
-            Schema.decodeSync(SessionId)(SESSION),
-            Schema.decodeUnknownSync(Settings)(SETTINGS),
-          ).act(Schema.decodeSync(BlockView.fields.block)("setup"), request),
+          followingOf(engine, Schema.decodeSync(SessionId)(SESSION), {
+            document: OPENED,
+            settings: Schema.decodeUnknownSync(Settings)(SETTINGS),
+          }).act(Schema.decodeSync(BlockView.fields.block)("setup"), request),
         ),
       ).pipe(Effect.timeout("2 seconds")),
     )
@@ -527,11 +534,10 @@ describe("the window asking the engine for a block", () => {
     const said = await Effect.runPromise(
       Effect.scoped(
         Effect.flatMap(makeEngineClient(main.bridge), (engine) =>
-          followingOf(
-            engine,
-            Schema.decodeSync(SessionId)(SESSION),
-            Schema.decodeUnknownSync(Settings)(SETTINGS),
-          ).act(Schema.decodeSync(BlockView.fields.block)("setup"), { _tag: "ResetBlock" }),
+          followingOf(engine, Schema.decodeSync(SessionId)(SESSION), {
+            document: OPENED,
+            settings: Schema.decodeUnknownSync(Settings)(SETTINGS),
+          }).act(Schema.decodeSync(BlockView.fields.block)("setup"), { _tag: "ResetBlock" }),
         ),
       ).pipe(Effect.timeout("2 seconds")),
     )
@@ -585,7 +591,7 @@ describe("a block's frame, following the engine", () => {
           const engine = yield* makeEngineClient(main.bridge)
           const shown = yield* Queue.unbounded<Live>()
           yield* Effect.forkScoped(
-            follow(engine, Schema.decodeSync(SessionId)(SESSION), (live) =>
+            follow(engine, Schema.decodeSync(SessionId)(SESSION), OPENED, (live) =>
               Queue.offerUnsafe(shown, live),
             ),
           )
@@ -842,11 +848,10 @@ describe("instruction mode", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const engine = yield* makeEngineClient(main.bridge)
-          const following = followingOf(
-            engine,
-            Schema.decodeSync(SessionId)(SESSION),
-            Schema.decodeUnknownSync(Settings)(SETTINGS),
-          )
+          const following = followingOf(engine, Schema.decodeSync(SessionId)(SESSION), {
+            document: OPENED,
+            settings: Schema.decodeUnknownSync(Settings)(SETTINGS),
+          })
           const changes = yield* Queue.unbounded<void>()
           following.live.subscribe(() => Queue.offerUnsafe(changes, undefined))
           yield* Effect.acquireRelease(Effect.sync(following.start), (stop) => Effect.sync(stop))
@@ -904,11 +909,10 @@ describe("instruction mode", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const engine = yield* makeEngineClient(main.bridge)
-          const following = followingOf(
-            engine,
-            Schema.decodeSync(SessionId)(SESSION),
-            Schema.decodeUnknownSync(Settings)(SETTINGS),
-          )
+          const following = followingOf(engine, Schema.decodeSync(SessionId)(SESSION), {
+            document: OPENED,
+            settings: Schema.decodeUnknownSync(Settings)(SETTINGS),
+          })
           const changes = yield* Queue.unbounded<void>()
           following.live.subscribe(() => Queue.offerUnsafe(changes, undefined))
           following.settings.subscribe(() => Queue.offerUnsafe(changes, undefined))

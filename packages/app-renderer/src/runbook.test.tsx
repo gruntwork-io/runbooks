@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test"
 import { Effect, Schema } from "effect"
 import { renderToStaticMarkup } from "react-dom/server"
 import { DocumentView, SessionSummary, Settings } from "@runbooks/core/protocol"
-import { FollowingContext } from "./following.ts"
-import { makeLiveStore } from "./live.ts"
+import { type Following, FollowingContext } from "./following.ts"
+import { type Live, makeLiveStore } from "./live.ts"
 import { Runbook } from "./runbook.tsx"
 import { makeSettingsStore } from "./settings.ts"
 import { makeTrustingStore } from "./trust.ts"
@@ -33,6 +33,32 @@ const document = (fields: Record<string, unknown>) =>
 
 const page = (fields: Record<string, unknown> = {}) =>
   renderToStaticMarkup(<Runbook session={session} document={document(fields)} />)
+
+/** A task block with `id`, at `index`, as the document places it. */
+const taskAt = (index: number, id: string) => ({
+  _tag: "Configured",
+  index,
+  tag: "Example",
+  block: "Example",
+  class: "task",
+  id,
+  span: { start: { line: 3, column: 1 }, end: { line: 3, column: 20 } },
+  step: true,
+  effects: [],
+})
+
+/** The window following a session as `live` shows it. */
+const followingWith = (live: Live): Following => {
+  const store = makeLiveStore()
+  store.set(live)
+  return {
+    live: store,
+    settings: makeSettingsStore(undefined),
+    trusting: makeTrustingStore(),
+    act: () => Effect.succeed(undefined),
+    trust: () => Effect.void,
+  }
+}
 
 describe("the runbook page", () => {
   it("is headed by the front matter's title, and holds the walked body", () => {
@@ -65,6 +91,50 @@ describe("the runbook page", () => {
       ],
     })
     expect(shown).toContain("Line 4: &lt;Example&gt; has no `colour` prop, so it is ignored.")
+  })
+
+  it("draws the runbook the window follows, once the session reloaded it, in place of the one it opened with", () => {
+    const opened = document({
+      title: "Before",
+      tree: { type: "root", children: [{ type: "block", index: 0, children: [] }] },
+      blocks: [taskAt(0, "removed")],
+    })
+    const reloaded = document({
+      hash: `sha256:${"1".repeat(64)}`,
+      title: "After",
+      tree: { type: "root", children: [{ type: "block", index: 0, children: [] }] },
+      blocks: [taskAt(0, "added")],
+      warnings: [
+        {
+          _tag: "ConfigWarning",
+          code: "unknownProp",
+          message: "<Example> has no `colour` prop, so it is ignored.",
+          location: {
+            file: RUNBOOK,
+            span: { start: { line: 4, column: 2 }, end: { line: 4, column: 9 } },
+          },
+        },
+      ],
+    })
+    const shown = renderToStaticMarkup(
+      <FollowingContext value={followingWith({ blocks: new Map(), document: reloaded })}>
+        <Runbook session={session} document={opened} />
+      </FollowingContext>,
+    )
+    expect(shown).toContain("<h1>After</h1>")
+    expect(shown).toContain('id="runbook-block-added"')
+    expect(shown).toContain("Line 4: &lt;Example&gt; has no `colour` prop")
+    expect(shown).not.toContain("Before")
+    expect(shown).not.toContain("removed")
+  })
+
+  it("draws the runbook it opened with until the window has read the session", () => {
+    const shown = renderToStaticMarkup(
+      <FollowingContext value={followingWith({ blocks: new Map() })}>
+        <Runbook session={session} document={document({ title: "Before" })} />
+      </FollowingContext>,
+    )
+    expect(shown).toContain("<h1>Before</h1>")
   })
 
   it("says how many parts it shows only as text, and which", () => {

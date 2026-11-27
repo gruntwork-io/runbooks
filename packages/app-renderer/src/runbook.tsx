@@ -1,6 +1,7 @@
 /**
  * An open runbook: its title, the warnings the engine found in it, and its
- * markdown, walked (`markdown.tsx`).
+ * markdown, walked (`markdown.tsx`), as the session holds it now: the page
+ * redraws when the session reloads it (`live.ts`).
  *
  * The markdown sits in the body's box, which has `contain: paint`: nothing
  * the author styles inside it paints or takes a click outside it, not even
@@ -12,18 +13,20 @@
  * through the CSSOM, so it holds whether or not the stylesheet loads.
  */
 import type { DocumentView, SessionSummary } from "@runbooks/core/protocol"
-import { useEnded, useInstructionMode } from "./following.ts"
+import { useDocument, useEnded, useInstructionMode } from "./following.ts"
 import { Markdown, unknownParts } from "./markdown.tsx"
 import { place } from "./place.ts"
 import { TrustPrompt } from "./trustPrompt.tsx"
 
 export function Runbook({
   session,
-  document,
+  document: opened,
 }: {
   readonly session: SessionSummary
+  /** The runbook as the window opened it, which it draws until it has read the session. */
   readonly document: DocumentView
 }) {
+  const document = useDocument() ?? opened
   const unknown = [...unknownParts(document.tree)]
   const hidden = unknown.reduce((total, [, count]) => total + count, 0)
   const ended = useEnded()
