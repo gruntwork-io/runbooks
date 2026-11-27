@@ -157,10 +157,10 @@ function renderBlock(
   { props = {}, withholdOutputs = false }: { props?: object; withholdOutputs?: boolean } = {},
 ) {
   testApi = makeTestApi({
-    "git:pull-request": () => {
-      testApi.emit("git:pr-result", RESULT)
-      if (!withholdOutputs) testApi.emit("git:outputs", { outputs: OUTPUTS })
-      testApi.emit("git:status", { status: "success", exitCode: 0 })
+    "git:pull-request": ({ requestId }) => {
+      testApi.emit("git:pr-result", { ...RESULT, requestId })
+      if (!withholdOutputs) testApi.emit("git:outputs", { outputs: OUTPUTS, requestId })
+      testApi.emit("git:status", { status: "success", exitCode: 0, requestId })
       return { url: PR_URL, number: 42 }
     },
     "github:labels": () => ({ labels: [] }),
@@ -367,7 +367,8 @@ describe("GitPullRequest in a session", () => {
     await settle()
     expect(recorded("pull-request")).toEqual([])
 
-    act(() => testApi.emit("git:outputs", { outputs: OUTPUTS }))
+    const { requestId } = testApi.callsTo("git:pull-request")[0]!
+    act(() => testApi.emit("git:outputs", { outputs: OUTPUTS, requestId }))
 
     await waitFor(() => expect(recorded("pull-request")).toEqual([CREATED]))
   })

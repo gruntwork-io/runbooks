@@ -17,7 +17,8 @@ import { CANCELED_RUN_WAIT_MS, useGitPullRequest } from "../useGitPullRequest"
  * The fake main process mirrors electron/main/ipc/git.ts: it sends the
  * streamed events (git:log, git:pr-result, git:outputs, git:error,
  * git:status) BEFORE the invoke resolves, which is the order that decides how
- * the hook reconciles the events with the invoke result.
+ * the hook reconciles the events with the invoke result. Each event carries
+ * the requestId of the invoke it answers.
  */
 
 /** Channels whose invoke stays pending until a test settles it. */
@@ -50,6 +51,10 @@ function createEmittingApi(cfg: PRProviderConfig) {
   const createCall = (n: number) => nth(n, cfg.channels.create, creates)
   /** The nth operation invoke, a push. */
   const pushCall = (n: number) => nth(n, cfg.channels.push, pushes)
+  /** What main puts on each event of the nth operation, a create. */
+  const ofCreate = (n: number) => ({ requestId: createCall(n).params.requestId })
+  /** What main puts on each event of the nth operation, a push. */
+  const ofPush = (n: number) => ({ requestId: pushCall(n).params.requestId })
 
   return {
     api: testApi.api,
@@ -57,6 +62,8 @@ function createEmittingApi(cfg: PRProviderConfig) {
     emit,
     createCall,
     pushCall,
+    ofCreate,
+    ofPush,
     operations,
     /** Total subscribed listeners across every channel the hook subscribed to. */
     listenerCount: () =>
@@ -72,28 +79,37 @@ function createEmittingApi(cfg: PRProviderConfig) {
 
     /** respondToGitPrExit on success: pr-result, outputs, status, then return. */
     createSucceeds(n: number, pr: TestPR) {
-      emit("git:log", { line: `Opened ${pr.url}`, timestamp: "2026-01-01T00:00:00Z" })
-      emit("git:pr-result", { prUrl: pr.url, prNumber: pr.number, branchName: pr.branch })
-      emit("git:outputs", { outputs: pr.outputs })
-      emit("git:status", { status: "success", exitCode: 0 })
+      const request = ofCreate(n)
+      emit("git:log", { line: `Opened ${pr.url}`, timestamp: "2026-01-01T00:00:00Z", ...request })
+      emit("git:pr-result", {
+        prUrl: pr.url,
+        prNumber: pr.number,
+        branchName: pr.branch,
+        ...request,
+      })
+      emit("git:outputs", { outputs: pr.outputs, ...request })
+      emit("git:status", { status: "success", exitCode: 0, ...request })
       createCall(n).resolve({ url: pr.url, number: pr.number })
     },
     /** respondToGitPrExit on failure: error (with any code), status, then return. */
     createFails(n: number, message: string, code?: { code: string; branchName: string }) {
-      emit("git:error", { message, ...code })
-      emit("git:status", { status: "fail", exitCode: 1 })
+      const request = ofCreate(n)
+      emit("git:error", { message, ...code, ...request })
+      emit("git:status", { status: "fail", exitCode: 1, ...request })
       createCall(n).resolve({ error: message })
     },
     /** The git:push handler on success: status, then return. */
     pushSucceeds(n: number) {
-      emit("git:log", { line: "Push complete.", timestamp: "2026-01-01T00:00:01Z" })
-      emit("git:status", { status: "success", exitCode: 0 })
+      const request = ofPush(n)
+      emit("git:log", { line: "Push complete.", timestamp: "2026-01-01T00:00:01Z", ...request })
+      emit("git:status", { status: "success", exitCode: 0, ...request })
       pushCall(n).resolve({ ok: true })
     },
     /** The git:push handler on failure: error, status, then return. */
     pushFails(n: number, message: string) {
-      emit("git:error", { message })
-      emit("git:status", { status: "fail", exitCode: 1 })
+      const request = ofPush(n)
+      emit("git:error", { message, ...request })
+      emit("git:status", { status: "fail", exitCode: 1, ...request })
       pushCall(n).resolve({ error: message })
     },
   }
@@ -135,7 +151,7 @@ const CREATE_PARAMS = {
 
 const WAITING_LINE = "Waiting for the canceled operation to finish…"
 const STILL_RUNNING_LINE =
-  "The canceled operation is still running in the background. Starting anyway; its output may still appear here."
+  "The canceled operation is still running in the background. Starting anyway."
 
 function renderPR(cfg: PRProviderConfig) {
   const fake = createEmittingApi(cfg)
@@ -185,7 +201,10 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
 
       const done = create()
       expect(state().status).toBe("creating")
-      expect(fake.invoke).toHaveBeenCalledWith(cfg.channels.create, CREATE_PARAMS)
+      expect(fake.invoke).toHaveBeenCalledWith(cfg.channels.create, {
+        ...CREATE_PARAMS,
+        requestId: expect.any(String),
+      })
 
       await act(async () => {
         fake.createSucceeds(0, pr)
@@ -271,6 +290,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
         worktreePath: WORKTREE,
         branchName: CREATE_PARAMS.headBranch,
         provider: cfg.id,
+        requestId: expect.any(String),
       })
 
       await act(async () => {
@@ -312,8 +332,8 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
       // Still inside the 500 ms listener window, so the late events are heard.
       expect(fake.listenerCount()).toBe(5)
       act(() => {
-        fake.emit("git:error", { message })
-        fake.emit("git:status", { status: "fail", exitCode: 1 })
+        fake.emit("git:error", { message, ...fake.ofPush(1) })
+        fake.emit("git:status", { status: "fail", exitCode: 1, ...fake.ofPush(1) })
       })
 
       expect(state().status).toBe("success")
@@ -343,7 +363,11 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
 
       const done = create()
       act(() => {
-        fake.emit("git:log", { line: "Creating branch…", timestamp: "2026-01-01T00:00:00Z" })
+        fake.emit("git:log", {
+          line: "Creating branch…",
+          timestamp: "2026-01-01T00:00:00Z",
+          ...fake.ofCreate(0),
+        })
         state().cancel()
       })
       expect(state().status).toBe("ready")
@@ -448,6 +472,29 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
       expect(state().status).toBe("success")
       expect(state().prResult?.prUrl).toBe(fresh.url)
       expect(outputs()).toEqual(fresh.outputs)
+    })
+
+    it("keeps the events of a canceled run that finishes late out of a retry that started past the bound", async () => {
+      vi.useFakeTimers()
+      const { fake, state, outputs, logLines, operationCalls, create } = renderPR(cfg)
+
+      void create()
+      act(() => state().cancel())
+      void create({ ...CREATE_PARAMS, headBranch: "runbook/add-vpc-2" })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CANCELED_RUN_WAIT_MS)
+      })
+      expect(operationCalls()).toHaveLength(2)
+
+      // The canceled run opens its PR/MR while the retry runs.
+      await act(async () => {
+        fake.createSucceeds(0, testPR(1, CREATE_PARAMS.headBranch))
+      })
+
+      expect(state().status).toBe("creating")
+      expect(state().prResult).toBeNull()
+      expect(outputs()).toBeUndefined()
+      expect(logLines()).toEqual([WAITING_LINE, STILL_RUNNING_LINE])
     })
 
     it("still waits on a retry that started past the bound when the first canceled run finishes late", async () => {
@@ -576,7 +623,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
 
       const done = create()
       await act(async () => {
-        fake.emit("git:status", { status: "success", exitCode: 0 })
+        fake.emit("git:status", { status: "success", exitCode: 0, ...fake.ofCreate(0) })
         fake.createCall(0).resolve({ url: pr.url, number: pr.number })
         await done
       })
@@ -587,8 +634,13 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
         await vi.advanceTimersByTimeAsync(499)
       })
       act(() => {
-        fake.emit("git:pr-result", { prUrl: pr.url, prNumber: pr.number, branchName: pr.branch })
-        fake.emit("git:outputs", { outputs: pr.outputs })
+        fake.emit("git:pr-result", {
+          prUrl: pr.url,
+          prNumber: pr.number,
+          branchName: pr.branch,
+          ...fake.ofCreate(0),
+        })
+        fake.emit("git:outputs", { outputs: pr.outputs, ...fake.ofCreate(0) })
       })
       expect(state().prResult?.prUrl).toBe(pr.url)
       expect(outputs()).toEqual(pr.outputs)

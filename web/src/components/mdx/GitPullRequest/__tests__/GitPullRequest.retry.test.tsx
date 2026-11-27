@@ -74,16 +74,22 @@ function actionCalls(): string[] {
     .filter((channel) => channel !== "github:labels" && channel !== "git:commits-ahead")
 }
 
-function fail(message: string, code?: string) {
-  testApi.emit("git:error", { message, ...(code ? { code, branchName: "runbook/1" } : {}) })
-  testApi.emit("git:status", { status: "fail", exitCode: 1 })
+/** Main's answer to a create whose request has `requestId`: a failure. */
+function fail(requestId: string, message: string, code?: string) {
+  testApi.emit("git:error", {
+    message,
+    ...(code ? { code, branchName: "runbook/1" } : {}),
+    requestId,
+  })
+  testApi.emit("git:status", { status: "fail", exitCode: 1, requestId })
   return { error: message }
 }
 
-function succeed() {
-  testApi.emit("git:pr-result", { prUrl: PR_URL, prNumber: 42, branchName: "runbook/1" })
-  testApi.emit("git:outputs", { outputs: { PR_ID: "42", PR_URL } })
-  testApi.emit("git:status", { status: "success", exitCode: 0 })
+/** Main's answer to a create whose request has `requestId`: the PR it opened. */
+function succeed(requestId: string) {
+  testApi.emit("git:pr-result", { prUrl: PR_URL, prNumber: 42, branchName: "runbook/1", requestId })
+  testApi.emit("git:outputs", { outputs: { PR_ID: "42", PR_URL }, requestId })
+  testApi.emit("git:status", { status: "success", exitCode: 0, requestId })
   return { url: PR_URL, number: 42 }
 }
 
@@ -95,8 +101,8 @@ describe("GitPullRequest failure recovery", () => {
   it("'Delete branch and retry' deletes the conflicting branch, then creates again", async () => {
     let attempts = 0
     renderBlock({
-      "git:pull-request": () =>
-        ++attempts === 1 ? fail(LOCAL_CONFLICT, "branch_exists") : succeed(),
+      "git:pull-request": ({ requestId }) =>
+        ++attempts === 1 ? fail(requestId, LOCAL_CONFLICT, "branch_exists") : succeed(requestId),
       "git:delete-branch": () => ({ ok: true }),
     })
 
@@ -115,7 +121,7 @@ describe("GitPullRequest failure recovery", () => {
 
   it("does not retry when the delete is refused", async () => {
     renderBlock({
-      "git:pull-request": () => fail(LOCAL_CONFLICT, "branch_exists"),
+      "git:pull-request": ({ requestId }) => fail(requestId, LOCAL_CONFLICT, "branch_exists"),
       "git:delete-branch": () => {
         throw new Error("error: the branch 'runbook/1' is not fully merged")
       },

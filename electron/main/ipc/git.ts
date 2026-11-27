@@ -1,9 +1,10 @@
 /**
  * IPC handlers for git operations with streaming progress.
  *
- * Clone and push operations stream progress events to the renderer via
- * event.sender.send(). Pull request creation and branch deletion are
- * simple request-response handlers.
+ * Clone, push and pull/merge request creation stream progress events to the
+ * renderer via event.sender.send(), each with the id the renderer gave the
+ * request (cloneId, requestId). Branch deletion and the queries are simple
+ * request-response handlers.
  */
 import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
@@ -57,17 +58,42 @@ import {
   ensureFreshGlabSessionCredential,
   withFreshGlabCredentialExit,
 } from "./gitlab-cli-refresh.ts"
-import type { GitCloneRequest, GitLocalRepoResponse } from "../../shared/channels.ts"
+import type {
+  GitCloneRequest,
+  GitLocalRepoResponse,
+  IpcEventMap,
+  PullRequestRequest,
+} from "../../shared/channels.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 
 const log = makeLogger("ipc:git")
 
+/** The events a git:pull-request, git:merge-request or git:push sends. */
+type GitRequestEventChannel =
+  | "git:log"
+  | "git:status"
+  | "git:pr-result"
+  | "git:outputs"
+  | "git:error"
+
 /**
- * Build a `git:log` progress sink bound to an invoke event. Each handler that
- * streams human-readable progress lines to the renderer uses one of these.
+ * The event sender of one git:pull-request, git:merge-request or git:push. It
+ * puts the request's `requestId` on every event, so the block that sent the
+ * request takes only its own events.
  */
-const makeSendLog = (event: IpcMainInvokeEvent) => (line: string) =>
-  event.sender.send("git:log", { line, timestamp: new Date().toISOString() })
+type SendGitRequestEvent = <C extends GitRequestEventChannel>(
+  channel: C,
+  payload: Omit<IpcEventMap[C], "requestId">,
+) => void
+
+const makeSendGitRequestEvent =
+  (event: IpcMainInvokeEvent, requestId: string): SendGitRequestEvent =>
+  (channel, payload) =>
+    event.sender.send(channel, { ...payload, requestId })
+
+/** A `git:log` progress sink: each human-readable progress line becomes one event. */
+const makeSendLog = (send: SendGitRequestEvent) => (line: string) =>
+  send("git:log", { line, timestamp: new Date().toISOString() })
 
 /**
  * Fail when a repo's origin is plain http: pushing to it would send the
@@ -271,21 +297,8 @@ async function runCancellableClone<A>(
   }
 }
 
-/** Renderer payload shared by the git:pull-request and git:merge-request handlers. */
-interface GitPrParams {
-  worktreePath: string
-  owner: string
-  repo: string
-  title: string
-  body?: string
-  baseBranch: string
-  headBranch: string
-  commitMessage: string
-  labels?: string[]
-}
-
 /** Map the renderer PR/MR payload to the domain create-params shape. */
-function buildPrParams(params: GitPrParams, repoPath: string): CreatePullRequestParams {
+function buildPrParams(params: PullRequestRequest, repoPath: string): CreatePullRequestParams {
   return {
     owner: params.owner,
     repo: params.repo,
@@ -306,30 +319,30 @@ function buildPrParams(params: GitPrParams, repoPath: string): CreatePullRequest
  * code only for a local branch-name collision) + git:status.
  */
 function respondToGitPrExit<A extends { url: string; number: number; branch: string }>(
-  event: IpcMainInvokeEvent,
+  send: SendGitRequestEvent,
   exit: Exit.Exit<A, unknown>,
   headBranch: string,
 ): { url: string; number: number } | { error: string } {
   if (Exit.isSuccess(exit)) {
     const pr = exit.value
-    event.sender.send("git:pr-result", {
+    send("git:pr-result", {
       prUrl: pr.url,
       prNumber: pr.number,
       branchName: pr.branch,
     })
-    event.sender.send("git:outputs", { outputs: prBlockOutputs(pr) })
-    event.sender.send("git:status", { status: "success", exitCode: 0 })
+    send("git:outputs", { outputs: prBlockOutputs(pr) })
+    send("git:status", { status: "success", exitCode: 0 })
     return { url: pr.url, number: pr.number }
   }
 
   const message = failureMessage(exit.cause)
   const code = isLocalBranchConflict(message) ? "branch_exists" : undefined
 
-  event.sender.send("git:error", {
+  send("git:error", {
     message,
     ...(code ? { code, branchName: headBranch } : {}),
   })
-  event.sender.send("git:status", { status: "fail", exitCode: 1 })
+  send("git:status", { status: "fail", exitCode: 1 })
 
   return { error: message }
 }
@@ -770,9 +783,11 @@ export function registerGitHandlers(): void {
         worktreePath: string
         branchName: string
         provider?: "github" | "gitlab"
+        requestId: string
       },
     ) => {
-      const sendLog = makeSendLog(event)
+      const send = makeSendGitRequestEvent(event, params.requestId)
+      const sendLog = makeSendLog(send)
 
       const program = Effect.gen(function* () {
         const repoPath = yield* validateSessionPath(params.worktreePath)
@@ -807,13 +822,13 @@ export function registerGitHandlers(): void {
         params.provider === "gitlab" ? await withFreshGlabCredentialExit(run) : await run()
 
       if (Exit.isSuccess(exit)) {
-        event.sender.send("git:status", { status: "success", exitCode: 0 })
+        send("git:status", { status: "success", exitCode: 0 })
         return { ok: true as const }
       }
 
       const message = failureMessage(exit.cause)
-      event.sender.send("git:error", { message })
-      event.sender.send("git:status", { status: "fail", exitCode: 1 })
+      send("git:error", { message })
+      send("git:status", { status: "fail", exitCode: 1 })
       return { error: message }
     },
   )
@@ -826,15 +841,16 @@ export function registerGitHandlers(): void {
   ipcMain.handle(
     "git:init-default-branch",
     async (
-      event,
+      _event,
       params: {
         worktreePath: string
         branch: string
         provider?: "github" | "gitlab"
       },
     ) => {
-      const sendLog = makeSendLog(event)
-
+      // GitClone reads only the returned value. The git:* events belong to
+      // the PR/MR blocks' requests (see makeSendGitRequestEvent), so this
+      // sends none.
       const program = Effect.gen(function* () {
         const repoPath = yield* validateSessionPath(params.worktreePath)
         const provider = params.provider ?? "github"
@@ -849,30 +865,25 @@ export function registerGitHandlers(): void {
               }
 
         const branch = params.branch.trim() || "main"
-        return yield* seedDefaultBranch(
-          token,
-          { repoPath, branch, provider, ...(host !== undefined ? { host } : {}) },
-          sendLog,
-        )
+        return yield* seedDefaultBranch(token, {
+          repoPath,
+          branch,
+          provider,
+          ...(host !== undefined ? { host } : {}),
+        })
       })
 
       if (params.provider === "gitlab") await ensureFreshGlabSessionCredential()
       const exit = await runtime.runPromiseExit(program)
 
-      if (Exit.isSuccess(exit)) {
-        event.sender.send("git:status", { status: "success", exitCode: 0 })
-        return { branch: exit.value.branch }
-      }
-
-      const message = failureMessage(exit.cause)
-      event.sender.send("git:error", { message })
-      event.sender.send("git:status", { status: "fail", exitCode: 1 })
-      return { error: message }
+      if (Exit.isSuccess(exit)) return { branch: exit.value.branch }
+      return { error: failureMessage(exit.cause) }
     },
   )
 
-  ipcMain.handle("git:pull-request", async (event, params: GitPrParams) => {
-    const sendLog = makeSendLog(event)
+  ipcMain.handle("git:pull-request", async (event, params: PullRequestRequest) => {
+    const send = makeSendGitRequestEvent(event, params.requestId)
+    const sendLog = makeSendLog(send)
 
     // Resolve the token server-side, map the renderer payload to the domain
     // shape, and create the PR. We run via runPromiseExit (instead of
@@ -894,11 +905,12 @@ export function registerGitHandlers(): void {
       return yield* createPullRequest(token, { ...buildPrParams(params, repoPath), host }, sendLog)
     })
 
-    return respondToGitPrExit(event, await runtime.runPromiseExit(program), params.headBranch)
+    return respondToGitPrExit(send, await runtime.runPromiseExit(program), params.headBranch)
   })
 
-  ipcMain.handle("git:merge-request", async (event, params: GitPrParams) => {
-    const sendLog = makeSendLog(event)
+  ipcMain.handle("git:merge-request", async (event, params: PullRequestRequest) => {
+    const send = makeSendGitRequestEvent(event, params.requestId)
+    const sendLog = makeSendLog(send)
 
     // Mirrors git:pull-request but resolves the GitLab token (not the
     // github-pinned resolveGitToken) and opens an MR. Reuses the git:pr-result
@@ -913,7 +925,7 @@ export function registerGitHandlers(): void {
     })
 
     return respondToGitPrExit(
-      event,
+      send,
       await withFreshGlabCredentialExit(() => runtime.runPromiseExit(program)),
       params.headBranch,
     )

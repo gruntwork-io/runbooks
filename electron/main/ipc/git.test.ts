@@ -108,7 +108,12 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     return Promise.resolve(handler(event, { worktreePath, branchName })) as Promise<PushResult>
   }
 
+  // HOME and the git config variables keep the machine's git config out of
+  // every git these tests run, the handlers' and the helper's alike.
   const ENV_KEYS = [
+    "HOME",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
     "PATH",
     "FAKE_SSH_LOG",
     "FAKE_SSH_MODE",
@@ -123,15 +128,22 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
   let serveRoot = ""
   let sshLog = ""
 
+  // `env: process.env` because bun otherwise gives the child the environment
+  // the test process started with, not the sandboxed HOME set below.
   const git = (cwd: string, ...args: string[]) =>
     execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
       cwd,
       stdio: "pipe",
+      env: process.env,
     })
 
   beforeEach(async () => {
     for (const key of ENV_KEYS) savedEnv[key] = process.env[key]
     tmp = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-git-ipc-")))
+    process.env.HOME = nodePath.join(tmp, "home")
+    fs.mkdirSync(process.env.HOME)
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null"
 
     // "Server": acme/infra.git under the directory the fake ssh serves from.
     const seed = nodePath.join(tmp, "seed")
@@ -633,6 +645,37 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
         "-q",
         "runbook/change",
       )
+    })
+
+    it("git:merge-request sends every event with the requestId it was given", async () => {
+      await authenticate({ GITLAB_TOKEN: GITLAB_SECRET, GITLAB_HOST: "gitlab.corp" })
+      const sent: Array<[channel: string, requestId: unknown]> = []
+      const recording = {
+        sender: {
+          send: (channel: string, payload: { requestId?: unknown }) =>
+            sent.push([channel, payload.requestId]),
+        },
+      }
+
+      const result = (await handlers.get("git:merge-request")!(recording, {
+        worktreePath: checkout("[git@gitlab.corp:2222]:acme/infra.git"),
+        owner: "acme",
+        repo: "infra",
+        title: "Change",
+        baseBranch: "main",
+        headBranch: "runbook/change",
+        commitMessage: "Change",
+        requestId: "req-7",
+      })) as GitResult
+
+      expect(result.url).toBe("https://gitlab.corp/acme/infra/-/merge_requests/7")
+      expect([...new Set(sent.map(([channel]) => channel))].sort()).toEqual([
+        "git:log",
+        "git:outputs",
+        "git:pr-result",
+        "git:status",
+      ])
+      expect(sent.filter(([, requestId]) => requestId !== "req-7")).toEqual([])
     })
 
     it("git:init-default-branch validates the GitLab token at gitlab.corp for a [git@gitlab.corp:2222]:… origin", async () => {
@@ -1256,10 +1299,11 @@ describe("git:commits-ahead", () => {
 // rejection shows as "An unknown error occurred", and an empty { error } reads
 // as no error at all (useGitPullRequest checks result.error for truthiness).
 describe("git handler error text", () => {
-  const sent: Array<{ channel: string; payload: { message?: string } }> = []
+  const sent: Array<{ channel: string; payload: { message?: string; requestId?: unknown } }> = []
   const recordingEvent = {
     sender: {
-      send: (channel: string, payload: { message?: string }) => sent.push({ channel, payload }),
+      send: (channel: string, payload: { message?: string; requestId?: unknown }) =>
+        sent.push({ channel, payload }),
     },
   }
   const prParams = {
@@ -1296,9 +1340,18 @@ describe("git handler error text", () => {
     )
   })
 
+  it("git:init-default-branch never returns { error: '' }, and sends no events", async () => {
+    const result = await handlers.get("git:init-default-branch")!(recordingEvent, {
+      worktreePath: "/tmp/repo",
+      branch: "main",
+    })
+
+    expect(result).toEqual({ error: "SessionNotFoundError" })
+    expect(sent).toEqual([])
+  })
+
   it.each([
     ["git:push", { worktreePath: "/tmp/repo", branchName: "feature" }],
-    ["git:init-default-branch", { worktreePath: "/tmp/repo", branch: "main" }],
     ["git:pull-request", prParams],
     ["git:merge-request", prParams],
   ])(
@@ -1312,6 +1365,19 @@ describe("git handler error text", () => {
       )
     },
   )
+
+  it.each([
+    ["git:push", { worktreePath: "/tmp/repo", branchName: "feature" }],
+    ["git:pull-request", prParams],
+    ["git:merge-request", prParams],
+  ])("%s sends its failure events with the requestId it was given", async (channel, params) => {
+    await handlers.get(channel)!(recordingEvent, { ...params, requestId: "req-1" })
+
+    expect(sent.map((s) => [s.channel, s.payload.requestId])).toEqual([
+      ["git:error", "req-1"],
+      ["git:status", "req-1"],
+    ])
+  })
 
   it("git:local-repo returns a fail status whose error names the error", async () => {
     const result = await handlers.get("git:local-repo")!(recordingEvent, { path: "/tmp/repo" })
@@ -1353,9 +1419,18 @@ describe("git handler error text", () => {
       expect(message).toMatch(/^The "path" (argument|property) must be of type string/)
     })
 
+    it("git:init-default-branch returns the defect's message with no stack frames", async () => {
+      const result = (await handlers.get("git:init-default-branch")!(recordingEvent, {
+        worktreePath: 42,
+        branch: "main",
+      })) as { error?: string }
+
+      expectNoFrames(result.error)
+      expect(sent).toEqual([])
+    })
+
     it.each([
       ["git:push", { worktreePath: 42, branchName: "feature" }],
-      ["git:init-default-branch", { worktreePath: 42, branch: "main" }],
       ["git:pull-request", { ...prParams, worktreePath: 42 }],
       ["git:merge-request", { ...prParams, worktreePath: 42 }],
     ])(

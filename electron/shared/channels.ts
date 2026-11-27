@@ -1005,7 +1005,13 @@ export interface IpcChannelMap {
     result: GitLocalRepoResponse
   }
   "git:push": {
-    params: { worktreePath: string; branchName: string; provider?: "github" | "gitlab" }
+    params: {
+      worktreePath: string
+      branchName: string
+      provider?: "github" | "gitlab"
+      /** Renderer-chosen id for this push; each of its git:* events carries it back. */
+      requestId: string
+    }
     result: { ok: true } | { error: string }
   }
   "git:init-default-branch": {
@@ -1198,11 +1204,14 @@ export interface IpcEventMap {
   "watch:script-change": { componentIds: string[] }
   /** `cloneId` echoes the request's, so a listener can drop another clone's lines. */
   "git:clone-progress": { line: string; timestamp: string; cloneId?: string }
-  "git:log": { line: string; timestamp: string; replace?: boolean }
-  "git:status": { status: string; exitCode: number }
-  "git:pr-result": { prUrl: string; prNumber: number; branchName: string }
-  "git:outputs": { outputs: Record<string, string> }
-  "git:error": { message?: string; code?: string; branchName?: string }
+  // Every git:log, git:status, git:pr-result, git:outputs and git:error event
+  // has the `requestId` of the git:pull-request, git:merge-request or git:push
+  // that sent it, since several PR/MR blocks can be running at once.
+  "git:log": { requestId: string; line: string; timestamp: string; replace?: boolean }
+  "git:status": { requestId: string; status: string; exitCode: number }
+  "git:pr-result": { requestId: string; prUrl: string; prNumber: number; branchName: string }
+  "git:outputs": { requestId: string; outputs: Record<string, string> }
+  "git:error": { requestId: string; message?: string; code?: string; branchName?: string }
   "file:open-runbook": { path: string; remoteSource?: string }
   "menu:open-url-prompt": void
   "menu:close-runbook": void
@@ -1529,6 +1538,8 @@ export interface GitCloneRequest {
 }
 
 export interface PullRequestRequest {
+  /** Renderer-chosen id for this request; each of its git:* events carries it back. */
+  requestId: string
   worktreePath: string
   owner: string
   repo: string

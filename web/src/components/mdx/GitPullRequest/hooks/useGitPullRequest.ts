@@ -10,8 +10,9 @@ import type { GitProvider } from "@/components/mdx/GitAuth/types"
 import type { PRProviderConfig } from "../providers"
 import type { PRBlockStatus, PRResult, GitLabel } from "../types"
 
-/** Body for the create channel (git:pull-request / git:merge-request). Matches
- *  the backend PullRequestRequest contract. */
+/** Body for the create channel (git:pull-request / git:merge-request): the
+ *  backend PullRequestRequest contract, less the requestId that
+ *  executeIPCRequest adds. */
 interface CreateRequestBody {
   worktreePath: string
   owner: string
@@ -24,7 +25,7 @@ interface CreateRequestBody {
   labels: string[]
 }
 
-/** Body for the git:push channel. */
+/** Body for the git:push channel, less the requestId that executeIPCRequest adds. */
 interface PushRequestBody {
   worktreePath: string
   branchName: string
@@ -35,26 +36,38 @@ interface PushRequestBody {
  *  after a create, `error` after a failure. */
 type OperationResult = { error?: string; url?: string; number?: number } | undefined
 
-// Zod schemas for IPC events
+// Zod schemas for IPC events. Each has the requestId of the operation that
+// sent it, since every PR/MR block on the page shares these channels.
 const LogEventSchema = z.object({
+  requestId: z.string(),
   line: z.string(),
   timestamp: z.string(),
   replace: z.boolean().optional(),
 })
 
 const StatusEventSchema = z.object({
+  requestId: z.string(),
   status: z.enum(["success", "warn", "fail"]),
   exitCode: z.number(),
 })
 
 const PRResultEventSchema = z.object({
+  requestId: z.string(),
   prUrl: z.string(),
   prNumber: z.number(),
   branchName: z.string(),
 })
 
 const OutputsEventSchema = z.object({
+  requestId: z.string(),
   outputs: z.record(z.string(), z.string()),
+})
+
+const ErrorEventSchema = z.object({
+  requestId: z.string(),
+  message: z.string().optional(),
+  code: z.string().optional(),
+  branchName: z.string().optional(),
 })
 
 /**
@@ -209,6 +222,10 @@ export function useGitPullRequest({
     }) => {
       const op = ++opRef.current
       const isCurrent = () => isMountedRef.current && op === opRef.current
+      // Main puts this on every event of this operation, so the listeners
+      // below skip another block's events and a canceled run's.
+      const requestId = crypto.randomUUID()
+      const isMine = (event: { requestId: string }) => isCurrent() && event.requestId === requestId
 
       // Clear any stale unsubscribers from a previous run
       for (const unsub of activeUnsubscribersRef.current) unsub()
@@ -222,13 +239,8 @@ export function useGitPullRequest({
       // Known limit: the wait is bounded. Past CANCELED_RUN_WAIT_MS this run
       // starts anyway and replaces inFlightRef with its own invoke, so the
       // canceled run is no longer tracked: it can run git in the worktree
-      // alongside this run, and no later operation waits for it either. Whenever
-      // it does return, its git:log, git:pr-result, git:outputs, git:error and
-      // git:status events reach whichever operation is listening at that moment
-      // (this run, or a later one, such as a Push after this run succeeds). They
-      // can switch the displayed PR/MR, replace the block's registered outputs
-      // with its own and flip the status. Only its invoke result stays ignored.
-      // Closing this needs an operation id on every git:* event.
+      // alongside this run, and no later operation waits for it either. Its
+      // events carry its own requestId, so they never reach this run.
       const canceledRun = inFlightRef.current
       if (canceledRun) {
         setLogs((prev) => [
@@ -254,7 +266,7 @@ export function useGitPullRequest({
           setLogs((prev) => [
             ...prev,
             createLogEntry(
-              "The canceled operation is still running in the background. Starting anyway; its output may still appear here.",
+              "The canceled operation is still running in the background. Starting anyway.",
             ),
           ])
         } else if (openedUrl) {
@@ -269,9 +281,8 @@ export function useGitPullRequest({
         // Subscribe to IPC events BEFORE invoking the command
         unsubscribers.push(
           api.on("git:log", (data: unknown) => {
-            if (!isCurrent()) return
             const parsed = LogEventSchema.safeParse(data)
-            if (parsed.success) {
+            if (parsed.success && isMine(parsed.data)) {
               const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
               setLogs((prev) => {
                 if (parsed.data.replace && prev.length > 0) {
@@ -284,30 +295,29 @@ export function useGitPullRequest({
           // A failure maps to the operation's errorStatus: 'fail' for create,
           // but a failed push leaves the created PR/MR on screen ('success').
           api.on("git:status", (data: unknown) => {
-            if (!isCurrent()) return
             const parsed = StatusEventSchema.safeParse(data)
-            if (parsed.success) {
+            if (parsed.success && isMine(parsed.data)) {
               setStatus(parsed.data.status === "success" ? "success" : opts.errorStatus)
             }
           }),
           api.on("git:pr-result", (data: unknown) => {
-            if (!isCurrent()) return
             const parsed = PRResultEventSchema.safeParse(data)
-            if (parsed.success) {
-              setPRResult(parsed.data)
+            if (parsed.success && isMine(parsed.data)) {
+              const { prUrl, prNumber, branchName } = parsed.data
+              setPRResult({ prUrl, prNumber, branchName })
             }
           }),
           api.on("git:outputs", (data: unknown) => {
-            if (!isCurrent()) return
             const parsed = OutputsEventSchema.safeParse(data)
-            if (parsed.success) {
+            if (parsed.success && isMine(parsed.data)) {
               registerOutputs(id, parsed.data.outputs)
               setPROutputs(parsed.data.outputs)
             }
           }),
           api.on("git:error", (data: unknown) => {
-            if (!isCurrent()) return
-            const errorData = data as { message?: string; code?: string; branchName?: string }
+            const parsed = ErrorEventSchema.safeParse(data)
+            if (!parsed.success || !isMine(parsed.data)) return
+            const errorData = parsed.data
             opts.onError(errorData.message || "Operation failed")
             setErrorCode(errorData.code || null)
             if (errorData.code === "branch_exists" && errorData.branchName) {
@@ -321,7 +331,10 @@ export function useGitPullRequest({
         // Invoke the IPC command. The channel is one of a fixed set whose params
         // are PullRequestRequest (create) or the push payload; `as never` bridges
         // the union without widening to `any`.
-        const invocation = api.invoke(opts.channel, opts.body as never) as Promise<OperationResult>
+        const invocation = api.invoke(opts.channel, {
+          ...opts.body,
+          requestId,
+        } as never) as Promise<OperationResult>
         inFlightRef.current = invocation
         const result = await invocation.finally(() => {
           if (inFlightRef.current === invocation) inFlightRef.current = null
