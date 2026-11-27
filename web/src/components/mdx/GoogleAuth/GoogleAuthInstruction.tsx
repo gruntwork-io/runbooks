@@ -6,6 +6,7 @@ import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { formatGcloudAdcLoginCommand } from "../../../../../src/domain/google/scopes"
 import { DEFAULT_GOOGLE_SCOPES } from "./constants"
 import type { GoogleAuthProps } from "./types"
+import { planSignIn } from "./signInPlan"
 
 /**
  * Instruction-mode rendering of a GoogleAuth block: a plain "Log into Google
@@ -26,6 +27,7 @@ export function GoogleAuthInstruction({
   oauthClientFile,
   defaultRegion,
   gcloudConfiguration,
+  methods,
   inputsId,
   autoCollapse,
 }: GoogleAuthProps) {
@@ -58,13 +60,19 @@ export function GoogleAuthInstruction({
   const hints: { label: string; value: string }[] = []
   if (resolvedProject) hints.push({ label: "Project", value: resolvedProject })
   if (defaultRegion) hints.push({ label: "Region", value: defaultRegion })
-  if (resolvedConfiguration) hints.push({ label: "Config", value: resolvedConfiguration })
+  const offered = planSignIn({ methods }).methods
+  if (resolvedConfiguration && offered.includes("gcloud")) {
+    hints.push({ label: "Config", value: resolvedConfiguration })
+  }
   const effectiveScopes = scopes ?? [...DEFAULT_GOOGLE_SCOPES]
   hints.push({ label: "Scopes", value: effectiveScopes.join(", ") })
   // Only append --scopes when the author set them; defaults are Sign-In request
   // scopes, not a hard ADC requirement in the by-hand recovery path.
   const login = formatGcloudAdcLoginCommand(scopes && scopes.length > 0 ? scopes : [])
-  hints.push({ label: "Command", value: withClientFile(login, resolvedOauthClientFile) })
+  const signsInThroughGcloudCommand = offered.includes("gcloud") || offered.includes("oauth")
+  if (signsInThroughGcloudCommand) {
+    hints.push({ label: "Command", value: withClientFile(login, resolvedOauthClientFile) })
+  }
 
   return (
     <Instruction

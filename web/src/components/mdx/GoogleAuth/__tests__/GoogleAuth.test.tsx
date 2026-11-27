@@ -1062,3 +1062,131 @@ describe("GoogleAuth setup guidance", () => {
     expect(screen.getAllByText("Use your existing gcloud login on this machine.")).toHaveLength(1)
   })
 })
+
+describe("GoogleAuth methods prop", () => {
+  const TAB_NAMES = ["Service Account Key", "Google Sign-In", "gcloud Config"]
+  const tabNames = () =>
+    screen
+      .queryAllByRole("button")
+      .map((button) => button.textContent ?? "")
+      .filter((name) => TAB_NAMES.includes(name))
+  const detectionSources = () => callsTo("google:env-credentials").map((call) => call.source)
+  const OTHER_METHOD_HINT = /use another sign-in method/
+
+  it("shows one listed method without a tab bar", async () => {
+    renderBlock(<GoogleAuth id="gcp" methods={["oauth"]} />)
+
+    expect(await screen.findAllByText("Sign in as yourself in your browser.")).toHaveLength(1)
+    expect(tabNames()).toEqual([])
+    expect(screen.queryAllByLabelText("Service account key JSON")).toHaveLength(0)
+  })
+
+  it("shows the listed methods as tabs in the author's order, opening on the first", async () => {
+    renderBlock(<GoogleAuth id="gcp" methods={["oauth", "service_account"]} />)
+
+    expect(await screen.findAllByText("Sign in as yourself in your browser.")).toHaveLength(1)
+    expect(tabNames()).toEqual(["Google Sign-In", "Service Account Key"])
+  })
+
+  it("offers no gcloud command for missing scopes when gcloud is not listed", async () => {
+    const DIRECTORY = "https://www.googleapis.com/auth/admin.directory.rolemanagement"
+    installApi({
+      "google:env-credentials": () => ({
+        found: true,
+        valid: false,
+        insufficientScopes: true,
+        missingScopes: [DIRECTORY],
+        grantedScopes: [],
+        account: { principal: "admin@example.com", accountType: "user", scopes: [] },
+        credentialType: "authorized_user",
+        envVar: "GOOGLE_APPLICATION_CREDENTIALS",
+      }),
+    })
+
+    renderBlock(<GoogleAuth id="gcp" methods={["service_account"]} scopes={[DIRECTORY]} />)
+
+    expect(await screen.findAllByText("Credentials missing required scopes")).toHaveLength(1)
+    expect(screen.queryAllByText(/gcloud auth application-default login/)).toHaveLength(0)
+    expect(screen.queryAllByRole("button", { name: "Check again" })).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole("button", { name: "Use Different Credentials" }))
+
+    expect(await screen.findAllByLabelText("Service account key JSON")).toHaveLength(1)
+  })
+
+  it("does not check the gcloud login on load when gcloud is not listed", async () => {
+    renderBlock(<GoogleAuth id="gcp" methods={["oauth", "service_account"]} />)
+
+    await screen.findAllByText("Sign in as yourself in your browser.")
+    expect(detectionSources()).toEqual(["env"])
+  })
+
+  it("still checks the gcloud login on load when gcloud is listed", async () => {
+    renderBlock(<GoogleAuth id="gcp" methods={["service_account", "gcloud"]} />)
+
+    await screen.findAllByLabelText("Service account key JSON")
+    expect(detectionSources()).toEqual(["env", "adc"])
+  })
+
+  it("shows a configuration error, and no sign-in form, when defaultTab is not listed", async () => {
+    renderBlock(<GoogleAuth id="gcp" methods={["oauth"]} defaultTab="gcloud" />)
+
+    expect(await screen.findAllByText("Invalid Configuration:")).toHaveLength(1)
+    expect(
+      screen.getAllByText(
+        'The chosen GoogleAuth defaultTab must appear in the list of methods. The defaultTab is "gcloud" and methods lists: oauth.',
+      ),
+    ).toHaveLength(1)
+    expect(screen.queryAllByText("Sign in as yourself in your browser.")).toHaveLength(0)
+    expect(detectionSources()).toEqual([])
+  })
+
+  it("points to another sign-in method only when there is one", async () => {
+    const { unmount } = renderBlock(
+      <GoogleAuth id="gcp" detectCredentials={false} methods={["service_account"]} />,
+    )
+    await screen.findAllByText("How do I get a key?")
+    expect(screen.queryAllByText(OTHER_METHOD_HINT)).toHaveLength(0)
+    unmount()
+
+    renderBlock(
+      <GoogleAuth id="gcp" detectCredentials={false} methods={["service_account", "oauth"]} />,
+    )
+    await screen.findAllByText("How do I get a key?")
+    expect(screen.queryAllByText(OTHER_METHOD_HINT)).toHaveLength(1)
+  })
+
+  it("does not point away from a gcloud login that lacks scopes when gcloud is the only method", async () => {
+    const directory = "https://www.googleapis.com/auth/admin.directory.rolemanagement"
+    const missingScopes: Handlers = {
+      "google:env-credentials": () => ({
+        found: true,
+        valid: false,
+        source: "adc",
+        account: { principal: "dev@example.com", accountType: "user" },
+        insufficientScopes: true,
+        missingScopes: [directory],
+      }),
+      "google:gcloud-configurations": () => ({
+        configurations: [],
+        configRoot: "/home/u/.config/gcloud",
+        adc: { path: "/home/u/.config/gcloud/adc.json", type: "authorized_user" },
+      }),
+    }
+    const blockWith = (methods: ("gcloud" | "oauth")[]) => (
+      <GoogleAuth id="gcp" detectCredentials={false} scopes={[directory]} methods={methods} />
+    )
+    const ANOTHER_METHOD = /sign in with another method/
+    const MISSING = "Your gcloud login is missing scopes this runbook needs"
+
+    installApi(missingScopes)
+    const { unmount } = renderBlock(blockWith(["gcloud"]))
+    expect(await screen.findAllByText(MISSING)).toHaveLength(1)
+    expect(screen.queryAllByText(ANOTHER_METHOD)).toHaveLength(0)
+    unmount()
+
+    renderBlock(blockWith(["gcloud", "oauth"]))
+    expect(await screen.findAllByText(MISSING)).toHaveLength(1)
+    expect(screen.queryAllByText(ANOTHER_METHOD)).toHaveLength(1)
+  })
+})

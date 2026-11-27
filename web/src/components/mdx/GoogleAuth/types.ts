@@ -189,6 +189,12 @@ export interface GoogleAuthProps {
    */
   defaultTab?: GoogleAuthMethod
   /**
+   * The sign-in methods the block offers, in tab order. The first one opens
+   * unless `defaultTab` names another. Default: all three. Leaving `gcloud`
+   * out also drops `'adc'` from the default `detectCredentials`.
+   */
+  methods?: GoogleAuthMethod[]
+  /**
    * Credential detection configuration.
    * - `false`: disable auto-detection, show manual auth only
    * - Array of sources: try each source in order until one succeeds

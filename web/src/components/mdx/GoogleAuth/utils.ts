@@ -214,7 +214,7 @@ export function describeGcloudSettings(sources: GcloudSettingSources): GcloudSet
 // The tab the block opens on when the author sets no `defaultTab`.
 const FALLBACK_AUTH_METHOD: GoogleAuthMethod = "service_account"
 
-const AUTH_METHODS: readonly GoogleAuthMethod[] = ["service_account", "oauth", "gcloud"]
+export const AUTH_METHODS: readonly GoogleAuthMethod[] = ["service_account", "oauth", "gcloud"]
 
 /**
  * Resolve the `defaultTab` prop to the tab the block opens on. Runbook authors

@@ -9,6 +9,7 @@ interface AdcPrincipalCardProps {
   lookup: AdcPrincipalLookup
   adcInfo: AdcInfo | null
   requiredScopes: string[]
+  hasOtherMethods: boolean
   onReload: () => void
   reloadDisabled: boolean
 }
@@ -19,7 +20,7 @@ export function AdcPrincipalCard(props: AdcPrincipalCardProps) {
   if (lookup.status === "signed-in") return <LoginAccount {...props} lookup={lookup} />
   return (
     <LoginProblem {...props}>
-      <ProblemDetails lookup={lookup} requiredScopes={props.requiredScopes} />
+      <ProblemDetails {...props} />
     </LoginProblem>
   )
 }
@@ -87,11 +88,17 @@ function LoginProblem(props: AdcPrincipalCardProps & { children: ReactNode }) {
   )
 }
 
-function ProblemDetails(props: { lookup: AdcPrincipalLookup; requiredScopes: string[] }) {
-  const { lookup } = props
+function ProblemDetails(props: AdcPrincipalCardProps) {
+  const { lookup, hasOtherMethods } = props
   if (lookup.status === "unusable") return <UnconfirmedLogin reason={lookup.reason} />
   if (lookup.status === "missing-scopes") {
-    return <MissingScopes missing={lookup.missingScopes} required={props.requiredScopes} />
+    return (
+      <MissingScopes
+        missing={lookup.missingScopes}
+        required={props.requiredScopes}
+        hasOtherMethods={hasOtherMethods}
+      />
+    )
   }
   return <NoLogin />
 }
@@ -121,7 +128,13 @@ function UnconfirmedLogin({ reason }: { reason: string }) {
   )
 }
 
-function MissingScopes({ missing, required }: { missing: string[]; required: string[] }) {
+interface MissingScopesProps {
+  missing: string[]
+  required: string[]
+  hasOtherMethods: boolean
+}
+
+function MissingScopes({ missing, required, hasOtherMethods }: MissingScopesProps) {
   return (
     <>
       <div className="font-medium text-foreground">
@@ -132,9 +145,11 @@ function MissingScopes({ missing, required }: { missing: string[]; required: str
         To add them, run this command in a terminal. Then click <strong>Reload</strong>.
       </p>
       <CommandLine command={formatGcloudAdcLoginCommand(required)} />
-      <p className="text-muted-foreground">
-        Alternatively, or if Google shows "This app is blocked", sign in with another method.
-      </p>
+      {hasOtherMethods && (
+        <p className="text-muted-foreground">
+          Alternatively, or if Google shows "This app is blocked", sign in with another method.
+        </p>
+      )}
     </>
   )
 }

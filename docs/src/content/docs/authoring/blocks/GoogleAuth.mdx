@@ -39,6 +39,24 @@ Service Account Key is the tab users land on. Set `defaultTab` to open on a diff
 
 The user can still switch tabs.
 
+### Choosing which methods to offer
+
+By default the block offers all three methods. If you know a method will not work for your runbook, list only the ones that will with `methods`:
+
+```mdx
+<GoogleAuth id="gcp-auth" methods={['gcloud', 'oauth']} />
+```
+
+The tabs appear in the order you list them, and the block opens on the first. To open on a different one, set `defaultTab` to a method in the list. If you list one method, the block shows that method with no tab bar.
+
+When `gcloud` is not in the list, the check for existing credentials skips the gcloud login. See [Credential detection](#credential-detection).
+
+The block shows a configuration error when:
+
+- `methods` is empty or names a method that does not exist.
+- `defaultTab` names a method that `methods` does not list.
+- `detectCredentials` includes `'adc'` or `'gcloud'` and `methods` does not list `gcloud`.
+
 <Aside type="note">
 Runbooks never shells out to the `gcloud` binary. Service account keys are validated by minting a real access token, sign-in uses a loopback OAuth redirect, and the gcloud tab reads gcloud's own configuration files directly. You do not need the Google Cloud CLI installed for any of the three tabs. The gcloud Config tab needs the configuration files a previous `gcloud` run created.
 </Aside>
@@ -55,12 +73,13 @@ Runbooks never shells out to the `gcloud` binary. Service account keys are valid
 | `defaultRegion` | `string` | - | Default compute region for subsequent commands. Sets `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, and `GOOGLE_REGION` |
 | `defaultZone` | `string` | - | Default compute zone for subsequent commands. Sets `CLOUDSDK_COMPUTE_ZONE` and `GOOGLE_ZONE` |
 | `gcloudConfiguration` | `string` | - | Pre-select a named gcloud configuration in the gcloud Config tab. It doesn't change which configuration detection reads. See [gcloud Config](#gcloud-config) (supports template expressions) |
-| `defaultTab` | `'service_account'`, `'oauth'`, or `'gcloud'` | `'service_account'` | Which authentication tab the block opens on. An unrecognized value falls back to `'service_account'` |
+| `defaultTab` | `'service_account'`, `'oauth'`, or `'gcloud'` | `'service_account'`, or the first method in `methods` | Which authentication tab the block opens on. When `methods` is set, `defaultTab` must name a method in the list. Without `methods`, an unrecognized value falls back to `'service_account'` |
+| `methods` | Array of `'service_account'`, `'oauth'`, `'gcloud'` | All three | The sign-in methods the block offers, in tab order. See [Choosing which methods to offer](#choosing-which-methods-to-offer) |
 | `scopes` | `string[]` | `cloud-platform`, `userinfo.email`, `openid` | OAuth scopes requested by Google Sign-In. When set, also required of any auto-detected or gcloud user ADC this block will accept (service account keys and impersonated service accounts are exempt) |
 | `oauthClientId` | `string` | - | Client ID of a Google Cloud "Desktop app" OAuth client. Must be paired with `oauthClientSecret`. Mutually exclusive with `oauthClientFile`. See [Using your own OAuth client](#using-your-own-oauth-client) |
 | `oauthClientSecret` | `string` | - | Client secret issued alongside the Desktop OAuth client. Required whenever `oauthClientId` is set. Per RFC 8252 this value is not confidential. Google issues one with every Desktop client |
 | `oauthClientFile` | `string` | - | Path to a Google Cloud Console Desktop-app client JSON download (`client_secret_*.json` with an `installed` object). `~` is expanded, and template expressions are resolved. Mutually exclusive with `oauthClientId` / `oauthClientSecret`. Read in the main process only |
-| `detectCredentials` | `false \| GoogleCredentialSource[]` | `['env', 'adc']` | Whether and how to detect existing credentials. See [Credential detection](#credential-detection) |
+| `detectCredentials` | `false \| GoogleCredentialSource[]` | `['env', 'adc']`, or `['env']` when `methods` does not list `gcloud` | Whether and how to detect existing credentials. See [Credential detection](#credential-detection) |
 | `inputsId` | `string \| string[]` | - | Reference one or more [Inputs](/authoring/blocks/inputs/) blocks for template expressions in props |
 
 <Aside type="caution">
@@ -440,6 +459,13 @@ With no configuration, GoogleAuth checks environment variables and then Applicat
 ```mdx
 {/* Same as detectCredentials={['env', 'adc']} */}
 <GoogleAuth id="google-auth" />
+```
+
+When `methods` does not list `gcloud`, the default checks environment variables only:
+
+```mdx
+{/* Same as detectCredentials={['env']} */}
+<GoogleAuth id="google-auth" methods={['oauth']} />
 ```
 
 ### Disable auto-detection

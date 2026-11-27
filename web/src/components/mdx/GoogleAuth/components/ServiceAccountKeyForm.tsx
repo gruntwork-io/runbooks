@@ -29,6 +29,7 @@ interface ServiceAccountKeyFormProps {
   setProjectIdInput: (value: string) => void
   selectedRegion: string
   setSelectedRegion: (value: string) => void
+  hasOtherMethods: boolean
   onSubmit: () => void
 }
 
@@ -65,6 +66,7 @@ export function ServiceAccountKeyForm({
   setProjectIdInput,
   selectedRegion,
   setSelectedRegion,
+  hasOtherMethods,
   onSubmit,
 }: ServiceAccountKeyFormProps) {
   const displayPath = useDisplayPath()
@@ -239,7 +241,7 @@ export function ServiceAccountKeyForm({
           "Authenticate"
         )}
       </Button>
-      <ServiceAccountKeyGuide />
+      <ServiceAccountKeyGuide hasOtherMethods={hasOtherMethods} />
     </div>
   )
 }

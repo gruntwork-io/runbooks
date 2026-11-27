@@ -27,6 +27,7 @@ interface GcloudConfigSelectorProps {
   adcInfo: AdcInfo | null
   adcPrincipal: AdcPrincipalLookup
   requiredScopes: string[]
+  hasOtherMethods: boolean
   pinnedProject: string | undefined
   defaultRegion: string | undefined
   defaultZone: string | undefined
@@ -45,6 +46,7 @@ export function GcloudConfigSelector(props: GcloudConfigSelectorProps) {
         lookup={props.adcPrincipal}
         adcInfo={props.adcInfo}
         requiredScopes={props.requiredScopes}
+        hasOtherMethods={props.hasOtherMethods}
         onReload={props.onRefreshConfigs}
         reloadDisabled={props.loadingConfigs || isBusy}
       />

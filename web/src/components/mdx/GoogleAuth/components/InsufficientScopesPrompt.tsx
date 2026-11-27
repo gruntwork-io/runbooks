@@ -9,6 +9,7 @@ interface InsufficientScopesPromptProps {
   credentials: DetectedGoogleCredentials
   requiredScopes: string[]
   oauthUnavailable: boolean
+  offersGcloud: boolean
   recovering?: boolean
   onSignIn: () => void
   onReject: () => void
@@ -24,6 +25,7 @@ export function InsufficientScopesPrompt({
   credentials,
   requiredScopes,
   oauthUnavailable,
+  offersGcloud,
   recovering = false,
   onSignIn,
   onReject,
@@ -87,16 +89,57 @@ export function InsufficientScopesPrompt({
             </Button>
           </div>
         ) : (
-          <div className="space-y-4">
-            <AddScopesInTerminal
-              command={formatGcloudAdcLoginCommand(requiredScopes)}
-              onRetryDetection={onRetryDetection}
-              disabled={recovering}
-            />
-            <SignInAnotherWay onReject={onReject} disabled={recovering} />
-          </div>
+          <RecoveryWithoutBrowserSignIn
+            offersGcloud={offersGcloud}
+            command={formatGcloudAdcLoginCommand(requiredScopes)}
+            onRetryDetection={onRetryDetection}
+            onReject={onReject}
+            disabled={recovering}
+          />
         )}
       </div>
+    </div>
+  )
+}
+
+function RecoveryWithoutBrowserSignIn(props: {
+  offersGcloud: boolean
+  command: string
+  onRetryDetection: () => void
+  onReject: () => void
+  disabled: boolean
+}) {
+  if (!props.offersGcloud) {
+    return <UseDifferentCredentials onReject={props.onReject} disabled={props.disabled} />
+  }
+  return (
+    <div className="space-y-4">
+      <AddScopesInTerminal
+        command={props.command}
+        onRetryDetection={props.onRetryDetection}
+        disabled={props.disabled}
+      />
+      <SignInAnotherWay onReject={props.onReject} disabled={props.disabled} />
+    </div>
+  )
+}
+
+function UseDifferentCredentials({
+  onReject,
+  disabled,
+}: {
+  onReject: () => void
+  disabled: boolean
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        This block cannot add the missing scopes to these credentials. To continue, use different
+        credentials.
+      </p>
+      <Button onClick={onReject} disabled={disabled} variant="outline" size="sm">
+        Use Different Credentials
+      </Button>
     </div>
   )
 }
