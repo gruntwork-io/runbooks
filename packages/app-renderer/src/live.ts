@@ -93,10 +93,11 @@ function mark(
     case "TrustChanged":
       stale.trust = event.trust
       return
-    // The session's warnings are not drawn yet, nor is a reload or one held back.
+    // The session's warnings are not drawn yet, nor is a reload, one held back, or a failed watch.
     case "Warning":
     case "DocumentChanged":
     case "ReloadHeldChanged":
+    case "Unwatched":
       return
     default: {
       const unhandled: never = event
