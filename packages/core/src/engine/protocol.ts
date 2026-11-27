@@ -320,9 +320,10 @@ export const TrustState = Schema.Struct({
    * The hash trust is, or would be, granted for: that of the document the
    * session holds now (`DocumentView.hash`). A reload keeps the session's
    * trust, granted now for the new hash, which `TrustChanged` carries.
-   * Only a hash a person trusted (`TrustSession`) or chose (`ReloadFiles`)
-   * is saved as trusted: opening the runbook again after the watcher
-   * reloaded it asks again.
+   * Only a hash a person trusted (`TrustSession`), or chose with
+   * `ReloadFiles` over a document they trusted or chose, is saved as
+   * trusted: opening the runbook again after the watcher reloaded it asks
+   * again, even once a block's files were taken since.
    */
   hash: ContentHash,
 })
@@ -591,8 +592,10 @@ export const ReloadFilesResult = Schema.Union([
    * The block took the files at the hash it showed: it runs them from now
    * on, starting over if it had run. `DocumentChanged` says the session's
    * document took them. A trusted session stays trusted, now for the new
-   * hash, which `TrustChanged` carries, and is saved trusted for it: the
-   * person chose it.
+   * hash, which `TrustChanged` carries. It is saved trusted for it when a
+   * person trusted or chose the document it replaced, not when the
+   * watcher reloaded that document: the person read the block's files,
+   * not the runbook's edits.
    */
   Schema.TaggedStruct("Reloaded", {}),
   /**
@@ -800,9 +803,10 @@ export const EngineEvent = Schema.Union([
    * - A trusted session stays trusted, now for the new hash, which
    *   `TrustChanged` carries. An untrusted one stays untrusted.
    * - The new hash is saved as trusted only when a person chose it
-   *   (`ReloadFiles`). After the watcher reloads, the session stays
-   *   trusted while it is open, and what is saved keeps the hash the
-   *   person trusted: opening the runbook again asks again, as
+   *   (`ReloadFiles`) over a document they trusted or chose. After the
+   *   watcher reloads, the session stays trusted while it is open, and
+   *   what is saved keeps the hash the person trusted, through any
+   *   `ReloadFiles` after: opening the runbook again asks again, as
    *   `RunbookChanged`. What blocks keep is saved against the new hash.
    */
   Schema.TaggedStruct("DocumentChanged", { hash: ContentHash }),
@@ -990,8 +994,9 @@ export class ResetBlock extends Rpc.make("ResetBlock", {
  * them, and never reads them again: a file saved since is not taken, and
  * the block shows it, at another hash, once the session reads it. The
  * session takes them as it takes a reloaded runbook (`DocumentChanged`),
- * keeping its trust for the new hash, and saves that hash as trusted, so
- * an agent, which may have written them, cannot.
+ * keeping its trust for the new hash, so an agent, which may have written
+ * them, cannot. It saves that hash as trusted when a person trusted or
+ * chose the document it replaces (`ReloadFilesResult.Reloaded`).
  */
 export class ReloadFiles extends Rpc.make("ReloadFiles", {
   payload: { ...block, hash: ContentHash },
