@@ -708,3 +708,50 @@ describe("in instruction mode", () => {
     ])
   })
 })
+
+describe("its script files, read as the session holds them", () => {
+  it("are the file it names, written in the interpreter it runs with, and never its inline command, which its props hold", async () => {
+    const read = await withSession(
+      [
+        '<Command id="inline" command="echo {{ .inputs.region }}" />',
+        '<Command id="file" path="scripts/a.py" />',
+      ].join("\n\n"),
+      ({ client, session }) =>
+        Effect.all([
+          client.GetDocument({ session }),
+          client.GetScriptFiles({ session, block: blockId("inline") }),
+          client.GetScriptFiles({ session, block: blockId("file") }),
+        ]),
+      { files: { "/rb/scripts/a.py": "#!/usr/bin/env python3\nprint(1)\n" }, trusted: false },
+    )
+    const [document, inline, file] = read
+    expect(inline).toEqual({ document: document.hash, files: [] })
+    const path = Schema.decodeSync(RunbookPath)("scripts/a.py")
+    expect(file).toEqual({
+      document: document.hash,
+      files: [{ path, language: "python3", text: "#!/usr/bin/env python3\nprint(1)\n" }],
+    })
+    const [inlineBlock, fileBlock] = document.blocks
+    expect(inlineBlock).toMatchObject({ props: { command: "echo {{ .inputs.region }}" } })
+    expect(inlineBlock).not.toHaveProperty("scriptFiles")
+    expect(fileBlock).toMatchObject({ scriptFiles: [path] })
+  })
+
+  it("are each written in the language its instruction gives it", () => {
+    const path = Schema.decodeSync(RunbookPath)("a.sh")
+    for (const script of ["#!/usr/bin/env python3\nprint(1)", "#!/bin/sh\necho hi", "echo hi"]) {
+      const [, code] = command.instruction(
+        { path },
+        { values: new Map(), outputs: new Map(), files: new Map([["a.sh", script]]) },
+      )
+      expect<unknown>(command.scriptLanguage?.({ path }, script)).toBe(
+        code?.kind === "code" && code.language,
+      )
+    }
+    expect(
+      ["#!/usr/bin/env python3\n", "#!/bin/sh\n", ""].map((script) =>
+        command.scriptLanguage?.({ path }, script),
+      ),
+    ).toEqual(["python3", "bash", "bash"])
+  })
+})

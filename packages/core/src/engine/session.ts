@@ -93,6 +93,7 @@ import {
   type OutputView,
   type Refusal,
   RunId,
+  type ScriptFile,
   type ScriptFiles,
   type ReloadFilesResult,
   type ReloadHeld,
@@ -546,10 +547,44 @@ function isStep(node: BlockNode, block: AnyBlock): boolean {
   }
 }
 
+/** A file a task runs as a script, with the text the session holds of it. */
+interface HeldScriptFile {
+  readonly path: RunbookPath
+  readonly text: string
+}
+
+/**
+ * Each file `node`'s block runs as a script (a `File` its `scripts`
+ * gives), in its order, with its text as the session read it (`files`).
+ * None for a misconfigured block, which never runs, or a block with none.
+ * An inline script is in the block's props, so it is not one. A file
+ * whose text the session does not hold, which only a block that breaks
+ * its contract names, is left out of the document and of `GetScriptFiles`
+ * alike.
+ */
+function heldScriptFiles(
+  node: BlockNode,
+  block: AnyBlock,
+  files: RunbookTexts,
+): ReadonlyArray<HeldScriptFile> {
+  if (node.errors.length > 0 || block.class !== "task" || block.scripts === undefined) return []
+  return block.scripts(node.props).flatMap((source): ReadonlyArray<HeldScriptFile> => {
+    if (source._tag !== "File") return []
+    const text = files.get(source.path)
+    return text === undefined ? [] : [{ path: source.path, text }]
+  })
+}
+
+/** What `text`, one of `node`'s scripts, is written in, as its block says (`scriptLanguage`): `text` when it says nothing. */
+function scriptLanguageOf(node: BlockNode, block: AnyBlock, text: string): string {
+  return (block.class === "task" ? block.scriptLanguage?.(node.props, text) : undefined) ?? "text"
+}
+
 /** The session's document as a window renders it, each block's props as `readBlocks` encoded them. */
 function documentViewOf(
   document: RunbookDocument,
   props: ReadonlyMap<number, Schema.Json>,
+  texts: ReadonlyMap<number, RunbookTexts>,
   registry: Registry,
 ): DocumentView {
   const { frontMatter } = document
@@ -574,12 +609,14 @@ function documentViewOf(
       if (first !== undefined) return { _tag: "Misconfigured", ...placed, errors: [first, ...rest] }
       const sent = props.get(node.index)
       const block = blockOf(node, registry)
+      const scriptFiles = heldScriptFiles(node, block, texts.get(node.index) ?? NO_FILES)
       return {
         _tag: "Configured",
         ...placed,
         step: isStep(node, block),
         effects: block.effects,
         ...(sent === undefined ? {} : { props: sent }),
+        ...(scriptFiles.length === 0 ? {} : { scriptFiles: scriptFiles.map((held) => held.path) }),
       }
     }),
     warnings: document.warnings,
@@ -1008,7 +1045,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   let heldShown: ReloadHeld | undefined
   /** Why the session watches nothing, once its watcher stopped. */
   let unwatched: Unwatched | undefined
-  let documentView = documentViewOf(document, opening.props, registry)
+  let documentView = documentViewOf(document, opening.props, texts, registry)
   let slots = slotsOf(document, registry)
   const credentialSlots = credentialSlotsOf(slots, registry)
   let credentialSlotAt = new Map(credentialSlots.map((slot) => [slot.index, slot]))
@@ -2134,7 +2171,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           store.useBlocks(nextCredentialSlots.map((slot) => slot.id))
           document = read.document
           texts = next.texts
-          documentView = documentViewOf(read.document, read.props, registry)
+          documentView = documentViewOf(read.document, read.props, next.texts, registry)
           slots = nextSlots
           slotAt = nextSlotAt
           credentialSlotAt = new Map(nextCredentialSlots.map((slot) => [slot.index, slot]))
@@ -2296,9 +2333,28 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     getBlock: (block, logOffset, logLimit) =>
       Effect.map(byId(block), (slot) => viewOf(slot, logOffset, logLimit)),
 
-    // The session gives each script file's text in a later commit.
+    // Without the lock, as `getBlock`, so the read never waits behind a
+    // locked operation, such as a stop's grace. It is consistent without
+    // it: it reads the block's slot, `texts` and `documentView` in one
+    // synchronous step when it runs, and a reload replaces all three
+    // together in one synchronous step under its own lock, so the read
+    // gives one document's hash and that document's files.
     getScriptFiles: (block) =>
-      Effect.map(byId(block), () => ({ document: documentView.hash, files: [] })),
+      Effect.suspend(() => {
+        const slot = slots.find((candidate) => candidate.id === block)
+        if (slot === undefined) return Effect.fail(new UnknownBlock({ session: id, block }))
+        const { node, index } = slot
+        const defined = blockOf(node, registry)
+        return Effect.succeed({
+          document: documentView.hash,
+          files: heldScriptFiles(node, defined, texts.get(index) ?? NO_FILES).map(
+            (held): ScriptFile => ({
+              ...held,
+              language: scriptLanguageOf(node, defined, held.text),
+            }),
+          ),
+        })
+      }),
 
     reload: (read, files) =>
       lock.withPermit(
