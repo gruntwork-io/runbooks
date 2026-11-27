@@ -18,7 +18,7 @@ The running index of the rebuild stack. Update it whenever the stack changes.
 - Later on 2026-11-26 #649 and #650 passed runbooks-reviewer and were marked ready. #650's review found that nothing bounds how deep a runbook nests (Electron main ran out of stack on 500 nested quotes), so rows 3g2a (#652, the `tooDeep` code) and 3g2b (#653, the parser's limit) went in above 3g2, and 3g3 is based on 3g2b.
 - At 19:17 UTC on 2026-11-26 the human merged #649 to #651 the same way (`rebuild/main` 83c6d949). GitHub rebased #652 onto `rebuild/main` (653e23b0) and #653 onto it (bea07178), patch for patch, so they are not force-pushed from here. Row 3g3 lost watch mode to a row of its own after 3j: its spec runs Command blocks in the window, and a reload has to meet the trust prompt.
 - At 19:35 UTC the human merged #652 and #653 (`rebuild/main` bec13f26), and GitHub rebased #655 onto `rebuild/main` (5def7eec), patch for patch. Track A's lock PRs (#656 to #658) went on #655 once plugins v0.2.1 was released, and phase 3 continues above them: #659 (a contract change the window needs) and #660 (3g3).
-- At 20:10 UTC the human merged #655 (`rebuild/main` 4b613f21), and GitHub rebased #656 to #660 onto `rebuild/main`, patch for patch. #656 to #659 passed runbooks-reviewer and are ready. #660's review found that a ref lookup or clone whose server never answers hung forever; d0b32d65 bounds every git's wait in `gitSpawnEnv`. The reviewer's notes on #656 and #657 (no check that a pin is the release's, on platforms CI doesn't fetch) became #662, on top. Row 3h (`BlockFrame`) is under way above #662.
+- At 20:10 UTC the human merged #655 (`rebuild/main` 4b613f21), and GitHub rebased #656 to #660 onto `rebuild/main`, patch for patch. #656 to #659 passed runbooks-reviewer and are ready. #660's review found that a ref lookup or clone whose server never answers hung forever; d0b32d65 bounds every git's wait in `gitSpawnEnv`. The reviewer's notes on #656 and #657 (no check that a pin is the release's, on platforms CI doesn't fetch) became #662, on top. At 21:02 UTC the human merged #656 to #659 (`rebuild/main` 8d560225); GitHub rebased #660 and #662 patch for patch, and the reviewer confirmed both passes for the new heads, so both are ready. Row 3h is three PRs above #662: #663 (contract), #664 (`BlockFrame`), #665 (instruction mode).
 - **Keep it stacked.** The open PRs are GitHub stack #628, based on `rebuild/main` (`gh api repos/gruntwork-io/runbooks/stacks/628`); #519 holds #496 to #598, and #614 holds #599 to #625. `.more9s/stack.sh` keeps it that way:
   - `add <branch> <title> <body-file>` opens each new PR as a draft on the top of the stack, links it into #628, and waits until GitHub lists it on top (two adds in a row once based the second on the PR below the first). Once it is green, send it to runbooks-reviewer, and mark it ready with `gh pr ready` only when the review passes. Don't open a rebuild PR with `gh pr create` alone.
   - `restack` (`--dry-run` first, in a linked worktree) is needed after any commit to `rebuild/main`, such as an index update, or to a lower branch. It rebases each branch onto the one below and force-pushes it with a lease. CI then reruns on every PR above the change, so batch index updates.
@@ -199,11 +199,13 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 3g2a | #652 | 3 | `rebuild/p3-too-deep-contract` | `rebuild/main` | merged | contract change: `tooDeep`, a runbook nested too deep is refused |
 | 3g2b | #653 | 3 | `rebuild/p3-nesting-bound` | 3g2a | merged | the parser refuses a runbook nested more than 100 levels (`MAX_NESTING`), before any walk that recurses; e2e against Electron's stacks |
 | 3g2c | #655 | 3 | `rebuild/p3-nesting-order` | `rebuild/main` | merged (4b613f21) | a test pins `nestedTooDeep`'s first-in-document-order report (runbooks-reviewer's note on #653) |
-| 3g3a | #659 | 3 | `rebuild/p3-list-order` | 100 | ready (runbooks-reviewer passed 3e5840ef; green) | contract change: `ListSessions` lists sessions in the order they opened, which 3g3's window relies on |
-| 3g3 | #660 | 3 | `rebuild/p3-open-url` | 3g3a | draft (d0b32d65, the reviewer's stall finding fixed; green; back with runbooks-reviewer) | 3.1 (part): open a runbook from a URL on the command line (the old app's clone, in main; clones in `<userData>/v0/clones`); a second launch opens its runbook in the running app, which reloads the page |
-| 100a | #662 | A | `rebuild/pA-plugins-pins` | 3g3 | draft (green; with runbooks-reviewer) | A.5: CI checks every lock pin against the pinned release's `SHA256SUMS`, on all five platforms (the reviewer's note on #656 and #657) |
-| 3h | none | 3 | `rebuild/p3-block-frame` | 100a | under way (one subagent) | 3.3: `BlockFrame` and a default view per class; first a contract change so the window can get a block's instruction, then instruction mode in the frame |
-| 3i | none | 3 | `rebuild/p3-trust-prompt` | 3h | planned | 3.5: the trust prompt, listing each block's declared effects |
+| 3g3a | #659 | 3 | `rebuild/p3-list-order` | 100 | merged (8d560225) | contract change: `ListSessions` lists sessions in the order they opened, which 3g3's window relies on |
+| 3g3 | #660 | 3 | `rebuild/p3-open-url` | `rebuild/main` | ready (runbooks-reviewer passed aedaad11; green) | 3.1 (part): open a runbook from a URL on the command line (the old app's clone, in main; clones in `<userData>/v0/clones`); a second launch opens its runbook in the running app, which reloads the page |
+| 100a | #662 | A | `rebuild/pA-plugins-pins` | 3g3 | ready (runbooks-reviewer passed 44a5dd6a; green) | A.5: CI checks every lock pin against the pinned release's `SHA256SUMS`, on all five platforms (the reviewer's note on #656 and #657) |
+| 3ha | #663 | 3 | `rebuild/p3-frame-contract` | 100a | draft (CI running) | contract change: `BlockView.instruction` (built before trust, values redacted), `SessionView.sequence` (where `Events` starts), `DocumentBlock.step` |
+| 3h | #664 | 3 | `rebuild/p3-block-frame` | 3ha | draft (CI running) | 3.3: `BlockFrame` for every block by class (step mark, status, blockers as links, auto-collapse), the window following `Events`, the task default view |
+| 3hb | #665 | 3 | `rebuild/p3-instruction-mode` | 3h | draft (CI running) | 3.3: instruction mode in the frame, followed through `WatchSettings`; Command's instruction in the old app's words |
+| 3i | none | 3 | `rebuild/p3-trust-prompt` | 3hb | planned | 3.5: the trust prompt, listing each block's declared effects |
 | 3j | none | 3 | `rebuild/p3-command-app` | 3i | planned | 3.8 (Command): decision 8's `outputs` patches to testdata, waits on referenced inputs, `exclusive`, hashed script texts to a run |
 | 3j2 | none | 3 | `rebuild/p3-watch-mode` | 3j | planned | 3.1 (part): watch mode, reloading a session's document as its files change, against the trust prompt; `watch-mode.spec.ts` ported |
 | 3k | none | 3 | `rebuild/p3-inputs` | 3j2 | planned | 3.8 (Inputs) |
@@ -214,9 +216,9 @@ Phase 0 was reordered on 2026-11-24 so dependencies point down the stack: the au
 | 3p | none | 3 | `rebuild/p3-mcp` | 3o | planned | 3.6: the MCP tools from the protocol, on both transports; the `SetValues` cap |
 | 3q | none | 3 | `rebuild/p3-done-when` | 3p | planned | phase 3's Done when: the four blocks in the app, the test CLI and MCP; the CSP; a secret typed into AwsAuth in no event |
 | 97 | none | 2 | the rest of the `rebuild/main` review's fixes | none | done | every group is fixed: #590 to #644, and group 10 in #657 |
-| 98 | #656 | A | `rebuild/pA-plugins-lock` | `rebuild/main` | ready (runbooks-reviewer passed fcb20a3c; green) | A.5 (`resources/plugins.lock` pinning v0.2.1 on five platforms, its loader); Google's and Azure's offline contract scenarios built in |
-| 99 | #657 | A | `rebuild/pA-plugins-recipes` | 98 | ready (runbooks-reviewer passed abd924c4; green) | A.5 (fetch, check and bump recipes); group 10: CI checks `plugin/*.schema.json` against the pinned release's |
-| 100 | #658 | A | `rebuild/pA-plugins-packaging` | 99 | ready (runbooks-reviewer passed 6e730b48; green) | A.6 (CI and release check the bundled binaries; `mac.signIgnore`; the reviewer built the packaged app on v0.2.1) |
+| 98 | #656 | A | `rebuild/pA-plugins-lock` | `rebuild/main` | merged (1414853f) | A.5 (`resources/plugins.lock` pinning v0.2.1 on five platforms, its loader); Google's and Azure's offline contract scenarios built in |
+| 99 | #657 | A | `rebuild/pA-plugins-recipes` | 98 | merged (000c8d21) | A.5 (fetch, check and bump recipes); group 10: CI checks `plugin/*.schema.json` against the pinned release's |
+| 100 | #658 | A | `rebuild/pA-plugins-packaging` | 99 | merged (ee863b8c) | A.6 (CI and release check the bundled binaries; `mac.signIgnore`; the reviewer built the packaged app on v0.2.1) |
 
 On 2026-11-24 the human found the PRs were not properly stacked:
 - #496 lacked four index commits on `rebuild/main`. Every branch was rebased; trees were unchanged apart from this file.
@@ -275,9 +277,9 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 | 2.11 | The `runbook_test.yml` schema | #569 | merged |
 | 2.12 | The plugin transport owner, tests against a stub binary | #571, #572, #573 | merged |
 | 2.13 | The credential client, the fake provider, the contract suite | #574 to #581 (#582 a contract addendum) | merged |
-| 3.1 | The app frame: window, IPC transport, CSP without `'unsafe-eval'`, asset serving, path guard | #648 (the window, the CSP); #649 (the IPC transport); #650 (open from the command line); #651 (assets, path guard, the page's own scheme); #660 (URL, a second launch); row 3j2 (watch mode) | #648 to #651 merged; #660 draft; 3j2 planned |
+| 3.1 | The app frame: window, IPC transport, CSP without `'unsafe-eval'`, asset serving, path guard | #648 (the window, the CSP); #649 (the IPC transport); #650 (open from the command line); #651 (assets, path guard, the page's own scheme); #660 (URL, a second launch); row 3j2 (watch mode) | #648 to #651 merged; #660 ready; 3j2 planned |
 | 3.2 | The renderer that walks the document | #646 (`GetDocument`); #650 (the walk); #653, #655 (a runbook's nesting bounded) | #646, #650, #653, #655 merged |
-| 3.3 | `BlockFrame` and the default view for each class | row 3h | planned |
+| 3.3 | `BlockFrame` and the default view for each class | #663, #664, #665 (the form and credential views land with rows 3k and 3m) | draft |
 | 3.4 | The common auth view | row 3m | planned |
 | 3.5 | The trust prompt, listing each block's declared effects | row 3i | planned |
 | 3.6 | The MCP tools generated from the protocol, on both transports | row 3p | planned |
@@ -287,8 +289,8 @@ The Rust sign-in binaries, on the gruntwork-io-team/rust-base template, as GitHu
 | A.2 | The AWS binary | runbooks-plugins | released v0.1.0 |
 | A.3 | The Google binary | runbooks-plugins | released v0.1.0 |
 | A.4 | The Azure binary, wrapping `az` | runbooks-plugins | released v0.1.0 |
-| A.5 | `resources/plugins.lock`, the fetch recipe and the bump recipe | #656, #657; #662 (every pin checked against the release) | #656, #657 ready; #662 draft |
-| A.6 | The hash check before a binary starts | #572; #658 for the packaged bytes | #572 merged; #658 ready |
+| A.5 | `resources/plugins.lock`, the fetch recipe and the bump recipe | #656, #657; #662 (every pin checked against the release) | #656, #657 merged; #662 ready |
+| A.6 | The hash check before a binary starts | #572; #658 for the packaged bytes | #572, #658 merged |
 
 ## The 18 decisions
 
@@ -341,6 +343,8 @@ Choices of my own that need a ruling (not among the 18):
 | `*AuthId` aliases are `envFrom` sources after `envFrom`'s own; code in `parse.ts` (decision 5) | #517 |
 | Form values are live before submit, and a person's change un-reviews an agent's value (both differ from today) | #532 |
 | A malformed `$RUNBOOK_OUTPUT`/`$RUNBOOK_ENV` line fails the run (today it is skipped) | #540 |
+| Instruction mode copies a command by selection (`user-select: all`), with no Copy button: the page holds no clipboard permission. A button needs the permission allowed, or main to copy | #665 |
+| A done task or credential block folds when it asks to (`autoCollapse`), so Finish and Template now fold; a form never does | #664 |
 | The in-process transport serves one server per client with its origin fixed at creation, and caps no calls in flight | #566 |
 | Command's definition lands in phase 2 so phase 2's Done when holds as written; phase 3 adds its view | planned |
 | `runbooks test` refuses before running anything when a test file is invalid; `error_contains` needs `config_error`, `missing_outputs` needs `blocked` | #569, #570 |
