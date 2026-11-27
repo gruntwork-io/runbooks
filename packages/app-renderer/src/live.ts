@@ -27,6 +27,9 @@
  *   hash is not the opened runbook's reloaded it between the two reads,
  *   which logs no event after its view, so the window reads it again then
  *   too.
+ * - A block the engine no longer has when the window reads it went with a
+ *   reload after the event that named it, so the window drops it: the
+ *   reload's `DocumentChanged` follows.
  * - When the session closes, its events end, or the engine fails a read or
  *   can't be reached, the window says so (`ended`) and stops following.
  *
@@ -159,7 +162,11 @@ export const follow = (
   const read = (ids: Iterable<BlockId>) =>
     Effect.forEach(
       ids,
-      (block) => Effect.map(readBlock(engine, session, block), (view) => blocks.set(block, view)),
+      (block) =>
+        readBlock(engine, session, block).pipe(
+          Effect.map((view) => blocks.set(block, view)),
+          Effect.catchTag("UnknownBlock", () => Effect.sync(() => blocks.delete(block))),
+        ),
       { concurrency: READS_AT_ONCE, discard: true },
     )
   const approvalFor = (approval: string) =>
@@ -212,12 +219,6 @@ export const follow = (
   }).pipe(
     Effect.catchTags({
       UnknownSession: () => Effect.sync(() => show(CLOSED)),
-      UnknownBlock: (error) =>
-        Effect.sync(() =>
-          show(
-            `The engine has no block ${error.block} in this runbook's session, so the window stopped following it.`,
-          ),
-        ),
       UnknownSequence: (error) =>
         Effect.sync(() =>
           show(

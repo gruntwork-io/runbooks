@@ -421,17 +421,34 @@ describe("the window following a session", () => {
     )
   })
 
-  it("says the engine has no block, when a read names one it lacks", async () => {
+  it("drops a block the engine no longer has when it reads it, as after a reload that removed it, and keeps following", async () => {
+    const engine: Engine = { greet: task("greet"), other: task("other") }
+    let removed = false
     const main = fakeMain((tag, payload) =>
-      tag === "GetBlock"
+      removed && tag === "GetBlock" && (payload as { block: string }).block === "greet"
         ? fails({ _tag: "UnknownBlock", session: SESSION, block: "greet" })
-        : answering({ greet: task("greet") })(tag, payload),
+        : answering(engine)(tag, payload),
     )
     await following(main, (next) =>
       Effect.gen(function* () {
-        expect((yield* next).ended).toBe(
-          "The engine has no block greet in this runbook's session, so the window stopped following it.",
-        )
+        expect([...(yield* next).blocks.keys()].sort()).toEqual(["greet", "other"])
+        // greet is done, and the reload it held back removes it before the window reads it.
+        removed = true
+        main.stream("Events", [
+          event({
+            _tag: "BlockStatusChanged",
+            block: "greet",
+            status: { _tag: "Done", outcome: "success" },
+          }),
+        ])
+        const dropped = yield* next
+        expect(dropped.ended).toBeUndefined()
+        expect([...dropped.blocks.keys()]).toEqual(["other"])
+        engine.other = task("other", { status: { _tag: "Running" }, actions: ["cancel"] })
+        main.stream("Events", [
+          event({ _tag: "BlockStatusChanged", block: "other", status: { _tag: "Running" } }),
+        ])
+        expect(statusOf(yield* next, "other")).toBe("Running")
       }),
     )
   })
