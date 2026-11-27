@@ -176,6 +176,15 @@ bump-plugins $version:
 check-plugin-schemas:
     mise x bun -- bun scripts/plugins/lock.ts schemas
 
+# Check that every hash resources/plugins.lock pins is the one its release
+# lists in SHA256SUMS, for every platform, and that it pins every binary the
+# release lists for a platform the app knows, as bump-plugins writes it.
+# Exits 1, naming each binary and both hashes, when it does not. CI runs it.
+#
+# Check resources/plugins.lock's pins against the release's SHA256SUMS
+check-plugin-pins:
+    mise x bun -- bun scripts/plugins/lock.ts pins
+
 # Package the Electron app for distribution
 package: build compile-test-cli fetch-boilerplate fetch-plugins
     mise x node -- npx electron-builder

@@ -85,11 +85,16 @@ just bump-plugins 0.3.0
 
 # Check that plugin/*.schema.json are the pinned release's schemas, byte for byte
 just check-plugin-schemas
+
+# Check that every pin in the lock is the hash the release lists, on every platform
+just check-plugin-pins
 ```
 
 `fetch-plugins` downloads into a temporary folder and moves the binaries into `resources/bin` only when every hash matches the lock. On a mismatch it prints the asset, the expected hash and the actual one, and exits non-zero. `bump-plugins` reads the release's `SHA256SUMS` file and writes nothing if any hash in it differs from the digest GitHub's API gives for that asset.
 
 The protocol schemas in `plugin/` are the ones the pinned release lists in its `SHA256SUMS`, byte for byte. CI runs `check-plugin-schemas`, so a bump to a release whose schemas changed fails until `plugin/` holds that release's copies, which go in the same diff.
+
+CI also runs `check-plugin-pins`: every hash in the lock is the one the release's `SHA256SUMS` lists for that binary, on every platform, and the lock pins every binary the release lists for a platform the app knows. A lock edited by hand, rather than by `bump-plugins`, fails it, though CI fetches only the Linux binaries.
 
 CI fetches the Linux binaries and checks them on every pull request. The release workflow fetches and checks each platform's binaries before it packages that platform, then checks the `bin` folder of the app it built. On macOS, `mac.signIgnore` in `package.json` keeps electron-builder from signing the plugin binaries again: they are signed and notarized by their own release, and a new signature would change their hash.
 

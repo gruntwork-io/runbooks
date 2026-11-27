@@ -631,6 +631,62 @@ describe("schemas", () => {
   })
 })
 
+describe("pins", () => {
+  const RELEASE = "gruntwork-io/runbooks-plugins v0.1.0"
+  /** Each pinned binary's line, as the release's SHA256SUMS lists it. */
+  const pinnedLines = () =>
+    PLUGINS.flatMap((plugin) =>
+      PLATFORMS.map(
+        (platform) => `${sha256(binary(plugin, platform))}  ${asset(plugin, platform)}`,
+      ),
+    )
+  const serveSums = (lines: ReadonlyArray<string>) =>
+    serve(`${RELEASES}/download/v0.1.0/SHA256SUMS`, `${lines.join("\n")}\n`)
+
+  it("passes when every pin is the line the pinned release lists for it, and prints each", async () => {
+    serveSums([...pinnedLines(), `${sha256("{}")}  base.schema.json`])
+    expect(await run(["pins"])).toBe(EXIT.ok)
+    expect(out).toEqual(pinnedLines())
+    expect(requests).toEqual([`${RELEASES}/download/v0.1.0/SHA256SUMS`])
+  })
+
+  it("names a pin that is not the release's, with both hashes", async () => {
+    const name = asset("aws", "linux-amd64")
+    const released = "f".repeat(64)
+    serveSums(
+      pinnedLines().map((line) => (line.endsWith(`  ${name}`) ? `${released}  ${name}` : line)),
+    )
+    expect(await run(["pins"])).toBe(EXIT.mismatch)
+    expect(stderr()).toContain(
+      `resources/plugins.lock's pin for ${name}, against ${RELEASE}: SHA-256 mismatch\n  expected ${released}\n  actual   ${sha256(binary("aws", "linux-amd64"))}`,
+    )
+    expect(stderr()).not.toContain(asset("google", "linux-amd64"))
+    expect(out).toEqual([])
+  })
+
+  it("names a pin the release doesn't list, and a binary it releases that the lock doesn't pin", async () => {
+    const unlisted = asset("google", "windows-amd64")
+    const unpinned = asset("azure", "darwin-arm64")
+    serveSums([
+      ...pinnedLines().filter((line) => !line.endsWith(`  ${unlisted}`)),
+      `${sha256("azure")}  ${unpinned}`,
+    ])
+    expect(await run(["pins"])).toBe(EXIT.mismatch)
+    expect(stderr()).toContain(
+      `resources/plugins.lock pins ${unlisted}, which ${RELEASE}'s SHA256SUMS doesn't list`,
+    )
+    expect(stderr()).toContain(
+      `${unpinned}: in ${RELEASE}, and resources/plugins.lock doesn't pin it`,
+    )
+  })
+
+  it("fails when the release's SHA256SUMS can't be read", async () => {
+    expect(await run(["pins"])).toBe(EXIT.mismatch)
+    expect(stderr()).toContain(`${RELEASE} SHA256SUMS: `)
+    expect(out).toEqual([])
+  })
+})
+
 describe("usage", () => {
   it.each([
     [[]],
@@ -640,6 +696,8 @@ describe("usage", () => {
     [["bump"]],
     [["check", "--color"]],
     [["schemas", "extra"]],
+    [["pins", "extra"]],
+    [["pins", "--bin-dir", "x"]],
     [["schemas", "--platform", "linux-amd64"]],
   ])("refuses %j with the usage", async (args) => {
     expect(await run(args)).toBe(EXIT.usage)
