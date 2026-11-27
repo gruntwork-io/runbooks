@@ -803,12 +803,25 @@ function restoredRun(slot: Slot, saved: SavedRun): Run | undefined {
 /** A runbook the parser did not refuse: what a session opens, or reloads. */
 export type ParsedRunbook = Extract<ParseResult, { readonly _tag: "Parsed" }>
 
-/** What `Session.reload` did. */
+/** What `takeDocument` did. */
 export type ReloadResult =
   | { readonly _tag: "Reloaded" }
   /** The runbook is the one the session holds: nothing changed. */
   | { readonly _tag: "Unchanged" }
   | Extract<ReloadHeld, { readonly _tag: "Running" }>
+
+/** What the session's watcher read of its runbook on a save: parsed, refused, or not read. */
+export type RunbookRead = ParseResult | { readonly _tag: "Unreadable"; readonly message: string }
+
+/**
+ * Where a reload takes the files the runbook names from: as they were read
+ * with it (`runbookAndFiles` watch mode), or at the text the session holds,
+ * each it holds none of as read (`runbook`).
+ */
+export type ReloadFilesFrom = "read" | "held"
+
+/** What reloading the session's runbook did, or why the session holds back the one on disk. */
+export type RunbookReload = ReloadResult | Exclude<ReloadHeld, { readonly _tag: "Running" }>
 
 /**
  * What a reload compares of a block to keep it (`DocumentChanged`): its
@@ -872,14 +885,23 @@ export interface Session {
     block: BlockId,
   ) => Effect.Effect<void, UnknownSession | UnknownBlock | WrongClass>
   /**
-   * Takes `next` as the session's document, as `DocumentChanged` says,
-   * unless a block runs or it is the document the session holds. Only the
-   * session's watcher calls it, and `reloadFiles` takes files so: a reload
-   * keeps trust while the session is open. Only `reloadFiles`, a person's
+   * Takes the runbook its watcher read, with its files as `files` says, as
+   * the session's document, as `DocumentChanged` says. Only the session's
+   * watcher calls it, and `reloadFiles` takes files so: a reload keeps
+   * trust while the session is open. Only `reloadFiles`, a person's
    * choice, saves it for the new hash, over a document a person trusted or
-   * chose.
+   * chose. The files read with it count as read from disk, as the
+   * watcher's are (`filesChanged`).
+   *
+   * Unless it takes it, or it is the document the session holds, the
+   * session holds the runbook back (`SessionView.reloadHeld`): refused or
+   * unread until the next save, or until no block runs, when it takes it
+   * without another.
    */
-  readonly reload: (next: ParsedRunbook) => Effect.Effect<ReloadResult, UnknownSession>
+  readonly reload: (
+    read: RunbookRead,
+    files: ReloadFilesFrom,
+  ) => Effect.Effect<RunbookReload, UnknownSession>
   /**
    * What the session's watcher does when files the runbook names change:
    * `facts` is what it read at each path. Each block that names one shows
@@ -959,6 +981,12 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   const disk = new Map<RunbookPath, FileFact>()
   /** Each block's `filesOnDisk`, by id, while it has one. */
   const onDisk = new Map<BlockId, FilesOnDisk>()
+  /** Why the session holds back the runbook on disk, refused or unread, until a reload takes one. */
+  let refused: Exclude<ReloadHeld, { readonly _tag: "Running" }> | undefined
+  /** A reload that waits for the blocks running to end: the session takes it once none runs. */
+  let pending: { readonly read: ParsedRunbook; readonly files: ReloadFilesFrom } | undefined
+  /** `SessionView.reloadHeld`, as last logged. */
+  let heldShown: ReloadHeld | undefined
   let documentView = documentViewOf(document, opening.props, registry)
   let slots = slotsOf(document, registry)
   const credentialSlots = credentialSlotsOf(slots, registry)
@@ -1418,6 +1446,38 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       return [{ _tag: "BlockStatusChanged" as const, block: slot.id, status }]
     })
 
+  /** The blocks running now, as a reload counts them. */
+  const runningIds = (): ReadonlyArray<BlockId> =>
+    inOnePass(() =>
+      // Approvals are a later work product: a block awaiting one will count as running.
+      slots.filter((slot) => statusOf(slot)?._tag === "Running").map((slot) => slot.id),
+    )
+
+  /**
+   * Why the session holds back the runbook on disk now: refused, unread, or
+   * waiting for the blocks running. Once the last ends, it names those it
+   * waited for until the session takes the reload.
+   */
+  const heldNow = (): ReloadHeld | undefined => {
+    if (refused !== undefined) return refused
+    if (pending === undefined) return undefined
+    const [first, ...rest] = runningIds()
+    return first === undefined ? heldShown : { _tag: "Running", blocks: [first, ...rest] }
+  }
+
+  const sameHeld = (a: ReloadHeld | undefined, b: ReloadHeld | undefined): boolean =>
+    a?._tag === "Running" && b?._tag === "Running" ? a.blocks.join() === b.blocks.join() : a === b
+
+  /** `ReloadHeldChanged`, when why the session holds back a reload moved. */
+  const heldChanges = (): ReadonlyArray<EngineEvent> => {
+    const now = heldNow()
+    if (sameHeld(now, heldShown)) return []
+    heldShown = now
+    return [
+      now === undefined ? { _tag: "ReloadHeldChanged" } : { _tag: "ReloadHeldChanged", held: now },
+    ]
+  }
+
   /**
    * Set while a reload stops the credential blocks it starts over: none
    * starts until their providers are closed, as each one's state folder is
@@ -1445,7 +1505,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         const emit = (event: EngineEvent) => events.push(event)
         const result = change(emit)
         const started = credentials.enter(startable, emit)
-        events.push(...inOnePass(() => [...derivedOutputChanges(), ...statusChanges()]))
+        events.push(
+          ...inOnePass(() => [...derivedOutputChanges(), ...statusChanges(), ...heldChanges()]),
+        )
         if (closed) return { result, logged: false, started }
         const at = DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())
         const first = log.end()
@@ -1977,10 +2039,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           sameFiles(next.files, heldFiles)
         )
           return { _tag: "Unchanged" } as const
-        // Approvals are a later work product: a block awaiting one will count as running.
-        const [first, ...rest] = inOnePass(() =>
-          slots.filter((slot) => statusOf(slot)?._tag === "Running"),
-        ).map((slot) => slot.id)
+        const [first, ...rest] = runningIds()
         if (first !== undefined) return { _tag: "Running", blocks: [first, ...rest] } as const
 
         const read = yield* readBlocks(next.document, registry, next.texts)
@@ -2092,6 +2151,63 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       }),
     )
 
+  /** The session's runbook text parsed with `files`: it parsed before, and only a text refuses a runbook. */
+  const parseHeld = (
+    text: string,
+    files: ReadonlyMap<RunbookPath, FileFact>,
+  ): Effect.Effect<ParsedRunbook> => {
+    const next = startParse(text, registry, { file: document.file, appVersion }).finish(files)
+    // Unreachable: only a runbook's own text refuses it (`refusesRunbook`), and
+    // this text parsed before. A file a block names stops that block alone (`badFile`).
+    return next._tag === "Parsed"
+      ? Effect.succeed(next)
+      : Effect.die(
+          new Error(
+            `This is a bug in Runbooks, not in the runbook: the runbook parsed, but not with the files the session holds or a block showed on disk (${next.errors[0].message}).`,
+          ),
+        )
+  }
+
+  /** Reloads the runbook its watcher read, as `reload` says. The caller holds the lock. */
+  const attempt = (read: RunbookRead, files: ReloadFilesFrom): Effect.Effect<RunbookReload> =>
+    Effect.gen(function* () {
+      pending = undefined
+      if (read._tag !== "Parsed") {
+        refused = read
+        yield* update(() => undefined)
+        return read
+      }
+      refused = undefined
+      // Read after what the watcher read before them, so they are what is on disk.
+      for (const [named, fact] of read.files) if (heldFiles.has(named)) disk.set(named, fact)
+      const next =
+        files === "read"
+          ? read
+          : yield* parseHeld(
+              read.source,
+              new Map(
+                Array.from(read.files, ([named, fact]) => [named, heldFiles.get(named) ?? fact]),
+              ),
+            )
+      const taken = yield* takeDocument(next, "watcher")
+      if (taken._tag === "Running") pending = { read, files }
+      yield* update((emit) => refreshOnDisk(emit))
+      return taken
+    })
+
+  /** Takes the reload held back for the blocks running, once none runs. */
+  const letThrough = Effect.suspend(() =>
+    pending === undefined || runningIds().length > 0
+      ? Effect.void
+      : lock.withPermit(
+          Effect.suspend(() =>
+            closing || pending === undefined
+              ? Effect.void
+              : Effect.asVoid(attempt(pending.read, pending.files)),
+          ),
+        ),
+  )
+
   // The runbook's folder, until sessions get names of their own.
   const name = path.basename(path.dirname(document.file))
 
@@ -2119,6 +2235,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       blocks: inOnePass(() => slots.map(summaryOf)),
       warnings: document.warnings,
       ...(resume === undefined ? {} : { resumed: resume.resumed }),
+      ...(heldShown === undefined ? {} : { reloadHeld: heldShown }),
     }),
 
     documentView: () => documentView,
@@ -2159,7 +2276,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     getBlock: (block, logOffset, logLimit) =>
       Effect.map(byId(block), (slot) => viewOf(slot, logOffset, logLimit)),
 
-    reload: (next) => lock.withPermit(Effect.andThen(notClosing, takeDocument(next, "watcher"))),
+    reload: (read, files) => lock.withPermit(Effect.andThen(notClosing, attempt(read, files))),
 
     filesChanged: (facts) =>
       lock.withPermit(
@@ -2188,19 +2305,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
             const fact = disk.get(named)
             if (fact !== undefined) files.set(named, fact)
           }
-          const next = startParse(source, registry, { file: document.file, appVersion }).finish(
-            files,
-          )
-          // Unreachable: only a runbook's own text refuses it (`refusesRunbook`), and
-          // this text parsed when the session took it. A file a block names stops
-          // that block alone (`badFile`).
-          if (next._tag === "Invalid")
-            return yield* Effect.die(
-              new Error(
-                `This is a bug in Runbooks, not in the runbook: the runbook parsed when the session took it, but not with the files a block showed on disk (${next.errors[0].message}).`,
-              ),
-            )
-          const taken = yield* takeDocument(next, "person")
+          const taken = yield* takeDocument(yield* parseHeld(source, files), "person")
           // Unreachable: the block showed files that differ from the session's, and took them.
           return taken._tag === "Unchanged" ? ({ _tag: "NotShown" } as const) : taken
         }),
@@ -2411,5 +2516,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         emit({ _tag: "OutputsPublished", block: slot.id, outputs: outputsView(run.state.outputs) })
     }
   })
+  // Each change may end the last block running that a held reload waits
+  // for. Subscribed now, so no change made before the loop first runs is missed.
+  const wake = yield* Scope.provide(scope)(PubSub.subscribe(changed))
+  yield* Effect.forkIn(Effect.forever(Effect.andThen(PubSub.take(wake), letThrough)), scope)
   return session
 })
