@@ -282,8 +282,10 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
           return { _tag: "Opened", session: session.view() } as const
         })
 
+        // Every session at once, so each one's running scripts are stopped together.
         yield* Effect.addFinalizer(() =>
           Effect.forEach(Array.from(sessions.values()), (session) => session.close, {
+            concurrency: "unbounded",
             discard: true,
           }),
         )

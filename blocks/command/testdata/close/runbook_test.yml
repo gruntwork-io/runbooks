@@ -1,0 +1,10 @@
+version: 1
+tests:
+  - name: close
+    steps:
+      - block: one
+        expect: success
+      - block: two
+        expect: success
+      - block: three
+        expect: success

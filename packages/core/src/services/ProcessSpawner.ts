@@ -49,6 +49,12 @@ export interface OutputLine {
 export interface SpawnedProcess {
   readonly output: Stream.Stream<OutputLine>
   readonly exitCode: Effect.Effect<number>
+  /**
+   * Stops the process and every process it started, unless it has ended:
+   * asks them to end, then kills what is left once a grace is over. Ends
+   * when none is left or the grace is over, so what a caller releases next
+   * (a folder the process writes to) outlasts them.
+   */
   readonly kill: Effect.Effect<void>
 }
 

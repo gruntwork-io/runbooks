@@ -1,0 +1,9 @@
+# Closing a session with scripts running
+
+`packages/app-main/src/engine.test.ts` runs all three blocks, then closes the session, or the engine, while they run. Each script's `TERM` trap takes two seconds, so the close takes about two seconds only if every script is stopped at once.
+
+<Command id="one" path="scripts/stuck.sh" />
+
+<Command id="two" path="scripts/stuck.sh" />
+
+<Command id="three" path="scripts/stuck.sh" />

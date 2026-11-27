@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test"
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { Effect, Stream } from "effect"
+import { Effect, Fiber, Stream } from "effect"
 import { collectOutput, ProcessSpawner } from "@runbooks/core/services/ProcessSpawner"
 import { ChildProcessSpawnerLive, stopsEnded } from "../../layers/ChildProcessSpawner.ts"
 import { MAX_LINE_LENGTH } from "../../layers/lineSplitter.ts"
@@ -25,7 +25,7 @@ function run(script: string, each: (line: string) => Effect.Effect<void> = () =>
 }
 
 describe("the spawner, on real processes", () => {
-  it("has stopsEnded wait for a killed script's grace, which it uses to clean up", async () => {
+  it("has kill end once a killed script has used its grace to clean up, and stopsEnded wait for it too", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "spawner-stops-"))
     try {
       const done = path.join(dir, "cleaned-up")
@@ -37,13 +37,16 @@ describe("the spawner, on real processes", () => {
             `trap 'sleep 0.5; touch "${done}"; exit 0' TERM; echo ready; while :; do sleep 0.1; done`,
           ])
           yield* Stream.runHead(proc.output)
+          const first = yield* Effect.forkChild(proc.kill, { startImmediately: true })
+          // A second caller's kill, while the first's is under way.
           yield* proc.kill
-          const before = existsSync(done)
+          const killed = existsSync(done)
+          yield* Fiber.join(first)
           yield* stopsEnded
-          return { before, after: existsSync(done) }
+          return { killed, after: existsSync(done) }
         }).pipe(Effect.provide(ChildProcessSpawnerLive)),
       )
-      expect(waited).toEqual({ before: false, after: true })
+      expect(waited).toEqual({ killed: true, after: true })
       // Nothing is stopping now, so it waits for nothing.
       expect(await Effect.runPromise(stopsEnded.pipe(Effect.timeoutOption("50 millis")))).toEqual(
         expect.objectContaining({ _tag: "Some" }),

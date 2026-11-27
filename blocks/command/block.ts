@@ -20,7 +20,8 @@
  *   (`LIMITS.maxLogLineLength`), and counts the rest, which the log says
  *   was cut.
  * - It is stopped, with every process it started, when it is cancelled or
- *   runs past `timeoutMs`.
+ *   runs past `timeoutMs`. Its folder (the script, the helpers, the log
+ *   files) goes once they have ended, so a TERM trap can still use it.
  */
 import { Effect, Redacted, Schema, Stream } from "effect"
 import {
