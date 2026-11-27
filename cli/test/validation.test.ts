@@ -385,16 +385,17 @@ Text
 // ---------------------------------------------------------------------------
 
 describe("parseAuthDependencies", () => {
+  const refs = (p: string, blockId: string) =>
+    parseAuthDependencies(p)
+      .get(blockId)
+      ?.map((d) => [d.prop, d.authBlockId])
+
   it("links a block to its AwsAuth dependency", () => {
     const p = writeRunbook(`
 <AwsAuth id="aws1" />
 <Command id="cmd1" awsAuthId="aws1">echo hi</Command>
 `)
-    const deps = parseAuthDependencies(p)
-    const d = deps.get("cmd1")
-    expect(d).toBeDefined()
-    expect(d!.authBlockId).toBe("aws1")
-    expect(d!.authBlockType).toBe("AwsAuth")
+    expect(refs(p, "cmd1")).toEqual([["awsAuthId", "aws1"]])
   })
 
   it("links a block to its GoogleAuth dependency via googleAuthId", () => {
@@ -402,11 +403,7 @@ describe("parseAuthDependencies", () => {
 <GoogleAuth id="gcp1" />
 <Command id="cmd1" googleAuthId="gcp1">gcloud projects list</Command>
 `)
-    const deps = parseAuthDependencies(p)
-    const d = deps.get("cmd1")
-    expect(d).toBeDefined()
-    expect(d!.authBlockId).toBe("gcp1")
-    expect(d!.authBlockType).toBe("GoogleAuth")
+    expect(refs(p, "cmd1")).toEqual([["googleAuthId", "gcp1"]])
   })
 
   it("keeps googleAuthId and awsAuthId dependencies distinct", () => {
@@ -416,10 +413,21 @@ describe("parseAuthDependencies", () => {
 <Command id="aws-cmd" awsAuthId="aws1">echo aws</Command>
 <Check id="gcp-check" googleAuthId="gcp1">echo gcp</Check>
 `)
-    const deps = parseAuthDependencies(p)
-    expect(deps.get("aws-cmd")?.authBlockType).toBe("AwsAuth")
-    expect(deps.get("gcp-check")?.authBlockType).toBe("GoogleAuth")
-    expect(deps.get("gcp-check")?.authBlockId).toBe("gcp1")
+    expect(refs(p, "aws-cmd")).toEqual([["awsAuthId", "aws1"]])
+    expect(refs(p, "gcp-check")).toEqual([["googleAuthId", "gcp1"]])
+  })
+
+  it("lists every auth block a script block names, in the order the app merges their env", () => {
+    const p = writeRunbook(`
+<Finish id="done" azureAuthId="az" gitAuthId="git" googleAuthId="gcp" githubAuthId="gh" awsAuthId="aws">echo</Finish>
+`)
+    expect(refs(p, "done")).toEqual([
+      ["awsAuthId", "aws"],
+      ["githubAuthId", "gh"],
+      ["gitAuthId", "git"],
+      ["googleAuthId", "gcp"],
+      ["azureAuthId", "az"],
+    ])
   })
 
   it("links a block to its GitHubAuth dependency via githubAuthId", () => {
@@ -427,10 +435,16 @@ describe("parseAuthDependencies", () => {
 <GitHubAuth id="gh1" />
 <GitClone id="gc1" githubAuthId="gh1" url="https://github.com/x/y" />
 `)
-    const deps = parseAuthDependencies(p)
-    const d = deps.get("gc1")
-    expect(d?.authBlockId).toBe("gh1")
-    expect(d?.authBlockType).toBe("GitHubAuth")
+    expect(refs(p, "gc1")).toEqual([["githubAuthId", "gh1"]])
+  })
+
+  it("links a GitClone or pull request block to its gitAuthId block only, when githubAuthId is set too", () => {
+    const p = writeRunbook(`
+<GitClone id="gc1" githubAuthId="gh1" gitAuthId="git1" url="https://github.com/x/y" />
+<GitPullRequest id="pr1" githubAuthId="gh1" gitAuthId="git1" />
+`)
+    expect(refs(p, "gc1")).toEqual([["gitAuthId", "git1"]])
+    expect(refs(p, "pr1")).toEqual([["gitAuthId", "git1"]])
   })
 
   it("ignores auth references inside fenced code blocks", () => {
@@ -450,7 +464,7 @@ describe("parseAuthDependencies", () => {
 <Command id="first" command={'echo it\'s > out.txt'} />
 <Command id={"cmd1"} awsAuthId={"aws1"} command="aws sts get-caller-identity" />
 `)
-    expect(parseAuthDependencies(p).get("cmd1")?.authBlockId).toBe("aws1")
+    expect(refs(p, "cmd1")).toEqual([["awsAuthId", "aws1"]])
   })
 })
 

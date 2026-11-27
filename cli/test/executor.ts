@@ -339,7 +339,7 @@ export class TestExecutor {
   private validator!: InputValidator
   private templateInlines!: Map<string, TemplateInlineBlock>
   private templates!: Map<string, TemplateBlock>
-  private authDeps!: Map<string, AuthDependency>
+  private authDeps!: Map<string, readonly AuthDependency[]>
   private runDeps!: Map<string, string[]>
   // Each Check, Command and Finish block's `showWhenBlock` condition, by block ID
   private showWhenBlocks!: Map<string, ShowWhenBlock>
@@ -702,9 +702,9 @@ export class TestExecutor {
     return this.runDeps.get(blockId) ?? []
   }
 
-  /** The auth block block `blockId` references, if any. */
-  getAuthDependency(blockId: string): AuthDependency | undefined {
-    return this.authDeps.get(blockId)
+  /** The auth blocks block `blockId` references, as parseAuthDependencies orders them. */
+  getAuthDependencies(blockId: string): readonly AuthDependency[] {
+    return this.authDeps.get(blockId) ?? []
   }
 
   /** The configuration error the app would show in place of block `blockId`, or "". */
@@ -792,13 +792,12 @@ export class TestExecutor {
     if (!block) return []
     const reasons: string[] = []
 
-    const authDep = this.authDeps.get(blockId)
-    if (authDep) {
-      const state = this.blockStates.get(authDep.authBlockId)
+    for (const { authBlockId } of this.getAuthDependencies(blockId)) {
+      const state = this.blockStates.get(authBlockId)
       if (state === undefined) {
-        reasons.push(`Auth block "${authDep.authBlockId}" hasn't run yet`)
+        reasons.push(`Auth block "${authBlockId}" hasn't run yet`)
       } else if (state === "skipped") {
-        reasons.push(`Auth block "${authDep.authBlockId}" was skipped or found no credentials`)
+        reasons.push(`Auth block "${authBlockId}" was skipped or found no credentials`)
       }
     }
 
@@ -966,7 +965,9 @@ export class TestExecutor {
       const dependsOn = (this.runDeps.get(block.id) ?? []).some(
         (id) => normalizeBlockId(id) === target,
       )
-      const authBlock = this.authDeps.get(block.id)?.authBlockId === blockId
+      const authBlock = this.getAuthDependencies(block.id).some(
+        (dep) => dep.authBlockId === blockId,
+      )
       if (outputs.size === 0 && !dependsOn && !authBlock) continue
       result.push({
         block: block.id,
@@ -1045,17 +1046,18 @@ export class TestExecutor {
       return hiddenResult
     }
 
-    // 4. Check auth dependencies. A block whose auth block hasn't run, or was
-    // skipped, is blocked, which is what an `expect: blocked` step asserts.
-    // `expect: skip` skips the block whatever state its auth block is in.
-    if (step.expect !== "skip" && this.authDeps.has(block.id)) {
-      const authDep = this.authDeps.get(block.id)!
-      const authState = this.blockStates.get(authDep.authBlockId)
+    // 4. Check auth dependencies. A block with an auth block that hasn't run,
+    // or was skipped, is blocked, which is what an `expect: blocked` step
+    // asserts. `expect: skip` skips the block whatever state its auth blocks
+    // are in.
+    const authDeps = step.expect === "skip" ? [] : this.getAuthDependencies(block.id)
+    for (const { authBlockId } of authDeps) {
+      const authState = this.blockStates.get(authBlockId)
 
       if (authState === undefined) {
         result.passed = step.expect === "blocked"
         result.actualStatus = "blocked"
-        result.error = `Block depends on "${authDep.authBlockId}" which hasn't run yet`
+        result.error = `Block depends on "${authBlockId}" which hasn't run yet`
         result.duration = Date.now() - start
         return result
       }
@@ -1063,7 +1065,7 @@ export class TestExecutor {
       if (authState === "skipped") {
         result.passed = step.expect === "blocked"
         result.actualStatus = "blocked"
-        result.error = `Block depends on "${authDep.authBlockId}" which was skipped`
+        result.error = `Block depends on "${authBlockId}" which was skipped`
         result.duration = Date.now() - start
         return result
       }
@@ -1459,15 +1461,10 @@ export class TestExecutor {
       if (this.activeWorkTreePath) env["REPO_FILES"] = this.activeWorkTreePath
       for (const { envVar, path: logFile } of [scriptLog, ...levelLogs]) env[envVar] = logFile
 
-      // Inject auth block credentials if this block has an auth dependency
-      if (this.authDeps.has(foundExec.componentId)) {
-        const authDep = this.authDeps.get(foundExec.componentId)!
-        const creds = this.authBlockCredentials.get(authDep.authBlockId)
-        if (creds) {
-          for (const [k, v] of Object.entries(creds)) {
-            env[k] = v
-          }
-        }
+      // The credentials of each auth block the block references, merged in
+      // the app's order
+      for (const { authBlockId } of this.getAuthDependencies(foundExec.componentId)) {
+        Object.assign(env, this.authBlockCredentials.get(authBlockId))
       }
 
       // Then the block's env, as data, as in the app
@@ -2520,7 +2517,7 @@ export class TestExecutor {
     if (url.protocol !== "https:") return process.env
     const host = url.host.toLowerCase()
 
-    const authId = stringProp(block.props, "gitAuthId") || stringProp(block.props, "githubAuthId")
+    const authId = this.getAuthDependencies(block.id)[0]?.authBlockId
     const provider: GitProvider | undefined =
       (authId ? this.gitAuthTokens.get(authId)?.provider : undefined) ??
       (host === "gitlab.com" ? "gitlab" : isGitHubHost(host) ? "github" : undefined)

@@ -270,6 +270,30 @@ describe("blocked blocks", () => {
   })
 })
 
+describe("a block with two auth blocks", () => {
+  it("lists both, and waits for each", async () => {
+    const dir = path.join(tmp, "two-auth")
+    fs.mkdirSync(dir)
+    fs.writeFileSync(
+      path.join(dir, "runbook.mdx"),
+      `# Two auth blocks\n\n<AzureAuth id="azure" />\n\n<GitAuth id="git" />\n\n<Command id="deploy" azureAuthId="azure" gitAuthId="git" command="echo deploy" />\n`,
+    )
+    const opened = await call("open_runbook", {
+      path: dir,
+      working_dir: path.join(tmp, "two-auth-work"),
+      env: NO_AZURE,
+    })
+
+    const deploy = await call("get_block", { session_id: opened.session_id, block_id: "deploy" })
+
+    expect(deploy.blocked_by).toEqual([
+      `Auth block "git" hasn't run yet`,
+      `Auth block "azure" hasn't run yet`,
+    ])
+    expect(deploy.depends_on.auth_blocks).toEqual(["git", "azure"])
+  })
+})
+
 // A form whose default matters: like the AWS bootstrap's opt-in regions,
 // an empty list is a decision the field's description explains.
 const REVIEW_MDX = `# Review
