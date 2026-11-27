@@ -2178,8 +2178,6 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         return read
       }
       refused = undefined
-      // Read after what the watcher read before them, so they are what is on disk.
-      for (const [named, fact] of read.files) if (heldFiles.has(named)) disk.set(named, fact)
       const next =
         files === "read"
           ? read
@@ -2276,7 +2274,21 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     getBlock: (block, logOffset, logLimit) =>
       Effect.map(byId(block), (slot) => viewOf(slot, logOffset, logLimit)),
 
-    reload: (read, files) => lock.withPermit(Effect.andThen(notClosing, attempt(read, files))),
+    reload: (read, files) =>
+      lock.withPermit(
+        Effect.andThen(
+          notClosing,
+          Effect.suspend(() => {
+            // Read after what the watcher read before them, so they are what is
+            // on disk now. Not again when a reload held back is taken: what the
+            // watcher read since is newer.
+            if (read._tag === "Parsed")
+              for (const [named, fact] of read.files)
+                if (heldFiles.has(named)) disk.set(named, fact)
+            return attempt(read, files)
+          }),
+        ),
+      ),
 
     filesChanged: (facts) =>
       lock.withPermit(

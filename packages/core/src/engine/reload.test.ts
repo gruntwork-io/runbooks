@@ -1170,4 +1170,28 @@ describe("a block's files on disk", () => {
       { scripts: { ...FILE_SCRIPTS, check: gated(gate) }, files: FILES },
     )
   })
+
+  it("keeps what the watcher read after a reload it held back read, once it takes the reload", () => {
+    const gate = makeGate()
+    return withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.start("check")
+        yield* Deferred.await(gate.taken)
+        expect(yield* rb.save(`${FILES_RUNBOOK}\n\nSaved.`)).toMatchObject({ _tag: "Running" })
+        // Saved after the reload read it, and read by the watcher.
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        const { sequence } = yield* rb.session
+        yield* Deferred.succeed(gate.open, undefined)
+        yield* rb.next("DocumentChanged", sequence)
+        expect((yield* rb.block("deploy")).filesOnDisk?.files).toMatchObject([
+          { path: "deploy.sh", change: "modified" },
+        ])
+      }),
+      { scripts: { ...FILE_SCRIPTS, check: gated(gate) }, files: FILES },
+    )
+  })
 })
