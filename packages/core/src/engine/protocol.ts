@@ -17,7 +17,7 @@
  */
 import { Context, Schema, Struct } from "effect"
 import { Rpc, type RpcClient, type RpcClientError, RpcGroup, RpcMiddleware } from "effect/rpc"
-import { BlockClass, BlockId } from "@runbooks/blocks-core/contract"
+import { BlockClass, BlockId, MachineEffect } from "@runbooks/blocks-core/contract"
 import { Field, FieldType, FieldValue, Validation } from "@runbooks/blocks-core/form"
 import { Blocker, BlockStatus } from "@runbooks/blocks-core/status"
 import { CredentialAction, CredentialState } from "../credential/lifecycle.ts"
@@ -317,6 +317,13 @@ export const DocumentBlock = Schema.Union([
      * neither is a misconfigured one.
      */
     step: Schema.Boolean,
+    /**
+     * What its block declares it may do to the machine, for an alias its
+     * block's: what trusting the session lets it do, which the trust prompt
+     * lists. Empty for a display or form block. A misconfigured block never
+     * runs, so it has none.
+     */
+    effects: Schema.Array(MachineEffect),
     /**
      * The block's own props, encoded with its own schema after alias locks:
      * what the author wrote. Sent for a display block, and for a task with no

@@ -396,6 +396,7 @@ describe("engine protocol", () => {
       id: greet,
       title: "Greet",
       step: true,
+      effects: ["process"],
       props: { command: "echo hi", args: ["-n", 1, true, null] },
     }
     const misconfigured: DocumentBlock = {
