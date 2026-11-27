@@ -264,6 +264,7 @@ The `setup-outputs` command above wrote outputs. Now let's consume them downstre
 
 <Command
   id="cmd-inline-inputs"
+  outputs={["result"]}
   path="scripts/mixed-inputs-outputs.sh"
   env={{
     GREETING: "{{ .inputs.Greeting }}",

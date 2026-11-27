@@ -62,6 +62,7 @@ Create a new empty repository on GitHub. The scaffolded files will be pushed to 
 
 <Command
   id="create-repo"
+  outputs={["repo_url"]}
   path="scripts/create-repo.sh"
   env={{ REPO_NAME: "{{ .inputs.RepoName }}", ORG_NAME: "{{ .inputs.OrgName }}" }}
   title="Create GitHub Repository"
@@ -89,6 +90,7 @@ Create a new empty repository on GitHub. The scaffolded files will be pushed to 
 
 <Command
   id="lookup-versions"
+  outputs={["opentofu_version", "terragrunt_version"]}
   path="scripts/lookup-versions.sh"
   title="Look Up Latest Versions"
   description="Fetch the latest OpenTofu and Terragrunt versions from GitHub."

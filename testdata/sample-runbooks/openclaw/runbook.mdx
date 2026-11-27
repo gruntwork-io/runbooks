@@ -303,7 +303,7 @@ OpenClaw is accessed via **SSM port forwarding**, which securely tunnels the Ope
 
 <Command
   id="instance-info"
-  outputs={["ssm_command", "ssm_password_command", "ssm_port_forward_command"]}
+  outputs={["ssm_command", "ssm_password_command", "ssm_port_forward_command", "instance_id"]}
   path="scripts/save-ssh-key.sh"
   env={{
     INSTANCE_NAME: "{{ .inputs.InstanceName }}",

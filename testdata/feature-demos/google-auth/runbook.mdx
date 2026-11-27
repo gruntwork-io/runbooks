@@ -226,6 +226,7 @@ This is the service account impersonation analogue of `sts assume-role`: a short
 
 <Command
   id="impersonate-service-account"
+  outputs={["GOOGLE_OAUTH_ACCESS_TOKEN", "CLOUDSDK_AUTH_ACCESS_TOKEN", "CLOUDSDK_CORE_PROJECT"]}
   path="scripts/impersonate-sa.sh"
   env={{
     TARGET_SA: "{{ .inputs.TargetServiceAccount }}",
