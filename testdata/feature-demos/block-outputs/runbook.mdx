@@ -36,6 +36,7 @@ This command simulates creating an AWS account and outputs the account ID.
 
 <Command
   id="create-account"
+  outputs={["account_id", "region"]}
   path="scripts/create-account.sh"
   title="Create AWS Account"
   description="Creates a new AWS account and outputs the account ID and region"
@@ -49,6 +50,7 @@ This command uses the account ID from Step 1 to create resources.
 
 <Command
   id="create-resources"
+  outputs={["role_arn"]}
   path="scripts/create-resources.sh"
   env={{
     ACCOUNT_ID: "{{ .outputs.create_account.account_id }}",
@@ -175,6 +177,7 @@ echo "teams={\"engineering\":{\"lead\":\"alice\"}}" >> "$RUNBOOK_OUTPUT"
 
 <Command
   id="list-users"
+  outputs={["users", "teams"]}
   path="scripts/list-users.sh"
   title="List Organization Users"
   description="Fetches users and teams, outputting them as JSON for downstream templates"
@@ -261,6 +264,7 @@ After you run the command below, **View Outputs** shows `api_user` as usual but 
 
 <Command
   id="fetch-api-token"
+  outputs={["api_user", "api_token"]}
   path="scripts/fetch-api-token.sh"
   title="Fetch API Token"
   description="Outputs an API user and a token marked sensitive"

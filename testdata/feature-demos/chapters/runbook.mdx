@@ -24,6 +24,7 @@ This block writes an output, `workspace`, that a block in the next chapter reads
 
 <Command
     id="prepare"
+    outputs={["workspace"]}
     title="Prepare a workspace"
     env={{ APP_NAME: "{{ .inputs.AppName }}" }}
     command='echo "workspace=/tmp/$APP_NAME" >> "$RUNBOOK_OUTPUT" && echo "Workspace ready."'

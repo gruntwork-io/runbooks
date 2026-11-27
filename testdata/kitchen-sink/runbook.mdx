@@ -216,6 +216,7 @@ variables:
 
 <Command
   id="setup-outputs"
+  outputs={["account_id", "region", "project_name"]}
   path="scripts/setup-outputs.sh"
   title="Setup Block Outputs"
   description="Runs a script that writes key=value pairs to `$RUNBOOK_OUTPUT`"
@@ -293,6 +294,7 @@ The `setup-outputs` command above wrote outputs. Now let's consume them downstre
 
 <Command
   id="list-complex-data"
+  outputs={["users", "teams"]}
   path="scripts/list-complex-data.sh"
   title="Produce Complex Outputs"
   description="Outputs JSON lists and maps via `$RUNBOOK_OUTPUT`"

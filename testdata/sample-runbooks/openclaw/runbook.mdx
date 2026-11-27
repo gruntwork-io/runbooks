@@ -54,6 +54,7 @@ Authenticate to GitHub so the runbook can clone repos, create pull requests, and
 
 <Command
   id="detect-account"
+  outputs={["account_id"]}
   path="scripts/detect-account.sh"
   title="Detect AWS Account ID"
   description="Fetch the AWS account ID from your authenticated session."
@@ -302,6 +303,7 @@ OpenClaw is accessed via **SSM port forwarding**, which securely tunnels the Ope
 
 <Command
   id="instance-info"
+  outputs={["ssm_command", "ssm_password_command", "ssm_port_forward_command"]}
   path="scripts/save-ssh-key.sh"
   env={{
     INSTANCE_NAME: "{{ .inputs.InstanceName }}",

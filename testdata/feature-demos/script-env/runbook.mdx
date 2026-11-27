@@ -33,6 +33,7 @@ echo "bucket=$BUCKET" >> "$RUNBOOK_OUTPUT"`}
 
 <Command
   id="fetch-title"
+  outputs={["title"]}
   title="Fetch a pull request title"
   path="scripts/fetch-title.sh"
 />
