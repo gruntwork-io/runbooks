@@ -5,7 +5,12 @@ import os from "node:os"
 import path from "node:path"
 import { Deferred, Effect, Fiber, Layer, Queue, type Scope, Stream } from "effect"
 import { type Rpc, RpcClient, type RpcMessage, RpcSerialization, type RpcServer } from "effect/rpc"
-import { type EngineClient, EngineProtocol } from "@runbooks/core/protocol"
+import {
+  type EngineClient,
+  EngineProtocol,
+  RunbookUnreadable,
+  type WatchMode,
+} from "@runbooks/core/protocol"
 import { VcsCredentials } from "@runbooks/core/services/VcsCredentials"
 import { ChildProcessSpawnerLive } from "@runbooks/platform-node/layers/ChildProcessSpawner"
 import { GitCliClientLive } from "@runbooks/platform-node/layers/GitCliClient"
@@ -577,14 +582,26 @@ const launchEngine = (openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>) => 
   return openSession === undefined ? engine : Layer.merge(engine, openSession)
 }
 
-/** The launches main serves: `first`, those put in `later`, and each time it shows one. */
+/** An `OpenSession` that keeps each payload main sends in `asked`, and opens nothing. */
+const recordingOpens = (asked: unknown[]) =>
+  EngineProtocol.toLayerHandler("OpenSession", (payload) => {
+    asked.push(payload)
+    return Effect.fail(new RunbookUnreadable({ path: payload.path, message: "recorded" }))
+  })
+
+/**
+ * The launches main serves: `first`, those put in `later`, and each time it
+ * shows one, in the watch mode the app's command line asked for.
+ */
 const launchesOf = (
   first: Launch | undefined,
   later: Queue.Dequeue<Launch>,
   shown: string[] = [],
+  watch: WatchMode = "notice",
 ): Launches => ({
   first,
   later,
+  watch,
   clones: path.join(folder, "user data", "v0", "clones"),
   log: (line) => logged.push(line),
   show: () => shown.push("shown"),
@@ -595,7 +612,11 @@ describe("a runbook the launch names", () => {
    * Has the page send `ListSessions` before main serves anything, then serves
    * the launch of `argument` and returns what the page heard.
    */
-  const listFirst = (argument: string, openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>) =>
+  const listFirst = (
+    argument: string,
+    openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>,
+    watch?: WatchMode,
+  ) =>
     Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -609,10 +630,10 @@ describe("a runbook the launch names", () => {
           const listed = yield* Effect.forkScoped(client.ListSessions())
           yield* settle
           const later = yield* makeLaterLaunches()
-          yield* serveLaunch(protocol, launchesOf({ argument, startedIn: folder }, later)).pipe(
-            Effect.provide(launchEngine(openSession)),
-            Effect.forkScoped,
-          )
+          yield* serveLaunch(
+            protocol,
+            launchesOf({ argument, startedIn: folder }, later, [], watch),
+          ).pipe(Effect.provide(launchEngine(openSession)), Effect.forkScoped)
           return yield* Fiber.join(listed)
         }),
       ),
@@ -623,6 +644,15 @@ describe("a runbook the launch names", () => {
     expect(sessions.map(({ path: file }) => file)).toEqual([path.join(FIXTURE, "runbook.mdx")])
     expect(logged).toEqual([])
   })
+
+  it.each(["notice", "runbook", "runbookAndFiles"] as const)(
+    "opens in the watch mode the app's command line asks for: %s",
+    async (watch) => {
+      const asked: unknown[] = []
+      await listFirst(FIXTURE, recordingOpens(asked), watch)
+      expect(asked).toEqual([{ path: path.join(FIXTURE, "runbook.mdx"), watch }])
+    },
+  )
 
   it("is not open when the engine refuses it, and main logs each error with its line", async () => {
     const runbook = path.join(folder, "refused.mdx")
@@ -688,6 +718,8 @@ describe("a runbook a later launch names", () => {
     first: string | undefined,
     later: ReadonlyArray<Launch>,
     done: (shown: ReadonlyArray<string>) => boolean,
+    openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>,
+    watch?: WatchMode,
   ) =>
     Effect.runPromise(
       Effect.scoped(
@@ -705,10 +737,11 @@ describe("a runbook a later launch names", () => {
             first === undefined ? undefined : { argument: first, startedIn: folder },
             waiting,
             shown,
+            watch,
           )
           for (const launch of later) waitToOpen(waiting, launch, launches.log)
           yield* serveLaunch(protocol, launches).pipe(
-            Effect.provide(launchEngine()),
+            Effect.provide(launchEngine(openSession)),
             Effect.forkScoped,
           )
           yield* until(() => done(shown))
@@ -734,6 +767,23 @@ describe("a runbook a later launch names", () => {
     ])
     expect(shown).toEqual(["shown"])
     expect(logged).toEqual([])
+  })
+
+  it("opens in the watch mode the app's own command line asked for", async () => {
+    const one = path.join(folder, "one.mdx")
+    writeFileSync(one, "# One\n")
+    const asked: unknown[] = []
+    await serveLater(
+      FIXTURE,
+      [{ argument: one, startedIn: folder }],
+      () => logged.length === 2,
+      recordingOpens(asked),
+      "runbook",
+    )
+    expect(asked).toEqual([
+      { path: path.join(FIXTURE, "runbook.mdx"), watch: "runbook" },
+      { path: one, watch: "runbook" },
+    ])
   })
 
   it("opens one at a time, and main shows each", async () => {

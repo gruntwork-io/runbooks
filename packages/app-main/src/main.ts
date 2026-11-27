@@ -27,7 +27,9 @@
  * It hosts the engine (`engine.ts`), which keeps its files in the user data
  * folder, and reads the process's environment once, here, for its runs. The
  * engine serves the window's page over IPC (`ipcServer.ts`), and only it.
- * A runbook given on the command line is opened first (`launch.ts`). One a
+ * A runbook given on the command line is opened first (`launch.ts`), in
+ * the watch mode its flags ask for: `--watch`, with or without
+ * `--disable-live-file-reload` (`watchModeOf`). One a
  * URL names is cloned into the clones folder in the user data folder
  * (`remoteRunbook.ts`), which main empties when the app starts and when it
  * quits.
@@ -70,6 +72,7 @@ import {
   makeLaterLaunches,
   serveLaunch,
   waitToOpen,
+  watchModeOf,
 } from "./launch.ts"
 import { APP_PAGE, pageFile } from "./pageScheme.ts"
 import { notFound } from "./pathGuard.ts"
@@ -254,6 +257,7 @@ if (firstInstance)
             serveLaunch(ipcProtocol, {
               first: launch,
               later: laterLaunches,
+              watch: watchModeOf(process.argv),
               clones,
               log: (line) => console.error(line),
               // The page shows the session the engine opened last.
