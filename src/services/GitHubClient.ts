@@ -29,14 +29,25 @@ export interface DeviceFlowStart {
   readonly expiresIn: number
 }
 
-export interface OAuthPollResult {
-  readonly token?: string | undefined
-  readonly pending?: boolean
-  /** GitHub answered slow_down: poll less often (RFC 8628 §3.5). */
-  readonly slowDown?: boolean
-  /** The minimum poll interval in seconds GitHub sent with slow_down. */
-  readonly interval?: number | undefined
-}
+/**
+ * What the device flow's token endpoint answered (RFC 8628 §3.5). GitHub
+ * answers each of these with HTTP 200, so each is a value: only a poll that
+ * got no answer, a non-200 answer, or a 200 with neither an error nor a token
+ * fails, with GitHubApiError.
+ */
+export type OAuthPollResult =
+  /** authorization_pending: the user hasn't approved yet. */
+  | { readonly status: "pending" }
+  /** slow_down: still pending, and poll less often, at least `interval` seconds apart if GitHub sent one. */
+  | { readonly status: "slowDown"; readonly interval: number | undefined }
+  /** The user approved. */
+  | { readonly status: "complete"; readonly token: string }
+  /** expired_token: the device code lapsed before the user approved it. */
+  | { readonly status: "expired" }
+  /** access_denied: the user declined. */
+  | { readonly status: "denied" }
+  /** Any other error code, such as incorrect_device_code or device_flow_disabled. */
+  | { readonly status: "refused"; readonly code: string }
 
 export interface GitHubOrg {
   /** GitHub numeric database ID — stable across renames. */

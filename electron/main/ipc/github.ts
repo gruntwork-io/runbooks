@@ -57,6 +57,7 @@ import {
 } from "../recent-hosts.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
 import { MissingSessionCredentialError } from "../../../src/errors/index.ts"
+import type { OAuthPollResult } from "../../../src/services/GitHubClient.ts"
 
 type HostSource = "gh" | "env" | "session" | "recent"
 
@@ -182,6 +183,26 @@ export async function buildMergedGitHubHosts(): Promise<{
   return { hosts, defaultHost }
 }
 
+/** The github:oauth-poll reply for a poll that didn't return a token. */
+function unfinishedPollReply(result: Exclude<OAuthPollResult, { status: "complete" }>) {
+  switch (result.status) {
+    case "pending":
+      return { status: "pending" as const }
+    case "slowDown":
+      return { status: "pending" as const, slowDown: true, interval: result.interval }
+    case "expired":
+      return { status: "expired" as const, error: "The device code expired" }
+    case "denied":
+      return { status: "failed" as const, error: "Authorization was denied" }
+    case "refused":
+      return { status: "failed" as const, error: result.code }
+    default: {
+      const unhandled: never = result
+      throw new Error(`Unhandled OAuth poll result: ${JSON.stringify(unhandled)}`)
+    }
+  }
+}
+
 export function registerGitHubHandlers(): void {
   // Enumerate the GitHub hosts the user can pick from (see buildMergedGitHubHosts).
   ipcMain.handle("github:enumerate-hosts", () => buildMergedGitHubHosts())
@@ -288,17 +309,7 @@ export function registerGitHubHandlers(): void {
       if (!clientId) return { status: "failed" as const, error: oauthUnavailableMessage(host) }
       try {
         const result = await runtime.runPromise(pollOAuthToken(clientId, params.deviceCode, host))
-
-        if (result.pending) {
-          return {
-            status: "pending" as const,
-            ...(result.slowDown ? { slowDown: true, interval: result.interval } : {}),
-          }
-        }
-
-        if (!result.token) {
-          return { status: "failed" as const, error: "No access token returned" }
-        }
+        if (result.status !== "complete") return unfinishedPollReply(result)
 
         registerSecret(result.token)
         const tokenType = detectTokenType(result.token)
@@ -326,14 +337,7 @@ export function registerGitHubHandlers(): void {
           ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
         }
       } catch (err) {
-        const message = errorMessage(err)
-        if (message.includes("expired_token") || message.includes("expired")) {
-          return { status: "expired" as const, error: message }
-        }
-        if (message.includes("access_denied")) {
-          return { status: "failed" as const, error: "Authorization was denied" }
-        }
-        return { status: "failed" as const, error: message }
+        return { status: "failed" as const, error: errorMessage(err) }
       }
     },
   )

@@ -340,13 +340,13 @@ describe("GitHubHttpClient OAuth device flow", () => {
   it("reports slow_down with GitHub's new interval instead of plain pending", async () => {
     mockFetch(() => json({ error: "slow_down", interval: 10 }))
 
-    expect(await poll()).toEqual({ pending: true, slowDown: true, interval: 10 })
+    expect(await poll()).toEqual({ status: "slowDown", interval: 10 })
   })
 
   it("reports authorization_pending as plain pending", async () => {
     mockFetch(() => json({ error: "authorization_pending" }))
 
-    expect(await poll()).toEqual({ pending: true })
+    expect(await poll()).toEqual({ status: "pending" })
   })
 })
 
@@ -628,7 +628,7 @@ describe("GitHubHttpClient host routing", () => {
       )
       expect(start.verificationUri).toBe("https://ghes.example.com/login/device")
       const poll = await run((c) => c.pollOAuthToken("Iv1.ghes", "dc", "ghes.example.com:8443"))
-      expect(poll).toEqual({ token: "gho_new" })
+      expect(poll).toEqual({ status: "complete", token: "gho_new" })
       expect(calls.map((c) => [c.method, c.url])).toEqual([
         ["POST", "https://ghes.example.com:8443/login/device/code"],
         ["POST", "https://ghes.example.com:8443/login/oauth/access_token"],
@@ -643,7 +643,7 @@ describe("GitHubHttpClient host routing", () => {
       )
       await run((c) => c.startOAuthDeviceFlow("Iv1.ghec", ["repo"], "acme.ghe.com"))
       const poll = await run((c) => c.pollOAuthToken("Iv1.ghec", "dc", "acme.ghe.com"))
-      expect(poll).toEqual({ pending: true })
+      expect(poll).toEqual({ status: "pending" })
       expect(calls.map((c) => c.url)).toEqual([
         "https://acme.ghe.com/login/device/code",
         "https://acme.ghe.com/login/oauth/access_token",

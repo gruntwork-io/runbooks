@@ -308,6 +308,11 @@ describe("github:oauth-poll", () => {
     expect(await poll()).toEqual({ status: "failed", error: "Authorization was denied" })
   })
 
+  it("reports an answer with neither an error code nor a token as a failure", async () => {
+    tokenEndpointAnswers(() => json({}))
+    expect(await poll()).toEqual({ status: "failed", error: "No access token returned" })
+  })
+
   it("reports another OAuth error code as a failure that names it", async () => {
     tokenEndpointAnswers(() => json({ error: "incorrect_device_code" }))
     const result = await poll()
