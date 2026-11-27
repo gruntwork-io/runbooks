@@ -616,6 +616,63 @@ describe("TestExecutor — explicit steps", () => {
     expect(skipped.stepResults[1]?.actualStatus).toBe("blocked")
   })
 
+  const AWS_ENV = { AWS_ACCESS_KEY_ID: "AKIAFAKE", AWS_SECRET_ACCESS_KEY: "fake-secret" }
+
+  it("blocks a block until every auth block it references has run", async () => {
+    const executor = await makeExecutor(
+      `# Auth\n\n<AwsAuth id="aws" />\n\n<GitAuth id="git" />\n\n<Command id="deploy" awsAuthId="aws" gitAuthId="git" command="echo deploy" />\n`,
+    )
+
+    const result = executor.runTest({
+      name: "git-auth-skipped",
+      env: AWS_ENV,
+      steps: [
+        { block: "aws", expect: "success" },
+        { block: "git", expect: "skip" },
+        { block: "deploy", expect: "blocked" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults[2]?.actualStatus).toBe("blocked")
+    expect(executor.blockedReasons("deploy")).toEqual([
+      'Auth block "git" was skipped or found no credentials',
+    ])
+  })
+
+  it("gives a block the credentials of every auth block it references", async () => {
+    // gh-b runs last, so the session's GITHUB_TOKEN is its token; the block
+    // names gh-a, and gets gh-a's.
+    const executor = await makeExecutor(
+      [
+        "# Auth",
+        "",
+        `<AwsAuth id="aws" />`,
+        "",
+        `<GitHubAuth id="gh-a" />`,
+        "",
+        `<GitHubAuth id="gh-b" />`,
+        "",
+        `<Command id="report" awsAuthId="aws" gitAuthId="gh-a" command='echo "github_token=$GITHUB_TOKEN" >> "$RUNBOOK_OUTPUT"' />`,
+        "",
+      ].join("\n"),
+    )
+
+    const result = executor.runTest({
+      name: "two-github-sign-ins",
+      env: { ...AWS_ENV, A_GITHUB_TOKEN: "fake-token-a", B_GITHUB_TOKEN: "fake-token-b" },
+      steps: [
+        { block: "aws", expect: "success" },
+        { block: "gh-a", expect: "success", env_prefix: "A_" },
+        { block: "gh-b", expect: "success", env_prefix: "B_" },
+        { block: "report", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults[3]?.outputs).toMatchObject({ github_token: "fake-token-a" })
+  })
+
   const DEPENDS_ON_RUNBOOK = [
     "# Depends on",
     "",
