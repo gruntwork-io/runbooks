@@ -296,4 +296,63 @@
     list-style: disc;
     color: var(--color-red-700);
   }
+
+  /* A block's "Script changed" notice (scriptChange.tsx). */
+  .script-change {
+    margin-top: calc(var(--spacing) * 2);
+    padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+    border: 1px solid var(--color-amber-300);
+    border-radius: var(--radius-md);
+    background: var(--color-amber-50);
+  }
+  .script-change > * + * {
+    margin-top: calc(var(--spacing) * 2);
+  }
+  .script-change-diff {
+    max-height: 20rem;
+    overflow: auto;
+    border: 1px solid var(--color-zinc-200);
+    border-radius: var(--radius-md);
+    background: var(--color-white);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  .diff-path {
+    padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3);
+    border-bottom: 1px solid var(--color-zinc-200);
+    color: var(--color-zinc-600);
+  }
+  .diff-file > p:not(.diff-path) {
+    padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3);
+    color: var(--color-zinc-500);
+    font-style: italic;
+  }
+  .diff-hunk {
+    padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3);
+    white-space: pre;
+  }
+  .script-change-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing) * 3);
+    align-items: baseline;
+  }
+  .script-reload {
+    padding: calc(var(--spacing) * 1) calc(var(--spacing) * 3);
+    border: 1px solid var(--color-zinc-300);
+    border-radius: var(--radius-md);
+    background: var(--color-white);
+    font-weight: var(--font-weight-semibold);
+  }
+  .script-reload:disabled {
+    color: var(--color-zinc-400);
+  }
+  .script-change-cut,
+  .script-change-said {
+    color: var(--color-zinc-600);
+  }
+  .script-change-said ul {
+    padding-left: 1.5em;
+    list-style: disc;
+  }
 }

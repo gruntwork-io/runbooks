@@ -2,10 +2,11 @@
  * The session the window follows, as each block's frame and the trust
  * prompt read it: the block's view and the session's trust now
  * (`live.ts`), the settings now (`settings.ts`), what came of asking to
- * trust the session (`trust.ts`), and a way to ask the engine to act on a
- * block or trust the session. The app provides it (`app.tsx`). With none,
- * as a page rendered on its own, no block has a view, no trust or setting
- * is read, and nothing is asked.
+ * trust the session (`trust.ts`) or to reload a block's files
+ * (`reload.ts`), and a way to ask the engine to act on a block, trust the
+ * session, or reload a block's files. The app provides it (`app.tsx`).
+ * With none, as a page rendered on its own, no block has a view, no trust
+ * or setting is read, and nothing is asked.
  */
 import { Cause, Effect } from "effect"
 import { createContext, useContext, useSyncExternalStore } from "react"
@@ -26,6 +27,7 @@ import type {
 } from "@runbooks/core/protocol"
 import { clientErrorText, defectText } from "./defect.ts"
 import { follow, type LiveStore, makeLiveStore } from "./live.ts"
+import { askToReload, makeReloadingStore, type Reloading, type ReloadingStore } from "./reload.ts"
 import { followSettings, makeSettingsStore, type SettingsStore } from "./settings.ts"
 import {
   askToTrust,
@@ -40,6 +42,8 @@ export interface Following {
   readonly settings: SettingsStore
   /** What came of the last ask to trust the session. */
   readonly trusting: TrustingStore
+  /** What came of the last ask to reload each block's files. */
+  readonly reloading: ReloadingStore
   /** Asks the engine for `request` on `block`. It gives what to tell the person about the answer, if anything. */
   readonly act: (
     block: BlockView["block"],
@@ -53,14 +57,23 @@ export interface Following {
    * Nothing is asked before the session is read.
    */
   readonly trust: () => Effect.Effect<void>
+  /**
+   * Asks the engine, as the person, to reload `block`'s files at `hash`,
+   * the hash of the files its notice shows (`FilesOnDisk.hash`). It keeps
+   * what came of it in `reloading`, for the files at `hash` on the page
+   * drawn now, and keeps that it is asking until the engine answers.
+   */
+  readonly reload: (block: BlockView["block"], hash: Reloading["hash"]) => Effect.Effect<void>
 }
 
 export const FollowingContext = createContext<Following>({
   live: makeLiveStore(),
   settings: makeSettingsStore(undefined),
   trusting: makeTrustingStore(),
+  reloading: makeReloadingStore(),
   act: () => Effect.succeed(undefined),
   trust: () => Effect.void,
+  reload: () => Effect.void,
 })
 
 /** The view of `block` the engine sent last, if it sent one. */
@@ -118,6 +131,13 @@ export function useTrusting(): Trusting {
   return useSyncExternalStore(trusting.subscribe, trusting.get, trusting.get)
 }
 
+/** What came of the last ask to reload `block`'s files, if the person asked. */
+export function useReloading(block: BlockView["block"]): Reloading | undefined {
+  const { reloading } = useContext(FollowingContext)
+  const select = () => reloading.get().get(block)
+  return useSyncExternalStore(reloading.subscribe, select, select)
+}
+
 /**
  * The window following `session` in `engine`, from its runbook and the
  * settings as the window read them (`opened`). `start` follows the session
@@ -132,10 +152,12 @@ export function followingOf(
   const live = makeLiveStore()
   const settingsNow = makeSettingsStore(opened.settings)
   const trusting = makeTrustingStore()
+  const reloading = makeReloadingStore()
   return {
     live,
     settings: settingsNow,
     trusting,
+    reloading,
     act: (block, request) => ask(engine, session, block, request),
     trust: () => {
       const { document } = live.get()
@@ -149,6 +171,14 @@ export function followingOf(
         Effect.sync(() => trusting.set(next)),
       )
     },
+    reload: (block, hash) =>
+      Effect.suspend(() => {
+        const drawn = live.get().document
+        reloading.set(block, { hash, drawn, answer: { _tag: "Asking" } })
+        return Effect.flatMap(askToReload(engine, session, block, hash), (answer) =>
+          Effect.sync(() => reloading.set(block, { hash, drawn, answer })),
+        )
+      }),
     start: () => {
       const fiber = Effect.runFork(
         Effect.all(

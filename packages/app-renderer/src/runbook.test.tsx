@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { DocumentView, SessionSummary, Settings } from "@runbooks/core/protocol"
 import { type Following, FollowingContext } from "./following.ts"
 import { type Live, makeLiveStore } from "./live.ts"
+import { makeReloadingStore } from "./reload.ts"
 import { Runbook } from "./runbook.tsx"
 import { makeSettingsStore } from "./settings.ts"
 import { makeTrustingStore } from "./trust.ts"
@@ -55,8 +56,10 @@ const followingWith = (live: Live): Following => {
     live: store,
     settings: makeSettingsStore(undefined),
     trusting: makeTrustingStore(),
+    reloading: makeReloadingStore(),
     act: () => Effect.succeed(undefined),
     trust: () => Effect.void,
+    reload: () => Effect.void,
   }
 }
 
@@ -179,8 +182,10 @@ describe("the runbook page", () => {
               }),
             ),
             trusting: makeTrustingStore(),
+            reloading: makeReloadingStore(),
             act: () => Effect.succeed(undefined),
             trust: () => Effect.void,
+            reload: () => Effect.void,
           }}
         >
           <Runbook session={session} document={document({})} />

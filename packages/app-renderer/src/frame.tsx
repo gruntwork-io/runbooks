@@ -185,7 +185,9 @@ export function BlockFrame({
           {block.description === undefined ? null : (
             <p className="block-description">{block.description}</p>
           )}
-          {view?.filesOnDisk === undefined ? null : <ScriptChange onDisk={view.filesOnDisk} />}
+          {view?.filesOnDisk === undefined ? null : (
+            <ScriptChange block={view.block} onDisk={view.filesOnDisk} onPage={onPage} />
+          )}
           {block._tag === "Misconfigured" ? (
             <ul className="block-errors" aria-label="Configuration errors">
               {block.errors.map((error, index) => (
