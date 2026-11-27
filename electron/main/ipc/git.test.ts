@@ -647,6 +647,37 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       )
     })
 
+    it("git:merge-request sends every event with the requestId it was given", async () => {
+      await authenticate({ GITLAB_TOKEN: GITLAB_SECRET, GITLAB_HOST: "gitlab.corp" })
+      const sent: Array<[channel: string, requestId: unknown]> = []
+      const recording = {
+        sender: {
+          send: (channel: string, payload: { requestId?: unknown }) =>
+            sent.push([channel, payload.requestId]),
+        },
+      }
+
+      const result = (await handlers.get("git:merge-request")!(recording, {
+        worktreePath: checkout("[git@gitlab.corp:2222]:acme/infra.git"),
+        owner: "acme",
+        repo: "infra",
+        title: "Change",
+        baseBranch: "main",
+        headBranch: "runbook/change",
+        commitMessage: "Change",
+        requestId: "req-7",
+      })) as GitResult
+
+      expect(result.url).toBe("https://gitlab.corp/acme/infra/-/merge_requests/7")
+      expect([...new Set(sent.map(([channel]) => channel))].sort()).toEqual([
+        "git:log",
+        "git:outputs",
+        "git:pr-result",
+        "git:status",
+      ])
+      expect(sent.filter(([, requestId]) => requestId !== "req-7")).toEqual([])
+    })
+
     it("git:init-default-branch validates the GitLab token at gitlab.corp for a [git@gitlab.corp:2222]:… origin", async () => {
       await authenticate({ GITLAB_TOKEN: GITLAB_SECRET, GITLAB_HOST: "gitlab.corp" })
 
@@ -1268,10 +1299,11 @@ describe("git:commits-ahead", () => {
 // rejection shows as "An unknown error occurred", and an empty { error } reads
 // as no error at all (useGitPullRequest checks result.error for truthiness).
 describe("git handler error text", () => {
-  const sent: Array<{ channel: string; payload: { message?: string } }> = []
+  const sent: Array<{ channel: string; payload: { message?: string; requestId?: unknown } }> = []
   const recordingEvent = {
     sender: {
-      send: (channel: string, payload: { message?: string }) => sent.push({ channel, payload }),
+      send: (channel: string, payload: { message?: string; requestId?: unknown }) =>
+        sent.push({ channel, payload }),
     },
   }
   const prParams = {
@@ -1324,6 +1356,19 @@ describe("git handler error text", () => {
       )
     },
   )
+
+  it.each([
+    ["git:push", { worktreePath: "/tmp/repo", branchName: "feature" }],
+    ["git:pull-request", prParams],
+    ["git:merge-request", prParams],
+  ])("%s sends its failure events with the requestId it was given", async (channel, params) => {
+    await handlers.get(channel)!(recordingEvent, { ...params, requestId: "req-1" })
+
+    expect(sent.map((s) => [s.channel, s.payload.requestId])).toEqual([
+      ["git:error", "req-1"],
+      ["git:status", "req-1"],
+    ])
+  })
 
   it("git:local-repo returns a fail status whose error names the error", async () => {
     const result = await handlers.get("git:local-repo")!(recordingEvent, { path: "/tmp/repo" })

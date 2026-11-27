@@ -450,6 +450,29 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
       expect(outputs()).toEqual(fresh.outputs)
     })
 
+    it("keeps the events of a canceled run that finishes late out of a retry that started past the bound", async () => {
+      vi.useFakeTimers()
+      const { fake, state, outputs, logLines, operationCalls, create } = renderPR(cfg)
+
+      void create()
+      act(() => state().cancel())
+      void create({ ...CREATE_PARAMS, headBranch: "runbook/add-vpc-2" })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CANCELED_RUN_WAIT_MS)
+      })
+      expect(operationCalls()).toHaveLength(2)
+
+      // The canceled run opens its PR/MR while the retry runs.
+      await act(async () => {
+        fake.createSucceeds(0, testPR(1, CREATE_PARAMS.headBranch))
+      })
+
+      expect(state().status).toBe("creating")
+      expect(state().prResult).toBeNull()
+      expect(outputs()).toBeUndefined()
+      expect(logLines()).toEqual([WAITING_LINE, STILL_RUNNING_LINE])
+    })
+
     it("still waits on a retry that started past the bound when the first canceled run finishes late", async () => {
       vi.useFakeTimers()
       const { fake, state, logLines, operationCalls, create } = renderPR(cfg)
