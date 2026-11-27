@@ -655,6 +655,69 @@ describe("instruction mode", () => {
     expect(asked).toEqual(["RunBlock deploy"])
   })
 
+  it("keeps following the session when watching the settings fails", async () => {
+    let deploy: Record<string, unknown> = {
+      block: "deploy",
+      tag: "Example",
+      class: "task",
+      status: { _tag: "Idle" },
+      actions: ["run"],
+      outputs: {},
+      instruction: DEPLOY,
+    }
+    const main = fakeMain((tag) =>
+      tag === "GetSession"
+        ? {
+            session: SESSION,
+            name: "deploy",
+            path: RUNBOOK,
+            sequence: 2,
+            trust: { trusted: true, hash: `sha256:${"0".repeat(64)}` },
+            blocks: [deploy],
+            warnings: [],
+          }
+        : tag === "GetBlock"
+          ? deploy
+          : undefined,
+    )
+    const statuses: Array<string | undefined> = []
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const engine = yield* makeEngineClient(main.bridge)
+          const following = followingOf(
+            engine,
+            Schema.decodeSync(SessionId)(SESSION),
+            Schema.decodeUnknownSync(Settings)(SETTINGS),
+          )
+          const changes = yield* Queue.unbounded<void>()
+          following.live.subscribe(() => Queue.offerUnsafe(changes, undefined))
+          yield* Effect.acquireRelease(Effect.sync(following.start), (stop) => Effect.sync(stop))
+          yield* Queue.take(changes)
+          const statusNow = () => following.live.get().blocks.get("deploy")?.status?._tag
+          statuses.push(statusNow())
+          main.end("WatchSettings", dies({ name: "Error", message: "the settings file vanished" }))
+          // The watch's defect arrives before the run starts.
+          yield* Effect.sleep("50 millis")
+          deploy = { ...deploy, status: { _tag: "Running" }, actions: ["cancel"] }
+          main.stream("Events", [
+            {
+              session: SESSION,
+              sequence: 3,
+              at: "2026-11-26T12:00:00.000Z",
+              event: { _tag: "BlockStatusChanged", block: "deploy", status: { _tag: "Running" } },
+            },
+          ])
+          yield* Queue.take(changes)
+          statuses.push(statusNow())
+          expect(following.live.get().ended).toBeUndefined()
+          expect(following.settings.get()?.instructionMode).toBe(false)
+        }),
+      ).pipe(Effect.timeout("2 seconds")),
+    )
+    expect(statuses).toEqual(["Idle", "Running"])
+  })
+
   it("shows a change of the setting as the engine streams it, without a reload", async () => {
     const deploy = {
       block: "deploy",

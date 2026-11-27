@@ -3,7 +3,7 @@
  * it opened the runbook (`app.tsx`), then each change `WatchSettings`
  * streams, so a change shows without a reload.
  */
-import { Effect, Stream } from "effect"
+import { Cause, Effect, Stream } from "effect"
 import type { EngineClient, Settings } from "@runbooks/core/protocol"
 
 /** The settings now, for React to read (`useSyncExternalStore`). Undefined: none were read. */
@@ -35,8 +35,10 @@ export function makeSettingsStore(
 }
 
 /**
- * Calls `publish` with the settings after each change. When the engine
- * stops answering, the window keeps the settings it has.
+ * Calls `publish` with the settings after each change. When the watch
+ * fails, as the engine not answering or a defect makes it, the window keeps
+ * the settings it has, and following the session goes on. Unmounting
+ * interrupts.
  */
 export const followSettings = (
   engine: EngineClient,
@@ -44,4 +46,9 @@ export const followSettings = (
 ): Effect.Effect<void> =>
   Stream.runForEach(engine.WatchSettings(), (view) =>
     Effect.sync(() => publish(view.settings)),
-  ).pipe(Effect.catchTag("RpcClientError", () => Effect.void))
+  ).pipe(
+    Effect.catchTag("RpcClientError", () => Effect.void),
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.void,
+    ),
+  )
