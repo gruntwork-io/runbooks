@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { Cause, Effect, Fiber, Stream } from "effect"
-import { collectOutput, wholeLines } from "./ProcessSpawner.ts"
+import { collectOutput, linesCut, wholeLines } from "./ProcessSpawner.ts"
 import type { OutputLine, SpawnedProcess } from "./ProcessSpawner.ts"
 
 /** A fake child whose output/exit are supplied by the test; counts kills. */
@@ -33,6 +33,31 @@ describe("wholeLines", () => {
       { line: "warning", source: "stderr" },
       { line: "abcdef", source: "stdout" },
       { line: "g", source: "stdout" },
+    ])
+  })
+})
+
+describe("linesCut", () => {
+  it("joins each line's pieces per source, keeps no more of one than it may, and counts the rest", async () => {
+    const pieces: OutputLine[] = [
+      { line: "abc", source: "stdout", continues: true },
+      { line: "short", source: "stderr" },
+      { line: "defgh", source: "stdout", continues: true },
+      { line: "ij", source: "stdout" },
+      { line: "whole", source: "stdout" },
+      { line: "toolong", source: "stderr" },
+      { line: "half", source: "stdout", continues: true },
+    ]
+    const lines = await Effect.runPromise(
+      Stream.runCollect(linesCut(Stream.fromIterable(pieces), 5)),
+    )
+    expect([...lines]).toEqual([
+      { line: "short", source: "stderr", cut: 0 },
+      { line: "abcde", source: "stdout", cut: 5 },
+      { line: "whole", source: "stdout", cut: 0 },
+      { line: "toolo", source: "stderr", cut: 2 },
+      // Output that ended mid-line.
+      { line: "half", source: "stdout", cut: 0 },
     ])
   })
 })

@@ -317,6 +317,40 @@ describe("a command", () => {
       ["stderr", "[INFO]  logged"],
     ])
   })
+
+  it("shows a line the spawner gave in pieces as one line, its start kept and its length past the limit cut", async () => {
+    const piece = 64 * 1024
+    const log = await withSession(
+      '<Command id="c" command="print a long line" />',
+      (s) =>
+        Effect.gen(function* () {
+          yield* s.run("c")
+          const view = yield* s.client.GetBlock({ session: s.session, block: blockId("c") })
+          return view.log?.lines ?? []
+        }),
+      {
+        does: () => ({
+          prints: [
+            { line: "a".repeat(piece), source: "stdout", continues: true },
+            { line: "between", source: "stderr" },
+            { line: "b".repeat(piece), source: "stdout", continues: true },
+            { line: "end", source: "stdout" },
+            { line: "after", source: "stdout" },
+          ],
+        }),
+      },
+    )
+    expect(log.map(({ stream }) => stream)).toEqual(["stderr", "stdout", "stdout"])
+    expect(log[0]?.text).toBe("between")
+    expect(log[2]?.text).toBe("after")
+    const long = log[1]?.text ?? ""
+    expect(long.length).toBeLessThanOrEqual(16_384)
+    const kept = long.length - long.replace(/^a*/, "").length
+    expect(kept).toBeGreaterThan(16_000)
+    expect(long.slice(kept)).toContain(
+      `cut the rest of this line: ${2 * piece + 3 - kept} characters`,
+    )
+  })
 })
 
 describe("its outputs", () => {

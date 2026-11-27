@@ -16,6 +16,9 @@
  *   write to `$RUNBOOK_LOG`. Each level has a file of its own as well
  *   (`$RUNBOOK_INFO_LOG` and so on). Runbooks shows their lines as it shows
  *   standard error.
+ * - Of a line it prints, the run keeps no more than a log line holds
+ *   (`LIMITS.maxLogLineLength`), and counts the rest, which the log says
+ *   was cut.
  * - It is stopped, with every process it started, when it is cancelled or
  *   runs past `timeoutMs`.
  */
@@ -32,8 +35,9 @@ import {
 import { shellQuote } from "@runbooks/core/domain/exec/blockEnv"
 import { LOG_CHANNELS, logChannelFiles, tagLogLine } from "@runbooks/core/domain/exec/logChannels"
 import { LOGGING_FUNCTIONS, resolveScriptRunner } from "@runbooks/core/domain/exec/script"
+import { LIMITS } from "@runbooks/core/protocol"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
-import { type OutputLine, ProcessSpawner } from "@runbooks/core/services/ProcessSpawner"
+import { type CutLine, linesCut, ProcessSpawner } from "@runbooks/core/services/ProcessSpawner"
 
 /** How long a script may run when `timeoutMs` does not say: an hour. */
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000
@@ -87,11 +91,12 @@ const scriptOf = (p: CommandProps, files: ReadonlyMap<string, string>): string |
 const revealed = (env: RunEnv): Record<string, string> =>
   Object.fromEntries(Object.entries(env).map(([name, value]) => [name, Redacted.value(value)]))
 
-const toEvent = ({ line, source }: OutputLine): TaskEvent<string> => ({
+const toEvent = ({ line, source, cut }: CutLine): TaskEvent<string> => ({
   _tag: "Log",
   // A log file's lines are the helpers', which write to standard error when it is unset.
   stream: source === "stdout" ? "stdout" : "stderr",
   line,
+  cut,
 })
 
 /**
@@ -174,7 +179,7 @@ export const command = defineTask({
         ).pipe(Effect.mapError(couldNot(`start ${runner.interpreter}`)))
 
         return Stream.concat(
-          Stream.map(running.output, toEvent),
+          Stream.map(linesCut(running.output, LIMITS.maxLogLineLength), toEvent),
           Stream.unwrap(Effect.map(running.exitCode, endWithExitCode)),
         )
       }),

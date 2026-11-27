@@ -94,6 +94,48 @@ export const wholeLines = <E, R>(
     ),
   )
 
+/** A line as `linesCut` gives it: its start, and how many characters after that it left out. */
+export interface CutLine {
+  readonly line: string
+  readonly source: OutputLine["source"]
+  /** 0 for a line `linesCut` kept whole. */
+  readonly cut: number
+}
+
+/**
+ * `output` with each line that came in pieces joined, as `wholeLines` joins
+ * them, but no more than `maxLength` characters of a line kept: the rest is
+ * counted, not held. For a reader that shows lines, so a line of any length
+ * costs it no more than `maxLength`.
+ */
+export const linesCut = <E, R>(
+  output: Stream.Stream<OutputLine, E, R>,
+  maxLength: number,
+): Stream.Stream<CutLine, E, R> =>
+  output.pipe(
+    Stream.mapAccum(
+      (): ReadonlyMap<OutputLine["source"], CutLine> => new Map(),
+      (started, piece) => {
+        const before = started.get(piece.source) ?? { line: "", source: piece.source, cut: 0 }
+        const kept = piece.line.slice(0, Math.max(0, maxLength - before.line.length))
+        const line: CutLine = {
+          line: before.line + kept,
+          source: piece.source,
+          cut: before.cut + piece.line.length - kept.length,
+        }
+        const next = new Map(started)
+        if (piece.continues) {
+          next.set(piece.source, line)
+          return [next, []] as const
+        }
+        next.delete(piece.source)
+        return [next, [line]] as const
+      },
+      // As `wholeLines`: a line is left here only if output was cut short.
+      { onHalt: (started) => [...started.values()] },
+    ),
+  )
+
 /** Everything a short-lived process wrote, in arrival order, plus its exit code. */
 export interface CollectedOutput {
   readonly exitCode: number
