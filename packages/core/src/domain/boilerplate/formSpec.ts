@@ -169,6 +169,7 @@ function fieldOf(
       : type === "list"
         ? optionsOf(raw["x-options"], of("x-options"), name, false, report)
         : {}
+  optionsPlaced(raw, type, name, of, report)
   const { validations, required } = validationsOf(
     raw["validations"],
     of("validations"),
@@ -201,6 +202,37 @@ function fieldOf(
     ...(showWhen.showWhen === undefined ? {} : { showWhen: showWhen.showWhen }),
   }
   return { field, order }
+}
+
+/**
+ * Options only where the type takes them, as Boilerplate has it: `options`
+ * on an enum, which needs some, and `x-options` on a list. Elsewhere they
+ * would do nothing.
+ */
+function optionsPlaced(
+  raw: Raw,
+  type: FieldType,
+  name: string,
+  of: (key: string) => Path,
+  report: Report,
+): void {
+  if (type === "enum") {
+    const written = raw["options"]
+    if (isAbsent(written) || (Array.isArray(written) && written.length === 0))
+      report(
+        of("options"),
+        `the enum field "${name}" needs \`options\`: a list of at least one, or a block's output that holds one`,
+      )
+  } else if (!isAbsent(raw["options"]))
+    report(
+      of("options"),
+      `\`options\` is only for an enum field, and "${name}" has the type ${type}${type === "list" ? ": a list's choices are its `x-options`" : ""}`,
+    )
+  if (type !== "list" && !isAbsent(raw["x-options"]))
+    report(
+      of("x-options"),
+      `\`x-options\` is only for a list field, and "${name}" has the type ${type}`,
+    )
 }
 
 /** Boilerplate's key for the order it asks for variables in. Without one, a field's order is 0. */
@@ -265,6 +297,8 @@ function optionsOf(
  * case, its message its `description` or `message`, its arguments its
  * `args`, or else its `regex`, `min` and `max`. A name it doesn't know, a
  * name with arguments (`length(1,5)`) among them, is `custom`: never checked.
+ * A length without two numeric bounds, or a regex without a pattern that
+ * compiles, is a problem: the validator would skip it.
  */
 function validationsOf(
   raw: unknown,
@@ -279,14 +313,17 @@ function validationsOf(
   }
   const validations = raw.flatMap((entry: unknown, index): Validation[] => {
     const written = typeof entry === "string" ? { type: entry } : isMap(entry) ? entry : undefined
-    if (written === undefined) {
+    const type =
+      written !== undefined && typeof written["type"] === "string"
+        ? written["type"].toLowerCase()
+        : ""
+    if (written === undefined || type === "") {
       report(
         [...at, index],
         `each validation of the field "${name}" must be a name, such as required, or a map with a \`type\``,
       )
       return []
     }
-    const type = typeof written["type"] === "string" ? written["type"].toLowerCase() : ""
     const kind = VALIDATION_KINDS.has(type) ? (type as ValidationKind) : "custom"
     const message = [written["description"], written["message"]].find(
       (text): text is string => typeof text === "string" && text !== "",
@@ -294,6 +331,11 @@ function validationsOf(
     const args = Array.isArray(written["args"])
       ? written["args"]
       : [written["regex"], written["min"], written["max"]].filter((arg) => arg !== undefined)
+    const unusable = argumentsProblem(kind, args)
+    if (unusable !== undefined) {
+      report([...at, index], `the ${kind} validation of the field "${name}" ${unusable}`)
+      return []
+    }
     return [
       {
         kind,
@@ -303,6 +345,42 @@ function validationsOf(
     ]
   })
   return { validations, required: validations.some(({ kind }) => kind === "required") }
+}
+
+/**
+ * Why a validation's arguments can't be used, as the validator reads them
+ * (`validators.ts`): a length's two bounds, a regex's pattern. The
+ * validator skips a rule it can't use, so the field would take any value.
+ */
+function argumentsProblem(kind: ValidationKind, args: ReadonlyArray<unknown>): string | undefined {
+  switch (kind) {
+    case "length": {
+      const bounds = args.slice(0, 2).map(Number)
+      return bounds.length === 2 && bounds.every(Number.isFinite)
+        ? undefined
+        : "needs two numbers, its least and greatest length, such as { type: length, min: 1, max: 20 }"
+    }
+    case "regex": {
+      if (args.length === 0) return "needs a pattern, such as { type: regex, regex: ^[a-z]+$ }"
+      try {
+        new RegExp(String(args[0]))
+        return undefined
+      } catch {
+        return "has a pattern that isn't a valid regular expression"
+      }
+    }
+    // These take no arguments; a custom one is never checked.
+    case "required":
+    case "email":
+    case "url":
+    case "alpha":
+    case "digit":
+    case "alphanumeric":
+    case "semver":
+    case "countrycode2":
+    case "custom":
+      return undefined
+  }
 }
 
 /** A map's or a tuple's entry schema: each key's type, a type it doesn't know being text. */
@@ -410,14 +488,17 @@ export function prefilledProblems(
  * `node:path`.
  */
 export function joinedPath(folder: string, name: string): string {
+  const absolute = folder.startsWith("/")
   const parts: string[] = []
   for (const part of `${folder}/${name}`.split("/")) {
     if (part === "" || part === ".") continue
-    if (part === ".." && parts.length > 0 && parts.at(-1) !== "..") parts.pop()
-    else parts.push(part)
+    if (part !== "..") parts.push(part)
+    else if (parts.length > 0 && parts.at(-1) !== "..") parts.pop()
+    // Above the root of an absolute path is the root.
+    else if (!absolute) parts.push(part)
   }
   const joined = parts.join("/")
-  return folder.startsWith("/") ? `/${joined}` : joined === "" ? "." : joined
+  return absolute ? `/${joined}` : joined === "" ? "." : joined
 }
 
 /** The names a folder's boilerplate config may have, in the order they are looked for. */
@@ -444,8 +525,8 @@ export function boilerplateFileIn(
 
 /**
  * The form a boilerplate file gives, or each problem in it, each saying the
- * file and the line, and quoting none of it: a sensitive field's default
- * may be beside the mistake.
+ * file and the line, and quoting no value or default: a sensitive field's
+ * default may be beside the mistake.
  */
 export function readBoilerplateFile(
   file: string,

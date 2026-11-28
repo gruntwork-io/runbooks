@@ -117,7 +117,7 @@ describe("a boilerplate config's form", () => {
         "  - name: Size",
         "    type: enum",
         "    options: [1, true, small]",
-        '    validations: [Email, digit, "length(1,5)", { message: none }, { type: Weird }]',
+        '    validations: [Email, digit, "length(1,5)", { type: Weird, message: none }]',
         "  - name: Plain",
         "    type: list",
         "    x-options: []",
@@ -137,7 +137,6 @@ describe("a boilerplate config's form", () => {
           // A name with arguments is no validation it knows, so it is never checked, as the docs say.
           { kind: "custom" },
           { kind: "custom", message: "none" },
-          { kind: "custom" },
         ],
       },
       plain("Plain", "list"),
@@ -357,6 +356,80 @@ describe("a boilerplate config's form", () => {
     ])
   })
 
+  it("finds each setting that would do nothing: a validation it can't check, options where the type takes none, an enum with no options (H2)", () => {
+    const { problems } = read(
+      [
+        "variables:",
+        "  - name: name",
+        "    validations:",
+        "      - { type: regex, regex: '[' }",
+        "      - regex",
+        "      - { type: length, min: 3 }",
+        "      - { type: length, min: x, max: 9 }",
+        "      - { message: no type }",
+        "  - { name: tags, type: list, options: [a] }",
+        "  - { name: count, type: int, options: [1], x-options: [2] }",
+        "  - { name: mode, type: enum }",
+        "  - { name: size, type: enum, options: [] }",
+        "  - { name: hidden, x-hidden: 'true' }",
+      ].join("\n"),
+    )
+    const length =
+      "needs two numbers, its least and greatest length, such as { type: length, min: 1, max: 20 }"
+    expect(problems).toEqual([
+      {
+        path: ["variables", 0, "validations", 0],
+        message:
+          'the regex validation of the field "name" has a pattern that isn\'t a valid regular expression',
+      },
+      {
+        path: ["variables", 0, "validations", 1],
+        message:
+          'the regex validation of the field "name" needs a pattern, such as { type: regex, regex: ^[a-z]+$ }',
+      },
+      {
+        path: ["variables", 0, "validations", 2],
+        message: `the length validation of the field "name" ${length}`,
+      },
+      {
+        path: ["variables", 0, "validations", 3],
+        message: `the length validation of the field "name" ${length}`,
+      },
+      {
+        path: ["variables", 0, "validations", 4],
+        message:
+          'each validation of the field "name" must be a name, such as required, or a map with a `type`',
+      },
+      {
+        path: ["variables", 1, "options"],
+        message:
+          '`options` is only for an enum field, and "tags" has the type list: a list\'s choices are its `x-options`',
+      },
+      {
+        path: ["variables", 2, "options"],
+        message: '`options` is only for an enum field, and "count" has the type int',
+      },
+      {
+        path: ["variables", 2, "x-options"],
+        message: '`x-options` is only for a list field, and "count" has the type int',
+      },
+      {
+        path: ["variables", 3, "options"],
+        message:
+          'the enum field "mode" needs `options`: a list of at least one, or a block\'s output that holds one',
+      },
+      {
+        path: ["variables", 4, "options"],
+        message:
+          'the enum field "size" needs `options`: a list of at least one, or a block\'s output that holds one',
+      },
+      {
+        path: ["variables", 5, "x-hidden"],
+        message: '`x-hidden` on the field "hidden" must be true or false',
+      },
+    ])
+  })
+
   it("finds each `x-show-when` that names no field, a value no option has, or a cycle, at the field", () => {
     const { problems } = read(
       [
@@ -443,6 +516,8 @@ describe("a boilerplate file", () => {
       "a/../..",
       "/abs",
       "/",
+      "/../a",
+      "/a/../..",
     ]
     for (const folder of folders)
       expect([folder, joinedPath(folder, "boilerplate.yml")]).toEqual([
