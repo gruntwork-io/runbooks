@@ -1,0 +1,16 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  # A test can't type a secret: with nothing to find, the blocks wait signed out.
+  - name: signed out
+    env:
+      AWS_SECRET_ACCESS_KEY: fake-aws-secret-0001
+    steps:
+      - block: keys
+        expect: skip
+      - block: sso
+        expect: skip
+      - block: deploy
+        expect: blocked

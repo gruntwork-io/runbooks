@@ -39,7 +39,7 @@ const runbooksTest = (runbook: string) => {
 }
 
 describe("runbooks test, on AwsAuth's testdata", () => {
-  const RUNBOOKS = ["detect", "misconfigured"]
+  const RUNBOOKS = ["detect", "misconfigured", "sign-in"]
 
   it("finds the two runbooks", () => {
     expect(nodeFs.readdirSync(TESTDATA).sort()).toEqual(RUNBOOKS)
