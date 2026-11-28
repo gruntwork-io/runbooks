@@ -129,6 +129,7 @@ const withServer = <A>(use: (seen: Seen) => Effect.Effect<A, unknown, Scope.Scop
             appEngine({
               userData: path.join(folder, "user data"),
               appVersion: "0.31.0",
+              fakeCredentials: false,
               processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
             }),
           ),
@@ -571,6 +572,7 @@ const launchEngine = (openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>) => 
     appEngine({
       userData: path.join(folder, "user data"),
       appVersion: "0.31.0",
+      fakeCredentials: false,
       processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
     }),
     NodeFileSystemLive,

@@ -25,7 +25,9 @@
  * dev server tags and its socket.
  *
  * It hosts the engine (`engine.ts`), which keeps its files in the user data
- * folder, and reads the process's environment once, here, for its runs. The
+ * folder, and reads the process's environment once, here, for its runs.
+ * Unpackaged, with RUNBOOKS_FAKE_CREDENTIALS=1, its credential blocks sign
+ * in against the fake providers (`fakeCredentialsOn`). The
  * engine serves the window's page over IPC (`ipcServer.ts`), and only it.
  * A runbook given on the command line is opened first (`launch.ts`), in
  * the watch mode its flags ask for: `--watch`, with or without
@@ -64,7 +66,7 @@ import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSyste
 import { ProcessEnvironmentLive } from "@runbooks/platform-node/layers/ProcessEnvironment"
 import { VcsCredentialsLive } from "@runbooks/platform-node/layers/VcsCredentialsLive"
 import { contentSecurityPolicy } from "./contentSecurityPolicy.ts"
-import { appEngine } from "./engine.ts"
+import { appEngine, FAKE_CREDENTIALS, fakeCredentialsOn } from "./engine.ts"
 import { makeIpcServerProtocol } from "./ipcServer.ts"
 import {
   type Launch,
@@ -185,6 +187,13 @@ const processEnvironment: Record<string, string> = {}
 for (const [name, value] of Object.entries(process.env))
   if (value !== undefined) processEnvironment[name] = value
 
+/** The dev mode's fake credential providers: never in a packaged app. */
+const fakeCredentials = fakeCredentialsOn(app.isPackaged, processEnvironment)
+if (fakeCredentials)
+  console.warn(
+    `${FAKE_CREDENTIALS}=1: credential blocks sign in against the fake providers, not AWS or any other.`,
+  )
+
 // Electron answers a server that asks for a client certificate with the
 // first one in the OS store, which identifies the user to that server.
 app.on("select-client-certificate", (event, _contents, _url, _certificates, callback) => {
@@ -273,6 +282,7 @@ if (firstInstance)
                   userData: app.getPath("userData"),
                   appVersion: __RUNBOOKS_VERSION__,
                   processEnvironment,
+                  fakeCredentials,
                 }),
                 NodeFileSystemLive,
                 RemoteLive,
