@@ -649,7 +649,8 @@ function slotsOf(document: RunbookDocument, registry: Registry): ReadonlyArray<S
   for (const node of document.blocks) {
     if (node.id === undefined) continue
     ids.set(node.index, node.id)
-    indices.set(node.id, node.index)
+    // An id is the first block's that has it: a later one is a duplicateId error.
+    if (!indices.has(node.id)) indices.set(node.id, node.index)
   }
   return document.blocks.flatMap((node) => {
     if (node.id === undefined) return []
@@ -2097,7 +2098,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   const refreshOnDisk = (emit: (event: EngineEvent) => void, read?: ReadonlySet<RunbookPath>) => {
     const still = new Set(slots.map((slot) => slot.id))
     for (const block of onDisk.keys()) if (!still.has(block)) onDisk.delete(block)
+    const seen = new Set<BlockId>()
     for (const slot of slots) {
+      // As `byId`: an id is the first block's that has it; a later one is a duplicateId error.
+      if (seen.has(slot.id)) continue
+      seen.add(slot.id)
       const paths = pathsOf(slot)
       if (read !== undefined && !paths.some((named) => read.has(named))) continue
       const was = onDisk.get(slot.id)
@@ -2191,7 +2196,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         const nextSlots = slotsOf(read.document, registry)
         const nextCredentialSlots = credentialSlotsOf(nextSlots, registry)
         const nextFileHashes = fileHashesOf(read.document, registry)
-        const before = new Map(slots.map((slot) => [slot.id, slot]))
+        // As `byId`: an id is the first block's that has it.
+        const before = new Map([...slots].reverse().map((slot) => [slot.id, slot]))
         const still = new Set(nextSlots.map((slot) => slot.id))
         const removed = slots.filter((slot) => !still.has(slot.id)).map((slot) => slot.id)
         const kept = new Set(

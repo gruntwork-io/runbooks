@@ -324,9 +324,12 @@ export interface Target {
 /** Each block of `document` with an id, by the id as written and as templates write it. */
 export function targetsOf(document: RunbookDocument, registry: Registry): Map<string, Target> {
   const targets = new Map<string, Target>()
+  const seen = new Set<string>()
   for (const node of document.blocks) {
     const block = resolveTag(registry, node.tag)?.block
-    if (block === undefined || node.id === undefined) continue
+    // As the parser and the graph: an id is the first block's that has it; a later one is a duplicateId error.
+    if (block === undefined || node.id === undefined || seen.has(node.id)) continue
+    seen.add(node.id)
     const outputs =
       node.props === undefined || block.class === "display"
         ? undefined

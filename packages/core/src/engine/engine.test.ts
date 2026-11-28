@@ -2458,6 +2458,27 @@ describe("Engine values", () => {
 })
 
 describe("a form's readers", () => {
+  it("read the first of two forms with one id, as the parser and the graph do", async () => {
+    const runbook = [
+      CONFIG,
+      withFields('<Form id="config">', ["- name: other", "  type: string", "  default: x"]),
+      '<Show id="show" command="none" inputsId="config" />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      {},
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        const view = yield* rb.block("show")
+        // The second is a duplicateId error, so it gives no values.
+        expect(view.instruction?.[0]).toEqual({
+          kind: "text",
+          markdown: "region=us-east-1 count=3",
+        })
+      }),
+    )
+  })
+
   it("get its starting values until its first Submit, then each change, live, even after a reset", async () => {
     const { script, seen } = recorder()
     const runbook = [
