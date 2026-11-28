@@ -1,0 +1,17 @@
+# Prefilled values
+
+`settings` loads a shared config and sets two of its fields for this runbook. `Environment` is locked, so the runbook's value is the one readers get.
+
+<Inputs
+  id="settings"
+  path="boilerplate.yml"
+  prefilledVariables={{ Region: "eu-west-1", Environment: "production" }}
+/>
+
+<Command
+  id="show"
+  inputsId="settings"
+  env={{ REGION: "{{ .inputs.Region }}", ENVIRONMENT: "{{ .inputs.Environment }}" }}
+  outputs={["where"]}
+  command={`echo "where=$ENVIRONMENT@$REGION" >> "$RUNBOOK_OUTPUT"`}
+/>

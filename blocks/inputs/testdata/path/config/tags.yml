@@ -1,0 +1,6 @@
+variables:
+  - name: Owner
+    type: string
+    description: Who owns what this makes
+    validations:
+      - required

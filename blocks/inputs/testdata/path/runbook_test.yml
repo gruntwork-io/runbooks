@@ -1,0 +1,20 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  - name: from-files
+    inputs:
+      tags.Owner: platform
+    steps:
+      - block: network
+        expect: success
+      - block: tags
+        expect: success
+      - block: describe
+        expect: success
+        assertions:
+          - type: output_equals
+            block: describe
+            output: summary
+            value: platform:10.0.0.0/16
