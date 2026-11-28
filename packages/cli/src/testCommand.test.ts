@@ -381,6 +381,14 @@ tests:
     expect(empty.stdout).toContain("Waiting for a value for id in config")
     expect(seen.runs).toBe(0)
 
+    // An input left empty gives no value.
+    runbook(
+      reads,
+      `version: 1\ntests:\n  - name: left-empty\n    inputs:\n      config.id:\n${steps}`,
+    )
+    expect((await runTest(["rb"])).stdout).toContain("Waiting for a value for id in config")
+    expect(seen.runs).toBe(0)
+
     runbook(
       reads,
       `version: 1\ntests:\n  - name: given\n    inputs:\n      config.id: i-123\n${steps}`,

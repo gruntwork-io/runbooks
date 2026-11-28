@@ -3,12 +3,14 @@ import { readFileSync } from "node:fs"
 import path from "node:path"
 import { Effect, type JsonSchema, Schema, SchemaRepresentation } from "effect"
 import YAML from "yaml"
+import { MAX_VALUE_DEPTH } from "@runbooks/blocks-core/form"
 import type { Registry } from "@runbooks/blocks-core/registry"
 import { parseRunbook } from "@runbooks/core/document/parse"
 import { makeTestFileSystem } from "@runbooks/core/test-utils/TestFileSystem"
 import { TOY_REGISTRY } from "@runbooks/core/test-utils/toyRegistry"
 import {
   boundTestFile,
+  FuzzConfig,
   KIND_RULES,
   kindOf,
   MAX_TEST_FILE_BYTES,
@@ -86,6 +88,11 @@ tests:
       config.labels: { team: platform }
       config.name:
         fuzz: { type: string, minLength: 3, maxLength: 9 }
+      config.size:
+        fuzz:
+          type: int
+          min: 1
+          max:
     steps:
       - block: intro
       - block: config
@@ -176,6 +183,10 @@ describe("runbook_test.yml", () => {
     expect(file?.tests[0]?.inputs?.["config.name"]).toEqual({
       fuzz: { type: "string", minLength: 3, maxLength: 9 },
     })
+    // A fuzz setting left empty is unset, as the docs say.
+    expect(file?.tests[0]?.inputs?.["config.size"]).toEqual({
+      fuzz: { type: "int", min: 1, max: null },
+    })
     expect(file?.tests[1]?.steps).toBeNull()
   })
 
@@ -253,6 +264,28 @@ describe("runbook_test.yml", () => {
     )
   })
 
+  it("takes an input as a form value, and refuses one no form holds, at its line", () => {
+    const input = (value: string) =>
+      decode(`version: 1\ntests:\n  - name: a\n    inputs:\n      config.region: ${value}\n`)
+    const nested = (levels: number) => `${"[".repeat(levels)}x${"]".repeat(levels)}`
+    expect(input("[a, { b: [1, true] }]").file?.tests[0]?.inputs?.["config.region"]).toEqual([
+      "a",
+      { b: [1, true] },
+    ])
+    // Left empty, it is not given.
+    expect(input("").file?.tests[0]?.inputs?.["config.region"]).toBeNull()
+    expect(input("[a, ~]").message).toContain(
+      'runbook_test.yml:5:26: tests[0].inputs["config.region"][1]: Expected string | number | boolean | array | object',
+    )
+    expect(input(".inf").message).toContain(
+      'runbook_test.yml:5:7: tests[0].inputs["config.region"]: Expected a finite number',
+    )
+    expect(input(nested(MAX_VALUE_DEPTH)).message).toBeUndefined()
+    expect(input(nested(MAX_VALUE_DEPTH + 1)).message).toContain(
+      `runbook_test.yml:5:7: tests[0].inputs["config.region"]: Expected a value nested at most ${MAX_VALUE_DEPTH} levels deep`,
+    )
+  })
+
   it("leaves a step that names no block to the run, which fails it", () => {
     expect(decode(withSteps("- block: nowhere\n  expect: warn")).message).toBeUndefined()
   })
@@ -274,6 +307,18 @@ describe("runbook_test.yml", () => {
     expect(decode(withSteps("- block: build_it\n  env_prefix: X")).message).toContain(
       'A step for <Run> "build_it" cannot have env_prefix',
     )
+  })
+
+  it("takes each fuzz setting left empty as unset", () => {
+    const settings = Object.keys(FuzzConfig.fields).filter((key) => key !== "type")
+    expect(settings).toHaveLength(22)
+    const { file, message } = decode(
+      `version: 1\ntests:\n  - name: a\n    inputs:\n      config.region:\n        fuzz:\n          type: string\n${settings.map((key) => `          ${key}:\n`).join("")}`,
+    )
+    expect(message).toBeUndefined()
+    expect(file?.tests[0]?.inputs?.["config.region"]).toEqual({
+      fuzz: { type: "string", ...Object.fromEntries(settings.map((key) => [key, null])) },
+    })
   })
 
   it("refuses a value of the wrong type with its line", () => {
@@ -387,6 +432,10 @@ describe("the JSON Schema for editors", () => {
       "settings: { timeout: 5 minutes }\ntests: [{ name: a }]\n",
     ],
     ["an input key without a block id", "tests: [{ name: a, inputs: { region: x } }]\n"],
+    [
+      "an input with an empty value in a list",
+      "tests: [{ name: a, inputs: { a.b: [x, null] } }]\n",
+    ],
     [
       "a fuzz type that does not exist",
       "tests: [{ name: a, inputs: { a.b: { fuzz: { type: strng } } } }]\n",

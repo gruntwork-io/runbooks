@@ -18,6 +18,7 @@ import { Effect, Result, Schema, SchemaIssue } from "effect"
 import { nodeAt, parseYaml, yamlData } from "@runbooks/core/document/yamlData"
 import type { LineCounter, Node } from "yaml"
 import { isIdWord, type MachineEffect } from "@runbooks/blocks-core/contract"
+import { FieldValue } from "@runbooks/blocks-core/form"
 import type { AnyBlock, Registry } from "@runbooks/blocks-core/registry"
 import { resolveTag } from "@runbooks/blocks-core/registry"
 import type { RunbookDocument } from "@runbooks/core/document/document"
@@ -129,50 +130,65 @@ export const FuzzType = Schema.Literals([
   "map",
 ])
 
+/**
+ * A key a file may leave empty: absent, or the key with nothing after it,
+ * as the generated `runbook_test.yml` writes `steps:` above its
+ * commented-out steps. Either way it is unset.
+ */
+const mayBeEmpty = <S extends Schema.Top>(schema: S) => Schema.optionalKey(Schema.NullOr(schema))
+
+/** How a fuzz input draws its value. A setting left empty (`max:`) is unset, as the docs say. */
 export const FuzzConfig = Schema.Struct({
   type: FuzzType,
-  length: Schema.optionalKey(Count),
-  minLength: Schema.optionalKey(Count),
-  maxLength: Schema.optionalKey(Count),
-  pattern: Schema.optionalKey(Schema.String),
-  prefix: Schema.optionalKey(Schema.String),
-  suffix: Schema.optionalKey(Schema.String),
-  includeSpaces: Schema.optionalKey(Schema.Boolean),
-  includeSpecialChars: Schema.optionalKey(Schema.Boolean),
-  min: Schema.optionalKey(Schema.Finite),
-  max: Schema.optionalKey(Schema.Finite),
-  options: Schema.optionalKey(Schema.Array(Schema.String)),
-  domain: Schema.optionalKey(Schema.String),
-  minDate: Schema.optionalKey(Schema.String),
-  maxDate: Schema.optionalKey(Schema.String),
-  format: Schema.optionalKey(Schema.String),
-  wordCount: Schema.optionalKey(Count),
-  minWordCount: Schema.optionalKey(Count),
-  maxWordCount: Schema.optionalKey(Count),
-  count: Schema.optionalKey(Count),
-  minCount: Schema.optionalKey(Count),
-  maxCount: Schema.optionalKey(Count),
-  schema: Schema.optionalKey(Schema.Array(Schema.String)),
+  length: mayBeEmpty(Count),
+  minLength: mayBeEmpty(Count),
+  maxLength: mayBeEmpty(Count),
+  pattern: mayBeEmpty(Schema.String),
+  prefix: mayBeEmpty(Schema.String),
+  suffix: mayBeEmpty(Schema.String),
+  includeSpaces: mayBeEmpty(Schema.Boolean),
+  includeSpecialChars: mayBeEmpty(Schema.Boolean),
+  min: mayBeEmpty(Schema.Finite),
+  max: mayBeEmpty(Schema.Finite),
+  options: mayBeEmpty(Schema.Array(Schema.String)),
+  domain: mayBeEmpty(Schema.String),
+  minDate: mayBeEmpty(Schema.String),
+  maxDate: mayBeEmpty(Schema.String),
+  format: mayBeEmpty(Schema.String),
+  wordCount: mayBeEmpty(Count),
+  minWordCount: mayBeEmpty(Count),
+  maxWordCount: mayBeEmpty(Count),
+  count: mayBeEmpty(Count),
+  minCount: mayBeEmpty(Count),
+  maxCount: mayBeEmpty(Count),
+  schema: mayBeEmpty(Schema.Array(Schema.String)),
 })
 
 /**
- * A value as written: text, a number, true or false, empty, a list or a map.
- * A map with a `fuzz` key is a fuzz configuration, never a value, so one
- * that is wrong is an error rather than a map passed on as written.
+ * A value as written: text, a number, true or false, a list or a map. A map
+ * with a `fuzz` key is a fuzz configuration, never a value, so one that is
+ * wrong is an error rather than a map passed on as written. It is spelled
+ * out here, where `FieldValue` checks its depth by a walk, so the editor's
+ * JSON Schema has its shape.
  */
-const LiteralValue: Schema.Codec<unknown> = Schema.Union([
+const LiteralShape: Schema.Codec<FieldValue> = Schema.Union([
   Schema.String,
   Schema.Finite,
   Schema.Boolean,
-  Schema.Null,
-  Schema.Array(Schema.suspend((): Schema.Codec<unknown> => LiteralValue)),
+  Schema.Array(Schema.suspend((): Schema.Codec<FieldValue> => LiteralShape)),
   Schema.Record(
     Schema.String.check(Schema.isPattern(/^(?!fuzz$)/u)),
-    Schema.suspend((): Schema.Codec<unknown> => LiteralValue),
+    Schema.suspend((): Schema.Codec<FieldValue> => LiteralShape),
   ),
-]) as Schema.Codec<unknown>
+])
 
-export const InputValue = Schema.Union([Schema.Struct({ fuzz: FuzzConfig }), LiteralValue])
+/** A value as written, decoded as the form value `SetValues` enters, so one no form holds is an error at its line. */
+const LiteralValue = LiteralShape.pipe(Schema.decodeTo(FieldValue))
+
+export const FuzzInput = Schema.Struct({ fuzz: FuzzConfig })
+
+/** An input's answer: a fuzz configuration, a value, or nothing, written `key:` alone, which gives none. */
+export const InputValue = Schema.Union([FuzzInput, Schema.Null, LiteralValue])
 
 /** `inputsID.varName`: the block whose fields it answers, and the field. */
 export const InputKey = Schema.String.check(Schema.isPattern(/^[^.\s]+\.[^.\s]+$/u))
@@ -243,13 +259,6 @@ export const Cleanup = Schema.Union([
   Schema.Struct({ command: Text }),
   Schema.Struct({ path: Text }),
 ])
-
-/**
- * A list or map a test case may leave empty: absent, or a key with nothing
- * after it, as the generated `runbook_test.yml` writes `steps:` above its
- * commented-out steps.
- */
-const mayBeEmpty = <S extends Schema.Top>(schema: S) => Schema.optionalKey(Schema.NullOr(schema))
 
 export const TestCase = Schema.Struct({
   name: Text,

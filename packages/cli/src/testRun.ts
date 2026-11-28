@@ -27,6 +27,7 @@ import {
   Stream,
 } from "effect"
 import { BlockId } from "@runbooks/blocks-core/contract"
+import type { FieldValue } from "@runbooks/blocks-core/form"
 import { type Registry, resolveTag, type ServicesOf } from "@runbooks/blocks-core/registry"
 import type { BlockNode, RunbookDocument } from "@runbooks/core/document/document"
 import { serveEngine } from "@runbooks/core/handlers"
@@ -41,6 +42,7 @@ import { DefaultSettings, NoCredentialProviders } from "./testIsolation.ts"
 import {
   type Assertion,
   DEFAULT_EXPECT,
+  FuzzInput,
   type Step,
   type Target,
   type TestCase,
@@ -134,6 +136,8 @@ function notBuiltForCase(test: TestCase): string | undefined {
 
 const toBlockId = Schema.decodeSync(BlockId)
 const isBlockId = Schema.is(Schema.NonEmptyString)
+/** A decoded input is a fuzz configuration exactly when it has the `fuzz` key, which no value has. */
+const isFuzzInput = Schema.is(FuzzInput)
 
 interface Ended {
   readonly actual: string
@@ -685,20 +689,17 @@ const runCase = <R extends Registry>(options: RunOptions<R>, loaded: Loaded, tes
         stop: options.stop,
       }
 
-      const answers = new Map<string, Record<string, unknown>>()
+      const answers = new Map<string, Record<string, FieldValue>>()
       for (const [key, value] of Object.entries(test.inputs ?? {})) {
-        if (value === null) continue
+        // A fuzz input has failed the test case above, as not built yet.
+        if (value === null || isFuzzInput(value)) continue
         const dot = key.indexOf(".")
         const values = answers.get(key.slice(0, dot)) ?? {}
         values[key.slice(dot + 1)] = value
         answers.set(key.slice(0, dot), values)
       }
       for (const [id, values] of answers) {
-        const { rejected } = yield* client.SetValues({
-          session,
-          block: toBlockId(id),
-          values: values as never,
-        })
+        const { rejected } = yield* client.SetValues({ session, block: toBlockId(id), values })
         const refused = Object.entries(rejected)
         if (refused.length > 0)
           return yield* failedCase(
