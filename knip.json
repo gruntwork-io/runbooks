@@ -15,7 +15,7 @@
     "packages/app-renderer/src/main.tsx",
     "{packages,blocks,baseline}/**/*.test.{ts,tsx}",
     "blocks/core/{contract,form,registry,status}.ts",
-    "blocks/{index,views}.ts",
+    "blocks/{fakes,index,views}.ts",
     "packages/core/src/{credential,document,domain,errors,plugin,services,test-utils}/**/*.ts",
     "packages/core/src/{path-validation,remote-source,types}.ts",
     "packages/core/src/engine/{handlers,inProcess,protocol,sessionStore,settings}.ts",

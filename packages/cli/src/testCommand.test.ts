@@ -14,6 +14,11 @@ import { endWithExitCode, TaskFailed } from "@runbooks/blocks-core/contract"
 import { defineTask, type TaskEvent } from "@runbooks/blocks-core/contract"
 import type { Registry } from "@runbooks/blocks-core/registry"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
+import {
+  FAKE_SCRIPT,
+  type FakeScript,
+  fakeCredentialProviders,
+} from "@runbooks/core/credential/fake"
 import { TOY_REGISTRY } from "@runbooks/core/test-utils/toyRegistry"
 import { TestReport } from "./contract.ts"
 import { runCliForTest, tempFolder } from "./test-utils/runCliForTest.ts"
@@ -675,7 +680,7 @@ tests:
     expect(a!.tests[0]!.steps[0]).toMatchObject({ block: "a", actual: "timeout" })
   })
 
-  it("fails a credential step: no credential provider runs yet", async () => {
+  it("fails a credential step when no credential provider opens", async () => {
     runbook(
       '# Git\n\n<GitLogin id="git" />\n',
       "version: 1\ntests:\n  - name: signs in\n  - name: fails\n    steps:\n      - block: git\n        expect: fail\n",
@@ -685,6 +690,45 @@ tests:
     const [signsIn, fails] = decodeReport(JSON.parse(stdout)).runbooks[0]!.tests
     expect(signsIn!.outcome).toBe("failed")
     expect(fails!.outcome).toBe("passed")
+  })
+
+  it("signs a credential block in with the providers it is given: confirms a login it finds, and skips one with none", async () => {
+    const cloud: FakeScript = {
+      ...FAKE_SCRIPT,
+      prefix: "CLOUD",
+      names: { token: "CLOUD_TOKEN", account: "CLOUD_ACCOUNT" },
+      logins: [
+        {
+          token: "fake-key-0001",
+          principal: "fake-key@example.com",
+          kind: "user",
+          targets: { account: "111111111111", role: "Admin" },
+        },
+      ],
+    }
+    runbook(
+      '# Cloud\n\n<CloudLogin id="cloud" />\n',
+      [
+        "version: 1",
+        "tests:",
+        "  - name: found",
+        "    env:",
+        "      CLOUD_TOKEN: fake-key-0001",
+        "  - name: none",
+      ].join("\n"),
+    )
+    const { stdout } = await runCliForTest(["test", "rb", "--output", "json"], {
+      registry: REGISTRY,
+      cwd: folder.path,
+      credentialProviders: fakeCredentialProviders({ cloud }),
+    })
+    const [found, none] = decodeReport(JSON.parse(stdout)).runbooks[0]!.tests
+    expect(found!.steps[0]).toMatchObject({ block: "cloud", actual: "success", passed: true })
+    expect(none!.steps[0]).toMatchObject({
+      block: "cloud",
+      actual: "skip",
+      message: "Expected success, got skip: No login was found to sign in with.",
+    })
   })
 
   it("fails every test case of a runbook that does not open, and lists its errors", async () => {

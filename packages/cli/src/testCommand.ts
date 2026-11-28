@@ -13,8 +13,19 @@
  * `Cancelled` and exit 1.
  */
 import path from "node:path"
-import { Clock, Console, Deferred, Effect, Option, Random, Result, type Scope } from "effect"
+import {
+  Clock,
+  Console,
+  Deferred,
+  Effect,
+  type Layer,
+  Option,
+  Random,
+  Result,
+  type Scope,
+} from "effect"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
+import type { CredentialProviders } from "@runbooks/core/credential/provider"
 import { loadRunbook } from "@runbooks/core/document/load"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
 import { describeFailure } from "./cliFailure.ts"
@@ -42,6 +53,8 @@ interface TestOptions<R extends Registry> {
   readonly env: Readonly<Record<string, string>>
   /** Completes on the first Ctrl-C or SIGTERM. */
   readonly stop: Deferred.Deferred<void>
+  /** What each test case's credential blocks sign in with. */
+  readonly credentialProviders: Layer.Layer<CredentialProviders, never, FileSystem>
 }
 
 type Services<R extends Registry> = FileSystem | Exclude<ServicesOf<R>, Scope.Scope>
@@ -216,6 +229,7 @@ export const test = <R extends Registry>(
                       log: (line) => Console.error(line),
                       stop: options.stop,
                       fuzzSeed,
+                      credentialProviders: options.credentialProviders,
                     },
                     { ...found, document, testFile: testFile.success },
                     found.tests,

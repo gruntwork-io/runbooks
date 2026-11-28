@@ -32,6 +32,7 @@ import {
 import { BlockId } from "@runbooks/blocks-core/contract"
 import type { FieldValue } from "@runbooks/blocks-core/form"
 import { type Registry, resolveTag, type ServicesOf } from "@runbooks/blocks-core/registry"
+import type { CredentialProviders } from "@runbooks/core/credential/provider"
 import type { BlockNode, RunbookDocument } from "@runbooks/core/document/document"
 import { serveEngine } from "@runbooks/core/handlers"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
@@ -42,7 +43,7 @@ import type { AssertionReport, ExpectedStatus, StepReport, TestCaseReport } from
 
 type AssertionResult = typeof AssertionReport.Type
 import { fuzzValue } from "./fuzz.ts"
-import { DefaultSettings, NoCredentialProviders } from "./testIsolation.ts"
+import { DefaultSettings } from "./testIsolation.ts"
 import {
   type Assertion,
   DEFAULT_EXPECT,
@@ -66,6 +67,8 @@ interface RunOptions<R extends Registry> {
   readonly stop: Deferred.Deferred<void>
   /** What fuzz inputs are drawn from. */
   readonly fuzzSeed: string
+  /** What each test case's credential blocks sign in with. */
+  readonly credentialProviders: Layer.Layer<CredentialProviders, never, FileSystem>
 }
 
 /** A runbook ready to test: its document, and its blocks as the test file binds them. */
@@ -315,6 +318,15 @@ const runBlock = (
       return endedAs(yield* s.client.GetBlock({ session: s.session, block }), node)
     if (node?.class === "credential") {
       const { view } = yield* settle(s, block, CREDENTIAL_WAIT_MILLIS)
+      const state = view.credential?._tag
+      // As today's runner: a login it finds is used, so the test confirms it, as the person would.
+      if (state === "Found") {
+        yield* s.client.ActOnCredential({ session: s.session, block, action: { _tag: "Confirm" } })
+        return endedAs((yield* settle(s, block, CREDENTIAL_WAIT_MILLIS)).view, node)
+      }
+      // As today's runner: with no login to find, the step is skipped.
+      if (state === "SignedOut")
+        return { actual: "skip", message: "No login was found to sign in with.", view }
       return endedAs(view, node)
     }
     if (step.set_outputs !== undefined) {
@@ -633,7 +645,7 @@ const engineFor = <R extends Registry>(
     formValues: "live",
   }).pipe(
     Layer.provideMerge(DefaultSettings),
-    Layer.provide(NoCredentialProviders),
+    Layer.provide(options.credentialProviders),
     Layer.provide(NoSavedSessions),
   )
 

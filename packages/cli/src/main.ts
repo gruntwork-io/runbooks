@@ -8,6 +8,8 @@ import { writeSync } from "node:fs"
 import { constants } from "node:os"
 import { Effect, Layer } from "effect"
 import * as registry from "@runbooks/blocks"
+import { fakeScripts } from "@runbooks/blocks/fakes"
+import { fakeCredentialProviders } from "@runbooks/core/credential/fake"
 import { ChildProcessSpawnerLive } from "@runbooks/platform-node/layers/ChildProcessSpawner"
 import { NodeCliEnvironmentLive } from "@runbooks/platform-node/layers/NodeCliEnvironment"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
@@ -53,6 +55,7 @@ process.exitCode = await Effect.runPromise(
     registry,
     appVersion: appVersion(),
     cwd: process.cwd(),
+    credentialProviders: fakeCredentialProviders(fakeScripts),
     env,
     interrupted,
   }).pipe(

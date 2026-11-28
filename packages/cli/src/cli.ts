@@ -23,6 +23,7 @@ import {
 } from "effect"
 import { type CliError, CliOutput, Command, TerminalCapabilities } from "effect/cli"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
+import type { CredentialProviders } from "@runbooks/core/credential/provider"
 import type { FileSystem } from "@runbooks/core/services/FileSystem"
 import { describeFailure } from "./cliFailure.ts"
 import { type CliFailure, EXIT, makeCli, TestReport, ValidateReport } from "./contract.ts"
@@ -43,6 +44,12 @@ export interface CliOptions<R extends Registry = Registry> {
    * process at once on the next one.
    */
   readonly interrupted: Effect.Effect<void>
+  /**
+   * What `runbooks test` signs its credential blocks in with. Until the
+   * plugin transport runs the real providers, the entry point gives the
+   * fake, with each provider's script from `@runbooks/blocks/fakes`.
+   */
+  readonly credentialProviders: Layer.Layer<CredentialProviders, never, FileSystem>
 }
 
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT]

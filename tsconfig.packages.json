@@ -21,6 +21,7 @@
       // blocks: blocks/, apart from blocks/core
       "@runbooks/blocks": ["./blocks/index.ts"],
       "@runbooks/blocks/views": ["./blocks/views.ts"],
+      "@runbooks/blocks/fakes": ["./blocks/fakes.ts"],
 
       // core: packages/core
       "@runbooks/core/credential/*": ["./packages/core/src/credential/*.ts"],
