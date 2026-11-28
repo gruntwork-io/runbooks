@@ -22,7 +22,10 @@
  *   shows its children, or its text value; `unknownParts` counts them for
  *   the page to say so.
  * - A block node is its frame (`frame.tsx`), its markdown children inside
- *   it.
+ *   it. A frame is keyed by its block's id, so React keeps what it holds of
+ *   its own (the engine's last answer, whether it is open) with its block
+ *   when a reload moves the block among its siblings, and never gives it to
+ *   another block.
  */
 import { Option, Schema } from "effect"
 import { createElement, Fragment, type ReactNode } from "react"
@@ -271,6 +274,8 @@ interface Walk {
   readonly session: string
   /** The ids of the blocks the walk draws a frame for. */
   readonly framed: ReadonlySet<string>
+  /** The key of each block's frame, by the block's index, for a block with an id. */
+  readonly frameKeys: ReadonlyMap<number, string>
 }
 
 function definitionsIn(tree: TreeNode): Walk["definitions"] {
@@ -288,7 +293,7 @@ function definitionsIn(tree: TreeNode): Walk["definitions"] {
  * The ids of the blocks the walk draws a frame for: each block that is not
  * inside a misconfigured one, whose children it draws none of.
  */
-function framedIn(tree: TreeNode, blocks: DocumentView["blocks"]): ReadonlySet<string> {
+export function framedIn(tree: TreeNode, blocks: DocumentView["blocks"]): ReadonlySet<string> {
   const found = new Set<string>()
   const visit = (node: TreeNode) => {
     const part = read(node)
@@ -301,6 +306,23 @@ function framedIn(tree: TreeNode, blocks: DocumentView["blocks"]): ReadonlySet<s
   }
   visit(tree)
   return found
+}
+
+/**
+ * Each block's frame's key, by its index: its id, and how many blocks
+ * before it have that id, which only a block misconfigured for it
+ * (`duplicateId`) shares.
+ */
+function frameKeysOf(blocks: DocumentView["blocks"]): Walk["frameKeys"] {
+  const seen = new Map<string, number>()
+  const keys = new Map<number, string>()
+  for (const block of blocks) {
+    if (block.id === undefined) continue
+    const earlier = seen.get(block.id) ?? 0
+    seen.set(block.id, earlier + 1)
+    keys.set(block.index, `block:${block.id}:${earlier}`)
+  }
+  return keys
 }
 
 /** A runbook's markdown: `document.tree`, each block in its frame. */
@@ -321,6 +343,7 @@ export function Markdown({
     runbook,
     session,
     framed: framedIn(document.tree, document.blocks),
+    frameKeys: frameKeysOf(document.blocks),
   }
   return render(document.tree, 0, walk)
 }
@@ -405,7 +428,12 @@ function render(tree: TreeNode, key: number, walk: Walk): ReactNode {
       const block = walk.blocks[part.index]
       if (block === undefined) return <Fragment key={key}>{children(tree, walk)}</Fragment>
       return (
-        <BlockFrame key={key} block={block} runbook={walk.runbook} onPage={walk.framed}>
+        <BlockFrame
+          key={walk.frameKeys.get(part.index) ?? key}
+          block={block}
+          runbook={walk.runbook}
+          onPage={walk.framed}
+        >
           {children(tree, walk)}
         </BlockFrame>
       )

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test"
 import { Schema } from "effect"
+import { isValidElement, type ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { DocumentBlock, type DocumentView } from "@runbooks/core/protocol"
+import { BlockFrame } from "./frame.tsx"
 import { assetUrl, linkTarget, Markdown, unknownParts } from "./markdown.tsx"
 
 // The walk over trees shaped as the engine's parser makes them (mdast, with
@@ -344,6 +346,42 @@ describe("the walk", () => {
     expect(shown).toContain('<span class="block-title">Literal title</span>')
     expect(shown).toContain("No substitutions here")
     expect(shown).toContain('<div class="block-body"><p>Runs the setup.</p></div>')
+  })
+
+  it("keys a block's frame by its id, so React keeps what the frame holds with its block when a reload moves it", () => {
+    /** The key of each frame the walk draws, in order, with its block's id. */
+    const frames = (tree: TreeNode, blocks: ReadonlyArray<DocumentBlock>) => {
+      const found: Array<{ readonly id: string | undefined; readonly key: string | null }> = []
+      const visit = (node: ReactNode): void => {
+        if (Array.isArray(node)) return node.forEach(visit)
+        if (!isValidElement<{ block?: DocumentBlock; children?: ReactNode }>(node)) return
+        if (node.type === BlockFrame) found.push({ id: node.props.block?.id, key: node.key })
+        visit(node.props.children)
+      }
+      visit(Markdown({ document: { tree, blocks }, runbook: RUNBOOK, session: SESSION }))
+      return found
+    }
+    const keyOf = (shown: ReturnType<typeof frames>, id: string) =>
+      shown.find((frame) => frame.id === id)?.key
+    const at = (index: number): TreeNode => ({ type: "block", index, children: [] })
+    const before = frames(root(at(0), at(1)), [
+      block({ index: 0, id: "first" }),
+      block({ index: 1, id: "second" }),
+    ])
+    // A paragraph above them both, and the two swapped.
+    const after = frames(root(p(text("New.")), at(0), at(1)), [
+      block({ index: 0, id: "second" }),
+      block({ index: 1, id: "first" }),
+    ])
+    expect(keyOf(after, "first")).toBe(keyOf(before, "first"))
+    expect(keyOf(after, "second")).toBe(keyOf(before, "second"))
+    expect(keyOf(before, "first")).not.toBe(keyOf(before, "second"))
+    // Two blocks with one id, the later misconfigured for it, still get a frame each.
+    const twice = frames(root(at(0), at(1)), [
+      block({ index: 0, id: "same" }),
+      block({ index: 1, id: "same" }),
+    ])
+    expect(new Set(twice.map((frame) => frame.key)).size).toBe(2)
   })
 
   it("shows a misconfigured block's errors, each with its line, in place of its view", () => {

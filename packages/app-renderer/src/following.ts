@@ -13,18 +13,27 @@ import type { ViewRequest } from "@runbooks/blocks/views"
 import type {
   ActResult,
   BlockView,
+  DocumentView,
   EngineClient,
   Refusal,
+  ReloadHeld,
   RunResult,
   SessionId,
   Settings,
   SetValuesResult,
   TrustState,
+  Unwatched,
 } from "@runbooks/core/protocol"
 import { clientErrorText, defectText } from "./defect.ts"
 import { follow, type LiveStore, makeLiveStore } from "./live.ts"
 import { followSettings, makeSettingsStore, type SettingsStore } from "./settings.ts"
-import { askToTrust, makeTrustingStore, type Trusting, type TrustingStore } from "./trust.ts"
+import {
+  askToTrust,
+  changeOver,
+  makeTrustingStore,
+  type Trusting,
+  type TrustingStore,
+} from "./trust.ts"
 
 export interface Following {
   readonly live: LiveStore
@@ -38,9 +47,10 @@ export interface Following {
   ) => Effect.Effect<string | undefined>
   /**
    * Asks the engine to trust the session for the hash of what the prompt
-   * shows: the runbook the engine said it holds now, after it said it
-   * changed, or else the session's. It keeps what came of it in
-   * `trusting`. Nothing is asked before the session is read.
+   * shows: the runbook the page draws (`DocumentView.hash`), or what the
+   * engine said the runbook holds now, after it said it changed since the
+   * page drew it (`changeOver`). It keeps what came of it in `trusting`.
+   * Nothing is asked before the session is read.
    */
   readonly trust: () => Effect.Effect<void>
 }
@@ -67,6 +77,27 @@ export function useInstructionMode(): boolean {
   return useSyncExternalStore(settings.subscribe, select, select)
 }
 
+/** The session's runbook as the engine holds it, once the window has read the session. */
+export function useDocument(): DocumentView | undefined {
+  const { live } = useContext(FollowingContext)
+  const select = () => live.get().document
+  return useSyncExternalStore(live.subscribe, select, select)
+}
+
+/** Why the session holds back a reload of its runbook, while it does. */
+export function useReloadHeld(): ReloadHeld | undefined {
+  const { live } = useContext(FollowingContext)
+  const select = () => live.get().reloadHeld
+  return useSyncExternalStore(live.subscribe, select, select)
+}
+
+/** Why the session watches nothing, once it stopped. */
+export function useUnwatched(): Unwatched | undefined {
+  const { live } = useContext(FollowingContext)
+  const select = () => live.get().unwatched
+  return useSyncExternalStore(live.subscribe, select, select)
+}
+
 /** Why the window no longer follows the session, when it doesn't. */
 export function useEnded(): string | undefined {
   const { live } = useContext(FollowingContext)
@@ -88,17 +119,18 @@ export function useTrusting(): Trusting {
 }
 
 /**
- * The window following `session` in `engine`, from `settings` as it read
- * them. `start` follows the session and the settings until the function it
- * returns is called, which a component calls from its effect.
+ * The window following `session` in `engine`, from its runbook and the
+ * settings as the window read them (`opened`). `start` follows the session
+ * and the settings until the function it returns is called, which a
+ * component calls from its effect.
  */
 export function followingOf(
   engine: EngineClient,
   session: SessionId,
-  settings: Settings,
+  opened: { readonly document: DocumentView; readonly settings: Settings },
 ): Following & { readonly start: () => () => void } {
   const live = makeLiveStore()
-  const settingsNow = makeSettingsStore(settings)
+  const settingsNow = makeSettingsStore(opened.settings)
   const trusting = makeTrustingStore()
   return {
     live,
@@ -106,20 +138,29 @@ export function followingOf(
     trusting,
     act: (block, request) => ask(engine, session, block, request),
     trust: () => {
+      const { document } = live.get()
+      if (document === undefined) return Effect.void
       const before = trusting.get()
-      const hash = before.changed?.hash ?? live.get().trust?.hash
-      return hash === undefined
-        ? Effect.void
-        : Effect.flatMap(askToTrust(engine, session, hash, before), (next) =>
-            Effect.sync(() => trusting.set(next)),
-          )
+      const asked = {
+        shown: document.hash,
+        hash: changeOver(before, document)?.hash ?? document.hash,
+      }
+      return Effect.flatMap(askToTrust(engine, session, asked, before), (next) =>
+        Effect.sync(() => trusting.set(next)),
+      )
     },
     start: () => {
       const fiber = Effect.runFork(
-        Effect.all([follow(engine, session, live.set), followSettings(engine, settingsNow.set)], {
-          concurrency: "unbounded",
-          discard: true,
-        }),
+        Effect.all(
+          [
+            follow(engine, session, opened.document, live.set),
+            followSettings(engine, settingsNow.set),
+          ],
+          {
+            concurrency: "unbounded",
+            discard: true,
+          },
+        ),
       )
       return () => fiber.interruptUnsafe()
     },

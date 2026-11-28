@@ -1,6 +1,7 @@
 /**
- * The window following one session: each block with a lifecycle as the
- * engine has it now, kept current from the session's `Events`.
+ * The window following one session: its runbook, and each block with a
+ * lifecycle, as the engine has them now, kept current from the session's
+ * `Events`.
  *
  * - `GetSession` gives the start: the blocks to read, and the event its
  *   view reflects last (`sequence`). `Events` starts after it, so the
@@ -14,9 +15,25 @@
  *   an instruction again.
  * - A block's log is its latest run's last page: a log longer than one
  *   page is read again from `total - defaultLogLimit`.
+ * - Why the session holds back a reload is its view's `reloadHeld`, then
+ *   each `ReloadHeldChanged`'s, which clears it when it has no `held`.
+ *   That the session stopped watching is its view's `unwatched`, or the
+ *   `Unwatched` event's, and nothing clears it.
  * - The session's trust is its view's, then each `TrustChanged`'s. Each
  *   block whose status trust changes has a `BlockStatusChanged` of its own,
  *   which reads it again.
+ * - The runbook is the one the window opened with until `DocumentChanged`
+ *   says the session reloaded it. The window then reads it again
+ *   (`GetDocument`), and every block with a lifecycle the session has now
+ *   (`GetSession`), in place of the ones it had: a block the runbook no
+ *   longer has goes, and every other block is read again, since a block
+ *   that starts over may keep its status. At the start, a session whose
+ *   hash is not the opened runbook's reloaded it between the two reads,
+ *   which logs no event after its view, so the window reads it again then
+ *   too.
+ * - A block the engine no longer has when the window reads it went with a
+ *   reload after the event that named it, so the window drops it: the
+ *   reload's `DocumentChanged` follows.
  * - When the session closes, its events end, or the engine fails a read or
  *   can't be reached, the window says so (`ended`) and stops following.
  *
@@ -25,11 +42,15 @@
 import { Cause, Effect, Stream } from "effect"
 import {
   type BlockView,
+  type DocumentView,
   type EngineClient,
   type EngineEvent,
   LIMITS,
+  type ReloadHeld,
   type SessionId,
+  type SessionView,
   type TrustState,
+  type Unwatched,
 } from "@runbooks/core/protocol"
 import { clientErrorText, defectText } from "./defect.ts"
 
@@ -39,8 +60,18 @@ type BlockId = BlockView["block"]
 export interface Live {
   /** Each block with a lifecycle, by id, as the engine had it after the last batch. */
   readonly blocks: ReadonlyMap<string, BlockView>
+  /**
+   * The session's runbook, which the page draws: the one the window opened
+   * with, until the session reloads it. Absent in a store no follower
+   * publishes to.
+   */
+  readonly document?: DocumentView
   /** The session's trust, as the engine had it after the last batch. Absent until the session is read. */
   readonly trust?: TrustState
+  /** Why the session holds back a reload of its runbook, while it does. */
+  readonly reloadHeld?: ReloadHeld
+  /** Why the session watches nothing, once it stopped. */
+  readonly unwatched?: Unwatched
   /** Why the window no longer follows the session, when it doesn't. */
   readonly ended?: string
 }
@@ -52,6 +83,12 @@ interface Stale {
   readers: boolean
   /** The trust the batch's last `TrustChanged` gives, if one does. */
   trust: TrustState | undefined
+  /** The session reloaded its runbook, so every block may have changed. */
+  document: boolean
+  /** What the batch's last `ReloadHeldChanged` gives, if one does: `now` absent clears it. */
+  held: { readonly now: ReloadHeld | undefined } | undefined
+  /** What the batch's `Unwatched` gives, if one does. */
+  unwatched: Unwatched | undefined
   closed: boolean
 }
 
@@ -93,11 +130,17 @@ function mark(
     case "TrustChanged":
       stale.trust = event.trust
       return
-    // The session's warnings are not drawn yet, nor is a reload, one held back, or a failed watch.
-    case "Warning":
     case "DocumentChanged":
+      stale.document = true
+      return
     case "ReloadHeldChanged":
+      stale.held = { now: event.held }
+      return
     case "Unwatched":
+      stale.unwatched = { message: event.message }
+      return
+    // The session's warnings are not drawn yet.
+    case "Warning":
       return
     default: {
       const unhandled: never = event
@@ -105,6 +148,10 @@ function mark(
     }
   }
 }
+
+/** The blocks in `view` that have a lifecycle, which the window follows. */
+const withLifecycle = (view: SessionView): ReadonlyArray<BlockId> =>
+  view.blocks.flatMap((block) => (block.status === undefined ? [] : [block.block]))
 
 /** A block's view, with its latest run's last page of log. */
 const readBlock = (engine: EngineClient, session: SessionId, block: BlockId) =>
@@ -119,32 +166,49 @@ const readBlock = (engine: EngineClient, session: SessionId, block: BlockId) =>
     })
   })
 
-/** Follows `session`, calling `publish` with what to show at the start and after each batch of events. */
+/**
+ * Follows `session`, whose runbook the window opened as `opened`, calling
+ * `publish` with what to show at the start and after each batch of events.
+ */
 export const follow = (
   engine: EngineClient,
   session: SessionId,
+  opened: DocumentView,
   publish: (live: Live) => void,
 ): Effect.Effect<void> => {
   const blocks = new Map<string, BlockView>()
   const read = (ids: Iterable<BlockId>) =>
     Effect.forEach(
       ids,
-      (block) => Effect.map(readBlock(engine, session, block), (view) => blocks.set(block, view)),
+      (block) =>
+        readBlock(engine, session, block).pipe(
+          Effect.map((view) => blocks.set(block, view)),
+          Effect.catchTag("UnknownBlock", () => Effect.sync(() => blocks.delete(block))),
+        ),
       { concurrency: READS_AT_ONCE, discard: true },
     )
   const approvalFor = (approval: string) =>
     [...blocks.values()].find((view) => view.approval?.approval === approval)?.block
   let trust: TrustState | undefined
+  let document = opened
+  let held: ReloadHeld | undefined
+  let unwatched: Unwatched | undefined
   const show = (ended?: string) =>
     publish({
       blocks: new Map(blocks),
+      document,
       ...(trust === undefined ? {} : { trust }),
+      ...(held === undefined ? {} : { reloadHeld: held }),
+      ...(unwatched === undefined ? {} : { unwatched }),
       ...(ended === undefined ? {} : { ended }),
     })
   return Effect.gen(function* () {
     const view = yield* engine.GetSession({ session })
     trust = view.trust
-    yield* read(view.blocks.flatMap((block) => (block.status === undefined ? [] : [block.block])))
+    held = view.reloadHeld
+    unwatched = view.unwatched
+    if (view.trust.hash !== document.hash) document = yield* engine.GetDocument({ session })
+    yield* read(withLifecycle(view))
     show()
     let closed = false
     yield* Stream.runForEachArray(
@@ -155,14 +219,26 @@ export const follow = (
             blocks: new Set(),
             readers: false,
             trust: undefined,
+            document: false,
+            held: undefined,
+            unwatched: undefined,
             closed: false,
           }
           for (const { event } of batch) mark(event, stale, approvalFor)
-          if (stale.readers)
-            for (const [, known] of blocks)
-              if (known.instruction !== undefined) stale.blocks.add(known.block)
-          yield* read(stale.blocks)
+          if (stale.document) {
+            const now = yield* engine.GetSession({ session })
+            document = yield* engine.GetDocument({ session })
+            blocks.clear()
+            yield* read(withLifecycle(now))
+          } else {
+            if (stale.readers)
+              for (const [, known] of blocks)
+                if (known.instruction !== undefined) stale.blocks.add(known.block)
+            yield* read(stale.blocks)
+          }
           trust = stale.trust ?? trust
+          if (stale.held !== undefined) held = stale.held.now
+          unwatched = stale.unwatched ?? unwatched
           closed = stale.closed
           show(closed ? CLOSED : undefined)
         }),
@@ -171,12 +247,6 @@ export const follow = (
   }).pipe(
     Effect.catchTags({
       UnknownSession: () => Effect.sync(() => show(CLOSED)),
-      UnknownBlock: (error) =>
-        Effect.sync(() =>
-          show(
-            `The engine has no block ${error.block} in this runbook's session, so the window stopped following it.`,
-          ),
-        ),
       UnknownSequence: (error) =>
         Effect.sync(() =>
           show(
