@@ -532,18 +532,36 @@ describe("the engine, against the fake", () => {
   })
 })
 
-credentialProviderContract("the fake, in memory", {
-  scenarios: FAKE_SCENARIOS,
-  open: async () => {
-    const fs = testFileSystem({}, [])
-    return {
-      layer: Layer.merge(
-        fakeCredentialProviders({ fake: FAKE_SCRIPT }),
-        Layer.succeed(FileSystem, fs),
-      ).pipe(Layer.provide(Layer.succeed(FileSystem, fs))),
-      provider: "fake",
-      config: config(),
-      release: async () => {},
-    }
+/** The fake in memory, with a filesystem of its own for each case. */
+const openFake = async () => {
+  const fs = testFileSystem({}, [])
+  return {
+    layer: Layer.merge(
+      fakeCredentialProviders({ fake: FAKE_SCRIPT }),
+      Layer.succeed(FileSystem, fs),
+    ).pipe(Layer.provide(Layer.succeed(FileSystem, fs))),
+    provider: "fake",
+    config: config(),
+    release: async () => {},
+  }
+}
+
+credentialProviderContract("the fake, in memory", { scenarios: FAKE_SCENARIOS, open: openFake })
+
+// A provider whose logins no requirement can fail, as AWS's (it evaluates no
+// requirement kind) and a Google service account's, gives no
+// requirementNotMet scenario, and the rest of its account cases still run.
+const fakeAccount = FAKE_SCENARIOS.account
+if (fakeAccount === undefined) throw new Error("The fake's scenarios hold its account cases.")
+credentialProviderContract("the fake, in memory, with no requirementNotMet scenario", {
+  scenarios: {
+    ...FAKE_SCENARIOS,
+    account: {
+      signIn: fakeAccount.signIn,
+      pinMismatch: fakeAccount.pinMismatch,
+      expired: fakeAccount.expired,
+      secretNames: fakeAccount.secretNames,
+    },
   },
+  open: openFake,
 })
